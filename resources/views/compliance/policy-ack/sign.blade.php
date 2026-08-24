@@ -20,7 +20,7 @@
             @endif
 
             {{-- Declaration --}}
-            <div class="bg-white border p-6" style="border-color:var(--border, #e5e7eb); border-radius:6px;">
+            <div class="border p-6" style="background:var(--surface); border-color:var(--border, #e5e7eb); border-radius:6px;">
                 <h3 class="text-base font-semibold mb-4" style="color:var(--text-primary);">Declaration</h3>
                 <div class="space-y-3 text-sm" style="color:#334155; line-height:1.7;">
                     <p>By signing below, I, <strong style="color:var(--text-primary);">{{ $user->name }}</strong>@if($user->id_number), ID Number <strong style="color:var(--text-primary);">{{ $user->id_number }}</strong>@endif, confirm the following:</p>
@@ -34,7 +34,7 @@
             </div>
 
             {{-- Signature --}}
-            <div class="bg-white border p-5" style="border-color:var(--border, #e5e7eb); border-radius:6px;">
+            <div class="border p-5" style="background:var(--surface); border-color:var(--border, #e5e7eb); border-radius:6px;">
                 <h3 class="text-sm font-bold mb-3" style="color:var(--text-primary);">Your Signature</h3>
 
                 <div class="flex gap-2 mb-4">

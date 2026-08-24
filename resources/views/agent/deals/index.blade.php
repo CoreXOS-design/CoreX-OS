@@ -6,17 +6,17 @@
 <div class="w-full space-y-5">
 
     {{-- Page Header --}}
-    <div class="rounded-md px-6 py-5" data-tour="at-agent-deals-header" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="at-agent-deals-header">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">My Deals</h1>
-                <p class="text-sm text-white/60" data-tour="at-agent-deals-intro">Deals where you are allocated on listing and/or selling side.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">My Deals</h1>
+                <p class="text-xs" data-tour="at-agent-deals-intro" style="color: var(--text-muted);">Deals where you are allocated on listing and/or selling side.</p>
             </div>
-            <div class="flex items-center gap-2 flex-wrap">
-                @include('layouts.partials.tour-header-launcher')
-                <span class="inline-flex items-center rounded-md px-3 py-1 text-xs font-semibold text-white"
+            <div class="flex flex-wrap items-center gap-2">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+                <span class="inline-flex items-center rounded-md px-3 py-1 text-xs font-semibold"
                       data-tour="at-agent-deals-count"
-                      style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);">
+                      style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-secondary);">
                     {{ number_format($deals->count()) }} {{ \Illuminate\Support\Str::plural('deal', $deals->count()) }}
                 </span>
             </div>

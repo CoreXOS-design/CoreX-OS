@@ -115,12 +115,24 @@ class SettingsController extends Controller
         // Feature Settings tab: Properties — marketing toggle
         $data['marketingEnabled'] = (bool) PerformanceSetting::get('marketing_enabled', 1);
 
+        // Feature Settings tab: Properties — AI background removal for agent
+        // photos (ad-manager.md §15.2), agency-column-backed (not a
+        // PerformanceSetting — set below once $data['agency'] is resolved).
+
         // Feature Settings tab: Properties — syndication portal availability.
         // The legacy single-site "HFC Premium" (web) portal was retired with the
         // Agency Public API; agency websites are now per-key portals managed in
         // Admin → Agencies → API Access. Spec: agency-public-api.md §6.5.
         $data['syndicationPpEnabled']      = (bool) PerformanceSetting::get('syndication_pp_enabled', 1);
         $data['syndicationP24Enabled']     = (bool) PerformanceSetting::get('syndication_p24_enabled', 1);
+        // AT-369 follow-up — master kill switch for the agent opt-in PP-exclusivity
+        // sub-feature. Default enabled (1) — existing agencies already using it (AT-369
+        // shipped 2026-08-04) see no behaviour change; an agency can switch it off to
+        // remove the tick from every sole-mandate Sale listing's syndication panel.
+        $data['ppExclusivityEnabled']      = (bool) PerformanceSetting::get('pp_exclusivity_enabled', 1);
+        // AT-369 — agency cap on agent-opted-in PP sole-mandate exclusivity days.
+        // Default 92 = PP's own hard maximum (Rev 4.6 p20); agency-configurable downward.
+        $data['ppExclusiveDaysMax']        = (int) PerformanceSetting::get('pp_exclusive_days_max', 92);
 
         // Feature Settings tab: Matches
         $data['matchesEnabled']            = (bool) PerformanceSetting::get('matches_enabled', 1);
@@ -128,6 +140,9 @@ class SettingsController extends Controller
         $data['matchesVisibilityScope']    = (string) PerformanceSetting::get('matches_visibility_scope', \App\Services\Matching\MatchingService::SCOPE_AGENCY);
         $defaultWaMsg = "Hi {name}! 👋\n\nI've put together a personalised selection of properties that match your search criteria.\n\nView your property matches here:\n{link}\n\nFeel free to reach out if you'd like to arrange viewings or have any questions!";
         $data['matchesWaMessage'] = (string) PerformanceSetting::get('matches_wa_message', $defaultWaMsg);
+        $data['matchesEmailSubject'] = (string) PerformanceSetting::get('matches_email_subject', 'Your personalised property matches');
+        $defaultEmailMsg = "Hi {name},\n\nI've put together a personalised selection of properties that match your search criteria.\n\nView your property matches here:\n{link}\n\nFeel free to reach out if you'd like to arrange viewings or have any questions!";
+        $data['matchesEmailMessage'] = (string) PerformanceSetting::get('matches_email_message', $defaultEmailMsg);
 
         // Agency Settings tab: Agency record + Performance Settings
         if ($user?->hasPermission('manage_performance_settings')) {
@@ -136,8 +151,16 @@ class SettingsController extends Controller
         }
 
         // Agency Settings tab: Company details from Agency model
+        // No agency context (e.g. owner-role user with no active agency-
+        // switcher session) → leave $data['agency'] null so the view renders
+        // its empty/prompt-to-select-agency state (see the isset($agency)
+        // guards in corex.settings.blade.php) instead of showing whichever
+        // tenant happens to have the lowest id.
         $agencyId = $user?->effectiveAgencyId();
-        $data['agency'] = $agencyId ? Agency::find($agencyId) : Agency::first();
+        $data['agency'] = $agencyId ? Agency::find($agencyId) : null;
+
+        // §15.2 — AI background removal for agent photos, per-agency toggle.
+        $data['adBgRemovalApiEnabled'] = (bool) ($data['agency']->ad_bg_removal_api_enabled ?? true);
 
         // Feature Settings tab: Properties — agency-wide list ordering.
         // The orderable list shows every configured status: saved priority order
@@ -194,7 +217,7 @@ class SettingsController extends Controller
         // Mirrors TemplatesController::index so the channel panels render inline.
         if ($user?->hasPermission('outreach_templates.manage') && $prospectingAgencyId) {
             $outreachTemplate = \App\Models\SellerOutreach\SellerOutreachTemplate::class;
-            $data['whatsappTemplates'] = $outreachTemplate::withoutGlobalScopes()
+            $fetchWhatsappTemplates = fn () => $outreachTemplate::withoutGlobalScopes()
                 ->where('agency_id', $prospectingAgencyId)
                 ->where('channel', $outreachTemplate::CHANNEL_WHATSAPP)
                 ->whereNull('deleted_at')
@@ -202,6 +225,20 @@ class SettingsController extends Controller
                 ->orderByDesc('is_active')
                 ->orderBy('name')
                 ->get();
+
+            $data['whatsappTemplates'] = $fetchWhatsappTemplates();
+
+            // Backfill: any agency that reaches this page with zero WhatsApp
+            // templates (every agency but HFC, before this fix) gets HFC's
+            // starter template cloned in — see SellerOutreachTemplateDefaultsService.
+            // Gated on the fetch above being empty rather than a separate
+            // exists() check, so an already-seeded agency (the steady-state
+            // case, forever) pays no extra query on this hot settings page.
+            if ($data['whatsappTemplates']->isEmpty()) {
+                app(\App\Services\SellerOutreach\SellerOutreachTemplateDefaultsService::class)
+                    ->ensureDefaults($prospectingAgencyId, $user->id);
+                $data['whatsappTemplates'] = $fetchWhatsappTemplates();
+            }
             $data['emailTemplates'] = $outreachTemplate::withoutGlobalScopes()
                 ->where('agency_id', $prospectingAgencyId)
                 ->where('channel', $outreachTemplate::CHANNEL_EMAIL)
@@ -222,7 +259,7 @@ class SettingsController extends Controller
         // the settings rail.
 
         // Agents list for email signature preview selector
-        $data['agents'] = User::agencyMembers()->where('is_active', true)->orderBy('name')->get(['id', 'name']);
+        $data['agents'] = User::agencyMembers()->where('is_active', true)->where('is_assistant', false)->orderBy('name')->get(['id', 'name']); // AT-267: exclude assistants
 
         // Feature Settings tab: Dashboard — settings mode + agency dashboard settings
         $data['dashboardSettingsMode'] = $data['agency']->dashboard_settings_mode ?? 'user';
@@ -427,16 +464,43 @@ class SettingsController extends Controller
 
     public function updateMarketingEnabled(Request $request)
     {
-        $enabled = $request->boolean('marketing_enabled');
-        PerformanceSetting::updateOrCreate(['key' => 'marketing_enabled'], ['value' => $enabled ? 1 : 0]);
+        // Saver-precondition guard (spec §3.4 / parent §6.1). This saver is now
+        // a multi-caller (settings page AND the onboarding switchboard). A form
+        // that owns the toggle posts a hidden "0" companion, so a rendered-but-
+        // unchecked box still arrives and still saves false; an ABSENT field
+        // means the caller never rendered the control — leave the value alone.
+        if ($request->has('marketing_enabled')) {
+            // Per-agency write (multi-tenancy #7) — set() stamps the current agency.
+            PerformanceSetting::set('marketing_enabled', $request->boolean('marketing_enabled') ? 1 : 0);
+        }
         return redirect()->route('corex.settings', ['tab' => 'feature', 'fsec' => 'properties'])->with('success', 'Marketing setting updated.');
     }
 
     public function updateSyndicationPortals(Request $request)
     {
-        foreach (['syndication_pp_enabled', 'syndication_p24_enabled'] as $key) {
-            PerformanceSetting::updateOrCreate(['key' => $key], ['value' => $request->boolean($key) ? 1 : 0]);
+        // AT-369 — agency cap on agent-opted-in PP sole-mandate exclusivity days.
+        // Hard bounds mirror PP's own limit (Rev 4.6 p20: SoleMandateExclusiveDays
+        // 1-92) and are enforced HERE, server-side — never trust the form's min/max
+        // alone. Validated before any field in this request saves, so an
+        // out-of-range value never partially saves alongside a valid toggle change.
+        if ($request->has('pp_exclusive_days_max')) {
+            $request->validate([
+                'pp_exclusive_days_max' => ['required', 'integer', 'min:1', 'max:92'],
+            ]);
         }
+
+        // Saver-precondition guard (spec §3.4 / parent §6.1) — see updateMarketingEnabled.
+        foreach (['syndication_pp_enabled', 'syndication_p24_enabled', 'pp_exclusivity_enabled'] as $key) {
+            if ($request->has($key)) {
+                // Per-agency write (multi-tenancy #7) — set() stamps the current agency.
+                PerformanceSetting::set($key, $request->boolean($key) ? 1 : 0);
+            }
+        }
+
+        if ($request->has('pp_exclusive_days_max')) {
+            PerformanceSetting::set('pp_exclusive_days_max', (int) $request->input('pp_exclusive_days_max'));
+        }
+
         return redirect()->route('corex.settings', ['tab' => 'feature', 'fsec' => 'properties'])->with('success', 'Syndication portals updated.');
     }
 
@@ -585,15 +649,20 @@ class SettingsController extends Controller
 
     public function updateMatchesEnabled(Request $request)
     {
-        $enabled = $request->boolean('matches_enabled');
-        PerformanceSetting::updateOrCreate(['key' => 'matches_enabled'], ['value' => $enabled ? 1 : 0]);
+        // Saver-precondition guard (spec §3.4 / parent §6.1) — multi-caller
+        // (settings page AND the onboarding switchboard). Absent ⇒ leave alone.
+        if ($request->has('matches_enabled')) {
+            // Per-agency write (multi-tenancy #7) — set() stamps the current agency.
+            PerformanceSetting::set('matches_enabled', $request->boolean('matches_enabled') ? 1 : 0);
+        }
         return redirect()->route('corex.settings', ['tab' => 'feature', 'fsec' => 'matches'])->with('success', 'Core Matches setting updated.');
     }
 
     public function updateMatchesShowOnProperties(Request $request)
     {
         $enabled = $request->boolean('matches_show_on_properties');
-        PerformanceSetting::updateOrCreate(['key' => 'matches_show_on_properties'], ['value' => $enabled ? 1 : 0]);
+        // Per-agency write (multi-tenancy #7) — set() stamps the current agency.
+        PerformanceSetting::set('matches_show_on_properties', $enabled ? 1 : 0);
         return redirect()->route('corex.settings', ['tab' => 'feature', 'fsec' => 'matches'])->with('success', 'Setting updated.');
     }
 
@@ -602,7 +671,7 @@ class SettingsController extends Controller
         $perPage = $request->validate([
             'contacts_per_page' => 'required|integer|min:1|max:200',
         ])['contacts_per_page'];
-        PerformanceSetting::updateOrCreate(['key' => 'contacts_per_page'], ['value' => (int) $perPage]);
+        PerformanceSetting::set('contacts_per_page', (int) $perPage);
         return redirect()->route('corex.settings', ['s' => 'feature-contacts'])->with('success', 'Contacts per page updated.');
     }
 
@@ -611,7 +680,7 @@ class SettingsController extends Controller
         $perPage = $request->validate([
             'properties_per_page' => 'required|integer|min:1|max:200',
         ])['properties_per_page'];
-        PerformanceSetting::updateOrCreate(['key' => 'properties_per_page'], ['value' => (int) $perPage]);
+        PerformanceSetting::set('properties_per_page', (int) $perPage);
         return redirect()->route('corex.settings', ['s' => 'feature-properties'])->with('success', 'Properties per page updated.');
     }
 
@@ -620,7 +689,7 @@ class SettingsController extends Controller
         $perPage = $request->validate([
             'filing_register_page_size' => 'required|integer|min:10|max:200',
         ])['filing_register_page_size'];
-        PerformanceSetting::updateOrCreate(['key' => 'filing_register_page_size'], ['value' => (int) $perPage]);
+        PerformanceSetting::set('filing_register_page_size', (int) $perPage);
         return redirect()->route('corex.settings', ['s' => 'feature-filing'])->with('success', 'Filing register page size updated.');
     }
 
@@ -666,15 +735,24 @@ class SettingsController extends Controller
         $scope = $request->validate([
             'matches_visibility_scope' => 'required|in:agent,branch,agency',
         ])['matches_visibility_scope'];
-        PerformanceSetting::updateOrCreate(['key' => 'matches_visibility_scope'], ['value' => $scope]);
+        PerformanceSetting::set('matches_visibility_scope', $scope);
         return redirect()->route('corex.settings', ['tab' => 'feature', 'fsec' => 'matches'])->with('success', 'Match visibility scope updated.');
     }
 
     public function updateMatchesWaMessage(Request $request)
     {
         $message = substr($request->input('matches_wa_message', ''), 0, 1000);
-        PerformanceSetting::updateOrCreate(['key' => 'matches_wa_message'], ['value' => $message]);
+        PerformanceSetting::set('matches_wa_message', $message);
         return redirect()->route('corex.settings', ['tab' => 'feature', 'fsec' => 'matches'])->with('success', 'WhatsApp message template saved.');
+    }
+
+    public function updateMatchesEmailMessage(Request $request)
+    {
+        $subject = substr($request->input('matches_email_subject', ''), 0, 200);
+        $message = substr($request->input('matches_email_message', ''), 0, 2000);
+        PerformanceSetting::set('matches_email_subject', $subject);
+        PerformanceSetting::set('matches_email_message', $message);
+        return redirect()->route('corex.settings', ['tab' => 'feature', 'fsec' => 'matches'])->with('success', 'Email message template saved.');
     }
 
     public function generateApiToken(Request $request)
@@ -701,7 +779,15 @@ class SettingsController extends Controller
         abort_unless(auth()->user()?->hasPermission('manage_performance_settings'), 403);
 
         $agencyId = auth()->user()?->effectiveAgencyId();
-        $agency = $agencyId ? Agency::findOrFail($agencyId) : Agency::firstOrFail();
+        // No agency context (e.g. owner-role user with no active agency-
+        // switcher session) → leave $agency null and let the guard below
+        // reject the write, instead of silently mutating whichever tenant
+        // has the lowest id (and deleting/replacing its logo file).
+        $agency   = $agencyId ? Agency::find($agencyId) : null;
+
+        if (!$agency) {
+            return back()->with('error', 'No agency found.');
+        }
 
         $data = $request->validate([
             'trading_name'     => ['nullable', 'string', 'max:255'],
@@ -757,7 +843,22 @@ class SettingsController extends Controller
     {
         abort_unless(auth()->user()?->hasPermission('manage_performance_settings'), 403);
 
-        $agency = Agency::where('slug', 'hfc-coastal')->first();
+        // Single-tenant-era leftover removed: this used to hardcode the
+        // 'hfc-coastal' agency for every caller. Resolve the *caller's own*
+        // agency instead — this is a live preview of their own header, not
+        // an arbitrary tenant's. Fail closed (no preview) if no agency
+        // context is available (e.g. owner-role user with no active
+        // agency-switcher session), matching RequireAgencyContext's
+        // "no agency context" convention.
+        $agencyId = auth()->user()?->effectiveAgencyId();
+        $agency = $agencyId ? Agency::find($agencyId) : null;
+
+        if (!$agency) {
+            return response(
+                '<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body style="font-family: Arial, sans-serif; margin: 8px; color:#888;">'
+                . 'No agency context — select an agency to preview the header.</body></html>'
+            )->header('Content-Type', 'text/html');
+        }
 
         // Build a temporary agency-like object with query param overrides
         $overrides = $request->only([
@@ -806,7 +907,12 @@ class SettingsController extends Controller
         $userId = $request->input('user_id');
         $agent = $userId ? User::find($userId) : auth()->user();
 
-        $agency = Agency::where('slug', 'hfc-coastal')->first();
+        // Single-tenant-era leftover removed: this used to hardcode the
+        // 'hfc-coastal' agency for every caller. Resolve the caller's own
+        // agency instead; if no agency context is available, fall back to
+        // a generic, non-tenant-specific placeholder (never a real tenant).
+        $agencyId = auth()->user()?->effectiveAgencyId();
+        $agency = $agencyId ? Agency::find($agencyId) : null;
 
         $agentFooter = [
             'name'             => $agent->name ?? 'Agent Name',
@@ -821,7 +927,7 @@ class SettingsController extends Controller
             'logo_url'         => $agency && $agency->logo_path ? asset('storage/' . $agency->logo_path) : null,
             'email_disclaimer' => $request->input('email_disclaimer', $agency->email_disclaimer ?? null),
             'popi_url'         => $request->input('popi_url', $agency->popi_url ?? null),
-            'agency_name'      => $agency->name ?? 'Home Finders Coastal',
+            'agency_name'      => $agency->name ?? config('app.name', 'CoreX OS'),
         ];
 
         $html = view('emails.signatures.partials.agent-footer', compact('agentFooter'))->render();
@@ -843,7 +949,11 @@ class SettingsController extends Controller
 
         $user     = auth()->user();
         $agencyId = $user?->effectiveAgencyId();
-        $agency   = $agencyId ? Agency::find($agencyId) : Agency::first();
+        // No agency context (e.g. owner-role user with no active agency-
+        // switcher session) → leave $agency null and let the existing
+        // "No agency found" guard below reject the write, instead of
+        // silently mutating whichever tenant has the lowest id.
+        $agency   = $agencyId ? Agency::find($agencyId) : null;
 
         if (!$agency) {
             return back()->with('error', 'No agency found.');
@@ -867,26 +977,142 @@ class SettingsController extends Controller
 
         $user     = auth()->user();
         $agencyId = $user?->effectiveAgencyId();
-        $agency   = $agencyId ? Agency::find($agencyId) : Agency::first();
+        // No agency context (e.g. owner-role user with no active agency-
+        // switcher session) → leave $agency null and let the existing
+        // "No agency found" guard below reject the write, instead of
+        // silently mutating whichever tenant has the lowest id.
+        $agency   = $agencyId ? Agency::find($agencyId) : null;
 
         if (!$agency) {
             return back()->with('error', 'No agency found.');
         }
 
-        $agency->update([
-            'split_branches_enabled' => $request->boolean('split_branches_enabled'),
-        ]);
+        // Saver-precondition guard (spec §3.4 / parent §6.1) — multi-caller
+        // (company-settings page AND the onboarding switchboard). Absent means
+        // the caller never rendered the toggle — leave the column alone.
+        if ($request->has('split_branches_enabled')) {
+            $agency->update([
+                'split_branches_enabled' => $request->boolean('split_branches_enabled'),
+            ]);
+        }
 
         $state = $agency->split_branches_enabled ? 'ON' : 'OFF';
         return redirect()->route('corex.settings', ['tab' => 'agency'])
             ->with('success', "Split Branches turned {$state}.");
     }
 
+    // ── AI background removal (agent photos) toggle — ad-manager.md §15.2 ──
+
+    /**
+     * Per-agency kill switch for the AI background-removal API. Default ON
+     * (migration column default); one toggle away from OFF without a
+     * deploy if a bad cutout result or a billing problem comes up. The API
+     * key itself is never per-agency and never touches the database
+     * (STANDARDS.md "API Keys and Credentials Live in .env Only") — every
+     * agency's photos are processed through ONE system-wide provider
+     * account, so this column only controls whether THIS agency's uploads
+     * are sent to it at all.
+     */
+    public function updateAdBgRemovalApiEnabled(Request $request)
+    {
+        abort_unless(auth()->user()?->hasPermission('manage_performance_settings'), 403);
+
+        $request->validate([
+            'ad_bg_removal_api_enabled' => ['nullable', 'boolean'],
+        ]);
+
+        $user     = auth()->user();
+        $agencyId = $user?->effectiveAgencyId();
+        // No agency context (e.g. owner-role user with no active agency-
+        // switcher session) → leave $agency null and let the existing
+        // "No agency found" guard below reject the write, instead of
+        // silently mutating whichever tenant has the lowest id.
+        $agency   = $agencyId ? Agency::find($agencyId) : null;
+
+        if (!$agency) {
+            return back()->with('error', 'No agency found.');
+        }
+
+        // Saver-precondition guard (spec §3.4 / parent §6.1) — absent means
+        // the caller never rendered the toggle — leave the column alone.
+        if ($request->has('ad_bg_removal_api_enabled')) {
+            $agency->update([
+                'ad_bg_removal_api_enabled' => $request->boolean('ad_bg_removal_api_enabled'),
+            ]);
+        }
+
+        $state = $agency->ad_bg_removal_api_enabled ? 'ON' : 'OFF';
+        return redirect()->route('corex.settings', ['tab' => 'feature', 'fsec' => 'properties'])
+            ->with('success', "AI background removal for agent photos turned {$state}.");
+    }
+
+    /**
+     * AT-267 — the Assistants toggle + the FICA default for new assistants.
+     *
+     * `assistants_enabled` is the kill switch AND the safe default: it ships OFF for every
+     * agency, and it is the first thing AssistantPermissionResolver checks. Turning it off gives
+     * every assistant zero permissions instantly, which is the safe direction to fail — an
+     * assistant can never do MORE harm than a normal user because of this switch, only less.
+     *
+     * EVERY BOOLEAN WRITE IS GUARDED WITH $request->has() — agency-onboarding-setup.md §6.1.
+     * This saver is shared by Company Settings (which renders both controls) and the Setup Wizard
+     * (whose step may post only a SUBSET). An unguarded $request->boolean() on a field the caller
+     * never rendered reads an absent checkbox as FALSE and silently wipes a setting nobody
+     * touched — which is exactly how an agency would find Assistants mysteriously switched off
+     * after saving an unrelated wizard step.
+     */
+    public function updateAssistants(Request $request)
+    {
+        abort_unless(auth()->user()?->hasPermission('manage_performance_settings'), 403);
+
+        $request->validate([
+            'assistants_enabled'              => ['nullable', 'boolean'],
+            'assistant_fica_required_default' => ['nullable', 'boolean'],
+        ]);
+
+        $user     = auth()->user();
+        $agencyId = $user?->effectiveAgencyId();
+        // No agency context (e.g. owner-role user with no active agency-
+        // switcher session) → leave $agency null and let the existing
+        // "No agency found" guard below reject the write, instead of
+        // silently mutating whichever tenant has the lowest id.
+        $agency   = $agencyId ? Agency::find($agencyId) : null;
+
+        if (!$agency) {
+            return back()->with('error', 'No agency found.');
+        }
+
+        $payload = [];
+
+        if ($request->has('assistants_enabled')) {
+            $payload['assistants_enabled'] = $request->boolean('assistants_enabled');
+        }
+
+        if ($request->has('assistant_fica_required_default')) {
+            $payload['assistant_fica_required_default'] = $request->boolean('assistant_fica_required_default');
+        }
+
+        if ($payload === []) {
+            return back();
+        }
+
+        $agency->update($payload);
+
+        $state = $agency->assistants_enabled ? 'ON' : 'OFF';
+
+        return redirect()->route('corex.settings', ['tab' => 'agency'])
+            ->with('success', "Assistants turned {$state}.");
+    }
+
     public function updateAgencyDashboardSettings(Request $request)
     {
         $user     = auth()->user();
         $agencyId = $user?->effectiveAgencyId();
-        $agency   = $agencyId ? Agency::find($agencyId) : Agency::first();
+        // No agency context (e.g. owner-role user with no active agency-
+        // switcher session) → leave $agency null and let the existing
+        // "No agency found" guard below reject the write, instead of
+        // silently mutating whichever tenant has the lowest id.
+        $agency   = $agencyId ? Agency::find($agencyId) : null;
 
         if (!$agency) {
             return back()->with('error', 'No agency found.');

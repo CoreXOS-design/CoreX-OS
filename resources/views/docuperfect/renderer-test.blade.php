@@ -58,8 +58,8 @@
     reference="LM-2026-00142"
     :date="now()->format('d F Y')"
     :parties="[
-        ['name' => 'Johan Reichel'],
-        ['name' => 'Maria Reichel'],
+        ['name' => 'Sample Landlord'],
+        ['name' => 'Sample Tenant'],
         ['name' => 'Home Finders Coastal'],
     ]"
 >
@@ -290,7 +290,7 @@
             {{-- Landlord 1 --}}
             <div class="corex-signature-block">
                 <div class="corex-signature-role">Landlord</div>
-                <div class="corex-signature-name">Johan Reichel</div>
+                <div class="corex-signature-name">Sample Landlord</div>
                 <div class="corex-signature-line">
                     <span class="corex-signature-prompt">Sign here</span>
                 </div>
@@ -300,7 +300,7 @@
             {{-- Landlord 2 --}}
             <div class="corex-signature-block">
                 <div class="corex-signature-role">Landlord</div>
-                <div class="corex-signature-name">Maria Reichel</div>
+                <div class="corex-signature-name">Sample Tenant</div>
                 <div class="corex-signature-line">
                     <span class="corex-signature-prompt">Sign here</span>
                 </div>

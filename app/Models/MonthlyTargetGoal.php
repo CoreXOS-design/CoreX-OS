@@ -6,9 +6,12 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 use App\Models\Concerns\BelongsToAgency;
+use App\Models\Concerns\BelongsToBranch;
 class MonthlyTargetGoal extends Model
 {
-    use BelongsToAgency, SoftDeletes;
+    // Branch-level goals: branch_id is set explicitly at the firstOrCreate callsites
+    // (keyed by branch), so BelongsToBranch scopes reads without needing a parent stamp.
+    use BelongsToBranch, BelongsToAgency, SoftDeletes;
 
     protected $fillable = [
         'agency_id',

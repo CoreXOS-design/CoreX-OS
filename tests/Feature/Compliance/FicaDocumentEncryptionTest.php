@@ -97,4 +97,61 @@ final class FicaDocumentEncryptionTest extends TestCase
             ->expectsOutputToContain('already-encrypted=2')
             ->assertExitCode(0);
     }
+
+    public function test_filed_fica_document_downloadResponse_decrypts(): void
+    {
+        // The durable, openable FICA copy in the contact document drive is encrypted;
+        // Document::downloadResponse / decryptedContents must return the plaintext.
+        $cipher = app(\App\Services\Security\MediaCipher::class);
+        $plain = "ID COPY PDF bytes \x00\x01" . random_bytes(128);
+        $path = 'contact-documents/16650/' . \Illuminate\Support\Str::uuid() . '.pdf';
+        Storage::disk('local')->put($path, $cipher->encrypt($plain));
+
+        $doc = new \App\Models\Document([
+            'disk' => 'local', 'storage_path' => $path,
+            'original_name' => 'id_copy.pdf', 'mime_type' => 'application/pdf', 'source_type' => 'fica',
+        ]);
+
+        $this->assertStringStartsWith('CXE1', Storage::disk('local')->get($path), 'stored encrypted');
+        $this->assertSame($plain, $doc->decryptedContents(), 'decryptedContents returns plaintext');
+
+        $resp = $doc->downloadResponse();
+        ob_start();
+        $resp->sendContent();
+        $streamed = ob_get_clean();
+        $this->assertSame($plain, $streamed, 'downloadResponse streams the decrypted bytes');
+    }
+
+    public function test_backfill_encrypts_filed_fica_documents_in_place(): void
+    {
+        $agency = Agency::create(['name' => 'Coastal', 'slug' => 'coastal-' . uniqid()]);
+        $paths = [];
+        foreach (['id.pdf' => 'ID plaintext ' . random_bytes(40), 'poa.pdf' => "POA\x00bytes"] as $name => $bytes) {
+            $p = 'contact-documents/999/' . \Illuminate\Support\Str::uuid() . '.pdf';
+            Storage::disk('local')->put($p, $bytes);
+            \App\Models\Document::create([
+                'agency_id' => $agency->id, 'original_name' => $name, 'storage_path' => $p,
+                'disk' => 'local', 'mime_type' => 'application/pdf', 'source_type' => 'fica',
+            ]);
+            $paths[$p] = $bytes;
+        }
+        // a NON-fica document must be left untouched (precise scope)
+        $otherPath = 'contact-documents/999/' . \Illuminate\Support\Str::uuid() . '.pdf';
+        Storage::disk('local')->put($otherPath, 'NOT a fica doc');
+        \App\Models\Document::create([
+            'agency_id' => $agency->id, 'original_name' => 'brochure.pdf', 'storage_path' => $otherPath,
+            'disk' => 'local', 'mime_type' => 'application/pdf', 'source_type' => 'upload',
+        ]);
+
+        $this->artisan('media:encrypt-backfill', ['--scope' => 'fica'])->assertExitCode(0);
+
+        $cipher = app(\App\Services\Security\MediaCipher::class);
+        foreach ($paths as $p => $bytes) {
+            $raw = Storage::disk('local')->get($p);
+            $this->assertStringStartsWith('CXE1', $raw, "fica Document encrypted: {$p}");
+            $this->assertSame($bytes, $cipher->decrypt($raw), 'round-trips to original');
+        }
+        // the non-fica doc is still plaintext, untouched
+        $this->assertSame('NOT a fica doc', Storage::disk('local')->get($otherPath), 'non-fica doc must NOT be encrypted');
+    }
 }

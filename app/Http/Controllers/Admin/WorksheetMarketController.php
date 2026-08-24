@@ -22,7 +22,12 @@ class WorksheetMarketController extends Controller
 
         
         $branchId = $request->query('branch_id');
-$agents = DB::table('users')
+        // AT-278 §11 — raw query, so the SoftDeletes scope does not apply.
+        // Without these two filters an archived agent still appeared in the
+        // worksheet market picker.
+        $agents = DB::table('users')
+            ->whereNull('deleted_at')
+            ->where('is_active', 1)
             ->whereIn('role', ['agent','branch_manager'])
             ->whereNotNull('branch_id')
             ->select('id','name','email','branch_id','role')

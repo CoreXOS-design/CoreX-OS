@@ -6,14 +6,14 @@
 <div class="w-full space-y-5">
 
     {{-- Page Header --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <div class="flex items-center gap-3">
-                    <a href="{{ route('admin.knowledge.index') }}" class="text-sm text-white/60 hover:text-white transition-colors">&larr; Back</a>
-                    <h1 class="text-xl font-bold text-white leading-tight">{{ $category->name }}</h1>
-                </div>
-                <p class="text-sm text-white/60">{{ number_format($documents->total()) }} {{ Str::plural('document', $documents->total()) }}</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">{{ $category->name }}</h1>
+                <p class="text-xs" style="color: var(--text-muted);">{{ number_format($documents->total()) }} {{ Str::plural('document', $documents->total()) }}</p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+                <a href="{{ route('admin.knowledge.index') }}" class="corex-btn-outline text-xs">&larr; Back</a>
             </div>
         </div>
     </div>
@@ -121,7 +121,7 @@
                                         <button type="submit"
                                                 class="text-xs px-2 py-0.5 rounded-md font-medium transition-all duration-300"
                                                 style="{{ $doc->is_ellie_enabled
-                                                    ? 'background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 15%, transparent); color: var(--brand-icon, #0ea5e9);'
+                                                    ? 'background: color-mix(in srgb, var(--brand-icon) 15%, transparent); color: var(--brand-icon);'
                                                     : 'background: var(--surface-2); color: var(--text-muted);' }}"
                                                 title="{{ $doc->is_ellie_enabled ? 'Disable Ellie' : 'Enable Ellie' }}">
                                             {{ $doc->is_ellie_enabled ? 'ON' : 'OFF' }}
@@ -145,7 +145,7 @@
                                 <td class="px-4 py-3 text-xs" style="color: var(--text-muted);">{{ $doc->created_at->format('d M Y') }}</td>
                                 <td class="px-4 py-3 text-right">
                                     <div class="flex items-center justify-end gap-2">
-                                        <a href="{{ route('admin.knowledge.preview', $doc->id) }}" class="text-xs font-medium transition-all duration-300 hover:underline" style="color: var(--brand-icon, #0ea5e9);">Preview</a>
+                                        <a href="{{ route('admin.knowledge.preview', $doc->id) }}" class="text-xs font-medium transition-all duration-300 hover:underline" style="color: var(--brand-icon);">Preview</a>
                                         <form action="{{ route('admin.knowledge.reprocess', $doc->id) }}" method="POST" class="inline">
                                             @csrf
                                             <button type="submit" class="text-xs font-medium transition-all duration-300 hover:underline" style="color: var(--ds-amber);">Reprocess</button>

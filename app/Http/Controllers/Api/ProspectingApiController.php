@@ -178,7 +178,8 @@ class ProspectingApiController extends Controller
                 $oldPrice = (int) $existing->price;
 
                 if ($newPrice !== null && $newPrice !== $oldPrice) {
-                    if ($this->isImplausiblePriceJump($oldPrice, $newPrice)) {
+                    if ($this->isImplausiblePriceJump($oldPrice, $newPrice)
+                        && !$this->isDecimalStripSelfCorrection($oldPrice, $newPrice)) {
                         // MIC PRICE GUARD — an order-of-magnitude jump vs the stored
                         // price is a misparse (dropped zero / wrong figure grabbed),
                         // not a real market move. Quarantine it for review and KEEP
@@ -403,6 +404,44 @@ class ProspectingApiController extends Controller
         }
         return $new >= $old * self::PRICE_JUMP_FACTOR
             || $new * self::PRICE_JUMP_FACTOR <= $old;
+    }
+
+    /**
+     * MIC CRISIS ITEM 2 (2026-08-18) — the price guard above was added on
+     * 2026-08-10/11 in direct response to a mass price-corruption incident, to
+     * stop a misparse from ever silently overwriting a good stored price. It
+     * works for that direction. But it has an unintended side effect: a listing
+     * whose STORED price was ITSELF corrupted (by that same incident, or an
+     * earlier decimal-point-stripping misparse — e.g. a scraped "1 850 000.40"
+     * had its '.' stripped by a digit-only regex, becoming "18500004") can never
+     * be corrected again — every subsequent, correctly re-scraped price looks
+     * like a ~10x "implausible drop" vs the corrupted baseline and gets
+     * quarantined right back, freezing the wrong price in MIC permanently. This
+     * is confirmed live: 41 of 277 pending prospecting_price_anomalies rows (and
+     * qa1's own anomaly #1, P24-114764082) fit stored == new*10+d EXACTLY.
+     *
+     * That exact arithmetic signature — the stored price equals the new price
+     * with one spurious trailing digit (0-9) glued on — is specific enough that
+     * a false positive is effectively impossible (no genuine market price move
+     * lands on that exact digit relationship). When it fires, the STORED price
+     * is the misparse, not the new one: let the correction through instead of
+     * quarantining it, so a listing corrupted this way can finally self-heal
+     * the next time it's re-scraped, instead of staying wrong forever.
+     *
+     * Deliberately one-directional (only $old > $new): the guard above still
+     * fully protects against a NEW incoming price being the corrupted one.
+     */
+    private function isDecimalStripSelfCorrection(int $old, int $new): bool
+    {
+        if ($old <= $new) {
+            return false;
+        }
+        for ($d = 0; $d <= 9; $d++) {
+            if ($old === $new * 10 + $d) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

@@ -68,7 +68,15 @@ class AgencyDocumentsViewerController extends Controller
 
         abort_unless($provision->document_path, 404, 'No file attached to this document.');
 
-        return Storage::disk('public')->download(
+        // New uploads are written to the private 'local' disk (see AgencyComplianceSettingsController).
+        // Older rows may still point at a file on the 'public' disk from before that change — no data
+        // migration has moved them, so fall back to serving those from 'public' rather than 404ing on
+        // legacy documents. There is no 'disk' column on this table to record which disk a row used.
+        $disk = Storage::disk('local')->exists($provision->document_path) ? 'local' : 'public';
+
+        abort_unless(Storage::disk($disk)->exists($provision->document_path), 404, 'Document file is missing from storage.');
+
+        return Storage::disk($disk)->download(
             $provision->document_path,
             $provision->document_original_name
         );

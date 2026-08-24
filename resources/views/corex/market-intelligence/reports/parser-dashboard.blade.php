@@ -5,14 +5,21 @@
 <div style="max-width: 1200px; margin: 0 auto; padding: 0 20px;">
     @include('corex.market-intelligence.partials.tabs')
 
-    <nav style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 12px;">
-        <a href="{{ route('market-intelligence.reports.index') }}" style="color: var(--brand-button); text-decoration: none;">← Reports</a>
-    </nav>
-
-    <h1 style="font-size: 1.0625rem; font-weight: 600; color: var(--text-primary); margin: 0 0 4px 0;">Parser accuracy</h1>
-    <p style="font-size: 0.8125rem; color: var(--text-muted); margin: 0 0 16px 0;">
-        Per-parser stats: how many reports each parser has handled, how often the spot-check audit agrees, and the current trust status.
-    </p>
+    {{-- Page header — flat neutral bar (AT-336). Back link sits in the right
+         action cluster rather than stacked above the title. --}}
+    <div style="margin-bottom: 16px; padding: 0 0 14px 0; border-bottom: 1px solid var(--border);">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Parser accuracy</h1>
+                <p class="text-xs" style="margin: 2px 0 0 0; color: var(--text-muted);">
+                    Per-parser stats: how many reports each parser has handled, how often the spot-check audit agrees, and the current trust status.
+                </p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+                <a href="{{ route('market-intelligence.reports.index') }}" class="corex-btn-outline text-xs">← Reports</a>
+            </div>
+        </div>
+    </div>
 
     <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 6px; overflow: hidden;">
         <table style="width: 100%; border-collapse: collapse; font-size: 0.8125rem;">
@@ -33,7 +40,7 @@
                     @php
                         $statusColor = match ($row['status']) {
                             'Trusted'  => '#10b981',
-                            'Active'   => '#0ea5e9',
+                            'Active'   => 'var(--brand-icon, #0ea5e9)',
                             'Review'   => '#dc2626',
                             default    => 'var(--text-muted)',
                         };

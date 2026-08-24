@@ -4,7 +4,7 @@
 <div class="w-full max-w-5xl mx-auto space-y-5">
 
     {{-- Header --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex items-center justify-between gap-3">
             <div>
                 <h1 class="text-xl font-bold text-white leading-tight">Import Sold Properties</h1>

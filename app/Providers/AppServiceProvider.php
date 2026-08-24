@@ -24,6 +24,7 @@ use App\Models\ContactMatch;
 use App\Models\Deal;
 use App\Models\DealMoneyLine;
 use App\Models\DealSettlement;
+use App\Models\LoginHistory;
 use App\Models\Presentation;
 use App\Models\Property;
 use App\Events\Contracts\DomainEvent;
@@ -81,6 +82,12 @@ class AppServiceProvider extends ServiceProvider
         // Add it there, or it does not run.
         // ─────────────────────────────────────────────────────────────────────────────
         \Illuminate\Foundation\Support\Providers\EventServiceProvider::disableEventDiscovery();
+
+        // Feature registry gate: singleton so the per-request resolved feature
+        // map is computed once (one query) and shared across every enabled()
+        // call in a request (e.g. a Blade loop). Busted by AgencyFeatureToggled.
+        // Spec: .ai/specs/corex-feature-registry.md §3.5/§6.1.
+        $this->app->singleton(\App\Services\Features\AgencyFeatureService::class);
 
         $this->app->singleton(\App\Services\CommandCenter\Calendar\CalendarThresholdResolver::class);
         $this->app->singleton(\App\Services\CommandCenter\Calendar\CalendarVisibilityResolver::class);
@@ -186,8 +193,17 @@ class AppServiceProvider extends ServiceProvider
         \Illuminate\Support\Facades\Queue::after(function () {
             try { \App\Support\Audit\PropertyAuditContext::pop(); } catch (\Throwable) {}
         });
-        \Illuminate\Support\Facades\Queue::failing(function () {
+        \Illuminate\Support\Facades\Queue::failing(function (\Illuminate\Queue\Events\JobFailed $event) {
             try { \App\Support\Audit\PropertyAuditContext::pop(); } catch (\Throwable) {}
+            \App\Support\Queue\QueueFailureAlerter::handle($event);
+        });
+        // MIC speed round 3 (2026-08-23) — Agency::find()'s per-request memo
+        // (App\Models\Agency::$findMemo) must never leak a stale Agency into
+        // the NEXT queued job on a long-running worker. Reset before every
+        // job starts; HTTP requests need no equivalent hook (php-fpm tears
+        // down all static state between requests).
+        \Illuminate\Support\Facades\Queue::before(function () {
+            \App\Models\Agency::forgetFindMemo();
         });
         if ($this->app->runningInConsole()) {
             \Illuminate\Support\Facades\Event::listen(
@@ -380,6 +396,11 @@ class AppServiceProvider extends ServiceProvider
         //     granted/registered deal is auto-declined on save (captured, never lost;
         //     audited). Chokepoint for EVERY creation path — DR2 capture, twin, API.
         Event::listen(\App\Events\Deal\DealCreated::class,       \App\Listeners\Deal\AutoDeclineNewDealOnCommittedProperty::class);
+        // (g) DealCommissionFinalised → auto-create the CommissionLedger entry the
+        //     cap/revenue-share Commission Engine has needed since it was built —
+        //     commission_engine_spec.md §13's unbuilt integration point
+        //     (.ai/atlas/deals-commission.md §8.1 "System C ... orphaned").
+        Event::listen(\App\Events\Deal\DealCommissionFinalised::class, \App\Listeners\Deal\GenerateCommissionLedgerEntries::class);
 
         // ─────────────────────────────────────────────────────────────────
         // MIC Phase A3 — log every activity-relevant domain event to
@@ -488,6 +509,7 @@ class AppServiceProvider extends ServiceProvider
             \App\Events\PresentationGenerated::class                        => 'handlePresentationGenerated',
             \App\Events\Presentation\PresentationOutcomeRecorded::class     => 'handlePresentationOutcomeRecorded',
             \App\Events\SellerOutreach\PitchSent::class                     => 'handlePitchSent',
+            \App\Events\SellerOutreach\OutreachOutcomeUpdated::class        => 'handleOutreachOutcomeUpdated',
             \App\Events\Prospecting\TrackedPropertyPromotedToStock::class   => 'handleTrackedPropertyPromotedToStock',
             \App\Events\Compliance\RcrSubmissionSubmitted::class            => 'handleRcrSubmissionSubmitted',
             // SPINE-3 — FICA (outcome-independent reviewer credit + agent
@@ -501,6 +523,7 @@ class AppServiceProvider extends ServiceProvider
             \App\Events\Fica\FicaRejected::class                            => 'handleFicaRejectedReview',
             \App\Events\Prospecting\ClaimCreated::class                     => 'handleClaimCreated',
             \App\Events\Prospecting\ClaimReleased::class                    => 'handleClaimReleased',
+            \App\Events\Prospecting\ClaimFeedbackRecorded::class            => 'handleClaimFeedbackRecorded',
             \App\Events\Property\PropertyCaptured::class                    => 'handlePropertyCaptured',
             \App\Events\Property\PropertyPublished::class                   => 'handlePropertyPublished',
             \App\Events\Property\PropertyCompliancePassed::class            => 'handlePropertyCompliancePassed',
@@ -664,6 +687,19 @@ class AppServiceProvider extends ServiceProvider
         );
         \App\Models\User::observe(\App\Observers\UserObserver::class);
 
+        // Agency Billing (AT-11) — the Agent pillar announces a headcount change;
+        // Billing reconciles the plan and, if it switched, emails andre@ + johan@.
+        // Cross-pillar via the events catalogue, per non-negotiable #9.
+        // Spec: .ai/specs/agency-billing.md §7.2
+        Event::listen(
+            \App\Events\Agent\AgencyHeadcountChanged::class,
+            \App\Listeners\Billing\ReconcileAgencySubscription::class,   // sync — one COUNT
+        );
+        Event::listen(
+            \App\Events\Billing\AgencyPlanChanged::class,
+            \App\Listeners\Billing\NotifyCoreXOfPlanChange::class,       // queued (on `default`)
+        );
+
         // Contact Testimonials — publish/unpublish fans out to per-website
         // testimonial.* webhooks. Spec: .ai/specs/testimonials.md §5.
         Event::listen(
@@ -736,6 +772,28 @@ class AppServiceProvider extends ServiceProvider
         // `active_agency_id` leaks into the next login and the global
         // AgencyScope filters the user out of their own record.
         Event::listen(Login::class, function (Login $event) {
+            // Login audit trail (.ai/specs/login-audit-trail.md) — permanent,
+            // never-pruned record of every successful login, unlike the
+            // `sessions` table which Laravel GCs after SESSION_LIFETIME.
+            if ($event->user) {
+                LoginHistory::create([
+                    'user_id'    => $event->user->id,
+                    'event'      => 'login',
+                    'ip_address' => request()->ip(),
+                    'user_agent' => request()->userAgent(),
+                ]);
+            }
+
+            // NOTE: the agency-admin first-login trigger (.ai/specs/agency-admin-rule.md
+            // §R1b — first_login_at, deferred onboarding email, welcome pop-up) is
+            // DELIBERATELY NOT here. It used to be, but Auth::login() also fires this
+            // same Login event for impersonation (ImpersonateController) — an owner
+            // impersonating a brand-new Admin was silently consuming the Admin's own
+            // first-login trigger. It is now called explicitly from only the two real
+            // login call sites: AuthenticatedSessionController::store() and
+            // AgencySetupGateController::login(). See App\Services\Onboarding\
+            // AgencyAdminFirstLoginService for the full rationale.
+
             session()->forget('active_agency_id');
 
             // Admin Multi-Branch Manager — open CoreX already IN the user's
@@ -755,6 +813,15 @@ class AppServiceProvider extends ServiceProvider
             }
         });
         Event::listen(Logout::class, function (Logout $event) {
+            if ($event->user) {
+                LoginHistory::create([
+                    'user_id'    => $event->user->id,
+                    'event'      => 'logout',
+                    'ip_address' => request()->ip(),
+                    'user_agent' => request()->userAgent(),
+                ]);
+            }
+
             session()->forget('active_agency_id');
             session()->forget('view_as_branch_id');
             session()->forget('acting_branch_manager_id'); // legacy key cleanup
@@ -764,6 +831,24 @@ class AppServiceProvider extends ServiceProvider
         Blade::if('permission', function (string $permissionKey) {
             return auth()->check() && auth()->user()->hasPermission($permissionKey);
         });
+
+        // @feature('feature_key') ... @endfeature — the per-agency FEATURE gate,
+        // orthogonal to @permission (spec: .ai/specs/corex-feature-registry.md §6.2).
+        // Guests => false (fail-closed).
+        Blade::if('feature', function (string $featureKey) {
+            return auth()->check() && auth()->user()->hasFeature($featureKey);
+        });
+
+        // Bust the feature service's per-request memo when an agency toggles a
+        // feature. SYNC + scalar payload (memory [[event_listener_double_registration]]:
+        // discovery is OFF so this MUST be registered here; a queued listener on a
+        // domain event fatals on the readonly $eventId).
+        \Illuminate\Support\Facades\Event::listen(
+            \App\Events\AgencyFeatureToggled::class,
+            function (\App\Events\AgencyFeatureToggled $event) {
+                app(\App\Services\Features\AgencyFeatureService::class)->forget($event->agencyId);
+            }
+        );
 
         // ─────────────────────────────────────────────────────────────────
         // Agency Public API (website API). The `agency-api` guard resolves a

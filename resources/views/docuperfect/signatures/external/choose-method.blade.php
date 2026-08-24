@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Choose Signing Method — Home Finders Coastal</title>
+    <title>Choose Signing Method — {{ $template->creator?->agency?->name ?? 'Agency' }}</title>
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
@@ -27,7 +27,7 @@
                 <div class="text-xs text-slate-400 uppercase tracking-wider font-semibold mb-1">Document</div>
                 <div class="text-sm font-medium text-slate-700">{{ $document->name }}</div>
                 <div class="text-xs text-slate-400 mt-1">
-                    Sent by {{ $template->creator->name ?? 'Home Finders Coastal' }}
+                    Sent by {{ $template->creator->name ?? ($template->creator?->agency?->name ?? 'Agency') }}
                 </div>
             </div>
 
@@ -76,7 +76,7 @@
         </div>
 
         <div class="text-center text-xs text-slate-400">
-            Home Finders Coastal &mdash; Document Signing
+            {{ $template->creator?->agency?->name ?? 'Agency' }} &mdash; Document Signing
         </div>
     </div>
 </body>

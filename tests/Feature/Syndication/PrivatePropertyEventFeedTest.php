@@ -5,11 +5,13 @@ namespace Tests\Feature\Syndication;
 use App\Jobs\ProcessPrivatePropertyEventFeed;
 use App\Models\Agency;
 use App\Models\Branch;
+use App\Models\PpEventFeedSetting;
 use App\Models\Property;
 use App\Models\Scopes\AgencyScope;
 use App\Models\User;
 use App\Services\PrivateProperty\PrivatePropertySoapClient;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Mockery;
 use Tests\TestCase;
@@ -89,6 +91,68 @@ class PrivatePropertyEventFeedTest extends TestCase
         $this->assertContains('GUID-A', $seen);
         $this->assertContains('GUID-B', $seen);
         $this->assertNotContains('GUID-C', $seen, 'Disabled PP agency must not be polled.');
+    }
+
+    public function test_soap_faults_below_threshold_do_not_escalate(): void
+    {
+        $this->ppAgency('coastal', 'GUID-A');
+        Log::spy();
+
+        $client = Mockery::mock(PrivatePropertySoapClient::class);
+        $client->shouldReceive('forAgency')->andReturnSelf();
+        $client->shouldReceive('getListingEventFeed')
+            ->andReturn(['error' => true, 'message' => 'Error Fetching http headers']);
+
+        // Two consecutive failed runs — below the 3-run alert threshold.
+        (new ProcessPrivatePropertyEventFeed())->handle($client);
+        (new ProcessPrivatePropertyEventFeed())->handle($client);
+
+        Log::shouldNotHaveReceived('critical');
+        $this->assertSame('2', PpEventFeedSetting::getValue('continuation_key:GUID-A:fail_streak'));
+    }
+
+    public function test_soap_faults_at_threshold_escalate_to_critical(): void
+    {
+        $this->ppAgency('coastal', 'GUID-A');
+        Log::spy();
+
+        $client = Mockery::mock(PrivatePropertySoapClient::class);
+        $client->shouldReceive('forAgency')->andReturnSelf();
+        $client->shouldReceive('getListingEventFeed')
+            ->andReturn(['error' => true, 'message' => 'Error Fetching http headers']);
+
+        // Three consecutive failed runs hits the threshold.
+        (new ProcessPrivatePropertyEventFeed())->handle($client);
+        (new ProcessPrivatePropertyEventFeed())->handle($client);
+        (new ProcessPrivatePropertyEventFeed())->handle($client);
+
+        Log::shouldHaveReceived('critical')->once()->withArgs(
+            fn ($message) => str_contains($message, 'PP EVENT FEED DOWN') && str_contains($message, 'GUID-A')
+        );
+    }
+
+    public function test_a_success_resets_the_failure_streak(): void
+    {
+        $this->ppAgency('coastal', 'GUID-A');
+
+        $failingClient = Mockery::mock(PrivatePropertySoapClient::class);
+        $failingClient->shouldReceive('forAgency')->andReturnSelf();
+        $failingClient->shouldReceive('getListingEventFeed')
+            ->andReturn(['error' => true, 'message' => 'Error Fetching http headers']);
+
+        (new ProcessPrivatePropertyEventFeed())->handle($failingClient);
+        (new ProcessPrivatePropertyEventFeed())->handle($failingClient);
+        $this->assertSame('2', PpEventFeedSetting::getValue('continuation_key:GUID-A:fail_streak'));
+
+        $okClient = Mockery::mock(PrivatePropertySoapClient::class);
+        $okClient->shouldReceive('forAgency')->andReturnSelf();
+        $okClient->shouldReceive('getListingEventFeed')->andReturn([
+            'GetListingEventFeedByBranchResult' => ['ContinuationKey' => null, 'FeedData' => []],
+        ]);
+        (new ProcessPrivatePropertyEventFeed())->handle($okClient);
+
+        $this->assertNull(PpEventFeedSetting::getValue('continuation_key:GUID-A:fail_streak'));
+        $this->assertNull(PpEventFeedSetting::getValue('continuation_key:GUID-A:fail_since'));
     }
 
     private function ppAgency(string $slug, string $guid, bool $enabled = true): Agency

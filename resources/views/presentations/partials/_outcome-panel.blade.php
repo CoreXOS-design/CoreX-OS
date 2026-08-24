@@ -15,15 +15,18 @@
     $editable = $outcome?->isEditable() ?? false;
     $locked   = $outcome?->locked ?? false;
 
+    // AT-336 — semantic tokens, no raw pastel hex (the old light-only
+    // backgrounds were unreadable on the dark surface). The pill tint is
+    // derived from the same token via color-mix.
     $outcomeLabels = [
-        'won_mandate'           => ['Won the mandate',       '#16a34a', '#dcfce7', '&check;'],
-        'won_sale'              => ['Won the mandate + sale','#0ea5e9', '#dbeafe', '&starf;'],
-        'lost_to_competitor'    => ['Lost to competitor',    '#dc2626', '#fee2e2', '&times;'],
-        'lost_to_no_decision'   => ['Seller did not decide', '#92400e', '#fef3c7', '&#8629;'],
-        'lost_to_price_dispute' => ['Lost on price/strategy','#dc2626', '#fee2e2', '&#8856;'],
-        'lost_to_no_response'   => ['Seller went silent',    '#64748b', '#f1f5f9', '&#8230;'],
-        'still_pending'         => ['Still working it',      '#0ea5e9', '#dbeafe', '&#9203;'],
-        'other'                 => ['Other',                 '#64748b', '#f1f5f9', '&#8230;'],
+        'won_mandate'           => ['Won the mandate',        'var(--ds-green, #059669)'],
+        'won_sale'              => ['Won the mandate + sale', 'var(--ds-green, #059669)'],
+        'lost_to_competitor'    => ['Lost to competitor',     'var(--ds-crimson, #c41e3a)'],
+        'lost_to_no_decision'   => ['Seller did not decide',  'var(--ds-amber, #f59e0b)'],
+        'lost_to_price_dispute' => ['Lost on price/strategy', 'var(--ds-crimson, #c41e3a)'],
+        'lost_to_no_response'   => ['Seller went silent',     'var(--text-muted)'],
+        'still_pending'         => ['Still working it',       'var(--brand-icon, #0ea5e9)'],
+        'other'                 => ['Other',                  'var(--text-muted)'],
     ];
     $reasonLabels = [
         'price_too_high_seller'      => 'Seller insisted on higher price than recommended',
@@ -65,13 +68,12 @@
         </div>
     @else
         {{-- Recorded state --}}
-        @php [$label, $color, $bg, $icon] = $outcomeLabels[$outcome->outcome] ?? ['Outcome', '#64748b', '#f1f5f9', '?']; @endphp
+        @php [$label, $color] = $outcomeLabels[$outcome->outcome] ?? ['Outcome', 'var(--text-muted)']; @endphp
         <div class="flex items-start justify-between gap-4">
             <div style="flex:1;">
                 <h2 class="ds-section-header" style="margin-bottom:6px;">Outcome</h2>
                 <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-                    <span style="display:inline-flex;align-items:center;gap:6px;padding:5px 12px;border-radius:99px;background:{{ $bg }};color:{{ $color }};font-size:0.8125rem;font-weight:600;">
-                        <span style="font-size:1rem;">{!! $icon !!}</span>
+                    <span style="display:inline-flex;align-items:center;gap:6px;padding:5px 12px;border-radius:99px;background:color-mix(in srgb, {{ $color }} 15%, transparent);color:{{ $color }};font-size:0.8125rem;font-weight:600;">
                         {{ $label }}
                     </span>
                     @if($outcome->decision_at)
@@ -80,8 +82,8 @@
                         </span>
                     @endif
                     @if($locked)
-                        <span style="font-size:0.6875rem;color:#92400e;background:#fef3c7;padding:2px 8px;border-radius:99px;font-weight:600;">
-                            🔒 Locked for analytics
+                        <span style="font-size:0.6875rem;color:var(--ds-amber, #f59e0b);background:color-mix(in srgb, var(--ds-amber, #f59e0b) 15%, transparent);padding:2px 8px;border-radius:99px;font-weight:600;">
+                            Locked for analytics
                         </span>
                     @endif
                 </div>
@@ -160,20 +162,19 @@
                         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
                             @php
                                 $cards = [
-                                    ['won_mandate',           '✓', 'Won the mandate',          'Seller signed with us — listing live or about to be.'],
-                                    ['won_sale',              '★', 'Won mandate AND sale',     'Seller signed AND a buyer is locked in.'],
-                                    ['lost_to_competitor',    '✗', 'Lost to another agency',   "They signed with someone else."],
-                                    ['lost_to_no_decision',   '↪', 'Seller did not sell',      "Decided not to list — at least not now."],
-                                    ['lost_to_price_dispute', '⊘', "Couldn't agree on price",  "We couldn't align on price or strategy."],
-                                    ['still_pending',         '…', 'Other / still working it', 'No final answer yet.'],
+                                    ['won_mandate',           'Won the mandate',          'Seller signed with us — listing live or about to be.'],
+                                    ['won_sale',              'Won mandate AND sale',     'Seller signed AND a buyer is locked in.'],
+                                    ['lost_to_competitor',    'Lost to another agency',   "They signed with someone else."],
+                                    ['lost_to_no_decision',   'Seller did not sell',      "Decided not to list — at least not now."],
+                                    ['lost_to_price_dispute', "Couldn't agree on price",  "We couldn't align on price or strategy."],
+                                    ['still_pending',         'Other / still working it', 'No final answer yet.'],
                                 ];
                             @endphp
-                            @foreach($cards as [$val, $iconC, $titleC, $descC])
-                                <label style="cursor:pointer;display:flex;gap:10px;padding:12px;border:2px solid var(--border);border-radius:6px;align-items:flex-start;"
-                                       :style="form.outcome === '{{ $val }}' ? 'border-color: var(--brand-button); background: rgba(0,212,170,0.04);' : ''">
+                            @foreach($cards as [$val, $titleC, $descC])
+                                <label style="cursor:pointer;display:flex;gap:10px;padding:12px;border:2px solid var(--border);border-radius:6px;align-items:flex-start;background:var(--surface-2);"
+                                       :style="form.outcome === '{{ $val }}' ? 'border-color: var(--brand-button); background: color-mix(in srgb, var(--brand-button) 8%, transparent);' : ''">
                                     <input type="radio" name="outcome" value="{{ $val }}" x-model="form.outcome" required style="margin-top:3px;">
                                     <div>
-                                        <div style="font-size:1.125rem;">{{ $iconC }}</div>
                                         <div style="font-weight:600;color:var(--text-primary);font-size:0.875rem;">{{ $titleC }}</div>
                                         <div style="font-size:0.75rem;color:var(--text-muted);margin-top:2px;line-height:1.3;">{{ $descC }}</div>
                                     </div>
@@ -191,15 +192,15 @@
                                 <label style="display:block;font-size:0.6875rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;margin-bottom:4px;">Which agency? (optional)</label>
                                 <input type="text" name="cancellation_competitor_agency" x-model="form.cancellation_competitor_agency" maxlength="200"
                                        placeholder="e.g. Pam Golding, RE/MAX, Sole agent unknown"
-                                       style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:4px;font-size:0.875rem;margin-bottom:12px;">
+                                       style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:4px;background:var(--surface-2);color:var(--text-primary);font-size:0.875rem;margin-bottom:12px;">
 
                                 <label style="display:block;font-size:0.6875rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;margin-bottom:4px;">At what price? (optional, ZAR)</label>
                                 <input type="number" name="cancellation_competitor_price" x-model.number="form.cancellation_competitor_price" min="0" step="10000"
-                                       style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:4px;font-size:0.875rem;margin-bottom:12px;">
+                                       style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:4px;background:var(--surface-2);color:var(--text-primary);font-size:0.875rem;margin-bottom:12px;">
 
                                 <label style="display:block;font-size:0.6875rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;margin-bottom:4px;">Why did they choose them? *</label>
                                 <select name="cancellation_reason" x-model="form.cancellation_reason" required
-                                        style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:4px;font-size:0.875rem;margin-bottom:12px;">
+                                        style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:4px;background:var(--surface-2);color:var(--text-primary);font-size:0.875rem;margin-bottom:12px;">
                                     <option value="">Pick a reason…</option>
                                     @foreach(['family_pressure','existing_relationship','agency_reputation','agent_personality','price_match_with_other','commission_concerns','price_too_high_seller','sole_mandate_concerns','other'] as $key)
                                         <option value="{{ $key }}">{{ $reasonLabels[$key] }}</option>
@@ -213,7 +214,7 @@
                             <div>
                                 <label style="display:block;font-size:0.6875rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;margin-bottom:4px;">Why did they decide not to sell? *</label>
                                 <select name="cancellation_reason" x-model="form.cancellation_reason" required
-                                        style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:4px;font-size:0.875rem;margin-bottom:12px;">
+                                        style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:4px;background:var(--surface-2);color:var(--text-primary);font-size:0.875rem;margin-bottom:12px;">
                                     <option value="">Pick a reason…</option>
                                     @foreach(['timing_change','family_pressure','property_issues_discovered','existing_relationship','other'] as $key)
                                         <option value="{{ $key }}">{{ $reasonLabels[$key] }}</option>
@@ -227,7 +228,7 @@
                             <div>
                                 <label style="display:block;font-size:0.6875rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;margin-bottom:4px;">What couldn't you agree on? *</label>
                                 <select name="cancellation_reason" x-model="form.cancellation_reason" required
-                                        style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:4px;font-size:0.875rem;margin-bottom:12px;">
+                                        style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:4px;background:var(--surface-2);color:var(--text-primary);font-size:0.875rem;margin-bottom:12px;">
                                     <option value="">Pick a reason…</option>
                                     @foreach(['price_too_high_seller','price_too_low_seller','commission_concerns','sole_mandate_concerns','other'] as $key)
                                         <option value="{{ $key }}">{{ $reasonLabels[$key] }}</option>
@@ -238,8 +239,8 @@
 
                         {{-- Won mandate / won sale --}}
                         <template x-if="form.outcome === 'won_mandate' || form.outcome === 'won_sale'">
-                            <div style="padding:12px;background:rgba(22,163,74,0.06);border-left:3px solid #16a34a;border-radius:4px;margin-bottom:12px;">
-                                <div style="font-weight:600;color:#15803d;font-size:0.875rem;">🎉 Nice work.</div>
+                            <div style="padding:12px;background:color-mix(in srgb, var(--ds-green, #059669) 8%, transparent);border-left:3px solid var(--ds-green, #059669);border-radius:4px;margin-bottom:12px;">
+                                <div style="font-weight:600;color:var(--ds-green, #059669);font-size:0.875rem;">Nice work.</div>
                                 <div style="font-size:0.75rem;color:var(--text-secondary);margin-top:4px;">
                                     Your branch manager will be pinged. Optionally link the deal below so we can show the win in dashboards.
                                 </div>
@@ -254,7 +255,7 @@
                                 </label>
                                 <select name="cancellation_reason" x-model="form.cancellation_reason"
                                         :required="form.outcome === 'other'"
-                                        style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:4px;font-size:0.875rem;margin-bottom:12px;">
+                                        style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:4px;background:var(--surface-2);color:var(--text-primary);font-size:0.875rem;margin-bottom:12px;">
                                     <option value="">Pick a reason…</option>
                                     @foreach($reasonLabels as $key => $label)
                                         <option value="{{ $key }}">{{ $label }}</option>
@@ -267,16 +268,16 @@
                         <label style="display:block;font-size:0.6875rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;margin-bottom:4px;">When was the decision made?</label>
                         <input type="date" name="decision_at" x-model="form.decision_at"
                                :max="new Date().toISOString().slice(0,10)"
-                               style="padding:8px 10px;border:1px solid var(--border);border-radius:4px;font-size:0.875rem;margin-bottom:12px;">
+                               style="padding:8px 10px;border:1px solid var(--border);border-radius:4px;background:var(--surface-2);color:var(--text-primary);font-size:0.875rem;margin-bottom:12px;">
 
                         <label style="display:block;font-size:0.6875rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;margin-bottom:4px;">
                             Anything else to remember?
-                            <span x-show="form.cancellation_reason === 'other'" style="color:#dc2626;">required for "Other"</span>
+                            <span x-show="form.cancellation_reason === 'other'" style="color:var(--ds-crimson, #c41e3a);">required for "Other"</span>
                         </label>
                         <textarea name="notes" x-model="form.notes" rows="3" maxlength="5000"
                                   :required="form.cancellation_reason === 'other'"
                                   placeholder="Free text — what would help you (or your team) win the next one?"
-                                  style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:4px;font-size:0.875rem;font-family:inherit;"></textarea>
+                                  style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:4px;background:var(--surface-2);color:var(--text-primary);font-size:0.875rem;font-family:inherit;"></textarea>
                     </div>
 
                     {{-- ── STEP 3 — Confirm ─────────────────────────────── --}}

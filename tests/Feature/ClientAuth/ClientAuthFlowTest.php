@@ -161,6 +161,52 @@ class ClientAuthFlowTest extends TestCase
         $this->assertNotNull($cu->fresh()->password_set_at);
     }
 
+    /**
+     * Regression for a real production bug (2026-08-13): unlike login(),
+     * setPassword() never auto-selected a single linked agency, so a
+     * brand-new client activating via OTP (Flow A) landed signed-in with
+     * current_agency_id still null. /client/me then returned contact: null
+     * (gated on current_agency_id), which cascaded into no agent shown and
+     * every agency-scoped endpoint 409ing "Select an agency first" — the
+     * mobile app's Screen 3 doesn't call /agency/select for the
+     * single-agency case, so nothing else would have fixed it.
+     */
+    public function test_password_set_auto_selects_single_linked_agency(): void
+    {
+        $agency = $this->makeAgency();
+        $cu = ClientUser::create(['email' => 'single-agency@example.com']);
+        $this->makeContact($agency, ['email' => 'single-agency@example.com', 'client_user_id' => $cu->id]);
+        $this->assertNull($cu->current_agency_id);
+        $token = $cu->createToken('activation', ['client-activation'], now()->addMinutes(15))->plainTextToken;
+
+        $res = $this->withHeader('Authorization', "Bearer {$token}")->postJson('/api/v1/client-auth/password/set', [
+            'password'              => 'secret-password-123',
+            'password_confirmation' => 'secret-password-123',
+        ]);
+
+        $res->assertOk()->assertJsonPath('client.current_agency_id', $agency->id);
+        $this->assertSame($agency->id, $cu->fresh()->current_agency_id);
+    }
+
+    public function test_password_set_does_not_auto_select_when_multiple_agencies(): void
+    {
+        $agencyA = $this->makeAgency('MultiA');
+        $agencyB = $this->makeAgency('MultiB');
+        $cu = ClientUser::create(['email' => 'multi-agency@example.com']);
+        $this->makeContact($agencyA, ['email' => 'multi-agency@example.com', 'client_user_id' => $cu->id]);
+        $this->makeContact($agencyB, ['email' => 'multi-agency@example.com', 'client_user_id' => $cu->id]);
+
+        $token = $cu->createToken('activation', ['client-activation'], now()->addMinutes(15))->plainTextToken;
+
+        $res = $this->withHeader('Authorization', "Bearer {$token}")->postJson('/api/v1/client-auth/password/set', [
+            'password'              => 'secret-password-123',
+            'password_confirmation' => 'secret-password-123',
+        ]);
+
+        $res->assertOk()->assertJsonPath('client.current_agency_id', null);
+        $this->assertNull($cu->fresh()->current_agency_id);
+    }
+
     public function test_login_with_correct_password_returns_token(): void
     {
         $agency = $this->makeAgency();
@@ -304,9 +350,9 @@ class ClientAuthFlowTest extends TestCase
             'current_agency_id' => $agency->id,
         ]);
         $this->makeContact($agency, [
-            'email'              => 'hasagent@example.com',
-            'client_user_id'     => $cu->id,
-            'created_by_user_id' => $agent->id,
+            'email'          => 'hasagent@example.com',
+            'client_user_id' => $cu->id,
+            'agent_id'       => $agent->id,
         ]);
 
         $token = $cu->createToken('t', ['client'])->plainTextToken;
@@ -333,9 +379,9 @@ class ClientAuthFlowTest extends TestCase
             'current_agency_id' => $agency->id,
         ]);
         $this->makeContact($agency, [
-            'email'              => 'noagent@example.com',
-            'client_user_id'     => $cu->id,
-            'created_by_user_id' => null,
+            'email'          => 'noagent@example.com',
+            'client_user_id' => $cu->id,
+            'agent_id'       => null,
         ]);
 
         $token = $cu->createToken('t', ['client'])->plainTextToken;
@@ -367,9 +413,9 @@ class ClientAuthFlowTest extends TestCase
             'current_agency_id' => $agencyA->id,
         ]);
         $this->makeContact($agencyA, [
-            'email'              => 'leak@example.com',
-            'client_user_id'     => $cu->id,
-            'created_by_user_id' => $foreignAgent->id,
+            'email'          => 'leak@example.com',
+            'client_user_id' => $cu->id,
+            'agent_id'       => $foreignAgent->id,
         ]);
 
         $token = $cu->createToken('t', ['client'])->plainTextToken;
@@ -457,5 +503,167 @@ class ClientAuthFlowTest extends TestCase
 
         $this->assertSame(0, \Laravel\Sanctum\PersonalAccessToken::count());
         $this->assertNull(\Laravel\Sanctum\PersonalAccessToken::findToken($token));
+    }
+
+    /**
+     * Apple 5.1.1(v) account-deletion endpoint.
+     */
+    public function test_delete_account_with_correct_password_soft_deletes_and_unlinks_all_contacts(): void
+    {
+        $agencyA = $this->makeAgency('Delete A');
+        $agencyB = $this->makeAgency('Delete B');
+        $cu = ClientUser::create([
+            'email' => 'deleteme@example.com',
+            'password' => Hash::make('pw-12345678'),
+        ]);
+        $contactA = $this->makeContact($agencyA, ['email' => 'deleteme@example.com', 'client_user_id' => $cu->id]);
+        $contactB = $this->makeContact($agencyB, ['email' => 'deleteme@example.com', 'client_user_id' => $cu->id]);
+        $token = $cu->createToken('test', ['client'])->plainTextToken;
+
+        $res = $this->withHeader('Authorization', "Bearer {$token}")
+            ->deleteJson('/api/v1/client-auth/account', ['password' => 'pw-12345678']);
+
+        $res->assertOk()->assertJsonPath('ok', true);
+
+        $this->assertTrue(ClientUser::withTrashed()->findOrFail($cu->id)->trashed());
+        $this->assertSame(0, \Laravel\Sanctum\PersonalAccessToken::count());
+
+        $this->assertNull(
+            Contact::withoutGlobalScope(AgencyScope::class)->find($contactA->id)->client_user_id
+        );
+        $this->assertNull(
+            Contact::withoutGlobalScope(AgencyScope::class)->find($contactB->id)->client_user_id
+        );
+
+        $this->assertSame(2, ClientAccessLog::where('client_user_id', $cu->id)
+            ->where('event', 'account_deleted')->count());
+        $this->assertDatabaseHas('client_access_logs', [
+            'client_user_id' => $cu->id,
+            'agency_id' => $agencyA->id,
+            'contact_id' => $contactA->id,
+            'event' => 'account_deleted',
+        ]);
+    }
+
+    public function test_delete_account_with_wrong_password_returns_422_and_leaves_account_intact(): void
+    {
+        $agency = $this->makeAgency();
+        $cu = ClientUser::create([
+            'email' => 'keepme@example.com',
+            'password' => Hash::make('correct-pw-123'),
+        ]);
+        $contact = $this->makeContact($agency, ['email' => 'keepme@example.com', 'client_user_id' => $cu->id]);
+        $token = $cu->createToken('test', ['client'])->plainTextToken;
+
+        $res = $this->withHeader('Authorization', "Bearer {$token}")
+            ->deleteJson('/api/v1/client-auth/account', ['password' => 'wrong-password']);
+
+        $res->assertStatus(422);
+
+        $this->assertFalse(ClientUser::withTrashed()->findOrFail($cu->id)->trashed());
+        $this->assertSame(1, \Laravel\Sanctum\PersonalAccessToken::count());
+        $this->assertSame(
+            $cu->id,
+            Contact::withoutGlobalScope(AgencyScope::class)->find($contact->id)->client_user_id
+        );
+    }
+
+    public function test_delete_account_allowed_without_password_check_while_must_change_password(): void
+    {
+        $agency = $this->makeAgency();
+        $cu = ClientUser::create([
+            'email' => 'mustchange@example.com',
+            'password' => Hash::make('temp-pw-123'),
+            'password_must_change' => true,
+        ]);
+        $this->makeContact($agency, ['email' => 'mustchange@example.com', 'client_user_id' => $cu->id]);
+        $token = $cu->createToken('test', ['client'])->plainTextToken;
+
+        // No 'password' field — only legal because password_must_change is true.
+        $res = $this->withHeader('Authorization', "Bearer {$token}")
+            ->deleteJson('/api/v1/client-auth/account', ['must_change' => 1]);
+
+        $res->assertOk();
+        $this->assertTrue(ClientUser::withTrashed()->findOrFail($cu->id)->trashed());
+    }
+
+    public function test_delete_account_with_no_linked_contacts_logs_single_row(): void
+    {
+        $cu = ClientUser::create([
+            'email' => 'orphan@example.com',
+            'password' => Hash::make('pw-12345678'),
+        ]);
+        $token = $cu->createToken('test', ['client'])->plainTextToken;
+
+        $this->withHeader('Authorization', "Bearer {$token}")
+            ->deleteJson('/api/v1/client-auth/account', ['password' => 'pw-12345678'])
+            ->assertOk();
+
+        $this->assertSame(1, ClientAccessLog::where('client_user_id', $cu->id)
+            ->where('event', 'account_deleted')->count());
+    }
+
+    /**
+     * Regression for a real production bug (2026-08-13): client_users.email
+     * carried a plain global-unique index, so a soft-deleted ClientUser
+     * still occupied its email in the DB. A genuine re-signup after account
+     * deletion hit a 1062 duplicate-entry 500 inside findOrCreateClientUser
+     * — AFTER the OTP was already marked used, so the retry with the SAME
+     * (correct) code then legitimately 422'd as "already used". Fixed by
+     * migration 2026_08_22_000004 (unique index scoped to active rows via a
+     * generated column). This test re-creates the full user-facing sequence
+     * end to end.
+     */
+    public function test_re_signup_via_otp_succeeds_after_account_deletion_with_same_email(): void
+    {
+        $agency = $this->makeAgency();
+        $email = 'reborn@example.com';
+        $cu = ClientUser::create(['email' => $email, 'password' => Hash::make('pw-12345678')]);
+        $this->makeContact($agency, ['email' => $email, 'client_user_id' => $cu->id]);
+        $token = $cu->createToken('test', ['client'])->plainTextToken;
+
+        $this->withHeader('Authorization', "Bearer {$token}")
+            ->deleteJson('/api/v1/client-auth/account', ['password' => 'pw-12345678'])
+            ->assertOk();
+
+        $this->assertTrue(ClientUser::withTrashed()->findOrFail($cu->id)->trashed());
+
+        // The Contact stays on the agency's books and still carries the
+        // email, so a fresh OTP send/verify (same email) must succeed.
+        $code = '654321';
+        ClientOtp::create([
+            'email' => $email, 'purpose' => 'activation',
+            'code_hash' => Hash::make($code), 'expires_at' => now()->addMinutes(10),
+        ]);
+
+        $res = $this->postJson('/api/v1/client-auth/otp/verify', [
+            'email' => $email, 'code' => $code,
+        ]);
+
+        $res->assertOk()->assertJsonStructure(['activation_token', 'email']);
+
+        $this->assertSame(1, ClientUser::where('email', $email)->count(), 'exactly one ACTIVE row for the email');
+        $this->assertSame(1, ClientUser::onlyTrashed()->where('email', $email)->count(), 'the original stays trashed, not resurrected');
+        $this->assertNotSame($cu->id, ClientUser::where('email', $email)->first()->id, 'a genuinely new identity, not a reused/undeleted one');
+    }
+
+    public function test_login_after_account_deletion_behaves_as_if_never_signed_up(): void
+    {
+        $agency = $this->makeAgency();
+        $cu = ClientUser::create([
+            'email' => 'gone@example.com',
+            'password' => Hash::make('pw-12345678'),
+        ]);
+        $this->makeContact($agency, ['email' => 'gone@example.com', 'client_user_id' => $cu->id]);
+        $token = $cu->createToken('test', ['client'])->plainTextToken;
+
+        $this->withHeader('Authorization', "Bearer {$token}")
+            ->deleteJson('/api/v1/client-auth/account', ['password' => 'pw-12345678'])
+            ->assertOk();
+
+        $this->postJson('/api/v1/client-auth/login', [
+            'email' => 'gone@example.com',
+            'password' => 'pw-12345678',
+        ])->assertStatus(422);
     }
 }

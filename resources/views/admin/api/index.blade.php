@@ -6,19 +6,19 @@
 <div class="w-full space-y-5">
 
     {{-- Page header (Pattern A — branded) --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">API Catalog</h1>
-                <p class="text-sm text-white/60">
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">API Catalog</h1>
+                <p class="text-xs" style="color: var(--text-muted);">
                     Live registry of every API endpoint in CoreX OS — generated from Laravel's route table.
                     {{ number_format($total) }} endpoints registered.
                 </p>
             </div>
-            <div class="flex items-center gap-2 flex-wrap">
-                <span class="text-xs text-white/60">Test global call:</span>
+            <div class="flex flex-wrap items-center gap-2">
+                <span class="text-xs" style="color: var(--text-muted);">Test global call:</span>
                 <code class="px-2 py-1 rounded-md text-xs font-mono"
-                      style="background: rgba(255,255,255,0.10); color: #fff; border: 1px solid rgba(255,255,255,0.18);">window.CoreX.api.loggedUser()</code>
+                      style="background: var(--surface-2); color: var(--text-primary); border: 1px solid var(--border);">window.CoreX.api.loggedUser()</code>
             </div>
         </div>
     </div>
@@ -26,9 +26,9 @@
     @forelse($groups as $groupName => $rows)
         <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
             <div class="px-4 py-3" style="border-bottom: 1px solid var(--border);">
-                <h2 class="text-sm font-semibold uppercase tracking-wider" style="color: var(--brand-icon, #0ea5e9);">
+                <h2 class="text-xs font-bold uppercase tracking-wider" style="color: var(--text-muted);">
                     {{ $groupName }}
-                    <span class="ml-2 text-xs font-normal" style="color: var(--text-secondary);">({{ number_format($rows->count()) }})</span>
+                    <span class="ml-2 font-normal" style="color: var(--text-faint);">({{ number_format($rows->count()) }})</span>
                 </h2>
             </div>
             <div class="overflow-x-auto">

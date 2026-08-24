@@ -48,7 +48,7 @@
     // SVG used as the placeholder when no image is available — same
     // glyph the original buildPropertyCard rendered.
     var PLACEHOLDER_SVG =
-        '<svg class="w-10 h-10 text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1">'
+        '<svg class="w-10 h-10 text-[var(--text-faint)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1">'
         + '<path stroke-linecap="round" stroke-linejoin="round" d="m2.25 12 8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25"/>'
         + '</svg>';
 
@@ -59,10 +59,10 @@
         var address  = card.address || '';
         var priceStr = formatPrice(card.price);
 
-        var html = '<div class="rounded-lg border border-slate-100 overflow-hidden hover:border-slate-200 transition-colors" style="position:relative;">';
+        var html = '<div class="rounded-lg border border-[var(--border)] overflow-hidden hover:border-[var(--border)] transition-colors" style="position:relative;">';
 
         // Image + overlay (placeholder when no image).
-        html += '<div class="relative h-28 bg-slate-100 overflow-hidden">';
+        html += '<div class="relative h-28 bg-[var(--surface-2)] overflow-hidden">';
         if (card.image_url) {
             html += '<img src="' + esc(card.image_url) + '" alt="" class="w-full h-full object-cover" loading="lazy"'
                 +  ' onerror="this.closest(\'.relative\').querySelector(\'.placeholder-icon\').classList.remove(\'hidden\');this.style.display=\'none\'">';
@@ -77,7 +77,7 @@
         if (card.top_right_pill && card.top_right_pill.label) {
             var p = card.top_right_pill;
             html += '<span style="position:absolute;top:6px;right:6px;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;'
-                + 'background:' + esc(p.bg || 'rgba(255,255,255,0.92)') + ';color:' + esc(p.fg || '#0f172a') + ';">'
+                + 'background:' + esc(p.bg || 'var(--surface)') + ';color:' + esc(p.fg || 'var(--text-primary)') + ';">'
                 + esc(p.label) + '</span>';
         }
 
@@ -90,9 +90,9 @@
 
         html += '<div class="px-3 py-2.5">';
 
-        html += '<p class="text-xs font-semibold text-slate-700 truncate" title="' + esc(title) + '">' + esc(title || 'Property') + '</p>';
+        html += '<p class="text-xs font-semibold text-[var(--text-secondary)] truncate" title="' + esc(title) + '">' + esc(title || 'Property') + '</p>';
         if (address && address !== title) {
-            html += '<p class="text-[11px] text-slate-400 truncate mt-0.5">' + esc(address) + '</p>';
+            html += '<p class="text-[11px] text-[var(--text-faint)] truncate mt-0.5">' + esc(address) + '</p>';
         }
 
         var stats = [];
@@ -102,25 +102,25 @@
         if (card.erf_m2)  stats.push(card.erf_m2 + ' m² erf');
         if (card.floor_m2) stats.push(card.floor_m2 + ' m² floor');
         if (stats.length > 0) {
-            html += '<p class="text-[11px] text-slate-500 mt-1">' + stats.join(' · ') + '</p>';
+            html += '<p class="text-[11px] text-[var(--text-muted)] mt-1">' + stats.join(' · ') + '</p>';
         }
 
         if (card.agent_name) {
-            html += '<p class="text-[10px] text-slate-400 mt-0.5">' + esc(card.agent_name) + '</p>';
+            html += '<p class="text-[10px] text-[var(--text-faint)] mt-0.5">' + esc(card.agent_name) + '</p>';
         }
 
         // Footer: ref + badges (left) · click-through + page-specific actions (right).
-        html += '<div class="flex items-center justify-between mt-2 pt-1.5 border-t border-slate-50">';
+        html += '<div class="flex items-center justify-between mt-2 pt-1.5 border-t border-[var(--border)]">';
         html += '<div class="flex items-center gap-2 flex-wrap">';
         if (card.ref) {
-            html += '<span class="text-[10px] text-slate-400 font-mono">' + esc(card.ref) + '</span>';
+            html += '<span class="text-[10px] text-[var(--text-faint)] font-mono">' + esc(card.ref) + '</span>';
         }
         if (Array.isArray(card.badges)) {
             for (var i = 0; i < card.badges.length; i++) {
                 var b = card.badges[i] || {};
                 if (!b.label) continue;
                 html += '<span style="padding:1px 6px;border-radius:8px;font-size:10px;font-weight:600;'
-                    + 'background:' + esc(b.bg || '#f1f5f9') + ';color:' + esc(b.fg || '#475569') + ';">'
+                    + 'background:' + esc(b.bg || 'var(--surface-2)') + ';color:' + esc(b.fg || 'var(--text-secondary)') + ';">'
                     + esc(b.label) + '</span>';
             }
         }

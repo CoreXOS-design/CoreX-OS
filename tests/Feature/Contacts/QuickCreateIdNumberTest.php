@@ -59,7 +59,7 @@ final class QuickCreateIdNumberTest extends TestCase
                 'first_name' => 'Jane', 'last_name' => 'Tester', 'phone' => '0821234567',
                 'role'       => 'seller',
                 // Last digit is wrong (checksum) — date OK, length OK.
-                'id_number'  => '7610025020082',
+                'id_number'  => '9001015030083',
             ],
         );
         $resp->assertStatus(422);
@@ -77,13 +77,13 @@ final class QuickCreateIdNumberTest extends TestCase
             [
                 'first_name' => 'Sam', 'last_name' => 'Test', 'phone' => '0821234567',
                 'role'       => 'seller',
-                'id_number'  => '7610025020081',
+                'id_number'  => '9001015030082',
             ],
         );
         $resp->assertOk();
 
-        $contact = Contact::where('id_number', '7610025020081')->firstOrFail();
-        $this->assertSame('7610025020081', $contact->id_number);
+        $contact = Contact::where('id_number', '9001015030082')->firstOrFail();
+        $this->assertSame('9001015030082', $contact->id_number);
         $this->assertSame('property_inline_create', $contact->id_number_source);
         $this->assertNotNull($contact->id_number_captured_at);
         $this->assertTrue($contact->id_number_captured_at->greaterThanOrEqualTo($before));
@@ -92,15 +92,15 @@ final class QuickCreateIdNumberTest extends TestCase
     /** M65 — SA ID validator helpers extract DOB + gender correctly. */
     public function test_m65_id_helpers_extract_dob_and_gender(): void
     {
-        $id = '7610025020081';
-        $this->assertSame('1976-10-02', SouthAfricanIdNumber::dateOfBirth($id));
+        $id = '9001015030082';
+        $this->assertSame('1990-01-01', SouthAfricanIdNumber::dateOfBirth($id));
         $this->assertSame('M', SouthAfricanIdNumber::gender($id),
-            'sequence 5020 → male (≥ 5000)');
+            'sequence 5030 → male (≥ 5000)');
 
-        // A female placeholder (sequence 0001 < 5000).
-        $maleId   = '7610025020081';
-        $femaleId = '7610020001083';  // crafted to be female with a valid date
-        // Date 1976-10-02 valid, gender = F.
+        // A female placeholder (sequence 0030 < 5000).
+        $maleId   = '9001015030082';
+        $femaleId = '9001010030087';  // crafted to be female with a valid date
+        // Date 1990-01-01 valid, gender = F.
         $this->assertSame('F', SouthAfricanIdNumber::gender($femaleId));
         $this->assertNull(SouthAfricanIdNumber::dateOfBirth('12345'),
             'invalid input returns null');

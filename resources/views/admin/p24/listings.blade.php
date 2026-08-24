@@ -16,7 +16,7 @@
             <form method="GET" action="{{ route('admin.p24.listings') }}" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mt-4">
                 <div>
                     <label class="ds-label">Suburb</label>
-                    <select name="suburb" class="w-full rounded border-gray-300 text-sm px-3 py-2 focus:ring-cyan-500 focus:border-cyan-500">
+                    <select name="suburb" class="w-full rounded text-sm px-3 py-2 focus:ring-cyan-500" style="border:1px solid var(--border)">
                         <option value="">All</option>
                         @foreach($suburbs as $sub)
                             <option value="{{ $sub }}" {{ request('suburb') === $sub ? 'selected' : '' }}>{{ $sub }}</option>
@@ -25,7 +25,7 @@
                 </div>
                 <div>
                     <label class="ds-label">Property Type</label>
-                    <select name="type" class="w-full rounded border-gray-300 text-sm px-3 py-2 focus:ring-cyan-500 focus:border-cyan-500">
+                    <select name="type" class="w-full rounded text-sm px-3 py-2 focus:ring-cyan-500" style="border:1px solid var(--border)">
                         <option value="">All</option>
                         @foreach($types as $type)
                             <option value="{{ $type }}" {{ request('type') === $type ? 'selected' : '' }}>{{ $type }}</option>
@@ -34,11 +34,11 @@
                 </div>
                 <div>
                     <label class="ds-label">Min Price</label>
-                    <input type="number" name="min_price" value="{{ request('min_price') }}" placeholder="e.g. 500000" class="w-full rounded border-gray-300 text-sm px-3 py-2 focus:ring-cyan-500 focus:border-cyan-500">
+                    <input type="number" name="min_price" value="{{ request('min_price') }}" placeholder="e.g. 500000" class="w-full rounded text-sm px-3 py-2 focus:ring-cyan-500" style="border:1px solid var(--border)">
                 </div>
                 <div>
                     <label class="ds-label">Max Price</label>
-                    <input type="number" name="max_price" value="{{ request('max_price') }}" placeholder="e.g. 3000000" class="w-full rounded border-gray-300 text-sm px-3 py-2 focus:ring-cyan-500 focus:border-cyan-500">
+                    <input type="number" name="max_price" value="{{ request('max_price') }}" placeholder="e.g. 3000000" class="w-full rounded text-sm px-3 py-2 focus:ring-cyan-500" style="border:1px solid var(--border)">
                 </div>
                 <div class="flex items-end">
                     <button type="submit" class="corex-btn-primary w-full">Filter</button>
@@ -51,7 +51,7 @@
             <h3 class="ds-section-header">Results ({{ $listings->total() }})</h3>
             <div class="overflow-x-auto mt-4">
                 <table class="min-w-full text-sm ds-table">
-                    <thead class="bg-slate-50 dark:bg-slate-900/40 text-slate-600">
+                    <thead style="background:var(--surface-2); color:var(--text-muted)">
                         <tr>
                             <th class="text-left px-4 py-3">First Seen</th>
                             <th class="text-left px-4 py-3">P24 Number</th>
@@ -66,13 +66,13 @@
                             <th class="text-left px-4 py-3">Status</th>
                         </tr>
                     </thead>
-                    <tbody class="divide-y divide-slate-200 dark:divide-slate-800">
+                    <tbody class="divide-y" style="--tw-divide-y-color:var(--border)">
                         @forelse($listings as $listing)
                         <tr>
-                            <td class="px-4 py-3 text-slate-600">{{ $listing->first_seen_date->format('Y-m-d') }}</td>
+                            <td class="px-4 py-3" style="color:var(--text-secondary)">{{ $listing->first_seen_date->format('Y-m-d') }}</td>
                             <td class="px-4 py-3">
                                 @if($listing->p24_url)
-                                    <a href="{{ $listing->p24_url }}" target="_blank" class="text-cyan-600 hover:underline">{{ $listing->p24_listing_number }}</a>
+                                    <a href="{{ $listing->p24_url }}" target="_blank" class="hover:underline" style="color:var(--brand-icon)">{{ $listing->p24_listing_number }}</a>
                                 @else
                                     {{ $listing->p24_listing_number }}
                                 @endif
@@ -110,7 +110,7 @@
                         </tr>
                         @empty
                         <tr>
-                            <td colspan="11" class="px-4 py-8 text-center text-gray-500">No listings match your filters.</td>
+                            <td colspan="11" class="px-4 py-8 text-center" style="color:var(--text-muted)">No listings match your filters.</td>
                         </tr>
                         @endforelse
                     </tbody>

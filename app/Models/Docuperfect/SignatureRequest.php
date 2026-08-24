@@ -19,6 +19,13 @@ class SignatureRequest extends Model
         'signing_order',
         'signing_group',
         'signer_name',
+        'signer_caption',
+        'party_clause_text',
+        'is_deceased',
+        'is_proxy',
+        'recipient_local_key',
+        'recipient_template_id',
+        'slot_bindings',
         'signer_email',
         'signer_id_number',
         'token',
@@ -65,6 +72,9 @@ class SignatureRequest extends Model
         'team_alerted_at' => 'datetime',
         'authorised_at' => 'datetime',
         'fica_required' => 'boolean',
+        'is_deceased' => 'boolean',
+        'is_proxy' => 'boolean',
+        'slot_bindings' => 'array',
     ];
 
     // Status constants
@@ -76,12 +86,65 @@ class SignatureRequest extends Model
     const STATUS_EXPIRED = 'expired';
     const STATUS_DECLINED = 'declined';
     const STATUS_DEFERRED = 'deferred';
+    // Displayed on the document, never signs — deceased, or collapsed out by a
+    // proxy elsewhere in their group. Never entered via the normal
+    // waiting->pending->...->completed flow; set once at generation time.
+    const STATUS_NOT_REQUIRED = 'not_required';
+
+    const NON_SIGNING_REASON_DECEASED = 'deceased';
+    const NON_SIGNING_REASON_PROXY_COLLAPSED = 'proxy_collapsed';
 
     // Wet ink status constants
     const WET_INK_PENDING_UPLOAD = 'pending_upload';
     const WET_INK_UPLOADED_PENDING_REVIEW = 'uploaded_pending_review';
     const WET_INK_APPROVED = 'approved';
     const WET_INK_REJECTED = 'rejected';
+
+    /**
+     * THE single predicate (Elize's rule via Johan, 2026-08-24): does this
+     * row need to sign? Every party always displays; this only ever gates
+     * whether an invitation is ever sent. Two reasons a party doesn't sign,
+     * checked in order — deceased is absolute; proxy is relative to the
+     * GROUP (every other same-role party on this same document):
+     *
+     *   1. This row itself is marked deceased — never signs, full stop.
+     *   2. ANY row sharing this document + party_role is marked proxy, and
+     *      this row is NOT that one — the proxy signs, everyone else in
+     *      the group does not (they still display).
+     *
+     * This is the ONLY place this decision is made. SignatureService::
+     * sendSigningRequest() — the single choke point every invitation email
+     * flows through, regardless of which caller reaches it — checks this
+     * before ever sending, never a separate check re-derived per caller.
+     * Both is_deceased and is_proxy are frozen at generation time (plain
+     * columns on this row, not looked up from live Contact/representative
+     * state), so this predicate's answer never changes after the fact.
+     */
+    public function isSigningParticipant(): bool
+    {
+        return $this->nonSigningReason() === null;
+    }
+
+    /** Why this row doesn't sign, or null if it does. See {@see isSigningParticipant()}. */
+    public function nonSigningReason(): ?string
+    {
+        if ($this->is_deceased) {
+            return self::NON_SIGNING_REASON_DECEASED;
+        }
+
+        if ($this->is_proxy) {
+            return null; // the proxy itself always signs
+        }
+
+        $groupHasProxy = static::query()
+            ->where('signature_template_id', $this->signature_template_id)
+            ->where('party_role', $this->party_role)
+            ->where('is_proxy', true)
+            ->where('id', '!=', $this->id)
+            ->exists();
+
+        return $groupHasProxy ? self::NON_SIGNING_REASON_PROXY_COLLAPSED : null;
+    }
 
     // --- Relationships ---
 

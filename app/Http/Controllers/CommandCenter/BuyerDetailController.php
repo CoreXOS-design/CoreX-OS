@@ -32,7 +32,9 @@ class BuyerDetailController extends Controller
 
         // Eager-load the contact's wishlists for the new tab. Sort primary
         // first so the card layout naturally puts the primary at the top.
-        $contact->load('agent');
+        // Notes tab (2026-08-20, Johan) — same relation, same rows
+        // contacts/show.blade.php already reads (contact_notes.user).
+        $contact->load(['agent', 'contactNotes.user']);
         $contact->setRelation(
             'matches',
             $contact->matches()->orderByDesc('is_primary')->orderByDesc('updated_at')->get()

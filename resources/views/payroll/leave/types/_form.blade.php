@@ -2,7 +2,7 @@
 @php
     // Shared input styling — token-driven, matches UI_DESIGN_SYSTEM.md §3.6.
     $inputClass = 'w-full px-3 py-2 text-sm rounded-md focus:outline-none';
-    $inputStyle = 'background:var(--surface, #ffffff); border:1px solid var(--border, rgba(0,0,0,0.07)); color:var(--text-primary, #111827);';
+    $inputStyle = 'background:var(--surface-2, #ffffff); border:1px solid var(--border, rgba(0,0,0,0.07)); color:var(--text-primary, #111827);';
     $labelStyle = 'color:var(--text-secondary, #4b5563);';
     $helpStyle  = 'color:var(--text-muted, #9ca3af);';
 @endphp
@@ -20,7 +20,7 @@
     @endif
 
     {{-- Section 1: Identification --}}
-    <div class="p-4 rounded-md" style="background:var(--surface-2, #f0f2f8); border:1px solid var(--border, rgba(0,0,0,0.07));">
+    <div class="p-4 rounded-md" style="background:var(--surface); border:1px solid var(--border);">
         <h4 class="text-xs font-bold uppercase tracking-wider mb-3" style="{{ $labelStyle }}">Identification</h4>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
@@ -61,7 +61,7 @@
     </div>
 
     {{-- Section 2: Tax & Pay --}}
-    <div class="p-4 rounded-md" style="background:var(--surface-2, #f0f2f8); border:1px solid var(--border, rgba(0,0,0,0.07));">
+    <div class="p-4 rounded-md" style="background:var(--surface); border:1px solid var(--border);">
         <h4 class="text-xs font-bold uppercase tracking-wider mb-3" style="{{ $labelStyle }}">Tax & Pay Treatment</h4>
         <div class="space-y-3">
             @foreach([
@@ -84,7 +84,7 @@
     </div>
 
     {{-- Section 3: Entitlement & Cycle --}}
-    <div class="p-4 rounded-md" style="background:var(--surface-2, #f0f2f8); border:1px solid var(--border, rgba(0,0,0,0.07));">
+    <div class="p-4 rounded-md" style="background:var(--surface); border:1px solid var(--border);">
         <h4 class="text-xs font-bold uppercase tracking-wider mb-3" style="{{ $labelStyle }}">Entitlement & Cycle</h4>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
@@ -152,7 +152,7 @@
     </div>
 
     {{-- Section 4: Application rules --}}
-    <div class="p-4 rounded-md" style="background:var(--surface-2, #f0f2f8); border:1px solid var(--border, rgba(0,0,0,0.07));">
+    <div class="p-4 rounded-md" style="background:var(--surface); border:1px solid var(--border);">
         <h4 class="text-xs font-bold uppercase tracking-wider mb-3" style="{{ $labelStyle }}">Application Rules</h4>
         <div class="space-y-3">
             <label class="relative inline-flex items-center cursor-pointer gap-3">

@@ -16,6 +16,24 @@ class Property24SyndicationService
     private Property24ListingMapper $mapper;
 
     /**
+     * SyncProperty24Activations (2026-08-23) — safety ceiling on how many
+     * properties syncAllActivations() checks in one job invocation. Was
+     * unbounded: 186 properties x 1 sequential HTTP call each, inside a 300s
+     * job timeout, never once completed on live (zero "P24 activation sync
+     * complete" log lines found; every attempt died mid-loop as
+     * MaxAttemptsExceededException — a killed process, not a caught error).
+     * 40 gives a ~7.5s-per-property budget inside the 300s ceiling, well
+     * clear even of an unusually slow P24 response. Same STALE-FIRST
+     * ordering idiom as P24StatsService::NIGHTLY_MAX_LISTINGS (AT-200) —
+     * see syncAllActivations() — so at the current scale (186 properties,
+     * every 15 minutes) the whole set rotates through in ~5 ticks, and the
+     * cap stays a safety ceiling rather than a starvation risk as the count
+     * grows. Deliberately sequential (one HTTP call at a time, same as
+     * today) — bounding the PER-RUN size, not adding concurrent P24 calls.
+     */
+    public const ACTIVATION_SYNC_MAX_PER_RUN = 40;
+
+    /**
      * The ONLY P24 call a refresh of an unchanged listing may make: the listing
      * POST itself. See auditRefreshCost — this is a budget, not a description.
      */
@@ -52,6 +70,44 @@ class Property24SyndicationService
      * subsequent ingress paths (e.g. P24 lead pull) can resolve back to this
      * stock Property via TrackedPropertyMatchOrCreateService. Best-effort —
      * any failure here must not break syndication.
+     *
+     * MIC CRISIS ITEM 3 (2026-08-19, Johan — reopened regression, "already in
+     * stock" + opens the wrong property): this method used to write
+     * `promoted_to_property_id` onto WHATEVER TrackedProperty matchOrCreate()
+     * returned — including one it merely MATCHED via a loose strategy
+     * (address-history / normalised-address / token-overlap), not one it
+     * created from THIS property's own facts. $facts here is deliberately
+     * thin (raw `address` string, no street_number/street_name split, no
+     * erf_number at all — cheap on purpose, this is a best-effort audit
+     * write, not a full capture), so the matcher's loose strategies are the
+     * ones most likely to fire. Confirmed live on qa1 (properties #1370,
+     * #3548, #6096): this call runs on EVERY P24 sync (property #1370 alone
+     * shows 11 separate writeP24ExternalRef entries in one TrackedProperty's
+     * source_chain over two weeks), and because the candidate pool of
+     * TrackedProperty rows keeps growing, a LATER sync of the SAME already-
+     * promoted property matched a DIFFERENT, genuinely unrelated
+     * TrackedProperty than an EARLIER sync did — and this method blindly
+     * stamped promoted_to_property_id on it too, without setting promoted_at/
+     * promoted_by_user_id/status the way the real claim/promote flow
+     * (TrackedPropertyMatchOrCreateService::promoteToStock()) does. That
+     * poisoned TrackedProperty then reads as "already in agency stock" the
+     * next time an agent tries to claim/promote it from MIC
+     * (TrackedPropertyController::promote()'s isPromoted() check is just
+     * `promoted_to_property_id !== null`) — and redirects to THIS property,
+     * not the one the agent actually meant to claim. All three confirmed-live
+     * poisoned rows have promoted_to_property_id set but promoted_at NULL —
+     * the tell that they were never promoted through the real flow.
+     *
+     * Fix: only bind promoted_to_property_id when matchOrCreate() genuinely
+     * CREATED a fresh TrackedProperty in THIS call (wasRecentlyCreated) — a
+     * freshly-created row was seeded directly from $facts, i.e. from THIS
+     * property's own address/suburb/GPS, so linking it back is safe by
+     * construction. When matchOrCreate() instead MATCHED an existing row,
+     * that row's identity was only established by a best-effort strategy and
+     * may belong to a different physical unit — leave promoted_to_property_id
+     * alone; writeExternalRef() (called unconditionally inside
+     * matchOrCreate() itself) still records the P24 ref either way, which is
+     * this method's actual stated purpose.
      */
     private function writeP24ExternalRef(Property $property, string $listingNumber): void
     {
@@ -75,8 +131,12 @@ class Property24SyndicationService
                 actorUserId: null,
             );
 
-            // Bind the tracked property to this stock property if not already.
-            if (empty($tracked->promoted_to_property_id)) {
+            // Bind the tracked property to this stock property ONLY when it was
+            // freshly created for THIS call (seeded from this property's own
+            // facts) — never an EXISTING row merely matched by a loose
+            // strategy, which can be a genuinely different physical unit. See
+            // the MIC CRISIS ITEM 3 comment above.
+            if ($tracked->wasRecentlyCreated && empty($tracked->promoted_to_property_id)) {
                 $tracked->promoted_to_property_id = $property->id;
                 $tracked->save();
             }
@@ -87,6 +147,15 @@ class Property24SyndicationService
 
     public function submitListing(Property $property): array
     {
+        // AT-369 — THE service-layer backstop. Every P24 submission path in the
+        // app (controller, queued job, console commands, bulk command, and any
+        // future caller) funnels through this method — so this single check is
+        // what actually closes the gate, not the cosmetic UI disable. Checked
+        // before the lock: a blocked attempt should never even contend for it.
+        if ($blocked = $this->blockIfPpExclusive($property)) {
+            return $blocked;
+        }
+
         // AT-P24 remediation (#4): serialise submits per property so the same
         // listing is never saved to P24 twice concurrently — P24 rejects that
         // with "Cannot call the method simultaneously". The queued job is also
@@ -104,6 +173,32 @@ class Property24SyndicationService
         } finally {
             optional($lock)->release();
         }
+    }
+
+    /**
+     * AT-369 — refuse to push a listing to P24 while Private Property holds it
+     * exclusive. Persists a clear status + reason on the property (never a
+     * silent skip — a caller that dispatched a queued job and returned
+     * "submitting" to the UI must not leave the property stuck there) and logs
+     * it. Returns null when the listing is clear to submit.
+     */
+    private function blockIfPpExclusive(Property $property): ?array
+    {
+        if (!$property->isPpExclusiveActive()) {
+            return null;
+        }
+
+        $until   = $property->pp_delay_until->format('d M Y');
+        $message = "Blocked — Private Property exclusivity is active until {$until}. Property24 (and every other portal) cannot receive this listing until the exclusive period lapses.";
+
+        $property->update([
+            'p24_syndication_status' => 'error',
+            'p24_last_error'         => $message,
+        ]);
+
+        $this->log('warning', "P24 submit blocked for property #{$property->id} — PP exclusive until {$until}");
+
+        return ['success' => false, 'message' => $message];
     }
 
     private function performSubmit(Property $property): array
@@ -457,7 +552,12 @@ class Property24SyndicationService
             return null;
         }
 
-        return (bool) ($result['data'] ?? false);
+        // Read the client's normalised answer. This used to cast 'data' directly:
+        // the live payload is the ARRAY ['raw' => '1'] or ['raw' => ''], and both
+        // are non-empty arrays, so (bool) returned true unconditionally — this
+        // "is it still live" guard answered YES for every listing, including the
+        // ~10.7k weekly checks where P24 said it was off the portal.
+        return $result['on_portal'] ?? null;
     }
 
     public function deactivateListing(Property $property): array
@@ -539,6 +639,15 @@ class Property24SyndicationService
 
     public function reactivateListing(Property $property): array
     {
+        // AT-369 — found in audit: reactivateListing() calls setListingStatus()
+        // directly (BackOnMarket), never routing through submitListing(), so it
+        // was NOT covered by that method's blockIfPpExclusive() guard. A
+        // previously-deactivated P24 listing could be brought straight back
+        // onto the portal during a PP-exclusive window through this path alone.
+        if ($blocked = $this->blockIfPpExclusive($property)) {
+            return $blocked;
+        }
+
         if (empty($property->p24_ref)) {
             return ['success' => false, 'message' => 'No P24 reference — listing was never submitted'];
         }
@@ -575,29 +684,42 @@ class Property24SyndicationService
         $this->bindClientForProperty($property);
         $result = $this->client->isOnPortal($property->id, (int) $property->p24_ref);
 
+        // ATTEMPT cursor, not a success cursor (same reasoning as
+        // P24StatsService::p24_stats_synced_at, AT-200) — stamped whether this
+        // check succeeded or not, via a raw update so it never fires model
+        // events. A chronically-failing listing must still rotate away in
+        // syncAllActivations()'s stale-first ordering, or it would sort first
+        // forever and starve the rest of the batch.
+        \Illuminate\Support\Facades\DB::table('properties')->where('id', $property->id)
+            ->update(['p24_activation_last_checked_at' => now()]);
+
         if (!$result['success']) {
             return ['success' => false, 'message' => $result['message'] ?? 'Status check failed', 'status' => $property->p24_syndication_status];
         }
 
-        // is-on-portal returns a bare boolean. When P24 sends it as
-        // Content-Type: application/json, the client decodes it to a PHP bool
-        // and wraps it as ['data' => true|false] — so array-accessing $data['raw']
-        // on a scalar yields null and the status never reconciled (listings stuck
-        // 'submitted' forever). Handle the scalar/bool shape first.
-        $data = $result['data'] ?? [];
-        $isOnPortal = is_array($data)
-            ? ($data['raw'] ?? $data['isOnPortal'] ?? $data['IsOnPortal'] ?? null)
-            : $data;
+        // The client owns this endpoint's wire format and hands us a normalised
+        // true|false|null — never re-parse 'data' here. See
+        // Property24ApiClient::interpretOnPortalPayload for the format and for why
+        // parsing it in this method left every listing unreconciled.
+        $isOnPortal = $result['on_portal'] ?? null;
 
-        if ($isOnPortal === true || $isOnPortal === 'true' || $isOnPortal === 'True') {
+        if ($isOnPortal === true) {
             if ($property->p24_syndication_status !== 'active') {
                 $property->update(['p24_syndication_status' => 'active', 'p24_activated_at' => $property->p24_activated_at ?? now(), 'p24_last_error' => null]);
                 $this->log('info', "Property #{$property->id} confirmed active on P24");
             }
-        } elseif ($isOnPortal === false || $isOnPortal === 'false' || $isOnPortal === 'False') {
+        } elseif ($isOnPortal === false) {
             if ($property->p24_syndication_status === 'active') {
                 $property->update(['p24_syndication_status' => 'submitted', 'p24_last_error' => 'Listing not currently on portal']);
+                $this->log('info', "Property #{$property->id} is no longer on P24 — demoted to 'submitted'");
             }
+        } else {
+            // Unknown answer — leave the status alone. Guessing here is what turns
+            // one odd response into a wrongly-delisted or wrongly-live listing.
+            $this->log('warning', "P24 is-on-portal returned an unrecognised payload for property #{$property->id} — status left unchanged", [
+                'property_id' => $property->id,
+                'data'        => $result['data'] ?? null,
+            ]);
         }
 
         return [
@@ -647,9 +769,27 @@ class Property24SyndicationService
         // Include 'active' so live listings are periodically re-verified against
         // is-on-portal — otherwise a P24-side removal (expiry, moderation) leaves
         // CoreX showing 'active' forever. submitted/pending await first activation.
+        //
+        // STALE-FIRST + BOUNDED (2026-08-23) — same idiom as P24StatsService's
+        // p24_stats_synced_at (AT-200): order by the per-property "last ATTEMPTED"
+        // cursor, NULLs (never checked) first, then oldest, and cap the batch at
+        // ACTIVATION_SYNC_MAX_PER_RUN. This was unbounded — every qualifying
+        // property, one sequential HTTP call each, inside one 300s job — and never
+        // completed once on live (186 properties currently qualify). Bounding the
+        // batch and rotating stale-first means the full set is covered across
+        // several 15-minute ticks instead of one run trying (and failing) to do
+        // all of it; total P24 call RATE is unchanged — still one call at a time,
+        // sequential, same as before, just spread over more runs.
+        $totalQualifying = Property::where('p24_syndication_enabled', true)
+            ->whereIn('p24_syndication_status', ['submitted', 'pending', 'active'])
+            ->whereNotNull('p24_ref')->count();
+
         $properties = Property::where('p24_syndication_enabled', true)
             ->whereIn('p24_syndication_status', ['submitted', 'pending', 'active'])
-            ->whereNotNull('p24_ref')->get();
+            ->whereNotNull('p24_ref')
+            ->orderByRaw('p24_activation_last_checked_at IS NOT NULL, p24_activation_last_checked_at ASC')
+            ->limit(self::ACTIVATION_SYNC_MAX_PER_RUN)
+            ->get();
 
         $synced = 0;
         $errors = 0;
@@ -658,8 +798,8 @@ class Property24SyndicationService
             $result['success'] ? $synced++ : $errors++;
         }
 
-        $this->log('info', "P24 activation sync complete: {$synced} synced, {$errors} errors, {$reaped} reaped");
-        return ['synced' => $synced, 'errors' => $errors, 'reaped' => $reaped, 'total' => $properties->count()];
+        $this->log('info', "P24 activation sync complete: {$synced} synced, {$errors} errors, {$reaped} reaped, {$properties->count()}/{$totalQualifying} checked this run");
+        return ['synced' => $synced, 'errors' => $errors, 'reaped' => $reaped, 'total' => $properties->count(), 'total_qualifying' => $totalQualifying];
     }
 
     /**

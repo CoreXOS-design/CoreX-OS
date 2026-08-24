@@ -65,6 +65,43 @@ Schedule::command('sales-documents:send-reminders')->dailyAt('09:00');
 // each agency's retention window (envelopes retained). Runs daily at 03:30.
 Schedule::command('communications:purge-embargoed-bodies')->dailyAt('03:30')->withoutOverlapping();
 
+// Agency Billing (AT-11) — safety net. The AgencyHeadcountChanged listener already
+// reconciles a plan the moment a user is added/deactivated/archived through the app;
+// this sweep catches the paths that bypass the User model entirely (bulk imports, raw
+// UPDATEs) so no agency can sit on the wrong plan indefinitely with nobody told.
+// A no-op night costs one COUNT per agency and emails nobody (compare-and-set).
+// 03:00 — well clear of the 08:30 queue/SMTP contention window.
+// Spec: .ai/specs/agency-billing.md §7.4
+Schedule::command('corex:billing-reconcile')->dailyAt('03:00')->withoutOverlapping();
+
+// AT-267 §14 E4 — nightly assistant-matrix drift sync. Adds any permission an Assigned Agent
+// has GAINED since setup to their assistant's matrix, switched OFF (a new capability is handed
+// over consciously). Idempotent; 04:15 keeps it clear of the 03:00/03:30 windows.
+Schedule::command('assistants:sync-matrix')->dailyAt('04:15')->withoutOverlapping();
+
+// AUDIT 2026-07-26 (F6) — assistant activity-log retention. LogAssistantActivity appends a row
+// per successful record-scoped assistant request (including GETs), so the table only ever grows.
+// AssistantActivityLog::prunable() keeps 12 months. Explicitly model-scoped rather than a bare
+// `model:prune`: an unscoped sweep would pick up every Prunable model in app/Models, which is not
+// a decision this line gets to make on their behalf.
+Schedule::command('model:prune', ['--model' => [\App\Models\AssistantActivityLog::class]])
+    ->dailyAt('04:30')->withoutOverlapping();
+
+// AT-72 — buyer pipeline auto-land safety net. Idempotent, agency-scoped; only
+// ever lands a contact with a countable wishlist and NO buyer_state yet onto
+// 'new' (audited via BuyerStateService::landOnPipeline() -> buyer_state_transitions).
+// Never touches a contact already in any state. Live's AT-72 observer hook
+// already keeps is_buyer honest for new wishlists (dry run 2026-08-20: 0
+// candidates, the 379-strong Buyers Pipeline is unaffected) — this exists so a
+// future gap in that hook (a bulk import, a raw UPDATE, anything that bypasses
+// the observer) can't silently strand a buyer off the pipeline indefinitely.
+// 04:45 — after buyers:recompute-states (04:00, line ~356: same domain, same
+// pattern) so the existing pipeline is settled first; clear of every other
+// window above (04:30 prune, 05:30 stale-claims). onOneServer() matches that
+// sibling job exactly — a buyer-state writer should never run concurrently
+// from two nodes.
+Schedule::command('buyers:autoland-pipeline')->dailyAt('04:45')->onOneServer()->withoutOverlapping();
+
 // AT-163 — voice-note transcription batch. Hourly; each run processes agencies
 // whose configured nightly time (default 22:00, clear of the 03:30 backup) matches
 // the current hour. CPU-nice'd inside the worker.
@@ -148,8 +185,52 @@ Schedule::command('corex:queue-healthcheck')
     ->onOneServer()
     ->name('queue-healthcheck');
 
+// Queue worker liveness alert — runs every minute so a FATAL/STOPPED
+// corex-worker-* process (e.g. one that lost its supervisor restart budget
+// during a MySQL blip, 2026-08-19) emails the configured Dev Settings
+// recipients within a minute instead of sitting undetected. See
+// .ai/specs/queue-worker-monitoring.md.
+//
+// production() ONLY — this checks supervisor status for the WHOLE shared host
+// (live AND staging worker groups both), not just this app's own environment.
+// Live and Staging are separate deployments of this same codebase, each with
+// their own `schedule:run` cron already running every minute (confirmed via
+// crontab -u root -l, 2026-08-19); without this guard both schedulers would
+// independently detect the same down process and — since each environment
+// has its own cache store, so the per-process alert throttle never crosses
+// environments — send duplicate alert emails for one real incident. The
+// Server Health panel and Dev Settings page stay fully usable on every
+// environment regardless; only the CRON-triggered check is single-sourced.
+if (app()->environment('production')) {
+    Schedule::command('corex:queue-worker-liveness-alert')
+        ->everyMinute()
+        ->withoutOverlapping()
+        ->onOneServer()
+        ->name('queue-worker-liveness-alert');
+}
+
 // Property24 ExDev activation polling — runs every 15 minutes
 Schedule::job(new \App\Jobs\SyncProperty24Activations())->everyFifteenMinutes()->withoutOverlapping();
+
+// Property24 portal-presence sweep — the COLD half of the reconcile, nightly.
+//
+// SyncProperty24Activations above only ever looks at enabled listings sitting at
+// submitted/pending/active (191 rows). Everything claiming to be OFF the portal —
+// deactivated/error/rejected, 252 rows — was reconciled by NOTHING: the command
+// existed but was never scheduled, so drift was only ever repaired when a human
+// thought to run it by hand. That is how listings ended up publicly live on P24
+// while CoreX reported them withdrawn (#2142), and how 17 rows accumulated a
+// status that flatly contradicted the portal.
+//
+// Deliberately WITHOUT --withdraw: this pass corrects the local status (no portal
+// writes) and logs `P24 STRANDED ADVERT` for anything live that should not be.
+// Auto-pulling a public advert on a cron is a decision for Johan, not a default.
+// ~252 calls at ~0.7s + 1s self-throttle ≈ 7 min, off-peak.
+Schedule::command('p24:reconcile-portal-presence')
+    ->dailyAt('02:45')
+    ->withoutOverlapping()
+    ->onOneServer()
+    ->name('p24-portal-presence-sweep');
 
 // Property24 ExDev buyer-enquiry leads pull — runs every 5 minutes.
 // Persists into portal_leads alongside PP leads. See .ai/specs/portal-leads.md.
@@ -233,6 +314,12 @@ Schedule::command('notifications:scan-deals')->everyThirtyMinutes()->withoutOver
 // ── Calendar Event Classes ──
 Schedule::command('corex:calendar:send-digests')->dailyAt('06:30')->withoutOverlapping()->onOneServer();
 Schedule::command('corex:calendar:reconcile')->dailyAt('03:00')->withoutOverlapping()->onOneServer();
+
+// ── Ellie External Reference Sources (ellie-reference-sources spec) ──
+// Re-fetches every admin-approved external page so Ellie's answers (e.g. a
+// bank's current interest rate) don't silently go stale. SSRF-guarded fetch
+// lives in EllieReferenceSourceFetchService; this is only the daily sweep.
+Schedule::command('ellie:refresh-reference-sources')->dailyAt('05:30')->withoutOverlapping()->onOneServer();
 
 // ── Deal Register V2 (WS0) — RAG timer ──
 // Keeps persisted step/deal RAG + deal calendar-event colour in sync as deadlines

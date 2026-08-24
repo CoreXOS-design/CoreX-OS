@@ -261,6 +261,35 @@ final class ContactStructuredAddressTest extends TestCase
         $resp->assertSee('may already exist', false);
     }
 
+    public function test_guard_does_not_confuse_different_units_at_same_street(): void
+    {
+        [$agencyId, $agent] = $this->fixture();
+        // Existing Agency Stock: Unit 101, Glyndale Sands, 67 Colin Street, Uvongo Beach.
+        Property::create([
+            'external_id' => (string) Str::uuid(), 'title' => 'Existing Unit 101',
+            'agent_id' => $agent->id, 'branch_id' => $agencyId, 'agency_id' => $agencyId,
+            'unit_number' => '101', 'complex_name' => 'Glyndale Sands',
+            'street_number' => '67', 'street_name' => 'Colin Street', 'suburb' => 'Uvongo Beach',
+        ]);
+
+        // A different unit at the SAME street address must NOT be flagged as held.
+        $newUnit = $this->contact($agencyId, $agent->id, [
+            'unit_number' => '201', 'complex_name' => 'Glyndale Sands',
+            'street_number' => '67', 'street_name' => 'Colin Street', 'suburb' => 'Uvongo Beach', 'city' => 'Margate',
+        ]);
+        $held = app(\App\Services\Contact\ContactAddressPropertyGuard::class)->findHeldForContact($newUnit);
+        $this->assertNull($held, 'a different unit at the same street address is not a duplicate');
+
+        // Retyping the SAME unit at that street address must still be flagged.
+        $sameUnit = $this->contact($agencyId, $agent->id, [
+            'unit_number' => '101', 'complex_name' => 'Glyndale Sands',
+            'street_number' => '67', 'street_name' => 'Colin Street', 'suburb' => 'Uvongo Beach', 'city' => 'Margate',
+        ]);
+        $held = app(\App\Services\Contact\ContactAddressPropertyGuard::class)->findHeldForContact($sameUnit);
+        $this->assertNotNull($held, 'the same unit at the same street address is a real duplicate');
+        $this->assertSame('stock', $held['kind']);
+    }
+
     public function test_guard_off_mode_returns_no_match(): void
     {
         [$agencyId, $agent] = $this->fixture();

@@ -8,7 +8,7 @@
     $isLast  = $nav['isLast'];
 @endphp
 
-<div class="max-w-2xl mx-auto px-4 sm:px-6 py-8 sm:py-10">
+<div class="w-full px-4 sm:px-6 lg:px-12 py-8 sm:py-10">
 
     <div class="rounded-lg overflow-hidden" style="background:var(--surface,#fff); border:1px solid var(--border,#e5e7eb);">
         {{-- Step header --}}
@@ -30,8 +30,8 @@
                             <path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
                         </svg>
                         <div class="min-w-0">
-                            <div class="text-xs font-bold mb-1" style="color:var(--text-primary,#0f172a);">{{ $config['what']['title'] }}</div>
-                            <p class="text-xs leading-relaxed" style="color:var(--text-secondary,#475569);">{{ $config['what']['body'] }}</p>
+                            <div class="text-sm font-bold mb-1.5" style="color:var(--text-primary,#0f172a);">{{ $config['what']['title'] }}</div>
+                            <p class="text-sm leading-relaxed" style="color:var(--text-secondary,#475569);">{{ $config['what']['body'] }}</p>
                         </div>
                     </div>
                 </div>
@@ -45,7 +45,7 @@
             </div>
         @endif
 
-        <form method="POST"
+        <form id="wizard-step-form" method="POST"
               action="{{ route('corex.agency-setup.step.save', ['step' => $stepKey]) }}"
               enctype="multipart/form-data"
               class="px-6 py-5 space-y-6">
@@ -57,14 +57,27 @@
                 @include($config['partial'])
             @endif
 
-            {{-- Live controls (data-driven simple settings) --}}
+            {{-- Live controls (data-driven simple settings). Two-per-row on wide
+                 screens — a single stacked column was the "acres of empty space"
+                 complaint once the wizard shell went full-width; headings and
+                 textareas still span the full row (lg:col-span-2) since a section
+                 break or a long-form field reads badly split into a half-width
+                 column. --}}
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-6">
             @foreach (($config['controls'] ?? []) as $control)
                 @php
                     $key = $control['key'];
                     $val = old($key, $values[$key] ?? ($control['default'] ?? null));
                     $type = $control['type'];
                 @endphp
-                <div>
+                {{-- Optional sub-heading to group related controls (e.g. the two
+                     property-portal toggles in the Capabilities step). --}}
+                @if (!empty($control['heading']))
+                    <div class="pt-1 lg:col-span-2 text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted,#94a3b8);">
+                        {{ $control['heading'] }}
+                    </div>
+                @endif
+                <div class="{{ $type === 'textarea' ? 'lg:col-span-2' : '' }}">
                     <div class="flex items-start justify-between gap-4">
                         <div class="min-w-0">
                             <label for="f_{{ $key }}" class="block text-sm font-semibold" style="color:var(--text-primary,#0f172a);">
@@ -118,6 +131,7 @@
                     @enderror
                 </div>
             @endforeach
+            </div>
 
             {{-- Deep links into the full editors for complex collections --}}
             @if (!empty($config['links']))
@@ -145,37 +159,47 @@
                     @endif
                 </div>
             @endif
-
-            {{-- Actions --}}
-            <div class="flex items-center justify-between pt-4" style="border-top:1px solid var(--border,#e5e7eb);">
-                <div>
-                    @if ($nav['prev'])
-                        <a href="{{ route('corex.agency-setup.step', ['step' => $nav['prev']]) }}"
-                           class="text-sm font-medium no-underline" style="color:var(--text-secondary,#475569);">← Back</a>
-                    @endif
-                </div>
-                <div class="flex items-center gap-3">
-                    @unless ($isLast)
-                        <button type="submit"
-                                formaction="{{ route('corex.agency-setup.step.skip', ['step' => $stepKey]) }}"
-                                class="text-sm font-medium" style="background:none;border:none;cursor:pointer;color:var(--text-muted,#64748b);">
-                            Skip for now
-                        </button>
-                    @endunless
-                    <button type="submit" class="setup-cta rounded-md px-5 py-2.5 text-sm font-semibold">
-                        {{ $isLast ? 'Finish setup' : 'Save & continue' }}
-                    </button>
-                </div>
-            </div>
         </form>
     </div>
 
     {{-- Auxiliary inline editors (collections with their own add/remove sub-forms,
-         kept OUTSIDE the main form so forms are never nested). --}}
+         kept OUTSIDE the main form so forms are never nested). Rendered BEFORE the
+         actions bar below — on a collection-heavy step (branches, contacts, Market
+         Intelligence) the Save button used to sit ABOVE this content, which read as
+         "I already saved, what's this extra stuff below?". Collections save
+         themselves instantly on Add/Remove regardless; Save & Continue is only for
+         this step's own scalar controls above. --}}
     @if (!empty($config['aux_partial']))
         <div class="rounded-lg overflow-hidden mt-5" style="background:var(--surface,#fff); border:1px solid var(--border,#e5e7eb);">
             @include($config['aux_partial'])
         </div>
     @endif
+
+    {{-- Actions — always last, after any aux_partial content. The Skip/Save
+         buttons live outside <form id="wizard-step-form"> (so they can sit below
+         the aux_partial without nesting a second form inside it) and reattach to
+         it via the HTML5 form="" attribute. --}}
+    <div class="rounded-lg overflow-hidden mt-5 px-6 py-4" style="background:var(--surface,#fff); border:1px solid var(--border,#e5e7eb);">
+        <div class="flex items-center justify-between">
+            <div>
+                @if ($nav['prev'])
+                    <a href="{{ route('corex.agency-setup.step', ['step' => $nav['prev']]) }}"
+                       class="text-sm font-medium no-underline" style="color:var(--text-secondary,#475569);">← Back</a>
+                @endif
+            </div>
+            <div class="flex items-center gap-3">
+                @unless ($isLast)
+                    <button type="submit" form="wizard-step-form"
+                            formaction="{{ route('corex.agency-setup.step.skip', ['step' => $stepKey]) }}"
+                            class="text-sm font-medium" style="background:none;border:none;cursor:pointer;color:var(--text-muted,#64748b);">
+                        Skip for now
+                    </button>
+                @endunless
+                <button type="submit" form="wizard-step-form" class="setup-cta rounded-md px-5 py-2.5 text-sm font-semibold">
+                    {{ $isLast ? 'Finish setup' : 'Save & continue' }}
+                </button>
+            </div>
+        </div>
+    </div>
 </div>
 @endsection

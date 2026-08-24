@@ -138,6 +138,10 @@ lib/
 - `POST   /api/mobile/contacts/{id}/matches` — create CoreMatch (listing_type required, plus optional filters)
 - `POST   /api/mobile/properties` — now accepts optional `link_contact_id` + `link_contact_role` to auto-link the new property to a contact via `contact_property` pivot
 
+**Property Drive (BUILT 2026-08-03 — see `.ai/specs/mobile-property-drive.md`):**
+- `GET /api/v1/mobile/properties/{id}/documents` — every document filed on the property (all file types, all sources: upload/esign/pdf_splitter), newest first, plus server-computed `folders` (document-type groups + counts, including "Unfiled") for the folder/accordion UI
+- `GET /api/v1/mobile/properties/{id}/documents/{documentId}/download` — streams the file. Read-only pass — no upload/delete/tag from mobile in this pass.
+
 **Core Matches (BUILT 2026-04-29 — see `.ai/specs/mobile-core-matches.md`):**
 - `GET    /api/mobile/core-matches/settings` — `{ allow_cross_agent: bool }` — agency setting that controls whether the mobile app should expose the "Include other agents" toggle on the match results screen
 - `GET    /api/mobile/core-matches` — own matches grouped by contact, with feedback_summary counts (interested / not_interested / saved)

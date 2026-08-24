@@ -859,6 +859,11 @@ class SignatureService
         ?int $contactId = null,
         ?int $ficaSubmissionId = null,
         ?int $roleIndex = null,
+        ?string $signerCaption = null,
+        ?string $partyClauseText = null,
+        bool $isDeceased = false,
+        bool $isProxy = false,
+        ?string $recipientLocalKey = null,
     ): SignatureRequest {
         $token = $this->generateToken();
 
@@ -892,6 +897,17 @@ class SignatureService
             // a group of one and checkpoints alone, exactly as it always has.
             'signing_group' => $template->groupFor($partyRole),
             'signer_name' => $signerName,
+            'signer_caption' => $signerCaption,
+            'party_clause_text' => $partyClauseText,
+            'is_deceased' => $isDeceased,
+            'is_proxy' => $isProxy,
+            // Every recipient gets a stable key on creation, whether or not
+            // anything binds to it — cheap, and it's what a LATER-added
+            // recipient's chain would need to point at. The wizard passes its
+            // own (assigned when the recipient was first added to the
+            // screen) once that UI exists; auto-generated here is the safe
+            // default for every recipient today.
+            'recipient_local_key' => $recipientLocalKey ?? (string) \Illuminate\Support\Str::uuid(),
             'signer_email' => $signerEmail,
             'signer_id_number' => $signerIdNumber,
             'token' => $token,
@@ -923,6 +939,29 @@ class SignatureService
      */
     public function sendSigningRequest(SignatureRequest $request): void
     {
+        // Elize's rule via Johan, 2026-08-24 — THE single guard: a party who
+        // doesn't sign (deceased, or collapsed out by a proxy elsewhere in
+        // their group) is never invited, regardless of which caller reached
+        // this method. This is the only choke point every invitation email
+        // flows through (sequential-chain advancement + resend both land
+        // here), so this is the only place this needs guarding. See
+        // SignatureRequest::isSigningParticipant().
+        if (! $request->isSigningParticipant()) {
+            $request->update(['status' => SignatureRequest::STATUS_NOT_REQUIRED]);
+            $template = $request->template;
+            if ($template) {
+                SignatureAuditLog::log(
+                    $template,
+                    'send_skipped_not_signing_participant',
+                    SignatureAuditLog::ACTOR_SYSTEM,
+                    'System',
+                    requestId: $request->id,
+                    metadata: ['party_role' => $request->party_role, 'reason' => $request->nonSigningReason()],
+                );
+            }
+            return;
+        }
+
         // AT-294 — ABSORB an email-less recipient instead of firing a doomed
         // Mail::to('') that throws and is swallowed (silently parking the
         // ceremony as a healthy-looking awaiting_* with no link and no
@@ -3517,6 +3556,35 @@ class SignatureService
                 ]
             );
         }
+
+        // Auto-points (mandate.signed) — a mandate e-sign document reaching the
+        // terminal COMPLETED state IS the "mandate signed" action. Credit the
+        // sending agent once, after commit. Guarded to mandate documents only
+        // (an OTP / FICA / generic completion never credits here). Distinct from
+        // tracked_property.promoted_to_stock (the separate manual promote action),
+        // so no double-count. Fire-and-forget: any points failure is swallowed and
+        // NEVER affects the legally-durable completion above.
+        DB::afterCommit(function () use ($template) {
+            try {
+                $document = $template->document;
+                if (! $document) {
+                    return;
+                }
+                $docType = $document->template?->template_type ?? $document->document_type ?? 'other';
+                if ($docType !== 'mandate') {
+                    return;
+                }
+                $agentUserId = $template->requests()->whereNotNull('sent_by')->value('sent_by');
+                $agent = $agentUserId ? \App\Models\User::find((int) $agentUserId) : null;
+                app(\App\Services\Activity\InstantPointService::class)
+                    ->credit('mandate.signed', $agent, $document);
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::warning('mandate.signed credit failed (swallowed)', [
+                    'signature_template_id' => $template->id,
+                    'message'               => $e->getMessage(),
+                ]);
+            }
+        });
 
         // Steps 2-6 run AFTER the completion commits. Completion (status +
         // audit above) is the legal record and must be durable on its own.

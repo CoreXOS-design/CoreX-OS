@@ -235,9 +235,24 @@ class ReportingService
         $viewed = $viewedQuery->distinct('contact_id')->count('contact_id');
 
         // Stage 3: Deal Closed (sold records in period)
-        $closedQuery = DB::table('property_sold_records')->where('sold_date', '>=', $since);
+        // AT-350 — property_sold_records now also carries sales made by OTHER
+        // agencies (a valid market comp, never our deal). Without this filter a
+        // conversion funnel would count a listing we LOST as a closed deal for the
+        // agent who recorded losing it — inverting the one number the funnel exists
+        // to measure. The flag defaults to 0, so every pre-existing row is ours.
+        $closedQuery = DB::table('property_sold_records')
+            ->where('sold_date', '>=', $since)
+            ->where('sold_by_third_party', 0);
         if (isset($filter['user_id'])) $closedQuery->where('captured_by_user_id', $filter['user_id']);
         if (isset($filter['agency_id'])) $closedQuery->where('agency_id', $filter['agency_id']);
+        // property_sold_records carries no branch_id column of its own, so scope
+        // via the capturing agent's branch (same agentIds-via-users idiom as
+        // getBranchMetrics()) instead of silently falling through to a global,
+        // all-agency count.
+        if (isset($filter['branch_id'])) {
+            $branchAgentIds = DB::table('users')->where('branch_id', $filter['branch_id'])->pluck('id');
+            $closedQuery->whereIn('captured_by_user_id', $branchAgentIds);
+        }
         $closed = $closedQuery->count();
 
         return [

@@ -118,8 +118,14 @@ class MobileCalendarController extends Controller
         $userRole = $user->role ?? 'agent';
         $isBypass = in_array($userRole, ['super_admin', 'admin', 'owner'], true);
 
+        // SECURITY — agency-scope this the same way the web cockpit does
+        // (CalendarController::sharedViewData ~line 413 / classAutofillsBuyers
+        // ~line 2605); otherwise another agency's calendar class config bleeds
+        // into this mobile client's visible categories.
+        $agencyId = method_exists($user, 'effectiveAgencyId') ? $user->effectiveAgencyId() : ($user->agency_id ?? null);
         $allClasses = CalendarEventClassSetting::withoutGlobalScopes()
             ->where('is_active', true)
+            ->where(fn ($q) => $q->where('agency_id', $agencyId)->orWhereNull('agency_id'))
             ->get()
             ->unique('event_class');
 

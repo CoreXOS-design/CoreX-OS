@@ -13,41 +13,31 @@
 <div class="w-full" x-data="sharedDrive()">
 
     {{-- Page Header --}}
-    <div class="rounded-md px-6 py-5 mb-6" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner mb-6">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-            <div class="flex items-center gap-3">
-                @if($drive->is_restricted)
-                    <svg class="w-7 h-7 text-white/90" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z" />
-                    </svg>
-                @else
-                    <svg class="w-7 h-7 text-white/90" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z" />
-                    </svg>
-                @endif
-                <div>
-                    <h1 class="text-xl font-bold text-white leading-tight flex items-center gap-2">
-                        {{ $drive->name }}
-                        @if($drive->is_restricted)
-                            <span class="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-md" style="background: rgba(255,255,255,.18); color:#fff;">Restricted</span>
-                        @endif
-                    </h1>
-                    <p class="text-sm text-white/60">{{ $drive->is_restricted ? 'Visible only to invited members.' : 'Shared with everyone in the agency.' }} Max 50&nbsp;MB per file.</p>
-                </div>
+            <div>
+                <h1 class="text-base font-bold leading-tight flex items-center gap-2" style="color: var(--text-primary);">
+                    {{ $drive->name }}
+                    @if($drive->is_restricted)
+                        <span class="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-md"
+                              style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-muted);">Restricted</span>
+                    @endif
+                </h1>
+                <p class="text-xs" style="color: var(--text-muted);">{{ $drive->is_restricted ? 'Visible only to invited members.' : 'Shared with everyone in the agency.' }} Max 50&nbsp;MB per file.</p>
             </div>
-            <div class="flex items-center gap-2 flex-wrap">
+            <div class="flex flex-wrap items-center gap-2">
                 @if($can['manageDrive'])
-                    <button type="button" @click="showAccessModal = true" class="corex-btn-outline corex-btn-on-brand">
+                    <button type="button" @click="showAccessModal = true" class="corex-btn-outline text-xs">
                         Manage Access
                     </button>
                 @endif
                 @if($can['createFolder'])
-                    <button type="button" @click="showFolderModal = true" class="corex-btn-outline corex-btn-on-brand">
+                    <button type="button" @click="showFolderModal = true" class="corex-btn-outline text-xs">
                         + New Folder
                     </button>
                 @endif
                 @if($can['upload'])
-                    <button type="button" @click="$refs.fileInput.click()" class="corex-btn-primary" :disabled="uploading" :style="uploading ? 'opacity:.6;' : ''">
+                    <button type="button" @click="$refs.fileInput.click()" class="corex-btn-primary text-xs" :disabled="uploading" :style="uploading ? 'opacity:.6;' : ''">
                         <span x-show="!uploading">Upload Files</span>
                         <span x-show="uploading" x-cloak>Uploading…</span>
                     </button>
@@ -193,7 +183,7 @@
                                 <td class="px-4 py-3">
                                     <div class="flex items-center justify-end gap-1">
                                         @if($can['download'])
-                                            <a href="{{ route('documents.shared-drive.files.download', $file->id) }}" class="p-1.5 rounded hover:bg-black/5" title="Download" style="color: var(--brand-icon);">
+                                            <a href="{{ route('documents.shared-drive.files.download', $file->id) }}" class="p-1.5 rounded hover:bg-[color:var(--surface-2)]" title="Download" style="color: var(--brand-icon);">
                                                 <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
                                             </a>
                                         @endif
@@ -201,7 +191,7 @@
                                             <form method="POST" action="{{ route('documents.shared-drive.files.destroy', $file->id) }}"
                                                   onsubmit="return confirm('Delete “{{ $file->original_name }}”? It can be recovered by an admin.');">
                                                 @csrf @method('DELETE')
-                                                <button type="submit" class="p-1.5 rounded hover:bg-black/5" title="Delete" style="color: var(--ds-crimson);">
+                                                <button type="submit" class="p-1.5 rounded hover:bg-[color:var(--surface-2)]" title="Delete" style="color: var(--ds-crimson);">
                                                     <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" /></svg>
                                                 </button>
                                             </form>
@@ -245,7 +235,7 @@
                     <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Folder name</label>
                     <input type="text" name="name" required autofocus maxlength="255" value="{{ old('name') }}"
                            class="w-full rounded-md px-3 py-2 text-sm focus:outline-none mb-4"
-                           style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
+                           style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);"
                            placeholder="e.g. Branch SOPs">
                     <div class="flex justify-end gap-2">
                         <button type="button" @click="showFolderModal = false" class="corex-btn-outline">Cancel</button>
@@ -272,7 +262,7 @@
                     <div x-show="restricted" x-cloak class="flex flex-col flex-1 min-h-0">
                         <input type="text" x-model="memberSearch" placeholder="Search members…"
                                class="w-full rounded-md px-3 py-2 text-sm mb-2"
-                               style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                               style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                         <div class="overflow-auto rounded-md flex-1" style="border: 1px solid var(--border);">
                             @forelse($members as $m)
                                 <label class="flex items-center gap-2 px-3 py-2 text-sm cursor-pointer"
@@ -302,11 +292,11 @@
         <div class="rounded-md w-full max-w-5xl h-[85vh] flex flex-col overflow-hidden" style="background: var(--surface);" @click.outside="closeViewer()">
             <div class="flex items-center justify-between px-4 py-2 flex-shrink-0" style="border-bottom: 1px solid var(--border);">
                 <span class="text-sm font-medium truncate" style="color: var(--text-primary);" x-text="viewer.name"></span>
-                <button type="button" @click="closeViewer()" class="p-1 rounded hover:bg-black/5" style="color: var(--text-secondary);">
+                <button type="button" @click="closeViewer()" class="p-1 rounded hover:bg-[color:var(--surface-2)]" style="color: var(--text-secondary);">
                     <svg class="w-5 h-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
                 </button>
             </div>
-            <div class="flex-1 overflow-auto flex items-center justify-center" style="background: #1a1a1a;">
+            <div class="flex-1 overflow-auto flex items-center justify-center" style="background: #020617;">
                 <template x-if="viewer.open && viewer.isImage">
                     <img :src="viewer.url" class="max-w-full max-h-full object-contain" :alt="viewer.name">
                 </template>

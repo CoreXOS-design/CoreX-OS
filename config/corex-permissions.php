@@ -67,6 +67,17 @@ return [
         ['key' => 'view_listings',           'label' => 'View Listing Stock',              'section' => 'agency-tracker',   'type' => 'access',  'module' => 'listings',         'sort_order' => 15],
         ['key' => 'import_listings',         'label' => 'Import Listings',                 'section' => 'agency-tracker',   'type' => 'access',  'module' => 'listings',         'sort_order' => 16],
         ['key' => 'view_performance',        'label' => 'View Performance',                'section' => 'agency-tracker',   'type' => 'access',  'module' => 'agency_tracker',   'sort_order' => 17],
+        // Buyers Report (Johan, 2026-08-20) — a plain access gate, same shape as
+        // view_performance above: WHETHER a role can open the report at all.
+        // WHAT that role then sees inside it (own/branch/agency) is a SEPARATE
+        // question, answered by 'buyers_report.view' below (own/branch/all via
+        // scope_defaults, same mechanism deals.view/targets.view use) — corrected
+        // 2026-08-20 (Johan): this must NOT read contacts.view — that key governs
+        // the pipeline/contacts screens, a deliberately separate, often broader
+        // grant (HFC's agents see the whole buyers book there by design); reports
+        // are scoped more tightly, by their own key, like every other report.
+        ['key' => 'view_buyers_report',      'label' => 'View Buyers Report',              'section' => 'agency-tracker',   'type' => 'access',  'module' => 'agency_tracker',   'sort_order' => 40],
+        ['key' => 'buyers_report.view',      'label' => 'View',                            'section' => 'agency-tracker',   'type' => 'action',  'module' => 'buyers_report',    'sort_order' => 41],
         ['key' => 'manage_targets',          'label' => 'Manage Targets',                  'section' => 'agency-tracker',   'type' => 'access',  'module' => 'agency_tracker',   'sort_order' => 18],
         ['key' => 'view_rentals',            'label' => 'View Rentals',                    'section' => 'agency-tracker',   'type' => 'access',  'module' => 'rentals',          'sort_order' => 19],
         ['key' => 'manage_rentals',          'label' => 'Create & Edit Rentals',           'section' => 'agency-tracker',   'type' => 'access',  'module' => 'rentals',          'sort_order' => 20],
@@ -232,6 +243,7 @@ return [
         ['key' => 'users.create',            'label' => 'Create',                          'section' => 'franchise-admin',  'type' => 'action',  'module' => 'users',            'sort_order' => 11],
         ['key' => 'users.edit',              'label' => 'Edit',                            'section' => 'franchise-admin',  'type' => 'action',  'module' => 'users',            'sort_order' => 12],
         ['key' => 'users.archive',           'label' => 'Archive',                         'section' => 'franchise-admin',  'type' => 'action',  'module' => 'users',            'sort_order' => 13],
+        ['key' => 'users.login_history.view', 'label' => 'View User Login History',        'section' => 'franchise-admin',  'type' => 'action',  'module' => 'users',            'sort_order' => 17],
 
         // ── DocuPerfect ──
         ['key' => 'access_docuperfect',          'label' => 'Access DocuPerfect',          'section' => 'docuperfect',      'type' => 'access',  'module' => 'docuperfect',      'sort_order' => 1],
@@ -262,6 +274,7 @@ return [
         ['key' => 'esign.compiler.compile',      'label' => 'Compile Templates',           'section' => 'docuperfect',      'type' => 'action',  'module' => 'esign-compiler',   'sort_order' => 31],
         ['key' => 'esign.compiler.publish',      'label' => 'Publish Compiled Versions',   'section' => 'docuperfect',      'type' => 'action',  'module' => 'esign-compiler',   'sort_order' => 32],
         ['key' => 'esign.compiler.dictionary',   'label' => 'Manage Data Dictionary',      'section' => 'docuperfect',      'type' => 'action',  'module' => 'esign-compiler',   'sort_order' => 33],
+        ['key' => 'esign.settings',              'label' => 'Manage E-Sign Recipient Presets', 'section' => 'docuperfect',  'type' => 'access',  'module' => 'esign',            'sort_order' => 40],
 
         // ── Document Library ──
         ['key' => 'access_document_library',     'label' => 'Access Document Library',    'section' => 'document-library', 'type' => 'access',  'module' => 'document_library', 'sort_order' => 1],
@@ -396,6 +409,11 @@ return [
         ['key' => 'access_ellie',                'label' => 'Access Ellie AI',             'section' => 'ellie',            'type' => 'access',  'module' => 'ellie',            'sort_order' => 1],
         ['key' => 'use_ellie_voice',             'label' => 'Use Ellie Voice Commands',    'section' => 'ellie',            'type' => 'feature', 'module' => 'ellie',            'sort_order' => 2],
         ['key' => 'use_property_image_ai',       'label' => 'Use AI Image Recognition',    'section' => 'ellie',            'type' => 'feature', 'module' => 'ellie',            'sort_order' => 3],
+        // Global, CoreX-team-managed allowlist of external pages Ellie may search
+        // (.ai/specs/ellie-reference-sources.md) — deliberately EXCLUDED from
+        // admin's all-minus-exclude default below, same treatment as
+        // agency_setup.track. Only super_admin gets it, via the '*' wildcard.
+        ['key' => 'manage_reference_sources',    'label' => 'Manage Ellie Reference Sources (owner)', 'section' => 'ellie', 'type' => 'access', 'module' => 'ellie', 'sort_order' => 4],
 
         // ── P24 Market Intelligence ──
         ['key' => 'manage_p24',                  'label' => 'Manage P24 Market Intel',     'section' => 'p24',              'type' => 'access',  'module' => 'p24',              'sort_order' => 1],
@@ -405,6 +423,16 @@ return [
         // ── Prospecting ──
         ['key' => 'access_prospecting',          'label' => 'Access Prospecting',          'section' => 'prospecting',      'type' => 'access',  'module' => 'prospecting',      'sort_order' => 1],
         ['key' => 'deeds_capture.access',        'label' => 'Access Deeds Capture',        'section' => 'prospecting',      'type' => 'access',  'module' => 'prospecting',      'sort_order' => 2],
+        // Johan, 2026-08-20: "lots of data now flowing in and staff is getting lost as they
+        // are all seeing everything that was scraped." `.view` is the SCOPED visibility key
+        // (own/branch/all via Role Manager's Data Scope control) — same mechanism as
+        // market_intelligence.view above. Own = the record's deeds_captured_by_user_id
+        // (the agent who scraped it — "that's the person who will go to deeds and look for
+        // their scraped stock", Johan's own definition); Branch = that scraper's branch
+        // (tracked_properties itself has no branch_id). Deliberately NOT added to any role's
+        // `include` list here — Johan sets the defaults himself; unset resolves to 'own'
+        // (the safe default), same as every other unset scope key.
+        ['key' => 'deeds_capture.view',          'label' => 'View Deeds Capture List',     'section' => 'prospecting',      'type' => 'action',  'module' => 'deeds_capture',    'sort_order' => 3],
 
         // ── Market Intelligence Centre (Phase A2) ── per spec §12.2/§12.3
         ['key' => 'mic.edit_address',            'label' => 'Edit / Add Property Address',         'section' => 'prospecting',      'type' => 'action',  'module' => 'mic',              'sort_order' => 50],
@@ -414,6 +442,14 @@ return [
         ['key' => 'mic.regenerate_brief',        'label' => 'Regenerate Strategic Brief (manual)', 'section' => 'prospecting',      'type' => 'action',  'module' => 'mic',              'sort_order' => 54],
         ['key' => 'mic.view_ai_costs',           'label' => 'View AI Token / Cost Dashboard',      'section' => 'prospecting',      'type' => 'access',  'module' => 'mic',              'sort_order' => 55],
         ['key' => 'mic.restore_reports',         'label' => 'Restore Archived Market Reports',     'section' => 'prospecting',      'type' => 'action',  'module' => 'mic',              'sort_order' => 56],
+        // AT-380 — Market Intelligence canvassing-pool visibility. `.view` is the
+        // SCOPED access key (own/branch/all via scope_defaults + Role Manager) —
+        // same mechanism as outreach_queue.view / calendar.view. Before this, the
+        // canvassing pool was agency-wide with no restriction for every role.
+        ['key' => 'market_intelligence.view',    'label' => 'View Canvassing Pool',        'section' => 'prospecting',      'type' => 'action',  'module' => 'market_intelligence', 'sort_order' => 57],
+        // ── MIC property row comments — .ai/specs/mic-property-row-comments.md ──
+        ['key' => 'mic.comments.view',           'label' => 'View Property Comments',              'section' => 'prospecting',      'type' => 'access',  'module' => 'mic',              'sort_order' => 58],
+        ['key' => 'mic.comments.add',            'label' => 'Add Property Comments',               'section' => 'prospecting',      'type' => 'action',  'module' => 'mic',              'sort_order' => 59],
 
         // ── Evaluation (Property/Suburb/Town Reports) ──
         ['key' => 'access_evaluation',           'label' => 'Access Evaluation Reports',   'section' => 'evaluation',       'type' => 'access',  'module' => 'evaluation',       'sort_order' => 1],
@@ -462,8 +498,17 @@ return [
         ['key' => 'deals_v2.view_overview',      'label' => 'View Pipeline Overview',      'section' => 'deals-v2',         'type' => 'action',  'module' => 'deals_v2',         'sort_order' => 19],
 
         // ── Deal Comms Suspense (AT-231) — inbound attorney-email review queue ──
-        ['key' => 'deal_comms_suspense.view',    'label' => 'View Comms Suspense (attorney email filing queue)', 'section' => 'deals-v2', 'type' => 'access', 'module' => 'deal_comms_suspense', 'sort_order' => 20],
-        ['key' => 'deal_comms_suspense.resolve', 'label' => 'Resolve Comms Suspense (confirm / reassign / reject)', 'section' => 'deals-v2', 'type' => 'action', 'module' => 'deal_comms_suspense', 'sort_order' => 21],
+        ['key' => 'deal_comms_suspense.view',    'label' => 'View Comms Suspense (attorney email filing queue)', 'section' => 'deals-v2', 'type' => 'access', 'module' => 'deal_comms_suspense', 'sort_order' => 21],
+        ['key' => 'deal_comms_suspense.resolve', 'label' => 'Resolve Comms Suspense (confirm / reassign / reject)', 'section' => 'deals-v2', 'type' => 'action', 'module' => 'deal_comms_suspense', 'sort_order' => 22],
+
+        // ── DR2 Unfiled Emails (CX-113 Phase A, Johan 2026-08-21) — data-scope view key,
+        // same mechanism as deeds_capture.view / deals_v2.view: drives the None/Own/Branch/All
+        // selector in Role Manager. Own = the picking staff member was actually a party
+        // (To/From/CC) to the email (PermissionService::dr2UnfiledEmailsScope() reads this,
+        // Communication::scopeVisibleTo() enforces it) — never a shared-mailbox concept, HFC
+        // has none. Deliberately NOT added to any role's `include` list here — Johan sets the
+        // defaults himself in Role Manager; unset resolves to 'own', the safe default.
+        ['key' => 'dr2_unfiled_emails.view',      'label' => 'View Deal Register Unfiled Emails List',    'section' => 'deals-v2',         'type' => 'action',  'module' => 'dr2_unfiled_emails', 'sort_order' => 20],
 
         // ── Agencies ── REMOVED 2026-05-07: System Owner only (see agency-admin-rule.md).
         // Routes now gated by `owner_only` middleware. No permission keys needed.
@@ -481,6 +526,13 @@ return [
         ['key' => 'manage_performance_settings', 'label' => 'Manage Performance Settings', 'section' => 'settings',         'type' => 'access',  'module' => 'settings',         'sort_order' => 4],
         ['key' => 'agency_setup.run',            'label' => 'Run Agency Setup Wizard',     'section' => 'settings',         'type' => 'access',  'module' => 'settings',         'sort_order' => 5],
         ['key' => 'agency_setup.track',          'label' => 'Track Agency Setup Progress (owner)', 'section' => 'settings', 'type' => 'access',  'module' => 'settings',         'sort_order' => 6],
+        ['key' => 'agency_features.manage',      'label' => 'Manage Features (module on/off)', 'section' => 'settings',     'type' => 'access',  'module' => 'settings',         'sort_order' => 6],
+        // Agency Billing (AT-11) — what THIS agency pays CoreX. Read-only page; the
+        // amounts themselves are set by CoreX on the owner-only developer page, which
+        // deliberately has NO permission key. Spec: .ai/specs/agency-billing.md §9.
+        // Lives in its OWN "Billing" section (not "Settings") so Role Manager surfaces
+        // it as a first-class group an admin can grant/revoke per role.
+        ['key' => 'billing.view',                'label' => 'View Agency Billing',         'section' => 'billing',          'type' => 'view',    'module' => 'billing',          'sort_order' => 1],
         ['key' => 'settings.view',               'label' => 'View',                        'section' => 'settings',         'type' => 'action',  'module' => 'settings',         'sort_order' => 10],
         ['key' => 'settings.edit',               'label' => 'Edit',                        'section' => 'settings',         'type' => 'action',  'module' => 'settings',         'sort_order' => 11],
         ['key' => 'agency.p24.configure',        'label' => 'Configure Property24 API credentials', 'section' => 'settings',  'type' => 'action',  'module' => 'settings',         'sort_order' => 20],
@@ -543,6 +595,12 @@ return [
         ['key' => 'outreach_queue.view',          'label' => 'View Outreach Queue',         'section' => 'outreach', 'type' => 'action', 'module' => 'outreach_queue', 'sort_order' => 4],
         ['key' => 'outreach_queue.dispatch',      'label' => 'Send from Outreach Queue',    'section' => 'outreach', 'type' => 'action', 'module' => 'outreach_queue', 'sort_order' => 5],
         ['key' => 'outreach_queue.cancel',        'label' => 'Remove Outreach Queue items', 'section' => 'outreach', 'type' => 'action', 'module' => 'outreach_queue', 'sort_order' => 6],
+        // AT-380 — Outreach & Canvassing activity board. `.view` is the SCOPED
+        // access key (own/branch/all via scope_defaults + Role Manager) — same
+        // mechanism as outreach_queue.view. Replaces the previous hardcoded
+        // own-vs-everyone binary (mic.view_team / prospecting_setup.manage) with
+        // a real per-role scope, adding a branch tier that didn't exist before.
+        ['key' => 'outreach_canvassing.view',     'label' => 'View Outreach & Canvassing Activity', 'section' => 'outreach', 'type' => 'action', 'module' => 'outreach_canvassing', 'sort_order' => 7],
 
         // ── Payroll ──
         ['key' => 'manage_payroll',        'label' => 'Manage Payroll (employees, types)', 'section' => 'payroll', 'type' => 'action', 'module' => 'payroll', 'sort_order' => 120],
@@ -594,9 +652,37 @@ return [
         // ── Server Health Monitor (System Developer) — read-only live vitals ──
         ['key' => 'view_server_health',              'label' => 'View Server Health Monitor (live vitals)', 'section' => 'admin', 'type' => 'access', 'module' => 'monitoring', 'sort_order' => 1],
 
+        // ── Media Encryption at rest (AT-173) — moved from Compliance to Admin ──
+        ['key' => 'view_media_encryption_status',    'label' => 'View Media Encryption Status', 'section' => 'admin', 'type' => 'access', 'module' => 'security', 'sort_order' => 1],
+
         // ── Misfiled Documents register (AT-167) ──
         ['key' => 'access_misfiled_documents',       'label' => 'Access Misfiled Documents Register', 'section' => 'admin', 'type' => 'access', 'module' => 'filing', 'sort_order' => 5],
         ['key' => 'misfiled_documents.refile',       'label' => 'Refile Misfiled Documents',          'section' => 'admin', 'type' => 'action', 'module' => 'filing', 'sort_order' => 6],
+
+        // ── Assistants (AT-267) ──
+        // These gate the ADMIN surface — who may create an assistant and hand them to an
+        // agent. They do NOT gate what an assistant can do: an assistant's own permissions
+        // come entirely from their assignment matrix (assistant_assignment_permissions),
+        // resolved by AssistantPermissionResolver, and are always the intersection of that
+        // matrix with the Assigned Agent's live permissions.
+        //
+        // `admin` picks these up automatically via its all-minus-exclude default.
+        // `branch_manager` gets NOTHING by default — but because these keys are declared
+        // here they render as an "Assistants" section in Role Manager, so an admin can
+        // grant them to branch_manager (or any role) from the UI with no code change.
+        //
+        // There is deliberately NO `assistants.manage-own` key: an agent's right to
+        // configure their OWN assistant's matrix is an ownership right, not a role right —
+        // it derives from assistant_assignments.agent_user_id === auth()->id(). Making it
+        // grantable would allow an agent to have an assistant they cannot configure.
+        ['key' => 'assistants.view',                 'label' => 'View Assistants',                    'section' => 'assistants', 'type' => 'access', 'module' => 'assistants', 'sort_order' => 1],
+        ['key' => 'assistants.create',               'label' => 'Create & Assign Assistant',          'section' => 'assistants', 'type' => 'action', 'module' => 'assistants', 'sort_order' => 2],
+        ['key' => 'assistants.reassign',             'label' => 'Reassign to Another Agent',          'section' => 'assistants', 'type' => 'action', 'module' => 'assistants', 'sort_order' => 3],
+        ['key' => 'assistants.revoke',               'label' => 'Revoke Assistant Access',            'section' => 'assistants', 'type' => 'action', 'module' => 'assistants', 'sort_order' => 4],
+        ['key' => 'assistants.view_all',             'label' => 'View All Assistants (agency-wide)',  'section' => 'assistants', 'type' => 'access', 'module' => 'assistants', 'sort_order' => 5],
+        // Multi-agent addendum (assistants-multi-agent-spec.md §7) — linking/unlinking a Sub-Agent
+        // is admin/super_admin ONLY (M2): never the Main Agent, never the Sub-Agent themselves.
+        ['key' => 'assistants.manage_linked_agents',  'label' => 'Link/Unlink Additional Agents',      'section' => 'assistants', 'type' => 'action', 'module' => 'assistants', 'sort_order' => 6],
     ],
 
     // ──────────────────────────────────────────────────────────
@@ -616,7 +702,9 @@ return [
             // ask) — the deal-pipeline deck tile ships with DR2. Admin gets it via all-minus-exclude.
             // agency_setup.track is the platform-owner cross-agency progress
             // board — owner-only, so admin is excluded from the all-minus rule.
-            'exclude' => ['manage_agency_switching', 'reveal_mailbox_credential', 'reveal_backup_password', 'agency_setup.track'],
+            // manage_reference_sources is likewise platform-owner-only: it's a
+            // global, not per-agency, allowlist (ellie-reference-sources spec).
+            'exclude' => ['manage_agency_switching', 'reveal_mailbox_credential', 'reveal_backup_password', 'agency_setup.track', 'manage_reference_sources'],
             // Payroll: admin gets full payroll management
             'include' => [
                 'manage_payroll', 'run_payroll', 'view_payroll_reports', 'view_own_payslips',
@@ -640,7 +728,7 @@ return [
                 // MIC (Phase A2) — admin gets every MIC permission
                 'mic.edit_address', 'mic.merge_duplicates', 'mic.upload_reports',
                 'mic.view_team', 'mic.regenerate_brief', 'mic.view_ai_costs',
-                'mic.restore_reports',
+                'mic.restore_reports', 'mic.comments.view', 'mic.comments.add',
                 // Agency Public API — admins manage their agency's website keys
                 'agency_api.view', 'agency_api.manage',
                 // Testimonials — admins curate which testimonials go on the website
@@ -665,7 +753,7 @@ return [
                 // access settlements". BM keeps the deal register, loses settle_deals.
                 'view_worksheet', 'edit_worksheet', 'view_deals', 'create_deals', 'proforma.generate', 'proforma.view',
                 'calendar.tile.my_deals', // AT-216 R3 — deal-pipeline deck tile
-                'view_listings', 'view_performance', 'manage_targets',
+                'view_listings', 'view_performance', 'view_buyers_report', 'buyers_report.view', 'manage_targets',
                 'view_rentals', 'manage_rentals', 'view_daily_activity', 'manage_tv_messages',
                 'deals.view', 'deals.create', 'deals.edit',
                 'listings.view', 'listings.create', 'listings.edit',
@@ -764,6 +852,11 @@ return [
                 // EXCEPT regenerate_brief and view_ai_costs (admin+ only).
                 'mic.edit_address', 'mic.merge_duplicates', 'mic.upload_reports',
                 'mic.view_team',
+                // AT-380 — .view scope (branch_manager→branch, agent→own via
+                // scope_defaults). Admin/owner get these via '*'/all-minus-exclude.
+                'market_intelligence.view', 'outreach_canvassing.view',
+                // MIC property row comments — agency-wide visibility per Johan's spec.
+                'mic.comments.view', 'mic.comments.add',
             ],
         ],
 
@@ -772,7 +865,7 @@ return [
                 'view_dashboard', 'view_dashboard_kpis', 'view_dashboard_charts',
                 'access_agency_tracker', 'access_daily_activity', 'access_rental_signatures',
                 'view_worksheet', 'edit_worksheet', 'view_deals', 'proforma.generate', 'proforma.view',
-                'view_listings', 'view_performance',
+                'view_listings', 'view_performance', 'view_buyers_report', 'buyers_report.view',
                 'view_rentals', 'manage_rentals', 'view_daily_activity',
                 'deals.view', 'deals.create',
                 'calendar.tile.my_deals', // AT-216 R3 — deal-pipeline deck tile (agent's working surface)
@@ -852,6 +945,13 @@ return [
                 // ONLY (per matrix §12.3). No merge, team, brief regen, or
                 // AI cost visibility for agents.
                 'mic.edit_address', 'mic.upload_reports',
+                // AT-380 — .view scope (branch_manager→branch, agent→own via
+                // scope_defaults). Admin/owner get these via '*'/all-minus-exclude.
+                'market_intelligence.view', 'outreach_canvassing.view',
+                // MIC property row comments — every agent who can see MIC can
+                // see and add comments (Johan's explicit ask — cross-agent
+                // visibility on a specific property).
+                'mic.comments.view', 'mic.comments.add',
             ],
         ],
 
@@ -860,7 +960,7 @@ return [
                 'access_my_portal',
                 'view_dashboard', 'view_dashboard_kpis', 'view_dashboard_charts',
                 'access_agency_tracker', 'access_daily_activity',
-                'view_worksheet', 'view_deals', 'view_listings', 'view_performance',
+                'view_worksheet', 'view_deals', 'view_listings', 'view_performance', 'view_buyers_report', 'buyers_report.view',
                 'view_rentals', 'view_daily_activity',
                 'deals.view', 'listings.view', 'rentals.view', 'daily_activity.view', 'targets.view',
                 'access_training', 'training.view',
@@ -886,6 +986,12 @@ return [
                 'access_rmcp',
                 'access_policy',
                 'view_own_screening',
+                // AT-380 — viewer already had unrestricted access_prospecting; without
+                // this .view scope key the new canvassing-pool restriction would
+                // silently collapse them to seeing nothing (no scope row -> 'own'
+                // default -> a viewer captures nothing). scope_defaults gives
+                // viewer 'branch', consistent with every other .view key it holds.
+                'market_intelligence.view',
                 // Sidebar sections
                 'sidebar.section.agents', 'sidebar.section.tools',
             ],
@@ -905,6 +1011,28 @@ return [
             'include' => [
                 'communications.view',
             ],
+        ],
+
+        /*
+         * AT-267 — the assistant role holds ZERO grants, deliberately and permanently.
+         *
+         * An assistant's permissions come entirely from their assignment matrix, resolved
+         * by AssistantPermissionResolver as (matrix ∩ the Assigned Agent's live permissions)
+         * minus the property-upload locked set. The role is an IDENTITY LABEL, not a bundle.
+         *
+         * The role has to exist at all because `users.role` is NOT NULL DEFAULT 'agent' — a
+         * user created without an explicit role IS a full agent. So an assistant must carry
+         * an explicit role, and that role must grant nothing.
+         *
+         * Keeping it empty is also the last line of defence: PermissionService fails closed
+         * on a role with zero grants (AT-265), so if the assistant resolver hook were ever
+         * bypassed by some future code path, an assistant would get NOTHING — not everything.
+         *
+         * Do not "helpfully" add keys here. Anything an assistant needs is granted per
+         * assignment, by their agent, from the agent's own permissions.
+         */
+        'assistant' => [
+            'include' => [],
         ],
     ],
 

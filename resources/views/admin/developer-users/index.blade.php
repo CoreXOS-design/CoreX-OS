@@ -10,12 +10,12 @@
 @endphp
 <div class="w-full space-y-5">
 
-    {{-- Page header (Pattern A — branded) --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    {{-- Page header (Pattern A — flat neutral, AT-336) --}}
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Developer Users</h1>
-                <p class="text-sm text-white/60">
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Developer Users</h1>
+                <p class="text-xs" style="color: var(--text-muted);">
                     {{ number_format($users->count()) }} platform user{{ $users->count() === 1 ? '' : 's' }} — visible across all agencies.
                 </p>
             </div>

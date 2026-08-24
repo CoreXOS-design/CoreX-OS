@@ -4,6 +4,7 @@ namespace App\Http\Controllers\PrivateProperty;
 
 use App\Http\Controllers\Controller;
 use App\Jobs\PollPrivatePropertyActivation;
+use App\Models\PerformanceSetting;
 use App\Models\Property;
 use App\Models\User;
 use App\Services\PermissionService;
@@ -82,12 +83,8 @@ class SyndicationController extends Controller
         $this->enforceListingNotDraft($property, 'Private Property');
         $this->enforceMarketingReadiness($property);
 
-        // Save exclusive days if provided
-        if ($request->has('pp_exclusive_days')) {
-            $property->update([
-                'pp_exclusive_days' => $request->input('pp_exclusive_days') ?: null,
-            ]);
-            $property->refresh();
+        if ($errorResponse = $this->validateAndSaveExclusiveDays($request, $property)) {
+            return $errorResponse;
         }
 
         // Pre-flight readiness check — block submission if required fields are missing
@@ -191,6 +188,10 @@ class SyndicationController extends Controller
         $this->enforceListingNotDraft($property, 'Private Property');
         $this->enforceMarketingReadiness($property);
 
+        if ($errorResponse = $this->validateAndSaveExclusiveDays($request, $property)) {
+            return $errorResponse;
+        }
+
         $result = $this->syndicationService->reactivateListing($property);
 
         $fresh = $property->fresh();
@@ -199,11 +200,102 @@ class SyndicationController extends Controller
             PollPrivatePropertyActivation::start($property->id);
         }
 
+        // AT-369 — ListingStatusUpdate (reactivate) only flips PP's status; it
+        // never carries listing CONTENT (price, description,
+        // SoleMandateExclusiveDays, ...). A prior version of this method chased
+        // a successful reactivate with a full submitListing() call to push
+        // content in the same action — reverted: submitListing() unconditionally
+        // writes pp_syndication_status='error' on ANY internal failure
+        // (validation, SOAP fault), which would have overwritten a genuinely
+        // successful reactivation with a false error status — the exact
+        // audit-truth violation this codebase's AT-68 rule exists to prevent
+        // ("never write a status that did not occur"). So: reactivate stays a
+        // pure, safe status flip. If exclusivity was just set, tell the agent
+        // it still needs a Refresh to actually reach PP.
+        $message = $result['message'] ?? '';
+        if ($result['success'] && $request->has('pp_exclusive_days') && (int) $request->input('pp_exclusive_days') > 0) {
+            $message = trim($message . ' Click Refresh to push the exclusivity setting to Private Property.');
+        }
+
         return response()->json([
             'success'               => $result['success'],
-            'message'               => $result['message'],
+            'message'               => $message,
             'pp_syndication_status' => $fresh->pp_syndication_status,
+            'pp_ref'                => $fresh->pp_ref,
         ], $result['success'] ? 200 : 422);
+    }
+
+    /**
+     * AT-369 — shared validation for the agent opt-in exclusivity field, used by
+     * both submit() and reactivate() (the two entry points that push listing
+     * content to PP). Never trusted from the client alone: 0 always clears it
+     * (untick is always legal); a positive value must be an integer within
+     * 1..agency-max AND the listing must be a sole mandate Sale. Anything else
+     * is rejected outright — never a silent drop, never a partial submit that
+     * goes out without the exclusivity the agent thought they'd set. Mutates
+     * $property in place (via ->update()) and returns null on success, or the
+     * JsonResponse the caller should return immediately on failure.
+     */
+    private function validateAndSaveExclusiveDays(Request $request, Property $property): ?JsonResponse
+    {
+        if (!$request->has('pp_exclusive_days')) {
+            return null;
+        }
+
+        $requested = (int) $request->input('pp_exclusive_days');
+
+        if ($requested > 0) {
+            // Agency master kill switch (follow-up to AT-369) — checked first,
+            // ahead of every other exclusivity rule below. Never trust the
+            // client's tick alone: the panel hides the whole section when this
+            // is off, but the toggle is agency-scoped and can flip between
+            // page load and submit.
+            if (!(bool) PerformanceSetting::get('pp_exclusivity_enabled', 1, $property->agency_id)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Private Property exclusivity is turned off for your agency.',
+                ], 422);
+            }
+
+            // Mirror image of the P24 gate above: PP exclusivity means PP-only —
+            // never trust the client's tick alone. Property24 must be switched
+            // off on this listing BEFORE exclusivity can be requested, not just
+            // warned about client-side (the old cosmetic-only pattern AT-369
+            // already fixed in the other direction).
+            if ((bool) $property->p24_syndication_enabled) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Turn off Property24 syndication for this listing before making it exclusive to Private Property.',
+                ], 422);
+            }
+
+            $isSoleMandateSale = in_array(strtolower($property->mandate_type ?? ''), ['sole', 'sole mandate'], true)
+                && ($property->listing_type ?? 'sale') === 'sale';
+
+            if (!$isSoleMandateSale) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Private Property exclusivity is only available for sole mandate Sale listings.',
+                ], 422);
+            }
+
+            $agencyMax = (int) PerformanceSetting::get('pp_exclusive_days_max', 92, $property->agency_id);
+
+            if ($requested > $agencyMax) {
+                return response()->json([
+                    'success' => false,
+                    'message' => "Exclusive days must be between 1 and {$agencyMax} (your agency's configured maximum).",
+                ], 422);
+            }
+
+            $property->update(['pp_exclusive_days' => $requested]);
+        } else {
+            $property->update(['pp_exclusive_days' => null]);
+        }
+
+        $property->refresh();
+
+        return null;
     }
 
     /**
@@ -332,6 +424,21 @@ class SyndicationController extends Controller
         $result = $this->syndicationService->uploadAgentImage($user, $request->image_url);
 
         return response()->json($result, $result['success'] ? 200 : 422);
+    }
+
+    /**
+     * AT-369 follow-up — mark the current agent as having read the one-time
+     * PP-exclusivity explainer (enforced client-side with a 10s minimum read
+     * before "I understand" unlocks; see onExclusiveToggleClick() /
+     * acknowledgeExplainer() in syndication-scripts.blade.php). Self-scoped —
+     * a user can only ever mark their OWN acknowledgement, so no further
+     * permission gate is needed (mirrors TourProgressController).
+     */
+    public function acknowledgeExclusivityExplainer(Request $request): JsonResponse
+    {
+        auth()->user()->update(['pp_exclusivity_explainer_seen_at' => now()]);
+
+        return response()->json(['success' => true]);
     }
 
     /**

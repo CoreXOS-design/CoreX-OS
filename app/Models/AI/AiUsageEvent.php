@@ -50,6 +50,8 @@ final class AiUsageEvent extends Model
     public const SOURCE_DOCUPERFECT_VISION    = 'docuperfect_vision';
     public const SOURCE_MARKETING_COPY        = 'marketing_copy';
     public const SOURCE_PRESENTATION_EVIDENCE = 'presentation_evidence';
+    /** Ellie's tool-using chat loop (.ai/specs/ellie-v2.md §4). */
+    public const SOURCE_ELLIE_CHAT            = 'ellie_chat';
 
     protected $fillable = [
         'agency_id',

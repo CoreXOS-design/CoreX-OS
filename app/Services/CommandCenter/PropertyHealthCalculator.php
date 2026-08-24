@@ -140,8 +140,12 @@ class PropertyHealthCalculator
         $count = 0;
         Property::whereNull('deleted_at')
             ->where(function ($q) {
+                // BUILD_STANDARD §6 — single source of truth for "not live".
+                // Health-scoring a listing that has left the market (sold by us,
+                // sold by another agency, expired, cancelled…) burns cycles and
+                // puts dead stock on the cockpit (AT-350).
                 $q->whereNull('status')
-                  ->orWhereNotIn('status', ['sold', 'withdrawn', 'archived']);
+                  ->orWhereNotIn('status', Property::OFF_MARKET_STATUSES);
             })
             ->chunk(100, function ($properties) use (&$count) {
                 foreach ($properties as $property) {

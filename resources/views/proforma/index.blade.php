@@ -6,18 +6,18 @@
 @section('corex-content')
 <div class="w-full space-y-5">
 
-    {{-- Page header (Pattern A) --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    {{-- Page header --}}
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Proforma Invoices</h1>
-                <p class="text-sm text-white/60">
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Proforma Invoices</h1>
+                <p class="text-xs" style="color: var(--text-muted);">
                     Every proforma invoice generated from a deal — view or download without opening the deal.
                 </p>
             </div>
             <div class="flex items-center gap-2 flex-wrap">
-                <span class="inline-flex items-center gap-2 rounded-md px-3 py-1.5 text-sm font-semibold text-white"
-                      style="background: color-mix(in srgb, white 15%, transparent);"
+                <span class="inline-flex items-center gap-2 rounded-md px-3 py-1.5 text-xs font-semibold"
+                      style="background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 15%, transparent); color: var(--brand-icon, #0ea5e9);"
                       title="Records matching the current filter">
                     {{ number_format($invoices->total()) }} {{ $status === 'issued' ? 'issued' : ($status === 'voided' ? 'voided' : 'total') }}
                 </span>

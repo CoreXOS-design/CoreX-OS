@@ -72,10 +72,10 @@ class Dr2DistributionComposer
         return match ($role) {
             'seller'            => $this->contactRecipients($deal, 'seller_owner'),
             'buyer'             => $this->contactRecipients($deal, 'buyer'),
-            'transfer_attorney' => $this->providerRecipient($deal->attorney_provider_id, $deal->attorney_contact_id),
-            'bond_originator'   => $this->providerRecipient($deal->bond_originator_provider_id, $deal->bond_originator_contact_id),
+            'transfer_attorney' => $this->providerRecipient($deal->attorney_provider_id, $deal->attorney_contact_id, (int) $deal->agency_id),
+            'bond_originator'   => $this->providerRecipient($deal->bond_originator_provider_id, $deal->bond_originator_contact_id, (int) $deal->agency_id),
             'external_agency'   => $this->externalAgencyRecipients($deal),
-            'bond_attorney'     => $this->providerRecipient($deal->bond_attorney_provider_id, $deal->bond_attorney_contact_id),
+            'bond_attorney'     => $this->providerRecipient($deal->bond_attorney_provider_id, $deal->bond_attorney_contact_id, (int) $deal->agency_id),
             default             => [],
         };
     }
@@ -136,13 +136,17 @@ class Dr2DistributionComposer
             ->values()->all();
     }
 
-    private function providerRecipient(?int $providerId, ?int $contactId): array
+    private function providerRecipient(?int $providerId, ?int $contactId, int $agencyId): array
     {
         if (! $providerId) {
             return [];
         }
-        $firm    = AgencyServiceProvider::withoutGlobalScopes()->find($providerId);
-        $contact = $contactId ? AgencyServiceProviderContact::withoutGlobalScopes()->find($contactId) : null;
+        // SECURITY (Bug 3, defense-in-depth) — withoutGlobalScopes() bypasses
+        // AgencyScope on the assumption the id was already agency-validated
+        // upstream (DealRegisterController). Don't rely on that alone: filter
+        // explicitly by the deal's own agency_id here too.
+        $firm    = AgencyServiceProvider::withoutGlobalScopes()->where('agency_id', $agencyId)->find($providerId);
+        $contact = $contactId ? AgencyServiceProviderContact::withoutGlobalScopes()->where('agency_id', $agencyId)->find($contactId) : null;
         if (! $firm && ! $contact) {
             return [];
         }
@@ -172,12 +176,12 @@ class Dr2DistributionComposer
     private function externalAgencyRecipients(Deal $deal): array
     {
         $recipients = array_merge(
-            $this->providerRecipient($deal->listing_external_agency_provider_id, $deal->listing_external_agency_contact_id),
-            $this->providerRecipient($deal->selling_external_agency_provider_id, $deal->selling_external_agency_contact_id),
+            $this->providerRecipient($deal->listing_external_agency_provider_id, $deal->listing_external_agency_contact_id, (int) $deal->agency_id),
+            $this->providerRecipient($deal->selling_external_agency_provider_id, $deal->selling_external_agency_contact_id, (int) $deal->agency_id),
         );
 
         if (empty($recipients)) {
-            $recipients = $this->providerRecipient($deal->external_agency_provider_id, $deal->external_agency_contact_id);
+            $recipients = $this->providerRecipient($deal->external_agency_provider_id, $deal->external_agency_contact_id, (int) $deal->agency_id);
         }
 
         $seen = [];
@@ -251,7 +255,8 @@ class Dr2DistributionComposer
         // Per-contact supplier preference wins.
         $contactId = $recipients[0]['contact_id'] ?? null;
         if ($contactId) {
-            $spc = AgencyServiceProviderContact::withoutGlobalScopes()->find($contactId);
+            // SECURITY (Bug 3, defense-in-depth) — see providerRecipient() above.
+            $spc = AgencyServiceProviderContact::withoutGlobalScopes()->where('agency_id', (int) $deal->agency_id)->find($contactId);
             if ($spc?->default_delivery_mode) {
                 $mode = $spc->default_delivery_mode;
             }

@@ -18,25 +18,26 @@
                 <div class="flex items-center gap-2">
                     <button type="button" @click="manualSaveDraft()"
                             :disabled="draftSaving"
-                            class="text-sm px-3 py-2 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 text-gray-700 transition-colors flex items-center gap-1.5 whitespace-nowrap disabled:opacity-50">
-                        <svg x-show="draftSaving" class="animate-spin h-3.5 w-3.5 text-gray-500" fill="none" viewBox="0 0 24 24">
+                            class="text-sm px-3 py-2 rounded-lg border border-[color:var(--border)] bg-[color:var(--surface)] hover:bg-[color:var(--surface-2)] text-[color:var(--text-secondary)] transition-colors flex items-center gap-1.5 whitespace-nowrap disabled:opacity-50">
+                        <svg x-show="draftSaving" class="animate-spin h-3.5 w-3.5" style="color:var(--text-muted)" fill="none" viewBox="0 0 24 24">
                             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                             <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
                         </svg>
                         <span x-text="draftSaving ? 'Saving...' : 'Save Draft'"></span>
                     </button>
-                    <span class="text-[10px] text-gray-400 whitespace-nowrap" x-show="lastSavedLabel" x-text="lastSavedLabel"></span>
+                    <span class="text-[10px] whitespace-nowrap" style="color:var(--text-muted)" x-show="lastSavedLabel" x-text="lastSavedLabel"></span>
                 </div>
 
                 {{-- Undo button --}}
                 <button type="button" @click="performUndo()"
                         :disabled="undoStack.length === 0"
-                        class="text-sm px-3 py-2 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 text-gray-700 transition-colors flex items-center gap-1.5 whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed">
+                        class="text-sm px-3 py-2 rounded-lg border border-[color:var(--border)] bg-[color:var(--surface)] hover:bg-[color:var(--surface-2)] text-[color:var(--text-secondary)] transition-colors flex items-center gap-1.5 whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed">
                     <span>&#8617;</span>
                     <span x-text="undoStack.length > 0 ? 'Undo (' + undoStack.length + ')' : 'Undo'"></span>
                 </button>
                 <span class="text-xs font-medium px-2 py-1 rounded transition-opacity duration-300"
-                      :class="undoToast === 'Undone' ? 'text-emerald-600 bg-emerald-50' : 'text-gray-500 bg-gray-100'"
+                      :class="undoToast === 'Undone' ? 'text-emerald-600 bg-emerald-50' : 'bg-[color:var(--surface-2)]'"
+                      :style="undoToast === 'Undone' ? '' : 'color:var(--text-muted)'"
                       x-show="undoToast" x-transition x-text="undoToast"></span>
 
                 {{-- Completion status + Generate button --}}
@@ -88,7 +89,7 @@
     <div class="flex flex-1 min-h-0">
 
         {{-- LEFT PANE: Document (70%) --}}
-        <div class="w-[70%] h-full overflow-y-auto bg-gray-100" id="doc-pane">
+        <div class="w-[70%] h-full overflow-y-auto" style="background:var(--surface-2)" id="doc-pane">
             <div class="py-6 px-4 flex justify-center">
                 <div class="doc-tagging-page" id="docContainer" contenteditable="true" spellcheck="false" @click="handleDocClick($event)">
                     {!! $parsed['html'] !!}
@@ -121,7 +122,7 @@
         </div>
 
         {{-- RIGHT PANE: Toolbar + Linking (30%) --}}
-        <div class="w-[30%] h-full overflow-y-auto bg-white border-l border-gray-200" id="link-pane">
+        <div class="w-[30%] h-full overflow-y-auto border-l border-[color:var(--border)]" style="background:var(--surface)" id="link-pane">
             <div class="p-4">
 
                 {{-- ===== ES-6.4: DETECTED INSERTABLE BLOCKS ===== --}}
@@ -195,19 +196,19 @@
                 </div>
 
                 {{-- ===== SIGNING PARTIES (collapsible) ===== --}}
-                <div class="mb-4 border border-gray-200 rounded-lg overflow-hidden">
+                <div class="mb-4 border border-[color:var(--border)] rounded-lg overflow-hidden">
                     {{-- Collapsed header --}}
                     <button type="button" @click="partiesExpanded = !partiesExpanded"
-                            class="w-full flex items-center justify-between px-3 py-2.5 bg-gray-50 hover:bg-gray-100 transition-colors text-left">
-                        <span class="text-xs font-semibold text-gray-700 flex items-center gap-1.5">
+                            class="w-full flex items-center justify-between px-3 py-2.5 bg-[color:var(--surface-2)] hover:bg-[color:var(--surface-2)] transition-colors text-left">
+                        <span class="text-xs font-semibold flex items-center gap-1.5" style="color:var(--text-secondary)">
                             <span>&#128101;</span> Signing Parties
-                            <span class="text-gray-400" x-text="'(' + signingParties.length + ')'"></span>
+                            <span style="color:var(--text-muted)" x-text="'(' + signingParties.length + ')'"></span>
                         </span>
-                        <span class="text-xs text-gray-500" x-text="partiesExpanded ? 'Done â–²' : 'Manage â–¼'"></span>
+                        <span class="text-xs" style="color:var(--text-muted)" x-text="partiesExpanded ? 'Done â–²' : 'Manage â–¼'"></span>
                     </button>
 
                     {{-- Expanded body --}}
-                    <div x-show="partiesExpanded" x-transition class="border-t border-gray-200">
+                    <div x-show="partiesExpanded" x-transition class="border-t border-[color:var(--border)]">
                         <div class="p-3 space-y-1.5">
                             <template x-for="(party, idx) in signingParties" :key="party.id">
                                 <div class="flex items-center gap-2 py-1 group">
@@ -261,13 +262,13 @@
                                 </template>
                             </div>
 
-                            <p class="text-[10px] text-gray-400 pt-1">Saved for your agency</p>
+                            <p class="text-[10px] pt-1" style="color:var(--text-muted)">Saved for your agency</p>
                         </div>
                     </div>
                 </div>
 
                 {{-- ===== TAG TOOLS ===== --}}
-                <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Tag Tools</h3>
+                <h3 class="text-xs font-semibold uppercase tracking-wider mb-3" style="color:var(--text-muted)">Tag Tools</h3>
                 <div class="flex gap-2 mb-4">
                     <button type="button" @click="setActiveTool('input')"
                             :class="activeTool === 'input' ? 'ring-2 ring-red-500 bg-red-50' : 'bg-white hover:bg-gray-50'"
@@ -288,7 +289,7 @@
                         <span class="text-gray-400" x-text="'(' + counts.initial + ')'"></span>
                     </button>
                 </div>
-                <p class="text-[10px] text-gray-400 mb-1" x-show="activeTool" x-transition>
+                <p class="text-[10px] mb-1" style="color:var(--text-muted)" x-show="activeTool" x-transition>
                     Click in the document to place a <span x-text="activeTool"></span> tag.
                     <a href="#" @click.prevent="setActiveTool(null)" class="underline">Cancel</a>
                 </p>
@@ -296,9 +297,9 @@
                 {{-- ===== SECTION 1: INPUT FIELDS ===== --}}
                 <template x-if="inputTags.length > 0">
                     <div class="mt-4">
-                        <hr class="border-gray-200 mb-4">
-                        <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">
-                            Input Fields <span class="text-gray-400" x-text="'(' + inputTags.length + ')'"></span>
+                        <hr class="mb-4 border-[color:var(--border)]">
+                        <h3 class="text-xs font-semibold uppercase tracking-wider mb-3" style="color:var(--text-muted)">
+                            Input Fields <span style="color:var(--text-muted)" x-text="'(' + inputTags.length + ')'"></span>
                         </h3>
                         <div class="space-y-3">
                             <template x-for="tag in inputTags" :key="tag.id">
@@ -403,9 +404,9 @@
                 {{-- ===== SECTION 2: SIGNATURE BLOCKS ===== --}}
                 <template x-if="sigTags.length > 0">
                     <div class="mt-4">
-                        <hr class="border-gray-200 mb-4">
-                        <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">
-                            Signatures <span class="text-gray-400" x-text="'(' + sigTags.length + ')'"></span>
+                        <hr class="mb-4 border-[color:var(--border)]">
+                        <h3 class="text-xs font-semibold uppercase tracking-wider mb-3" style="color:var(--text-muted)">
+                            Signatures <span style="color:var(--text-muted)" x-text="'(' + sigTags.length + ')'"></span>
                         </h3>
                         <div class="space-y-3">
                             <template x-for="tag in sigTags" :key="tag.id">
@@ -489,9 +490,9 @@
                 {{-- ===== SECTION 3: INITIAL BLOCKS ===== --}}
                 <template x-if="iniTags.length > 0">
                     <div class="mt-4">
-                        <hr class="border-gray-200 mb-4">
-                        <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">
-                            Initials <span class="text-gray-400" x-text="'(' + iniTags.length + ')'"></span>
+                        <hr class="mb-4 border-[color:var(--border)]">
+                        <h3 class="text-xs font-semibold uppercase tracking-wider mb-3" style="color:var(--text-muted)">
+                            Initials <span style="color:var(--text-muted)" x-text="'(' + iniTags.length + ')'"></span>
                         </h3>
                         <div class="space-y-3">
                             <template x-for="tag in iniTags" :key="tag.id">
@@ -535,7 +536,7 @@
                 </template>
 
                 {{-- Save status --}}
-                <div class="mt-4 text-xs text-gray-400" x-show="saveStatus" x-text="saveStatus" x-transition></div>
+                <div class="mt-4 text-xs" style="color:var(--text-muted)" x-show="saveStatus" x-text="saveStatus" x-transition></div>
             </div>
         </div>
     </div>

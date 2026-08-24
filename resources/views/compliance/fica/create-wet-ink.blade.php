@@ -3,15 +3,15 @@
 
 @section('corex-content')
 <div class="w-full space-y-5">
-    {{-- Page header (Pattern A — branded) --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    {{-- Page header (Pattern A — flat neutral) --}}
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">New Wet-Ink FICA</h1>
-                <p class="text-sm text-white/60">Upload a completed paper FICA form and supporting documents.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">New Wet-Ink FICA</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Upload a completed paper FICA form and supporting documents.</p>
             </div>
             <div class="flex flex-wrap items-center gap-2">
-                <a href="{{ route('compliance.fica.index') }}" class="corex-btn-outline corex-btn-on-brand">
+                <a href="{{ route('compliance.fica.index') }}" class="corex-btn-outline text-xs">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4"><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" /></svg>
                     Back to FICA
                 </a>
@@ -45,6 +45,25 @@
               selectedName: {{ \Illuminate\Support\Js::from('') }},
               entityType: {{ \Illuminate\Support\Js::from(old('entity_type', 'natural')) }},
               contactInfo: null,
+              results: [],
+              loading: false,
+              _searchTimer: null,
+              searchUrl: {{ \Illuminate\Support\Js::from(route('compliance.fica.contacts.search')) }},
+              doSearch() {
+                  const q = this.search.trim();
+                  this.selected = null; this.contactInfo = null;
+                  if (q.length < 2) { this.results = []; this.open = false; return; }
+                  this.open = true; this.loading = true;
+                  fetch(this.searchUrl + '?q=' + encodeURIComponent(q), { headers: { Accept: 'application/json' } })
+                      .then(r => r.ok ? r.json() : { contacts: [] })
+                      .then(j => { this.results = j.contacts || []; })
+                      .catch(() => { this.results = []; })
+                      .finally(() => { this.loading = false; });
+              },
+              pick(c) {
+                  this.selected = c.id; this.selectedName = c.name; this.open = false; this.results = [];
+                  this.contactInfo = { name: c.name, email: c.email, phone: c.phone, id_number: c.id_number };
+              },
               // AT-361 — link existing contact documents instead of re-uploading.
               contactDocs: [],
               docsLoading: false,
@@ -64,12 +83,12 @@
                       .finally(() => { this.docsLoading = false; this.docsLoaded = true; });
               }
           }"
-          x-init="$watch('selected', () => { links.fica_form = null; links.id_copy = null; links.proof_of_address = null; supportingLinks = []; fetchDocs(); }); if (selected) fetchDocs();">
+          x-init="$watch('search', () => { clearTimeout(_searchTimer); _searchTimer = setTimeout(() => doSearch(), 250); }); $watch('selected', () => { links.fica_form = null; links.id_copy = null; links.proof_of_address = null; supportingLinks = []; fetchDocs(); }); if (selected) fetchDocs();">
         @csrf
 
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
             {{-- Section 1: Contact --}}
-            <div class="lg:col-span-2 rounded-md p-5" style="background:var(--surface, #fff); border:1px solid var(--border, #e2e8f0);">
+            <div class="lg:col-span-2 rounded-md p-5" style="background:var(--surface); border:1px solid var(--border);">
                 <h3 class="text-sm font-semibold mb-4" style="color:var(--text-primary);">1. Select Contact</h3>
 
                 <div class="relative mb-3">
@@ -79,7 +98,7 @@
                            @click.away="open = false"
                            placeholder="Search contacts..."
                            class="w-full rounded-md px-3 py-2 text-sm outline-none"
-                           style="border:1px solid var(--border, #e2e8f0); background:var(--surface-2, #f8fafc); color:var(--text-primary);"
+                           style="border:1px solid var(--border); background:var(--surface-2); color:var(--text-primary);"
                            x-show="!selected">
                     <div x-show="selected" class="flex items-center justify-between rounded-md px-3 py-2" style="border:1px solid var(--border); background:var(--surface-2);">
                         <span class="text-sm font-medium" style="color:var(--text-primary);" x-text="selectedName"></span>
@@ -89,26 +108,17 @@
 
                     <div x-show="open && search.length >= 2" x-cloak
                          class="absolute z-30 mt-1 w-full max-h-60 overflow-y-auto rounded-md"
-                         style="background:var(--surface, #fff); border:1px solid var(--border); box-shadow:0 8px 24px rgba(0,0,0,0.18);">
-                        @foreach($contacts as $c)
-                            @php
-                                $haystack = strtolower(trim(($c->first_name ?? '') . ' ' . ($c->last_name ?? '') . ' ' . ($c->email ?? '') . ' ' . ($c->id_number ?? '')));
-                                $label = trim(($c->first_name ?? '') . ' ' . ($c->last_name ?? ''));
-                                $info = json_encode([
-                                    'name' => $label,
-                                    'email' => $c->email ?? 'No email',
-                                    'phone' => $c->phone ?? 'No phone',
-                                    'id_number' => $c->id_number ?? 'Not set',
-                                ]);
-                            @endphp
+                         style="background:var(--surface); border:1px solid var(--border); box-shadow:0 8px 24px rgba(0,0,0,0.18);">
+                        <template x-for="c in results" :key="c.id">
                             <button type="button"
-                                    x-show="{{ \Illuminate\Support\Js::from($haystack) }}.includes(search.toLowerCase())"
-                                    @click="selected = {{ (int) $c->id }}; selectedName = {{ \Illuminate\Support\Js::from($label) }}; open = false; contactInfo = {{ $info }}"
+                                    @click="pick(c)"
                                     class="w-full text-left px-3 py-2 text-sm transition-colors hover:bg-[var(--surface-2)]" style="border-bottom:1px solid var(--border);">
-                                <div class="font-medium" style="color:var(--text-primary);">{{ $c->first_name }} {{ $c->last_name }}</div>
-                                <div class="text-xs" style="color:var(--text-muted);">{{ $c->email ?? 'No email' }} {{ $c->id_number ? '/ ID: ' . $c->id_number : '' }}</div>
+                                <div class="font-medium" style="color:var(--text-primary);" x-text="c.name"></div>
+                                <div class="text-xs" style="color:var(--text-muted);" x-text="c.email + (c.id_number && c.id_number !== 'Not set' ? ' / ID: ' + c.id_number : '')"></div>
                             </button>
-                        @endforeach
+                        </template>
+                        <div x-show="loading" class="px-3 py-2 text-xs" style="color:var(--text-muted);">Searching&hellip;</div>
+                        <div x-show="!loading && search.length >= 2 && results.length === 0" class="px-3 py-2 text-xs" style="color:var(--text-muted);">No matching contacts.</div>
                     </div>
                 </div>
 
@@ -123,7 +133,7 @@
             </div>
 
             {{-- Section 2: Entity Type --}}
-            <div class="rounded-md p-5" style="background:var(--surface, #fff); border:1px solid var(--border);">
+            <div class="rounded-md p-5" style="background:var(--surface); border:1px solid var(--border);">
                 <h3 class="text-sm font-semibold mb-4" style="color:var(--text-primary);">2. Entity Type</h3>
                 <div class="flex flex-wrap gap-4 text-sm">
                     @foreach(['natural' => 'Natural Person', 'company' => 'Company', 'trust' => 'Trust', 'partnership' => 'Partnership'] as $val => $label)
@@ -137,7 +147,7 @@
             </div>
 
             {{-- Section 3: Received Date --}}
-            <div class="rounded-md p-5" style="background:var(--surface, #fff); border:1px solid var(--border);">
+            <div class="rounded-md p-5" style="background:var(--surface); border:1px solid var(--border);">
                 <h3 class="text-sm font-semibold mb-4" style="color:var(--text-primary);">3. Date Received</h3>
                 <input type="date" name="wet_ink_received_date" value="{{ old('wet_ink_received_date', date('Y-m-d')) }}" max="{{ date('Y-m-d') }}" required
                        class="w-full sm:w-52 rounded-md px-3 py-2 text-sm outline-none"
@@ -146,7 +156,7 @@
             </div>
 
             {{-- Section 4: Document Uploads --}}
-            <div class="lg:col-span-2 rounded-md p-5" style="background:var(--surface, #fff); border:1px solid var(--border);">
+            <div class="lg:col-span-2 rounded-md p-5" style="background:var(--surface); border:1px solid var(--border);">
                 <h3 class="text-sm font-semibold mb-4" style="color:var(--text-primary);">4. Upload Documents</h3>
                 <p class="text-xs mb-4" style="color:var(--text-muted);">PDF or image, max 10MB each</p>
 
@@ -206,7 +216,7 @@
             </div>
 
             {{-- Section 5: Confirmation --}}
-            <div class="lg:col-span-2 rounded-md p-5" style="background:var(--surface, #fff); border:1px solid var(--border);">
+            <div class="lg:col-span-2 rounded-md p-5" style="background:var(--surface); border:1px solid var(--border);">
                 <h3 class="text-sm font-semibold mb-4" style="color:var(--text-primary);">5. Attestation</h3>
                 <label class="flex items-start gap-3 cursor-pointer">
                     <input type="checkbox" name="confirmed_signed_paper" value="1" required

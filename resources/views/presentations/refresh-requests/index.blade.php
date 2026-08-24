@@ -38,18 +38,18 @@
 <div class="w-full space-y-5" x-data="{ panel: null }">
 
     {{-- Page header (Pattern A — branded) --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div data-tour="pres-refresh-intro">
-                <h1 class="text-xl font-bold text-white leading-tight">Refresh Requests</h1>
-                <p class="text-sm text-white/60">
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Refresh Requests</h1>
+                <p class="text-xs" style="color: var(--text-muted);">
                     Sellers' asks to refresh share-link data. Acknowledge to mark seen; issue a refreshed link to resolve.
                 </p>
             </div>
-            <div class="flex items-center gap-2 flex-wrap">
-                @include('layouts.partials.tour-header-launcher')
+            <div class="flex flex-wrap items-center gap-2">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
                 @if(\Illuminate\Support\Facades\Route::has('presentations.index'))
-                <a href="{{ route('presentations.index') }}" class="corex-btn-outline corex-btn-on-brand text-sm">
+                <a href="{{ route('presentations.index') }}" class="corex-btn-outline text-xs">
                     <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z" /></svg>
                     Presentations
                 </a>
@@ -86,7 +86,7 @@
                class="text-[13px] whitespace-nowrap no-underline transition-colors"
                style="padding: 8px 14px;
                       color: {{ $active ? 'var(--text-primary)' : 'var(--text-muted)' }};
-                      border-bottom: 2px solid {{ $active ? 'var(--brand-button, #0ea5e9)' : 'transparent' }};
+                      border-bottom: 2px solid {{ $active ? 'var(--brand-icon, #0ea5e9)' : 'transparent' }};
                       font-weight: {{ $active ? '600' : '500' }};">
                 {{ $label }}
             </a>

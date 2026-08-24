@@ -29,7 +29,10 @@ class OverdueSnapshotService
             $hasDocs = Schema::hasTable('property_documents');
             $props = Property::where('agent_id', $user->id)
                 ->where(function ($q) {
-                    $q->whereNull('status')->orWhereNotIn('status', ['sold','withdrawn','expired']);
+                    // BUILD_STANDARD §6 — single source of truth for "not live".
+                    // Chasing missing documents on a listing another agency
+                    // already sold is pure noise (AT-350).
+                    $q->whereNull('status')->orWhereNotIn('status', Property::OFF_MARKET_STATUSES);
                 })
                 ->where('created_at', '<=', now()->subHours($threshold))
                 ->limit(50)->get();

@@ -2,21 +2,23 @@
 
 @section('corex-content')
 
-<div class="max-w-3xl mx-auto">
-
-    {{-- Navy header bar --}}
-    <div style="background: var(--brand-default, #0b2a4a);" class="rounded-md px-6 py-4 mb-6">
-        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
-            <div>
-                <h2 class="text-xl font-bold text-white leading-tight">Edit Presentation Details</h2>
-                <div class="text-sm text-white/60">Update property details for: {{ $presentation->title }}</div>
-            </div>
+{{-- Page header (AT-336 — flat neutral bar, full-bleed above the centred form) --}}
+<div class="rounded-md px-6 py-4 mb-6 corex-page-banner">
+    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+        <div>
+            <h2 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Edit Presentation Details</h2>
+            <div class="text-xs" style="color: var(--text-muted);">Update property details for: {{ $presentation->title }}</div>
+        </div>
+        <div class="flex flex-wrap items-center gap-2">
             <a href="{{ route('presentations.show', $presentation) }}"
-               class="corex-btn-outline" style="color:#fff; border-color:rgba(255,255,255,0.3); background:transparent;">
+               class="corex-btn-outline text-xs">
                 &larr; Back to Presentation
             </a>
         </div>
     </div>
+</div>
+
+<div class="max-w-3xl mx-auto">
 
     {{-- Form card --}}
     <div class="ds-status-card" style="border-left-color: var(--ds-cyan);">

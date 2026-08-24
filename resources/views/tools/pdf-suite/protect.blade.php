@@ -3,11 +3,11 @@
 @section('corex-content')
 <div class="space-y-5">
 
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Password Protect</h1>
-                <p class="text-sm text-white/60">Lock or unlock a PDF with a password.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Password Protect</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Lock or unlock a PDF with a password.</p>
             </div>
         </div>
     </div>

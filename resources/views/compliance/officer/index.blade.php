@@ -21,13 +21,13 @@
 
         {{-- Current officer --}}
         @if($currentOfficer)
-        <div class="mb-6 p-4 bg-white border" style="border-color:var(--border, #e5e7eb); border-radius:6px;">
+        <div class="mb-6 p-4 border" style="background:var(--surface); border-color:var(--border, #e5e7eb); border-radius:6px;">
             <div class="flex items-start justify-between">
                 <div>
                     <h3 class="text-xs font-semibold uppercase mb-2" style="color:var(--brand-icon); letter-spacing:0.05em;">Current Compliance Officer</h3>
                     <p class="text-lg font-bold" style="color:var(--text-primary, #1f2937);">{{ $currentOfficer->full_name }}</p>
-                    <p class="text-sm mt-1" style="color:#64748b;">{{ $currentOfficer->title }}</p>
-                    <div class="mt-3 grid grid-cols-2 gap-x-6 gap-y-1 text-sm" style="color:#64748b;">
+                    <p class="text-sm mt-1" style="color:var(--text-muted);">{{ $currentOfficer->title }}</p>
+                    <div class="mt-3 grid grid-cols-2 gap-x-6 gap-y-1 text-sm" style="color:var(--text-muted);">
                         @if($currentOfficer->id_number)
                         <p>ID: {{ $currentOfficer->id_number }}</p>
                         @endif
@@ -54,7 +54,7 @@
         {{-- Historical officers --}}
         @if($historicalOfficers->isNotEmpty())
         <div x-data="{ showHistory: false }">
-            <button @click="showHistory = !showHistory" class="text-sm font-semibold mb-3 flex items-center gap-1" style="color:#64748b;">
+            <button @click="showHistory = !showHistory" class="text-sm font-semibold mb-3 flex items-center gap-1" style="color:var(--text-muted);">
                 <svg class="w-4 h-4 transition-transform" :class="showHistory && 'rotate-90'" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m9 5 7 7-7 7"/></svg>
                 Previous Officers ({{ $historicalOfficers->count() }})
             </button>
@@ -62,7 +62,7 @@
             <div x-show="showHistory" x-cloak class="overflow-x-auto" style="border:1px solid var(--border, #e5e7eb); border-radius:6px;">
                 <table class="w-full text-sm" style="">
                     <thead>
-                        <tr style="background:var(--surface-alt, #f8fafc); border-bottom:1px solid var(--border, #e5e7eb);">
+                        <tr style="background:var(--surface-2, #f8fafc); border-bottom:1px solid var(--border, #e5e7eb);">
                             <th class="px-4 py-3 text-left font-semibold" style="color:var(--text-secondary, #6b7280);">Name</th>
                             <th class="px-4 py-3 text-left font-semibold" style="color:var(--text-secondary, #6b7280);">Title</th>
                             <th class="px-4 py-3 text-left font-semibold" style="color:var(--text-secondary, #6b7280);">Appointed</th>
@@ -73,9 +73,9 @@
                         @foreach($historicalOfficers as $officer)
                         <tr style="border-bottom:1px solid var(--border, #f1f5f9);">
                             <td class="px-4 py-3">{{ $officer->full_name }}</td>
-                            <td class="px-4 py-3" style="color:#64748b;">{{ $officer->title }}</td>
-                            <td class="px-4 py-3" style="color:#64748b;">{{ $officer->appointed_on->format('d M Y') }}</td>
-                            <td class="px-4 py-3" style="color:#64748b;">{{ $officer->ended_on->format('d M Y') }}</td>
+                            <td class="px-4 py-3" style="color:var(--text-muted);">{{ $officer->title }}</td>
+                            <td class="px-4 py-3" style="color:var(--text-muted);">{{ $officer->appointed_on->format('d M Y') }}</td>
+                            <td class="px-4 py-3" style="color:var(--text-muted);">{{ $officer->ended_on->format('d M Y') }}</td>
                         </tr>
                         @endforeach
                     </tbody>

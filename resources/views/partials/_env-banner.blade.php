@@ -58,6 +58,29 @@
         // Server-rendered fallback; the script below refines it to the minute.
         $resetLabel     = 'RESETS IN ' . intdiv($resetSeconds, 86400) . 'd '
                         . intdiv($resetSeconds % 86400, 3600) . 'h';
+
+        // "Open Mailpit" — was hardcoded to DEMO only, but QA1/QA2/Staging all
+        // ALSO route outbound mail to the same shared local catcher (mail
+        // safety net, so a QA click can never reach a real person). Gate on
+        // the ACTUAL mail config instead of the env label string, so the link
+        // only ever appears where it truly works, and any future environment
+        // that gets pointed at the local catcher picks it up automatically
+        // with no banner change needed. Single shared inbox across every
+        // non-live environment — the tooltip says so to avoid "whose email is
+        // this" confusion when QA1/QA2/Staging/Demo test mail is all mixed
+        // together in the one Mailpit UI.
+        //
+        // Checks EVERY mailer actually used to send app mail, not just the
+        // default 'smtp' one (found in review 2026-08-12): AgencyOnboardingSetupMail
+        // and PillarEventNotification send via the independently-configured
+        // 'corex' mailer, and client-auth OTP emails via 'otp' — each has its
+        // own MAIL_*_HOST/PORT and can be pointed at real SMTP even while the
+        // default mailer is safely local. Claiming "your mail is caught here"
+        // is only true if ALL of them are actually local.
+        $mailpitActive = collect(['smtp', 'corex', 'otp'])->every(
+            fn (string $mailer) => config("mail.mailers.{$mailer}.host") === '127.0.0.1'
+                && (int) config("mail.mailers.{$mailer}.port") === 1025
+        );
     @endphp
     <div role="status" aria-label="Environment: {{ $envLabel }}"
          style="flex:0 0 auto; width:100%; height:24px; line-height:24px;
@@ -67,7 +90,7 @@
                 text-transform:uppercase; text-align:center;
                 white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
                 padding:0 12px; user-select:none;">
-        {{ $c['text'] }}@if ($envLabel === 'DEMO') · <a href="https://mail.demo1.corexos.co.za" target="_blank" rel="noopener" style="color:inherit; text-decoration:underline;">Open Mailpit</a>@endif
+        {{ $c['text'] }}@if ($mailpitActive) · <a href="https://mail.demo1.corexos.co.za" target="_blank" rel="noopener" style="color:inherit; text-decoration:underline;" title="Shared test-mail catcher — every QA/Staging/Demo environment's outbound mail lands here, not just this one.">Open Mailpit</a>@endif
         @if ($isDemoInstance)
             · <span id="demo-reset-countdown" data-reset-at="{{ $resetAtIso }}"
                     title="The demo database is wiped and rebuilt every 3 days at 03:00 SAST. Anything you change will be lost.">{{ $resetLabel }}</span>

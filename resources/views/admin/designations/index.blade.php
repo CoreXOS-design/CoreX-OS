@@ -28,23 +28,25 @@
             @csrf
 
             <div class="md:col-span-6">
-                <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Name</label>
+                <label class="block text-xs mb-1" style="color:var(--text-secondary)">Name</label>
                 <input name="name" required
-                       class="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 px-3 py-2 text-sm"
+                       class="w-full rounded-lg border px-3 py-2 text-sm"
+                       style="border-color:var(--border); background:var(--surface); color:var(--text-primary)"
                        placeholder="e.g. Property Practitioner">
             </div>
 
             <div class="md:col-span-3">
-                <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Sort order</label>
+                <label class="block text-xs mb-1" style="color:var(--text-secondary)">Sort order</label>
                 <input name="sort_order" type="number" step="1" min="0"
-                       class="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 px-3 py-2 text-sm"
+                       class="w-full rounded-lg border px-3 py-2 text-sm"
+                       style="border-color:var(--border); background:var(--surface); color:var(--text-primary)"
                        placeholder="e.g. 20">
             </div>
 
             <div class="md:col-span-2 flex items-center gap-2">
                 <input type="hidden" name="is_enabled" value="0">
-                <input type="checkbox" name="is_enabled" value="1" checked class="rounded border-slate-300 dark:border-slate-700">
-                <span class="text-sm text-slate-700 dark:text-slate-200">Enabled</span>
+                <input type="checkbox" name="is_enabled" value="1" checked class="rounded" style="border-color:var(--border)">
+                <span class="text-sm" style="color:var(--text-secondary)">Enabled</span>
             </div>
 
             <div class="md:col-span-1">
@@ -56,38 +58,40 @@
     </div>
 
     {{-- List --}}
-    <div class="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 overflow-hidden">
-        <div class="px-4 py-3 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
-            <div class="text-sm font-semibold text-slate-900 dark:text-slate-100">Current list</div>
-            <div class="text-xs text-slate-500 dark:text-slate-400">{{ count($designations ?? []) }} total</div>
+    <div class="rounded-2xl border overflow-hidden" style="border-color:var(--border); background:var(--surface)">
+        <div class="px-4 py-3 border-b flex items-center justify-between" style="border-color:var(--border)">
+            <div class="text-sm font-semibold" style="color:var(--text-primary)">Current list</div>
+            <div class="text-xs" style="color:var(--text-muted)">{{ count($designations ?? []) }} total</div>
         </div>
 
-        <div class="divide-y divide-slate-200 dark:divide-slate-800">
+        <div class="divide-y divide-[color:var(--border)]">
             @forelse($designations as $d)
                 <div class="p-4">
                     <form method="POST" action="{{ url('/admin/designations/'.$d->id) }}" class="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
                         @csrf
 
                         <div class="md:col-span-6">
-                            <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Name</label>
+                            <label class="block text-xs mb-1" style="color:var(--text-secondary)">Name</label>
                             <input name="name" value="{{ $d->name }}" required
-                                   class="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 px-3 py-2 text-sm">
+                                   class="w-full rounded-lg border px-3 py-2 text-sm"
+                                   style="border-color:var(--border); background:var(--surface); color:var(--text-primary)">
                         </div>
 
                         <div class="md:col-span-3">
-                            <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Sort order</label>
+                            <label class="block text-xs mb-1" style="color:var(--text-secondary)">Sort order</label>
                             <input name="sort_order" type="number" step="1" min="0" value="{{ (int)$d->sort_order }}"
-                                   class="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 px-3 py-2 text-sm">
+                                   class="w-full rounded-lg border px-3 py-2 text-sm"
+                                   style="border-color:var(--border); background:var(--surface); color:var(--text-primary)">
                         </div>
 
                         <div class="md:col-span-2 flex items-center gap-2">
                             <input type="hidden" name="is_enabled" value="0">
-                            <input type="checkbox" name="is_enabled" value="1" {{ $d->is_enabled ? 'checked' : '' }} class="rounded border-slate-300 dark:border-slate-700">
-                            <span class="text-sm text-slate-700 dark:text-slate-200">Enabled</span>
+                            <input type="checkbox" name="is_enabled" value="1" {{ $d->is_enabled ? 'checked' : '' }} class="rounded" style="border-color:var(--border)">
+                            <span class="text-sm" style="color:var(--text-secondary)">Enabled</span>
                         </div>
 
                         <div class="md:col-span-1 flex gap-2 md:justify-end">
-                            <button class="px-3 py-2 rounded-lg bg-slate-900 text-white hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 text-sm font-semibold">
+                            <button class="px-3 py-2 rounded-lg text-sm font-semibold corex-btn-primary">
                                 Save
                             </button>
                         </div>
@@ -103,7 +107,7 @@
                     </form>
                 </div>
             @empty
-                <div class="p-6 text-sm text-slate-500 dark:text-slate-400">
+                <div class="p-6 text-sm" style="color:var(--text-muted)">
                     No designations found.
                 </div>
             @endforelse

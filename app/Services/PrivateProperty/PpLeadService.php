@@ -164,6 +164,12 @@ class PpLeadService
         $phone      = $this->firstNonEmpty($raw, ['FromContactNumber', 'fromContactNumber', 'ContactNumber', 'Phone']);
         $message    = $this->firstNonEmpty($raw, ['Message', 'message']);
         $receivedAt = $this->parseTimestamp($this->firstNonEmpty($raw, ['Date', 'LeadDate', 'date'])) ?? now();
+        // PP's `LeadType` values are EmailLead/WhatsAppLead (PP Agency Feed Service Rev
+        // 4.7). Match tolerantly on substring rather than an exact enum value — matches
+        // the tolerant-mapping posture used everywhere else in this integration and
+        // survives PP casing/spelling drift either side of the cutover.
+        $leadType   = (string) ($this->firstNonEmpty($raw, ['LeadType', 'leadType']) ?? 'Email');
+        $isWhatsApp = stripos($leadType, 'whatsapp') !== false;
 
         // STRICT dedup: PP LeadId is a stable, unique enquiry id. Re-pulls of an
         // overlapping window MUST create zero duplicates. When present, LeadId is
@@ -185,7 +191,7 @@ class PpLeadService
         $lead = new PortalLead([
             'agency_id'                 => $agencyId,
             'portal'                    => PortalLead::PORTAL_PP,
-            'lead_type'                 => (string) ($this->firstNonEmpty($raw, ['LeadType', 'leadType']) ?? 'Email'),
+            'lead_type'                 => $leadType,
             'listing_id'                => $listingId,
             'listing_portal_ref'        => $listingRef ? (string) $listingRef : null,
             'contact_id'                => $contact?->id,
@@ -195,7 +201,7 @@ class PpLeadService
             'email'                     => $email,
             'phone'                     => $phone,
             'message'                   => $message,
-            'is_whatsapp'               => false,
+            'is_whatsapp'               => $isWhatsApp,
             // __corex_lead_id is the dedup key — always present so a re-pull is
             // idempotent even when the composite fields repeat.
             'lead_source_raw'           => $raw + ['__corex_lead_id' => $leadId],
@@ -353,19 +359,34 @@ class PpLeadService
             return [$existing, true, $existing->created_by_user_id];
         }
 
-        $buyerTypeId = ContactType::query()->where('name', 'Buyer')->value('id')
-                    ?? ContactType::query()->where('name', 'Lead')->value('id');
+        // Type follows the enquired listing's market (2026-08-18) — a rental
+        // enquiry must land as a Tenant, not a Buyer. Was hardcoded to
+        // 'Buyer' unconditionally (same defect as P24LeadService).
+        $isRental = $listingId && Property::query()->withoutGlobalScopes()
+            ->where('id', $listingId)->value('listing_type') === 'rental';
+        // 'Lessee' is the canonical, permanently-locked rental-side parent
+        // type (ContactType::CANONICAL, AT-79) — legacy 'Tenant'/'Prospective
+        // Tenant' names are soft-deleted on agencies that have run the
+        // types-collapse migration (confirmed on staging; live has not yet
+        // run it, so 'Tenant' is kept as a fallback for now).
+        $contactTypeId = $isRental
+            ? (ContactType::query()->where('name', 'Lessee')->value('id')
+                ?? ContactType::query()->where('name', 'Tenant')->value('id')
+                ?? ContactType::query()->where('name', 'Buyer')->value('id')
+                ?? ContactType::query()->where('name', 'Lead')->value('id'))
+            : (ContactType::query()->where('name', 'Buyer')->value('id')
+                ?? ContactType::query()->where('name', 'Lead')->value('id'));
         $sourceId    = ContactSource::query()->where('name', 'Private Property')->value('id');
 
         [$first, $last] = $this->splitName($name);
 
-        $contact = DB::transaction(function () use ($agencyId, $first, $last, $email, $phone, $buyerTypeId, $sourceId, $listingAgentId, $listingId) {
+        $contact = DB::transaction(function () use ($agencyId, $first, $last, $email, $phone, $contactTypeId, $sourceId, $listingAgentId, $listingId) {
             $c = new Contact([
                 'first_name'         => $first,
                 'last_name'          => $last,
                 'email'              => $email,
                 'phone'              => $phone,
-                'contact_type_id'    => $buyerTypeId,
+                'contact_type_id'    => $contactTypeId,
                 'contact_source_id'  => $sourceId,
                 'created_by_user_id' => $listingAgentId,
                 'agency_id'          => $agencyId,

@@ -1,22 +1,24 @@
 <x-app-layout>
     <x-slot name="header">
-        <div style="background:#0b2a4a;" class="rounded-2xl px-6 py-4">
-            <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+        <div class="rounded-md px-6 py-5 corex-page-banner">
+            <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                 <div>
-                    <h2 class="text-xl font-bold text-white leading-tight">{{ $mode === 'create' ? 'Add Deal' : 'Edit Deal' }}</h2>
-                    <div class="text-sm text-white/60">Capture the deal accurately so settlement + rollups reconcile end-to-end.</div>
+                    <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">{{ $mode === 'create' ? 'Add Deal' : 'Edit Deal' }}</h1>
+                    <p class="text-xs" style="color: var(--text-muted);">Capture the deal accurately so settlement + rollups reconcile end-to-end.</p>
                 </div>
-                <a href="{{ route('admin.deals') }}"
-                   class="inline-flex items-center rounded-xl bg-white/10 px-4 py-2 text-sm font-semibold text-white ring-1 ring-white/20 hover:bg-white/15">
-                    &larr; Back to Deal Register
-                </a>
+                <div class="flex flex-wrap items-center gap-2">
+                    <a href="{{ route('admin.deals') }}" class="corex-btn-outline text-xs shrink-0">
+                        &larr; Back to Deal Register
+                    </a>
+                </div>
             </div>
         </div>
     </x-slot>
 
 
     @if($errors->any())
-        <div class="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 mb-4">
+        <div class="rounded-md px-4 py-3 text-sm mb-4"
+             style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent); border: 1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent); color: var(--text-primary);">
             {{ $errors->first() }}
         </div>
     @endif
@@ -70,7 +72,7 @@
         }
     @endphp
 
-    <div class="page-wrap">
+    <div class="page-wrap corex-legacy-v2">
 
     <div class="space-y-6">
 
@@ -82,7 +84,7 @@
             <h2 class="ds-section-header">Deal Details</h2>
             <div class="ds-section-sub mb-4">Core deal + commission capture (commission is VAT-inclusive).</div>
 
-            <div class="ds-status-card">
+            <div class="ds-status-card" style="border-left-color: var(--border);">
                 <div class="deal-grid">
             <div>
                 <label class="ds-label block mb-1">Deal No (system)</label>
@@ -172,7 +174,7 @@
             <div>
                 <label class="ds-label block mb-1">Total Commission (Incl VAT)</label>
                 <input type="number" step="0.01" class="input-base money-input" name="total_commission" value="{{ old('total_commission', $deal->total_commission) }}" required>
-                <div class="mt-1 text-xs text-gray-500">Internal pools/allocations are calculated <span class="font-semibold">Ex VAT</span> (VAT is tracked separately).</div>
+                <div class="mt-1 text-xs" style="color:var(--text-muted)">Internal pools/allocations are calculated <span class="font-semibold">Ex VAT</span> (VAT is tracked separately).</div>
             </div>
                 </div>
             </div>
@@ -183,7 +185,7 @@
             <h2 class="ds-section-header">Status & Registration</h2>
             <div class="ds-section-sub mb-4">Admin tracking fields (optional where applicable).</div>
 
-            <div class="ds-status-card">
+            <div class="ds-status-card" style="border-left-color: var(--border);">
                 <div class="deal-grid pt-2">
             <div>
                 <label class="ds-label block mb-1">Accepted Status</label>
@@ -226,11 +228,11 @@
             <h2 class="ds-section-header">Sides, Splits & Agents</h2>
             <div class="ds-section-sub mb-4">Set external / our share and lock listing + selling split to total 100%.</div>
 
-            <div class="ds-status-card">
+            <div class="ds-status-card" style="border-left-color: var(--border);">
                 <div class="deal-grid pt-4">
             <!-- LISTING -->
             <div>
-                <h3 class="font-bold" style="color:#0b2a4a">Listing Side</h3>
+                <h3 class="font-bold" style="color:var(--text-primary)">Listing Side</h3>
 
                 <div class="flex items-center gap-3">
                     <label class="inline-flex items-center gap-2">
@@ -242,12 +244,12 @@
                     <div class="w-64">
                         <div class="flex items-center justify-between">
                             <div class="ds-label">Listing split %</div>
-                            <div class="text-xs text-gray-500"><span id="listing_split_label">—</span> / <span id="selling_split_label">—</span></div>
+                            <div class="text-xs" style="color:var(--text-muted)"><span id="listing_split_label">—</span> / <span id="selling_split_label">—</span></div>
                         </div>
                         <div class="mt-2 flex items-center gap-3">
                             <input id="listing_split_percent" type="number" step="0.01" name="listing_split_percent"
                                    value="{{ old('listing_split_percent', $deal->listing_split_percent ?? 50) }}"
-                                   class="w-24 rounded-lg border-gray-200" placeholder="%">
+                                   class="w-24 rounded-md" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);" placeholder="%">
                             <input id="listing_split_slider" type="range" min="0" max="100" step="0.01"
                                    class="flex-1" value="{{ old('listing_split_percent', $deal->listing_split_percent ?? 50) }}">
                         </div>
@@ -265,7 +267,7 @@
                                 </option>
                             @endforeach
                         </select>
-                        <div class="text-xs text-gray-500 mt-1">Hold Ctrl / Cmd to select multiple.</div>
+                        <div class="text-xs mt-1" style="color:var(--text-muted)">Hold Ctrl / Cmd to select multiple.</div>
                     </div>
 
                     <div id="listing_selected" class="space-y-2"></div>
@@ -274,7 +276,7 @@
 
             <!-- SELLING -->
             <div>
-                <h3 class="font-bold" style="color:#0b2a4a">Selling Side</h3>
+                <h3 class="font-bold" style="color:var(--text-primary)">Selling Side</h3>
 
                 <div class="flex items-center gap-3">
                     <label class="inline-flex items-center gap-2">
@@ -288,7 +290,7 @@
                         <div class="mt-2 flex items-center gap-3">
                             <input id="selling_split_percent" type="number" step="0.01" name="selling_split_percent"
                                    value="{{ old('selling_split_percent', $deal->selling_split_percent ?? 50) }}"
-                                   class="w-24 rounded-lg border-gray-200" placeholder="%">
+                                   class="w-24 rounded-md" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);" placeholder="%">
                             <input id="selling_split_slider" type="range" min="0" max="100" step="0.01"
                                    class="flex-1" value="{{ old('selling_split_percent', $deal->selling_split_percent ?? 50) }}">
                         </div>
@@ -306,7 +308,7 @@
                                 </option>
                             @endforeach
                         </select>
-                        <div class="text-xs text-gray-500 mt-1">Hold Ctrl / Cmd to select multiple.</div>
+                        <div class="text-xs mt-1" style="color:var(--text-muted)">Hold Ctrl / Cmd to select multiple.</div>
                     </div>
 
                     <div id="selling_selected" class="space-y-2"></div>
@@ -347,7 +349,7 @@
                     row.innerHTML = `
                         <input type="hidden" name="${sideName}_agents[]" value="${id}">
                         <div class="w-48 font-semibold" style="color:var(--text-primary, #0b2a4a)">${label}</div>
-                        <input type="number" step="0.01" name="${sideName}_override[${id}]" placeholder="% override" class="w-32 rounded-lg border-gray-200" value="${initial ?? ''}">
+                        <input type="number" step="0.01" name="${sideName}_override[${id}]" placeholder="% override" class="w-32 rounded-md" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);" value="${initial ?? ''}">
                         <button type="button" class="text-xs text-red-600">Remove</button>
                     `;
 

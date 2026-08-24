@@ -154,16 +154,21 @@ Regression-guarded by `test_no_step_deep_links_out_of_the_wizard` (iterates all 
 - Add `AgencyCreated` to the event catalogue in
   `.ai/specs/corex-domain-events-spec.md` §5.
 
-### 3.5 Listener creates the setup record + sends the email
+### 3.5 Listener creates the setup record; the email is deferred (AMENDED 2026-08-12, Johan — see .ai/specs/agency-admin-rule.md §R1a/§R1b)
 `App\Listeners\Onboarding\CreateAgencySetupPortal` (sync) subscribes to `AgencyCreated`:
 1. `AgencyOnboardingSetup::create()` — token (`Str::random(40)`, uniqueness-checked),
    slug, `agency_id`, `current_step = 1`, `completed_steps = []`, `expires_at =
    now()->addDays(30)` (generous — this is a resumable setup, not a P24 review window).
    **Idempotent:** `firstOrCreate` on `agency_id` — never a second live portal per agency
    (per E5 of the domain-events spec; the listener must be safe to run twice).
-2. Sends `AgencyOnboardingSetupMail` to the admin email **via the `corex` mailer**
-   (`Mail::mailer('corex')->to($email)->send(...)`) so it delivers even where the default
-   mailer is `log` (staging). Subject: *"Welcome to CoreX — set up your agency."*
+2. **Superseded:** this listener no longer sends `AgencyOnboardingSetupMail` at creation
+   time. As of §R1a, the new Admin has no password yet at this point (email-only invite —
+   `UserInviteMail` is what's sent here, from `AgencyController@store`, not this listener).
+   `AgencyOnboardingSetupMail` (subject *"Welcome to CoreX — set up your agency"*, via the
+   `corex` mailer, unchanged) now fires on the Admin's **first successful login** — see §R1b
+   — stamping `agency_onboarding_setups.invite_email_sent_at` so the trigger fires once. It
+   can also be **manually re-sent** from the owner tracking page (§7.4) independent of login
+   state.
 
 ### 3.6 Completion vs revisit
 `completed_at` is stamped when the Admin hits Finish on the last step. A completed portal:
@@ -225,21 +230,27 @@ The wizard writes to the **existing** backing stores only (§6). No new settings
 
 Steps mirror the real settings sections (`$railGroups` in
 `resources/views/corex/settings.blade.php`). Must-configure-first things come early.
-`TOTAL_STEPS = 11`.
+`TOTAL_STEPS = 13`. Step 2 is the **feature switchboard** (spec
+`.ai/specs/agency-onboarding-feature-switchboard.md`) — the front door onto every
+top-level capability. A capability switched OFF there **skips its dedicated detail
+step** (adaptive step-gating); "Step X of N" counts only the ACTIVE steps for that
+agency, so the visible count is ≤ 13.
 
 | # | key | Step | Backing store(s) |
 |---|-----|------|------------------|
 | 1 | `identity` | Welcome / Agency identity | `agencies` company-identity fields |
-| 2 | `branding` | Logo & agency colours | `agencies` (`logo_path`, `sidebar_color`, `icon_color`, `default_color`, `button_color`) |
-| 3 | `branches` | Branches / offices | `branches`, `agencies.split_branches_enabled` |
-| 4 | `commission` | Commission & revenue share | `commission_settings` |
-| 5 | `properties` | Properties & listings | `performance_settings` (per-page, marketing, syndication toggles) |
-| 6 | `presentations` | Presentations / CMA | `agencies` (`presentations_*`,`comp_*`,`cma_*`) |
-| 7 | `matches` | Matches | `performance_settings` (`matches_*`) |
-| 8 | `contacts` | Contacts | `performance_settings` (`contacts_per_page`), `contact_sources` |
-| 9 | `compliance` | Compliance | whistleblow columns on `agencies` |
-| 10 | `notifications` | Notifications & dashboard | `AgencyDashboardSetting`, `agencies.dashboard_settings_mode` |
-| 11 | `access` | Access & finish | `agencies.require_external_access_authorization`; review summary; mark complete |
+| 2 | `capabilities` | **Feature switchboard** — turn features on/off | `performance_settings` (`marketing_enabled`, `matches_enabled`, `syndication_*`) + `agencies` (`split_branches_enabled`, `website_enabled`) |
+| 3 | `branding` | Logo & agency colours | `agencies` (`logo_path`, `sidebar_color`, `icon_color`, `default_color`, `button_color`, `ncc_registration_number` — AT-234, added 2026-08-04) |
+| 4 | `branches` | Branches / offices | `branches` (the `split_branches_enabled` master moved to step 2) |
+| 5 | `commission` | Commission & revenue share | `commission_settings` |
+| 6 | `properties` | Properties & listings | `performance_settings` (per-page; marketing + syndication masters moved to step 2); `agency_deal_sync_settings` (`flag_property_under_offer_on_deal`, `sold_milestone`, `revert_property_on_deal_declined` — DR2 Wave 2, added 2026-08-04) |
+| 7 | `presentations` | Presentations / CMA | `agencies` (`presentations_*`,`comp_*`,`cma_*`) |
+| 8 | `matches` | Matches | `performance_settings` (`matches_show_on_properties`, `matches_visibility_scope`, `matches_wa_message`) — **gated on `matches_enabled`** (step 2); the `matches_enabled` master moved to step 2 |
+| 9 | `contacts` | Contacts | `performance_settings` (`contacts_per_page`), `contact_sources` |
+| 10 | `compliance` | Compliance | whistleblow columns on `agencies`; `agencies.fica_referral_enabled` / `fica_referral_recipient_user_id` (AT-236, added 2026-08-04 — was flagged 2026-07-14 as a deliberate-omission candidate pending Johan's call; resolved to include rather than exclude) |
+| 11 | `notifications` | Notifications & dashboard | `AgencyDashboardSetting`, `agencies.dashboard_settings_mode` |
+| 12 | `roles` | How roles & permissions work (explainer) | — (explainer only; no savers) |
+| 13 | `access` | Access & finish | `agencies.require_external_access_authorization`; review summary; mark complete |
 
 ### 5.1 Deliberately NOT in the wizard (Johan, 2026-07-11)
 
@@ -254,6 +265,31 @@ by oversight — do not reinstate them without asking:
   settings page.
 - **"Invite your team".** Onboarding configures the agency; adding people stays in User
   Management.
+- **"Public website" toggle (`website_enabled`)** (Johan, 2026-08-12 — alongside the
+  "features on by default" change below). Taking the agency's public site live is a
+  deliberate action, never an onboarding default — removed from the capabilities step's
+  `controls` AND its `toggleWebsite` saver (leaving the saver registered with no matching
+  control would fail `'website_enabled' => 'required|boolean'` validation on every step
+  save). Stays on `Admin\AgencyApiKeyController@toggleWebsite`, reachable from the
+  agency's website-settings page. `agencies.website_enabled` and
+  `config/corex-features.php`'s `public-website` registry row both still default `false`.
+
+**From the feature switchboard (spec `.ai/specs/agency-onboarding-feature-switchboard.md` §3.5):**
+
+- **P24 / Private Property portal *credentials* and the `p24_enabled` / `pp_enabled` /
+  `pp_lead_pull_enabled` / `pp_stats_pull_enabled` columns.** Written only by the
+  `Admin\AgencyController@update` booby trap (with an auto-enable side effect when
+  username+password are present), so a switchboard "OFF" would be silently overridden.
+  Stay on agency-edit. (The `syndication_*` feature keys — "do we push at all" — ARE in
+  the switchboard; they are a different thing to the credential columns.)
+- **Commission sub-toggles `mentor_program_enabled` / `revenue_share_enabled`.** These are
+  commission *configuration*, already rendered (with §6.1 guards) in the Commission step —
+  one home per switch (§3.2).
+- **Presentations / CMA master toggle.** No `presentations_enabled` column exists; a real
+  master must also gate the feature (nav + compute), which is a feature build in its own
+  right — deferred, not a switch.
+- **WhatsApp voice transcription (`wa_transcription_enabled`).** No HTTP saver today;
+  including it needs a new narrow, `$request->has()`-guarded saver — deferred fast-follow.
 
 `test_removed_sections_are_gone` guards the removal. `test_no_step_deep_links_out_of_the_wizard`
 (§3.3a) independently forbids re-adding "open the full editor" links.
@@ -299,8 +335,10 @@ It takes `(Request, Agency)`, hence the per-saver `pass_agency` flag on the save
   affects · the live control**. Copy is agent-facing, plain English (STANDARDS F.8).
 - **Save & continue**, **Back**, **Skip for now** on every step. Saving writes live
   immediately via the shared settings path. Partial completion is fine and resumable.
-- Progress indicator: *Step X of 9 · NN% complete*; progress persisted on the record
-  (`current_step`, `completed_steps`).
+- Progress indicator: *Step X of N · NN% complete*, where **N is the count of ACTIVE
+  steps** for this agency (gated-off steps are neither shown nor counted — feature
+  switchboard spec §8); progress persisted on the record (`current_step`,
+  `completed_steps`).
 
 **Explanation copy** lives in ONE authoritative, hand-written, reviewed place —
 `config/agency-onboarding-copy.php` (a per-step / per-setting content map). **Not**
@@ -349,6 +387,16 @@ Guarded by `test_every_step_explains_itself_before_asking_for_config` (asserts e
 | 8 dashboard | mode + agency reminders | `@updateDashboardMode` (819) / `@updateAgencyDashboardSettings` (866) |
 | 9 access | remote-access consent | `@updateRemoteAccess` (916) |
 
+**Feature switchboard (step 2) reuses these savers.** The master on/off for Marketing,
+the two portal-syndication feeds, Core Matches and Multi-branch — plus the public
+website — are invoked from the `capabilities` step through the SAME canonical savers
+(`@updateMarketingEnabled`, `@updateSyndicationPortals`, `@updateMatchesEnabled`,
+`@updateSplitBranches`, and `Admin\AgencyApiKeyController@toggleWebsite`). Those masters
+were **moved out** of their old detail steps (properties / matches / branches) so each
+switch has one home (feature switchboard spec §3.2). Detail steps keep only their
+how-it-works config. (The step numbers in the table above predate the `roles` and
+`capabilities` inserts — treat the *step key*, not the number, as canonical.)
+
 **Extraction plan:** where a step needs a method that currently only exists as a
 controller action bound to a settings route, the wizard controller **calls those same
 routes/methods** (dispatching a sub-request or invoking a shared service). Preferred:
@@ -392,6 +440,15 @@ Confirmed instances of the class, all now guarded:
 | `@updateAgencyDashboardSettings` | `weekend_visible`, `open_hours_enabled` | `$request->has()` guard |
 | `@updatePresentations` | `ss_show_complex_section` | `$request->has()` guard |
 | `Commission\CommissionSettingsController@update` | `mentor_program_enabled`, `revenue_share_enabled` | `$request->has()` guard |
+| `@updateMarketingEnabled` | `marketing_enabled` | `$request->has()` guard (feature switchboard §3.4) |
+| `@updateSyndicationPortals` | `syndication_p24_enabled`, `syndication_pp_enabled` | `$request->has()` guard, per key |
+| `@updateMatchesEnabled` | `matches_enabled` | `$request->has()` guard |
+| `@updateSplitBranches` | `split_branches_enabled` | `$request->has()` guard |
+
+The last four were hardened when the feature switchboard (spec
+`.ai/specs/agency-onboarding-feature-switchboard.md`) began fanning to them as a
+second caller; `toggleWebsite` (`Admin\AgencyApiKeyController`) is already safe
+(`required|boolean` + the switchboard always posts the field via a hidden companion).
 
 Regression coverage: `tests/Feature/Onboarding/AgencySetupWizardSaverGuardTest.php`.
 
@@ -410,8 +467,11 @@ Regression coverage: `tests/Feature/Onboarding/AgencySetupWizardSaverGuardTest.p
    of every agency (owner-scoped, `queryWithoutAgencyScope` since it is cross-agency
    platform tooling per multi-tenancy spec rule #5) with: agency, admin, status chip
    (Active/Completed/Expired/Revoked), progress %, opened / last-activity / completed
-   timestamps, open count, and a **copy-link** button. Gated to owner role. Nav entry
-   added in the Platform-Admin sidebar block same day.
+   timestamps, open count, a **copy-link** button, and (added 2026-08-12, §R1b) a
+   **"Resend invite"** button that re-sends `AgencyOnboardingSetupMail` on demand —
+   independent of the first-login trigger, for when the emailed link is lost or the Admin
+   needs it before ever logging in. Gated to owner role. Nav entry added in the
+   Platform-Admin sidebar block same day.
 
 ---
 

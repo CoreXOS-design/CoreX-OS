@@ -8,16 +8,16 @@
 <div class="w-full space-y-5">
 
     {{-- Page header (UI_DESIGN_SYSTEM §2.4 Pattern A) --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">New Agent Application</h1>
-                <p class="text-sm text-white/60">
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">New Agent Application</h1>
+                <p class="text-xs" style="color: var(--text-muted);">
                     Start the onboarding process for a new agent — the onboarding checklist is seeded automatically.
                 </p>
             </div>
-            <div class="flex items-center gap-2">
-                <a href="{{ route('onboarding.index') }}" class="corex-btn-outline no-underline">Back to Pipeline</a>
+            <div class="flex flex-wrap items-center gap-2">
+                <a href="{{ route('onboarding.index') }}" class="corex-btn-outline text-xs no-underline">Back to Pipeline</a>
             </div>
         </div>
     </div>
@@ -82,7 +82,7 @@
                         <div>
                             <label for="id_number" class="prop-label">ID Number</label>
                             <input id="id_number" type="text" name="id_number" value="{{ old('id_number') }}"
-                                   inputmode="numeric" maxlength="13" placeholder="e.g. 7610025020081" class="prop-input">
+                                   inputmode="numeric" maxlength="13" placeholder="e.g. 1234567890123" class="prop-input">
                             <p class="mt-1 text-[11px]" style="color: var(--text-muted);">SA ID — 13 digits. Leave blank if not known.</p>
                             @error('id_number')<p class="mt-1 text-[11px]" style="color: var(--ds-crimson, #c41e3a);">{{ $message }}</p>@enderror
                         </div>

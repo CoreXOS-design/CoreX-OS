@@ -12,7 +12,7 @@
     // portals" instead of leaving P24/PP/the website advertising the old listing.
     $synOpenOnLoad = !$isNew && session('open_syndication');
 @endphp
-<div class="w-full space-y-4"
+<div class="w-full space-y-4 corex-props-v2"
      x-data="{ activeTab: '{{ $isNew ? 'info' : $activeTab }}', synOpen: {{ $synOpenOnLoad ? 'true' : 'false' }}, synStep: 'main', sbCollapsed: (localStorage.getItem('hfc.propSidebar.collapsed') === '1'), wbReportOpen: false, complianceModalOpen: false, contactRequiredModalOpen: false }"
      @corex:contact-required.window="contactRequiredModalOpen = true"
      @corex:contact-added.window="contactRequiredModalOpen = false; activeTab = 'info';"
@@ -52,6 +52,18 @@
         @endif
     </div>
 
+    {{-- AT-267 — view-only lock when the current user may not edit this listing (e.g. an assistant
+         looking at a colleague's listing their agent can see). Banner + enforcer disable every edit
+         control on the page so no misleading affordance is shown. --}}
+    @include('partials._readonly-lock', [
+        'canEdit'         => $canEdit ?? true,
+        'readonlyMessage' => 'You can view this listing, but only its agent can change it. Ask your agent if something needs updating.',
+    ])
+
+    {{-- AT-267 — "added by {assistant}" (show_attribution). Renders nothing unless an assistant
+         actually changed this listing and their agent has attribution switched on. --}}
+    <x-assistant-attribution type="property" :id="$property->id" />
+
     {{-- AT-262 (Johan's ruling): a duplicated / switched-type listing is a completable
          DRAFT — the matching fields were copied onto the new type; the rest is the agent's
          to finish. Save is lenient here; full requirements bite at completion / syndication.
@@ -68,6 +80,60 @@
         </div>
     @endif
 
+    {{-- AT-350 — loss banner: this listing was sold by another agency. Rendered at
+         page level (not inside a tab) because it changes how every other panel on
+         the page should be read. STANDARDS "No Silent Locks": it says what the
+         state is AND carries its way out (Add details / Re-list).
+         Spec: .ai/specs/property-sold-by-third-party.md §6.5 --}}
+    @if(!$isNew && ($thirdPartySale ?? null))
+        <div class="mt-3">
+            @include('corex.properties.partials._third-party-sale', [
+                'property'        => $property,
+                'thirdPartySale'  => $thirdPartySale,
+                'canEdit'         => $canEdit,
+            ])
+        </div>
+    @endif
+
+    {{-- CX-102 part 2 (2026-08-19, Johan) — "the system must show its working
+         and let the agent overrule it." Only ever present for one request: an
+         agent tried to claim a MIC listing, MarketIntelligenceController::
+         claim() decided it's this property, and flashed the listing id that
+         got them here. The reason is read straight off the decision recorded
+         at match time — never recomputed here. --}}
+    @if($micClaimDecision ?? null)
+        <div class="mt-3 rounded-md border px-4 py-3 text-sm"
+             style="background:color-mix(in srgb, var(--ds-amber, #d97706) 10%, transparent); border-color:color-mix(in srgb, var(--ds-amber, #d97706) 35%, transparent); color:var(--text-primary);">
+            <div>
+                <strong style="color:var(--ds-amber, #d97706);">Why this listing matched this property:</strong>
+                {{ $micClaimDecision->reason }}
+            </div>
+            <details class="mt-1.5">
+                <summary class="cursor-pointer font-semibold text-xs" style="color:var(--ds-amber, #d97706);">
+                    Not the same property?
+                </summary>
+                <form method="POST"
+                      action="{{ route('market-intelligence.reject-claim-match') }}"
+                      class="mt-2 flex flex-wrap items-end gap-2"
+                      onsubmit="return confirm('Break this link? The listing goes straight back into your prospecting list — nothing is deleted.');">
+                    @csrf
+                    <input type="hidden" name="listing_id" value="{{ $micClaimListingId }}">
+                    <input type="hidden" name="property_id" value="{{ $property->id }}">
+                    <div class="flex-1" style="min-width: 12rem;">
+                        <label class="block text-[11px] font-semibold mb-1" style="color: var(--text-muted);">Why (optional):</label>
+                        <input type="text" name="reason" maxlength="500" placeholder="e.g. different building, wrong suburb"
+                               class="w-full rounded text-xs px-2 py-1.5" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                    </div>
+                    <button type="submit"
+                            class="text-xs font-semibold px-3 py-1.5 rounded"
+                            style="background: color-mix(in srgb, #dc2626 12%, transparent); color: #dc2626; border: 1px solid color-mix(in srgb, #dc2626 35%, transparent);">
+                        Not the same property
+                    </button>
+                </form>
+            </details>
+        </div>
+    @endif
+
     {{-- Readiness bar removed --}}
 
     {{-- Two-column layout on large screens --}}
@@ -75,18 +141,31 @@
 
         {{-- LEFT: sticky property summary panel --}}
         @php
-        $thumb = $property->gallery_images_json[0] ?? ($property->dawn_images_json[0] ?? null);
+        // Sidebar identity strip + mobile header — both render this at 48-56px,
+        // so it was the single worst offender per display-pixel: a raw multi-MB
+        // original stretched into a 48px square on every property page.
+        $thumb = $property->thumbFor($property->gallery_images_json[0] ?? ($property->dawn_images_json[0] ?? null));
         $statusColors = [
             'active'    => 'var(--ds-green)',
             'draft'     => 'var(--text-muted)',
             'sold'      => 'var(--ds-navy)',
+            // AT-350 — amber, distinct from Sold's navy: at a glance an agent must
+            // be able to tell "we sold it" from "they sold it".
+            'sold_by_3rd_party' => 'var(--ds-amber)',
             'withdrawn' => 'var(--ds-amber)',
+            // 2026-08-21 — Prospecting purple (matches the properties-list tile
+            // colour, so the two screens read as the same pool at a glance).
+            'prospecting' => 'var(--ds-purple, #7c3aed)',
+            'not_selling' => 'var(--text-muted)',
         ];
         $statusBadgeVariants = [
             'active'    => 'ds-badge-success',
             'draft'     => 'ds-badge-default',
             'sold'      => 'ds-badge-info',
+            'sold_by_3rd_party' => 'ds-badge-warning',
             'withdrawn' => 'ds-badge-warning',
+            'prospecting' => 'ds-badge-info',
+            'not_selling' => 'ds-badge-default',
         ];
         $sc = $statusColors[$property->status] ?? 'var(--text-muted)';
         $scBadge = $statusBadgeVariants[$property->status] ?? 'ds-badge-default';
@@ -219,6 +298,7 @@
                 </button>
 
                 <button type="button"
+                        @unless($canEdit ?? true) data-edit-only @endunless
                         @click="{{ $isMarketable ? "synOpen=true; synStep='main'" : 'complianceModalOpen = true' }}"
                         class="prop-action-btn prop-action-btn-neutral {{ !$isMarketable ? 'opacity-50 cursor-not-allowed' : '' }}"
                         title="{{ !$isMarketable ? 'Marketing blocked — open Compliance Status to resolve' : 'Manage portal syndication' }}">
@@ -235,7 +315,7 @@
                 </button>
 
                 @if($isMarketable)
-                <a href="{{ route('corex.properties.ad', $property) }}" class="prop-action-btn prop-action-btn-brand">
+                <a href="{{ route('corex.properties.ad', $property) }}" class="prop-action-btn prop-action-btn-brand" @unless($canEdit ?? true) data-edit-only @endunless>
                     <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
                     Ad Builder
                 </a>
@@ -252,7 +332,8 @@
                     @if($isMarketable)
                     <a href="{{ route('corex.properties.marketing.index', $property) }}"
                        class="prop-action-btn prop-action-btn-fb"
-                       title="Social media marketing">
+                       title="Social media marketing"
+                       @unless($canEdit ?? true) data-edit-only @endunless>
                         <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10.34 15.84c-.688-.06-1.386-.09-2.09-.09H7.5a4.5 4.5 0 1 1 0-9h.75c.704 0 1.402-.03 2.09-.09m0 9.18c.253.962.584 1.892.985 2.783.247.55.06 1.21-.463 1.511l-.657.38c-.551.318-1.26.117-1.527-.461a20.845 20.845 0 0 1-1.44-4.282m3.102.069a18.03 18.03 0 0 1-.59-4.59c0-1.586.205-3.124.59-4.59m0 9.18a23.848 23.848 0 0 1 8.835 2.535M10.34 6.66a23.847 23.847 0 0 1 8.835-2.535"/></svg>
                         Market Property
                     </a>
@@ -280,6 +361,22 @@
 
                 {{-- Presentations V2 — one-button generator (Phase 1) + coverage badge + asking-price modal (Phase 2) --}}
                 @if(auth()->user()->hasPermission('create_presentations'))
+                @php
+                    // Pre-generate accuracy warning (Johan, 2026-08-20 — relocated
+                    // from the review screen to here: "warns them BEFORE they
+                    // generate ... can fix it right there while they already
+                    // have the form open"). Same missingSoftInputs() helper the
+                    // comparable-stock cascade uses — treats beds/baths/price
+                    // of 0 as absent, same as a never-filled-in field, since the
+                    // columns are NOT NULL DEFAULT 0 and can't distinguish the two.
+                    // AGENT-ONLY: this whole block sits inside a
+                    // hasPermission('create_presentations') gate on
+                    // corex.properties.show, an authenticated agent route —
+                    // never reachable by a homeowner, who has no CoreX login at
+                    // all, let alone this permission.
+                    $_genMissing = app(\App\Services\Presentations\CompetitorStockMatchService::class)
+                        ->missingSoftInputs($property);
+                @endphp
                 <div x-data="presentationGenerator({
                         propertyId: {{ $property->id }},
                         coverageUrl: '{{ route('corex.properties.presentation-coverage', $property) }}',
@@ -349,6 +446,40 @@
                                            style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
                                            placeholder="e.g. 1500000">
                                 </div>
+
+                                @if(!empty($_genMissing))
+                                    @php
+                                        // Shared grammar helper (SubjectFieldCompleteness::joinNames)
+                                        // — same "a, b and c" join used by CmaCoverageService's
+                                        // merged badge sentence, not a separate copy.
+                                        $_genNamed   = $_genMissing;
+                                        $_genPronoun = count($_genNamed) === 1 ? 'this' : 'these';
+                                    @endphp
+                                    {{-- Johan, 2026-08-20: "make it more prominent ... its the
+                                         reason the presentation will be broken. so let them have
+                                         it." Consequence-first copy, real --ds-red (the app's own
+                                         danger token — used elsewhere at properties/show.blade.php's
+                                         SG-search error banner), solid border + heavier fill + icon +
+                                         bold heading, not a thin tinted strip. Still just a visible
+                                         warning, not a gate — no confirm step, Generate stays one click. --}}
+                                    <div class="mt-2 rounded-md px-3 py-2.5 text-[11px]"
+                                         style="background:color-mix(in srgb, var(--ds-red) 14%, transparent); border:1.5px solid var(--ds-red); color:var(--text-primary);">
+                                        <div class="flex items-start gap-2">
+                                            <span style="color:var(--ds-red); font-size:14px; line-height:1;">⚠</span>
+                                            <div>
+                                                <div class="font-bold uppercase tracking-wide" style="color:var(--ds-red); font-size:11px; margin-bottom:2px;">
+                                                    Your report will be inaccurate
+                                                </div>
+                                                <div>
+                                                    This property is missing {{ \App\Support\Presentations\SubjectFieldCompleteness::joinNames($_genNamed) }}.
+                                                    Comparable stock can only be matched on property type and suburb,
+                                                    so the report will show far fewer — or no — comparable properties.
+                                                    <a href="{{ route('corex.properties.show', $property) }}#edit" style="text-decoration:underline; font-weight:600;">Set {{ $_genPronoun }} on the property first</a> for a full report.
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                @endif
 
                                 {{-- Phase 3b — comp scope override at generation time --}}
                                 <div class="mt-4 pt-3" style="border-top:1px solid var(--border);">
@@ -876,6 +1007,35 @@
         {{-- RIGHT: tabs --}}
         <div class="flex-1 min-w-0" style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:clip;">
 
+        {{-- PROSPECTING banner (Johan, 2026-08-20/21, .ai/specs/2026-08-20-
+             property-status-prospecting.md) — deliberately the FIRST thing in
+             this column, mobile and desktop alike, not tucked in a dropdown:
+             the spec's own risk #3 is that if this move isn't obvious the
+             prospecting pile just grows. Two buttons, one click each. --}}
+        @if(!$isNew && $property->isProspecting())
+        <div class="p-4 flex items-center justify-between gap-3 flex-wrap" style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 12%, transparent); border-bottom: 1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 35%, transparent);">
+            <div class="text-sm" style="color: var(--text-primary);">
+                <strong>Prospecting</strong> — ingested stock, no mandate yet.
+            </div>
+            <div class="flex items-center gap-2 flex-shrink-0">
+                <form method="POST" action="{{ route('corex.properties.convert-from-prospecting', $property) }}"
+                      onsubmit="return confirm('Move this property to Draft — mandate won?');">
+                    @csrf
+                    <button type="submit" class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background: var(--ds-green, #059669); color:#fff;">
+                        Won the mandate — move to Draft
+                    </button>
+                </form>
+                <form method="POST" action="{{ route('corex.properties.mark-not-selling', $property) }}"
+                      onsubmit="return confirm('Mark this property Not selling? This closes it out of Prospecting.');">
+                    @csrf
+                    <button type="submit" class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                        Not selling
+                    </button>
+                </form>
+            </div>
+        </div>
+        @endif
+
         {{-- Mobile-only header strip --}}
         <div class="lg:hidden p-4" style="background:var(--surface-2); border-bottom:1px solid var(--border);">
             <div class="flex items-start gap-3">
@@ -899,7 +1059,14 @@
                                 'rental' => 'For Rent',
                                 default  => 'For Sale',
                             };
-                            $statusLabel2 = ucwords(str_replace('_', ' ', (string) ($property->status ?: 'Draft')));
+                            // 2026-08-21 — was a raw ucwords() of the status column,
+                            // which mislabelled 'not_selling' as "Not Selling" (Title
+                            // Case) instead of Johan's exact "Not selling" (sentence
+                            // case). statusBadge() is the model's own single source
+                            // of truth for this exact label everywhere else on this
+                            // page (the compact pill lower down uses it already) —
+                            // reusing it here instead of re-deriving.
+                            $statusLabel2 = $property->status ? $property->statusBadge() : 'Draft';
                             $brandPillStyle2 = 'background:var(--brand-default); color:#fff; border:none;';
                         @endphp
                         <span class="text-sm px-2.5 py-1 rounded-full font-semibold" style="{{ $brandPillStyle2 }}">{{ $listingTypeLabel2 }}</span>
@@ -954,7 +1121,9 @@
                     </div>
 
                 {{-- Steps: main + preview. ONE syndication surface, shared with the Properties index. --}}
+                <div @unless($canEdit ?? true) data-edit-only @endunless>
                 @include("corex.properties.partials.syndication-panel", ["property" => $property])
+                </div>
                 </div>{{-- /modal card --}}
             </div>{{-- /fixed inset --}}
             </template>
@@ -1006,8 +1175,8 @@
             <button type="button"
                     data-prop-tab="{{ $tab['key'] }}"
                     @click="activeTab = '{{ $tab['key'] }}'"
-                    :class="activeTab === '{{ $tab['key'] }}' ? 'border-b-2 border-sky-500 bg-sky-500/5' : 'border-b-2 border-transparent'"
-                    :style="activeTab === '{{ $tab['key'] }}' ? 'color:var(--brand-icon);' : 'color:var(--text-secondary);'"
+                    :class="'border-b-2'"
+                    :style="activeTab === '{{ $tab['key'] }}' ? 'color:var(--brand-icon); border-color:var(--brand-icon); background:color-mix(in srgb, var(--brand-icon) 6%, transparent);' : 'color:var(--text-secondary); border-color:transparent; background:transparent;'"
                     class="px-6 py-4 text-sm font-semibold whitespace-nowrap flex-shrink-0 transition-colors duration-150 outline-none focus:outline-none"
                     style="background:transparent;">
                 {{ $tab['label'] }}
@@ -1041,7 +1210,7 @@
                 $descPreview  = \Illuminate\Support\Str::limit(strip_tags($property->description ?? ''), 220);
                 $statusColor      = $statusColors[$property->status] ?? 'var(--text-muted)';
                 $statusBadgeClass = $statusBadgeVariants[$property->status] ?? 'ds-badge-default';
-                $statusLabel      = ucwords(str_replace('_', ' ', $property->status ?: 'draft'));
+                $statusLabel      = $property->status ? $property->statusBadge() : 'Draft';
                 $photoCount       = count($property->allImages());
             @endphp
 
@@ -1051,7 +1220,13 @@
                     {{-- Cover image --}}
                     <div class="md:col-span-2 relative" style="min-height:240px; background:var(--surface);">
                         @if($coverImage)
-                            <img src="{{ $coverImage }}" alt="" class="w-full h-full object-cover absolute inset-0">
+                            {{-- Same bug as the gallery grid, missed on the first pass because
+                                 this is a plain <img>, not part of the reactive images array:
+                                 the hero renders in a ~480-640px slot but was shipping the
+                                 full-resolution original (up to 6.5MB on this property). This
+                                 tab is active by default, so it was the first thing downloaded
+                                 on every page load. --}}
+                            <img src="{{ $property->thumbFor($coverImage) }}" alt="" class="w-full h-full object-cover absolute inset-0">
                         @else
                             <div class="w-full h-full absolute inset-0 flex items-center justify-center" style="color:var(--text-muted);">
                                 <svg class="w-12 h-12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.41a2.25 2.25 0 013.182 0l2.909 2.91m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5z"/></svg>
@@ -1151,15 +1326,41 @@
                 ]);
                 $upcomingShowdays = $isNew ? collect() : $property->showdays()->where('active', true)->where('end_date', '>=', now())->orderBy('start_date')->take(3)->get();
             @endphp
-            <div class="grid grid-cols-1 lg:grid-cols-3 gap-x-6 gap-y-6">
+            {{-- x-data lives here (not on the Activity column alone) so the Listing
+                 Agent column below can also read activityExpanded — that's what lets
+                 it stay in the normal grid-row stretch (matching Activity's height)
+                 while collapsed, and opt OUT of stretch (self-start) only once
+                 Activity actually expands and gets tall. --}}
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-x-6 gap-y-6" x-data="{ activityExpanded: false }">
 
                 {{-- Row 1: Recent Activity (cols 1-2) | Listing Agent (col 3) --}}
                 @if(isset($activityTimeline) && $activityTimeline->count())
                     <div class="lg:col-span-2 flex flex-col">
-                        <h3 class="text-xs font-bold uppercase tracking-wider mb-3" style="color:var(--text-muted);">Recent Activity</h3>
-                        <div class="rounded-md overflow-hidden flex-1 flex flex-col justify-center" style="background:var(--surface-2); border:1px solid var(--border);">
+                        <div class="flex items-center justify-between mb-3">
+                            <h3 class="text-xs font-bold uppercase tracking-wider" style="color:var(--text-muted);">Recent Activity</h3>
+                            @if($activityTimeline->count() > 1)
+                            <button type="button" @click="activityExpanded = !activityExpanded"
+                                    class="flex items-center gap-1 text-[0.6875rem] font-semibold"
+                                    style="background:none; border:0; cursor:pointer; padding:0; color:var(--text-muted);">
+                                <span x-text="activityExpanded ? 'Show less' : 'Show all'"></span>
+                                <svg class="w-3.5 h-3.5 transition-transform duration-200" :class="activityExpanded ? 'rotate-180' : ''"
+                                     xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+                                </svg>
+                            </button>
+                            @endif
+                        </div>
+                        {{-- No scroll/height clipping — only the first item is actually
+                             shown (rendered, not just visually clipped) until the toggle
+                             above expands the rest. flex-1 fills whatever height this
+                             wrapper ends up being — while collapsed, that's the grid row's
+                             natural stretch height (matching Listing Agent, since its
+                             wrapper only opts out of stretch via self-start once expanded —
+                             see below), so the two boxes line up without a guessed number. --}}
+                        <div class="rounded-md flex-1 flex flex-col justify-center" style="background:var(--surface-2); border:1px solid var(--border);">
                             @foreach($activityTimeline as $i => $event)
-                                <div class="flex items-start gap-3 px-4 py-2.5" style="{{ $i > 0 ? 'border-top:1px solid var(--border);' : '' }}">
+                                <div x-show="activityExpanded || {{ $i }} === 0" x-cloak
+                                     class="flex items-start gap-3 px-4 py-2.5" style="{{ $i > 0 ? 'border-top:1px solid var(--border);' : '' }}">
                                     <div class="w-2 h-2 rounded-full flex-shrink-0 mt-1.5" style="background:{{ $event['color'] }};"></div>
                                     <div class="flex-1 min-w-0">
                                         <div class="text-xs font-medium" style="color:var(--text-primary);">{{ $event['label'] }}</div>
@@ -1177,7 +1378,15 @@
                 @endif
 
                 @if($property->agent)
-                    <div class="lg:col-start-3 flex flex-col">
+                    {{-- self-start is applied ONLY once Recent Activity is actually
+                         expanded — that opts this wrapper OUT of the grid row's default
+                         stretch, which is what stops it growing to match Activity's now-
+                         tall content (the "agent block gets huge" symptom this whole
+                         change started from). While Activity is collapsed (the normal
+                         case), this wrapper stays in the default stretch so it lines up
+                         with Activity's own flex-1 card at whatever height the row
+                         naturally settles on — no guessed pixel value needed. --}}
+                    <div class="lg:col-start-3 flex flex-col" :class="activityExpanded ? 'self-start' : ''">
                         <h3 class="text-xs font-bold uppercase tracking-wider mb-3" style="color:var(--text-muted);">Listing Agent</h3>
                         <div class="rounded-md p-4 flex items-center gap-3 flex-1" style="background:var(--surface-2); border:1px solid var(--border);">
                             @if(!empty($property->agent->profile_photo_url))
@@ -1330,7 +1539,7 @@
                          (corex.properties.sg.*) require a real {property} id, so it must
                          not render on the create / new-property form. --}}
                     @if($property->exists)
-                        <div style="margin-top:14px;">
+                        <div style="margin-top:14px;" @unless($canEdit ?? true) data-edit-only @endunless>
                             @include('corex.properties.partials._sg-documents-panel', ['property' => $property])
                         </div>
                     @endif
@@ -1847,7 +2056,7 @@
                     $initSpaces     = $spacesData['spaces']   ?? [];
                     $initFeatures   = $spacesData['features'] ?? new \stdClass();
                 @endphp
-                <div x-data="spacesAndFeaturesManager(
+                <div @unless($canEdit ?? true) data-edit-only @endunless x-data="spacesAndFeaturesManager(
                     {{ json_encode($initSpaces) }},
                     {{ json_encode($initFeatures) }},
                     {{ (int)($property->beds  ?? 0) }},
@@ -3194,8 +3403,8 @@
             <div class="flex items-center justify-between pt-4">
                 <button type="submit" form="prop-update-form"
                         class="px-5 py-2 rounded-md text-sm font-semibold text-white"
-                        style="background:var(--brand-default); border:1px solid var(--border);"
-                        onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
+                        style="background:var(--brand-button); border:none; box-shadow:0 4px 12px color-mix(in srgb, var(--brand-button) 25%, transparent);"
+                        onmouseover="this.style.opacity='.9'" onmouseout="this.style.opacity='1'">
                     {{ $isNew ? 'Create Property' : 'Save Changes' }}
                 </button>
                 @if(!$isNew)
@@ -3228,7 +3437,7 @@
         @else
 
             {{-- Upload new images --}}
-            <div x-data="galleryUploader('{{ route('corex.properties.upload-images', $property) }}', '{{ csrf_token() }}')">
+            <div @unless($canEdit ?? true) data-edit-only @endunless x-data="galleryUploader('{{ route('corex.properties.upload-images', $property) }}', '{{ csrf_token() }}')">
                 <h3 class="text-xs font-bold uppercase tracking-wider mb-3" style="color:var(--text-muted);">Upload Images</h3>
 
                 <label class="flex items-center gap-3 px-4 py-3 rounded-md border border-dashed cursor-pointer transition-colors text-sm"
@@ -3410,9 +3619,23 @@
                 }
                 // Single source of truth — see Property::getAvailableGalleryTags()
                 $availableTags = $property->getAvailableGalleryTags();
+                // Grid tiles render at ~150px — the full-resolution original
+                // (avg ~3MB, seen up to 6MB+) is 40-80x more than the tile needs.
+                // A 49-photo gallery of originals is 100MB+ of dead weight on
+                // every page load. thumbFor() reuses the SAME small (~500px)
+                // web thumbnail already generated for list/grid surfaces
+                // (Property::thumbFor() / PropertyThumbnailService) — falls back
+                // to the original URL if a thumb hasn't been generated yet, so
+                // nothing breaks for a brand-new upload mid-backfill. The
+                // lightbox and save/reorder/tag/delete flows are untouched —
+                // they still operate on the full-resolution URLs in $galleryImages.
+                $thumbMap = [];
+                foreach ($galleryImages as $img) {
+                    $thumbMap[$img] = $property->thumbFor($img);
+                }
             @endphp
 
-            <div x-data="Object.assign(smartGallery({{ Js::from($galleryImages) }}, {{ Js::from($tagMap) }}, {{ $property->id }}, '{{ csrf_token() }}', {{ Js::from($availableTags) }}, '{{ $property->galleryFingerprint() }}'), { tagsInfoOpen: false, manageTagsOpen: false, selectMode: false })" class="space-y-4">
+            <div x-data="Object.assign(smartGallery({{ Js::from($galleryImages) }}, {{ Js::from($tagMap) }}, {{ $property->id }}, '{{ csrf_token() }}', {{ Js::from($availableTags) }}, '{{ $property->galleryFingerprint() }}', {{ Js::from($thumbMap) }}), { tagsInfoOpen: false, manageTagsOpen: false, selectMode: false })" class="space-y-4">
 
                 {{-- Header --}}
                 <h3 class="text-xs font-bold uppercase tracking-wider" style="color:var(--text-muted);">
@@ -3630,6 +3853,9 @@
                                 style="background:var(--surface-2); color:var(--text-muted); border:1px solid var(--border);">
                             Clear
                         </button>
+                        {{-- AT-267 — an assistant may NEVER delete listing photos, on ANY listing
+                             (including their own agent's). Hidden here; the server refuses it too. --}}
+                        @unless(auth()->user()?->is_assistant)
                         <button type="button" @click="deleteSelected()"
                                 :disabled="selected.length === 0"
                                 class="text-xs font-semibold px-2.5 py-1 rounded inline-flex items-center gap-1 transition-opacity"
@@ -3639,12 +3865,15 @@
                             <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"/></svg>
                             <span x-text="selected.length > 0 ? 'Delete (' + selected.length + ')' : 'Delete'"></span>
                         </button>
-                        {{-- Delete ALL — destructive; behind a type-to-confirm modal. --}}
+                        {{-- Delete ALL — destructive; behind a type-to-confirm modal. Same
+                             AT-267 assistant gate as "Delete (N)" above — at least as
+                             destructive, so it carries the same restriction. --}}
                         <button type="button" @click="openDeleteAll()" x-show="images.length > 0"
                                 class="text-xs font-semibold px-2.5 py-1 rounded inline-flex items-center gap-1"
                                 style="background:var(--surface-2); color:var(--ds-crimson); border:1px solid color-mix(in srgb, var(--ds-crimson) 45%, transparent);">
                             Delete all
                         </button>
+                        @endunless
                     </div>
                 </div>
 
@@ -3691,7 +3920,7 @@
                              @dragstart="(!tagMode && !selectMode) && dragStart(idx, $event)"
                              @dragover.prevent="(!tagMode && !selectMode) && dragOver(idx, $event)"
                              @drop.prevent="(!tagMode && !selectMode) && dragDrop(idx)">
-                            <img :src="img" alt="" class="w-full h-full object-cover transition-transform duration-200 group-hover:scale-105">
+                            <img :src="thumbs[img] || img" loading="lazy" decoding="async" alt="" class="w-full h-full object-cover transition-transform duration-200 group-hover:scale-105">
 
                             {{-- Cover badge --}}
                             <div x-show="idx === 0" class="absolute top-1 left-1 px-1.5 py-0.5 rounded text-[8px] font-bold text-white" style="background:rgba(0,0,0,0.7);">COVER</div>
@@ -3717,11 +3946,13 @@
                                         style="background:rgba(0,0,0,0.5);">
                                     <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.641 0-8.573-3.007-9.963-7.178z"/><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
                                 </button>
+                                @unless(auth()->user()?->is_assistant)
                                 <button type="button" @click.stop="deleteImage(idx)"
                                         class="w-6 h-6 rounded-full flex items-center justify-center text-white"
                                         style="background:rgba(239,68,68,0.6);">
                                     <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
                                 </button>
+                                @endunless
                             </div>
                         </div>
                     </template>
@@ -3836,7 +4067,10 @@
                 <div x-show="error" x-cloak class="text-xs" style="color:#ef4444;" x-text="error"></div>
             </div>
 
-            {{-- Delete ALL rental images — destructive; behind a type-to-confirm modal. --}}
+            {{-- Delete ALL rental images — destructive; behind a type-to-confirm modal.
+                 AT-267 — same assistant gate as the per-image delete in
+                 rental-section-body.blade.php; at least as destructive. --}}
+            @unless(auth()->user()?->is_assistant)
             <div x-show="rentalImageCount() > 0" x-cloak class="flex justify-end">
                 <button type="button" @click="openDeleteAll()"
                         class="text-xs font-semibold px-3 py-1.5 rounded-md inline-flex items-center gap-1"
@@ -3844,6 +4078,7 @@
                     Delete all rental images
                 </button>
             </div>
+            @endunless
 
             {{-- Delete-all confirm — type DELETE (hard-removes every rental photo, all sections). --}}
             <div x-show="deleteAllOpen" x-cloak
@@ -4268,6 +4503,7 @@
             $defaultLinkRole = (((isset($property) ? ($property->listing_type ?? 'sale') : 'sale')) === 'rental') ? 'landlord' : 'seller';
         @endphp
         <div x-show="activeTab === 'contacts'" x-cloak class="p-6 space-y-6"
+             @unless($canEdit ?? true) data-edit-only @endunless
              @if($isNew)
              x-data="pendingContactsManager('{{ route('corex.properties.contacts.search-global') }}', {{ \Illuminate\Support\Js::from(isset($preLinkedContact) && $preLinkedContact ? [['id' => $preLinkedContact->id, 'name' => trim($preLinkedContact->full_name), 'phone' => $preLinkedContact->phone ?? '', 'email' => $preLinkedContact->email ?? '']] : []) }})"
              @else
@@ -4326,7 +4562,7 @@
                 <div x-show="results.length > 0" class="rounded-md overflow-hidden mb-3" style="border:1px solid var(--border);">
                     <template x-for="r in results" :key="r.id">
                         <button type="button" @click="add(r)"
-                                class="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-sky-500/10 transition-colors"
+                                class="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-[var(--brand-icon)]/10 transition-colors"
                                 style="border-bottom:1px solid var(--border); background:var(--surface);">
                             <div>
                                 <div class="text-sm font-semibold" style="color:var(--text-primary);" x-text="r.first_name + ' ' + r.last_name"></div>
@@ -4391,7 +4627,7 @@
                         <div class="sm:col-span-2">
                             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">ID number (optional)</label>
                             <input type="text" x-model="newForm.id_number" inputmode="numeric" maxlength="13"
-                                   pattern="\d{13}" placeholder="e.g. 7610025020081"
+                                   pattern="\d{13}" placeholder="e.g. 1234567890123"
                                    title="13 digits — empty is fine"
                                    class="w-full rounded-md px-3 py-2 text-sm"
                                    style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
@@ -4523,7 +4759,7 @@
                      style="border:1px solid var(--border);">
                     <template x-for="r in results" :key="r.id">
                         <button type="button" @click="select(r)"
-                                class="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-sky-500/10 transition-colors"
+                                class="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-[var(--brand-icon)]/10 transition-colors"
                                 style="border-bottom:1px solid var(--border); background:var(--surface); width:100%;">
                             <div>
                                 <div class="text-sm font-semibold" style="color:var(--text-primary);" x-text="r.first_name + ' ' + r.last_name"></div>
@@ -4574,7 +4810,7 @@
 
             {{-- Create new contact and link --}}
             <div style="background:var(--surface-2); border:1px solid var(--border); border-radius:6px; padding:20px;"
-                 x-data="{ open: false }">
+                 x-data="{ open: false, kind: 'natural_person', idKind: 'sa_id' }">
                 <button type="button" @click="open = !open"
                         class="flex items-center gap-2 text-sm font-semibold"
                         style="color:var(--brand-icon); background:none; border:none; cursor:pointer; padding:0;">
@@ -4588,24 +4824,54 @@
                 <div x-show="open" x-cloak class="mt-5 space-y-4">
                     <form @submit.prevent="createAndLink($el, () => { open = false; })" class="space-y-4">
                         @csrf
+                        {{-- Contact Is: Natural person OR Entity (company / CC / trust). An entity owner
+                             must be capturable from the property record — not forced to a natural person.
+                             Entity swaps the name fields for registered name + reg number; the hidden
+                             contact_kind is what the createAndLink controller branches on. Reps/directors
+                             are added on the entity record afterward (Johan 2026-08-14). --}}
+                        <input type="hidden" name="contact_kind" :value="kind">
+                        <div>
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Contact Is <span class="prop-required">*</span></label>
+                            <div class="flex items-center gap-4 text-sm" style="color:var(--text-secondary);">
+                                <label class="inline-flex items-center gap-1.5 cursor-pointer"><input type="radio" name="contact_kind_toggle" value="natural_person" x-model="kind"> Natural person</label>
+                                <label class="inline-flex items-center gap-1.5 cursor-pointer"><input type="radio" name="contact_kind_toggle" value="entity" x-model="kind"> Entity <span style="color:var(--text-muted);">(company / CC / trust)</span></label>
+                            </div>
+                        </div>
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            <div>
+                            {{-- Natural-person name/phone --}}
+                            <div x-show="kind === 'natural_person'">
                                 <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">First Name <span class="prop-required">*</span></label>
-                                <input type="text" name="first_name" required
+                                <input type="text" name="first_name" :required="kind === 'natural_person'"
                                        class="w-full rounded-md px-3 py-2 text-sm"
                                        style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                             </div>
-                            <div>
+                            <div x-show="kind === 'natural_person'">
                                 <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Surname <span class="prop-required">*</span></label>
-                                <input type="text" name="last_name" required
+                                <input type="text" name="last_name" :required="kind === 'natural_person'"
                                        class="w-full rounded-md px-3 py-2 text-sm"
                                        style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                             </div>
-                            <div>
+                            <div x-show="kind === 'natural_person'">
                                 <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Phone <span class="prop-required">*</span></label>
-                                <input type="text" name="phone" required
+                                <input type="text" name="phone" :required="kind === 'natural_person'"
                                        class="w-full rounded-md px-3 py-2 text-sm"
                                        style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                            </div>
+                            {{-- Entity: registered name (required) + registration number --}}
+                            <div x-show="kind === 'entity'" x-cloak>
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Registered Name <span class="prop-required">*</span></label>
+                                <input type="text" name="entity_name" :required="kind === 'entity'" maxlength="255"
+                                       placeholder="e.g. Blue Horizon Trust"
+                                       class="w-full rounded-md px-3 py-2 text-sm"
+                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                            </div>
+                            <div x-show="kind === 'entity'" x-cloak>
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Registration Number <span style="font-weight:400;">(optional)</span></label>
+                                <input type="text" name="entity_reg_no" maxlength="100"
+                                       placeholder="e.g. 2019/123456/07"
+                                       class="w-full rounded-md px-3 py-2 text-sm"
+                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                <p class="mt-1 text-[11px]" style="color:var(--text-muted);">Add directors/representatives on the entity record afterward.</p>
                             </div>
                             <div>
                                 <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Email</label>
@@ -4634,15 +4900,35 @@
                                     @endforeach
                                 </select>
                             </div>
-                            {{-- A.2.5 — optional SA ID number with client-side hint. --}}
-                            <div class="sm:col-span-2">
-                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">ID number (optional)</label>
-                                <input type="text" name="id_number" inputmode="numeric" maxlength="13"
-                                       pattern="\d{13}" placeholder="e.g. 7610025020081"
-                                       title="13 digits — empty is fine"
+                            {{-- #17 — SA ID vs foreign passport (natural person only; an entity is keyed on
+                                 its registration number above). The SA path validates the 13-digit ID; a
+                                 foreign national enters a passport + a directly-entered Date of Birth (the
+                                 passport doesn't encode it). Same discriminator + rules as the main
+                                 contact form. Backward-compatible: absent id_type defaults to the SA path. --}}
+                            <div x-show="kind === 'natural_person'">
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">ID Type</label>
+                                <select name="id_type" x-model="idKind"
+                                        class="w-full rounded-md px-3 py-2 text-sm"
+                                        style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                    <option value="sa_id">South African ID</option>
+                                    <option value="passport">Foreign / Passport</option>
+                                </select>
+                            </div>
+                            <div x-show="kind === 'natural_person'">
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);"><span x-text="idKind === 'passport' ? 'Passport Number' : 'ID Number'"></span> <span style="font-weight:400;">(optional)</span></label>
+                                <input type="text" name="id_number"
+                                       :inputmode="idKind === 'passport' ? 'text' : 'numeric'"
+                                       :maxlength="idKind === 'passport' ? 50 : 13"
+                                       :placeholder="idKind === 'passport' ? 'e.g. AB1234567' : 'e.g. 7610025020081'"
                                        class="w-full rounded-md px-3 py-2 text-sm"
                                        style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                                <p class="mt-1 text-[11px]" style="color:var(--text-muted);">SA ID — 13 digits. Leave blank if not known.</p>
+                            </div>
+                            <div x-show="kind === 'natural_person'">
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Date of Birth <span style="font-weight:400;" x-show="idKind !== 'passport'">(optional)</span><span class="text-red-500" x-show="idKind === 'passport'" x-cloak>*</span></label>
+                                <input type="date" name="birthday"
+                                       :required="kind === 'natural_person' && idKind === 'passport'"
+                                       class="w-full rounded-md px-3 py-2 text-sm"
+                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                             </div>
                         </div>
                         <button type="submit"
@@ -5012,6 +5298,29 @@
                                 <button type="submit" class="text-[10px] font-medium px-3 py-1 rounded text-white" style="background: #ef4444;">Confirm Sold</button>
                             </form>
                         </details>
+
+                        @endif
+
+                        {{-- AT-350 — the honest third option beside "Mark as Sold".
+                             Amber against its red so the two are never mis-clicked:
+                             one credits HFC with the sale, the other explicitly does
+                             not.
+
+                             Deliberately OUTSIDE the four-status gate above: a listing
+                             at 'on_show', 'on_auction' or 'reduced_price' can be sold
+                             by a competitor just as easily as one at 'active', and the
+                             narrow gate would leave those agents with no action at all.
+                             The partial gates itself on isConcluded(), so it hides on a
+                             listing that is already done. Only renders when no loss
+                             record is standing — the banner at the top of the page owns
+                             that state.
+                             Spec: .ai/specs/property-sold-by-third-party.md §6.2 --}}
+                        @if(!($thirdPartySale ?? null))
+                            @include('corex.properties.partials._third-party-sale', [
+                                'property'       => $property,
+                                'thirdPartySale' => null,
+                                'canEdit'        => $canEdit,
+                            ])
                         @endif
                     <details class="inline">
                         <summary class="text-xs font-medium cursor-pointer px-2 py-1 rounded" style="color: #00d4aa; background: color-mix(in srgb, #00d4aa 8%, transparent);">+ Log Marketing Action</summary>
@@ -6673,10 +6982,14 @@ document.addEventListener('keydown', function(e) {
 
 // Smart Gallery Manager
 // Tag-based gallery manager
-function smartGallery(initImages, initTags, propertyId, csrfToken, availableTags, fingerprint) {
+function smartGallery(initImages, initTags, propertyId, csrfToken, availableTags, fingerprint, initThumbs) {
     return {
         images: initImages || [],
         tags: initTags || {},
+        // Full-res URL → small web thumbnail (grid display only). See the
+        // $thumbMap comment in show.blade.php. Never used for save/reorder/
+        // tag/delete payloads — those always operate on `images` (full-res).
+        thumbs: initThumbs || {},
         availableTags: availableTags || [],
         propertyId, csrfToken,
         // Fingerprint of the gallery this page was rendered from. Sent on every

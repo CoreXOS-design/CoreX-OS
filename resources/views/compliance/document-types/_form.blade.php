@@ -33,7 +33,7 @@
     </div>
 
     {{-- Expiry & Renewal --}}
-    <div class="rounded-md p-4" style="background:var(--surface-2, #f0f2f8); border:1px solid var(--border, rgba(0,0,0,0.07));">
+    <div class="rounded-md p-4" style="background:var(--surface); border:1px solid var(--border);">
         <h4 class="text-xs font-bold uppercase mb-3" style="color:var(--text-muted, #9ca3af); letter-spacing:0.05em;">Expiry & Renewal</h4>
         <div class="space-y-3">
             <label class="inline-flex items-center cursor-pointer gap-3">
@@ -47,7 +47,7 @@
                 <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary, #6b7280);">Auto-create renewal task X days before expiry</label>
                 <input type="number" name="renewal_days" min="1" max="3650"
                        value="{{ old('renewal_days', $type->renewal_days ?? '') }}"
-                       class="w-32 rounded-md px-3 py-2 text-sm focus:outline-none" style="background:var(--surface, #ffffff); border:1px solid var(--border, rgba(0,0,0,0.07)); color:var(--text-primary, #111827);"
+                       class="w-32 rounded-md px-3 py-2 text-sm focus:outline-none" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
                        placeholder="e.g. 90">
                 <p class="text-[0.6875rem] mt-0.5" style="color:var(--text-muted, #9ca3af);">Leave blank for no auto-reminder. Typical: 30 (lease), 90 (bank letter), 365 (FFC).</p>
                 @error('renewal_days') <p class="text-xs text-red-500 mt-1">{{ $message }}</p> @enderror
@@ -56,7 +56,7 @@
     </div>
 
     {{-- Options --}}
-    <div class="rounded-md p-4" style="background:var(--surface-2, #f0f2f8); border:1px solid var(--border, rgba(0,0,0,0.07));">
+    <div class="rounded-md p-4" style="background:var(--surface); border:1px solid var(--border);">
         <h4 class="text-xs font-bold uppercase mb-3" style="color:var(--text-muted, #9ca3af); letter-spacing:0.05em;">Options</h4>
         <div class="space-y-4">
             <label class="inline-flex items-center cursor-pointer gap-3" x-data="{ on: {{ old('required', $type->required ?? true) ? 'true' : 'false' }} }">

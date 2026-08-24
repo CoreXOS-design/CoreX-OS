@@ -567,7 +567,7 @@ class DocumentImporterController extends Controller
         ]);
 
         try {
-            $template = $generator->generate($draft, $templateName, $user->id);
+            $template = $generator->generate($draft, $templateName, $user->id, $user->effectiveAgencyId());
 
             // ES-6.4 — persist confirmed insertable_blocks onto the new
             // template. Form posts a JSON-encoded array under
@@ -628,6 +628,10 @@ class DocumentImporterController extends Controller
         }
 
         $template = Template::findOrFail($id);
+        // Cross-agency isolation audit 2026-08-20 follow-up: previously no
+        // ownership check -- an admin could clone another agency's full
+        // template content (fields_json, tagged HTML) into their own draft.
+        $template->assertAccessibleBy($user);
 
         if (!$template->blade_view) {
             return redirect()->route('docuperfect.templates.edit', ['id' => $id])

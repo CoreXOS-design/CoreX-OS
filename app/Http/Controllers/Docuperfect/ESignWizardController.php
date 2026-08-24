@@ -570,7 +570,13 @@ class ESignWizardController extends Controller
             }
         }
 
-        // Update stepData recipients so autoFillFields can see auto-populated contacts
+        // ENTITY RECIPIENT EXPANSION (Johan 2026-08-15) — replace any entity/company
+        // recipient with its proxy-aware signing representative(s), each rendered
+        // "{entity}, herein represented by {rep} ({capacity})". Runs for BOTH
+        // auto-populated and manually-picked recipients; no-op when none are entities.
+        $recipients = $this->expandEntityRecipients($recipients, $request->user());
+
+        // Update stepData recipients so autoFillFields can see auto-populated/expanded contacts
         if (!empty($recipients)) {
             $stepData['recipients'] = ['recipients' => $recipients];
         }
@@ -1257,6 +1263,10 @@ class ESignWizardController extends Controller
                     // lives in is_buyer / contact_property role='owner'. Match
                     // either the (rare) typed contacts OR the canonical column.
                     $query->where(function ($w) use ($typeIds, $wantsBuyer, $wantsSeller) {
+                        // Entity/company recipients are ALWAYS eligible regardless of
+                        // owner/buyer typing — they sign via their representative(s),
+                        // which the wizard expands server-side (entity recipient builder).
+                        $w->orWhere('contact_kind', Contact::TYPE_ENTITY);
                         if ($typeIds->isNotEmpty()) {
                             // Legacy single mirror OR the AT-79 multi-parent pivot.
                             $w->orWhereIn('contact_type_id', $typeIds);
@@ -1271,7 +1281,8 @@ class ESignWizardController extends Controller
                     });
                 } elseif ($typeIds->isNotEmpty()) {
                     $query->where(function ($w) use ($typeIds) {
-                        $w->whereIn('contact_type_id', $typeIds)
+                        $w->where('contact_kind', Contact::TYPE_ENTITY) // entities always eligible (sign via rep)
+                          ->orWhereIn('contact_type_id', $typeIds)
                           ->orWhereHas('parentTypes', fn ($q) => $q->whereIn('contact_types.id', $typeIds));
                     });
                 }
@@ -1279,19 +1290,54 @@ class ESignWizardController extends Controller
                 // Fallback: match by contact_type name directly (for witness, spouse, etc.)
                 $typeId = DB::table('contact_types')->where('name', 'like', '%' . $role . '%')->value('id');
                 if ($typeId) {
-                    $query->where('contact_type_id', $typeId);
+                    $query->where(fn ($w) => $w->where('contact_type_id', $typeId)
+                        ->orWhere('contact_kind', Contact::TYPE_ENTITY)); // entities always eligible
                 }
             }
         }
 
         $contacts = $query->limit(10)->get();
 
-        return response()->json($contacts->map(function ($c) use ($q) {
+        // Precompute the agency's entity preset once so each entity result can
+        // preview what it expands to (rep(s) + capacity + proxy + phrasing) on
+        // the recipient row — the "define on setup → shown on recipient screen".
+        $actingAgencyId = (int) ($request->user()?->agency_id ?? 0);
+        $entityPreset = $actingAgencyId
+            ? \App\Models\Docuperfect\EsignRecipientPreset::resolveFor($actingAgencyId, 'entity')
+            : null;
+
+        return response()->json($contacts->map(function ($c) use ($q, $entityPreset) {
+            $representation = null;
+            if ($c->isEntity()) {
+                $signers = $c->signingRepresentatives();
+                $representation = [
+                    'needs_representative' => $signers->isEmpty(),
+                    'signers' => $signers->map(function ($rep) use ($c, $entityPreset) {
+                        $capacity = $rep->pivot->capacity ?? null;
+                        $isProxy  = (bool) ($rep->pivot->signs_as_proxy ?? false);
+                        $phrase   = $entityPreset
+                            ? $entityPreset->renderPhrase($c, $rep, $capacity, $isProxy)
+                            : \App\Models\Docuperfect\EsignRecipientPreset::substitute(
+                                $isProxy
+                                    ? \App\Models\Docuperfect\EsignRecipientPreset::DEFAULT_PROXY_PHRASING
+                                    : \App\Models\Docuperfect\EsignRecipientPreset::DEFAULT_PHRASING,
+                                $c, $rep, $capacity);
+                        return ['rep_name' => $rep->full_name, 'capacity' => $capacity, 'is_proxy' => $isProxy, 'phrase' => $phrase];
+                    })->values()->all(),
+                ];
+            }
             return [
                 'id'                  => $c->id,
                 'first_name'          => $c->first_name,
                 'last_name'           => $c->last_name,
-                'full_name'           => $c->first_name . ' ' . $c->last_name,
+                // full_name via the accessor so ENTITY/company contacts show their
+                // entity_name (first/last are blank for entities). Entity flags let
+                // the picker badge a company — on select it expands server-side into
+                // its proxy-aware signing representatives (entity recipient builder).
+                'full_name'           => $c->full_name,
+                'is_entity'           => $c->isEntity(),
+                'entity_name'         => $c->entity_name,
+                'entity_reg_no'       => $c->entity_reg_no,
                 'identifier'          => $c->matchedIdentifier($q),
                 'agent'               => $c->agent?->name,
                 'email'               => $c->email ?? '',
@@ -1306,6 +1352,9 @@ class ESignWizardController extends Controller
                 'bank_branch_name'    => $c->bank_branch_name ?? '',
                 'bank_branch_code'    => $c->bank_branch_code ?? '',
                 'bank_account_type'   => $c->bank_account_type ?? '',
+                // Entity recipient preview — the rep(s)/capacity/proxy + resolved
+                // "herein represented by …" phrasing this company expands into.
+                'representation'      => $representation,
             ];
         }));
     }
@@ -2483,7 +2532,12 @@ class ESignWizardController extends Controller
                 'name'             => $docName,
                 'template_id'      => $template->id,
                 'fields_json'      => $fields,
-                'owner_id'         => $user->id,
+                // AT-267 / AUDIT 2026-07-26 (F3) — an assistant's document files under the AGENT.
+                // Document::scopeVisibleTo() resolves an agent's 'own' as [agent] only, so an
+                // assistant-owned OTP/mandate was invisible to the practitioner it was prepared
+                // for. ownershipUserId() returns $user->id for everyone who is not an assistant.
+                // multi-agent addendum §6.1 — honours an explicit "Acting for" choice.
+                'owner_id'         => $user->ownershipUserId(request()->integer('acting_for_user_id') ?: null),
                 'branch_id'        => $user->effectiveBranchId(),
                 'property_address' => $propertyAddress,
                 'property_id'      => $resolvedPropertyId,
@@ -2656,6 +2710,8 @@ class ESignWizardController extends Controller
                 );
             }
 
+            $chainBindings = [];
+
             foreach ($orderedRecipients as $i => $r) {
                 $baseRole = $roleAliases[$r['role'] ?? 'other'] ?? ($r['role'] ?? 'other');
                 if ($baseRole === 'agent') continue;
@@ -2751,13 +2807,66 @@ class ESignWizardController extends Controller
                     $user,
                     $ficaRequired,
                     $contactId,
-                    $ficaSubId
+                    $ficaSubId,
+                    signerCaption: $r['_signature_caption'] ?? null,
+                    partyClauseText: $r['_party_clause_text'] ?? null,
+                    isDeceased: (bool) ($r['_is_deceased'] ?? false),
+                    isProxy: (bool) ($r['_is_proxy'] ?? false),
+                    recipientLocalKey: $r['_recipient_local_key'] ?? null,
                 );
+
+                // "Replace this party" (Johan, 2026-08-24) — a recipient whose party is
+                // being replaced (e.g. deceased, represented by a chain) carries a
+                // recipient template + slot bindings from the wizard. Resolved in a
+                // SEPARATE pass, after every recipient in this send has been created,
+                // because a chain can bind to ANOTHER recipient in this same batch
+                // (Piet's executor slot binds to Koos's recipient_local_key) — that
+                // key only exists once Koos's own createSigningRequest() call above
+                // has run, which may be later in this same loop.
+                if (! empty($r['_recipient_template_id']) && ! empty($r['_slot_bindings'])) {
+                    $chainBindings[] = [
+                        'signature_request_id' => $sigReq->id,
+                        'recipient_template_id' => (int) $r['_recipient_template_id'],
+                        'slot_bindings' => $r['_slot_bindings'],
+                    ];
+                }
 
                 // Mark as deferred if "sign_later" was selected and party has no details
                 if ($signingAction === 'sign_later' && (empty($r['name']) || empty($email) || $skipEmail)) {
                     $sigReq->update(['status' => \App\Models\Docuperfect\SignatureRequest::STATUS_DEFERRED]);
                 }
+            }
+
+            // "Replace this party" — resolve every chain binding now that every
+            // recipient in this send has a recipient_local_key (including ones a
+            // chain might point AT, which may have been created later in the loop
+            // above than the recipient whose party is being replaced). GENERATION
+            // TIME: resolved once, frozen onto party_clause_text, never
+            // recomputed — same snapshot-once rule as everything else here. A
+            // dangling binding (a slot's recipient/contact no longer resolves)
+            // blocks the send entirely rather than freezing a half-built clause.
+            foreach ($chainBindings as $binding) {
+                $sigReq = \App\Models\Docuperfect\SignatureRequest::find($binding['signature_request_id']);
+                $recipientTemplate = \App\Models\RecipientTemplate::find($binding['recipient_template_id']);
+                if (! $sigReq || ! $recipientTemplate) {
+                    continue;
+                }
+
+                try {
+                    $resolvedText = $recipientTemplate->resolveBoundText($sigReq, $binding['slot_bindings']);
+                } catch (\App\Exceptions\DanglingSlotBindingException $e) {
+                    // Block the send with a message naming the specific slot — never a
+                    // half-built clause on a document that goes on to be signed.
+                    throw \Illuminate\Validation\ValidationException::withMessages([
+                        'recipients' => $e->getMessage(),
+                    ]);
+                }
+
+                $sigReq->update([
+                    'recipient_template_id' => $recipientTemplate->id,
+                    'slot_bindings' => $binding['slot_bindings'],
+                    'party_clause_text' => $resolvedText,
+                ]);
             }
 
             // No supervisor_final request (confirmed model, 2026-08-03) — the authoriser co-signs ONCE
@@ -3055,6 +3164,114 @@ class ESignWizardController extends Controller
      * canon the rest of the wizard speaks), or NULL to skip the contact entirely — they are a
      * lead, or they hold no role this template signs.
      */
+    /**
+     * ESIGN RECIPIENT BUILDER (Johan 2026-08-15) — expand any ENTITY/company
+     * recipient into its proxy-aware signing representative(s). Consumes the
+     * shared foundation Contact::signingRepresentatives() (proxy → 1 signer;
+     * else all reps) and the agency phrasing template (EsignRecipientPreset).
+     *
+     * Each produced signer:
+     *  - name  = "{entity}, herein represented by {rep} ({capacity})" (party-name
+     *    field + signature attribution render the representation directly);
+     *  - first/last/id_number/email/cell/bank = the REP (natural person signs and
+     *    is emailed the signing link);
+     *  - _entity_contact_id / _entity_name / _capacity / _signature_caption carried
+     *    for downstream render.
+     * A rep-less entity is kept as-is with _entity_needs_representative=true so the
+     * recipient screen can prompt "link a representative first" — it cannot sign.
+     * Non-entity recipients pass through unchanged (order renumbered).
+     */
+    private function expandEntityRecipients(array $recipients, $user): array
+    {
+        $contactIds = collect($recipients)->pluck('_contact_id')->filter()->unique()->values();
+        if ($contactIds->isEmpty()) {
+            return $recipients;
+        }
+
+        $contacts = Contact::withoutGlobalScopes()->whereIn('id', $contactIds)->get()->keyBy('id');
+        if (! $contacts->contains(fn (Contact $c) => $c->isEntity())) {
+            return $recipients; // no entities → nothing to expand
+        }
+
+        $agencyId = $user->agency_id ?? optional($contacts->first())->agency_id;
+        // The APPLICABLE recipient preset (agency-defined on the setup screen):
+        // an 'entity'/'all' default, falling back to the agency default.
+        $preset   = $agencyId ? \App\Models\Docuperfect\EsignRecipientPreset::resolveFor((int) $agencyId, 'entity') : null;
+
+        $out = [];
+        $order = 0;
+        foreach ($recipients as $r) {
+            $cid     = $r['_contact_id'] ?? null;
+            $contact = $cid ? ($contacts[$cid] ?? null) : null;
+
+            if (! $contact || ! $contact->isEntity()) {
+                $r['order'] = ++$order;
+                $out[] = $r;
+                continue;
+            }
+
+            $signers = $contact->signingRepresentatives();
+            if ($signers->isEmpty()) {
+                $r['order']                        = ++$order;
+                $r['_entity_contact_id']           = (int) $contact->id;
+                $r['_entity_name']                 = (string) $contact->entity_name;
+                $r['_entity_needs_representative']  = true;
+                $out[] = $r;
+                continue;
+            }
+
+            foreach ($signers as $rep) {
+                $capacity = $rep->pivot->capacity ?? null;
+                // A PROXY signer renders with the distinct proxy wording.
+                $isProxy  = (bool) ($rep->pivot->signs_as_proxy ?? false);
+                $label    = $preset
+                    ? $preset->renderPhrase($contact, $rep, $capacity, $isProxy)
+                    : \App\Models\Docuperfect\EsignRecipientPreset::substitute(
+                        $isProxy
+                            ? \App\Models\Docuperfect\EsignRecipientPreset::DEFAULT_PROXY_PHRASING
+                            : \App\Models\Docuperfect\EsignRecipientPreset::DEFAULT_PHRASING,
+                        $contact, $rep, $capacity);
+                $caption  = $preset ? $preset->renderCaption($contact, $rep, $capacity, $isProxy) : '';
+
+                // SNAPSHOT (Johan, 2026-08-24) — the document-body wording is
+                // resolved ONCE, here, at generation time, and stored on the
+                // SignatureRequest (see the createSigningRequest() call
+                // below). A wording template edited after this point must
+                // never change what an already-sent document says.
+                $partyClauseText = app(\App\Services\Docuperfect\RoleBlockExpansionService::class)
+                    ->composeEntityPartyText($contact);
+
+                $out[] = [
+                    'order'                 => ++$order,
+                    'role'                  => $r['role'] ?? '',
+                    'name'                  => $label,
+                    'first_name'            => $rep->first_name ?? '',
+                    'last_name'             => $rep->last_name ?? '',
+                    'id_number'             => $rep->id_number ?? '',
+                    'email'                 => $rep->email ?? '',
+                    'cell'                  => $rep->phone ?? '',
+                    'address'               => $rep->address ?? '',
+                    '_contact_id'           => (int) $rep->id,
+                    '_entity_contact_id'    => (int) $contact->id,
+                    '_entity_name'          => (string) $contact->entity_name,
+                    '_capacity'             => $capacity,
+                    '_is_proxy'             => $isProxy,
+                    '_representation_label' => $label,
+                    '_signature_caption'    => $caption,
+                    '_party_clause_text'    => $partyClauseText,
+                    'bank_name'             => $rep->bank_name ?? '',
+                    'bank_account_name'     => $rep->bank_account_name ?? '',
+                    'bank_account_number'   => $rep->bank_account_number ?? '',
+                    'bank_branch_name'      => $rep->bank_branch_name ?? '',
+                    'bank_branch_code'      => $rep->bank_branch_code ?? '',
+                    'bank_account_type'     => $rep->bank_account_type ?? '',
+                ];
+            }
+        }
+
+        return $out;
+    }
+
     private function resolveLinkedContactRole(Contact $contact, array $allowedEsignRoles, string $defaultOwnerRole): ?string
     {
         $pivotRole = strtolower(trim((string) ($contact->pivot->role ?? '')));
@@ -4890,7 +5107,7 @@ class ESignWizardController extends Controller
             'name' => $docName,
             'template_id' => $template->id,
             'fields_json' => $fields,
-            'owner_id' => $user->id,
+            'owner_id' => $user->ownershipUserId(request()->integer('acting_for_user_id') ?: null), // AT-267 / AUDIT 2026-07-26 (F3) — files as the agent
             'branch_id' => $user->effectiveBranchId(),
             'document_type' => $template->template_type,
             'property_address' => $propertyAddress,
@@ -5092,7 +5309,7 @@ class ESignWizardController extends Controller
                 'name'             => $docName,
                 'template_id'      => $template->id,
                 'fields_json'      => $fields,
-                'owner_id'         => $user->id,
+                'owner_id'         => $user->ownershipUserId(request()->integer('acting_for_user_id') ?: null), // AT-267 / AUDIT 2026-07-26 (F3) — files as the agent
                 'branch_id'        => $user->effectiveBranchId(),
                 'property_address' => $propertyAddress,
                 'property_id'      => $resolvedPropertyId,
@@ -5206,7 +5423,9 @@ class ESignWizardController extends Controller
 
                 $sigReq = $signatureService->createSigningRequest(
                     $sigTemplate, $partyKey, $r['name'] ?? '', $skipEmail ? '' : $email,
-                    $r['id_number'] ?? null, null, $user
+                    $r['id_number'] ?? null, null, $user,
+                    signerCaption: $r['_signature_caption'] ?? null,
+                    partyClauseText: $r['_party_clause_text'] ?? null,
                 );
                 $sigReq->update(['signing_method' => 'wet_ink']);
             }
@@ -5237,7 +5456,10 @@ class ESignWizardController extends Controller
     public function downloadDocument(Request $request, $documentId)
     {
         $user = $request->user();
-        $document = Document::where('owner_id', $user->id)->findOrFail($documentId);
+        // AT-267 / AUDIT 2026-07-26 (F3) — documents an assistant builds are owned by the AGENT,
+        // so an owner_id === self lookup 404s the assistant on their own work. dataIdentityIds()
+        // is [self] for everyone else, so this is a no-op outside the assistant case.
+        $document = Document::whereIn('owner_id', $user->dataIdentityIds())->findOrFail($documentId);
         $document->load('template');
 
         $mergedHtml = $document->web_template_data['merged_html'] ?? null;
@@ -5258,7 +5480,7 @@ class ESignWizardController extends Controller
         set_time_limit(120);
 
         $user = $request->user();
-        $document = Document::where('owner_id', $user->id)->findOrFail($documentId);
+        $document = Document::whereIn('owner_id', $user->dataIdentityIds())->findOrFail($documentId); // AT-267 / AUDIT 2026-07-26 (F3)
         $mergedHtml = $document->web_template_data['merged_html'] ?? '';
 
         if (empty($mergedHtml)) {
@@ -5352,7 +5574,7 @@ class ESignWizardController extends Controller
     public function wetInkAgentUpload(Request $request, $documentId)
     {
         $user = $request->user();
-        $document = Document::where('owner_id', $user->id)
+        $document = Document::whereIn('owner_id', $user->dataIdentityIds()) // AT-267 / AUDIT 2026-07-26 (F3)
             ->with('signatureTemplate.requests')
             ->findOrFail($documentId);
 
@@ -5416,7 +5638,7 @@ class ESignWizardController extends Controller
     public function wetInkAgentApprove(Request $request, $documentId)
     {
         $user = $request->user();
-        $document = Document::where('owner_id', $user->id)
+        $document = Document::whereIn('owner_id', $user->dataIdentityIds()) // AT-267 / AUDIT 2026-07-26 (F3)
             ->with('signatureTemplate.requests')
             ->findOrFail($documentId);
 

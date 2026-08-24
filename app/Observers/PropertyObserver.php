@@ -495,6 +495,44 @@ class PropertyObserver
             }
         }
 
+        // AT-350 — "Sold by 3rd Party" convergence. An agent can reach this
+        // outcome two ways: the rich capture form (competitor, price, date,
+        // reason) or simply picking the status in the Lifecycle dropdown and
+        // hitting Save. Both MUST leave the same system state, or we ship two
+        // behaviours for one action — so the bare status change creates the loss
+        // record here. ThirdPartySaleService::ensureOpenRecord is idempotent
+        // (no-op when an open record already exists), which is what lets the rich
+        // path create-then-set-status and land here harmlessly.
+        //
+        // Deliberately keyed off the NEW status only, never the original: the
+        // audit block above consumes and unsets self::$auditOriginals, and a
+        // nested save has already re-synced the model's originals by now. Reading
+        // "what is it now" is both available and self-correcting.
+        //
+        // Spec: .ai/specs/property-sold-by-third-party.md §7
+        if (array_key_exists('status', $property->getChanges())) {
+            try {
+                $svc = app(\App\Services\Properties\ThirdPartySaleService::class);
+
+                if (Property::isSoldByThirdPartyStatus((string) $property->status)) {
+                    $svc->ensureOpenRecord($property);
+                } elseif (! $property->wasRecentlyCreated) {
+                    // Back on the market (or moved to any other status): close the
+                    // open loss record. Never deletes it — the loss history is the
+                    // asset. No-op when there is nothing open, so an ordinary
+                    // active→withdrawn change costs one indexed lookup
+                    // (ptps_property_open_idx). Skipped entirely on create: a
+                    // brand-new listing cannot already have been lost.
+                    $svc->revertOpenRecord($property);
+                }
+            } catch (\Throwable $e) {
+                // The status change itself must never fail because its loss record
+                // could not be written. The banner surfaces "details not captured"
+                // and the agent can add them; a 500 here would lose their edit.
+                Log::warning("AT-350 third-party sale sync failed for property #{$property->id}: {$e->getMessage()}");
+            }
+        }
+
         // Off-market delist (Private Property + agency website). When a listing
         // goes off-market, take it off PP and — for true removals only — the
         // website. P24 is handled per-status by the auto-sync block below
@@ -507,6 +545,7 @@ class PropertyObserver
         // reasoning as the website webhook block above): the $onPortal check
         // already excludes brand-new, not-yet-syndicated stock.
         if (array_key_exists('status', $property->getChanges())
+            && !$property->skipSyndicationAutomation
             && $this->isOffMarketStatus((string) $property->status)) {
             try {
                 // Only dispatch when the property is actually on a portal or a
@@ -527,6 +566,12 @@ class PropertyObserver
                         // PP de-list is skipped for sold here; SyncPpListingStatusJob (dispatched above)
                         // pushes 'Sold'. Withdrawn/expired/etc. still de-list PP; mandate-expiry still removes.
                         keepPpForSold: true,
+                        // Property #6099 (2026-08-18) — a sold status change keeps the listing on P24 as
+                        // 'Sold' too (pushed synchronously below, in this same save). Without this, the
+                        // queued job's P24 step raced that push with a hard 'Withdrawn' and instantly
+                        // delisted a listing that should have stayed live ~1 week as sold stock.
+                        // Withdrawn/expired/etc. still de-list P24; mandate-expiry still removes.
+                        keepP24ForSold: true,
                     );
                 }
             } catch (\Throwable $e) {
@@ -571,8 +616,12 @@ class PropertyObserver
             }
         }
 
-        // P24 syndication auto-sync
-        if (!$property->p24_syndication_enabled || !$property->p24_ref) {
+        // P24 syndication auto-sync. Suppressed during a P24 import — the confirm
+        // job saves p24_ref/status/fields straight from the export, and re-pushing
+        // each of those to P24 (or hitting 401s in a credential-less env) is churn,
+        // not a real edit. The agent manages syndication after the import lands.
+        if ($property->skipSyndicationAutomation
+            || !$property->p24_syndication_enabled || !$property->p24_ref) {
             return;
         }
 
@@ -589,6 +638,27 @@ class PropertyObserver
         // If status changed, send a lightweight status update to P24
         if (isset($dirty['status'])) {
             $p24Status = Property24ListingMapper::getP24Status($property->status, $property->p24_ref, $property->status_label);
+
+            // AT-369 — found in audit: this direct status-sync call goes straight
+            // to Property24ApiClient, bypassing Property24SyndicationService
+            // entirely — so it never hit blockIfPpExclusive(). Terminal/removing
+            // statuses (Sold, Rented, Withdrawn, Expired, Cancelled) only ever
+            // REDUCE exposure and must never be blocked; anything that keeps or
+            // returns the listing to market (Active, BackOnMarket, Pending,
+            // ReducedPrice, RaisedPrice, NewListing) must not reach P24 while PP
+            // holds this listing exclusive — e.g. an agent flipping status back
+            // to 'active' on a previously sold/archived, PP-exclusive listing.
+            if (!Property24ListingMapper::isTerminalStatus($p24Status) && $property->isPpExclusiveActive()) {
+                $until = $property->pp_delay_until->format('d M Y');
+                Log::channel('property24')->warning(
+                    "Status auto-sync blocked for property #{$property->id} — PP exclusive until {$until}",
+                    ['attempted_p24_status' => $p24Status]
+                );
+                $property->updateQuietly([
+                    'p24_last_error' => "Blocked — Private Property exclusivity is active until {$until}. Property24 cannot receive this listing until the exclusive period lapses.",
+                ]);
+                return;
+            }
 
             try {
                 $agency = $property->agency ?? \App\Models\Agency::find($property->agency_id);
@@ -739,9 +809,19 @@ class PropertyObserver
      * True removals — the listing must come off the agency website too. Sold and
      * rented are deliberately EXCLUDED: agencies showcase sold/rented stock on
      * their websites (see WebsiteSyndicationService::bulkActivateSold).
+     *
+     * AT-350 is the exception to that exception: a property sold BY A COMPETITOR
+     * is removed, not showcased. Leaving it on would put another agency's sale in
+     * our own "recently sold" wall — the single most misleading thing our website
+     * could tell a prospective seller. Checked FIRST because the value contains
+     * "sold" and would otherwise never reach the needle list at all. Spec D3.
      */
     private function isWebsiteRemovalStatus(string $status): bool
     {
+        if (Property::isSoldByThirdPartyStatus($status)) {
+            return true;
+        }
+
         $s = strtolower($status);
         foreach (['withdrawn', 'expired', 'cancelled', 'archived', 'unavailable'] as $needle) {
             if (str_contains($s, $needle)) {

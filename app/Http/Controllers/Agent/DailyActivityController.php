@@ -83,7 +83,7 @@ class DailyActivityController extends Controller
 
         // Monthly points target for this user + period (default 0)
         $monthlyTarget = (int) (\DB::table('targets')
-            ->where('user_id', $user->id)
+            ->where('user_id', $user->ownershipUserId())
             ->where('period', $period)
             ->value('points_target') ?? 0);
 
@@ -110,12 +110,22 @@ class DailyActivityController extends Controller
         // manual-capture picker. Restricting to defIds would exclude every
         // auto credit from the achievement total. The state + source filter
         // already guarantees the row is a valid scoreable credit.
+        // daily_activity_entries has agency_id but no automatic tenant scope
+        // on this raw query-builder path. user_id is already resolved via
+        // ownershipUserId() (self / a validated "acting for" identity), but
+        // the agency_id filter is added here too as defense in depth, matching
+        // every other daily_activity_entries call site fixed in this pass.
+        $agencyId = $user->effectiveAgencyId();
+
         $mtdPoints = (int) \DB::table('daily_activity_entries as e')
             ->join('activity_definitions as d', 'd.id', '=', 'e.activity_definition_id')
-            ->where('e.user_id', $user->id)
+            ->where('e.user_id', $user->ownershipUserId())
             ->where('e.period', $period)
             ->whereIn('e.point_state', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_STATES)
             ->whereIn('e.source', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_SOURCES)
+            ->when($agencyId, function ($q) use ($agencyId) {
+                $q->where('e.agency_id', $agencyId);
+            })
             ->sum(\DB::raw('e.value * d.weight'));
 
         $remainingPoints = max($monthlyTarget - $mtdPoints, 0);
@@ -124,7 +134,7 @@ class DailyActivityController extends Controller
         // but explicitly scoped to source='manual' so auto rows for the
         // same activity_definition + day don't shadow the manual cell).
         $manualEntries = \DB::table('daily_activity_entries')
-            ->where('user_id', $user->id)
+            ->where('user_id', $user->ownershipUserId())
             ->where('activity_date', $date)
             ->where('source', \App\Models\DailyActivityEntry::SOURCE_MANUAL)
             ->get()
@@ -150,7 +160,7 @@ class DailyActivityController extends Controller
                   ->where('m.agency_id', $user->agency_id);
             })
             ->leftJoin('calendar_events as ce', 'ce.id', '=', 'e.calendar_event_id')
-            ->where('e.user_id', $user->id)
+            ->where('e.user_id', $user->ownershipUserId())
             ->where('e.activity_date', $date)
             ->whereIn('e.source', [
                 \App\Models\DailyActivityEntry::SOURCE_AUTO_CALENDAR,
@@ -250,7 +260,7 @@ class DailyActivityController extends Controller
 
         // Monthly points target for this user + period (default 0)
         $monthlyTarget = (int) (\DB::table('targets')
-            ->where('user_id', $user->id)
+            ->where('user_id', $user->ownershipUserId())
             ->where('period', $period)
             ->value('points_target') ?? 0);
 
@@ -274,18 +284,26 @@ class DailyActivityController extends Controller
         // manual-capture picker. Restricting to defIds would exclude every
         // auto credit from the achievement total. The state + source filter
         // already guarantees the row is a valid scoreable credit.
+        // daily_activity_entries has agency_id but no automatic tenant scope
+        // on this raw query-builder path — added as defense in depth (see
+        // index() above for the same fix).
+        $agencyId = $user->effectiveAgencyId();
+
         $mtdPoints = (int) \DB::table('daily_activity_entries as e')
             ->join('activity_definitions as d', 'd.id', '=', 'e.activity_definition_id')
-            ->where('e.user_id', $user->id)
+            ->where('e.user_id', $user->ownershipUserId())
             ->where('e.period', $period)
             ->whereIn('e.point_state', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_STATES)
             ->whereIn('e.source', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_SOURCES)
+            ->when($agencyId, function ($q) use ($agencyId) {
+                $q->where('e.agency_id', $agencyId);
+            })
             ->sum(\DB::raw('e.value * d.weight'));
 
         $remainingPoints = max($monthlyTarget - $mtdPoints, 0);
 
         $entries = \DB::table('daily_activity_entries')
-            ->where('user_id', $user->id)
+            ->where('user_id', $user->ownershipUserId())
             ->where('activity_date', $date)
             ->get()
             ->keyBy('activity_definition_id');
@@ -406,7 +424,7 @@ class DailyActivityController extends Controller
                 if ($new <= 0) {
                     \DB::table('daily_activity_entries')
                         ->where('activity_definition_id', $defId)
-                        ->where('user_id', $user->id)
+                        ->where('user_id', $user->ownershipUserId())
                         ->where('activity_date', $date)
                         ->where('source', $manual)
                         ->delete();
@@ -423,7 +441,7 @@ class DailyActivityController extends Controller
             // collides with an auto row that shares (def, user, date).
             $existing = \DB::table('daily_activity_entries')
                 ->where('activity_definition_id', $defId)
-                ->where('user_id', $user->id)
+                ->where('user_id', $user->ownershipUserId())
                 ->where('activity_date', $date)
                 ->where('source', $manual)
                 ->first();
@@ -441,7 +459,9 @@ class DailyActivityController extends Controller
             } else {
                 \DB::table('daily_activity_entries')->insert([
                     'activity_definition_id' => $defId,
-                    'user_id' => $user->id,
+                    // multi-agent addendum §6.1 — honours an explicit "Acting for" choice among
+                    // the assistant's Main Agent / linked Sub-Agents; falls back to the Main Agent.
+                    'user_id' => $user->ownershipUserId(request()->integer('acting_for_user_id') ?: null), // AT-267 — daily activity lands on the AGENT
                     'activity_date' => $date,
                     'period' => $period,
                     'agency_id' => $agencyId,

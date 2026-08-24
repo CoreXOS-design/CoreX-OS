@@ -1,7 +1,18 @@
 {{-- AT-150 / AT-168 Part C — one chat bubble. Extracted so the initial render and
      the scroll-up loader (threadOlder) produce identical markup. $m = Communication.
-     The wrapper carries id/data for in-thread search jump + highlight. --}}
+     The wrapper carries id/data for in-thread search jump + highlight.
+
+     CX-112 (Johan, 2026-08-21) — reused as-is (content/escaping/security unchanged) by DR2's
+     Unfiled Emails and filed-emails-on-a-deal screens, so agents learn one email viewer, not
+     two. The only extension: attachment/retry/transcribe route NAMES are now optional blade
+     variables, defaulting to the original compliance-archive routes (gated by
+     access_communication_archive) so this partial's original caller is unaffected. DR2 passes
+     its own route names (gated by its existing view_deals permission instead) so an agent who
+     can see a deal's emails but has no comms-archive grant doesn't hit a 403 on an attachment. --}}
 @php
+    $attachmentRoute = $attachmentRoute ?? 'compliance.comm-archive.attachment';
+    $attachmentRetryRoute = $attachmentRetryRoute ?? 'compliance.comm-archive.attachment.retry';
+    $transcribeRoute = $transcribeRoute ?? 'compliance.comm-archive.transcribe';
     $out = $m->direction === 'outbound';
     // AT-182 — the thread shows each message's NEW content: the quote-stripped display body
     // for email, or body_text as-is for WhatsApp (no quoting concept). The raw full body is
@@ -66,24 +77,24 @@
                         <div class="flex flex-col gap-1 w-full">
                             <span class="text-xs" style="color:var(--text-secondary,#4b5563);">{{ 'Voice note'.$durSuffix }}</span>
                             <audio controls preload="none" style="height:36px; width:100%; max-width:260px;">
-                                <source src="{{ route('compliance.comm-archive.attachment', $att->id) }}" type="{{ $att->mime }}">
+                                <source src="{{ route($attachmentRoute, $att->id) }}" type="{{ $att->mime }}">
                                 Your browser cannot play this voice note.
                             </audio>
                         </div>
                     @elseif($att->isPlayable())
-                        <a href="{{ route('compliance.comm-archive.attachment', $att->id) }}" target="_blank" rel="noopener"
+                        <a href="{{ route($attachmentRoute, $att->id) }}" target="_blank" rel="noopener"
                            class="text-xs px-2 py-1 rounded inline-block" style="background:var(--surface-2,#f0f2f8); color:var(--text-secondary,#4b5563);">{{ $label }}</a>
                     @elseif($att->isFailed())
                         <span class="text-xs px-2 py-1 rounded inline-flex items-center gap-2" style="background:var(--surface-2,#f0f2f8); color:var(--ds-red,#c0392b);">
                             {{ $label }} — unavailable
-                            <form method="POST" action="{{ route('compliance.comm-archive.attachment.retry', $att->id) }}" class="inline">@csrf
-                                <button type="submit" class="underline" style="color:var(--ds-blue,#2563eb);">Retry</button>
+                            <form method="POST" action="{{ route($attachmentRetryRoute, $att->id) }}" class="inline">@csrf
+                                <button type="submit" class="underline" style="color:var(--brand-icon,#0ea5e9);">Retry</button>
                             </form>
                         </span>
                     @else
                         <span class="text-xs px-2 py-1 rounded inline-flex items-center gap-2" style="background:var(--surface-2,#f0f2f8); color:var(--text-muted,#9ca3af);">
                             {{ ($att->isAudio() ? 'Voice note — processing'.$durSuffix : $label.' — processing') }}
-                            <form method="POST" action="{{ route('compliance.comm-archive.attachment.retry', $att->id) }}" class="inline">@csrf
+                            <form method="POST" action="{{ route($attachmentRetryRoute, $att->id) }}" class="inline">@csrf
                                 <button type="submit" class="underline" style="color:var(--text-muted,#9ca3af);">Retry now</button>
                             </form>
                         </span>
@@ -113,7 +124,7 @@
                     </span>
                 @else
                     {{-- not transcribed (null) or terminally failed → offer Transcribe now --}}
-                    <form method="POST" action="{{ route('compliance.comm-archive.transcribe', $m->id) }}" class="inline">
+                    <form method="POST" action="{{ route($transcribeRoute, $m->id) }}" class="inline">
                         @csrf
                         <button type="submit" class="text-xs font-semibold inline-flex items-center gap-1" style="color:var(--brand-icon, #0ea5e9);">
                             <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="1.7" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 18.75a6 6 0 0 0 6-6v-1.5m-6 7.5a6 6 0 0 1-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 0 1-3-3V4.5a3 3 0 1 1 6 0v8.25a3 3 0 0 1-3 3Z"/></svg>

@@ -2,16 +2,16 @@
 {{-- Usage:
     <x-sticky-action-bar>
         <x-slot name="left">
-            <a href="/back" class="inline-flex items-center gap-1 text-sm text-gray-600 hover:text-gray-900">
+            <a href="/back" class="inline-flex items-center gap-1 text-sm" style="color: var(--text-secondary);">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
                 Back
             </a>
         </x-slot>
         <x-slot name="center">
-            <h2 class="text-sm font-semibold text-gray-700 truncate">Page Title</h2>
+            <h2 class="text-sm font-semibold truncate" style="color: var(--text-secondary);">Page Title</h2>
         </x-slot>
         <x-slot name="right">
-            <button class="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700">Save</button>
+            <button class="px-4 py-2 text-white text-sm font-medium rounded-lg" style="background: var(--brand-button);">Save</button>
         </x-slot>
     </x-sticky-action-bar>
 --}}

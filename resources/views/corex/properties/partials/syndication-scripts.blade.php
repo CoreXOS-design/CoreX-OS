@@ -111,6 +111,16 @@ function ppSyndication(config) {
         lastSubmitted: config.lastSubmitted || '',
         lastError: config.lastError || '',
         exclusiveDays: config.exclusiveDays || 0,
+        // AT-369 — agent opt-in exclusivity. exclusiveDaysMax is the agency ceiling
+        // (Company Settings → Syndication Portals); pendingExclusiveDays is the
+        // in-modal selection, only committed to exclusiveDays on Confirm.
+        exclusiveDaysMax: config.exclusiveDaysMax || 92,
+        pendingExclusiveDays: 1,
+        // AT-369 follow-up — mirror-image P24 gate + one-time forced-read explainer.
+        p24Enabled: config.p24Enabled || false,
+        explainerSeen: config.explainerSeen || false,
+        explainerSecondsLeft: 10,
+        explainerTimer: null,
         mandateType: config.mandateType || '',
         activatedAt: config.activatedAt || '',
         csrfToken: config.csrfToken,
@@ -198,6 +208,80 @@ function ppSyndication(config) {
             setTimeout(() => { this.message = ''; }, 5000);
         },
 
+        // AT-369 — opt-in exclusivity control. Ticking opens the info modal and
+        // commits NOTHING until the agent confirms inside it; unticking clears
+        // the value immediately (no modal — there is nothing to explain about
+        // turning exclusivity off). The confirmed value travels to PP on the
+        // next Submit/Refresh click (submitListing()/refreshListing() below),
+        // it is not pushed the moment the modal closes.
+        onExclusiveToggleClick() {
+            if (this.exclusiveDays > 0) {
+                this.exclusiveDays = 0;
+                return;
+            }
+            // Mirror-image of the P24 panel's isPpExclusiveLocked() gate: PP
+            // exclusivity is PP-only, so refuse the tick outright while P24 is
+            // switched on for this listing, rather than letting the agent pick
+            // days first and only fail server-side on submit. The real gate is
+            // still server-side (SyndicationController::validateAndSaveExclusiveDays).
+            if (this.p24Enabled) {
+                window.dispatchEvent(new CustomEvent('open-modal', { detail: 'pp-exclusive-p24-blocked-' + this.propertyId }));
+                return;
+            }
+            this.pendingExclusiveDays = 1;
+            // First time this agent has ever ticked this — force a 10s minimum
+            // read of the explainer before they can proceed to the day picker.
+            if (!this.explainerSeen) {
+                this.startExplainerCountdown();
+                window.dispatchEvent(new CustomEvent('open-modal', { detail: 'pp-exclusive-explainer-' + this.propertyId }));
+                return;
+            }
+            window.dispatchEvent(new CustomEvent('open-modal', { detail: 'pp-exclusive-info-' + this.propertyId }));
+        },
+
+        startExplainerCountdown() {
+            this.explainerSecondsLeft = 10;
+            clearInterval(this.explainerTimer);
+            this.explainerTimer = setInterval(() => {
+                this.explainerSecondsLeft--;
+                if (this.explainerSecondsLeft <= 0) {
+                    clearInterval(this.explainerTimer);
+                }
+            }, 1000);
+        },
+
+        // Only reachable once explainerSecondsLeft has hit 0 — the button
+        // itself is disabled until then, and this double-checks server-side
+        // trust boundaries don't matter here (nothing is committed by
+        // acknowledging, just persisted so the explainer never shows again).
+        async acknowledgeExplainer() {
+            if (this.explainerSecondsLeft > 0) return;
+            clearInterval(this.explainerTimer);
+            this.explainerSeen = true;
+            window.dispatchEvent(new CustomEvent('close-modal', { detail: 'pp-exclusive-explainer-' + this.propertyId }));
+            try {
+                await fetch(`/corex/properties/syndication/exclusivity-explainer/ack`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': this.csrfToken, 'X-Requested-With': 'XMLHttpRequest' },
+                });
+            } catch (e) { /* best-effort; explainerSeen is already true for this session */ }
+            // Hand straight on to the normal day-picker modal, which still has
+            // its own Cancel — acknowledging the explainer commits nothing.
+            window.dispatchEvent(new CustomEvent('open-modal', { detail: 'pp-exclusive-info-' + this.propertyId }));
+        },
+
+        confirmExclusive() {
+            this.exclusiveDays = Math.min(this.exclusiveDaysMax, Math.max(1, this.pendingExclusiveDays || 1));
+            window.dispatchEvent(new CustomEvent('close-modal', { detail: 'pp-exclusive-info-' + this.propertyId }));
+        },
+
+        cancelExclusive() {
+            // Cancel leaves the tick off and nothing saved — exclusiveDays is
+            // untouched (still 0, since onExclusiveToggleClick only opens the
+            // modal when it was 0 to begin with).
+            window.dispatchEvent(new CustomEvent('close-modal', { detail: 'pp-exclusive-info-' + this.propertyId }));
+        },
+
         async toggleEnabled() {
             this.loading = true;
             try {
@@ -249,7 +333,10 @@ function ppSyndication(config) {
                 const res = await fetch(`/corex/properties/${this.propertyId}/syndication/submit`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': this.csrfToken, 'X-Requested-With': 'XMLHttpRequest' },
-                    body: JSON.stringify({}),
+                    // AT-369 — carry the agent's opt-in exclusivity choice. 0 clears it
+                    // (an unticked/never-ticked control) — the server treats 0 as "not
+                    // requested", never as "leave whatever PP already has."
+                    body: JSON.stringify({ pp_exclusive_days: this.exclusiveDays }),
                 });
                 const data = await res.json();
                 if (data.success) {
@@ -293,7 +380,9 @@ function ppSyndication(config) {
                 const res = await fetch(`/corex/properties/${this.propertyId}/syndication/submit`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': this.csrfToken, 'X-Requested-With': 'XMLHttpRequest' },
-                    body: JSON.stringify({}),
+                    // AT-369 — same as submitListing(): a Refresh also carries the
+                    // current opt-in exclusivity choice.
+                    body: JSON.stringify({ pp_exclusive_days: this.exclusiveDays }),
                 });
                 const data = await res.json();
                 if (data.success) {
@@ -344,10 +433,16 @@ function ppSyndication(config) {
                 const res = await fetch(`/corex/properties/${this.propertyId}/syndication/reactivate`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': this.csrfToken, 'X-Requested-With': 'XMLHttpRequest' },
+                    // AT-369 — persists the exclusivity choice so it isn't lost,
+                    // but reactivate() is a status-only PP call (ListingStatusUpdate)
+                    // and does NOT push it to PP by itself — the message returned
+                    // tells the agent a Refresh is still needed for that.
+                    body: JSON.stringify({ pp_exclusive_days: this.exclusiveDays }),
                 });
                 const data = await res.json();
                 if (data.success) {
                     this.status = data.pp_syndication_status || 'submitted';
+                    this.ppRef = data.pp_ref || this.ppRef;
                     this.showMessage('Listing reactivated on PP');
                 } else {
                     this.debugErrors = [data.message || 'Reactivation failed'];

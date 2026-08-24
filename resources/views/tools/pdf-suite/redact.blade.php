@@ -3,11 +3,11 @@
 @section('corex-content')
 <div class="space-y-5" x-data="pdfRedact()">
 
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">PDF Redact</h1>
-                <p class="text-sm text-white/60">Click-drag to draw black-out boxes — POPIA-safe true redaction.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">PDF Redact</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Click-drag to draw black-out boxes — POPIA-safe true redaction.</p>
             </div>
         </div>
     </div>

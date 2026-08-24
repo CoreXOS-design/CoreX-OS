@@ -6,9 +6,10 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 use App\Models\Concerns\BelongsToAgency;
+use App\Models\Concerns\StampsOnBehalfOf;
 class ContactAccessLog extends Model
 {
-    use BelongsToAgency;
+    use BelongsToAgency, StampsOnBehalfOf;
 
     public $timestamps = false;
 
@@ -31,5 +32,16 @@ class ContactAccessLog extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    /**
+     * The real admin behind an impersonated action (AT-118). The column was fillable but had
+     * no relation, so nothing could render it — closed here alongside the AT-267 onBehalfOf().
+     * Distinct concept from onBehalfOf(): impersonation is admin-as-user; on-behalf is
+     * assistant-for-agent. Both can be set, and both are now renderable.
+     */
+    public function impersonator(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'impersonator_id');
     }
 }

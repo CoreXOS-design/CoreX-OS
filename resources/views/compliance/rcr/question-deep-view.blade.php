@@ -36,12 +36,12 @@
             <a href="{{ route('corex.compliance.rcr.show', $submission->id) }}" style="font-size:0.75rem;color:var(--text-muted);text-decoration:none;">← All questions</a>
             @if($prevQuestion)
                 <a href="{{ route('corex.compliance.rcr.question.show', [$submission->id, $prevQuestion->question_code]) }}"
-                   style="font-size:0.75rem;color:var(--brand-button);text-decoration:none;">← {{ $prevQuestion->question_code }}</a>
+                   style="font-size:0.75rem;color:var(--brand-icon, #0ea5e9);text-decoration:none;">← {{ $prevQuestion->question_code }}</a>
             @endif
             <span style="font-size:0.8125rem;color:var(--text-secondary);">Q {{ $question->question_code }} · {{ $currentIndex }} of {{ $totalCount }}</span>
             @if($nextQuestion)
                 <a href="{{ route('corex.compliance.rcr.question.show', [$submission->id, $nextQuestion->question_code]) }}"
-                   style="font-size:0.75rem;color:var(--brand-button);text-decoration:none;">{{ $nextQuestion->question_code }} →</a>
+                   style="font-size:0.75rem;color:var(--brand-icon, #0ea5e9);text-decoration:none;">{{ $nextQuestion->question_code }} →</a>
             @endif
         </div>
         <div style="display:flex;gap:6px;align-items:center;">
@@ -75,7 +75,7 @@
             </p>
         @endif
         @if($question->auto_populate_hint)
-            <p style="font-size:0.75rem;color:#0ea5e9;margin:8px 0 0 0;">
+            <p style="font-size:0.75rem;color:var(--brand-icon, #0ea5e9);margin:8px 0 0 0;">
                 💡 {{ $question->auto_populate_hint }}
             </p>
         @endif
@@ -126,7 +126,7 @@
                     @case('yes_no_na')
                     @case('single_select')
                         <select data-final-answer x-model="value" @change="save"
-                                style="padding:8px 10px;border:1px solid var(--border);border-radius:4px;font-size:0.875rem;background:var(--surface);">
+                                style="padding:8px 10px;border:1px solid var(--border);border-radius:4px;font-size:0.875rem;background:var(--surface-2);color:var(--text-primary);">
                             <option value="">Select…</option>
                             @foreach(($opts ?? RcrAnswer::OPTIONS_YES_NO) as $opt)
                                 <option value="{{ $opt }}">{{ $opt }}</option>
@@ -137,23 +137,23 @@
                     @case('number')
                         <input data-final-answer type="number" step="{{ $question->answer_type === 'percentage' ? '0.1' : '1' }}"
                                x-model="value" @input.debounce.500ms="save"
-                               style="padding:8px 10px;border:1px solid var(--border);border-radius:4px;font-size:0.875rem;background:var(--surface);">
+                               style="padding:8px 10px;border:1px solid var(--border);border-radius:4px;font-size:0.875rem;background:var(--surface-2);color:var(--text-primary);">
                         @break
                     @case('multi_select')
                         <textarea data-final-answer x-model="value" @input.debounce.500ms="save" rows="2"
                                   placeholder="Comma-separated…"
-                                  style="padding:8px 10px;border:1px solid var(--border);border-radius:4px;font-size:0.875rem;background:var(--surface);font-family:inherit;"></textarea>
+                                  style="padding:8px 10px;border:1px solid var(--border);border-radius:4px;font-size:0.875rem;background:var(--surface-2);color:var(--text-primary);font-family:inherit;"></textarea>
                         @break
                     @default
                         <textarea data-final-answer x-model="value" @input.debounce.500ms="save" rows="3"
-                                  style="padding:8px 10px;border:1px solid var(--border);border-radius:4px;font-size:0.875rem;background:var(--surface);font-family:inherit;"></textarea>
+                                  style="padding:8px 10px;border:1px solid var(--border);border-radius:4px;font-size:0.875rem;background:var(--surface-2);color:var(--text-primary);font-family:inherit;"></textarea>
                 @endswitch
 
                 {{-- Big copy button --}}
                 <button type="button" @click="copy"
                         data-copy-btn="{{ $p }}"
                         :class="copiedFlash ? 'rcr-copy-flash' : ''"
-                        style="background:#00d4aa;color:#0a1628;font-weight:700;height:48px;border-radius:4px;border:0;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;font-size:0.875rem;">
+                        style="background:var(--brand-button, #0ea5e9);color:#fff;font-weight:700;height:48px;border-radius:6px;border:0;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;font-size:0.875rem;">
                     <span x-show="!copiedFlash">📋 Copy to goAML</span>
                     <span x-show="copiedFlash">✓ Copied</span>
                 </button>
@@ -182,7 +182,7 @@
 <style>
     .rcr-flow-mode .corex-sidebar { display:none !important; }
     .rcr-flow-mode .corex-app-main { margin-left:0 !important; padding:0; }
-    .rcr-copy-flash { background:#00b594 !important; }
+    .rcr-copy-flash { background: color-mix(in srgb, var(--brand-button, #0ea5e9) 78%, #000) !important; }
 </style>
 
 @push('scripts')

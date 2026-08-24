@@ -34,7 +34,16 @@ class CalendarEventService
     public function createManual(array $data, User $user): CalendarEvent
     {
         return CalendarEvent::create(array_merge($data, [
-            'user_id'       => $data['user_id'] ?? $user->id,
+            // AT-267 §7.2 — an assistant works the AGENT's calendar: the event is OWNED by the
+            // agent (appears on their day as if they added it), while created_by_id records the
+            // assistant as the actual actor. ownershipUserId() is the agent for an assistant and
+            // self for everyone else, so a normal user is unaffected. An assistant is clamped to
+            // their agent (or a linked Sub-Agent they explicitly chose via "Acting for" —
+            // multi-agent addendum §6.1) — a submitted user_id cannot redirect the event to
+            // another practitioner.
+            'user_id'       => $user->isAssistant()
+                ? $user->ownershipUserId(isset($data['acting_for_user_id']) ? (int) $data['acting_for_user_id'] : null)
+                : ($data['user_id'] ?? $user->id),
             'created_by_id' => $user->id,
             'event_type'    => $data['event_type'] ?? 'manual',
             // category MUST be set — both web and mobile GETs apply
@@ -42,6 +51,10 @@ class CalendarEventService
             // in a whereIn list. Default to 'manual' so manual events
             // are visible on both surfaces.
             'category'      => $data['category'] ?? 'manual',
+            // MUST be stamped — is_editable / reschedule / delete all key off
+            // source_type. Leaving it NULL used to render the event read-only
+            // on the calendar surfaces (CalendarEventCreator already stamps it).
+            'source_type'   => $data['source_type'] ?? 'manual',
             'status'        => 'pending',
             'colour'        => $data['colour'] ?? null,
         ]));
@@ -713,7 +726,7 @@ class CalendarEventService
             $r = strtolower(trim((string) $pivotRole));
             return match (true) {
                 in_array($r, ['seller', 'owner', 'landlord', 'lessor'], true) => 'seller_contact',
-                in_array($r, ['buyer', 'tenant', 'lessee'], true)             => 'buyer_contact',
+                in_array($r, CalendarEventLink::PROPERTY_PIVOT_BUYER_ROLES, true) => 'buyer_contact',
                 default                                                       => 'attendee',
             };
         };

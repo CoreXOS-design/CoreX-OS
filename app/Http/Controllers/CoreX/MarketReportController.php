@@ -474,12 +474,18 @@ final class MarketReportController extends Controller
     }
 
     /**
-     * Phase F parser dashboard — per-parser stats. Permission gated more
-     * tightly (mic.view_ai_costs) since it surfaces audit / cost metrics.
+     * Phase F parser dashboard — per-parser stats, aggregated cross-agency
+     * via MarketReport::withoutGlobalScopes() below. Gated on isOwnerRole()
+     * rather than a permission check: mic.view_ai_costs is grantable to any
+     * non-owner role within a per-agency admin's own agency (per Role
+     * Manager's grant logic), so it cannot be trusted to gate a genuinely
+     * cross-agency view. Matches the isOwnerRole() pattern used by other
+     * cross-agency reporting views in this codebase (e.g.
+     * CommandCenter\ReportingController::branchDashboard()).
      */
     public function parserDashboard(Request $request): View
     {
-        if (!$request->user()->hasPermission('mic.view_ai_costs')) {
+        if (!$request->user()->isOwnerRole()) {
             abort(403);
         }
 

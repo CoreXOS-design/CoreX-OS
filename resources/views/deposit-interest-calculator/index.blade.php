@@ -4,18 +4,18 @@
 @section('corex-content')
     <div x-data="depositCalculator()" class="w-full space-y-5">
         {{-- Page header (Pattern A — branded) --}}
-        <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+        <div class="rounded-md px-6 py-5 corex-page-banner">
             <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                 <div data-tour="calc-deposit-interest-intro">
-                    <h1 class="text-xl font-bold text-white leading-tight">Deposit Interest Calculator</h1>
-                    <p class="text-sm text-white/60">Proportional trust account interest</p>
+                    <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Deposit Interest Calculator</h1>
+                    <p class="text-xs" style="color: var(--text-muted);">Proportional trust account interest</p>
                 </div>
-                <div class="flex items-center gap-2 flex-shrink-0">
-                    @include('layouts.partials.tour-header-launcher')
+                <div class="flex flex-wrap items-center gap-2">
+                    @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
                     @if(\Illuminate\Support\Facades\Route::has('deposit-interest-calculator.history'))
-                        <a href="{{ route('deposit-interest-calculator.history') }}" class="corex-btn-outline" data-tour="calc-deposit-interest-history">History</a>
+                        <a href="{{ route('deposit-interest-calculator.history') }}" class="corex-btn-outline text-xs" data-tour="calc-deposit-interest-history">History</a>
                     @endif
-                    <button type="submit" form="calcForm" class="corex-btn-primary" data-tour="calc-deposit-interest-calc">Calculate</button>
+                    <button type="submit" form="calcForm" class="corex-btn-primary text-xs" data-tour="calc-deposit-interest-calc">Calculate</button>
                 </div>
             </div>
         </div>
@@ -61,7 +61,7 @@
                                value="{{ old('property_name', $input['property_name'] ?? '') }}"
                                placeholder="e.g. 12 Marine Drive, Margate"
                                class="w-full rounded-md text-sm px-3 py-2"
-                               style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                               style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                     </div>
                     <div data-tour="calc-deposit-interest-amount">
                         <label for="deposit_amount" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Deposit Amount (R) <span class="text-red-500">*</span></label>
@@ -69,21 +69,21 @@
                                value="{{ old('deposit_amount', $input['deposit_amount'] ?? '') }}"
                                placeholder="7700.00"
                                class="w-full rounded-md text-sm px-3 py-2"
-                               style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                               style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                     </div>
                     <div data-tour="calc-deposit-interest-dates">
                         <label for="invest_date" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Date Invested <span class="text-red-500">*</span></label>
                         <input id="invest_date" type="date" name="invest_date" required
                                value="{{ old('invest_date', $input['invest_date'] ?? '') }}"
                                class="w-full rounded-md text-sm px-3 py-2"
-                               style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                               style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                     </div>
                     <div>
                         <label for="refund_date" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Date Refunded <span class="text-red-500">*</span></label>
                         <input id="refund_date" type="date" name="refund_date" required
                                value="{{ old('refund_date', $input['refund_date'] ?? now()->format('Y-m-d')) }}"
                                class="w-full rounded-md text-sm px-3 py-2"
-                               style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                               style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                     </div>
                 </div>
 
@@ -109,13 +109,13 @@
                             <div class="flex-1">
                                 <input type="date" :name="'topups[' + index + '][date]'" x-model="topup.date" required
                                        class="w-full rounded-md text-sm px-3 py-2"
-                                       style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                             </div>
                             <div class="flex-1">
                                 <input type="number" step="0.01" min="0.01" :name="'topups[' + index + '][amount]'" x-model="topup.amount" required
                                        placeholder="0.00"
                                        class="w-full rounded-md text-sm px-3 py-2"
-                                       style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                             </div>
                             <button type="button" @click="removeTopup(index)"
                                     class="p-1.5 rounded-md transition-colors" style="color: var(--text-muted);" title="Remove">

@@ -6,8 +6,12 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Contact;
+use App\Models\Prospecting\TrackedProperty;
+use App\Models\Prospecting\TrackedPropertyOwner;
 use App\Support\OwnerEntityClassifier;
 use App\Services\ContactDuplicateService;
+use App\Services\Prospecting\OwnerContactResolver;
+use App\Services\Prospecting\OwnershipHistoryParser;
 use App\Services\Prospecting\TrackedPropertyMatchOrCreateService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -39,6 +43,42 @@ final class DeedsCaptureController extends Controller
         TrackedPropertyMatchOrCreateService $matcher,
         ContactDuplicateService $dupes
     ): JsonResponse {
+        // cmainfo.co.za PropSearch often returns a comparable with a '0' / blank /
+        // unparseable sale or registered date. `nullable|date` only skips a NULL — a
+        // non-null '0' hits the `date` rule, fails, and (because validation runs over
+        // the whole captures[] array up front) 422s the ENTIRE capture batch before a
+        // single record is ingested. Coerce any date the `date` rule would reject to
+        // null here so one bad comp date never blocks the import; genuine dates are
+        // left untouched and validate + store exactly as before.
+        $captures = $request->input('captures');
+        if (is_array($captures)) {
+            foreach ($captures as $i => $capture) {
+                if (!isset($capture['sale']) || !is_array($capture['sale'])) {
+                    continue;
+                }
+                foreach (['sale_date', 'registered_date'] as $dateField) {
+                    if (array_key_exists($dateField, $capture['sale'])) {
+                        $captures[$i]['sale'][$dateField] = $this->sanitizeCaptureDate($capture['sale'][$dateField]);
+                    }
+                }
+                // Same shape of bug, numeric side: a comp with no sale price shows as
+                // '-' on cmainfo. The extension's own parseCurrency() already turns
+                // that into null before sending — verified live-repro 2026-08-17 — so
+                // this rule's real-world exposure is a case parseCurrency doesn't (a
+                // future source, or a payload built another way) sending a literal
+                // non-numeric placeholder straight through. `numeric` doesn't skip a
+                // non-null, non-numeric string, so it would 422 the whole batch the
+                // same way an unsanitized date does. Sanitizing here closes that gap
+                // symmetrically rather than leaving it to the sender's own parsing.
+                foreach (['sale_price', 'bond_amount'] as $numericField) {
+                    if (array_key_exists($numericField, $capture['sale'])) {
+                        $captures[$i]['sale'][$numericField] = $this->sanitizeCaptureNumeric($capture['sale'][$numericField]);
+                    }
+                }
+            }
+            $request->merge(['captures' => $captures]);
+        }
+
         $validated = $request->validate([
             'source'                                => 'nullable|string|max:50',
             'captures'                              => 'required|array|min:1',
@@ -59,7 +99,13 @@ final class DeedsCaptureController extends Controller
             'captures.*.property.province'          => 'nullable|string|max:100',
             'captures.*.property.latitude'          => 'nullable|numeric',
             'captures.*.property.longitude'         => 'nullable|numeric',
-            'captures.*.property.section_extent_m2' => 'nullable|numeric',
+            // Extent contract (.ai/specs/deeds-capture.md §6 Part A, 2026-08-19)
+            // — three independent, optional values. section_extent_m2 already
+            // existed (kept, name unchanged, for backward compatibility with an
+            // older extension build); erf_extent_m2/cadastral_extent_m2 are new.
+            'captures.*.property.section_extent_m2'    => 'nullable|numeric',
+            'captures.*.property.erf_extent_m2'        => 'nullable|numeric',
+            'captures.*.property.cadastral_extent_m2'  => 'nullable|numeric',
             'captures.*.property.property_type'     => 'nullable|string|max:100',
             'captures.*.property.title_deed_number' => 'nullable|string|max:100',
             // Multi-owner (2026-08-12) — CMA lists more than one registered owner on
@@ -73,6 +119,18 @@ final class DeedsCaptureController extends Controller
             'captures.*.owners.*.first_names'        => 'nullable|string|max:200',
             'captures.*.owners.*.id_number'          => 'nullable|string|max:20',
             'captures.*.owners.*.id_type'            => 'nullable|in:sa_id,company_reg',
+            // Multi-owner / ownership-history (.ai/specs/deeds-capture.md §7,
+            // 2026-08-19) — the three raw cmainfo cells, verbatim and unsplit,
+            // sent ONLY when the Owner cell has more than one entry. Optional;
+            // when present it is authoritative for ownership on this capture
+            // (owners[] above is ignored for ownership purposes — see
+            // ingestOne()). All parsing/grouping/classification happens
+            // server-side (OwnershipHistoryParser) — nothing here beyond
+            // shape validation.
+            'captures.*.ownership_history_raw'                     => 'nullable|array',
+            'captures.*.ownership_history_raw.owner_names'         => 'nullable|string|max:4000',
+            'captures.*.ownership_history_raw.owner_ids'           => 'nullable|string|max:2000',
+            'captures.*.ownership_history_raw.title_deeds'         => 'nullable|string|max:2000',
             'captures.*.sale'                       => 'nullable|array',
             'captures.*.sale.sale_price'            => 'nullable|numeric',
             'captures.*.sale.sale_date'             => 'nullable|date',
@@ -102,16 +160,93 @@ final class DeedsCaptureController extends Controller
         return response()->json(['ok' => true, 'results' => $results]);
     }
 
+    /**
+     * Return the value unchanged when it is a date the `nullable|date` rule would
+     * accept, otherwise null. cmainfo PropSearch comps arrive with '0' / '' /
+     * unparseable sale + registered dates; nulling them lets the capture proceed
+     * instead of 422-ing the whole batch. Mirrors Laravel's `date` rule (strtotime
+     * must parse it, and a full calendar date must be real per checkdate — so an
+     * impossible date like 2023-02-30 is nulled too, never stored).
+     */
+    private function sanitizeCaptureDate($value): ?string
+    {
+        if ($value === null || (!is_string($value) && !is_numeric($value))) {
+            return null;
+        }
+        $v = trim((string) $value);
+        if ($v === '' || $v === '0' || strtotime($v) === false) {
+            return null;
+        }
+        $parts = date_parse($v);
+        if (!is_array($parts) || $parts['error_count'] > 0) {
+            return null;
+        }
+        if ($parts['year'] && $parts['month'] && $parts['day']
+            && !checkdate((int) $parts['month'], (int) $parts['day'], (int) $parts['year'])) {
+            return null;
+        }
+
+        return $v;
+    }
+
+    /**
+     * Return the value unchanged when it is something the `numeric` rule would
+     * accept, otherwise null. Mirrors sanitizeCaptureDate() for the price/bond
+     * side — a non-null, non-numeric placeholder (e.g. '-') would otherwise hit
+     * `numeric` and 422 the whole batch the same way an unsanitized date does.
+     */
+    private function sanitizeCaptureNumeric($value): ?float
+    {
+        if ($value === null) {
+            return null;
+        }
+        if (is_int($value) || is_float($value)) {
+            return (float) $value;
+        }
+        if (!is_string($value)) {
+            return null;
+        }
+        $v = trim($value);
+        if ($v === '' || !is_numeric($v)) {
+            return null;
+        }
+
+        return (float) $v;
+    }
+
     private function ingestOne(array $capture, int $agencyId, $user, $matcher, $dupes): array
     {
         $p      = $capture['property'];
-        $owners = $capture['owners'] ?? [];
         $s      = $capture['sale'] ?? [];
         $ref    = $capture['source_ref'];
 
-        // Resolve/create a Contact per owner — deduped on the owner ID (the join
-        // key), same as before, just looped for however many owners CMA listed.
-        // Phone left empty on every owner (phase-2 Virtual Agent fills it).
+        // §7.2 — ownership_history_raw, when present, is AUTHORITATIVE for
+        // ownership on this capture; owners[] is ignored for ownership
+        // purposes (never processed both ways — that would double-create
+        // contacts/owner rows). Absent → the simple owners[] path below runs
+        // completely unchanged, byte-for-byte, same as before this capability
+        // existed.
+        $ownershipHistoryRaw = $capture['ownership_history_raw'] ?? null;
+        $hasOwnershipHistory = is_array($ownershipHistoryRaw) && array_filter($ownershipHistoryRaw, fn ($v) => filled($v)) !== [];
+        // 2026-08-19 (Johan, live-tested, real capture) — this used to be
+        // $hasOwnershipHistory ? [] : ($capture['owners'] ?? []), which threw
+        // owners[] away completely whenever ownership_history_raw was ALSO
+        // present, even if that second, separate pipeline
+        // (OwnershipHistoryParser -> OwnerContactResolver) went on to produce
+        // nothing usable — proven live: a real capture on 25 Simon V D Stel
+        // Street arrived with owners[] fully populated (2 owners, full
+        // unmasked 13-digit IDs) and ownership_history_raw ALSO present;
+        // ownership_history_raw parsed to status='ok' but zero persisted
+        // rows, and the good owners[] data that had already arrived was
+        // discarded rather than used. Always resolve owners[] now — used
+        // directly below when there's no ownership history, and as a
+        // fallback when ownership_history_raw parsed to nothing usable.
+        $owners = $capture['owners'] ?? [];
+
+        // Resolve/create a Contact per owner — deduped on the owner ID (the
+        // join key), same as before, just looped for however many owners
+        // CMA listed. Phone left empty on every owner (phase-2 Virtual Agent
+        // fills it).
         $resolvedOwners = [];
         $blockedCompanies = [];
         foreach ($owners as $o) {
@@ -160,6 +295,32 @@ final class DeedsCaptureController extends Controller
         // (same street address, often the same GPS pin) collapsed into one
         // TrackedProperty. See TrackedPropertyMatchOrCreateService::
         // numbersConflict() for the other half of this fix.
+        // 2026-08-19 (Johan, .ai/specs/deeds-capture.md §6 Part A) — EVERY field
+        // this capture actually read now flows through ONE mechanism: this
+        // $facts array feeds matchOrCreate() → enrich(), which is the ONLY
+        // place precedence is decided and the ONLY place the audit trail
+        // (source_chain[].field_changes, read by the Deeds Capture screen) is
+        // built. Previously deeds_office/scheme_name/bond_holder/bond_amount/
+        // sale_type/deeds_registered_date bypassed enrich() entirely via a
+        // second, separate fill()+save() below with different (unconditional)
+        // overwrite semantics and no audit trail — that split is exactly what
+        // let GPS silently lose to a stale import while these fields silently
+        // won unconditionally. One mechanism, one rule, one audit trail now.
+        //
+        // Extent contract (Johan, 2026-08-19) — THREE distinct values, three
+        // distinct homes, never substituted for one another. A freehold panel
+        // has Extent + Cadastral extent and no Section extent; a sectional
+        // panel has Section extent and no Extent/Cadastral extent. All three
+        // optional and independent — absent is absent, no fallback:
+        //   erf_extent_m2        (freehold "Extent")           -> erf_size_m2
+        //   cadastral_extent_m2  (freehold "Cadastral extent") -> cadastral_extent
+        //   section_extent_m2    (sectional "Section extent")  -> section_extent_m2
+        // section_extent_m2 keeps its payload NAME for backward compatibility
+        // with an extension build that predates this contract — but that value
+        // now correctly lands in ITS OWN column instead of overloading
+        // cadastral_extent (the root cause of a sectional unit's floor area
+        // landing in a promoted Property's erf-size column — see
+        // TrackedPropertyMatchOrCreateService::promoteToStock()).
         $facts = array_filter([
             'street_number'         => $p['street_number'] ?? null,
             'street_name'           => $p['street_name'] ?? null,
@@ -174,10 +335,19 @@ final class DeedsCaptureController extends Controller
             'longitude'             => $p['longitude'] ?? null,
             'erf_number'            => $p['erf_number'] ?? null,
             'title_deed_number'     => $p['title_deed_number'] ?? null,
-            'cadastral_extent'      => isset($p['section_extent_m2']) ? (string) $p['section_extent_m2'] : null,
+            'erf_size_m2'           => isset($p['erf_extent_m2']) ? (string) $p['erf_extent_m2'] : null,
+            'cadastral_extent'      => isset($p['cadastral_extent_m2']) ? (string) $p['cadastral_extent_m2'] : null,
+            'section_extent_m2'     => isset($p['section_extent_m2']) ? (string) $p['section_extent_m2'] : null,
             'property_type'         => $p['property_type'] ?? null,
+            'deeds_office'          => $p['deeds_office'] ?? null,
+            'scheme_name'           => $p['scheme_name'] ?? null,
+            'scheme_number'         => $p['scheme_number'] ?? null,
             'last_known_sold_price' => $s['sale_price'] ?? null,
             'last_known_sold_date'  => $s['sale_date'] ?? null,
+            'bond_holder'           => $s['bond_holder'] ?? null,
+            'bond_amount'           => $s['bond_amount'] ?? null,
+            'sale_type'             => $s['sale_type'] ?? null,
+            'deeds_registered_date' => $s['registered_date'] ?? null,
         ], static fn ($v) => $v !== null && $v !== '');
 
         $tp = $matcher->matchOrCreate(
@@ -189,24 +359,16 @@ final class DeedsCaptureController extends Controller
 
         $created = (bool) $tp->wasRecentlyCreated;
 
-        // Deeds-specific fields (never blank out an existing value with null).
-        $tp->fill(array_filter([
-            'deeds_office'          => $p['deeds_office'] ?? null,
-            'scheme_name'           => $p['scheme_name'] ?? null,
-            'scheme_number'         => $p['scheme_number'] ?? null,
-            'section_number'        => $p['section_number'] ?? null,
-            'title_deed_number'     => $p['title_deed_number'] ?? null,
-            'erf_number'            => $p['erf_number'] ?? null,
-            'cadastral_extent'      => isset($p['section_extent_m2']) ? (string) $p['section_extent_m2'] : null,
-            'property_type'         => $p['property_type'] ?? null,
-            'last_known_sold_price' => $s['sale_price'] ?? null,
-            'last_known_sold_date'  => $s['sale_date'] ?? null,
-            'bond_holder'           => $s['bond_holder'] ?? null,
-            'bond_amount'           => $s['bond_amount'] ?? null,
-            'sale_type'             => $s['sale_type'] ?? null,
-            'deeds_registered_date' => $s['registered_date'] ?? null,
-            'owner_contact_id'      => $ownerContactId,
-        ], static fn ($v) => $v !== null && $v !== ''));
+        // owner_contact_id is a relationship pointer, not a captured physical
+        // fact — it deliberately stays OUTSIDE the facts/enrich()/audit
+        // mechanism above. When ownership_history_raw ran instead (§7 below),
+        // this gets set to the first CURRENT owner's contact, deferred until
+        // after $tp->save() since that path needs $tp->id. For the simple
+        // owners[] path, the write is decided by reconcileOwners() below
+        // (also post-save) — a match on an existing TrackedProperty must
+        // never have its owner_contact_id blindly overwritten by whichever
+        // capture happened to run last (Johan, 2026-08-19: "we cannot dump
+        // the owner if the system says its already in the system").
 
         // Tag as a deeds capture ONLY when the deeds capture created this TP (or a
         // prior deeds capture already tagged it). Enriching an existing prospecting
@@ -215,18 +377,226 @@ final class DeedsCaptureController extends Controller
             $tp->capture_kind = 'deeds_capture';
         }
 
+        // DEEDS BUG 1 fix (2026-08-19) — the deeds-capture EVENT marker, stamped
+        // on EVERY deeds capture (created OR existing), independent of the
+        // capture_kind pipeline classification above. Without this, a capture
+        // landing on a property already classified as a prospecting/P24 lead (or
+        // already deeds-captured previously) enriched the TrackedProperty but the
+        // capture_kind guard above never fired — the capture "vanished": the
+        // extension reported success, but nothing appeared on the Deeds Capture
+        // screen. DeedsCaptureController::index() (CoreX, the screen's own
+        // controller) surfaces on deeds_captured_at IS NOT NULL so a re-capture of
+        // an existing lead now shows there too, flagged as existing/linked,
+        // WITHOUT changing capture_kind and therefore without pulling the lead out
+        // of its MIC Opportunities pipeline.
+        $tp->deeds_captured_at = now();
+
+        // Data-scope build (Johan, 2026-08-20) — "the user who scraped it... that's the
+        // person who will go to deeds and look for their scraped stock." Stamped on every
+        // deeds capture (created or existing), same as deeds_captured_at directly above —
+        // always the MOST RECENT scraper, so a re-capture by a different agent correctly
+        // reassigns "own" to whoever most recently worked this record.
+        $tp->deeds_captured_by_user_id = (int) $user->id;
+
         $tp->save();
 
-        $this->syncOwners($tp, $resolvedOwners);
+        // 2026-08-19 (Johan, ruling after the live trace): "the rule should
+        // be always bring it into corex... there is no authoritative
+        // source. Both are inputs; the agent is the authority." This
+        // REPLACES the old if/else (ownership_history_raw present ->
+        // ignore owners[] entirely) — that mutual exclusivity WAS the
+        // defect: a real capture on 25 Simon V D Stel Street sent both,
+        // owners[] arrived complete and correct, and it was thrown away
+        // because ownership_history_raw was ALSO present and then silently
+        // parsed to zero usable rows. Both sources are now independently
+        // ingested and persisted, always, never gated on the other's
+        // presence or outcome. Neither is ranked or merged in code — see
+        // reconcileOwners() for the never-discard/never-blind-overwrite
+        // comparison that governs how they land side by side.
+        $ownershipParseStatus = null;
+        $ownershipParseNote = null;
+        $ownerContactId = null;
+        $ownerContactIds = [];
+
+        if ($hasOwnershipHistory) {
+            $persistedOwners = $this->captureOwnershipHistory($tp, $ownershipHistoryRaw, $s, $agencyId, $user);
+            $ownershipParseStatus = $tp->ownership_parse_status;
+            $ownershipParseNote = $tp->ownership_parse_note;
+
+            $firstCurrent = collect($persistedOwners)
+                ->first(fn (TrackedPropertyOwner $o) => $o->ownership_status === TrackedPropertyOwner::OWNERSHIP_CURRENT);
+            // Same discard bug, same fix, as reconcileOwners() below — a match
+            // onto a TP that already has a DIFFERENT owner on file must never
+            // have owner_contact_id blindly overwritten. The parsed owner is
+            // still persisted above (captureOwnershipHistory() -> persist()),
+            // never thrown away — just not auto-promoted to the pointer field
+            // when it disagrees with what's already there.
+            if ($firstCurrent && ($tp->owner_contact_id === null || (int) $tp->owner_contact_id === (int) $firstCurrent->contact_id)) {
+                $tp->update(['owner_contact_id' => $firstCurrent->contact_id]);
+            }
+            $ownerContactId = $firstCurrent->contact_id ?? null;
+            $ownerContactIds = collect($persistedOwners)->pluck('contact_id')->filter()->unique()->values()->all();
+
+            // 2026-08-19 (Johan): "do not let it keep saying 'ok' when it
+            // returned nothing." Observed once on a real capture: status
+            // 'ok', zero persisted owner rows — a parse can't honestly claim
+            // success while producing nothing to show. Correct the stored
+            // status/note in that exact case rather than let it stand;
+            // owners[] (below) still lands the real data either way.
+            if ($persistedOwners === [] && $ownershipParseStatus !== 'failed') {
+                $ownershipParseStatus = 'empty';
+                $ownershipParseNote = 'Parsed without error but produced no owner rows to keep — falling back to the simple owner list.';
+                $tp->update([
+                    'ownership_parse_status' => $ownershipParseStatus,
+                    'ownership_parse_note'   => $ownershipParseNote,
+                ]);
+            }
+        }
+
+        // ALWAYS also ingest owners[] — independent of whether
+        // ownership_history_raw was present or what it produced.
+        // reconcileOwners() is the same never-discard, never-blind-overwrite
+        // comparison used everywhere else on this screen: nothing on file
+        // yet -> links normally; matches what's already there -> no-op;
+        // disagrees -> both are kept, flagged for the agent to decide.
+        if ($resolvedOwners !== []) {
+            $this->reconcileOwners($tp, $resolvedOwners);
+            $ownerContactId = $ownerContactId ?? ($tp->fresh()->owner_contact_id ?? $resolvedOwners[0]['contact_id'] ?? null);
+            $ownerContactIds = array_values(array_unique(array_merge(
+                $ownerContactIds,
+                array_filter(array_column($resolvedOwners, 'contact_id'))
+            )));
+        }
+
+        // Trace point kept (2026-08-19, Johan/cc3 review): IDs and counts
+        // only — no names, no ID numbers, no raw payload. Confirms the fix
+        // above actually lands an owner where the old code silently
+        // dropped one.
+        Log::info('Deeds capture owner outcome', [
+            'source_ref'            => $ref,
+            'tracked_property_id'   => $tp->id,
+            'final_owner_contact_id' => $tp->fresh()->owner_contact_id,
+            'owner_rows_on_file'    => \App\Models\Prospecting\TrackedPropertyOwner::where('tracked_property_id', $tp->id)->count(),
+        ]);
 
         return [
-            'source_ref'          => $ref,
-            'tracked_property_id' => $tp->id,
-            'owner_contact_id'    => $ownerContactId,
-            'owner_contact_ids'   => array_values(array_filter(array_column($resolvedOwners, 'contact_id'))),
-            'created'             => $created,
-            'blocked_companies'   => $blockedCompanies,
+            'source_ref'              => $ref,
+            'tracked_property_id'     => $tp->id,
+            'owner_contact_id'        => $ownerContactId,
+            'owner_contact_ids'       => $ownerContactIds,
+            'created'                 => $created,
+            'blocked_companies'       => $blockedCompanies,
+            'ownership_parse_status'  => $ownershipParseStatus, // null unless ownership_history_raw ran
+            'ownership_parse_note'    => $ownershipParseNote,
         ];
+    }
+
+    /**
+     * §7 — parse the raw ownership-history triple and persist it. Always
+     * stamps ownership_parse_status/note on the TrackedProperty, including on
+     * a parse failure (status='failed', empty owner list) — the property
+     * capture above has ALREADY happened by this point and is never rolled
+     * back or blocked by this method. Returns the persisted
+     * TrackedPropertyOwner rows (empty on failure).
+     *
+     * @return TrackedPropertyOwner[]
+     */
+    private function captureOwnershipHistory(TrackedProperty $tp, array $raw, array $sale, int $agencyId, $user): array
+    {
+        $result = app(OwnershipHistoryParser::class)->parse($raw, $sale['sale_date'] ?? null, $sale['registered_date'] ?? null);
+
+        $tp->update([
+            'ownership_parse_status' => $result->status,
+            'ownership_parse_note'   => $result->note,
+        ]);
+
+        if ($result->status === 'failed') {
+            return [];
+        }
+
+        return app(OwnerContactResolver::class)->persist($tp, $result->rows, $agencyId, $user);
+    }
+
+    /**
+     * §7.16 (Johan, 2026-08-19) — a capture landing on a TrackedProperty that
+     * already has an owner on file must never silently discard, merge, or
+     * overwrite what's there. Three outcomes, decided by comparing the
+     * scraped owner(s) against what's already on record (by id_number where
+     * present on both sides, else by name):
+     *
+     *   (a) nothing on file yet          -> link the scraped owner(s) normally (a gain).
+     *   (b) same owner(s) already on file -> no-op; nothing to add, nothing to touch.
+     *   (c) a different owner scraped     -> NEVER overwrite owner_contact_id and
+     *                                        never auto-merge. The scraped owner is
+     *                                        still captured — never thrown away — as a
+     *                                        conflict-flagged TrackedPropertyOwner row
+     *                                        (conflict_flagged_at set) for the agent to
+     *                                        see and resolve on the Deeds Capture screen.
+     *                                        This is deliberately not automated: Johan —
+     *                                        "the agent needs to inspect and see which
+     *                                        which is broken."
+     */
+    private function reconcileOwners(\App\Models\Prospecting\TrackedProperty $tp, array $resolvedOwners): void
+    {
+        if ($resolvedOwners === []) {
+            return; // nothing scraped this time — never touch what's already on file
+        }
+
+        $onFile = \App\Models\Prospecting\TrackedPropertyOwner::where('tracked_property_id', $tp->id)
+            ->whereNull('conflict_flagged_at')
+            ->get(['id', 'name', 'id_number']);
+
+        if ($onFile->isEmpty()) {
+            $this->syncOwners($tp, $resolvedOwners);
+            if (empty($tp->owner_contact_id)) {
+                $tp->owner_contact_id = $resolvedOwners[0]['contact_id'] ?? null;
+                $tp->save();
+            }
+
+            return;
+        }
+
+        $matchesOnFile = static function (array $scraped) use ($onFile): bool {
+            return $onFile->contains(function ($existing) use ($scraped) {
+                if (!empty($scraped['id_number']) && !empty($existing->id_number)) {
+                    return $scraped['id_number'] === $existing->id_number;
+                }
+
+                return !empty($scraped['name']) && !empty($existing->name)
+                    && mb_strtolower(trim($scraped['name'])) === mb_strtolower(trim($existing->name));
+            });
+        };
+
+        foreach ($resolvedOwners as $i => $o) {
+            if ($matchesOnFile($o)) {
+                continue; // (b) same owner already on file — nothing to add, nothing to touch
+            }
+
+            // (c) differs from what's on file — capture it, flagged, never merged.
+            $alreadyFlagged = \App\Models\Prospecting\TrackedPropertyOwner::where('tracked_property_id', $tp->id)
+                ->whereNotNull('conflict_flagged_at')
+                ->where(function ($q) use ($o) {
+                    if (!empty($o['id_number'])) {
+                        $q->where('id_number', $o['id_number']);
+                    } else {
+                        $q->where('name', $o['name']);
+                    }
+                })
+                ->exists();
+            if ($alreadyFlagged) {
+                continue; // this exact conflict is already sitting there awaiting review
+            }
+
+            \App\Models\Prospecting\TrackedPropertyOwner::create([
+                'tracked_property_id' => $tp->id,
+                'contact_id'          => $o['contact_id'],
+                'name'                => $o['name'],
+                'id_number'           => $o['id_number'],
+                'id_type'             => $o['id_type'],
+                'is_primary'          => false,
+                'conflict_flagged_at' => now(),
+            ]);
+        }
     }
 
     /**

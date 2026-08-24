@@ -37,7 +37,18 @@ class SyncReferenceData extends Command
         \Database\Seeders\DemoTncVersionSeeder::class,      // demo T&C v1 — without it EVERY demo prospect is blocked at the clickwrap (AT-230)
         \Database\Seeders\PayrollTaxTableSeeder::class,     // AT-237 C1 — SARS PAYE brackets (GLOBAL, seed-only) — without it PAYE silently R0
         \Database\Seeders\PayrollTaxRebateSeeder::class,    // AT-237 C1 — SARS rebates/thresholds/UIF ceiling/SDL rate (GLOBAL, seed-only)
+        \Database\Seeders\AssistantRoleSeeder::class,       // AT-267 — the zero-grant `assistant` role. users.role is NOT NULL DEFAULT 'agent', so an env WITHOUT this row cannot create an assistant safely: the user would be saved as a full AGENT
         \Database\Seeders\Dr2PipelineCatalogSeeder::class,   // AT-334 — GLOBAL master pipeline template the composable Deal Structure reads from; un-seeded env falls back to the code definition, but seed it so edits land in the DB
+        // 2026-08-24 (cc2/cc5, Johan) — document-template seeders were NEVER in this list at
+        // all, for any of them. Discovered chasing why the Mandatory Disclosure Form and
+        // Addendum B, both built and verified on QA1 weeks ago, never reached live: not a
+        // migration miss, this exact deploy-gap this file exists to close, just never wired
+        // up for docuperfect_templates. Registering only the two with confirmed real content
+        // (each superseded an earlier, never-actually-used attempt sharing all or part of its
+        // name/blade — see the seeder files' own docblocks); the others found in the same
+        // sweep are dead code, not registered on purpose.
+        \Database\Seeders\SalesMandatoryDisclosureEsignSeeder::class, // PPA 22/2019 s70 / Regs 2022 s36 Mandatory Disclosure — the "Sales Mandatory Disclosure" row Johan built + verified on QA1 (docuperfect_templates#71 there)
+        \Database\Seeders\HfcAddendumBEsignSeeder::class,             // "HFC Addendum B" — registered building plans + the 4 Certificates of Compliance, a separate standalone doc from the MDF (docuperfect_templates#72 on QA1)
     ];
 
     /** Idempotent reference-provisioning commands [name, args]. */

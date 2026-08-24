@@ -91,14 +91,20 @@ final class EntryPointController extends Controller
         if ($linked !== null) {
             $contact = $linked;
             $isNew   = false;
+        } elseif ($this->isEntityCapture($request)) {
+            // Manual ENTITY capture (company / CC / trust). The agent picked "Entity" and entered the
+            // registered name (+ optional reg number). A company is reached through its directors, so
+            // there is NO phone/email/SA-ID gate here — reps are added on the entity record afterward.
+            // Reuse the canonical entity dedupe (keys on the registration number, never a 13-digit ID).
+            $contact = $this->resolveEntityContact($request, $agencyId);
+            $isNew   = $contact->wasRecentlyCreated;
         } else {
-            $validated = $request->validate([
+            $validated = $request->validate(array_merge([
                 'first_name' => 'required|string|max:100',
                 'last_name'  => 'nullable|string|max:100',
                 'phone'      => 'nullable|string|max:30',
                 'email'      => 'nullable|email|max:255',
-                'id_number'  => ['nullable', 'string', 'max:20', new \App\Rules\SouthAfricanIdNumber()],
-            ]);
+            ], $this->naturalPersonIdRules($request)));
 
             $idNumber = isset($validated['id_number']) ? preg_replace('/\s+/', '', (string) $validated['id_number']) : null;
 
@@ -121,7 +127,7 @@ final class EntryPointController extends Controller
             $existing = $gate;
             $isNew = $existing === null;
 
-            $branchId = $request->user()->branch_id;
+            $branchId = $this->resolveBranchId($request, $agencyId, $property->branch_id);
             $contact = $existing ?: Contact::create(array_merge(
                 array_filter([
                     'agency_id'             => $agencyId,
@@ -132,7 +138,7 @@ final class EntryPointController extends Controller
                     'id_number'             => $idNumber,
                     'id_number_captured_at' => $idNumber ? now() : null,
                     'id_number_source'      => $idNumber ? 'seller_outreach_entry' : null,
-                ], static fn ($v) => $v !== null && $v !== ''),
+                ] + $this->naturalPersonIdAttributes($validated), static fn ($v) => $v !== null && $v !== ''),
                 [
                     'last_name' => $validated['last_name'] ?? '',
                     'phone'     => $validated['phone'] ?? '',
@@ -328,17 +334,25 @@ final class EntryPointController extends Controller
         if ($linked !== null) {
             $existing = $linked;
             $formEngaged = true;
+        } elseif ($this->isEntityCapture($request)) {
+            // Manual ENTITY capture (company / CC / trust) — the agent picked "Entity" and entered the
+            // registered name (+ optional reg number). No phone/email/SA-ID gate: a company is reached
+            // through its directors (reps added on the entity record afterward). The canonical entity
+            // dedupe keys on the registration number; the resolved entity flows through the shared
+            // `$contact = $existing ?: …` create path in the transaction below.
+            $formEngaged = true;
+            $existing    = $this->resolveEntityContact($request, $agencyId);
+            $isNew       = $existing->wasRecentlyCreated;
         } elseif ($request->filled('first_name')) {
             $formEngaged = true;
-            $validated = $request->validate([
+            $validated = $request->validate(array_merge([
                 'first_name' => 'required|string|max:100',
                 'last_name'  => 'nullable|string|max:100',
                 'phone'      => 'nullable|string|max:30',
                 'email'      => 'nullable|email|max:255',
-                'id_number'  => ['nullable', 'string', 'max:20', new \App\Rules\SouthAfricanIdNumber()],
                 'no_contact_details' => 'nullable|boolean',
                 'dead_end_reason'    => 'nullable|string|in:opted_out,not_in_tva,no_record_found',
-            ]);
+            ], $this->naturalPersonIdRules($request)));
             $idNumber = isset($validated['id_number']) ? preg_replace('/\s+/', '', (string) $validated['id_number']) : null;
 
             // Dead-end tick still means "nothing to enter": needs a name + SA ID (still ID-keyed).
@@ -389,7 +403,7 @@ final class EntryPointController extends Controller
 
         $result = DB::transaction(function () use ($request, $agencyId, $listing, $validated, $existing, $idNumber, $captureAddress, $structuredAddress, $isOptedOut, $isDeadEnd, $deadEndReason, $formEngaged) {
             // Branch context is mandatory on Contact rows in CoreX schema.
-            $branchId = $request->user()->branch_id;
+            $branchId = $this->resolveBranchId($request, $agencyId, $listing->branch_id ?? null);
 
             // The manual form contact is OPTIONAL now — created only when the agent picked/typed one.
             // Deed sellers are already linked (contact_property role=seller) via "+ Link as seller".
@@ -407,7 +421,7 @@ final class EntryPointController extends Controller
                         'id_number'             => $idNumber,
                         'id_number_captured_at' => $idNumber ? now() : null,
                         'id_number_source'      => $idNumber ? 'seller_outreach_entry' : null,
-                    ], static fn ($v) => $v !== null && $v !== ''),
+                    ] + $this->naturalPersonIdAttributes($validated), static fn ($v) => $v !== null && $v !== ''),
                     [
                         'last_name' => $validated['last_name'] ?? '',
                         'phone'     => $validated['phone'] ?? '',
@@ -686,14 +700,21 @@ final class EntryPointController extends Controller
             $idNumber  = null;
             $existing  = $linked;
             $isNew     = false;
+        } elseif ($this->isEntityCapture($request)) {
+            // Manual ENTITY capture (company / CC / trust) — see storeFromProperty. No phone/email/ID
+            // gate; the canonical entity dedupe resolves-or-creates on the registration number. The
+            // resolved entity flows through the existing `$existing ?: Contact::create()` path below.
+            $validated = [];
+            $idNumber  = null;
+            $existing  = $this->resolveEntityContact($request, $agencyId);
+            $isNew     = $existing->wasRecentlyCreated;
         } else {
-            $validated = $request->validate([
+            $validated = $request->validate(array_merge([
                 'first_name' => 'required|string|max:100',
                 'last_name'  => 'nullable|string|max:100',
                 'phone'      => 'nullable|string|max:30',
                 'email'      => 'nullable|email|max:255',
-                'id_number'  => ['nullable', 'string', 'max:20', new \App\Rules\SouthAfricanIdNumber()],
-            ]);
+            ], $this->naturalPersonIdRules($request)));
 
             $idNumber = isset($validated['id_number']) ? preg_replace('/\s+/', '', (string) $validated['id_number']) : null;
 
@@ -721,7 +742,10 @@ final class EntryPointController extends Controller
         }
 
         $contact = DB::transaction(function () use ($request, $agencyId, $trackedProperty, $validated, $existing, $idNumber) {
-            $branchId = $request->user()->branch_id;
+            // tracked_properties carries no branch_id of its own (TP→Property
+            // promotion is deferred to mandate-sign — see this method's own
+            // docblock) — resolveBranchId falls back to the agency's default.
+            $branchId = $this->resolveBranchId($request, $agencyId);
 
             // contacts.last_name + contacts.phone are NOT NULL in the schema —
             // they must reach Contact::create even when empty, so we merge the
@@ -737,7 +761,7 @@ final class EntryPointController extends Controller
                     'id_number'             => $idNumber,
                     'id_number_captured_at' => $idNumber ? now() : null,
                     'id_number_source'      => $idNumber ? 'seller_outreach_entry' : null,
-                ], static fn ($v) => $v !== null && $v !== ''),
+                ] + $this->naturalPersonIdAttributes($validated), static fn ($v) => $v !== null && $v !== ''),
                 [
                     'last_name' => $validated['last_name'] ?? '',
                     'phone'     => $validated['phone'] ?? '',
@@ -797,6 +821,73 @@ final class EntryPointController extends Controller
         abort_if($contact === null, 404, 'Selected contact not found in this agency.');
 
         return $contact;
+    }
+
+    /**
+     * True when the capture form is submitting an ENTITY (company / CC / trust)
+     * rather than a natural person — the agent toggled "Contact Is → Entity" and
+     * entered an entity name. Shared by all three store-from-* entry points so the
+     * manual entity option behaves identically wherever the pitch is started.
+     */
+    private function isEntityCapture(Request $request): bool
+    {
+        return $request->input('contact_kind') === Contact::TYPE_ENTITY
+            && $request->filled('entity_name');
+    }
+
+    /**
+     * Resolve-or-create the ENTITY seller Contact from the manual capture fields,
+     * via the canonical entity dedupe (keys on the registration number, NEVER a
+     * 13-digit SA ID — Johan 2026-08-14). Reps are added on the entity record
+     * afterward, so no phone/email/ID is required here.
+     */
+    private function resolveEntityContact(Request $request, int $agencyId): Contact
+    {
+        $data = $request->validate([
+            'entity_name'   => 'required|string|max:255',
+            'entity_reg_no' => 'nullable|string|max:100',
+        ]);
+
+        return app(\App\Services\Prospecting\ComposeSellerService::class)
+            ->resolveOrCreateEntitySellerContact(
+                $agencyId,
+                $request->user()->branch_id,
+                (int) $request->user()->id,
+                $data['entity_name'],
+                $data['entity_reg_no'] ?? null,
+            );
+    }
+
+    /**
+     * #17 — SA-ID / foreign-passport validation rules for the natural-person capture, shared by the
+     * three store-from-* entry points (same discriminator + rules as the main contact form). A foreign
+     * national's passport is a free string (max 50); their Date of Birth is entered directly since a
+     * passport can't encode it. Absent/other id_type keeps the validated SA-ID path (backward-compatible).
+     */
+    private function naturalPersonIdRules(Request $request): array
+    {
+        $isForeign = $request->input('id_type') === 'passport';
+
+        return [
+            'id_type'   => ['nullable', \Illuminate\Validation\Rule::in(['sa_id', 'passport'])],
+            'id_number' => $isForeign
+                ? ['nullable', 'string', 'max:50']
+                : ['nullable', 'string', 'max:20', new \App\Rules\SouthAfricanIdNumber()],
+            'birthday'  => ['nullable', 'date', 'required_if:id_type,passport'],
+        ];
+    }
+
+    /**
+     * #17 — id_type + birthday to persist on a newly-created natural-person contact. Returned as a
+     * plain array the caller folds into its Contact::create() array_filter (empty values are stripped,
+     * so a blank DOB / absent id_type is simply not written — backward-compatible).
+     */
+    private function naturalPersonIdAttributes(array $validated): array
+    {
+        return [
+            'id_type'  => $validated['id_type'] ?? null,
+            'birthday' => $validated['birthday'] ?? null,
+        ];
     }
 
     /**
@@ -1044,13 +1135,20 @@ final class EntryPointController extends Controller
             ]);
         }
 
-        // properties.beds/baths/garages/price/suburb/property_type/status are
-        // NOT NULL — fall back to the schema defaults (0 / empty / 'house' /
-        // 'draft') when the prospecting row doesn't carry the value.
+        // properties.beds/baths/garages/price/suburb/property_type are NOT
+        // NULL — fall back to the schema defaults (0 / empty / 'house') when
+        // the prospecting row doesn't carry the value. 'status' is explicit,
+        // not defaulted (2026-08-21, Johan, .ai/specs/2026-08-20-property-
+        // status-prospecting.md): this path promotes a MIC ProspectingListing
+        // straight to Property, bypassing TrackedProperty entirely -- it is
+        // unambiguously MIC ingest, so it always lands as Prospecting, never
+        // the schema's 'draft' default (that default is for the agent-create
+        // wizard, not this path).
         return Property::create(array_merge([
             'agency_id'     => $agencyId,
             'branch_id'     => $propertyBranchId,
             'agent_id'      => $propertyAgentId,
+            'status'        => Property::STATUS_PROSPECTING,
             'external_id'   => 'prospecting:' . $listing->id,
             'title'         => $address !== '' ? $address : 'Prospecting listing ' . $listing->id,
             'address'       => $address !== '' ? $address : null,
@@ -1065,7 +1163,6 @@ final class EntryPointController extends Controller
             'property_type' => $listing->property_type ?? 'house',
             // No listing_type on prospecting_listings — default to 'sale'.
             'listing_type'  => 'sale',
-            'status'        => 'draft',
         ], $extra));
     }
 
@@ -1392,6 +1489,14 @@ final class EntryPointController extends Controller
         // agent's deliberate re-add sticks against the deed auto-link (R2).
         $svc->linkSellerToProperty((int) $contact->id, $propertyId, 'manual');
         $svc->clearRemoval((int) $listing->id, $contact->id_number ? (string) $contact->id_number : null);
+        // 2026-08-18's dismissMatchingTvaCapture() call used to live here — it silently
+        // marked every pending TVA number "reviewed" the moment a seller was linked this
+        // way, even though the agent never saw the picker. Removed 2026-08-22 (Johan: "an
+        // agent who never saw a number must never have that number marked as declined on
+        // their behalf") after it soft-dismissed 249 real scraped numbers. The Deeds
+        // Capture screen's "this capture looked stuck forever" problem that call existed
+        // to fix is now solved honestly at render time — see DeedsCaptureController::
+        // index()'s $sellerLinkedIdNumbers — instead of by mutating data here.
 
         $listing = DB::table('prospecting_listings')->where('id', $prospectingListingId)->first();
 
@@ -1562,6 +1667,54 @@ final class EntryPointController extends Controller
             : ($user->agency_id ?? null);
         abort_if($id === null, 403, 'No agency context — super_admin without an active agency cannot compose pitches.');
         return (int) $id;
+    }
+
+    /**
+     * contacts.branch_id is NOT NULL with no default — a plain
+     * $request->user()->branch_id crashes with SQL 1364 the moment the
+     * acting user has none of their own (an all-branches admin/super_admin,
+     * exactly the population that legitimately has no single branch_id —
+     * see CalendarEvent::scopeVisibleTo's branches.view_all carve-out for
+     * the same population elsewhere in the app).
+     *
+     * Resolution order:
+     *   1. effectiveBranchId() — the acting user's own branch, honouring a
+     *      "View as Branch" session override (unlike the raw column).
+     *   2. $contextBranchId (the property/listing this contact is being
+     *      captured for) — but ONLY if it actually belongs to $agencyId.
+     *      Trusting it blindly is a tenant-isolation risk: this DB has
+     *      properties whose branch_id points at a DIFFERENT agency's
+     *      branch (stale data predating branch enforcement), and stamping
+     *      that onto a new contact would silently leak a cross-agency
+     *      branch reference.
+     *   3. The agency's own default_branch_id, if set.
+     *   4. The agency's first branch, if it has any at all.
+     * Null only if the agency genuinely has zero branches of its own.
+     */
+    private function resolveBranchId(Request $request, int $agencyId, ?int $contextBranchId = null): ?int
+    {
+        $branchId = $request->user()->effectiveBranchId();
+        if ($branchId) {
+            return $branchId;
+        }
+
+        if ($contextBranchId && DB::table('branches')->where('id', $contextBranchId)->where('agency_id', $agencyId)->exists()) {
+            return $contextBranchId;
+        }
+
+        $fallback = DB::table('agencies')->where('id', $agencyId)->value('default_branch_id')
+            ?? DB::table('branches')->where('agency_id', $agencyId)->orderBy('id')->value('id');
+
+        if ($fallback) {
+            return $fallback;
+        }
+
+        // AT-378 guarantees every agency a first branch on creation, so this is
+        // unreachable for any agency created after that landed — reachable
+        // only for a pre-AT-378 legacy agency. Raise a clear domain error
+        // instead of letting the NOT NULL constraint surface as a raw SQL
+        // 1364 500 (the exact failure this method exists to prevent).
+        throw new \App\Exceptions\MissingAgencyBranchException($agencyId, 'this contact');
     }
 
     /**

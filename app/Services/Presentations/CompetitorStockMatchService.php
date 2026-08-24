@@ -9,6 +9,7 @@ use App\Models\ListingStock;
 use App\Models\Property;
 use App\Services\Prospecting\ListingImageValidator;
 use App\Services\TitleTypeClassifier;
+use App\Support\Presentations\SubjectFieldCompleteness;
 use App\Support\Presentations\SuburbMatcher;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -42,6 +43,29 @@ use Illuminate\Support\Facades\Storage;
 final class CompetitorStockMatchService
 {
     /**
+     * 2026-08-20 — isSet()/missingSoftInputs() now live on the shared
+     * SubjectFieldCompleteness helper (App\Support\Presentations), so
+     * CmaCoverageService's "Strong/Moderate/Thin data" badge and this
+     * class's own comparable-stock cascade + pre-generate warning can
+     * never disagree again — literally the same function, not a
+     * separately-maintained matching rule. See that class's own docblock
+     * for the incident this fixes. Thin wrappers kept here so existing
+     * callers of $this->isSet()/$this->missingSoftInputs() are unchanged.
+     */
+    private function isSet(int|string|float|null $value): bool
+    {
+        return SubjectFieldCompleteness::isSet($value);
+    }
+
+    /**
+     * @return string[] subset of ['bedrooms', 'bathrooms', 'price']
+     */
+    public function missingSoftInputs(Property $subject): array
+    {
+        return SubjectFieldCompleteness::missingSoftInputs($subject);
+    }
+
+    /**
      * Find competitor listings for a subject property.
      *
      * @return Collection<int, array{
@@ -72,14 +96,17 @@ final class CompetitorStockMatchService
     {
         $criteria = $this->buildCriteria($subject);
         if ($criteria === null) {
-            // Subject can't be processed (missing agency_id/price/suburb,
-            // or title_type can't be classified — e.g. commercial subject).
+            // Subject can't be processed — the only remaining hard
+            // requirements are agency_id, suburb, and a resolvable
+            // property-type family (see resolveCriteria()). beds/price
+            // absence no longer lands here; they're watered down instead.
             return collect();
         }
 
         $agency      = Agency::find($subject->agency_id);
         $threshold   = $overrideMinScore ?? (int) ($agency?->competitor_stock_min_score ?? 50);
         $minSameType = (int) ($agency?->competitor_stock_min_same_type ?? 5);
+        $displayCap  = (int) ($agency?->competitor_stock_default_display_count ?? 10);
 
         $candidates = $this->loadCandidates($criteria);
         if ($candidates->isEmpty()) {
@@ -88,7 +115,7 @@ final class CompetitorStockMatchService
 
         $hfcStockMap = $this->loadHfcStockMap((int) $subject->agency_id);
 
-        return $candidates->map(function (object $listing) use ($hfcStockMap, $criteria) {
+        $scored = $candidates->map(function (object $listing) use ($hfcStockMap, $criteria) {
             // PHP belt-and-braces: drop any candidate whose property_type
             // classifies outside the subject's Level-1 family. Catches
             // rows the SQL family-whereIn missed (new portal strings, mis-
@@ -99,8 +126,33 @@ final class CompetitorStockMatchService
             }
             return $this->scoreAndMapRow($listing, $hfcStockMap, $criteria);
         })
-        ->filter(fn (?array $row) => $row !== null && $row['score'] >= $threshold)
-        ->values()
+        ->filter(fn (?array $row) => $row !== null)
+        ->values();
+
+        if ($scored->isEmpty()) {
+            return collect();
+        }
+
+        $aboveThreshold = $scored->filter(fn (array $row) => $row['score'] >= $threshold)->values();
+
+        // No silent fail (Johan, 2026-08-20): a threshold that zeroes an
+        // otherwise-real pool must not read as "nothing exists" — it
+        // means "nothing here is a STRONG match". Fall back to the
+        // best-ranked candidates, capped at the normal display count,
+        // explicitly marked low-confidence so the UI can distinguish them
+        // from a genuine vetted match rather than silently passing them
+        // off as one.
+        if ($aboveThreshold->isEmpty()) {
+            return $scored->sortByDesc('score')
+                ->take($displayCap > 0 ? $displayCap : 10)
+                ->map(function (array $row) {
+                    $row['low_confidence'] = true;
+                    return $row;
+                })
+                ->values();
+        }
+
+        return $aboveThreshold
         ->pipe(function (Collection $rows) use ($minSameType) {
             // STEP-UP fallback. When exact-kind matches are plentiful
             // (>= floor), restrict to them — keeps the section focused.
@@ -161,9 +213,21 @@ final class CompetitorStockMatchService
      * lacks the minimum to compare (no agency / price / suburb / resolvable
      * residential family) — the caller emits an empty set, never a mismatch.
      */
+    /**
+     * Progressive relaxation (Johan, 2026-08-20 — "if beds, baths etc
+     * present we use it. if not we use price, if not we use property
+     * type, that should be the minimum"). The ONLY hard requirements now
+     * are agency_id, suburb, and a resolvable property-type family — the
+     * absolute floor a comparable-stock match needs to mean anything.
+     * beds and price are SOFT: present → tighten the pool with their
+     * tolerance/band; absent → the corresponding filter is skipped
+     * entirely in loadCandidates() (never treated as "filter on zero").
+     * A property with only type + suburb + agency set now still returns
+     * a criteria object, never null.
+     */
     private function resolveCriteria(Property $subject): ?ComparableStockCriteria
     {
-        if (!$subject->agency_id || !$subject->price || !$subject->suburb) {
+        if (!$subject->agency_id || !$subject->suburb) {
             return null;
         }
 
@@ -178,16 +242,15 @@ final class CompetitorStockMatchService
         $minScore     = (int) ($agency?->competitor_stock_min_score                   ?? 50);
         $displayCount = (int) ($agency?->competitor_stock_default_display_count        ?? 10);
 
-        $price    = (int) $subject->price;
-        $priceMin = (int) round($price * (1 - $pricePct / 100));
-        $priceMax = (int) round($price * (1 + $pricePct / 100));
+        $priceSet = $this->isSet((int) ($subject->price ?? 0));
+        $price    = $priceSet ? (int) $subject->price : null;
+        $priceMin = $priceSet ? (int) round($price * (1 - $pricePct / 100)) : null;
+        $priceMax = $priceSet ? (int) round($price * (1 + $pricePct / 100)) : null;
 
-        $bedsMin = null;
-        $bedsMax = null;
-        if ($subject->beds !== null) {
-            $bedsMin = max(0, (int) $subject->beds - $bedsTol);
-            $bedsMax = (int) $subject->beds + $bedsTol;
-        }
+        $bedsSet = $this->isSet($subject->beds);
+        $beds    = $bedsSet ? (int) $subject->beds : null;
+        $bedsMin = $bedsSet ? max(0, $beds - $bedsTol) : null;
+        $bedsMax = $bedsSet ? $beds + $bedsTol : null;
 
         return new ComparableStockCriteria(
             agencyId:     (int) $subject->agency_id,
@@ -198,7 +261,7 @@ final class CompetitorStockMatchService
             subjectKind:  $this->normalizeTypeKind($subject->property_type),
             family:       $family,
             familyTypes:  $this->familyPropertyTypeStrings($subject, $family),
-            beds:         $subject->beds !== null ? (int) $subject->beds : null,
+            beds:         $beds,
             bedsMin:      $bedsMin,
             bedsMax:      $bedsMax,
             price:        $price,
@@ -251,7 +314,8 @@ final class CompetitorStockMatchService
                     $q->orWhereNull('listing_type');
                 }
             })
-            ->whereBetween('price', [$criteria->priceMin, $criteria->priceMax])
+            // Price band — NULL-permissive, skipped when the subject has no price.
+            ->when($criteria->priceMin !== null, fn ($q) => $q->whereBetween('price', [$criteria->priceMin, $criteria->priceMax]))
             ->whereRaw("LOWER(COALESCE(suburb, '')) LIKE ?", [$coreLike])
             // Residential subjects never match non-residential stock.
             ->whereNotIn(DB::raw("LOWER(COALESCE(property_type, ''))"), ['commercial', 'industrial'])
@@ -623,18 +687,22 @@ final class CompetitorStockMatchService
         }
 
         // Beds — span = beds tolerance + 1 (so the ±tol filter window grades > 0).
-        if ($subject->beds !== null && ($comp->beds ?? null) !== null && ($weights['beds'] ?? 0) > 0) {
+        // isSet(), not !== null — the subject's 0 means "never entered" (see
+        // isSet() docblock), never a real 0-bed comparison. Progressive
+        // relaxation, Johan 2026-08-20: a 0-bed subject must not tank every
+        // real comp's score — the axis is skipped, not scored as a mismatch.
+        if ($this->isSet($subject->beds) && ($comp->beds ?? null) !== null && ($weights['beds'] ?? 0) > 0) {
             $span = max(1, (int) ($criteria['beds_tol'] ?? 1) + 1);
             $axes['beds'] = [$weights['beds'], $this->closeness((float) $subject->beds, (float) $comp->beds, (float) $span)];
         }
 
-        // Baths
-        if ($subject->baths !== null && ($comp->bathrooms ?? null) !== null && ($weights['baths'] ?? 0) > 0) {
+        // Baths — same isSet() treatment as beds.
+        if ($this->isSet($subject->baths) && ($comp->bathrooms ?? null) !== null && ($weights['baths'] ?? 0) > 0) {
             $axes['baths'] = [$weights['baths'], $this->closeness((float) $subject->baths, (float) $comp->bathrooms, 2.0)];
         }
 
-        // Garages
-        if ($subject->garages !== null && ($comp->garages ?? null) !== null && ($weights['garages'] ?? 0) > 0) {
+        // Garages — same isSet() treatment as beds.
+        if ($this->isSet($subject->garages) && ($comp->garages ?? null) !== null && ($weights['garages'] ?? 0) > 0) {
             $axes['garages'] = [$weights['garages'], $this->closeness((float) $subject->garages, (float) $comp->garages, 2.0)];
         }
 
@@ -875,9 +943,15 @@ final class CompetitorStockMatchService
         $query = DB::table('prospecting_listings')
             ->where('agency_id', $criteria['agency_id'])
             ->where('is_active', 1)
-            ->whereNull('deleted_at')
-            ->whereBetween('price', [$criteria['price_min'], $criteria['price_max']])
-            ->whereRaw('LOWER(suburb) LIKE ?', [$coreLike]);
+            ->whereNull('deleted_at');
+
+        // Price band — NULL-permissive, skipped when the subject has no price
+        // (progressive relaxation, Johan 2026-08-20 — same shape as beds below).
+        if (isset($criteria['price_min']) && $criteria['price_min'] !== null) {
+            $query->whereBetween('price', [$criteria['price_min'], $criteria['price_max']]);
+        }
+
+        $query->whereRaw('LOWER(suburb) LIKE ?', [$coreLike]);
 
         // LEVEL 1 — SQL HARD GATE. family_types is computed dynamically
         // from the live distinct values; subjects ALWAYS get at least

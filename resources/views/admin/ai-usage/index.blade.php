@@ -4,21 +4,21 @@
 @section('corex-content')
 <div class="w-full space-y-5">
 
-    {{-- Page header (branded) --}}
-    <div class="rounded-md px-6 py-5" style="background:var(--brand-default,#0b2a4a);">
+    {{-- Page header --}}
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">AI Usage &amp; Cost</h1>
-                <p class="text-sm text-white/60">Anthropic spend, tokens, cache health and per-agency budgets — {{ $monthLabel }}. Click an agency to see where and who the spend comes from.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">AI Usage &amp; Cost</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Anthropic spend, tokens, cache health and per-agency budgets — {{ $monthLabel }}. Click an agency to see where and who the spend comes from.</p>
             </div>
-            <form method="GET" class="flex items-end gap-2">
-                <div>
-                    <label class="block text-xs font-medium mb-1 text-white/60">Month</label>
-                    <input type="month" name="month" value="{{ $month }}" class="rounded-md px-3 py-2 text-sm"
-                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                </div>
-                <button type="submit" class="corex-btn-primary text-sm">View</button>
-            </form>
+            <div class="flex flex-wrap items-center gap-2">
+                <form method="GET" class="flex items-center gap-2">
+                    <label class="text-xs font-medium" style="color: var(--text-muted);">Month</label>
+                    <input type="month" name="month" value="{{ $month }}" class="rounded-md px-3 py-1.5 text-xs"
+                           style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                    <button type="submit" class="corex-btn-primary text-xs">View</button>
+                </form>
+            </div>
         </div>
     </div>
 
@@ -74,7 +74,7 @@
                         <div class="flex items-center gap-3 text-xs">
                             <span class="w-24 font-mono" style="color:var(--text-secondary);">{{ $d['day'] }}</span>
                             <div class="flex-1 ds-progress-track">
-                                <div class="ds-progress-bar ds-bar-navy" style="width: {{ max(2, ($d['cost_zar'] / $maxDaily) * 100) }}%;"></div>
+                                <div class="ds-progress-bar" style="width: {{ max(2, ($d['cost_zar'] / $maxDaily) * 100) }}%; background: var(--brand-icon);"></div>
                             </div>
                             <span class="w-24 text-right font-mono" style="color:var(--text-primary);">R {{ number_format($d['cost_zar'], 2) }}</span>
                             <span class="w-16 text-right" style="color:var(--text-secondary);">{{ number_format($d['generations']) }} calls</span>
@@ -104,7 +104,7 @@
                                     <span class="font-mono" style="color:var(--text-secondary);">R {{ number_format($cost, 2) }}</span>
                                 </div>
                                 <div class="ds-progress-track">
-                                    <div class="ds-progress-bar ds-bar-navy" style="width: {{ ($cost / $maxBySource) * 100 }}%;"></div>
+                                    <div class="ds-progress-bar" style="width: {{ ($cost / $maxBySource) * 100 }}%; background: var(--brand-icon);"></div>
                                 </div>
                             </div>
                         @endforeach

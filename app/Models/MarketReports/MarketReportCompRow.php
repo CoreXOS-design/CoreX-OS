@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models\MarketReports;
 
+use App\Models\Concerns\BelongsToAgency;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -14,10 +15,18 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * warehouse) — this table holds the full row context.
  *
  * Spec: Phase 3a build prompt §1.2.
+ *
+ * SECURITY — agency_id is NOT NULL and this table is NOT part of the
+ * market_data_points shared-pool exception (mic-complete-spec §13.1/§13.2
+ * scopes that exception explicitly and only to market_data_points). Uses
+ * BelongsToAgency so any future Eloquent query is scoped by default;
+ * existing raw DB::table('market_report_comp_rows') callers (MicSnapshotHydrator,
+ * MarketCompRowsSoldAdapter, MarketCompRowsActiveAdapter, CmaCoverageService)
+ * bypass this global scope and MUST filter agency_id explicitly themselves.
  */
 class MarketReportCompRow extends Model
 {
-    use SoftDeletes;
+    use BelongsToAgency, SoftDeletes;
 
     protected $table = 'market_report_comp_rows';
 

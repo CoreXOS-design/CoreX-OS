@@ -54,8 +54,13 @@ class P24ListingsCsvParser
                 $errors[] = "Unknown PropertyTypeId: {$raw['PropertyTypeId']}";
             }
 
-            $erfSize = is_numeric($raw['ErfSize'] ?? null) ? (float)$raw['ErfSize'] : null;
-            $floorArea = is_numeric($raw['FloorArea'] ?? null) ? (float)$raw['FloorArea'] : null;
+            // Areas are stored in m². P24 can express them in ha/acres, so
+            // normalise against the unit column — otherwise a "2 ha" erf lands as
+            // "2 m²". Keep the raw unit so the stored m² is auditable.
+            $erfAreaUnit   = trim((string)($raw['ErfAreaUnit'] ?? '')) ?: null;
+            $floorAreaUnit = trim((string)($raw['FloorAreaAreaUnit'] ?? '')) ?: null;
+            $erfSize   = $this->normaliseAreaToM2($raw['ErfSize'] ?? null, $erfAreaUnit);
+            $floorArea = $this->normaliseAreaToM2($raw['FloorArea'] ?? null, $floorAreaUnit);
 
             $isRental = strcasecmp($listingType, 'Rental') === 0;
 
@@ -83,6 +88,11 @@ class P24ListingsCsvParser
                 'auction_description' => trim((string)($raw['AuctionDescription'] ?? '')) ?: null,
                 'age'               => is_numeric($raw['Age'] ?? null) ? (int)$raw['Age'] : null,
                 'listing_visibility' => trim((string)($raw['ListingVisibility'] ?? '')) ?: null,
+                // Raw P24 SuburbId — always preserved here. The FK-constrained
+                // properties.p24_suburb_id is only set when that suburb exists in
+                // our p24_suburbs reference (see ConfirmP24PropertyRowJob), so a
+                // suburb we haven't seeded never loses its source id.
+                'p24_source_suburb_id' => is_numeric($raw['SuburbId'] ?? null) ? (int)$raw['SuburbId'] : null,
             ], fn ($v) => $v !== null && $v !== false && $v !== '');
             // Re-stamp the boolean features so explicit `false` is kept (array_filter drops them).
             $features = array_merge([
@@ -103,6 +113,10 @@ class P24ListingsCsvParser
                 'domestic_bathrooms' => is_numeric($raw['DomesticBathrooms'] ?? null) ? (int)$raw['DomesticBathrooms'] : null,
                 'outside_toilets'  => is_numeric($raw['OutsideToilets'] ?? null) ? (int)$raw['OutsideToilets'] : null,
                 'parking_bay_number' => trim((string)($raw['ParkingBayNumber'] ?? '')) ?: null,
+                'reception_rooms_description' => trim((string)($raw['ReceptionRoomsDescription'] ?? '')) ?: null,
+                'studies_description'         => trim((string)($raw['StudiesDescription'] ?? '')) ?: null,
+                'kitchens_description'        => trim((string)($raw['KitchensDescription'] ?? '')) ?: null,
+                'domestic_rooms_description'  => trim((string)($raw['DomesticRoomsDescription'] ?? '')) ?: null,
             ], fn ($v) => $v !== null && $v !== '');
 
             $mapped = [
@@ -124,11 +138,18 @@ class P24ListingsCsvParser
                 'baths'                => is_numeric($raw['Bathrooms'] ?? null) ? (float)$raw['Bathrooms'] : null,
                 'garages'              => is_numeric($raw['Garages'] ?? null) ? (int)$raw['Garages'] : null,
                 'erf_size_m2'          => $erfSize,
+                'erf_area_unit'        => $erfAreaUnit,
                 'size_m2'              => $floorArea,
+                'floor_area_unit'      => $floorAreaUnit,
                 'property_type'        => $typeResolution['type'],
                 'category'             => $typeResolution['category'] ?? null,
-                'occupation_date'      => $raw['OccupationDate'] ?? null,
-                'expiry_date'          => $raw['ExpiryDate'] ?? null,
+                'p24_suburb_id'        => is_numeric($raw['SuburbId'] ?? null) ? (int)$raw['SuburbId'] : null,
+                'lightstone_id'        => trim((string)($raw['LightstoneId'] ?? '')) ?: null,
+                'development_id'       => trim((string)($raw['DevelopmentId'] ?? '')) ?: null,
+                'eyespy_360_id'        => trim((string)($raw['EyeSpy360Id'] ?? '')) ?: null,
+                // Blank dates must be NULL, not '' — MySQL rejects '' for a DATE column.
+                'occupation_date'      => trim((string)($raw['OccupationDate'] ?? '')) ?: null,
+                'expiry_date'          => trim((string)($raw['ExpiryDate'] ?? '')) ?: null,
                 'levy'                 => is_numeric($raw['MonthlyLevy'] ?? null) ? (float)$raw['MonthlyLevy'] : null,
                 'special_levy'         => is_numeric($raw['ComplexSpecialLevy'] ?? null) ? (float)$raw['ComplexSpecialLevy'] : null,
                 'rates_taxes'          => is_numeric($raw['MunicipalRatesAndTaxes'] ?? null) ? (float)$raw['MunicipalRatesAndTaxes'] : null,
@@ -156,6 +177,26 @@ class P24ListingsCsvParser
         }
         fclose($handle);
         return $rows;
+    }
+
+    /**
+     * Normalise a P24 area value to m². P24 usually gives m², but erf/floor areas
+     * can come as hectares or acres; storing the raw number in an "_m2" column
+     * would silently under-report a farm's erf by 10,000×. Unknown/blank units are
+     * treated as m² (the P24 default). The raw unit is kept separately for audit.
+     */
+    private function normaliseAreaToM2($value, ?string $unit): ?float
+    {
+        if (!is_numeric($value)) return null;
+        $v = (float) $value;
+        $u = strtolower(trim((string) $unit));
+        $factor = match (true) {
+            str_contains($u, 'hectare') || $u === 'ha'                 => 10000.0,
+            str_contains($u, 'acre')                                   => 4046.8564224,
+            str_contains($u, 'km') || str_contains($u, 'kilomet')      => 1_000_000.0,
+            default                                                    => 1.0, // m² / sqm / blank
+        };
+        return round($v * $factor, 2);
     }
 
     private function boolish($v): bool

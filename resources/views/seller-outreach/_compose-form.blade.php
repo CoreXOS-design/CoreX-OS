@@ -101,14 +101,14 @@
     <div data-tour="oc-channel" class="inline-flex rounded-md overflow-hidden" style="border: 1px solid var(--border);">
         <button type="button" @click="switchChannel('whatsapp')"
                 class="px-4 py-2 text-sm font-semibold"
-                style="background: {{ $channel === 'whatsapp' ? 'var(--brand-button, #0ea5e9)' : 'var(--surface)' }};
-                       color: {{ $channel === 'whatsapp' ? '#ffffff' : 'var(--text-secondary)' }};">
+                style="background: {{ $channel === 'whatsapp' ? 'var(--brand-icon, #0ea5e9)' : 'var(--surface)' }};
+                       color: {{ $channel === 'whatsapp' ? '#ffffff' : 'var(--text-muted)' }};">
             WhatsApp
         </button>
         <button type="button" @click="switchChannel('email')"
                 class="px-4 py-2 text-sm font-semibold"
-                style="background: {{ $channel === 'email' ? 'var(--brand-button, #0ea5e9)' : 'var(--surface)' }};
-                       color: {{ $channel === 'email' ? '#ffffff' : 'var(--text-secondary)' }};">
+                style="background: {{ $channel === 'email' ? 'var(--brand-icon, #0ea5e9)' : 'var(--surface)' }};
+                       color: {{ $channel === 'email' ? '#ffffff' : 'var(--text-muted)' }};">
             Email
         </button>
     </div>
@@ -246,8 +246,7 @@
          gated by the send-window. The send-now button above is window-disabled. --}}
     <div class="pt-3 mt-3" data-tour="oc-queue" style="border-top: 1px solid var(--border);">
         <button type="button" @click="addToQueue()" :disabled="queuing"
-                class="px-5 py-2 text-sm font-semibold rounded-md"
-                style="background: var(--surface); border: 1px solid var(--brand-button, #0ea5e9); color: var(--text-primary);">
+                class="corex-btn-outline text-sm">
             <span x-show="!queuing">Add to queue</span>
             <span x-show="queuing" x-cloak>Adding…</span>
         </button>

@@ -5,14 +5,14 @@
 <div class="w-full space-y-5">
 
     {{-- Page header (Pattern A — branded) --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Payroll Runs</h1>
-                <p class="text-sm text-white/60">Create, review and finalise monthly payroll runs and payslips.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Payroll Runs</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Create, review and finalise monthly payroll runs and payslips.</p>
             </div>
-            <div class="flex items-center gap-2 flex-wrap">
-                <a href="{{ route('payroll.runs.create') }}" class="corex-btn-primary text-sm inline-flex items-center gap-2">
+            <div class="flex flex-wrap items-center gap-2">
+                <a href="{{ route('payroll.runs.create') }}" class="corex-btn-primary text-xs inline-flex items-center gap-2">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
                     New Run
                 </a>
@@ -44,10 +44,14 @@
     @endphp
     <div class="grid grid-cols-2 md:grid-cols-4 gap-3 xl:gap-4">
         @foreach($tileMeta as $key => $meta)
-        @php $isActive = $status === $key; @endphp
+        @php
+            $isActive = $status === $key;
+            $tileBg     = $isActive ? 'color-mix(in srgb, ' . $meta['fg'] . ' 10%, var(--surface))' : 'var(--surface)';
+            $tileBorder = $isActive ? 'color-mix(in srgb, ' . $meta['fg'] . ' 40%, transparent)' : 'var(--border)';
+        @endphp
         <a href="{{ route('payroll.runs.index', ['status' => $key]) }}"
            class="rounded-md px-4 py-3 flex items-center gap-3 transition-all duration-300 no-underline cursor-pointer hover:opacity-80"
-           style="background: var(--surface); border: {{ $isActive ? '2px' : '1px' }} solid {{ $isActive ? $meta['fg'] : 'var(--border)' }};">
+           style="background: {{ $tileBg }}; border: 1px solid {{ $tileBorder }};">
             <span class="inline-flex items-center justify-center w-10 h-10 rounded-md flex-shrink-0" style="background: {{ $meta['bg'] }}; color: {{ $meta['fg'] }};">
                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 17.25v1.007a3 3 0 0 1-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0 1 15 18.257V17.25m6-12V15a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 15V5.25m18 0A2.25 2.25 0 0 0 18.75 3H5.25A2.25 2.25 0 0 0 3 5.25m18 0V12a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 12V5.25"/></svg>
             </span>

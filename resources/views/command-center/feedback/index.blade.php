@@ -26,20 +26,20 @@
 <div class="w-full space-y-5" x-data="feedbackReportsList(@js($pageIds), @js($statusUpdateTpl))">
 
     {{-- Page header --}}
-    <div class="rounded-md px-6 py-5" style="background:var(--brand-default,#0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div data-tour="feedback-intro">
-                <h1 class="text-xl font-bold text-white leading-tight">Feedback Reports</h1>
-                <p class="text-sm text-white/60">Bug reports, enhancement requests and feedback submitted by your team.</p>
+                <h1 class="text-base font-bold leading-tight" style="color:var(--text-primary);">Feedback Reports</h1>
+                <p class="text-xs" style="color:var(--text-muted);">Bug reports, enhancement requests and feedback submitted by your team.</p>
             </div>
-            <div class="flex items-center gap-2 flex-wrap" data-tour="feedback-export">
-                @include('layouts.partials.tour-header-launcher')
+            <div class="flex flex-wrap items-center gap-2" data-tour="feedback-export">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
                 <a href="{{ route('command-center.feedback-reports.export', ['format' => 'markdown'] + request()->only(['status', 'q'])) }}"
-                   class="corex-btn-outline corex-btn-on-brand corex-btn-xs">Export MD</a>
+                   class="corex-btn-outline text-xs">Export MD</a>
                 <a href="{{ route('command-center.feedback-reports.export', ['format' => 'json'] + request()->only(['status', 'q'])) }}"
-                   class="corex-btn-outline corex-btn-on-brand corex-btn-xs">Export JSON</a>
+                   class="corex-btn-outline text-xs">Export JSON</a>
                 <a href="{{ route('command-center.feedback-reports.export', ['format' => 'csv'] + request()->only(['status', 'q'])) }}"
-                   class="corex-btn-outline corex-btn-on-brand corex-btn-xs">Export CSV</a>
+                   class="corex-btn-outline text-xs">Export CSV</a>
             </div>
         </div>
     </div>
@@ -64,13 +64,13 @@
             <div class="flex flex-wrap items-center gap-2 lg:ml-auto">
                 <a href="{{ route('command-center.feedback-reports', array_filter(['q' => $activeSearch])) }}"
                    class="text-xs font-semibold px-3 py-1.5 rounded-md no-underline transition-all duration-300"
-                   style="{{ !$activeStatus ? 'background:var(--brand-button,#0ea5e9);color:#fff;' : 'background:var(--surface-2);color:var(--text-muted);border:1px solid var(--border);' }}">
+                   style="{{ !$activeStatus ? 'background:var(--brand-icon,#0ea5e9);color:#fff;' : 'background:var(--surface-2);color:var(--text-muted);border:1px solid var(--border);' }}">
                     All
                 </a>
                 @foreach(['new','reviewing','in_progress','fixed','wont_fix'] as $s)
                     <a href="{{ route('command-center.feedback-reports', array_filter(['status' => $s, 'q' => $activeSearch])) }}"
                        class="text-xs font-semibold px-3 py-1.5 rounded-md no-underline transition-all duration-300"
-                       style="{{ $activeStatus === $s ? 'background:var(--brand-button,#0ea5e9);color:#fff;' : 'background:var(--surface-2);color:var(--text-muted);border:1px solid var(--border);' }}">
+                       style="{{ $activeStatus === $s ? 'background:var(--brand-icon,#0ea5e9);color:#fff;' : 'background:var(--surface-2);color:var(--text-muted);border:1px solid var(--border);' }}">
                         {{ ucfirst(str_replace('_', ' ', $s)) }}
                     </a>
                 @endforeach
@@ -127,7 +127,7 @@
                         <th class="px-4 py-2.5 w-10">
                             <input type="checkbox" aria-label="Select all reports on this page"
                                    @change="$event.target.checked ? selectAll() : clearAll()" :checked="allChecked"
-                                   class="w-4 h-4 align-middle" style="accent-color:var(--brand-button,#0ea5e9);cursor:pointer;">
+                                   class="w-4 h-4 align-middle" style="accent-color:var(--brand-icon,#0ea5e9);cursor:pointer;">
                         </th>
                         <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Date</th>
                         <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">User</th>
@@ -145,7 +145,7 @@
                             <td class="px-4 py-3" @click.stop>
                                 <input type="checkbox" value="{{ $r->id }}" x-model.number="selected"
                                        aria-label="Select report {{ $r->id }}"
-                                       class="w-4 h-4 align-middle" style="accent-color:var(--brand-button,#0ea5e9);cursor:pointer;">
+                                       class="w-4 h-4 align-middle" style="accent-color:var(--brand-icon,#0ea5e9);cursor:pointer;">
                             </td>
                             <td class="px-4 py-3 text-xs whitespace-nowrap" style="color:var(--text-muted);">{{ \Carbon\Carbon::parse($r->submitted_at)->format('d M H:i') }}</td>
                             <td class="px-4 py-3 text-xs" style="color:var(--text-secondary);">{{ $user?->name ?? '—' }}</td>

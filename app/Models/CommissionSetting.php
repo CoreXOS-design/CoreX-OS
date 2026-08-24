@@ -64,6 +64,11 @@ class CommissionSetting extends Model
         return $this->belongsTo(Agency::class);
     }
 
+    public function auditEntries()
+    {
+        return $this->hasMany(CommissionSettingAuditEntry::class)->latest('performed_at');
+    }
+
     // ── Accessors ──
 
     /**
@@ -142,6 +147,13 @@ class CommissionSetting extends Model
             return (new self())->forceFill(self::NO_AGENCY_DEFAULTS);
         }
 
-        return static::firstOrCreate(['agency_id' => $agencyId]);
+        // NO_AGENCY_DEFAULTS as the create-values too — not just the migration's column
+        // defaults — so a freshly-created row comes back fully hydrated in memory. Bare
+        // firstOrCreate(['agency_id' => $id]) only sets agency_id on create; every other
+        // column relies on the DB default, which Eloquent never reads back without a
+        // fresh()/refresh(). The very first caller for a new agency (e.g. the first
+        // deal's commission finalising) got a model with annual_cap === null, which then
+        // NOT-NULL-violated agent_cap_periods.cap_amount downstream.
+        return static::firstOrCreate(['agency_id' => $agencyId], self::NO_AGENCY_DEFAULTS);
     }
 }

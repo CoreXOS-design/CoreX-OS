@@ -127,12 +127,35 @@ class PdfSplitterController extends Controller
             return response()->json(['contacts' => []], 404);
         }
 
-        $contacts = $prop->contacts()->withoutGlobalScope(ContactScope::class)->get()->map(function ($c) {
+        $linked = $prop->contacts()->withoutGlobalScope(ContactScope::class)->get();
+
+        // Sole-contact fallback — mirrors Property::sellerOwnerContact()'s own
+        // "falls back to the sole linked contact when there is exactly one"
+        // rule. Without this, a property with ONE linked contact whose pivot
+        // role is blank/unrecognised renders NO Seller/Owner candidate on the
+        // splitter review screen at all (roleCandidates() does an exact role
+        // match with no fallback) — the agent sees "No seller/owner linked"
+        // even though the contact genuinely is the property's only party.
+        // Only fires when unambiguous: exactly one linked contact AND no
+        // existing seller-side match — a property with 2+ contacts and no
+        // role tag stays untouched, same as sellerOwnerContact()'s own
+        // "ambiguous → null, no wrong guess" behaviour.
+        $sellerSide = ['seller', 'owner', 'landlord', 'lessor'];
+        $hasSellerSideMatch = $linked->contains(function ($c) use ($sellerSide) {
+            return in_array(strtolower(trim((string) ($c->pivot->role ?? ''))), $sellerSide, true);
+        });
+        $soleFallbackId = (! $hasSellerSideMatch && $linked->count() === 1) ? $linked->first()->id : null;
+
+        $contacts = $linked->map(function ($c) use ($soleFallbackId) {
             $name = trim(($c->first_name ?? '') . ' ' . ($c->last_name ?? ''));
+            $role = strtolower(trim((string) ($c->pivot->role ?? '')));
+            if ($role === '' && $c->id === $soleFallbackId) {
+                $role = 'seller';
+            }
             return [
                 'id'          => $c->id,
                 'name'        => $name !== '' ? $name : '(no name)',
-                'role'        => strtolower(trim((string) ($c->pivot->role ?? ''))),
+                'role'        => $role,
                 'fica_status' => $c->ficaStatus(), // complete|expiring|incomplete
             ];
         })->values();
@@ -1224,7 +1247,9 @@ class PdfSplitterController extends Controller
             throw new \RuntimeException('extractPageSet called with no pages.');
         }
 
-        $proc = new Process([self::qpdfPath(), $origAbsNorm, '--pages', $origAbsNorm, $spec, '--', $outAbsNorm]);
+        // See qpdfPageCount() — same warnings-vs-errors tolerance is needed on
+        // the extract path so a warned-but-readable original can still split.
+        $proc = new Process([self::qpdfPath(), '--warning-exit-0', $origAbsNorm, '--pages', $origAbsNorm, $spec, '--', $outAbsNorm]);
         $proc->setTimeout(120);
         $proc->run();
 
@@ -1267,6 +1292,18 @@ class PdfSplitterController extends Controller
 
         $slugs   = collect($groups)->pluck('label')->filter()->unique()->values();
         $typeMap = DocumentType::query()->whereIn('slug', $slugs)->pluck('id', 'slug')->toArray();
+        $typeLabelMap = DocumentType::query()->whereIn('slug', $slugs)->pluck('label', 'slug')->toArray();
+        $typeGroupingMap = DocumentType::query()->whereIn('slug', $slugs)->pluck('grouping', 'slug')->toArray();
+
+        // Property filing convention (Johan 2026-08-18): a pack filed AGAINST a
+        // property names each split "{address} · {doc type} · {YYYY-MM-DD}" so
+        // filings are self-describing and two documents of the same type on one
+        // property (e.g. two mandates) never overwrite — the date differentiates,
+        // and a same-property/type/same-day repeat gets a "(2)" suffix. The
+        // Download-ZIP path (no property) keeps the agent's entered base name.
+        $addressLabel = $this->readablePropertyAddress($property);
+        $fileDate     = now()->toDateString();
+        $usedNames    = [];
 
         // 'document_ids' is additive — collected purely so link() can correlate
         // this batch's created Documents back to a caller (e.g. the intake-by-
@@ -1278,13 +1315,6 @@ class PdfSplitterController extends Controller
             if (! $abs || ! is_file($abs)) continue;
 
             $labelSlug = $g['label'];
-            $filename  = basename($abs);
-            $relPath   = $dir . '/' . Str::random(8) . '_' . $filename;
-
-            $stream = @fopen($abs, 'rb');
-            if (! $stream) continue;
-            $publicDisk->put($relPath, $stream);
-            if (is_resource($stream)) { @fclose($stream); }
 
             $dest = $labelSlug
                 ? $destinations->destinationForSlug($agencyId, $labelSlug)
@@ -1293,12 +1323,61 @@ class PdfSplitterController extends Controller
             // Resolve the EXPLICIT per-page ticked contacts to [id => party_role].
             // Only contacts actually attached to THIS property are honoured; the
             // pivot role is the party truth (decision B). Anything else is dropped.
+            // Moved ahead of naming (was after $dest below) so the CONTACT-type
+            // naming branch immediately below can see who's ticked.
             $contacts = [];
             foreach ($g['contact_ids'] ?? [] as $cid) {
                 $contact = $attached->get($cid);
                 if (! $contact) continue;
                 $contacts[(int) $cid] = strtolower(trim((string) ($contact->pivot->role ?? ''))) ?: 'seller';
             }
+
+            // Self-describing name from property/contact + doc type + date,
+            // deduped so a repeat (same subject, same type, same day) never
+            // overwrites.
+            //
+            // CONTACT-type doc types (document_types.grouping === 'contact':
+            // fica, ids, por, bank_statement, tax_clearance, company_
+            // registration, trust_deed) are named by the person, not the
+            // property — a contact who holds >1 property shouldn't get contact
+            // docs named by whichever property they were uploaded against.
+            // Everything else (mandate, levy statement, rates & taxes, ... —
+            // 'shared'/'property' grouping) keeps the existing address-based
+            // naming above UNCHANGED, even when an agency also routes a copy
+            // to the contact's file — that routing choice doesn't make it a
+            // person-document. Falls back to address naming when there's
+            // genuinely no ticked contact to name it after.
+            $docLabel = $typeLabelMap[$labelSlug] ?? Str::headline((string) $labelSlug);
+
+            $primaryContact = null;
+            if (! empty($contacts)) {
+                $primaryContact = $attached->get(array_key_first($contacts));
+            }
+            $isContactType = ($typeGroupingMap[$labelSlug] ?? null) === 'contact';
+
+            if ($isContactType && $primaryContact) {
+                $subjectLabel = trim((string) $primaryContact->full_name) ?: ('Contact #' . $primaryContact->id);
+                $nameAlreadyFiled = fn (string $name) => $this->contactDocNameExists($primaryContact->id, $name);
+            } else {
+                $subjectLabel = $addressLabel;
+                $nameAlreadyFiled = fn (string $name) => $this->propertyDocNameExists($property->id, $name);
+            }
+
+            $baseName = $subjectLabel . ' · ' . $docLabel . ' · ' . $fileDate;
+            $n = 1;
+            $filename = $baseName . '.pdf';
+            while (in_array($filename, $usedNames, true) || $nameAlreadyFiled($filename)) {
+                $n++;
+                $filename = $baseName . ' (' . $n . ').pdf';
+            }
+            $usedNames[] = $filename;
+            $fsBase  = Str::slug($baseName) . ($n > 1 ? '-' . $n : '');
+            $relPath = $dir . '/' . Str::random(8) . '_' . ($fsBase !== '' ? $fsBase : 'document') . '.pdf';
+
+            $stream = @fopen($abs, 'rb');
+            if (! $stream) continue;
+            $publicDisk->put($relPath, $stream);
+            if (is_resource($stream)) { @fclose($stream); }
 
             // ONE canonical create + attach + deal-step auto-complete.
             $filed = $docSpine->fileClassifiedDocument(
@@ -1334,6 +1413,47 @@ class PdfSplitterController extends Controller
         }
 
         return $result;
+    }
+
+    /**
+     * Readable property address for the filing convention — street + suburb
+     * (title-cased), falling back to "Property #id" when the address is blank.
+     */
+    private function readablePropertyAddress(Property $property): string
+    {
+        $street = trim((string) ($property->address ?? ''));
+        $suburb = trim((string) ($property->suburb ?? ''));
+        $suburb = $suburb !== '' ? Str::title(Str::lower($suburb)) : '';
+        $label  = trim(implode(', ', array_filter([$street, $suburb])));
+
+        return $label !== '' ? $label : ('Property #' . $property->id);
+    }
+
+    /**
+     * True when a Document with this display name is already filed to the
+     * property — used to append a "(2)" suffix so a same-property/type/same-day
+     * split never overwrites an existing filing.
+     */
+    private function propertyDocNameExists(int $propertyId, string $name): bool
+    {
+        return \App\Models\Document::query()
+            ->where('original_name', $name)
+            ->whereHas('properties', fn ($q) => $q->where('properties.id', $propertyId))
+            ->exists();
+    }
+
+    /**
+     * True when a Document with this display name is already filed to the
+     * contact — used to append a "(2)" suffix so a same-contact/type/same-day
+     * split never overwrites an existing filing. Contact-naming counterpart
+     * to propertyDocNameExists() above.
+     */
+    private function contactDocNameExists(int $contactId, string $name): bool
+    {
+        return \App\Models\Document::query()
+            ->where('original_name', $name)
+            ->whereHas('contacts', fn ($q) => $q->where('contacts.id', $contactId))
+            ->exists();
     }
 
     /**
@@ -1438,7 +1558,14 @@ class PdfSplitterController extends Controller
 
     private function qpdfPageCount(string $pdfAbsNorm): array
     {
-        $proc = new Process([self::qpdfPath(), '--show-npages', $pdfAbsNorm]);
+        // --warning-exit-0: some real-world exports (e.g. viewing-pack PDFs)
+        // trip qpdf's "reported number of objects is not one plus the highest
+        // object number" xref-table quirk — qpdf still reads the file fine and
+        // reports a correct page count, it just exits 3 ("success with
+        // warnings") instead of 0. Without this flag Process::isSuccessful()
+        // treats that as a hard failure and the file gets skipped as if
+        // corrupt. Genuine corruption still exits 2 and is unaffected.
+        $proc = new Process([self::qpdfPath(), '--warning-exit-0', '--show-npages', $pdfAbsNorm]);
         $proc->setTimeout(120);
         $proc->run();
 
@@ -1457,7 +1584,9 @@ class PdfSplitterController extends Controller
     private function qpdfExtractRange(string $pdfAbsNorm, int $from, int $to, string $outAbsNorm): void
     {
         $range = $from === $to ? (string)$from : ($from . '-' . $to);
-        $proc  = new Process([self::qpdfPath(), $pdfAbsNorm, '--pages', $pdfAbsNorm, $range, '--', $outAbsNorm]);
+        // See qpdfPageCount() — same warnings-vs-errors tolerance is needed on
+        // the extract path so a warned-but-readable original can still split.
+        $proc  = new Process([self::qpdfPath(), '--warning-exit-0', $pdfAbsNorm, '--pages', $pdfAbsNorm, $range, '--', $outAbsNorm]);
         $proc->setTimeout(120);
         $proc->run();
 

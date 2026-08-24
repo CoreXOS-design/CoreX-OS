@@ -32,8 +32,19 @@ class DemoAuthController extends Controller
             'role' => 'required|string|in:' . implode(',', self::ALLOWED_ROLES),
         ]);
 
+        // Restrict the random pool to users of agencies explicitly flagged
+        // is_demo=1. AgencyScope does not apply here (Auth::user() is null
+        // before this login), so without this the query is unscoped across
+        // EVERY tenant — any random active user of the given role, from any
+        // real agency, would get a valid Sanctum token. is_demo is the one
+        // signal that survives even if demo_mode_enabled is ever accidentally
+        // flipped on staging/live (see the 2026-06-02 incident write-up in
+        // DatabaseSeeder): a real agency is never flagged is_demo=1 (enforced
+        // structurally by demo:refresh's notADemoDatabaseRefusal), so this
+        // clause can never resolve to a real tenant's user.
         $user = User::where('role', $data['role'])
             ->where('is_active', true)
+            ->whereHas('agency', fn ($q) => $q->where('is_demo', true))
             ->inRandomOrder()
             ->first();
 

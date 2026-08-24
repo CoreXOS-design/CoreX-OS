@@ -32,11 +32,11 @@ final class CockpitCacheInvalidationTest extends TestCase
             'due_date' => now()->subDay(), 'agency_id' => $agencyId, 'branch_id' => $branchId,
         ]);
 
-        Cache::put("command_centre_{$user->id}", ['stale'], 300);
+        Cache::put("command_centre_{$user->id}_{$agencyId}", ['stale'], 300);
 
         $task->update(['status' => 'done', 'completed_at' => now(), 'resolution' => 'completed']);
 
-        $this->assertFalse(Cache::has("command_centre_{$user->id}"));
+        $this->assertFalse(Cache::has("command_centre_{$user->id}_{$agencyId}"));
     }
 
     public function test_resolving_an_event_busts_the_owners_cockpit_cache(): void
@@ -48,11 +48,11 @@ final class CockpitCacheInvalidationTest extends TestCase
             'agency_id' => $agencyId, 'branch_id' => $branchId,
         ]);
 
-        Cache::put("command_centre_{$user->id}", ['stale'], 300);
+        Cache::put("command_centre_{$user->id}_{$agencyId}", ['stale'], 300);
 
         $event->update(['status' => 'completed', 'resolution' => 'completed']);
 
-        $this->assertFalse(Cache::has("command_centre_{$user->id}"));
+        $this->assertFalse(Cache::has("command_centre_{$user->id}_{$agencyId}"));
     }
 
     public function test_reassigning_a_task_busts_both_old_and_new_owner_caches(): void
@@ -67,13 +67,13 @@ final class CockpitCacheInvalidationTest extends TestCase
             'due_date' => now()->addDay(), 'agency_id' => $agencyId, 'branch_id' => $branchId,
         ]);
 
-        Cache::put("command_centre_{$userA->id}", ['stale'], 300);
-        Cache::put("command_centre_{$userB->id}", ['stale'], 300);
+        Cache::put("command_centre_{$userA->id}_{$agencyId}", ['stale'], 300);
+        Cache::put("command_centre_{$userB->id}_{$agencyId}", ['stale'], 300);
 
         $task->update(['assigned_to' => $userB->id]);
 
-        $this->assertFalse(Cache::has("command_centre_{$userA->id}"), 'previous assignee cache busted');
-        $this->assertFalse(Cache::has("command_centre_{$userB->id}"), 'new assignee cache busted');
+        $this->assertFalse(Cache::has("command_centre_{$userA->id}_{$agencyId}"), 'previous assignee cache busted');
+        $this->assertFalse(Cache::has("command_centre_{$userB->id}_{$agencyId}"), 'new assignee cache busted');
     }
 
     /** @return array{0:int,1:int,2:User} */

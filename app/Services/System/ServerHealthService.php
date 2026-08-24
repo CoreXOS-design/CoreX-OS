@@ -29,8 +29,10 @@ class ServerHealthService
         '/mnt/HC_Volume_103099143'   => 'Data volume',
     ];
 
-    public function __construct(private readonly BackupStatusService $backups)
-    {
+    public function __construct(
+        private readonly BackupStatusService $backups,
+        private readonly SupervisorWorkerStatusService $supervisorWorkers,
+    ) {
     }
 
     public function snapshot(): array
@@ -169,6 +171,7 @@ class ServerHealthService
             'failed_jobs'    => $this->safe(fn () => (int) DB::table('failed_jobs')->count()),
             'fpm'            => $this->safe(fn () => $this->fpmPool()),
             'mysql'          => $this->safe(fn () => $this->mysql()),
+            'queue_workers'  => $this->safe(fn () => $this->supervisorWorkers->status()),
         ];
     }
 

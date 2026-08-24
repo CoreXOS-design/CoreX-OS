@@ -5,22 +5,20 @@
 <div class="w-full space-y-5">
 
     {{-- Page Header --}}
-    <div style="background: var(--brand-default, #0b2a4a);" class="rounded-md px-6 py-5">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Finance Definitions</h1>
-                <p class="text-sm text-white/60">All formula definitions registered in the Finance Engine.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Finance Definitions</h1>
+                <p class="text-xs" style="color: var(--text-muted);">All formula definitions registered in the Finance Engine.</p>
             </div>
 
-            <div class="flex items-center gap-2 flex-wrap">
-                <a href="{{ route('admin.finance.audit.index') }}" class="corex-btn-outline text-sm">Audit History</a>
+            <div class="flex flex-wrap items-center gap-2">
+                <a href="{{ route('admin.finance.audit.index') }}" class="corex-btn-outline text-xs">Audit History</a>
                 <form method="POST" action="{{ route('admin.finance.recalculate') }}" class="flex items-center gap-2"
                       id="recalcForm">
                     @csrf
                     <input type="hidden" name="mode" id="recalcMode" value="single">
-                    <select name="period"
-                            class="rounded-md border-0 text-white text-sm px-3 py-1.5 transition-colors duration-150 [&>option]:text-slate-900"
-                            style="background: rgba(255,255,255,0.1);">
+                    <select name="period" class="list-header-filter">
                         @foreach($availablePeriods as $p)
                             <option value="{{ $p }}" {{ $p === now()->format('Y-m') ? 'selected' : '' }}>
                                 {{ \Carbon\Carbon::createFromFormat('Y-m', $p)->format('F Y') }}
@@ -29,12 +27,12 @@
                     </select>
                     <button type="submit"
                             onclick="document.getElementById('recalcMode').value='single'"
-                            class="corex-btn-primary text-sm whitespace-nowrap">
+                            class="corex-btn-primary text-xs whitespace-nowrap">
                         Recalculate Period
                     </button>
                     <button type="submit"
                             onclick="if(!confirm('This will recalculate ALL periods with deals. This may take a while. Continue?')){event.preventDefault();return;}document.getElementById('recalcMode').value='all'"
-                            class="corex-btn-outline text-sm whitespace-nowrap"
+                            class="corex-btn-outline text-xs whitespace-nowrap"
                             style="border-color: color-mix(in srgb, var(--ds-amber) 50%, transparent); color: var(--ds-amber);">
                         Recalculate ALL
                     </button>

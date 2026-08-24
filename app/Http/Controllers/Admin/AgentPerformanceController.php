@@ -7,6 +7,7 @@ use App\Services\Admin\CompanyPerformanceService;
 use App\Services\Agent\AgentPerformanceService;
 use App\Services\Finance\CommissionCalculator;
 use App\Services\Finance\FinanceReadModel;
+use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -15,6 +16,30 @@ class AgentPerformanceController extends Controller
 {
     public function show(Request $request, int $userId, CompanyPerformanceService $service)
     {
+        $actingUser = $request->user();
+        abort_unless($actingUser, 403);
+
+        // Defence-in-depth tenant scope check. Everything below this point
+        // runs raw DB::table() queries against deal_user/deals/daily_activities
+        // keyed off the caller-supplied $userId, which bypass Eloquent's
+        // AgencyScope entirely (that scope only applies to Eloquent model
+        // queries). Route middleware only checks the ordinary
+        // `view_performance` permission (grantable to branch managers, not
+        // owner-only) — it does not check agency ownership of $userId. Without
+        // this check, an Admin/BM in Agency A could edit {userId} in the URL
+        // and pull Agency B's agent commission splits, agent income, and
+        // company-retained margin. Owners intentionally see across agencies
+        // (mirrors AgencyController::authorizeAgencyScope() /
+        // CompanySettingsController::authorizeAgency()).
+        $targetUser = User::find($userId);
+        abort_unless($targetUser, 404);
+        if (!$actingUser->isOwnerRole()) {
+            abort_unless(
+                (int) $targetUser->agency_id === (int) $actingUser->effectiveAgencyId(),
+                404
+            );
+        }
+
         $period = $request->query('period') ?: Carbon::now()->format('Y-m');
         $start = Carbon::createFromFormat('Y-m', $period)->startOfMonth();
         $end   = (clone $start)->endOfMonth();

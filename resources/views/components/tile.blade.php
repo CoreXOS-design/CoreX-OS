@@ -98,7 +98,10 @@ window.CoreXTile = (function () {
      state (delta 4) merges over the parent scope, so `{{ $var }}` still resolves. --}}
 <div x-data="{ collapsed: false }"
      class="group flex flex-col rounded-md overflow-hidden transition-all shadow-sm hover:shadow h-full"
-     :style="'background:var(--surface-2);border:1px solid var(--border);border-top:3px solid ' + window.CoreXTile.accent({{ $var }}) + ';'">
+     {{-- AT-336: the tile is a CARD → --surface (it must lift off the page canvas;
+          in dark --surface-2 resolves to the same tone as --bg, so the old fill
+          read as a flat, borderless rectangle). Inner wells stay --surface-2. --}}
+     :style="'background:var(--surface);border:1px solid var(--border);border-top:3px solid ' + window.CoreXTile.accent({{ $var }}) + ';'">
 
     {{-- ─── Compact header (cockpit tile strip): ONE thin line so the CONTENT LIST
          gets the height. Small icon + name + count badge + View-all. ─── --}}
@@ -174,8 +177,8 @@ window.CoreXTile = (function () {
                                 <div class="truncate font-medium" style="color:var(--text-primary);" x-text="item.title"></div>
                                 <div class="flex items-center gap-1 mt-1">
                                     <button type="button" @click.prevent="respondInvitation(item, 'accepted')" class="text-[0.6875rem] px-2 py-0.5 rounded-md text-white font-semibold" style="background: var(--ds-green, #059669);">Accept</button>
-                                    <button type="button" @click.prevent="respondInvitation(item, 'tentative')" class="text-[0.6875rem] px-2 py-0.5 rounded-md font-semibold" style="color: var(--ds-amber, #f59e0b); background: var(--surface); border: 1px solid var(--border);">Tentative</button>
-                                    <button type="button" @click.prevent="respondInvitation(item, 'declined')" class="text-[0.6875rem] px-2 py-0.5 rounded-md font-semibold" style="color: var(--ds-crimson, #c41e3a); background: var(--surface); border: 1px solid var(--border);">Decline</button>
+                                    <button type="button" @click.prevent="respondInvitation(item, 'tentative')" class="text-[0.6875rem] px-2 py-0.5 rounded-md font-semibold" style="color: var(--ds-amber, #f59e0b); background: var(--surface-2); border: 1px solid var(--border);">Tentative</button>
+                                    <button type="button" @click.prevent="respondInvitation(item, 'declined')" class="text-[0.6875rem] px-2 py-0.5 rounded-md font-semibold" style="color: var(--ds-crimson, #c41e3a); background: var(--surface-2); border: 1px solid var(--border);">Decline</button>
                                 </div>
                             </div>
                         </template>
@@ -214,7 +217,7 @@ window.CoreXTile = (function () {
                     <div class="space-y-1 text-xs">
                         <template x-for="(item, idx) in {{ $var }}.items" :key="item.id ?? idx">
                             <a x-show="item.url" :href="item.url" target="_blank" rel="noopener"
-                               class="flex items-center gap-2 py-1 px-1.5 -mx-1.5 rounded no-underline transition-colors hover:bg-[color:var(--surface)]">
+                               class="flex items-center gap-2 py-1 px-1.5 -mx-1.5 rounded no-underline transition-colors hover:bg-[color:var(--surface-2)]">
                                 <span x-show="item.rag" class="w-1.5 h-1.5 rounded-full flex-shrink-0" :style="'background:' + window.CoreXTile.ragColour(item.rag)"></span>
                                 <span class="truncate flex-1 leading-relaxed" style="color:var(--text-secondary);" x-text="window.CoreXTile.itemText({{ $var }}, item)"></span>
                                 <svg class="w-3 h-3 flex-shrink-0 opacity-0 group-hover:opacity-50 transition-opacity" style="color:var(--text-muted);" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25"/></svg>

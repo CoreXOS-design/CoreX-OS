@@ -21,9 +21,11 @@ use Illuminate\Http\Request;
  *
  * Gate: reuses the AT-91 permission (outreach.summary.view) — this board is a
  * superset surface for the same audience and literally embeds the AT-91 board.
- * Activity-feed row visibility: agents see their own actions; team-viewers
- * (mic.view_team / prospecting_setup.manage, owners via permission bypass) see the
- * whole agency and may filter by agent.
+ * Activity-feed row visibility (AT-380): per-role own/branch/all scope, set in
+ * Role Manager (outreach_canvassing.view) — replaces the old hardcoded
+ * own-vs-everyone binary (mic.view_team / prospecting_setup.manage), which had
+ * no branch tier at all. 'branch'/'all' scopes may still drill down via
+ * ?agent_id=.
  */
 class OutreachCanvassingController extends Controller
 {
@@ -38,18 +40,63 @@ class OutreachCanvassingController extends Controller
         $agencyId = (int) ($user->effectiveAgencyId() ?? $user->agency_id ?? 0);
         abort_if($agencyId <= 0, 404);
 
-        $canSeeTeam = $user->hasPermission('mic.view_team')
-            || $user->hasPermission('prospecting_setup.manage');
+        $scope = \App\Services\PermissionService::outreachCanvassingScope($user);
+
+        // Resolve to an EFFECTIVE scope (own/branch/all) up front, including the
+        // branches.view_all carve-out (an all-branches user with no single
+        // branch_id — "branch" IS "all" for them, mirroring ProspectingListing
+        // ::scopeVisibleTo() and CalendarEvent's same carve-out). Everything
+        // below — the filter AND the ?agent_id= drill-down authorisation —
+        // reads from this single resolved value, so the two can never disagree
+        // (the previous version derived $canSeeTeam from the raw role scope
+        // name alone, which let a 'branch'-scoped user drill into ANY agency
+        // member via ?agent_id=, not just their own branch).
+        $branchUserIds = null;
+        if ($scope === 'all') {
+            $effectiveScope = 'all';
+        } elseif ($scope === 'branch') {
+            $branchId = $user->effectiveBranchId();
+            if ($branchId) {
+                $branchUserIds = \App\Models\User::withoutGlobalScopes()
+                    ->where('agency_id', $agencyId)
+                    ->where('branch_id', $branchId)
+                    ->pluck('id')->all();
+                $effectiveScope = 'branch';
+            } elseif ($user->hasPermission('branches.view_all')) {
+                $effectiveScope = 'all';
+            } else {
+                $effectiveScope = 'own';
+            }
+        } else {
+            // 'own' (or no scope row yet — safe default).
+            $effectiveScope = 'own';
+        }
+
+        $canSeeTeam = in_array($effectiveScope, ['branch', 'all'], true);
 
         $filters = [
             'days'   => (int) $request->integer('days', 90),
             'source' => $request->query('source'),
         ];
-        if (! $canSeeTeam) {
-            // Agents only ever see their own canvassing activity.
+        if ($effectiveScope === 'own') {
             $filters['user_id'] = (int) $user->id;
-        } elseif (is_numeric($request->query('agent_id'))) {
-            $filters['user_id'] = (int) $request->query('agent_id');
+        } elseif ($effectiveScope === 'branch') {
+            $filters['user_ids'] = $branchUserIds;
+        }
+        // 'all': no user filter at all.
+
+        // Drill down to one teammate's activity — only within what this scope
+        // can already see. A 'branch'-scoped user requesting an agent outside
+        // their branch is silently ignored (falls back to the branch filter),
+        // not granted access.
+        if (is_numeric($request->query('agent_id'))) {
+            $requestedAgentId = (int) $request->query('agent_id');
+            $allowed = $effectiveScope === 'all'
+                || ($effectiveScope === 'branch' && in_array($requestedAgentId, $branchUserIds ?? [], true));
+            if ($allowed) {
+                $filters['user_id'] = $requestedAgentId;
+                unset($filters['user_ids']);
+            }
         }
 
         $feed = $feedService->feed($agencyId, $filters);

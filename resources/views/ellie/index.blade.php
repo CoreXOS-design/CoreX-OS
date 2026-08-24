@@ -16,19 +16,21 @@
   .ellie-app { min-height: 400px; height: 78vh; display: flex; flex-direction: column; }
   .ellie-row { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: 320px 1fr; gap: 1rem; overflow: hidden; }
 
-  .ellie-pane { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; overflow: hidden;
+  .ellie-pane { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden;
+                box-shadow: var(--pv2-shadow, 0 1px 4px var(--shadow));
                 display:flex; flex-direction:column; min-height:0; }
 
   .ellie-pane-h { padding: 0.75rem 1rem; border-bottom: 1px solid var(--border);
                   display:flex; align-items:center; justify-content:space-between; gap: 0.625rem; flex: 0 0 auto; background: var(--surface); }
-  .ellie-pane-h .title { font-weight: 600; font-size: 1rem; color: var(--text-primary); }
+  .ellie-pane-h .title { font-weight: 600; font-size: 0.875rem; color: var(--text-primary); }
 
-  .ellie-scroll { flex: 1 1 auto; min-height:0; overflow:auto; background: var(--bg); }
+  .ellie-scroll { flex: 1 1 auto; min-height:0; overflow:auto; background: var(--surface); }
 
   .ellie-list a { display:block; padding: 0.75rem 1rem; border-bottom: 1px solid var(--border); text-decoration:none;
-                  color: var(--text-primary); transition: background 300ms; }
-  .ellie-list a:hover { background: color-mix(in srgb, var(--brand-icon) 8%, transparent); }
-  .ellie-list a.active { background: color-mix(in srgb, var(--brand-icon) 14%, transparent); }
+                  color: var(--text-secondary); transition: background-color 150ms, color 150ms, border-color 150ms; }
+  .ellie-list a:hover { background: var(--surface-2); color: var(--text-primary); }
+  .ellie-list a.active { background: color-mix(in srgb, var(--brand-icon) 10%, transparent);
+                         box-shadow: inset 2px 0 0 var(--brand-icon); color: var(--text-primary); }
   .ellie-list .conv-title { font-weight: 600; font-size: 0.875rem; }
   .ellie-list .meta { font-size: 0.75rem; color: var(--text-muted); margin-top: 2px; }
 
@@ -36,9 +38,10 @@
   /* pre-line (not pre-wrap): keep the model's intentional line breaks (e.g.
      numbered steps) but collapse its stray leading/indent whitespace so the
      first line doesn't render with a ragged left margin. */
-  .bubble { max-width: 72%; padding: 0.75rem 0.875rem; border-radius: 6px; line-height: 1.45; white-space: pre-line; word-wrap: break-word; overflow-wrap: anywhere; font-size: 0.875rem; }
-  .bubble.user { margin-left: auto; background: var(--brand-button); color: #fff; }
-  .bubble.assistant { margin-right: auto; background: var(--surface); border: 1px solid var(--border); color: var(--text-primary); }
+  .bubble { max-width: 72%; padding: 0.75rem 0.875rem; border-radius: 8px; line-height: 1.45; white-space: pre-line; word-wrap: break-word; overflow-wrap: anywhere; font-size: 0.875rem; }
+  .bubble.user { margin-left: auto; background: color-mix(in srgb, var(--brand-icon) 10%, transparent);
+                 border: 1px solid color-mix(in srgb, var(--brand-icon) 35%, transparent); color: var(--text-primary); }
+  .bubble.assistant { margin-right: auto; background: var(--surface-2); border: 1px solid var(--border); color: var(--text-secondary); }
   .bubble .role { font-size: 0.6875rem; color: var(--text-muted); margin-bottom: 4px; font-weight: 600; }
 
   .ellie-compose { flex: 0 0 auto; padding: 0.875rem 1rem; border-top: 1px solid var(--border); background: var(--surface); }
@@ -46,9 +49,9 @@
   .ellie-input { flex: 1 1 auto; min-height: 44px; max-height: 140px; resize: vertical;
                  border: 1px solid var(--border); border-radius: 6px; padding: 0.625rem 0.75rem;
                  outline: none; font-size: 0.875rem; background: var(--surface-2); color: var(--text-primary);
-                 transition: border-color 300ms, box-shadow 300ms; }
-  .ellie-input:focus { border-color: var(--brand-button); box-shadow: 0 0 0 2px color-mix(in srgb, var(--brand-button) 15%, transparent); }
-  .ellie-input::placeholder { color: var(--text-muted); }
+                 transition: border-color 150ms, box-shadow 150ms; }
+  .ellie-input:focus { border-color: var(--brand-icon); box-shadow: 0 0 0 2px color-mix(in srgb, var(--brand-icon) 20%, transparent); }
+  .ellie-input::placeholder { color: var(--text-faint, var(--text-muted)); }
   .ellie-rename-input { min-width: 200px; min-height: 0; max-height: none; resize: none; padding: 6px 10px; }
 
   .ellie-empty { padding: 1.25rem; color: var(--text-secondary); font-size: 0.875rem; line-height: 1.5; }
@@ -68,24 +71,24 @@
 
 <div class="w-full flex flex-col gap-5 lg:h-full">
 
-  {{-- Page header (Pattern A — branded) --}}
-  <div class="rounded-md px-6 py-5 flex-shrink-0" style="background: var(--brand-default, #0b2a4a);">
+  {{-- Page header (flat neutral bar) --}}
+  <div class="rounded-md px-6 py-5 corex-page-banner flex-shrink-0">
     <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-      <div class="flex items-center gap-3">
-        <img src="/images/ellie-32-circle.png" alt="Ellie" class="w-9 h-9 rounded-full">
+      <div class="flex items-center gap-2.5">
+        <img src="/images/ellie-32-circle.png" alt="Ellie" class="w-7 h-7 rounded-full">
         <div data-tour="ai-ellie-intro">
-          <h1 class="text-xl font-bold text-white leading-tight">Ellie, Your AI Assistant</h1>
-          <p class="text-sm text-white/60">Logged in as {{ auth()->user()->name }}</p>
+          <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Ellie, Your AI Assistant</h1>
+          <p class="text-xs" style="color: var(--text-muted);">Logged in as {{ auth()->user()->name }}</p>
         </div>
       </div>
-      <div class="flex items-center gap-2 flex-wrap">
-        @include('layouts.partials.tour-header-launcher')
+      <div class="flex flex-wrap items-center gap-2">
+        @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
         @if($archived)
-          <a href="/ellie" class="corex-btn-outline">Hide Archived</a>
+          <a href="/ellie" class="corex-btn-outline text-xs">Hide Archived</a>
         @else
-          <a href="/ellie?archived=1" class="corex-btn-outline">Show Archived</a>
+          <a href="/ellie?archived=1" class="corex-btn-outline text-xs">Show Archived</a>
         @endif
-        <a href="/ellie?new=1{{ $archived ? '&archived=1' : '' }}" class="corex-btn-primary" data-tour="ai-ellie-new">+ New Conversation</a>
+        <a href="/ellie?new=1{{ $archived ? '&archived=1' : '' }}" class="corex-btn-primary text-xs" data-tour="ai-ellie-new">+ New Conversation</a>
       </div>
     </div>
   </div>
@@ -234,7 +237,7 @@
   })();
 </script>
 <style>
-  .bubble.assistant .ellie-link { color: var(--brand-button); font-weight: 600; text-decoration: underline; word-break: break-all; }
+  .bubble.assistant .ellie-link { color: var(--brand-icon); font-weight: 600; text-decoration: underline; word-break: break-all; }
   .bubble.assistant .ellie-link:hover { opacity: 0.85; }
 </style>
 @endsection

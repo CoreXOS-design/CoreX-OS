@@ -32,53 +32,53 @@
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                    <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Company Name</label>
+                    <label class="block text-xs mb-1" style="color:var(--text-secondary)">Company Name</label>
                     <input type="text" name="company_name"
                            value="{{ old('company_name', $companyName ?? '') }}"
-                           class="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 px-3 py-2 text-sm">
+                           class="w-full rounded-lg border px-3 py-2 text-sm" style="background:var(--surface); border-color:var(--border); color:var(--text-primary)">
                 </div>
 
                 <div>
-                    <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">FFC</label>
+                    <label class="block text-xs mb-1" style="color:var(--text-secondary)">FFC</label>
                     <input type="text" name="company_ffc"
                            value="{{ old('company_ffc', $companyFfc ?? '') }}"
-                           class="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 px-3 py-2 text-sm">
+                           class="w-full rounded-lg border px-3 py-2 text-sm" style="background:var(--surface); border-color:var(--border); color:var(--text-primary)">
                 </div>
 
                 <div class="md:col-span-2">
-                    <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Address</label>
+                    <label class="block text-xs mb-1" style="color:var(--text-secondary)">Address</label>
                     <input type="text" name="company_address"
                            value="{{ old('company_address', $companyAddress ?? '') }}"
-                           class="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 px-3 py-2 text-sm">
+                           class="w-full rounded-lg border px-3 py-2 text-sm" style="background:var(--surface); border-color:var(--border); color:var(--text-primary)">
                 </div>
 
                 <div>
-                    <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Telephone</label>
+                    <label class="block text-xs mb-1" style="color:var(--text-secondary)">Telephone</label>
                     <input type="text" name="company_tel"
                            value="{{ old('company_tel', $companyTel ?? '') }}"
-                           class="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 px-3 py-2 text-sm">
+                           class="w-full rounded-lg border px-3 py-2 text-sm" style="background:var(--surface); border-color:var(--border); color:var(--text-primary)">
                 </div>
 
                 <div class="md:col-span-2">
-                    <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Company Logo</label>
+                    <label class="block text-xs mb-1" style="color:var(--text-secondary)">Company Logo</label>
 
                     @if(!empty($companyLogoUrl))
                         <div class="mb-2 flex items-center gap-3">
-                            <img src="{{ $companyLogoUrl }}" alt="Company Logo" class="h-10 w-auto rounded border bg-white">
-                            <span class="text-xs text-slate-500 dark:text-slate-400">Current logo will be used on printouts.</span>
+                            <img src="{{ $companyLogoUrl }}" alt="Company Logo" class="h-10 w-auto rounded border" style="background:var(--surface)">
+                            <span class="text-xs" style="color:var(--text-muted)">Current logo will be used on printouts.</span>
                         </div>
                     @endif
 
                     <input type="file" name="company_logo" accept="image/*"
-                           class="block w-full text-sm file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-[#0b2a4a] file:text-white hover:file:bg-[#163d5f] rounded-lg border border-slate-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 px-3 py-2">
+                           class="block w-full text-sm file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-[#0b2a4a] file:text-white hover:file:bg-[#163d5f] rounded-lg border px-3 py-2" style="border-color:var(--border); background:var(--surface); color:var(--text-primary)">
 
                     <div class="mt-2 flex items-center gap-2">
                         <input type="hidden" name="clear_company_logo" value="0">
-                        <label class="inline-flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
-                            <input type="checkbox" name="clear_company_logo" value="1" class="rounded border-slate-300 dark:border-slate-700">
+                        <label class="inline-flex items-center gap-2 text-sm" style="color:var(--text-secondary)">
+                            <input type="checkbox" name="clear_company_logo" value="1" class="rounded" style="border-color:var(--border)">
                             Clear logo
                         </label>
-                        <span class="text-xs text-slate-500 dark:text-slate-400">Upload replaces the current logo. Max 2MB.</span>
+                        <span class="text-xs" style="color:var(--text-muted)">Upload replaces the current logo. Max 2MB.</span>
                     </div>
                 </div>
             </div>
@@ -89,19 +89,19 @@
 
             <div class="space-y-4">
                 <div>
-                    <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">VAT Rate (%)</label>
+                    <label class="block text-xs mb-1" style="color:var(--text-secondary)">VAT Rate (%)</label>
                     <input type="number" step="0.01" min="0" max="100" name="vat_rate"
                            value="{{ old('vat_rate', $vatRate) }}"
-                           class="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 px-3 py-2 text-sm">
-                    <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Commission is stored as GROSS; we remove VAT using this rate.</p>
+                           class="w-full rounded-lg border px-3 py-2 text-sm" style="background:var(--surface); border-color:var(--border); color:var(--text-primary)">
+                    <p class="text-xs mt-1" style="color:var(--text-muted)">Commission is stored as GROSS; we remove VAT using this rate.</p>
                 </div>
 
                 <div>
-                    <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Listings per Sale (Correctly priced)</label>
+                    <label class="block text-xs mb-1" style="color:var(--text-secondary)">Listings per Sale (Correctly priced)</label>
                     <input type="number" step="0.01" min="0.01" name="listings_per_sale"
                            value="{{ old('listings_per_sale', $listingsPerSale) }}"
-                           class="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 px-3 py-2 text-sm">
-                    <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Used to calculate how many correctly-priced listings are needed for the target sales.</p>
+                           class="w-full rounded-lg border px-3 py-2 text-sm" style="background:var(--surface); border-color:var(--border); color:var(--text-primary)">
+                    <p class="text-xs mt-1" style="color:var(--text-muted)">Used to calculate how many correctly-priced listings are needed for the target sales.</p>
                 </div>
             </div>
         </div>

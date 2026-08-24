@@ -160,6 +160,54 @@ class MobileRentalImagesTest extends TestCase
         $this->assertStringStartsWith('/storage/properties/', $stored['in_inspection']['images'][0]);
     }
 
+    /** A single per-photo upload (image + client_upload_id) appends one image. */
+    public function test_per_photo_upload_appends_single(): void
+    {
+        $property = $this->makeProperty();
+
+        $res = $this->actingAs($this->user)
+            ->postJson("/api/v1/mobile/properties/{$property->id}/rental-images/upload", [
+                'section'          => 'in_inspection',
+                'image'            => UploadedFile::fake()->image('move-in.jpg', 800, 600),
+                'client_upload_id' => 'rk-1',
+            ]);
+
+        $res->assertStatus(201);
+        $res->assertJson(['duplicate' => false]);
+        $this->assertCount(1, $res->json('rental_images.in_inspection.images'));
+    }
+
+    /**
+     * Idempotency parity with the main gallery: a retried per-photo upload with
+     * the same client_upload_id must not add a second image or a second file —
+     * it returns the existing record (200, duplicate:true).
+     */
+    public function test_per_photo_upload_is_idempotent_on_retry(): void
+    {
+        $property = $this->makeProperty();
+
+        $first = $this->actingAs($this->user)
+            ->postJson("/api/v1/mobile/properties/{$property->id}/rental-images/upload", [
+                'section'          => 'in_inspection',
+                'image'            => UploadedFile::fake()->image('m.jpg', 800, 600),
+                'client_upload_id' => 'rk-dup',
+            ]);
+        $first->assertStatus(201)->assertJson(['duplicate' => false]);
+
+        $retry = $this->actingAs($this->user)
+            ->postJson("/api/v1/mobile/properties/{$property->id}/rental-images/upload", [
+                'section'          => 'in_inspection',
+                'image'            => UploadedFile::fake()->image('m.jpg', 800, 600),
+                'client_upload_id' => 'rk-dup',
+            ]);
+        $retry->assertStatus(200)->assertJson(['duplicate' => true]);
+
+        // One image in the section, one file on disk — the retry duplicated nothing.
+        $stored = $property->fresh()->rentalImagesStructure();
+        $this->assertCount(1, $stored['in_inspection']['images']);
+        $this->assertCount(1, Storage::disk('public')->files("properties/{$property->id}"));
+    }
+
     /** Set a date, add a custom section (server mints id), then upload into it. */
     public function test_save_date_and_add_custom_section(): void
     {

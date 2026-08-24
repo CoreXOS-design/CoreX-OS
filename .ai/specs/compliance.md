@@ -62,6 +62,7 @@ When a new agency signs up to CoreX they bring across their existing book — ty
 - **Control:** Checkbox `mark_compliant_on_confirm`, default **checked**.
 - **Persistence:** Stored on `p24_import_runs.mark_compliant_on_confirm` (migration `2026_05_28_140000`) so every row confirmed from that run inherits the flag — rows are often confirmed via the public onboarding portal, possibly days later.
 - **Effect at confirm time:** `ConfirmP24PropertyRowJob` writes `compliance_snapshot_at = now()` and a `compliance_snapshot_data` JSON tagged `source: 'p24_go_live_migration'` with the run id, listing number, and an explanatory note. This trips the existing short-circuit in `MarketingReadinessService::statusFor()` (line 31) so the property is treated as fully marketable.
+- **Active stock only (Johan, 2026-08-18):** the toggle applies per-row, gated on that row's own P24 status having normalised (`P24ListingsCsvParser::normaliseStatus()`) to `Active`. A run commonly carries a mix of active, sold, rented, and withdrawn stock — only the Active rows are grandfathered as "already compliant"; Sold/Rented/Withdrawn/anything else is imported as a record only, on this same run, with no compliance auto-stamp. This is a per-row check inside the same transaction, not a separate run-level filter, so one CSV upload correctly produces both stamped and unstamped properties.
 - **Audit:** The snapshot data is preserved on the property forever; the run id links back to the source CSV upload.
 
 ### 2. Contact FICA auto-approve (contacts Excel importer)

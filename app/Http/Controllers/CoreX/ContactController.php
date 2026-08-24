@@ -12,10 +12,14 @@ use App\Models\PerformanceSetting;
 use App\Models\User;
 use App\Services\ContactDuplicateService;
 use App\Services\PermissionService;
+use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
+use Illuminate\Support\Str;
 
 class ContactController extends Controller
 {
+    use \App\Http\Controllers\Concerns\AuthorizesContactAccess;
+
     public function index(Request $request)
     {
         /** @var User $user */
@@ -23,13 +27,19 @@ class ContactController extends Controller
         $dataScope    = PermissionService::getDataScope($user, 'contacts');
         $canPickAgent = in_array($dataScope, ['all', 'branch']);
 
-        // Agent filter: always default to the current user's own contacts on a
-        // fresh visit. An explicit ?agent_id= (e.g. "All", or another agent)
-        // applies for that browse only and is NOT persisted across visits.
+        // AT-267 — an assistant owns NO contacts of their own; every list defaults to the agent
+        // they work under. $ownerId is the assigned agent for an assistant, and the user
+        // themselves for everyone else, so the page loads the agent's book rather than an empty
+        // "my records" view.
+        $ownerId = $user->isAssistant() ? ($user->assignedAgent()?->id ?? $user->id) : $user->id;
+
+        // Agent filter: default to the owner's own contacts on a fresh visit (the assigned agent
+        // for an assistant). An explicit ?agent_id= (e.g. "All", or another agent) applies for that
+        // browse only and is NOT persisted across visits.
         if ($request->has('agent_id')) {
             $filterAgentId = $request->query('agent_id', '');
         } elseif ($canPickAgent) {
-            $filterAgentId = (string) $user->id;
+            $filterAgentId = (string) $ownerId;
         } else {
             $filterAgentId = '';
         }
@@ -54,8 +64,10 @@ class ContactController extends Controller
             }
             // 'all' scope with no filter = show all contacts
         } else {
-            // 'own' scope: agents see only their own (ContactScope also enforces this)
-            $query->where('created_by_user_id', $user->id);
+            // 'own' scope: agents see only their own (ContactScope also enforces this). For an
+            // assistant this is the assigned agent's book — dataIdentityIds() = [agentId, selfId] —
+            // never the assistant's own empty id.
+            $query->whereIn('created_by_user_id', $user->dataIdentityIds());
         }
 
         // AT-91 — WhatsApp Outreach Summary drill-through. ?channel=whatsapp
@@ -80,9 +92,21 @@ class ContactController extends Controller
         if ($request->filled('type')) {
             // Buyer/seller truth is NOT in contact_type_id (a nullable, mostly-
             // unpopulated classification). Buyer = is_buyer; seller = a
-            // contact_property pivot with role 'owner'. Resolve the submitted
-            // contact_type to its esign_role (dynamic — ids differ per env) and
-            // query the canonical column. Genuine classifications (Witness, etc.)
+            // contact_property pivot with role 'seller' SPECIFICALLY.
+            // 2026-08-20 correction: an earlier fix here also matched role
+            // 'owner', reasoning it was a synonym written by legacy/manual
+            // links. Live data proved that wrong — 'owner' is written
+            // generically by Deeds Capture for "current owner of record" on
+            // ANY contact (buyers who now own their purchase, plain owner
+            // contacts with no sale intent), independent of any sale. Of the
+            // 52 contacts reachable only via 'owner', 46 were typed "Owner"/
+            // untyped/is_buyer and only ~6 were actually typed "Seller" —
+            // matching it flooded the Seller filter with buyers and owners.
+            // 'seller' pivot role IS the precise, intentional signal: written
+            // only when PropertyWizardController lists a sale or Deeds
+            // Capture's "link as seller" flow runs. Resolve the submitted
+            // contact_type to its esign_role (dynamic — ids differ per env)
+            // and query the canonical column. Genuine classifications (Witness, etc.)
             // keep the contact_type_id filter.
             $typeId = (int) $request->type;
             $esignRole = ContactType::whereKey($typeId)->value('esign_role');
@@ -90,7 +114,14 @@ class ContactController extends Controller
             if ($esignRole === 'buyer') {
                 $query->where('is_buyer', 1);
             } elseif ($esignRole === 'seller') {
-                $query->whereHas('properties', fn ($q) => $q->where('contact_property.role', 'owner'));
+                $query->whereHas('properties', fn ($q) => $q->where('contact_property.role', 'seller'));
+            } elseif ($esignRole === 'lessor') {
+                // Same gap as seller, same audit: Landlord/Lessor contacts are
+                // overwhelmingly linked via the contact_property pivot (role
+                // 'landlord'), not via contact_type_id (13 vs 66 matches measured
+                // live) — contact_type_id alone showed a mostly-empty "Landlord"
+                // filter too.
+                $query->whereHas('properties', fn ($q) => $q->whereIn('contact_property.role', ['landlord', 'lessor']));
             } else {
                 $query->where('contact_type_id', $typeId);
             }
@@ -119,6 +150,251 @@ class ContactController extends Controller
         ));
     }
 
+    /**
+     * AT-273 — Street & Complex Search results page.
+     *
+     * An address-only search (Contact::scopeStreetComplexSearch) that renders a
+     * dedicated report of matching contacts, each tagged with Last Contacted,
+     * Last Modified and its Linked-Property status. The same result set is
+     * downloadable as a PDF via streetComplexSearchPdf(). Both honour the
+     * caller's contact data-scope (own / branch / all) exactly like index().
+     */
+    /**
+     * The Street & Complex Search sort options — key => human label. The label is
+     * shown in the sort dropdown and echoed onto the PDF header. Keys are the ONLY
+     * accepted `sort` values (anything else falls back to 'name').
+     */
+    public const STREET_COMPLEX_SORTS = [
+        'name'           => 'Contact name',
+        'unit'           => 'Unit number',
+        'complex'        => 'Complex name',
+        'street'         => 'Street name',
+        'suburb'         => 'Suburb',
+        'last_contacted' => 'Last contacted',
+        'last_modified'  => 'Last modified',
+        'linked'         => 'Linked properties',
+    ];
+
+    public function streetComplexSearch(Request $request)
+    {
+        /** @var User $user */
+        $user = auth()->user();
+
+        $filterAgentId = '';
+        $canPickAgent  = false;
+        $query = $this->scopedContactBaseQuery($request, $user, $filterAgentId, $canPickAgent);
+
+        $term     = trim((string) $request->query('q', ''));
+        $cap      = 500;
+        $contacts = collect();
+        $total    = 0;
+        $capped   = false;
+
+        [$sort, $dir] = $this->resolveStreetComplexSort($request);
+
+        if ($term !== '') {
+            $query->streetComplexSearch($term)
+                  ->with(['agent', 'createdBy', 'type', 'tags', 'properties'])
+                  ->withCount('properties');
+            $this->applyStreetComplexSort($query, $sort, $dir);
+            $total    = (clone $query)->count();
+            $contacts = $query->limit($cap)->get();
+            $capped   = $total > $cap;
+        }
+
+        $sortOptions = self::STREET_COMPLEX_SORTS;
+
+        return view('corex.contacts.street-complex-search', compact(
+            'contacts', 'term', 'cap', 'total', 'capped', 'filterAgentId', 'canPickAgent',
+            'sort', 'dir', 'sortOptions'
+        ));
+    }
+
+    /**
+     * AT-273 — the same Street & Complex Search result set as a downloadable PDF
+     * (dompdf). Mirrors the query in streetComplexSearch() exactly so the report
+     * on screen and the report on paper are identical.
+     */
+    public function streetComplexSearchPdf(Request $request)
+    {
+        /** @var User $user */
+        $user = auth()->user();
+
+        $term = trim((string) $request->query('q', ''));
+        if ($term === '') {
+            return redirect()->route('corex.contacts.street-complex-search');
+        }
+
+        $filterAgentId = '';
+        $canPickAgent  = false;
+        $query = $this->scopedContactBaseQuery($request, $user, $filterAgentId, $canPickAgent);
+
+        $cap = 500;
+        [$sort, $dir] = $this->resolveStreetComplexSort($request);
+        $query->streetComplexSearch($term)
+              ->with(['agent', 'createdBy', 'type', 'properties'])
+              ->withCount('properties');
+        $this->applyStreetComplexSort($query, $sort, $dir);
+        $total    = (clone $query)->count();
+        $contacts = $query->limit($cap)->get();
+        $capped   = $total > $cap;
+
+        $agency      = \App\Models\Agency::find($user->effectiveAgencyId());
+        $generatedAt = now();
+        $sortLabel   = self::STREET_COMPLEX_SORTS[$sort] . ' (' . ($dir === 'desc' ? 'Z–A / newest' : 'A–Z / oldest') . ')';
+
+        $pdf = Pdf::loadView('corex.contacts.street-complex-search-pdf', compact(
+            'contacts', 'term', 'cap', 'total', 'capped', 'agency', 'generatedAt', 'sortLabel'
+        ) + ['generatedBy' => $user])->setPaper('a4', 'portrait');
+
+        // Embedded content only — no network fetches from within the renderer.
+        $pdf->setOption('isRemoteEnabled', false);
+        $pdf->setOption('isPhpEnabled', false);
+        $pdf->setOption('dpi', 96);
+
+        // dompdf must write its font-metrics cache; the default storage/fonts is
+        // owned by the deploy user and not writable by php-fpm on the servers.
+        // Point it at a runtime-created, web-writable dir (same fix as the
+        // property brochure PDF).
+        $fontDir = storage_path('app/dompdf-fonts');
+        if (! is_dir($fontDir)) {
+            @mkdir($fontDir, 0775, true);
+        }
+        if (is_dir($fontDir) && is_writable($fontDir)) {
+            $pdf->setOption('fontDir', $fontDir);
+            $pdf->setOption('fontCache', $fontDir);
+        }
+
+        $slug = Str::slug($term) ?: 'search';
+
+        return $pdf->download('Street-Complex-Search-' . $slug . '.pdf');
+    }
+
+    /**
+     * The contacts base query with the caller's data-scope applied — the same
+     * agent-scope narrowing index() performs (own / branch / all + explicit
+     * ?agent_id). Extracted so the Street & Complex Search page and its PDF
+     * scope identically. Sets $filterAgentId / $canPickAgent by reference for
+     * the caller to echo back into the view.
+     */
+    private function scopedContactBaseQuery(Request $request, User $user, string &$filterAgentId, bool &$canPickAgent)
+    {
+        $dataScope    = PermissionService::getDataScope($user, 'contacts');
+        $canPickAgent = in_array($dataScope, ['all', 'branch']);
+
+        // AT-273 — the Street & Complex (property) search ALWAYS runs at the
+        // caller's FULL contact-visibility breadth: 'all' = the whole agency book,
+        // 'branch' = the caller's branch, 'own' = their own contacts. Visibility is
+        // governed purely by the agency's data-scope config (ContactScope enforces
+        // it globally; the branch clause below supplements it exactly as the list's
+        // "All Contacts" browse does).
+        //
+        // It deliberately does NOT inherit the contacts-list "My Contacts" per-agent
+        // default. Property matches are almost always owned by OTHER agents, so a
+        // property search that silently narrowed to the caller's own contacts
+        // returned ~0 results whenever the user hadn't first flipped the list to
+        // "All Contacts" — the exact bug this closes. filterAgentId is therefore
+        // pinned to '' (full scope) and any inherited ?agent_id is ignored.
+        //
+        // MERGE NOTE (QA2 -> Staging, 2026-07-26): AT-267 added a per-agent default here
+        // (assistant -> their assigned agent). It is deliberately NOT carried across — it is
+        // the exact narrowing AT-273 exists to remove, and re-applying it would return this
+        // page to ~0 results. AT-267's intent is unharmed: '' means "no EXTRA agent filter",
+        // and an assistant is still bounded by ContactScope::applyAssistant() to their agent's
+        // breadth, so they see their agent's book here rather than nothing. The AT-267 default
+        // remains in force on index(), which is the list AT-267 was actually about.
+        $filterAgentId = '';
+
+        $query = Contact::query();
+
+        if ($canPickAgent) {
+            // 'branch' scope needs an explicit branch narrowing (mirrors the list's
+            // "All Contacts" path); 'all' scope = full agency book (ContactScope
+            // leaves it unrestricted).
+            if ($dataScope === 'branch' && $user->branch_id) {
+                $query->whereHas('createdBy', fn ($q) => $q->where('branch_id', $user->branch_id));
+            }
+        } else {
+            // 'own' scope: agents see only their own (ContactScope also enforces this). For an
+            // assistant this is the assigned agent's book via dataIdentityIds().
+            $query->whereIn('created_by_user_id', $user->dataIdentityIds());
+        }
+
+        return $query;
+    }
+
+    /**
+     * Resolve the requested Street & Complex Search sort into a validated
+     * [key, direction] pair. Unknown keys fall back to 'name'. When no direction
+     * is supplied the default is per-field: date/linked sorts default to DESC
+     * (most recent / linked first), everything else to ASC (A–Z / 0–9).
+     */
+    private function resolveStreetComplexSort(Request $request): array
+    {
+        $sort = (string) $request->query('sort', 'name');
+        if (! array_key_exists($sort, self::STREET_COMPLEX_SORTS)) {
+            $sort = 'name';
+        }
+
+        $dir = strtolower((string) $request->query('dir', ''));
+        if (! in_array($dir, ['asc', 'desc'], true)) {
+            $dir = in_array($sort, ['last_contacted', 'last_modified', 'linked'], true) ? 'desc' : 'asc';
+        }
+
+        return [$sort, $dir];
+    }
+
+    /**
+     * Apply the chosen sort to a Street & Complex Search query. Sorts on the
+     * CONTACT's own columns (its captured structured address + the date tags),
+     * so it works whether the match came from the contact's address or a linked
+     * property. Blanks/nulls always sort last regardless of direction; a final
+     * id tiebreak keeps paging/limits stable. Requires withCount('properties')
+     * for the 'linked' sort.
+     */
+    private function applyStreetComplexSort($query, string $sort, string $dir)
+    {
+        $dir = $dir === 'desc' ? 'desc' : 'asc';
+
+        switch ($sort) {
+            case 'unit':
+                // Numeric-aware: "17" before "100"; "3A" sorts by its leading 17→3.
+                $query->orderByRaw("(unit_number IS NULL OR unit_number = '')")
+                      ->orderByRaw("CAST(unit_number AS UNSIGNED) $dir")
+                      ->orderBy('unit_number', $dir);
+                break;
+            case 'complex':
+                $query->orderByRaw("(complex_name IS NULL OR complex_name = '')")
+                      ->orderBy('complex_name', $dir);
+                break;
+            case 'street':
+                $query->orderByRaw("(street_name IS NULL OR street_name = '')")
+                      ->orderBy('street_name', $dir);
+                break;
+            case 'suburb':
+                $query->orderByRaw("(suburb IS NULL OR suburb = '')")
+                      ->orderBy('suburb', $dir);
+                break;
+            case 'last_contacted':
+                $query->orderByRaw('last_contacted_at IS NULL')
+                      ->orderBy('last_contacted_at', $dir);
+                break;
+            case 'last_modified':
+                $query->orderByRaw('COALESCE(modified_at, updated_at) IS NULL')
+                      ->orderByRaw('COALESCE(modified_at, updated_at) ' . $dir);
+                break;
+            case 'linked':
+                $query->orderBy('properties_count', $dir);
+                break;
+            case 'name':
+            default:
+                $query->orderBy('last_name', $dir)->orderBy('first_name', $dir);
+                break;
+        }
+
+        return $query->orderBy('id');
+    }
+
     public function show(Request $request, Contact $contact)
     {
         // JSON response for prefill / AJAX
@@ -133,21 +409,22 @@ class ContactController extends Controller
             ]);
         }
 
-        // AT-321-C — unlimited CSV export of the contact audit trail (History tab).
+        // CX-110 (Johan, 2026-08-20) — unlimited CSV export of the UNIFIED contact history
+        // (History tab). Was contact_audit_log-only; now the same 5-source merge the tab
+        // itself renders, honouring the same include_system toggle so the export can never
+        // disagree with what was on screen when it was requested.
         if ($request->get('export') === 'csv' && $request->get('tab') === 'history') {
-            $rows = \App\Models\ContactAuditLog::where('contact_id', $contact->id)
-                ->with('user')->orderByDesc('created_at')->get();
-            $csv = "Timestamp,Actor,Source,Category,Event Type,Summary,Before,After\n";
+            $rows = app(\App\Services\Contacts\ContactHistoryService::class)
+                ->rows($contact, $request->boolean('include_system'));
+            $csv = "Timestamp,Actor,Source,Category,Summary\n";
             foreach ($rows as $r) {
-                $actor = $r->user?->name ?? ($r->actor_label ?? 'System');
-                $csv .= '"' . $r->created_at->toIso8601String() . '","' . addslashes($actor) . '","'
-                    . addslashes($r->source ?? '') . '","' . $r->event_category . '","' . $r->event_type . '","'
-                    . addslashes($r->human_summary ?? '') . '","' . addslashes(json_encode($r->old_values ?? [])) . '","'
-                    . addslashes(json_encode($r->new_values ?? [])) . "\"\n";
+                $csv .= '"' . $r['date']->toIso8601String() . '","' . addslashes($r['actor']) . '","'
+                    . addslashes($r['source']) . '","' . $r['category'] . '","'
+                    . addslashes($r['summary']) . "\"\n";
             }
             return response($csv, 200, [
                 'Content-Type' => 'text/csv',
-                'Content-Disposition' => 'attachment; filename="contact-' . $contact->id . '-audit-log.csv"',
+                'Content-Disposition' => 'attachment; filename="contact-' . $contact->id . '-history.csv"',
             ]);
         }
 
@@ -158,6 +435,7 @@ class ContactController extends Controller
         $agencyAgents = \App\Models\User::withoutGlobalScope(\App\Models\Scopes\AgencyScope::class)
             ->where('agency_id', $contact->agency_id)
             ->where('is_active', true)
+            ->where('is_assistant', false) // AT-267 — an assistant is never a responsible agent
             ->orderBy('name')
             ->get(['id', 'name']);
         $contactTypes     = ContactType::parents()->with('subTags')->get()->unique('name')->values();
@@ -215,7 +493,13 @@ class ContactController extends Controller
                 ->whereIn('calendar_event_id', $buyerEventIds)->get()->groupBy('calendar_event_id');
             $agents = \App\Models\User::withoutGlobalScopes()
                 ->whereIn('id', $events->pluck('user_id')->unique()->filter())->pluck('name', 'id');
-            $outcomeLabels = \DB::table('agency_feedback_options')->where('category', 'outcome')->pluck('label', 'id');
+            // 2026-08-18 (Johan, AT-calendar-buttons §D) — unioned across BOTH
+            // vocabularies (outcome = buyer-facing, lp_outcome = seller-facing).
+            // agency_feedback_options.id is the primary key, globally unique across
+            // categories, so one id->label map safely resolves either vocabulary —
+            // fixes 2ee1159ad's actor_role split silently blanking this label
+            // whenever it wrote from the OTHER category than this hardcoded one.
+            $outcomeLabels = \DB::table('agency_feedback_options')->whereIn('category', ['outcome', 'lp_outcome'])->pluck('label', 'id');
 
             foreach ($propLinks as $pl) {
                 $ev = $events->get($pl->calendar_event_id);
@@ -228,8 +512,20 @@ class ContactController extends Controller
                     'address' => method_exists($pr, 'buildDisplayAddress') ? $pr->buildDisplayAddress() : ($pr->title ?? "Property #{$pr->id}"),
                     'event_date' => $ev->event_date,
                     'agent_name' => $agents->get($ev->user_id, 'Unknown'),
+                    // 2026-08-19 (Johan) — "same places feedback surfaces." A dismissed
+                    // appointment has no feedback row to show, but the reason it was
+                    // dismissed (buyer bought elsewhere, no-show, etc.) belongs here for
+                    // exactly the same reason feedback does — the next agent needs it.
+                    'dismissal_reason' => $ev->status === 'dismissed' ? $ev->dismissalReasonLabel() : null,
                     'feedback' => $fb ? [
-                        'outcome_label' => $outcomeLabels->get($fb->outcome_option_id),
+                        // per-property-mode captures (feedback_kind=listing_presentation)
+                        // never populate outcome_option_id — they store the outcome as a
+                        // label string in kind_specific_data.outcome instead. Fall back to
+                        // that so per-property feedback (now viewing's default too, §C)
+                        // still renders a label instead of going blank.
+                        'outcome_label' => $fb->outcome_option_id
+                            ? $outcomeLabels->get($fb->outcome_option_id)
+                            : (json_decode($fb->kind_specific_data ?? 'null', true)['outcome'] ?? null),
                         'seller_notes' => $fb->seller_visible_notes,
                         'internal_notes' => $fb->internal_notes,
                         'captured_at' => $fb->captured_at,
@@ -281,7 +577,9 @@ class ContactController extends Controller
                 $sFeedback = $sFeedbackQuery->get()->groupBy('calendar_event_id');
                 $sAgents = \App\Models\User::withoutGlobalScopes()
                     ->whereIn('id', $sEvents->pluck('user_id')->unique()->filter())->pluck('name', 'id');
-                $sOutcomes = \DB::table('agency_feedback_options')->where('category', 'outcome')->pluck('label', 'id');
+                // 2026-08-18 (Johan, AT-calendar-buttons §D) — see the matching buyer-
+                // perspective comment above: unioned across both vocabularies.
+                $sOutcomes = \DB::table('agency_feedback_options')->whereIn('category', ['outcome', 'lp_outcome'])->pluck('label', 'id');
 
                 $sPropLinks = \DB::table('calendar_event_links')
                     ->whereIn('calendar_event_id', $sellerEventIds)
@@ -300,8 +598,15 @@ class ContactController extends Controller
                         'event_date' => $sEv->event_date,
                         'agent_name' => $sAgents->get($sEv->user_id, 'Unknown'),
                         'buyer_label' => 'Interested Buyer',
+                        // See the buyer-perspective block above — same reasoning.
+                        'dismissal_reason' => $sEv->status === 'dismissed' ? $sEv->dismissalReasonLabel() : null,
                         'feedback' => $sFb ? [
-                            'outcome_label' => $sOutcomes->get($sFb->outcome_option_id),
+                            // See the buyer-perspective block above — per-property
+                            // captures store the outcome as a label string in
+                            // kind_specific_data.outcome, not outcome_option_id.
+                            'outcome_label' => $sFb->outcome_option_id
+                                ? $sOutcomes->get($sFb->outcome_option_id)
+                                : (json_decode($sFb->kind_specific_data ?? 'null', true)['outcome'] ?? null),
                             'seller_notes' => $sFb->seller_visible_notes,
                             'captured_at' => $sFb->captured_at,
                         ] : null,
@@ -547,20 +852,34 @@ class ContactController extends Controller
                 ->where('agent_user_id', $viewer->id)->where('contact_id', $contact->id)->first())->status
             : null;
 
-        // AT-321-C — FULL contact audit trail for the History tab, paginated (no
-        // cap). CSV export above is the unlimited one-shot. Page links keep tab=history.
-        // AT-321-C — History tab "Include system trail" toggle. Default OFF shows
-        // user changes only; the db-trigger backstop rows (source='db-trigger')
-        // are hidden unless the toggle is ticked.
+        // CX-110 (Johan, 2026-08-20) — the UNIFIED History tab. contact_audit_log alone was
+        // the wrong read path: real history (viewings, feedback, activity) was sitting in
+        // buyer_activity_log/calendar_event_feedback/calendar_events the whole time, correctly
+        // written, just never read here. ContactHistoryService merges all 5 sources; "Include
+        // system trail" now means the same thing across every source (contact_audit_log rows
+        // with actor_type <> 'user', buyer_activity_log's contact_access mirror rows, and
+        // contact_access_log itself) rather than just contact_audit_log's old db-trigger flag.
+        // ONE service instance for both calls below — $historyCount is count(rows()) off the
+        // SAME memoized rows() the paginator uses, so the tab badge can never disagree with
+        // the list under it (Johan's standing rule).
         $includeSystem = request()->boolean('include_system');
-        $fullAuditLog = \App\Models\ContactAuditLog::where('contact_id', $contact->id)
-            ->with('user')
-            ->when(!$includeSystem, fn ($q) => $q->where(fn ($w) => $w->whereNull('source')->orWhere('source', '<>', 'db-trigger')))
-            ->orderByDesc('created_at')
-            ->paginate(50, ['*'], 'history')
+        $historyService = app(\App\Services\Contacts\ContactHistoryService::class);
+        $fullAuditLog = $historyService->paginate($contact, $includeSystem)
             ->appends(array_filter(['tab' => 'history', 'include_system' => $includeSystem ? 1 : null]));
+        $historyCount = $historyService->count($contact, $includeSystem);
 
-        return view('corex.contacts.show', compact('contact', 'contactTypes', 'contactIdentifierLabels', 'contactTags', 'matchCategories', 'matchTypes', 'featureOptions', 'documentTypes', 'driveLinkedGroups', 'driveUnlinkedDocs', 'drivePropertyMap', 'buyerViewings', 'sellerViewings', 'buyerUpcoming', 'buyerPast', 'sellerUpcoming', 'sellerPast', 'viewingsCount', 'outreachSends', 'outreachClickCounts', 'outreachOutcomeOptions', 'agencyAgents', 'canViewComms', 'contactComms', 'contactThreads', 'commsViaGrant', 'canRequestComms', 'pendingCommsRequest', 'myCaptureStatus', 'waSent', 'emailSent', 'fullAuditLog', 'includeSystem', 'recentSends', 'sendAuditLog', 'sendAuditActors'));
+        // AT-267 — may the current user EDIT this contact? An assistant may VIEW a colleague's
+        // contact but only EDIT the agent's own — OR an unowned contact (no linked agent). The view
+        // renders read-only when false so no edit affordance is shown that would only 403 on save.
+        $canEdit = $this->canMutateContact($contact);
+
+        // MERGE NOTE (QA2 -> Staging, 2026-07-26; extended 2026-08-20 for CX-110): several
+        // independent additions share this view-variable list — AT-321-C's $fullAuditLog,
+        // AT-267's $canEdit, and CX-110's $historyCount. All independent; all kept.
+        // Contact-details Phase 2 adds $contactIdentifierLabels; Phase 4 adds the
+        // Recent-Sends panel vars ($recentSends, $sendAuditLog, $sendAuditActors);
+        // AT-321 audit adds $includeSystem (History-tab system-trail toggle).
+        return view('corex.contacts.show', compact('contact', 'contactTypes', 'contactIdentifierLabels', 'contactTags', 'matchCategories', 'matchTypes', 'featureOptions', 'documentTypes', 'driveLinkedGroups', 'driveUnlinkedDocs', 'drivePropertyMap', 'buyerViewings', 'sellerViewings', 'buyerUpcoming', 'buyerPast', 'sellerUpcoming', 'sellerPast', 'viewingsCount', 'outreachSends', 'outreachClickCounts', 'outreachOutcomeOptions', 'agencyAgents', 'canViewComms', 'contactComms', 'contactThreads', 'commsViaGrant', 'canRequestComms', 'pendingCommsRequest', 'myCaptureStatus', 'waSent', 'emailSent', 'fullAuditLog', 'includeSystem', 'historyCount', 'recentSends', 'sendAuditLog', 'sendAuditActors', 'canEdit'));
     }
 
     public function checkDuplicate(Request $request)
@@ -683,6 +1002,11 @@ class ContactController extends Controller
 
     public function store(Request $request)
     {
+        // #17 — foreign nationals: id_type='passport' captures a free passport number + a
+        // directly-entered DOB (birthday) instead of a 13-digit SA ID. Absent/other id_type keeps
+        // the existing validated SA-ID path, so existing SA-ID captures are unaffected.
+        $isForeign = $request->input('id_type') === 'passport';
+
         $data = $request->validate([
             // Entity-type foundation (.ai/specs/contact-entity-type.md) — the
             // Contact Is radio. first_name/last_name are only required for a
@@ -721,7 +1045,13 @@ class ContactController extends Controller
             // Optional SA ID number, captured with a POPIA audit trail. Only
             // meaningful for a natural person — the form doesn't post it for
             // an entity, so this rule doesn't need a contact_kind condition.
-            'id_number'       => ['nullable', 'string', 'max:20', new \App\Rules\SouthAfricanIdNumber()],
+            // #17 — SA ID validated for SA persons; a foreign national's passport is a free
+            // string, and their DOB is captured directly (birthday) since it can't be derived.
+            'id_type'         => ['nullable', \Illuminate\Validation\Rule::in(['sa_id', 'passport'])],
+            'id_number'       => $isForeign
+                ? ['nullable', 'string', 'max:50']
+                : ['nullable', 'string', 'max:20', new \App\Rules\SouthAfricanIdNumber()],
+            'birthday'        => ['nullable', 'date', 'required_if:id_type,passport'],
             // Duplicate bypass fields
             'bypass_duplicate_check' => 'nullable|boolean',
             'override_reason'        => 'nullable|string|max:500',
@@ -938,6 +1268,17 @@ class ContactController extends Controller
 
     public function update(Request $request, Contact $contact)
     {
+        $this->authorizeContact($contact);
+
+        // Only enforce the strict SA-ID format when the value is actually being
+        // changed. Pre-Phase-A.2.5 records (and rows written by the CSV import,
+        // which persists id_number with no format check) can already hold a
+        // non-compliant value — the edit form always re-submits it via
+        // old('id_number', $contact->id_number), so validating it unconditionally
+        // would block an unrelated edit (e.g. just a phone update) on a contact
+        // whose legacy ID number nobody is touching.
+        $idNumberChanged = $request->input('id_number') !== $contact->id_number;
+
         $data = $request->validate([
             // Entity-type foundation (.ai/specs/contact-entity-type.md) — see
             // store() for the same shape/reasoning.
@@ -986,7 +1327,15 @@ class ContactController extends Controller
                     ->where('is_active', true),
             ],
             'birthday'        => 'nullable|date',
-            'id_number'       => 'nullable|string|max:20',
+            // #17 — id_type discriminates SA ID vs a foreign passport (mirrors the create() method's
+            // $isForeign pattern above). Checksum only runs when id_number actually changed AND it's
+            // an SA ID — combines Johan's 2026-08-19 fix (validate on genuine change, not every edit,
+            // so legacy contacts with a bad stored id_number can still save unrelated field edits)
+            // with #17's lenient passport handling (a foreign passport is a free string, never checksummed).
+            'id_type'         => ['nullable', \Illuminate\Validation\Rule::in(['sa_id', 'passport'])],
+            'id_number'       => ($idNumberChanged && $request->input('id_type') !== 'passport')
+                ? ['nullable', 'string', 'max:20', new \App\Rules\SouthAfricanIdNumber()]
+                : ['nullable', 'string', 'max:50'],
             // Residential address — where the contact lives. Free text, set
             // ONLY here. Distinct from the structured property-address capture
             // (updatePropertyAddress), which never writes to this column.
@@ -1104,6 +1453,7 @@ class ContactController extends Controller
      */
     public function updatePropertyAddress(Request $request, Contact $contact)
     {
+        $this->authorizeContact($contact);
         $data = $request->validate([
             'unit_number'        => 'nullable|string|max:50',
             'floor_number'       => 'nullable|string|max:50',
@@ -1252,6 +1602,7 @@ class ContactController extends Controller
      */
     public function clearPropertyAddress(Request $request, Contact $contact)
     {
+        $this->authorizeContact($contact);
         $columns = [
             'unit_number', 'floor_number', 'unit_section_block', 'complex_name',
             'street_number', 'street_name', 'suburb', 'city', 'province',
@@ -1267,6 +1618,7 @@ class ContactController extends Controller
 
     public function touch(Request $request, Contact $contact)
     {
+        $this->authorizeContact($contact);
         $data = $request->validate([
             'last_contacted_at' => 'required|date',
         ]);
@@ -1287,6 +1639,7 @@ class ContactController extends Controller
      */
     public function toggleBirthdayReminder(Request $request, Contact $contact)
     {
+        $this->authorizeContact($contact);
         if (! $contact->birthday) {
             return back()->with('error', 'Add a date of birth before setting a birthday reminder.');
         }
@@ -1310,6 +1663,7 @@ class ContactController extends Controller
      */
     public function incrementChannel(Request $request, Contact $contact, \App\Services\Communications\OutboundProvisionalLogger $logger, \App\Services\Outreach\OutreachWindowService $window)
     {
+        $this->authorizeContact($contact);
         $data = $request->validate([
             'channel'          => 'required|in:whatsapp,email',
             'subject'          => 'nullable|string|max:1000',
@@ -1480,6 +1834,7 @@ class ContactController extends Controller
 
     public function destroy(Contact $contact)
     {
+        $this->authorizeContact($contact);
         $contact->delete();
 
         return redirect()->route('corex.contacts.index')->with('success', 'Contact deleted.');
@@ -1487,6 +1842,7 @@ class ContactController extends Controller
 
     public function recordConsent(Request $request, Contact $contact)
     {
+        $this->authorizeContact($contact);
         $data = $request->validate([
             'consent_type' => 'required|in:fica_processing,marketing_communications,data_sharing,channel_email,channel_sms,channel_whatsapp,channel_call',
             'decision'     => 'nullable|in:given,declined',
@@ -1506,6 +1862,7 @@ class ContactController extends Controller
 
     public function revokeConsent(Request $request, Contact $contact)
     {
+        $this->authorizeContact($contact);
         $request->validate([
             'consent_type' => 'required|in:fica_processing,marketing_communications,data_sharing,channel_email,channel_sms,channel_whatsapp,channel_call',
             'reason' => 'nullable|string|max:500',
@@ -1610,6 +1967,7 @@ class ContactController extends Controller
 
     public function syncTags(Request $request, Contact $contact)
     {
+        $this->authorizeContact($contact);
         $data = $request->validate([
             'tag_ids'   => 'nullable|array',
             'tag_ids.*' => 'integer|exists:contact_tags,id',
@@ -1646,7 +2004,9 @@ class ContactController extends Controller
         $user      = auth()->user();
         $dataScope = PermissionService::getDataScope($user, 'contacts');
 
-        $query = User::agencyMembers()->orderBy('name')->where('is_active', 1);
+        // AT-267 — an assistant is never a selectable AGENT (they own no data). Exclude them from
+        // the picker on every scope.
+        $query = User::agencyMembers()->where('is_assistant', false)->orderBy('name')->where('is_active', 1);
 
         if ($dataScope === 'branch') {
             $branchId = $user->effectiveBranchId();

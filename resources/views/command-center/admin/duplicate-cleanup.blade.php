@@ -5,14 +5,14 @@
 @section('corex-content')
 <div class="w-full space-y-5">
 
-    {{-- Page header (branded, Pattern A) --}}
-    <div class="rounded-md px-6 py-5" style="background:var(--brand-default,#0b2a4a);">
+    {{-- Page header (flat neutral, Pattern A) --}}
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Duplicate Cleanup Queue</h1>
-                <p class="text-sm text-white/60">Review and resolve potential duplicate contacts detected across your agency.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Duplicate Cleanup Queue</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Review and resolve potential duplicate contacts detected across your agency.</p>
             </div>
-            <div class="flex items-center gap-2 flex-wrap">
+            <div class="flex flex-wrap items-center gap-2">
                 <span class="ds-badge ds-badge-warning">{{ number_format($clusters->total()) }} Pending</span>
             </div>
         </div>
@@ -72,9 +72,9 @@
                 <div class="p-4">
                     <div class="space-y-2 mb-4">
                         @foreach($clusterContacts as $contact)
-                            <div class="flex items-center gap-3 p-2 rounded-md" style="background:var(--surface-2);">
-                                <div class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0"
-                                     style="background:var(--brand-icon,#0ea5e9);">
+                            <div class="flex items-center gap-3 p-2 rounded-md" style="background:var(--surface-2); border:1px solid var(--border);">
+                                <div class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0"
+                                     style="background:var(--brand-default,#0b2a4a); color:#fff;">
                                     {{ strtoupper(substr($contact->first_name ?? '', 0, 1)) }}
                                 </div>
                                 <div class="flex-1 min-w-0">
@@ -94,10 +94,10 @@
                     <div class="flex items-center gap-2 flex-wrap">
                         <form method="POST" action="{{ route('command-center.admin.duplicate-cleanup.dismiss', $cluster->id) }}">
                             @csrf
-                            <button type="submit" class="corex-btn-outline text-sm">Not Duplicate</button>
+                            <button type="submit" class="corex-btn-outline text-xs">Not Duplicate</button>
                         </form>
                         <button type="button" onclick="window.showToast('Merge flow will be available in a follow-up release.', 'info')"
-                                class="corex-btn-primary text-sm">
+                                class="corex-btn-primary text-xs">
                             Merge (Coming Soon)
                         </button>
                     </div>

@@ -9,6 +9,7 @@ use App\Models\Scopes\AgencyScope;
 use App\Services\Syndication\Property24\Property24ListingMapper;
 use App\Services\Syndication\Property24\Property24SyndicationService;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Log;
 
 /**
  * Repair the drift between `p24_syndication_status` (a local cache) and what
@@ -57,8 +58,11 @@ class ReconcileP24PortalPresence extends Command
             $query->where('id', (int) $id);
         } elseif (! $this->option('all')) {
             // The suspect set: rows claiming to be off the portal. Those are the
-            // ones the old Sold-push / toggle-off bugs stranded.
-            $query->where('p24_syndication_status', Property::PORTAL_OFF_STATUS);
+            // ones the old Sold-push / toggle-off bugs stranded. Covers 'error' and
+            // 'rejected' as well as 'deactivated' — all three read as "not
+            // advertised" while hiding a listing that may be publicly live, and
+            // sweeping only 'deactivated' left 189 such rows unchecked.
+            $query->whereIn('p24_syndication_status', Property::P24_CLAIMS_OFF_PORTAL_STATUSES);
         }
 
         $targets = $query->orderBy('id')->get();
@@ -111,6 +115,20 @@ class ReconcileP24PortalPresence extends Command
             $note = $onPortal ? 'LIVE on portal' : 'not on portal';
             $this->line("  #{$property->id} {$note} — status '{$property->p24_syndication_status}' → '{$truthful}'"
                 . ($onPortal && $shouldBeOff ? '  (still needs --withdraw)' : ''));
+
+            // A listing that is publicly advertised but should not be is a real-world
+            // problem (an off-market or de-syndicated property still on P24), and the
+            // scheduled sweep runs without --withdraw — so it must ALARM rather than
+            // only print to a console nobody reads. Fix the caller; do not silence.
+            if ($onPortal && $shouldBeOff) {
+                Log::channel('property24')->warning(
+                    "P24 STRANDED ADVERT: property #{$property->id} (ref {$property->p24_ref}) is LIVE on the portal "
+                    . "but should not be (market status '{$property->status}', syndication "
+                    . ($property->p24_syndication_enabled ? 'on' : 'OFF') . "). "
+                    . "Run: php artisan p24:reconcile-portal-presence --property={$property->id} --withdraw",
+                    ['property_id' => $property->id, 'p24_ref' => $property->p24_ref, 'status' => $property->status]
+                );
+            }
 
             if (! $dryRun) {
                 $property->updateQuietly(['p24_syndication_status' => $truthful]);

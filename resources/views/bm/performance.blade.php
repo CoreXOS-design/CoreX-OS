@@ -61,20 +61,19 @@
 <div class="w-full space-y-6">
 
     {{-- PAGE HEADER (Pattern A — branded) --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight tracking-tight">
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">
                     Branch Dashboard — {{ $branchName ?? 'Branch' }}
                 </h1>
-                <p class="text-sm text-white/60">Branch Manager view (TV-ready) — {{ \Carbon\Carbon::createFromFormat('Y-m', $r['period'])->format('F Y') }}</p>
+                <p class="text-xs" style="color: var(--text-muted);">Branch Manager view (TV-ready) — {{ \Carbon\Carbon::createFromFormat('Y-m', $r['period'])->format('F Y') }}</p>
             </div>
-            <div class="flex items-center gap-2">
-                <form method="GET" action="{{ route('bm.performance') }}" class="flex items-center gap-2">
+            <div class="flex flex-wrap items-center gap-2">
+                <form method="GET" action="{{ route('bm.performance') }}" class="flex flex-wrap items-center gap-2">
                     <input type="month" name="period" value="{{ $r['period'] }}"
-                           class="h-9 text-sm rounded-md border border-white/20 bg-white/10 text-white px-2 transition-all duration-300" />
-                    <button type="submit"
-                            class="px-3 py-1.5 text-sm font-semibold rounded-md bg-white/20 text-white hover:bg-white/30 transition-all duration-300">
+                           class="list-header-filter" />
+                    <button type="submit" class="corex-btn-primary text-xs">
                         Go
                     </button>
                 </form>
@@ -426,7 +425,7 @@
                     <label for="branch_budget" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Branch budget (R)</label>
                     <input id="branch_budget" type="number" step="0.01" name="branch_budget" value="{{ $branchBudget }}"
                            class="w-48 rounded-md text-sm px-3 py-2"
-                           style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
+                           style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);"
                            min="0">
                 </div>
                 <button type="submit" class="corex-btn-primary">Save Budget</button>
@@ -467,7 +466,7 @@
 
                                 <div class="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
                                     @foreach($missingValueTargets as $u)
-                                        <div class="rounded-md p-3 flex items-center justify-between gap-3" style="border: 1px solid var(--border); background: var(--surface);">
+                                        <div class="rounded-md p-3 flex items-center justify-between gap-3" style="border: 1px solid var(--border); background: var(--surface-2);">
                                             <div>
                                                 <div class="text-sm font-bold" style="color: var(--text-primary);">{{ $u['name'] }}</div>
                                                 <div class="text-xs" style="color: var(--text-muted);">Value target currently: <span class="font-bold">0</span></div>
@@ -584,7 +583,7 @@
                                         </a>
                                         @if(!empty($row['is_archived']))
                                             <span class="ml-1 inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold align-middle"
-                                                  style="background: var(--surface-muted, #f1f5f9); color: var(--text-muted, #64748b);"
+                                                  style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-muted);"
                                                   title="This team member has been archived. Their commission from this period still counts toward the branch total.">Archived</span>
                                         @endif
                                     </div>

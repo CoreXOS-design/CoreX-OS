@@ -18,8 +18,14 @@
     Scoping mirrors the existing contact-viewings reads: resolve the contact's own
     calendar_event_links, then load those events withoutGlobalScopes (the contact
     is already agency-scoped, so its linked events are too; this matches the
-    deliberate CAL-7 read pattern that surfaces legacy/role-NULL links). Dismissed
-    events are excluded. Permission gating is a separate concern (not here).
+    deliberate CAL-7 read pattern that surfaces legacy/role-NULL links).
+
+    2026-08-19 (Johan) — dismissed events are now INCLUDED, not excluded: "an
+    agent must be able to see why that appointment died" (e.g. a buyer
+    cancelled a viewing because they bought elsewhere). A dismissed event
+    shows its dismissal reason in place of the feedback prompt below — there
+    is nothing to give feedback on for an appointment that never happened.
+    Permission gating is a separate concern (not here).
 --}}
 @php
     $cid = $contact->id;
@@ -32,7 +38,6 @@
     if ($linkedEventIds->isNotEmpty()) {
         $evs = \App\Models\CommandCenter\CalendarEvent::withoutGlobalScopes()
             ->whereIn('id', $linkedEventIds)
-            ->where('status', '!=', 'dismissed')
             ->with('linkedProperties')
             ->orderBy('event_date')
             ->get();
@@ -63,6 +68,7 @@
                 'id'             => $ev->id,
                 'title'          => $ev->title,
                 'event_date'     => $ev->event_date,
+                'category'       => $ev->category,
                 'type_label'     => $ev->category ?: ucfirst((string) $ev->event_type),
                 'status'         => $ev->status,
                 'agent_name'     => $agentNames->get($ev->user_id, 'Unassigned'),
@@ -71,14 +77,35 @@
                 'property_id'    => $first['id'] ?? null,
                 'property_address' => $first['address'] ?? null,
                 'has_feedback'   => $fedEventIds->has($ev->id),
+                'dismissal_reason' => $ev->status === 'dismissed' ? $ev->dismissalReasonLabel() : null,
             ];
         });
     }
 
+    // CX-103 (Johan, 2026-08-19) — the PAST list must only ever show genuinely
+    // buyer-facing appointments. Before this fix it showed every linked event
+    // regardless of class, so a listing presentation or property evaluation the
+    // contact happened to be a pivot-row attendee on read back as a "Viewing"
+    // the buyer never had. Buyer-facing = actor_role 'buyer_action' on
+    // calendar_event_class_settings — today that is exactly the 'viewing'
+    // class; a future buyer-driven class picks this up automatically, no code
+    // change needed here. Agency-specific override row wins over the global
+    // template when both exist.
+    $buyerFacingClasses = \App\Models\CommandCenter\CalendarEventClassSetting::withoutGlobalScopes()
+        ->where(fn ($q) => $q->where('agency_id', $contact->agency_id)->orWhereNull('agency_id'))
+        ->where('actor_role', 'buyer_action')
+        ->orderByRaw('agency_id IS NULL')
+        ->get(['event_class'])
+        ->pluck('event_class')
+        ->unique()
+        ->values();
+
     $now = now();
     $upcoming = $linkedEvents->filter(fn ($e) => \Carbon\Carbon::parse($e['event_date'])->gte($now))
         ->sortBy('event_date')->values();
-    $past = $linkedEvents->filter(fn ($e) => \Carbon\Carbon::parse($e['event_date'])->lt($now))
+    $past = $linkedEvents
+        ->filter(fn ($e) => \Carbon\Carbon::parse($e['event_date'])->lt($now)
+            && $buyerFacingClasses->contains($e['category']))
         ->sortByDesc('event_date')->values();
 @endphp
 
@@ -118,6 +145,14 @@
                         <span class="ds-badge ds-badge-info mt-0.5">{{ ucfirst($e['type_label']) }}</span>
                     </div>
                 </div>
+                @if($e['dismissal_reason'] ?? null)
+                    {{-- 2026-08-19 (Johan) — an appointment can be dismissed ahead of
+                         its own date (e.g. the buyer cancels early); show why here too. --}}
+                    <div class="mt-2 rounded px-3 py-2" style="background:var(--surface-2); border:1px solid var(--border);">
+                        <span class="ds-badge ds-badge-default">Dismissed</span>
+                        <p class="text-xs mt-1" style="color:var(--text-secondary);">{{ $e['dismissal_reason'] }}</p>
+                    </div>
+                @endif
             </div>
         @empty
             <p class="text-xs py-3" style="color:var(--text-muted);">None</p>
@@ -154,9 +189,16 @@
                     </div>
                 </div>
 
-                {{-- Feedback state + in-place "Provide feedback" trigger --}}
+                {{-- Feedback state + in-place "Provide feedback" trigger — OR, for a
+                     dismissed appointment, why it never happened. Nothing to give
+                     feedback on for an appointment that was cancelled, not attended. --}}
                 <div class="mt-2">
-                    @if($e['has_feedback'])
+                    @if($e['dismissal_reason'] ?? null)
+                        <div class="rounded px-3 py-2" style="background:var(--surface-2); border:1px solid var(--border);">
+                            <span class="ds-badge ds-badge-default">Dismissed</span>
+                            <p class="text-xs mt-1" style="color:var(--text-secondary);">{{ $e['dismissal_reason'] }}</p>
+                        </div>
+                    @elseif($e['has_feedback'])
                         <span class="ds-badge ds-badge-success">Feedback captured</span>
                     @else
                         {{-- flips to a confirmation chip in place once saved this session --}}

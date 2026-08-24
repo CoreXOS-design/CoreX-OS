@@ -3,14 +3,14 @@
 
 @section('corex-content')
 <div class="w-full space-y-5">
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Document Types</h1>
-                <p class="text-sm text-white/60">Configure which compliance documents your agency maintains. Each type can have its own expiry and renewal rules.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Document Types</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Configure which compliance documents your agency maintains. Each type can have its own expiry and renewal rules.</p>
             </div>
-            <div class="flex items-center gap-2">
-                <a href="{{ route('compliance.document-types.create') }}" class="corex-btn-primary inline-flex items-center gap-1.5">
+            <div class="flex flex-wrap items-center gap-2">
+                <a href="{{ route('compliance.document-types.create') }}" class="corex-btn-primary text-xs inline-flex items-center gap-1.5">
                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.5v15m7.5-7.5h-15"/></svg>
                     Add Type
                 </a>

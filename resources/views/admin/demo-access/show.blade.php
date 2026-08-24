@@ -25,32 +25,30 @@
 @endphp
 <div class="w-full space-y-5">
 
-    {{-- Back link --}}
-    <a href="{{ route('admin.demo-access.index') }}"
-       class="inline-flex items-center gap-1.5 text-sm no-underline"
-       style="color:var(--text-secondary);">
-        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18"/>
-        </svg>
-        Back to Demo Access
-    </a>
-
     {{-- Page header — §2.4 Pattern A --}}
-    <div class="rounded-md px-6 py-5" style="background:var(--brand-default,#0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div class="min-w-0">
                 <div class="flex items-center gap-2 flex-wrap">
-                    <h1 class="text-xl font-bold text-white leading-tight">{{ $grant->company_name }}</h1>
+                    <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">{{ $grant->company_name }}</h1>
                     <span class="ds-badge {{ $badgeVariant }}">{{ $grant->statusLabel() }}</span>
                 </div>
-                <p class="text-sm text-white/60">
+                <p class="text-xs" style="color: var(--text-muted);">
                     {{ $grant->contact_email }}
                     @if ($grant->contact_name) · {{ $grant->contact_name }} @endif
                 </p>
             </div>
 
-            <div class="flex items-center gap-2 flex-wrap">
-                <a href="{{ route('admin.demo-access.edit', $grant) }}" class="corex-btn-outline corex-btn-on-brand text-sm">
+            <div class="flex flex-wrap items-center gap-2">
+                {{-- Back link — lives in the header action cluster (AT-336). --}}
+                <a href="{{ route('admin.demo-access.index') }}" class="corex-btn-outline corex-btn-on-brand text-xs">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18"/>
+                    </svg>
+                    Back to Demo Access
+                </a>
+
+                <a href="{{ route('admin.demo-access.edit', $grant) }}" class="corex-btn-outline corex-btn-on-brand text-xs">
                     <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                         <path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Z"/>
                     </svg>
@@ -65,7 +63,7 @@
                     <form method="POST" action="{{ route('admin.demo-access.revoke', $grant) }}"
                           onsubmit="return confirm('Revoke access for {{ addslashes($grant->company_name) }}?\n\nThey will be locked out within {{ $cacheTtl }} seconds — not instantly. If they are mid-page right now, they may finish that page.');">
                         @csrf
-                        <button type="submit" class="corex-btn-danger text-sm">
+                        <button type="submit" class="corex-btn-danger text-xs">
                             <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M18.364 18.364A9 9 0 0 0 5.636 5.636m12.728 12.728A9 9 0 0 1 5.636 5.636m12.728 12.728L5.636 5.636"/>
                             </svg>
@@ -78,14 +76,14 @@
                     <form method="POST" action="{{ route('admin.demo-access.destroy', $grant) }}"
                           onsubmit="return confirm('Archive this grant?\n\nIt is hidden from the list but kept permanently as a record of who accepted which terms. Nothing is deleted.');">
                         @csrf @method('DELETE')
-                        <button type="submit" class="corex-btn-outline corex-btn-on-brand text-sm">
+                        <button type="submit" class="corex-btn-outline corex-btn-on-brand text-xs">
                             Archive
                         </button>
                     </form>
                 @else
                     <form method="POST" action="{{ route('admin.demo-access.restore', $grant) }}">
                         @csrf
-                        <button type="submit" class="corex-btn-outline corex-btn-on-brand text-sm">
+                        <button type="submit" class="corex-btn-outline corex-btn-on-brand text-xs">
                             Restore
                         </button>
                     </form>

@@ -3,6 +3,8 @@
 namespace App\Models;
 
 use App\Models\Concerns\BelongsToAgency;
+use App\Models\Concerns\BelongsToBranch;
+use App\Models\Concerns\InheritsBranchFromParent;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -16,7 +18,13 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  */
 class ProspectingBuyerMatch extends Model
 {
-    use BelongsToAgency;
+    use BelongsToBranch, InheritsBranchFromParent, BelongsToAgency;
+
+    /** The match's branch is the prospecting listing's. */
+    protected function branchParent(): array
+    {
+        return [\App\Models\ProspectingListing::class, 'prospecting_listing_id'];
+    }
 
     protected $table = 'prospecting_buyer_matches';
 

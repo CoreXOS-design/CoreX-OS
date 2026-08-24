@@ -1009,20 +1009,41 @@ class SigningController extends Controller
     {
         $agency = null;
 
-        // Try to get agency from the creator's agency_id
-        $creator = $signingRequest->template->creator ?? null;
-        if ($creator && $creator->agency_id) {
-            $agency = Agency::find($creator->agency_id);
+        // Prefer the underlying document's own agency_id — the authoritative
+        // tenant owner of the record being signed (App\Models\Docuperfect\Document
+        // uses BelongsToAgency as of 2026_08_23_000004_add_agency_id_to_docuperfect_
+        // documents_table.php). Unlike the creator's *current* agency_id, this
+        // does not drift if the creating user is later moved to another
+        // agency, so it is the more reliable signal for an external,
+        // unauthenticated signing page.
+        $document = $signingRequest->template->document ?? null;
+        if ($document && $document->agency_id) {
+            $agency = Agency::find($document->agency_id);
         }
 
-        // Fallback to first agency
+        // Fall back to the template creator's agency_id.
         if (!$agency) {
-            $agency = Agency::first();
+            $creator = $signingRequest->template->creator ?? null;
+            if ($creator && $creator->agency_id) {
+                $agency = Agency::find($creator->agency_id);
+            }
+        }
+
+        // Absolute last resort: a GENERIC, non-tenant-specific platform
+        // default — never Agency::first(), which would leak an arbitrary
+        // real tenant's name/logo/colour onto an external, unauthenticated
+        // "signing already completed" page.
+        if (!$agency) {
+            return [
+                'name' => config('app.name', 'CoreX OS'),
+                'logo' => null,
+                'color' => '#0b2a4a',
+            ];
         }
 
         return [
-            'name' => $agency->name ?? 'Home Finders Coastal',
-            'logo' => $agency && $agency->logo_path ? asset('storage/' . $agency->logo_path) : null,
+            'name' => $agency->name ?? config('app.name', 'CoreX OS'),
+            'logo' => $agency->logo_path ? asset('storage/' . $agency->logo_path) : null,
             'color' => $agency->default_color ?? $agency->button_color ?? '#0b2a4a',
         ];
     }
@@ -2835,18 +2856,46 @@ class SigningController extends Controller
         $signatureTemplate = $signingRequest->template;
         $document = $signatureTemplate->document;
 
+        $docName = $document->name ?? 'Document';
+        $safeDocName = preg_replace('/[^A-Za-z0-9_\-]/', '_', $docName);
+        $filename = $safeDocName . '_' . date('Y-m-d') . '.pdf';
+
+        // Serve the stored signed PDF when one already exists — it's the exact
+        // document that was signed; regenerating it gains nothing and costs several
+        // seconds of Puppeteer rendering. Client copy first (no internal audit
+        // pages), falling back to the internal copy only for legacy rows that never
+        // generated a client copy — same order as SignatureController::download().
+        $disk = \Illuminate\Support\Facades\Storage::disk('local');
+        $storedPath = $signatureTemplate->signed_pdf_client_path;
+        if (!$storedPath || !$disk->exists($storedPath)) {
+            $storedPath = $signatureTemplate->signed_pdf_path;
+        }
+        if ($storedPath && $disk->exists($storedPath)) {
+            return response()->download($disk->path($storedPath), $filename);
+        }
+
+        // No stored file — fall back to re-rendering. Check the RAW render source
+        // (before buildInjectedRenderHtml()'s pagination wrap, which always returns
+        // a non-empty CSS+JS scaffold even when handed empty input) so a genuinely
+        // empty document is caught here rather than silently producing a blank-but-
+        // valid PDF — same shape as printView() and SignaturePdfService::generate().
+        $pdfService = app(\App\Services\Docuperfect\SignaturePdfService::class);
+        $renderHtml = $pdfService->resolveRenderHtml($signatureTemplate);
+        if (trim((string) $renderHtml) === '') {
+            Log::error('downloadWebPdf — no stored PDF and no render content available', [
+                'document_id' => $document->id,
+                'template_id' => $signatureTemplate->id,
+            ]);
+            return response()->json(['error' => 'This document cannot be produced right now — its content is not available. Please contact the agent.'], 404);
+        }
+
         // Re-render + download WITHOUT re-signing: regenerate the PDF from the stored
         // signed content through the SAME measure-and-fit engine the completion email
         // uses (SignaturePdfService::buildInjectedRenderHtml → resolveRenderHtml +
         // injectInitialsPagination), so a downloaded signed doc is a page-for-page A4
         // copy — one physical sheet per logical page, no spill — identical to the
         // emailed PDF. (Was rendering raw merged_html verbatim, which spilled.)
-        $mergedHtml = app(\App\Services\Docuperfect\SignaturePdfService::class)
-            ->buildInjectedRenderHtml($signatureTemplate);
-
-        if (empty($mergedHtml)) {
-            return response()->json(['error' => 'Document content not available for PDF generation.'], 404);
-        }
+        $mergedHtml = $pdfService->buildInjectedRenderHtml($signatureTemplate);
 
         try {
             $outputPath = $this->generatePdfFromHtml($mergedHtml, $document->id);
@@ -2863,10 +2912,6 @@ class SigningController extends Controller
             @unlink($outputPath);
             return response()->json(['error' => 'PDF generation failed.'], 500);
         }
-
-        $docName = $document->name ?? 'Document';
-        $safeDocName = preg_replace('/[^A-Za-z0-9_\-]/', '_', $docName);
-        $filename = $safeDocName . '_' . date('Y-m-d') . '.pdf';
 
         return response()->download($outputPath, $filename)->deleteFileAfterSend(true);
     }

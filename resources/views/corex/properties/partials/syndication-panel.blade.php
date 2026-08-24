@@ -21,6 +21,10 @@
 @php
     $synPpEnabled  = $synPpEnabled  ?? (bool) \App\Models\PerformanceSetting::get('syndication_pp_enabled', 1);
     $synP24Enabled = $synP24Enabled ?? (bool) \App\Models\PerformanceSetting::get('syndication_p24_enabled', 1);
+    // AT-369 follow-up — agency master kill switch for the PP-exclusivity
+    // sub-feature. Off removes the tick (and its two modals) from every
+    // sole-mandate Sale listing's panel, regardless of mandate/listing type.
+    $ppExclusivityEnabled = $ppExclusivityEnabled ?? (bool) \App\Models\PerformanceSetting::get('pp_exclusivity_enabled', 1, $property->agency_id);
 
     $websiteKeys = $websiteKeys ?? \App\Models\AgencyApiKey::withoutGlobalScope(\App\Models\Scopes\AgencyScope::class)
         ->where('agency_id', $property->agency_id)
@@ -34,6 +38,14 @@
     // Portal feed readiness — drives the "fields need attention" lists.
     $ppMissingFields  = $ppMissingFields  ?? app(\App\Services\PrivateProperty\PrivatePropertyListingMapper::class)->checkReadiness($property);
     $p24MissingFields = $p24MissingFields ?? app(\App\Services\Syndication\Property24\Property24ListingMapper::class)->checkReadiness($property);
+
+    // AT-267 — an assistant gets a READ-ONLY syndication panel: portal status,
+    // portal links, and a live preview (listing agent's info only). Every control
+    // that changes syndication (enable/disable toggles, Submit, Deactivate,
+    // Reactivate, Refresh, Refresh-all) is omitted. These POSTs are already denied
+    // server-side by `deny_assistant_property_write`, so hiding them just removes a
+    // button that would 403 — it never removes a capability the assistant had.
+    $synReadOnly = (bool) auth()->user()?->is_assistant;
 @endphp
                 {{-- Step: main --}}
                 <div x-show="synStep === 'main'" class="p-4 space-y-4">
@@ -75,9 +87,9 @@
                              x-effect="announceSyndicationState()"
                              @corex-syndication-census-request.window="announceSyndicationState()"
                              @corex-syndication-refresh-all.window="onSyndicationRefreshAll($event)">
-                            {{-- Header card — click toggles active/deactivated (enable = active). --}}
-                            <div class="flex items-center justify-between gap-3 px-3 py-2 rounded-md cursor-pointer"
-                                 @click="toggleEnabled()"
+            {{-- Header card — click toggles active/deactivated (enable = active). Read-only for assistants. --}}
+                            <div class="flex items-center justify-between gap-3 px-3 py-2 rounded-md {{ $synReadOnly ? '' : 'cursor-pointer' }}"
+                                 @unless($synReadOnly) @click="toggleEnabled()" @endunless
                                  :style="enabled ? 'background:color-mix(in srgb, var(--brand-button) 8%, transparent); border:1px solid color-mix(in srgb, var(--brand-button) 25%, transparent);' : 'background:var(--surface-2); border:1px solid var(--border);'">
                                 <div class="flex items-center gap-2">
                                     <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" :style="enabled ? 'color:var(--brand-button)' : 'color:var(--text-muted)'">
@@ -86,6 +98,7 @@
                                     <span class="text-xs font-semibold" style="color:var(--text-primary);" x-text="name"></span>
                                 </div>
                                 <div class="flex items-center gap-2">
+                                    @unless($synReadOnly)
                                     <div class="relative inline-flex h-5 w-9 flex-shrink-0 rounded-full transition-colors duration-200"
                                          :style="enabled ? 'background:var(--brand-button)' : 'background:var(--border)'"
                                          role="switch" :aria-checked="enabled">
@@ -93,6 +106,7 @@
                                               style="background:#fff; margin-top:2px;"
                                               :style="enabled ? 'transform:translateX(18px); margin-left:1px;' : 'transform:translateX(2px); margin-left:1px;'"></span>
                                     </div>
+                                    @endunless
                                     <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[0.6875rem] font-bold uppercase tracking-wide"
                                           :style="statusBadgeStyle()" x-text="statusLabel()"></span>
                                 </div>
@@ -129,6 +143,7 @@
                                         onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
                                     <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" x-show="!copied"><path stroke-linecap="round" stroke-linejoin="round" d="M15.666 3.888A2.25 2.25 0 0 0 13.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 0 1-.75.75H9a.75.75 0 0 1-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 0 1-2.25 2.25H6.75A2.25 2.25 0 0 1 4.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 0 1 1.927-.184"/></svg><svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" x-show="copied" x-cloak><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/></svg>
                                 </button>
+                                @unless($synReadOnly)
                                 <button type="button" @click.stop="post(urls.refresh)" :disabled="loading"
                                         :class="publicUrl ? '' : 'flex-1'"
                                         class="px-2.5 py-1.5 rounded-md text-[11px] font-semibold transition-opacity"
@@ -142,6 +157,7 @@
                                         onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
                                     Deactivate
                                 </button>
+                                @endunless
                                 <div x-show="copyError" x-cloak class="w-full text-[11px]" style="color:var(--ds-crimson);" x-text="copyError"></div>
                             </div>
 
@@ -178,6 +194,9 @@
                                 'lastSubmitted'   => $property->pp_last_submitted_at ? $property->pp_last_submitted_at->format('d M Y H:i') : '',
                                 'lastError'       => $property->pp_last_error ?? '',
                                 'exclusiveDays'   => (int) ($property->pp_exclusive_days ?? 0),
+                                // AT-369 — agency ceiling on the agent's opt-in day picker (Company
+                                // Settings → Syndication Portals → Maximum PP exclusive days).
+                                'exclusiveDaysMax' => (int) \App\Models\PerformanceSetting::get('pp_exclusive_days_max', 92, $property->agency_id),
                                 'mandateType'     => $property->mandate_type ?? '',
                                 'activatedAt'     => $property->pp_activated_at ? $property->pp_activated_at->format('d M Y H:i') : '',
                                 'csrfToken'       => csrf_token(),
@@ -192,6 +211,14 @@
                                 'ppDelayUntilRaw' => $property->pp_delay_until ? $property->pp_delay_until->toIso8601String() : '',
                                 // A.2.1 — single source of truth for the public URL lives on Property.
                                 'publicUrl'       => $property->publicListingUrls()['pp'] ?? '',
+                                // AT-369 follow-up — mirror-image P24 gate: PP exclusivity is
+                                // PP-only, so the tick must refuse while P24 is switched on for
+                                // this listing (real gate is server-side, see
+                                // SyndicationController::validateAndSaveExclusiveDays()).
+                                'p24Enabled'      => (bool) $property->p24_syndication_enabled,
+                                // One-time-per-agent forced-read explainer — never shown again
+                                // once acknowledged, tracked on the user, not the listing.
+                                'explainerSeen'   => (bool) auth()->user()?->pp_exclusivity_explainer_seen_at,
                             ];
                         @endphp
                         <div x-data="ppSyndication({{ Js::from($ppConfig) }})" @click.stop class="space-y-2 mt-2"
@@ -199,10 +226,10 @@
                              @corex-syndication-census-request.window="announceSyndicationState()"
                              @corex-syndication-refresh-all.window="onSyndicationRefreshAll($event)">
 
-                            {{-- Private Property toggle row --}}
-                            <div class="flex items-center justify-between gap-3 px-3 py-2 rounded-md cursor-pointer"
+                            {{-- Private Property toggle row (read-only for assistants) --}}
+                            <div class="flex items-center justify-between gap-3 px-3 py-2 rounded-md {{ $synReadOnly ? '' : 'cursor-pointer' }}"
                                  style="background:var(--surface-2); border:1px solid var(--border);"
-                                 @click="toggleEnabled()"
+                                 @unless($synReadOnly) @click="toggleEnabled()" @endunless
                                  :style="enabled ? 'background:color-mix(in srgb, var(--brand-button) 8%, transparent); border-color:color-mix(in srgb, var(--brand-button) 25%, transparent);' : 'background:var(--surface-2); border-color:var(--border);'">
                                 <div class="flex items-center gap-2">
                                     <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" :style="enabled ? 'color:var(--brand-button)' : 'color:var(--text-muted)'">
@@ -212,6 +239,7 @@
                                 </div>
                                 <div class="flex items-center gap-2">
                                     {{-- Toggle switch --}}
+                                    @unless($synReadOnly)
                                     <div class="relative inline-flex h-5 w-9 flex-shrink-0 rounded-full transition-colors duration-200"
                                          :style="enabled ? 'background:var(--brand-button)' : 'background:var(--border)'"
                                          role="switch"
@@ -220,6 +248,7 @@
                                               style="background:#fff; margin-top:2px;"
                                               :style="enabled ? 'transform:translateX(18px); margin-left:1px;' : 'transform:translateX(2px); margin-left:1px;'"></span>
                                     </div>
+                                    @endunless
                                     {{-- Status badge --}}
                                     <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[0.6875rem] font-bold uppercase tracking-wide"
                                           :style="statusBadgeStyle()" x-text="statusLabel()"></span>
@@ -272,16 +301,8 @@
                                 </ul>
                             </div>
 
-                            {{-- Exclusive days auto-calculated from Listed Date → Expiry Date for sole mandates --}}
-                            @if(in_array(strtolower($property->mandate_type ?? ''), ['sole', 'sole mandate']) && ($property->listing_type ?? 'sale') === 'sale' && $property->listed_date && $property->expiry_date)
-                            <div x-show="enabled" x-cloak class="flex items-center gap-2">
-                                <span class="text-xs" style="color:var(--text-secondary);">Exclusive:</span>
-                                <span class="text-xs font-medium" style="color:var(--text-primary);">{{ $property->listed_date->diffInDays($property->expiry_date) }} days</span>
-                                <span class="text-[0.6875rem]" style="color:var(--text-muted);">({{ $property->listed_date->format('d M') }} – {{ $property->expiry_date->format('d M Y') }})</span>
-                            </div>
-                            @endif
-
                             {{-- Submit button — only shown before first successful submission --}}
+                            @unless($synReadOnly)
                             <div x-show="enabled && !ppRef && status !== 'active' && status !== 'submitted'" x-cloak class="flex flex-wrap gap-2">
                                 <button type="button"
                                         @click.stop="submitListing()"
@@ -301,6 +322,7 @@
                                     Reactivate
                                 </button>
                             </div>
+                            @endunless
 
                             {{-- Active listing actions: View · Refresh · Deactivate.
                                  Same predicate the "Refresh all portals" census reads. --}}
@@ -319,6 +341,7 @@
                                         onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
                                     <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" x-show="!copied"><path stroke-linecap="round" stroke-linejoin="round" d="M15.666 3.888A2.25 2.25 0 0 0 13.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 0 1-.75.75H9a.75.75 0 0 1-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 0 1-2.25 2.25H6.75A2.25 2.25 0 0 1 4.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 0 1 1.927-.184"/></svg><svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" x-show="copied" x-cloak><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/></svg>
                                 </button>
+                                @unless($synReadOnly)
                                 <button type="button" @click.stop="refreshListing()" :disabled="loading"
                                         class="px-2.5 py-1.5 rounded-md text-[11px] font-semibold transition-opacity"
                                         style="background:color-mix(in srgb, var(--brand-button) 10%, transparent); color:var(--brand-button); border:1px solid color-mix(in srgb, var(--brand-button) 25%, transparent);"
@@ -331,10 +354,12 @@
                                         onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
                                     Deactivate
                                 </button>
+                                @endunless
                                 <div x-show="copyError" x-cloak class="w-full text-[11px]" style="color:var(--ds-crimson);" x-text="copyError"></div>
                             </div>
 
                             {{-- Deactivated listing actions: Reactivate --}}
+                            @unless($synReadOnly)
                             <div x-show="enabled && ppRef && status === 'deactivated'" x-cloak class="flex flex-wrap gap-2">
                                 <button type="button" @click.stop="reactivateListing()" :disabled="loading"
                                         class="flex-1 flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-md text-[11px] font-semibold transition-opacity"
@@ -343,11 +368,142 @@
                                     Reactivate
                                 </button>
                             </div>
+                            @endunless
 
                             {{-- Last submitted timestamp --}}
                             <div x-show="lastSubmitted" x-cloak class="text-[0.6875rem]" style="color:var(--text-muted);">
                                 Last submitted: <span x-text="lastSubmitted"></span>
                             </div>
+
+                            {{-- AT-369 — agent opt-in PP exclusivity, its own small section below
+                                 the rest of the PP card. Sole-mandate Sale only. Nothing is
+                                 exclusive unless the agent explicitly ticks this and confirms in
+                                 the info modal — no auto-calculation from dates, no
+                                 agency-mandated blanket mode. Agency master switch (follow-up,
+                                 pp_exclusivity_enabled — Company Settings → Feature Settings →
+                                 Properties → Syndication Portals) removes this whole section,
+                                 tick and both modals, when off. --}}
+                            @if($ppExclusivityEnabled && in_array(strtolower($property->mandate_type ?? ''), ['sole', 'sole mandate']) && ($property->listing_type ?? 'sale') === 'sale')
+                            <div x-show="enabled" x-cloak class="rounded-md px-3 py-2.5 space-y-1.5"
+                                 style="background:var(--surface-2); border:1px solid var(--border);">
+                                <p class="text-[0.6875rem] font-bold uppercase tracking-wider" style="color:var(--text-muted);">Private Property — Exclusivity</p>
+                                @unless($synReadOnly)
+                                <label class="flex items-center gap-2 cursor-pointer" @click.prevent="onExclusiveToggleClick()">
+                                    <span class="relative inline-flex h-5 w-9 flex-shrink-0 rounded-full transition-colors duration-200"
+                                          :style="exclusiveDays > 0 ? 'background:var(--brand-button)' : 'background:var(--border)'"
+                                          role="switch" :aria-checked="exclusiveDays > 0">
+                                        <span class="pointer-events-none inline-block h-4 w-4 transform rounded-full shadow-sm transition-transform duration-200"
+                                              style="background:#fff; margin-top:2px;"
+                                              :style="exclusiveDays > 0 ? 'transform:translateX(18px); margin-left:1px;' : 'transform:translateX(2px); margin-left:1px;'"></span>
+                                    </span>
+                                    <span class="text-xs font-medium" style="color:var(--text-primary);">Make this listing exclusive to Private Property</span>
+                                </label>
+                                @endunless
+                                <div x-show="exclusiveDays > 0" x-cloak class="text-[0.6875rem] {{ $synReadOnly ? '' : 'pl-11' }}" style="color:var(--text-secondary);">
+                                    Exclusive for <strong x-text="exclusiveDays"></strong> day<span x-show="exclusiveDays !== 1">s</span> once submitted &mdash; Property24 and every other portal are blocked until it lapses.
+                                </div>
+                            </div>
+
+                            @unless($synReadOnly)
+                            {{-- Info modal — shown BEFORE the tick commits anything. Reuses the
+                                 shared <x-modal> component (resources/views/components/modal.blade.php);
+                                 no bespoke modal pattern. Nested inside the ppSyndication() x-data
+                                 tree above, so Alpine's ancestor-scope lookup resolves
+                                 exclusiveDays/pendingExclusiveDays/confirmExclusive/cancelExclusive
+                                 from the parent component without re-declaring them here. --}}
+                            <x-modal name="pp-exclusive-info-{{ $property->id }}" maxWidth="lg">
+                                <div class="p-6 space-y-4">
+                                    <h3 class="text-sm font-bold" style="color:var(--text-primary);">Make this listing exclusive to Private Property?</h3>
+                                    <ul class="space-y-2 m-0 pl-4 text-xs" style="color:var(--text-secondary); list-style:disc;">
+                                        <li>The listing will publish to Private Property only. Property24 and every other portal are blocked for the period you choose below.</li>
+                                        <li>Private Property features the listing and applies an "Only on Private Property" label.</li>
+                                        <li>Featured placement (top ranking + feature tile) lasts a maximum of <strong>7 days</strong> regardless of the period chosen; the "Only on Private Property" label lasts the <strong>full period</strong>.</li>
+                                        <li>The listing must be a <strong>newly signed sole mandate not already advertised elsewhere</strong>.</li>
+                                        <li>Once accepted, exclusivity <strong>cannot be cancelled within the first 24 hours</strong> — Private Property rejects the reduction.</li>
+                                    </ul>
+                                    <div class="pt-2" style="border-top:1px solid var(--border);">
+                                        <label for="pp-exclusive-days-{{ $property->id }}" class="block text-xs font-semibold mb-1.5" style="color:var(--text-primary);">Exclusive for how many days?</label>
+                                        <select id="pp-exclusive-days-{{ $property->id }}" x-model.number="pendingExclusiveDays"
+                                                class="w-full rounded-md px-3 py-2 text-sm"
+                                                style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                                            <template x-for="d in exclusiveDaysMax" :key="d">
+                                                <option :value="d" x-text="d + (d === 1 ? ' day' : ' days')"></option>
+                                            </template>
+                                        </select>
+                                    </div>
+                                    <div class="flex items-center justify-end gap-2 pt-2">
+                                        <button type="button" @click="cancelExclusive()"
+                                                class="px-3 py-1.5 rounded-md text-xs font-semibold"
+                                                style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);">
+                                            Cancel
+                                        </button>
+                                        <button type="button" @click="confirmExclusive()"
+                                                class="px-3 py-1.5 rounded-md text-xs font-semibold"
+                                                style="background:var(--brand-button); color:#fff;">
+                                            Confirm exclusivity
+                                        </button>
+                                    </div>
+                                </div>
+                            </x-modal>
+
+                            {{-- P24-active warning — the reverse of the isPpExclusiveLocked()
+                                 gate on the P24 panel below. Fires INSTEAD of the info modal
+                                 when the agent ticks the exclusivity switch while Property24 is
+                                 still on for this listing; nothing opens after it except back
+                                 to the tick itself. Server-side gate is the real enforcement
+                                 (SyndicationController::validateAndSaveExclusiveDays()) — this
+                                 is the friendly, immediate front-end mirror. --}}
+                            <x-modal name="pp-exclusive-p24-blocked-{{ $property->id }}" maxWidth="md">
+                                <div class="p-6 space-y-4">
+                                    <h3 class="text-sm font-bold" style="color:var(--text-primary);">Property24 is still switched on</h3>
+                                    <p class="text-xs" style="color:var(--text-secondary);">
+                                        Private Property exclusivity publishes to Private Property only — every other
+                                        portal, including Property24, must be off for this listing first. Turn off the
+                                        Property24 toggle below, then try again.
+                                    </p>
+                                    <div class="flex items-center justify-end pt-2">
+                                        <button type="button"
+                                                @click="window.dispatchEvent(new CustomEvent('close-modal', { detail: 'pp-exclusive-p24-blocked-' + propertyId }))"
+                                                class="px-3 py-1.5 rounded-md text-xs font-semibold"
+                                                style="background:var(--brand-button); color:#fff;">
+                                            Got it
+                                        </button>
+                                    </div>
+                                </div>
+                            </x-modal>
+
+                            {{-- One-time forced-read explainer — shown ONLY the first time this
+                                 agent ever ticks the exclusivity switch (explainerSeen, sourced
+                                 from users.pp_exclusivity_explainer_seen_at). Non-dismissible
+                                 (no backdrop/Escape close — see <x-modal dismissible="false">)
+                                 and gated by a 10-second minimum read before "I understand"
+                                 unlocks, because agents were skipping straight past the existing
+                                 info modal without reading it. Acknowledging does NOT commit
+                                 exclusivity by itself — it hands straight on to the normal
+                                 day-picker modal above, which still has its own Cancel. --}}
+                            <x-modal name="pp-exclusive-explainer-{{ $property->id }}" maxWidth="lg" :dismissible="false">
+                                <div class="p-6 space-y-4">
+                                    <h3 class="text-sm font-bold" style="color:var(--text-primary);">Before you make a listing exclusive to Private Property</h3>
+                                    <p class="text-xs font-medium" style="color:var(--ds-amber);">This only shows once — please read it properly.</p>
+                                    <ul class="space-y-2 m-0 pl-4 text-xs" style="color:var(--text-secondary); list-style:disc;">
+                                        <li>The listing publishes to <strong>Private Property only</strong> — Property24 and every other portal are blocked for the whole period you choose.</li>
+                                        <li><strong>Property24 must already be off</strong> for this listing before you can turn exclusivity on.</li>
+                                        <li>The listing must be a <strong>newly signed sole mandate</strong> not already advertised anywhere else.</li>
+                                        <li>Once confirmed, exclusivity <strong>cannot be cancelled within the first 24 hours</strong> — Private Property rejects the reduction.</li>
+                                    </ul>
+                                    <div class="flex items-center justify-end pt-2">
+                                        <button type="button"
+                                                :disabled="explainerSecondsLeft > 0"
+                                                @click="acknowledgeExplainer()"
+                                                class="px-3 py-1.5 rounded-md text-xs font-semibold transition-opacity"
+                                                :style="explainerSecondsLeft > 0 ? 'background:var(--surface-2); color:var(--text-muted); border:1px solid var(--border); cursor:not-allowed;' : 'background:var(--brand-button); color:#fff;'">
+                                            <span x-text="explainerSecondsLeft > 0 ? ('Please read (' + explainerSecondsLeft + 's)') : 'I understand'"></span>
+                                        </button>
+                                    </div>
+                                </div>
+                            </x-modal>
+                            @endunless
+                            @endif
 
                             {{-- Toast message (success only) --}}
                             <div x-show="message && messageType === 'success'" x-cloak
@@ -421,8 +577,10 @@
                             </div>
                             <div class="flex items-center justify-between gap-3 px-3 py-2 rounded-md"
                                  style="background:var(--surface-2); border:1px solid var(--border);"
+                                 @unless($synReadOnly)
                                  :class="isPpExclusiveLocked() ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'"
                                  @click="!isPpExclusiveLocked() && toggleEnabled()"
+                                 @endunless
                                  :style="enabled ? 'background:color-mix(in srgb, var(--brand-button) 8%, transparent); border-color:color-mix(in srgb, var(--brand-button) 25%, transparent);' : 'background:var(--surface-2); border-color:var(--border);'">
                                 <div class="flex items-center gap-2">
                                     <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" :style="enabled ? 'color:var(--brand-button)' : 'color:var(--text-muted)'">
@@ -431,6 +589,7 @@
                                     <span class="text-xs font-semibold" style="color:var(--text-primary);">Property24</span>
                                 </div>
                                 <div class="flex items-center gap-2">
+                                    @unless($synReadOnly)
                                     <div class="relative inline-flex h-5 w-9 flex-shrink-0 rounded-full transition-colors duration-200"
                                          :style="enabled ? 'background:var(--brand-button)' : 'background:var(--border)'"
                                          role="switch" :aria-checked="enabled">
@@ -438,6 +597,7 @@
                                               style="background:#fff; margin-top:2px;"
                                               :style="enabled ? 'transform:translateX(18px); margin-left:1px;' : 'transform:translateX(2px); margin-left:1px;'"></span>
                                     </div>
+                                    @endunless
                                     <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[0.6875rem] font-bold uppercase tracking-wide"
                                           :style="statusBadgeStyle()" x-text="statusLabel()"></span>
                                 </div>
@@ -480,6 +640,7 @@
                             </div>
 
                             {{-- Submit button — only shown before first successful submission --}}
+                            @unless($synReadOnly)
                             <div x-show="enabled && !p24Ref && status !== 'active' && status !== 'submitted'" x-cloak class="flex flex-wrap gap-2">
                                 <button type="button"
                                         @click.stop="submitListing()"
@@ -499,6 +660,7 @@
                                     Reactivate
                                 </button>
                             </div>
+                            @endunless
 
                             {{-- Active listing actions: View · Refresh · Deactivate.
                                  Same predicate the "Refresh all portals" census reads. --}}
@@ -517,6 +679,7 @@
                                         onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
                                     <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" x-show="!copied"><path stroke-linecap="round" stroke-linejoin="round" d="M15.666 3.888A2.25 2.25 0 0 0 13.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 0 1-.75.75H9a.75.75 0 0 1-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 0 1-2.25 2.25H6.75A2.25 2.25 0 0 1 4.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 0 1 1.927-.184"/></svg><svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" x-show="copied" x-cloak><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/></svg>
                                 </button>
+                                @unless($synReadOnly)
                                 <button type="button" @click.stop="refreshListing()" :disabled="loading"
                                         class="px-2.5 py-1.5 rounded-md text-[11px] font-semibold transition-opacity"
                                         style="background:color-mix(in srgb, var(--brand-button) 10%, transparent); color:var(--brand-button); border:1px solid color-mix(in srgb, var(--brand-button) 25%, transparent);"
@@ -529,10 +692,12 @@
                                         onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
                                     Deactivate
                                 </button>
+                                @endunless
                                 <div x-show="copyError" x-cloak class="w-full text-[11px]" style="color:var(--ds-crimson);" x-text="copyError"></div>
                             </div>
 
                             {{-- Deactivated listing actions: Reactivate --}}
+                            @unless($synReadOnly)
                             <div x-show="enabled && p24Ref && status === 'deactivated'" x-cloak class="flex flex-wrap gap-2">
                                 <button type="button" @click.stop="reactivateListing()" :disabled="loading"
                                         class="flex-1 flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-md text-[11px] font-semibold transition-opacity"
@@ -541,6 +706,7 @@
                                     Reactivate
                                 </button>
                             </div>
+                            @endunless
 
                             {{-- The P24 listing number is NOT repeated here: the status
                                  line above already reads "P24 Ref: {ref} — {status}". --}}
@@ -587,6 +753,7 @@
                          Hidden entirely when nothing is live (no dead buttons — STANDARDS,
                          UX rules). The census keeps that reactive, so toggling the last
                          portal off inside this panel hides the button without a reload. --}}
+                    @unless($synReadOnly)
                     <div x-data="syndicationRefreshAll()"
                          @corex-syndication-portal-state.window="onPortalState($event.detail)"
                          x-show="liveCount() > 0"
@@ -620,6 +787,7 @@
                              style="background:color-mix(in srgb, var(--ds-amber) 10%, transparent); color:var(--ds-amber); border:1px solid color-mix(in srgb, var(--ds-amber) 25%, transparent);"
                              x-text="note"></div>
                     </div>
+                    @endunless
 
                     {{-- Live preview — see the listing exactly as the public does.
                          In the panel itself so every caller gets it, not just the
@@ -653,7 +821,9 @@
                          no auth), so its URL is worth copying, not just opening.
                          Each row owns its copy state so one tick doesn't light both. --}}
                     @php
-                        $synPreviewBase = route('corex.properties.preview', [$property, \Illuminate\Support\Str::slug($property->title)]);
+                        // No title slug — {slug?} is unread by the controller and only
+                        // bloats the copy-shareable URL.
+                        $synPreviewBase = route('corex.properties.preview', $property);
                         // Bake THIS agent's id into the "Show my info" link so the sharing
                         // agent's identity travels with the URL. `?agent=me` resolved only
                         // against the viewer's session, so a shared link opened by anyone
@@ -661,6 +831,10 @@
                         $synMyAgentParam = 'agent=' . auth()->id();
                     @endphp
 
+                    {{-- AT-267 — an assistant may only ever preview with the LISTING agent's
+                         info, never their own. The "Show my info" option (which bakes the
+                         viewer's id into the URL) is omitted for assistants. --}}
+                    @unless($synReadOnly)
                     <div class="flex items-center gap-2 flex-wrap" x-data="corexCopyLinkMixin()">
                         <a href="{{ $synPreviewBase }}?{{ $synMyAgentParam }}"
                            target="_blank"
@@ -681,6 +855,7 @@
                         </button>
                         <div x-show="copyError" x-cloak class="w-full text-[11px]" style="color:var(--ds-crimson);" x-text="copyError"></div>
                     </div>
+                    @endunless
                     <div class="flex items-center gap-2 flex-wrap" x-data="corexCopyLinkMixin()">
                         <a href="{{ $synPreviewBase }}?agent=listing"
                            target="_blank"

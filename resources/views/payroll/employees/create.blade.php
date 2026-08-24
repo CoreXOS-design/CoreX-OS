@@ -2,16 +2,28 @@
 @extends('layouts.corex-app')
 
 @section('corex-content')
-<div class="-m-4 lg:-m-6">
-    <x-page-header title="Add Employee to Payroll" :back-route="route('payroll.employees.index')" back-label="Employees" :flush="true" />
+<div class="w-full space-y-5">
 
-    <div class="p-4 lg:p-6">
+    {{-- Page header (flat neutral bar — AT-336) --}}
+    <div class="rounded-md px-6 py-5 corex-page-banner">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Add Employee to Payroll</h1>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+                <a href="{{ route('payroll.employees.index') }}" class="corex-btn-outline text-xs">&larr; Employees</a>
+            </div>
+        </div>
+    </div>
+
+    <div>
         @if(session('error'))
             <div class="mb-4 p-3 text-sm font-semibold" style="background:color-mix(in srgb, var(--ds-crimson) 8%, transparent); border:1px solid color-mix(in srgb, var(--ds-crimson) 25%, transparent); border-radius:6px; color:var(--ds-crimson);">{{ session('error') }}</div>
         @endif
 
         @if($eligibleUsers->isEmpty())
-            <div class="py-12 text-center text-sm" style="color:var(--text-secondary, #6b7280);">
+            <div class="py-12 text-center text-sm" style="color:var(--text-muted);">
                 All active users are already on payroll. Add a new user from User Management first.
             </div>
         @else
@@ -45,11 +57,11 @@
                 }
             }">
                 {{-- SECTION 1: Select User --}}
-                <div class="p-4" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:6px;">
-                    <h4 class="text-xs font-bold uppercase mb-3" style="color:var(--text-secondary, #94a3b8); letter-spacing:0.05em;">1. Select User</h4>
+                <div class="p-4" style="background:var(--surface); border:1px solid var(--border); border-radius:8px;">
+                    <h4 class="text-xs font-bold uppercase mb-3" style="color:var(--text-muted); letter-spacing:0.05em;">1. Select User</h4>
 
                     <select name="user_id" x-model="selectedUserId" @change="selectUser()" required
-                            class="w-full px-3 py-2 text-sm focus:outline-none" style="background:var(--surface-2, #fff); border:1px solid var(--border, #e5e7eb); color:var(--text-primary, #0f172a); border-radius:6px;">
+                            class="w-full px-3 py-2 text-sm focus:outline-none" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); border-radius:6px;">
                         <option value="">-- Choose a user --</option>
                         @foreach($eligibleUsers as $user)
                             <option value="{{ $user->id }}" {{ old('user_id') == $user->id ? 'selected' : '' }}>
@@ -65,12 +77,12 @@
                             <span x-text="selectedUser ? selectedUser.name.charAt(0).toUpperCase() : ''"></span>
                         </div>
                         <div>
-                            <p class="text-sm font-semibold" style="color:var(--text-primary, #0f172a);" x-text="selectedUser?.name"></p>
-                            <p class="text-[11px]" style="color:var(--text-secondary, #94a3b8);">
+                            <p class="text-sm font-semibold" style="color:var(--text-primary);" x-text="selectedUser?.name"></p>
+                            <p class="text-[11px]" style="color:var(--text-muted);">
                                 <span x-text="selectedUser?.designation || 'No designation'"></span> &middot;
                                 <span x-text="selectedUser?.email"></span>
                             </p>
-                            <p class="text-[11px]" style="color:var(--text-secondary, #94a3b8);" x-show="selectedUser?.id_number">
+                            <p class="text-[11px]" style="color:var(--text-muted);" x-show="selectedUser?.id_number">
                                 ID: <span x-text="selectedUser?.id_number"></span>
                             </p>
                         </div>
@@ -78,77 +90,77 @@
                 </div>
 
                 {{-- SECTION 2: Employment Details (revealed after user selected) --}}
-                <div x-show="selectedUserId" x-cloak class="p-4" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:6px;">
-                    <h4 class="text-xs font-bold uppercase mb-3" style="color:var(--text-secondary, #94a3b8); letter-spacing:0.05em;">2. Employment Details</h4>
+                <div x-show="selectedUserId" x-cloak class="p-4" style="background:var(--surface); border:1px solid var(--border); border-radius:8px;">
+                    <h4 class="text-xs font-bold uppercase mb-3" style="color:var(--text-muted); letter-spacing:0.05em;">2. Employment Details</h4>
 
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div>
-                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary, #6b7280);">Employment Date <span class="text-red-500">*</span></label>
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Employment Date <span class="text-red-500">*</span></label>
                             <input type="date" name="employment_date" value="{{ old('employment_date', date('Y-m-d')) }}" required
-                                   class="w-full px-3 py-2 text-sm focus:outline-none" style="background:var(--surface-2, #fff); border:1px solid var(--border, #e5e7eb); color:var(--text-primary, #0f172a); border-radius:6px;">
+                                   class="w-full px-3 py-2 text-sm focus:outline-none" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); border-radius:6px;">
                             @error('employment_date') <p class="text-xs text-red-500 mt-1">{{ $message }}</p> @enderror
                         </div>
                         <div>
-                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary, #6b7280);">Designation <span class="text-red-500">*</span></label>
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Designation <span class="text-red-500">*</span></label>
                             <input type="text" name="designation_snapshot" required maxlength="100"
                                    :value="selectedUser?.designation || '{{ old('designation_snapshot', '') }}'"
-                                   class="w-full px-3 py-2 text-sm focus:outline-none" style="background:var(--surface-2, #fff); border:1px solid var(--border, #e5e7eb); color:var(--text-primary, #0f172a); border-radius:6px;"
+                                   class="w-full px-3 py-2 text-sm focus:outline-none" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); border-radius:6px;"
                                    placeholder="e.g. Office Administrator">
                             @error('designation_snapshot') <p class="text-xs text-red-500 mt-1">{{ $message }}</p> @enderror
                         </div>
                         <div>
-                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary, #6b7280);">Date of Birth</label>
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Date of Birth</label>
                             <input type="date" name="date_of_birth"
                                    :value="selectedUser?.date_of_birth || '{{ old('date_of_birth', '') }}'"
-                                   class="w-full px-3 py-2 text-sm focus:outline-none" style="background:var(--surface-2, #fff); border:1px solid var(--border, #e5e7eb); color:var(--text-primary, #0f172a); border-radius:6px;">
-                            <p class="text-[10px] mt-0.5" style="color:var(--text-secondary, #94a3b8);">Used for PAYE age rebate. Auto-derived from ID number if available.</p>
+                                   class="w-full px-3 py-2 text-sm focus:outline-none" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); border-radius:6px;">
+                            <p class="text-[10px] mt-0.5" style="color:var(--text-faint);">Used for PAYE age rebate. Auto-derived from ID number if available.</p>
                             @error('date_of_birth') <p class="text-xs text-red-500 mt-1">{{ $message }}</p> @enderror
                         </div>
                         <div>
-                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary, #6b7280);">Tax Reference Number</label>
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Tax Reference Number</label>
                             <input type="text" name="tax_reference_number" value="{{ old('tax_reference_number', '') }}" maxlength="20"
-                                   class="w-full px-3 py-2 text-sm focus:outline-none" style="background:var(--surface-2, #fff); border:1px solid var(--border, #e5e7eb); color:var(--text-primary, #0f172a); border-radius:6px;"
+                                   class="w-full px-3 py-2 text-sm focus:outline-none" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); border-radius:6px;"
                                    placeholder="e.g. 0123456789">
                             @error('tax_reference_number') <p class="text-xs text-red-500 mt-1">{{ $message }}</p> @enderror
                         </div>
                         <div>
-                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary, #6b7280);">Pay Day of Month <span class="text-red-500">*</span></label>
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Pay Day of Month <span class="text-red-500">*</span></label>
                             <input type="number" name="pay_day_of_month" value="{{ old('pay_day_of_month', 25) }}" required min="1" max="31"
-                                   class="w-32 px-3 py-2 text-sm focus:outline-none" style="background:var(--surface-2, #fff); border:1px solid var(--border, #e5e7eb); color:var(--text-primary, #0f172a); border-radius:6px;">
+                                   class="w-32 px-3 py-2 text-sm focus:outline-none" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); border-radius:6px;">
                             @error('pay_day_of_month') <p class="text-xs text-red-500 mt-1">{{ $message }}</p> @enderror
                         </div>
                     </div>
 
                     <div class="mt-4">
-                        <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary, #6b7280);">Notes</label>
+                        <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Notes</label>
                         <textarea name="notes" rows="2" maxlength="2000"
-                                  class="w-full px-3 py-2 text-sm focus:outline-none" style="background:var(--surface-2, #fff); border:1px solid var(--border, #e5e7eb); color:var(--text-primary, #0f172a); border-radius:6px;"
+                                  class="w-full px-3 py-2 text-sm focus:outline-none" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); border-radius:6px;"
                                   placeholder="Optional notes about this employee">{{ old('notes', '') }}</textarea>
                     </div>
                 </div>
 
                 {{-- SECTION 3: Banking (collapsible, optional) --}}
-                <div x-show="selectedUserId" x-cloak class="p-4" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:6px;">
+                <div x-show="selectedUserId" x-cloak class="p-4" style="background:var(--surface); border:1px solid var(--border); border-radius:8px;">
                     <div class="flex items-center justify-between mb-3">
-                        <h4 class="text-xs font-bold uppercase" style="color:var(--text-secondary, #94a3b8); letter-spacing:0.05em;">3. Banking Details</h4>
+                        <h4 class="text-xs font-bold uppercase" style="color:var(--text-muted); letter-spacing:0.05em;">3. Banking Details</h4>
                         <label class="relative inline-flex items-center cursor-pointer gap-2">
                             <input type="checkbox" x-model="showBanking" class="sr-only peer">
-                            <div class="w-9 h-5 rounded-full peer after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-4" style="background:var(--border, #cbd5e1); border-radius:10px; transition:background 0.2s;" :style="showBanking ? 'background:var(--brand-icon)' : ''"></div>
-                            <span class="text-xs" style="color:var(--text-secondary, #6b7280);">Add now (optional)</span>
+                            <div class="w-9 h-5 rounded-full peer after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-4" style="background:var(--border); border-radius:10px; transition:background 0.2s;" :style="showBanking ? 'background:var(--brand-icon)' : ''"></div>
+                            <span class="text-xs" style="color:var(--text-muted);">Add now (optional)</span>
                         </label>
                     </div>
 
                     <div x-show="showBanking" x-cloak class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div>
-                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary, #6b7280);">Account Holder</label>
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Account Holder</label>
                             <input type="text" name="account_holder"
                                    :value="selectedUser?.name || '{{ old('account_holder', '') }}'"
                                    maxlength="150"
-                                   class="w-full px-3 py-2 text-sm focus:outline-none" style="background:var(--surface-2, #fff); border:1px solid var(--border, #e5e7eb); color:var(--text-primary, #0f172a); border-radius:6px;">
+                                   class="w-full px-3 py-2 text-sm focus:outline-none" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); border-radius:6px;">
                         </div>
                         <div>
-                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary, #6b7280);">Bank</label>
-                            <select name="bank_name" class="w-full px-3 py-2 text-sm focus:outline-none" style="background:var(--surface-2, #fff); border:1px solid var(--border, #e5e7eb); color:var(--text-primary, #0f172a); border-radius:6px;">
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Bank</label>
+                            <select name="bank_name" class="w-full px-3 py-2 text-sm focus:outline-none" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); border-radius:6px;">
                                 <option value="">-- Select bank --</option>
                                 @foreach(['ABSA', 'African Bank', 'Bidvest Bank', 'Capitec', 'Discovery Bank', 'FNB', 'Investec', 'Nedbank', 'Standard Bank', 'TymeBank', 'Other'] as $bank)
                                     <option value="{{ $bank }}" {{ old('bank_name') === $bank ? 'selected' : '' }}>{{ $bank }}</option>
@@ -156,21 +168,21 @@
                             </select>
                         </div>
                         <div>
-                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary, #6b7280);">Branch Code</label>
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Branch Code</label>
                             <input type="text" name="branch_code" value="{{ old('branch_code', '') }}" maxlength="10"
-                                   class="w-full px-3 py-2 text-sm focus:outline-none" style="background:var(--surface-2, #fff); border:1px solid var(--border, #e5e7eb); color:var(--text-primary, #0f172a); border-radius:6px;"
+                                   class="w-full px-3 py-2 text-sm focus:outline-none" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); border-radius:6px;"
                                    placeholder="e.g. 250655">
                         </div>
                         <div>
-                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary, #6b7280);">Account Number</label>
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Account Number</label>
                             <input type="text" name="account_number" value="{{ old('account_number', '') }}" maxlength="30"
-                                   class="w-full px-3 py-2 text-sm focus:outline-none" style="background:var(--surface-2, #fff); border:1px solid var(--border, #e5e7eb); color:var(--text-primary, #0f172a); border-radius:6px;">
+                                   class="w-full px-3 py-2 text-sm focus:outline-none" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); border-radius:6px;">
                         </div>
                         <div>
-                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary, #6b7280);">Account Type</label>
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Account Type</label>
                             <div class="flex gap-4 mt-1">
                                 @foreach(['cheque' => 'Cheque', 'savings' => 'Savings', 'transmission' => 'Transmission'] as $val => $lbl)
-                                    <label class="flex items-center gap-1.5 text-sm cursor-pointer" style="color:var(--text-primary, #0f172a);">
+                                    <label class="flex items-center gap-1.5 text-sm cursor-pointer" style="color:var(--text-secondary);">
                                         <input type="radio" name="account_type" value="{{ $val }}" {{ old('account_type', 'cheque') === $val ? 'checked' : '' }}
                                                style="accent-color:var(--brand-icon);">
                                         {{ $lbl }}
@@ -182,12 +194,12 @@
                 </div>
 
                 {{-- SECTION 4: Default Earnings --}}
-                <div x-show="selectedUserId" x-cloak class="p-3 text-xs" style="background:color-mix(in srgb, var(--brand-icon) 5%, transparent); border:1px solid color-mix(in srgb, var(--brand-icon) 15%, transparent); border-radius:6px; color:var(--text-secondary, #6b7280);">
+                <div x-show="selectedUserId" x-cloak class="p-3 text-xs" style="background:color-mix(in srgb, var(--brand-icon) 5%, transparent); border:1px solid color-mix(in srgb, var(--brand-icon) 15%, transparent); border-radius:6px; color:var(--text-secondary);">
                     <strong style="color:var(--brand-icon);">Earnings:</strong> Basic Salary will be added at R0. You can update it and add more earnings on the next screen.
                 </div>
 
                 {{-- SECTION 5: Default Deductions --}}
-                <div x-show="selectedUserId" x-cloak class="p-3 text-xs" style="background:color-mix(in srgb, var(--brand-icon) 5%, transparent); border:1px solid color-mix(in srgb, var(--brand-icon) 15%, transparent); border-radius:6px; color:var(--text-secondary, #6b7280);">
+                <div x-show="selectedUserId" x-cloak class="p-3 text-xs" style="background:color-mix(in srgb, var(--brand-icon) 5%, transparent); border:1px solid color-mix(in srgb, var(--brand-icon) 15%, transparent); border-radius:6px; color:var(--text-secondary);">
                     <strong style="color:var(--brand-icon);">Deductions:</strong> PAYE and UIF will be auto-calculated each run. You can add custom deductions on the next screen.
                 </div>
 

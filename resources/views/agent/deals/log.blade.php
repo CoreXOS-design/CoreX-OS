@@ -6,17 +6,18 @@
 <div class="w-full space-y-5">
 
     {{-- Page Header --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Deal Log</h1>
-                <p class="text-sm text-white/60">#{{ $deal->deal_no }} &mdash; timeline. You may add remarks.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Deal Log</h1>
+                <p class="text-xs" style="color: var(--text-muted);">#{{ $deal->deal_no }} &mdash; timeline. You may add remarks.</p>
             </div>
-            <a href="{{ route('agent.deals.index') }}"
-               class="corex-btn-outline text-sm shrink-0"
-               style="color:#fff; border-color:rgba(255,255,255,0.25); background:rgba(255,255,255,0.08);">
-                &larr; Back to My Deals
-            </a>
+            <div class="flex flex-wrap items-center gap-2">
+                <a href="{{ route('agent.deals.index') }}"
+                   class="corex-btn-outline text-xs shrink-0">
+                    &larr; Back to My Deals
+                </a>
+            </div>
         </div>
     </div>
 
@@ -39,7 +40,7 @@
         <form method="POST" action="{{ route('agent.deals.remark', $deal) }}" class="flex flex-col gap-3 sm:flex-row sm:items-end">
             @csrf
             <div class="flex-1">
-                <label class="block mb-1.5 text-xs font-semibold uppercase tracking-wide" style="color: var(--text-secondary);">Add remark (creates timeline entry)</label>
+                <label class="block mb-1.5 text-xs font-semibold uppercase tracking-wide" style="color: var(--text-muted);">Add remark (creates timeline entry)</label>
                 <input type="text" name="remark"
                        class="w-full rounded-md px-3 py-2 text-sm transition-all duration-300"
                        style="background: var(--surface-2); color: var(--text-primary); border: 1px solid var(--border);"

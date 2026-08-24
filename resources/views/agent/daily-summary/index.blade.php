@@ -5,34 +5,35 @@
 <div class="w-full space-y-5">
 
     {{-- Page Header --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div>
-                <div class="text-sm text-white/60">
-                    <a class="hover:underline text-white/60" href="{{ route('agent.dashboard') }}">&larr; Dashboard</a>
-                </div>
-                <h1 class="text-xl font-bold text-white leading-tight mt-1">Daily Activity Summary</h1>
-                <p class="text-sm text-white/60">
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Daily Activity Summary</h1>
+                <p class="text-xs" style="color: var(--text-muted);">
                     {{ $start->toFormattedDateString() }} &rarr; {{ $end->toFormattedDateString() }}
                 </p>
             </div>
 
-            <form method="GET" action="{{ route('agent.daily.summary') }}" class="flex flex-wrap items-center gap-2">
-                <select name="range" class="rounded-md border-0 bg-white/10 text-white text-sm px-3 py-1.5 [&>option]:text-slate-900">
-                    <option value="7d"  {{ $range==='7d' ? 'selected' : '' }}>Last 7 days</option>
-                    <option value="month" {{ $range==='month' ? 'selected' : '' }}>This month</option>
-                    <option value="3m"  {{ $range==='3m' ? 'selected' : '' }}>Last 3 months</option>
-                    <option value="6m"  {{ $range==='6m' ? 'selected' : '' }}>Last 6 months</option>
-                    <option value="12m" {{ $range==='12m' ? 'selected' : '' }}>Last 12 months</option>
-                </select>
+            <div class="flex flex-wrap items-center gap-2">
+                <a class="corex-btn-outline text-xs" href="{{ route('agent.dashboard') }}">&larr; Dashboard</a>
 
-                @if($range === 'month')
-                    <input type="text" name="month" value="{{ $month ?? '' }}" placeholder="YYYY-MM"
-                           class="w-28 rounded-md border-0 bg-white/10 text-white text-sm px-3 py-1.5 placeholder:text-white/40" />
-                @endif
+                <form method="GET" action="{{ route('agent.daily.summary') }}" class="flex flex-wrap items-center gap-2">
+                    <select name="range" class="list-header-filter">
+                        <option value="7d"  {{ $range==='7d' ? 'selected' : '' }}>Last 7 days</option>
+                        <option value="month" {{ $range==='month' ? 'selected' : '' }}>This month</option>
+                        <option value="3m"  {{ $range==='3m' ? 'selected' : '' }}>Last 3 months</option>
+                        <option value="6m"  {{ $range==='6m' ? 'selected' : '' }}>Last 6 months</option>
+                        <option value="12m" {{ $range==='12m' ? 'selected' : '' }}>Last 12 months</option>
+                    </select>
 
-                <button class="corex-btn-primary text-sm">Apply</button>
-            </form>
+                    @if($range === 'month')
+                        <input type="text" name="month" value="{{ $month ?? '' }}" placeholder="YYYY-MM"
+                               class="w-28 list-header-filter placeholder:text-[color:var(--text-faint)]" />
+                    @endif
+
+                    <button class="corex-btn-primary text-xs">Apply</button>
+                </form>
+            </div>
         </div>
     </div>
 
@@ -56,6 +57,7 @@
                     <tr style="background: var(--surface-2);">
                         <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Activity</th>
                         <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Count</th>
+                        <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Manual / Auto</th>
                         <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Points</th>
                         <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">% (Points)</th>
                     </tr>
@@ -74,12 +76,15 @@
                                     {{ number_format((int)$it['count']) }}
                                 </span>
                             </td>
+                            <td class="px-4 py-2.5 text-right">
+                                @include('daily-summary._source-badge', ['it' => $it])
+                            </td>
                             <td class="px-4 py-2.5 text-right" style="color: var(--text-secondary);">{{ number_format((float)$it['points'], 0) }}</td>
                             <td class="px-4 py-2.5 text-right" style="color: var(--text-secondary);">{{ number_format((float)$it['pct_points'], 1) }}%</td>
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="4" class="px-4 py-12 text-center text-sm" style="color: var(--text-muted);">
+                            <td colspan="5" class="px-4 py-12 text-center text-sm" style="color: var(--text-muted);">
                                 No activity recorded in this range.
                             </td>
                         </tr>

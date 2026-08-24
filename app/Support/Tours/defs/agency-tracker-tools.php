@@ -92,11 +92,6 @@ return [
                 'body'    => 'The hard facts for the month — deals done, sales value, average sale price, your effective commission percentage and how many daily-activity entries you have logged.',
             ],
             [
-                'element' => '[data-tour="at-agent-dashboard-listing-stock"]',
-                'title'   => 'Listing stock health',
-                'body'    => 'Your active listings, average days on market, and counts of stale, expiring and expired mandates. Each number is a link — click it to see exactly those listings.',
-            ],
-            [
                 'element' => '[data-tour="at-agent-dashboard-comparison"]',
                 'title'   => 'You vs Branch vs Company',
                 'body'    => 'See how your numbers sit against your branch and the whole company — handy for knowing where you stand.',
@@ -144,45 +139,6 @@ return [
                 'element' => '[data-tour="at-agent-daily-save"]',
                 'title'   => 'Save your day',
                 'body'    => 'Click Save to lock in today\'s points. They flow straight into your dashboard and your monthly target. Close this and capture today.',
-            ],
-        ],
-    ],
-
-    // ── My Listing Stock ──────────────────────────────────────────────────────
-    'at-agent-listings' => [
-        'key'         => 'at-agent-listings',
-        'title'       => 'Work your Listing Stock',
-        'description' => 'Review your imported listings, spot stale and expiring mandates, and record a CMA price per listing.',
-        'route'       => 'agent.listings',
-        'permission'  => 'view_listings',
-        'setup'       => [
-            ['action' => 'scrollTop'],
-        ],
-        'steps' => [
-            [
-                'element' => '[data-tour="at-agent-listings-header"]',
-                'title'   => 'My Listing Stock',
-                'body'    => 'These are your listings imported from Propcon. It is a read-only view of your stock — the place to keep an eye on the health of every mandate you hold.',
-            ],
-            [
-                'element' => '[data-tour="at-agent-listings-kpis"]',
-                'title'   => 'Stock at a glance',
-                'body'    => 'Two headline numbers: how many active listings you hold, and the total Rand value of that stock.',
-            ],
-            [
-                'element' => '[data-tour="at-agent-listings-filters"]',
-                'title'   => 'Filter by mandate and type',
-                'body'    => 'Tap any chip to narrow the list — by mandate (Sole, Open or Dual) or by property type. The number on each chip tells you how many fall into it.',
-            ],
-            [
-                'element' => '[data-tour="at-agent-listings-table"]',
-                'title'   => 'The detail',
-                'body'    => 'For each listing: status, mandate, type, DOM (days on market) and Since edit. When either climbs into the amber it is a nudge to refresh that listing. Expiry warns you before a mandate lapses.',
-            ],
-            [
-                'element' => '[data-tour="at-agent-listings-cma"]',
-                'title'   => 'Record a CMA price',
-                'body'    => 'Type your comparative market value for a listing and click Save. It is stored against the listing and feeds your correctly-priced percentage. Close this and price your stock.',
             ],
         ],
     ],

@@ -76,8 +76,20 @@
         // closed by ImpersonateController::start() and codified in
         // .ai/specs/multi-tenancy.md.
         $ownerRoleNames = \App\Models\User::ownerRoleNames();
+        // whereNull('deleted_at') is NOT optional: this is a raw DB::table query,
+        // so it carries NO SoftDeletes scope. Without it, ARCHIVED users were
+        // listed as impersonation targets — a dead button (the controller's route
+        // binding excludes trashed users, so the POST 404s), but an archived user
+        // must never appear anywhere as actionable. Found by the AT-11 billing
+        // test asserting a deleted user is absent from the page.
         $query = \Illuminate\Support\Facades\DB::table('users')
             ->where('is_active', 1)
+            ->whereNull('deleted_at')
+            // Assistants are a separate identity, not an impersonation target
+            // (AT-267). An assistant has no permissions of their own — they act
+            // on behalf of the agent(s) who granted them, so "switching into" an
+            // assistant is meaningless. Exclude them from the picker entirely.
+            ->where('is_assistant', 0)
             ->when(!empty($ownerRoleNames), fn($q) => $q->whereNotIn('role', $ownerRoleNames));
 
         if ($agencyFilterId) {
@@ -99,15 +111,18 @@
     // ── Active group detection (ONE mechanism: routeIs) ──
     $activeGroup = null;
     if (request()->routeIs(
-        'worksheet.*', 'agent.listings*', 'rentals.*',
+        'worksheet.*', 'rentals.*',
         'agent.dashboard', 'agent.daily*', 'agent.deals.*',
         'bm.performance*', 'bm.daily*', 'bm.listings*', 'bm.my.dashboard',
         'bm.worksheet.market*', 'bm.tv-messages*', 'bm.agent.performance*',
         'admin.performance', 'admin.agent.performance*', 'admin.branch.performance*',
         'admin.listings.*',
         'admin.deals*', 'admin.daily*', 'admin.targets*', 'admin.worksheet-market*',
-        'admin.tv-messages*', 'admin.activity-mappings.*',
-        'corex.admin.deal-link-review.*',
+        'admin.tv-messages*', 'admin.activity-mappings.*', 'admin.daily-activities.setup*',
+        // Both links live in the Agency Tracker panel, so their routes must open it.
+        // 'corex.compliance.rcr.*' does NOT match the 'compliance.*' matcher below —
+        // routeIs() globs the whole name, and this one is prefixed 'corex.'.
+        'deals-dr2.*', 'corex.compliance.rcr.*',
         'admin.monthly-goals*', 'admin.listing-targets*', 'admin.expenses*',
         'tools.commission', 'tools.cma', 'tools.history.*',
         'commission.index', 'commission.principal', 'commission.confirm', 'commission.pay'
@@ -117,10 +132,11 @@
         $activeGroup = 'evaluation';
     } elseif (request()->routeIs('admin.api.catalog', 'admin.backups.*', 'admin.system-health.*')) {
         $activeGroup = 'api-server';
-    } elseif (request()->routeIs('docuperfect.sales*', 'revenue-share.*', 'training.*')) {
+    } elseif (request()->routeIs('docuperfect.sales*', 'revenue-share.*', 'training.*', 'training-help.*')) {
         // 'training.*' covers the whole LMS — the agent-facing courses AND Training
-        // Management (training.manage + its course/lesson editors), both of which
-        // live in the Hidden panel. It does NOT match 'training-help.*'.
+        // Management (training.manage + its course/lesson editors). It does NOT
+        // match 'training-help.*' (routeIs globs the whole name), so Training Help
+        // is listed separately — it also lives in the Hidden panel now.
         $activeGroup = 'hidden';
     } elseif ((request()->routeIs('docuperfect.*') && !request()->routeIs('docuperfect.sales*', 'docuperfect.rental*')) || request()->routeIs('my-portal.agency-documents*') || request()->routeIs('documents.shared-drive.*')) {
         $activeGroup = 'documents';
@@ -133,10 +149,15 @@
         // Compliance. Exclude them here so they fall through to the communication
         // matcher below and the correct group opens/highlights.
         $activeGroup = 'compliance';
-    } elseif (request()->routeIs('command-center.*') && !request()->routeIs('command-center.buyers.*')) {
+    } elseif (request()->routeIs('command-center.*')
+        && !request()->routeIs('command-center.buyers.*', 'command-center.settings.contact-governance*')) {
         // AT-108 — Buyer Pipeline (command-center.buyers.*) lives in REAL ESTATE
         // (AT-76 move), so it must NOT resolve to the Dashboard group. Excluded
         // here and added to the real-estate matcher below.
+        // Contact Governance shares the command-center.* route prefix but its nav
+        // link is a ROOT-level item (not in the Dashboard panel), so it must leave
+        // $activeGroup null — otherwise the sidebar opens Dashboard on a page whose
+        // link isn't in it.
         $activeGroup = 'command-center';
     } elseif (request()->routeIs('corex.dashboard', 'corex.dashboard.oversight')) {
         // Today / Oversight live in the Command Center submenu but are also
@@ -201,14 +222,17 @@
     } elseif (request()->routeIs(
         'agencies.*',
         'admin.agency-setup-progress',
-        'admin.ai-usage.*'
+        'admin.ai-usage.*',
+        'admin.billing.*'
     )) {
         $activeGroup = 'agency';
     } elseif (request()->routeIs(
         'admin.company-settings*',
         'corex.role-manager*',
+        'admin.assistants.*',
         'admin.soft-deletes.*',
-        'staff-take-on.*'
+        'staff-take-on.*',
+        'billing.*'
     )) {
         $activeGroup = 'company';
     } elseif (request()->routeIs(
@@ -277,24 +301,21 @@
             </button>
         </div>
     </div>
-    @if($_userAgency)
-    <div class="px-4 -mt-1 pb-2">
-        <div class="text-[0.6875rem] font-semibold uppercase tracking-widest text-center truncate" style="color:var(--text-muted); opacity:0.6;">
-            {{ $_userAgency->name }}@if($_activeBranch || ($_branchViewAll && $_agencyBranches->count() > 0)) <span style="opacity:0.5;">—</span>
-                @if($_branchViewAll && !$_viewAsBranchId)
-                    <span>All Branches</span>
-                @elseif($_activeBranch)
-                    <span>{{ $_activeBranch->name }}</span>@if($_viewAsBranchId) <span style="color:var(--brand-icon, #0ea5e9); text-transform:none; letter-spacing:normal; font-weight:500;">(viewing as)</span>@endif
-                @endif
-            @endif
-        </div>
-    </div>
-    @endif
 
-    {{-- Agency Switcher (owner role only) — with consent flow.
-         See .ai/specs/agency-access-authorization-spec.md --}}
+    {{-- Agency box — every user sees which agency they are in. Owner-role users
+         get the switcher (with the consent flow); everyone else gets the same
+         box as a read-only label. See
+         .ai/specs/agency-access-authorization-spec.md --}}
     @if($isOwner)
     @include('partials.agency-access-consent', ['agencies' => $agencies, 'activeAgencyId' => $activeAgencyId, 'activeAgency' => $activeAgency, 'accessGrants' => $accessGrants])
+    @elseif($_userAgency)
+    <div class="px-3 pb-2">
+        <div class="w-full flex items-center gap-2 px-3 py-2 rounded-md text-xs font-medium"
+             style="background:var(--side-control-bg, var(--surface-2)); color:var(--text-secondary); border:1px solid var(--side-control-border, var(--border));"
+             title="{{ $_userAgency->name }}">
+            <span class="flex-1 text-left truncate">{{ $_userAgency->name }}</span>
+        </div>
+    </div>
     @endif
 
     {{-- Remote Access Inbox (agency admins only, and only when the agency
@@ -306,18 +327,24 @@
     </div>
     @endif
 
-    {{-- Branch switcher (Split Branches Phase 2) --}}
+    {{-- Branch box (Split Branches Phase 2) — same rule as the agency box:
+         every user sees their branch, only users holding branches.switch get
+         the dropdown to change it. --}}
     @if($_userAgency && $_branchCanSwitch && $_agencyBranches->count() > 1)
-    <div class="px-4 pb-2">
+    <div class="px-3 pb-2">
         <div x-data="{ branchOpen: false }" class="px-0">
             <button type="button" @click="branchOpen = !branchOpen"
-                    class="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-[11px] font-medium transition-colors"
-                    style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3 flex-shrink-0">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15" />
-                </svg>
+                    class="w-full flex items-center gap-2 px-3 py-2 rounded-md text-xs font-medium transition-colors"
+                    style="background:var(--side-control-bg, var(--surface-2)); color:var(--text-secondary); border:1px solid var(--side-control-border, var(--border));">
+                {{-- The box always names the CURRENT branch scope — the same
+                     information the old header line carried. Permission governs
+                     whether it can be changed, not whether it is shown. --}}
                 <span class="flex-1 text-left truncate">
                     @if($_viewAsBranchId && $_activeBranch)
+                        {{ $_activeBranch->name }}
+                    @elseif($_branchViewAll)
+                        All Branches
+                    @elseif($_activeBranch)
                         {{ $_activeBranch->name }}
                     @else
                         Switch Branch
@@ -352,20 +379,34 @@
             </div>
         </div>
     </div>
+    @elseif($_userAgency && ($_activeBranch || ($_branchViewAll && $_agencyBranches->count() > 0)))
+    <div class="px-3 pb-2">
+        <div class="w-full flex items-center gap-2 px-3 py-2 rounded-md text-xs font-medium"
+             style="background:var(--side-control-bg, var(--surface-2)); color:var(--text-secondary); border:1px solid var(--side-control-border, var(--border));">
+            <span class="flex-1 text-left truncate">
+                @if($_branchViewAll && !$_viewAsBranchId)
+                    All Branches
+                @else
+                    {{-- ?-> : view_as_branch_id can outlive the branch it points at. --}}
+                    {{ $_activeBranch?->name ?? 'All Branches' }}
+                @endif
+            </span>
+            @if($_viewAsBranchId && $_activeBranch)
+            <span class="flex-shrink-0" style="color:var(--brand-icon, #0ea5e9);">(viewing as)</span>
+            @endif
+        </div>
+    </div>
     @endif
 
     {{-- Acting-as branch manager (Admin Multi-Branch Manager). Identity only —
          lets an admin who manages several branches present as the manager of a
          chosen one for deal registration. Does NOT change what they can see. --}}
     @if($_canSelfAssignManaged && $_managedBranches->count() > 0)
-    <div class="px-4 pb-2">
+    <div class="px-3 pb-2">
         <div x-data="{ actingOpen: false }" class="px-0">
             <button type="button" @click="actingOpen = !actingOpen"
-                    class="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-[11px] font-medium transition-colors"
-                    style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3 flex-shrink-0">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" />
-                </svg>
+                    class="w-full flex items-center gap-2 px-3 py-2 rounded-md text-xs font-medium transition-colors"
+                    style="background:var(--side-control-bg, var(--surface-2)); color:var(--text-secondary); border:1px solid var(--side-control-border, var(--border));">
                 <span class="flex-1 text-left truncate">
                     @if($_actingBranch)
                         Acting: {{ $_actingBranch->name }}
@@ -395,6 +436,65 @@
                             class="w-full text-left px-3 py-2 text-xs hover:bg-[color:var(--surface)] {{ (int) $_actingBranchId === (int) $_mb->id ? 'font-semibold' : '' }}"
                             style="color: @if((int) $_actingBranchId === (int) $_mb->id) var(--brand-icon, #0ea5e9) @else var(--text-secondary) @endif;">
                         {{ $_mb->name }} Manager
+                    </button>
+                </form>
+                @endforeach
+            </div>
+        </div>
+    </div>
+    @endif
+
+    {{-- Multi-agent addendum (assistants-multi-agent-spec.md §6.2) — "Acting for" switcher.
+         Identity only, mirrors "Acting as branch manager" above: does NOT change what the
+         assistant is ALLOWED to do (the permission ceiling stays the Main Agent's, unchanged) —
+         only whose book a NEW record they create lands on. Shown only when there is a real
+         choice to make: an assistant with at least one linked Sub-Agent. --}}
+    @php
+        $_actingForLinkedIds = auth()->check() && auth()->user()->isAssistant()
+            ? auth()->user()->activeLinkedSubAgentIds()
+            : [];
+    @endphp
+    @if(auth()->check() && auth()->user()->isAssistant() && count($_actingForLinkedIds) > 0)
+    @php
+        $_mainAgent = auth()->user()->assignedAgent();
+        $_actingForId = session('acting_for_user_id');
+        $_actingForUser = $_actingForId ? \App\Models\User::find($_actingForId) : null;
+        $_linkedAgentUsers = \App\Models\User::whereIn('id', $_actingForLinkedIds)->get(['id', 'name']);
+    @endphp
+    <div class="px-3 pb-2">
+        <div x-data="{ actingForOpen: false }" class="px-0">
+            <button type="button" @click="actingForOpen = !actingForOpen"
+                    class="w-full flex items-center gap-2 px-3 py-2 rounded-md text-xs font-medium transition-colors"
+                    style="background:var(--side-control-bg, var(--surface-2)); color:var(--text-secondary); border:1px solid var(--side-control-border, var(--border));">
+                <span class="flex-1 text-left truncate">
+                    Acting for: {{ $_actingForUser?->name ?? $_mainAgent?->name ?? 'Choose…' }}
+                </span>
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-3 h-3 transition-transform" :class="actingForOpen && 'rotate-90'">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+                </svg>
+            </button>
+            <div x-show="actingForOpen" x-cloak @click.outside="actingForOpen = false" x-transition
+                 class="mt-1 rounded-md overflow-hidden shadow-lg"
+                 style="background:var(--surface-2); border:1px solid var(--border);">
+                @if($_mainAgent)
+                <form method="POST" action="{{ route('acting-for.update') }}">
+                    @csrf
+                    <input type="hidden" name="acting_for_user_id" value="{{ $_mainAgent->id }}">
+                    <button type="submit"
+                            class="w-full text-left px-3 py-2 text-xs hover:bg-[color:var(--surface)] {{ !$_actingForId ? 'font-semibold' : '' }}"
+                            style="color: @if(!$_actingForId) var(--brand-icon, #0ea5e9) @else var(--text-secondary) @endif;">
+                        {{ $_mainAgent->name }}
+                    </button>
+                </form>
+                @endif
+                @foreach($_linkedAgentUsers as $_la)
+                <form method="POST" action="{{ route('acting-for.update') }}">
+                    @csrf
+                    <input type="hidden" name="acting_for_user_id" value="{{ $_la->id }}">
+                    <button type="submit"
+                            class="w-full text-left px-3 py-2 text-xs hover:bg-[color:var(--surface)] {{ (int) $_actingForId === (int) $_la->id ? 'font-semibold' : '' }}"
+                            style="color: @if((int) $_actingForId === (int) $_la->id) var(--brand-icon, #0ea5e9) @else var(--text-secondary) @endif;">
+                        {{ $_la->name }}
                     </button>
                 </form>
                 @endforeach
@@ -542,6 +642,44 @@
         @endpermission
 
         {{-- ═══════════════════════════════════════════
+             MY ASSISTANTS (AT-267)
+
+             Conditional on a DATA fact, not a permission: this appears only for an agent who
+             actually has an assistant. It is not something you can be granted — you either have
+             an assistant to manage or you don't, so a permission key would be meaningless.
+             Cached per agent (busted on create / reassign / revoke / restore).
+             ═══════════════════════════════════════════ --}}
+        @php
+            $_hasAssistants = false;
+            if ($user && \Illuminate\Support\Facades\Route::has('agent.assistants.index') && ($_userAgency?->assistants_enabled)) {
+                // Perf (2026-08-23): checked and left AS-IS, unlike the two nearby badges
+                // that lost their cache in this same pass. This key is explicitly busted
+                // on write (AssistantController::*, Cache::forget('assistants.agent.'.id)
+                // on create/reassign/revoke/restore) rather than relying on the 60s TTL to
+                // go stale-then-refresh — so it stays warm indefinitely between real
+                // assignment changes, not just within a rolling window. Removing the cache
+                // here would make the common case WORSE (paying ~10-12ms every load
+                // instead of a ~1-2ms cache hit) for no correctness gain. Caching earns
+                // its keep when it's invalidated on write; the two removed nearby were
+                // pure blind-TTL with no invalidation at all.
+                $_hasAssistants = cache()->remember(
+                    'assistants.agent.' . $user->id,
+                    60,
+                    fn () => \App\Models\AssistantAssignment::where('agent_user_id', $user->id)->active()->exists()
+                );
+            }
+        @endphp
+        @if($_hasAssistants)
+        <a href="{{ route('agent.assistants.index') }}"
+           class="corex-nav-item {{ request()->routeIs('agent.assistants.*') ? 'active' : '' }}">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a9.094 9.094 0 0 0 3.741-.479 3 3 0 0 0-4.682-2.72m.94 3.198.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0 1 12 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 0 1 6 18.719m12 0a5.971 5.971 0 0 0-.941-3.197m0 0A5.995 5.995 0 0 0 12 12.75a5.995 5.995 0 0 0-5.058 2.772m0 0a3 3 0 0 0-4.681 2.72 8.986 8.986 0 0 0 3.74.477m.94-3.197a5.971 5.971 0 0 0-.94 3.197M15 6.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm6 3a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Zm-13.5 0a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Z" />
+            </svg>
+            <span>My Assistants</span>
+        </a>
+        @endif
+
+        {{-- ═══════════════════════════════════════════
              REAL ESTATE (expandable group)
              ═══════════════════════════════════════════ --}}
         <div>
@@ -561,6 +699,7 @@
                 </button>
                 <div class="corex-nav-panel-title">Real Estate</div>
 
+                @feature('prospecting')
                 @permission('access_prospecting')
                 {{-- F.1: relabelled from "Prospecting" to "Market intelligence" + retargeted at the
                      new route. The active-state class also matches the legacy prospecting.* names so
@@ -568,7 +707,7 @@
                      sidebar entry highlighted if anything internal still routes there.
 
                      F.2: count badge — canvass-pool size (our own on-market stock excluded,
-                     OnMarketStockService-gated). Cached 60s per agency. Mirrors the
+                     OnMarketStockService-gated). Cached per agency. Mirrors the
                      pendingVerificationCount / faultNewCount precedents elsewhere in this
                      sidebar.
                      2026-08-11 fix — was whereNull('matched_property_id'), the raw ungated
@@ -577,13 +716,24 @@
                      was wrongly treated as "our stock" and dropped OUT of this count, even
                      though it's genuinely still canvassable. Now uses the same
                      whereNotCompanyStock() scope the Work-tab canvass pool itself uses, so
-                     the sidebar badge and the list it links to can never disagree. --}}
+                     the sidebar badge and the list it links to can never disagree.
+                     Perf (2026-08-23) — TTL 60s -> 300s. whereNotCompanyStock() resolves
+                     through OnMarketStockService::identitySets(), which memoizes per PHP
+                     PROCESS (static property), not across requests — so on any page other
+                     than Work mode itself (which already warms it earlier in the same
+                     request), a cold hit here pays the full agency-wide properties scan
+                     fresh: measured 9 queries, ~730-810ms. A warm hit is ~1-2ms (one cache
+                     read). This is an informational pool-size badge, not a figure anything
+                     acts on in real time — 5 minutes of staleness is an acceptable trade
+                     for cutting how often every OTHER page in the app pays that ~750ms.
+                     Query/scope unchanged — do not touch OnMarketStockService here, cc3
+                     owns it and is mid-rewrite. --}}
                 @if(\Illuminate\Support\Facades\Route::has('market-intelligence.work'))
                 @php
                     $miAgencyId = auth()->user()->effectiveAgencyId() ?? auth()->user()->agency_id ?? null;
                     $miCount = $miAgencyId ? cache()->remember(
                         'mi.sidebar_count.' . $miAgencyId,
-                        60,
+                        300,
                         fn () => \App\Models\ProspectingListing::where('agency_id', $miAgencyId)
                             ->where('is_active', true)
                             ->whereNotCompanyStock($miAgencyId)
@@ -616,6 +766,7 @@
                      route /corex/tracked-properties now 301-redirects to
                      /corex/market-intelligence/opportunities. --}}
                 @endpermission
+                @endfeature
 
                 {{-- CMA / deeds capture (phase 1) — its OWN screen; deeds captures are
                      filtered OUT of MIC Opportunities and reviewed/promoted here. --}}
@@ -644,6 +795,7 @@
                 @endpermission
 
                 {{-- Part 4 — unified Outreach & Canvassing board (Activity Feed + AT-91 funnel). --}}
+                @feature('outreach')
                 @permission('outreach.summary.view')
                 @if(\Illuminate\Support\Facades\Route::has('corex.outreach-canvassing.index'))
                 <a href="{{ route('corex.outreach-canvassing.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.outreach-canvassing.*') ? 'active' : '' }}">Outreach &amp; Canvassing</a>
@@ -653,32 +805,48 @@
                 <a href="{{ route('corex.outreach-summary.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.outreach-summary.*') ? 'active' : '' }}">WhatsApp Outreach</a>
                 @endif
                 @endpermission
+                @endfeature
 
                 {{-- AT-117 §6 / AT-120 — Outreach Queue (gated by the scoped view capability). --}}
+                @feature('outreach')
                 @permission('outreach_queue.view')
                 @if(\Illuminate\Support\Facades\Route::has('corex.outreach-queue.index'))
                 <a href="{{ route('corex.outreach-queue.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.outreach-queue.*') ? 'active' : '' }}">Outreach Queue</a>
                 @endif
                 @endpermission
+                @endfeature
 
+                @feature('core-matches')
                 @permission('access_core_matches')
                 @if(\Illuminate\Support\Facades\Route::has('corex.core-matches.index') && \App\Models\PerformanceSetting::get('matches_enabled', 1))
                 <a href="{{ route('corex.core-matches.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.core-matches.*') || request()->routeIs('corex.contacts.matches.*') ? 'active' : '' }}">Core Matches</a>
                 @endif
                 @endpermission
+                @endfeature
 
                 {{-- AT-76 — Buyer Pipeline lives in Real Estate (was under Dashboard/Command Center). Route unchanged. --}}
                 <a href="{{ route('command-center.buyers.pipeline') }}" class="corex-nav-subitem {{ request()->routeIs('command-center.buyers*') ? 'active' : '' }}">Buyer Pipeline</a>
 
-                {{-- AT-XX — Viewing Packs (buyer-facing property packs). --}}
+                {{-- AT-XX — Viewing Packs (buyer-facing property packs).
+                     Gated on access_viewing_packs to match the route group
+                     (routes/web.php — permission:access_viewing_packs), so turning
+                     the permission off (e.g. an assistant's matrix) removes the link
+                     instead of leaving a dead item that 403s. --}}
+                @feature('viewing-packs')
+                @permission('access_viewing_packs')
                 <a href="{{ route('corex.viewing-packs.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.viewing-packs.*') ? 'active' : '' }}">Viewing Packs</a>
+                @endpermission
+                @endfeature
 
+                @feature('portal-leads')
                 @permission('access_portal_leads')
                 @if(\Illuminate\Support\Facades\Route::has('corex.portal-leads.index'))
                 <a href="{{ route('corex.portal-leads.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.portal-leads.*') ? 'active' : '' }}">Portal Leads</a>
                 @endif
                 @endpermission
+                @endfeature
 
+                @feature('presentations')
                 @permission('access_presentations')
                 @if(config('features.presentations') && \Illuminate\Support\Facades\Route::has('presentations.index'))
                 <a href="{{ route('presentations.index') }}" class="corex-nav-subitem {{ request()->routeIs('presentations.*') ? 'active' : '' }}">Presentations</a>
@@ -690,30 +858,16 @@
                     </a>
                 @endif
                 @if(\Illuminate\Support\Facades\Route::has('corex.presentations.outcomes.index'))
-                    @php
-                        // Phase 8 — count of presentations >30d old with no outcome (in current user's scope).
-                        $outcomePendingCount = 0;
-                        try {
-                            $user = auth()->user();
-                            $agencyId = $user?->effectiveAgencyId();
-                            if ($agencyId) {
-                                $q = \App\Models\Presentation::where('agency_id', $agencyId)
-                                    ->where('created_at', '<=', now()->subDays(30))
-                                    ->whereDoesntHave('outcome');
-                                if (!in_array((string) $user->role, ['branch_manager','principal','super_admin','admin'], true)) {
-                                    $q->where('created_by_user_id', $user->id);
-                                }
-                                $outcomePendingCount = $q->count();
-                            }
-                        } catch (\Throwable $e) { /* sidebar must never blow up */ }
-                    @endphp
+                    {{-- CX (Johan, 2026-08-20) — badge removed, not relabelled. Johan's rule: a count on
+                         a menu item must count what THAT screen is for (MIC's badge counts properties
+                         because MIC lists properties). This screen is a read-only dashboard of already-
+                         recorded outcomes — outcomes are captured on the presentation's own page
+                         (PresentationOutcomeController::record(), reached from "Presentations"), never
+                         here. A "presentations awaiting an outcome" count has no home on this nav item,
+                         labelled or not. --}}
                     <a href="{{ route('corex.presentations.outcomes.index') }}"
                        class="corex-nav-subitem {{ request()->routeIs('corex.presentations.outcomes.*') ? 'active' : '' }}">
                         <span>Outcomes</span>
-                        @if($outcomePendingCount > 0)
-                            <span class="ml-auto inline-flex items-center justify-center min-w-[18px] h-[18px] px-1.5 rounded-full text-[0.6875rem] font-bold"
-                                  style="background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 15%, transparent); color:var(--brand-icon, #0ea5e9);">{{ $outcomePendingCount > 99 ? '99+' : $outcomePendingCount }}</span>
-                        @endif
                     </a>
                 @endif
                 @if(\Illuminate\Support\Facades\Route::has('corex.presentations.refresh-requests.index'))
@@ -739,12 +893,15 @@
                     </a>
                 @endif
                 @endpermission
+                @endfeature
 
+                @feature('commercial-evaluations')
                 @permission('access_commercial_evaluations')
                 @if(\Illuminate\Support\Facades\Route::has('commercial-evaluations.index'))
                 <a href="{{ route('commercial-evaluations.index') }}" class="corex-nav-subitem {{ request()->routeIs('commercial-evaluations.*') ? 'active' : '' }}">Commercial Evaluations</a>
                 @endif
                 @endpermission
+                @endfeature
 
                 {{-- Legacy "P24 Alerts" link removed: admin.p24.index is a 301 redirect into
                      Market Intelligence → Market Pulse (MIC redesign Phase D1/D6). Market Pulse
@@ -773,6 +930,7 @@
             );
         @endphp
         @if($canSeeCommunication)
+        @feature('communications')
         <div>
             <button type="button" @click="push('communication')"
                     class="corex-nav-item corex-nav-group-toggle {{ $activeGroup === 'communication' ? 'active' : '' }}">
@@ -869,11 +1027,14 @@
                 @endpermission
             </div>
         </div>
+        @endfeature
         @endif
 
         {{-- ═══════════════════════════════════════════
-             MY EARNINGS
+             MY EARNINGS — AT-267 §10: an assistant has no commission of their own; hidden for them
+             (the /my-earnings route is also deny_assistant-guarded, so nav and route agree).
              ═══════════════════════════════════════════ --}}
+        @unless(auth()->user()?->is_assistant)
         <a href="{{ route('commission.dashboard') }}"
            class="corex-nav-item {{ request()->routeIs('commission.dashboard') ? 'active' : '' }}">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
@@ -881,9 +1042,13 @@
             </svg>
             <span>My Earnings</span>
         </a>
+        @endunless
+
+        {{-- What's New moved to TOOLS, below Filing Register (2026-07-26). --}}
 
         {{-- AT-41 — Guided Tours: self-serve interactive walkthroughs. Visible to
              every authenticated user; the directory filters to their own tours. --}}
+        @feature('guided-tours')
         <a href="{{ route('corex.guided-tours.index') }}"
            class="corex-nav-item {{ request()->routeIs('corex.guided-tours.*') ? 'active' : '' }}">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
@@ -891,10 +1056,12 @@
             </svg>
             <span>Guided Tours</span>
         </a>
+        @endfeature
 
         {{-- ═══════════════════════════════════════════
              AGENCY TRACKER (expandable group)
              ═══════════════════════════════════════════ --}}
+        @feature('agency-tracker')
         @permission('access_agency_tracker')
         <div>
             <button type="button" @click="push('agency-tracker')"
@@ -918,22 +1085,17 @@
                 <a href="{{ route('worksheet.index') }}" class="corex-nav-subitem {{ request()->routeIs('worksheet.*') ? 'active' : '' }}">Worksheet</a>
                 @endpermission
 
-                @permission('view_listings')
-                <a href="{{ route('agent.listings') }}" class="corex-nav-subitem {{ request()->routeIs('agent.listings*') ? 'active' : '' }}">My Listing Stock</a>
-                @endpermission
-
-                {{-- Proforma Invoice list — own/branch/all scoped via proforma.view (Role Manager) --}}
-                @permission('proforma.view')
-                <a href="{{ route('proforma.index') }}" class="corex-nav-subitem {{ request()->routeIs('proforma.index') ? 'active' : '' }}">Proforma Invoices</a>
-                @endpermission
-
                 {{-- Agent section (view own stats) --}}
                 @permission('view_own_stats')
                 <div class="corex-nav-sublabel">My Performance</div>
                 @permission('view_daily_activity')
-                <a href="{{ route('agent.daily.summary') }}" class="corex-nav-subitem {{ request()->routeIs('agent.daily.summary*') ? 'active' : '' }}">Daily Activity Summary</a>
+                <div class="corex-nav-sublabel">Daily Activities</div>
                 <a href="{{ route('agent.daily') }}" class="corex-nav-subitem {{ request()->routeIs('agent.daily') ? 'active' : '' }}">My Daily Activity</a>
+                <a href="{{ route('agent.daily.summary') }}" class="corex-nav-subitem {{ request()->routeIs('agent.daily.summary*') ? 'active' : '' }}">Daily Activity Summary</a>
                 @endpermission
+                @if(auth()->user()?->hasPermission('manage_targets') || auth()->user()?->hasPermission('manage_activity_mappings'))
+                <a href="{{ route('admin.daily-activities.setup') }}" class="corex-nav-subitem {{ request()->routeIs('admin.daily-activities.setup*') ? 'active' : '' }}">Setup</a>
+                @endif
                 @permission('view_deals')
                 <a href="{{ route('agent.deals.index') }}" class="corex-nav-subitem {{ request()->routeIs('agent.deals.*') ? 'active' : '' }}">My Deals</a>
                 @endpermission
@@ -944,9 +1106,6 @@
                 <div class="corex-nav-sublabel">Branch</div>
                 @permission('view_performance')
                 <a href="{{ route('bm.performance') }}" class="corex-nav-subitem {{ request()->routeIs('bm.performance*') ? 'active' : '' }}">Branch Performance</a>
-                @endpermission
-                @permission('view_daily_activity')
-                <a href="{{ route('bm.daily.summary') }}" class="corex-nav-subitem {{ request()->routeIs('bm.daily.summary*') ? 'active' : '' }}">Daily Activity Summary</a>
                 @endpermission
                 @permission('access_listing_stock')
                 <a href="{{ route('bm.listings') }}" class="corex-nav-subitem {{ request()->routeIs('bm.listings*') ? 'active' : '' }}">Branch Listing Stock</a>
@@ -960,25 +1119,54 @@
                 <a href="{{ route('deals-dr2.index') }}" class="corex-nav-subitem {{ request()->routeIs('deals-dr2.*') ? 'active' : '' }}">Deal Register (DR2)</a>
                 @endif
                 @endpermission
+                {{-- Branch Manager section ends here (matches the section's own opening
+                     comment above) — permission-block fix, 2026-08-22. The matching
+                     @endpermission for view_branch_stats did not previously appear until
+                     far below (after the Daily Activities/Setup groups), so EVERYTHING
+                     between here and there — Comms Suspense, RCR·FIC 2026, Deal Link
+                     Review, and the whole Daily Activities/Setup section — was silently
+                     gated behind view_branch_stats too, on top of whatever permission
+                     each item already checked on its own. cc1 found this on Wednesday;
+                     re-verified against this file's current content before fixing
+                     (global @permission/@endpermission count was already balanced at
+                     126/126, confirming a MISPLACED closing tag, not a missing one —
+                     the stray @endpermission this one replaces sat just before "Admin
+                     section" below and has been removed from there, not left as an
+                     extra). Same fix already verified on staging; landing on live now. --}}
+                @endpermission
 
-                {{-- AT-231 P2b — inbound attorney-email review queue --}}
-                @permission('deal_comms_suspense.view')
-                @if(\Illuminate\Support\Facades\Route::has('corex.comms-suspense.index'))
+                {{-- Comms Suspense retired from navigation (Johan, 2026-08-22): "we can
+                     remove the comms suspense from the menus and build the tech into
+                     unfiled. no use having a menu item that will never work." Route,
+                     controller, view and data are UNTOUCHED — only this nav entry (and
+                     its pending-count badge) is gone. corex.comms-suspense.index still
+                     resolves directly for anyone with it bookmarked. Replaced below by
+                     the Unfiled Emails entry (CX-109) — that IS "the tech" Johan meant. --}}
+                {{-- CX-109 (Johan, 2026-08-20) — Unfiled Emails, DR2's primary email-filing workflow --}}
+                @permission('view_deals')
+                @if(\Illuminate\Support\Facades\Route::has('deals-dr2.unfiled-emails.index'))
                     @php
-                        $commsSuspenseCount = 0;
+                        $unfiledEmailsCount = 0;
                         try {
-                            $csAgencyId = auth()->user()?->effectiveAgencyId();
-                            if ($csAgencyId) {
-                                $commsSuspenseCount = \App\Models\Communications\CommunicationFilingSuspense::where('agency_id', $csAgencyId)->where('status', 'pending')->count();
+                            $ufAgencyId = auth()->user()?->effectiveAgencyId();
+                            if ($ufAgencyId) {
+                                $unfiledEmailsCount = \App\Models\Communications\Communication::where('agency_id', $ufAgencyId)
+                                    ->where('channel', 'email')
+                                    ->whereNotExists(function ($q) {
+                                        $q->selectRaw('1')->from('communication_links')
+                                            ->whereColumn('communication_links.communication_id', 'communications.id')
+                                            ->where('communication_links.linkable_type', \App\Models\DealV2\DealV2::class)
+                                            ->whereNull('communication_links.deleted_at');
+                                    })->count();
                             }
                         } catch (\Throwable $e) { /* sidebar must never blow up */ }
                     @endphp
-                    <a href="{{ route('corex.comms-suspense.index') }}"
-                       class="corex-nav-subitem {{ request()->routeIs('corex.comms-suspense.*') ? 'active' : '' }}"
+                    <a href="{{ route('deals-dr2.unfiled-emails.index') }}"
+                       class="corex-nav-subitem {{ request()->routeIs('deals-dr2.unfiled-emails.*') ? 'active' : '' }}"
                        style="display:flex;align-items:center;justify-content:space-between;gap:6px;">
-                        <span>Comms Suspense</span>
-                        @if($commsSuspenseCount > 0)
-                            <span style="display:inline-block;min-width:18px;padding:1px 6px;background:#dc2626;color:#fff;border-radius:99px;font-size:0.625rem;font-weight:700;text-align:center;line-height:1.4;">{{ $commsSuspenseCount > 99 ? '99+' : $commsSuspenseCount }}</span>
+                        <span>Deal Register Unfiled Emails</span>
+                        @if($unfiledEmailsCount > 0)
+                            <span style="display:inline-block;min-width:18px;padding:1px 6px;background:#dc2626;color:#fff;border-radius:99px;font-size:0.625rem;font-weight:700;text-align:center;line-height:1.4;">{{ $unfiledEmailsCount > 99 ? '99+' : $unfiledEmailsCount }}</span>
                         @endif
                     </a>
                 @endif
@@ -1014,7 +1202,10 @@
                     </a>
                 @endif
 
-                @if(auth()->user() && in_array((string) auth()->user()->role, ['admin', 'super_admin', 'branch_manager', 'principal'], true) && \Illuminate\Support\Facades\Route::has('corex.admin.deal-link-review.index'))
+                {{-- HIDDEN 2026-08-24 (Johan, quick wins) — menu-only hide, legacy/pre-CoreX
+                     screen; route left fully live (assertAdmin() in DealLinkReviewController
+                     already gates it, unchanged). Reversible: drop the leading "false && ". --}}
+                @if(false && auth()->user() && in_array((string) auth()->user()->role, ['admin', 'super_admin', 'branch_manager', 'principal'], true) && \Illuminate\Support\Facades\Route::has('corex.admin.deal-link-review.index'))
                     @php
                         // Phase 3i — pending deal-link review count.
                         $dealLinkPendingCount = 0;
@@ -1039,34 +1230,55 @@
                     </a>
                 @endif
 
+                {{-- Daily Activities group — capture + summary + merged Setup, all in one place. --}}
+                @permission('view_daily_activity')
+                <div class="corex-nav-sublabel">Daily Activities</div>
+                @if($effectiveBranchId)
+                <a href="{{ route('agent.daily') }}" class="corex-nav-subitem {{ request()->routeIs('agent.daily') && !request()->routeIs('agent.daily.summary*') ? 'active' : '' }}">Daily Activity Capture</a>
+                @endif
+                <a href="{{ route('bm.daily.summary') }}" class="corex-nav-subitem {{ request()->routeIs('bm.daily.summary*') ? 'active' : '' }}">Daily Activity Summary</a>
+                @endpermission
+                @if(auth()->user()?->hasPermission('manage_targets') || auth()->user()?->hasPermission('manage_activity_mappings'))
+                <a href="{{ route('admin.daily-activities.setup') }}" class="corex-nav-subitem {{ request()->routeIs('admin.daily-activities.setup*') ? 'active' : '' }}">Setup</a>
+                @endif
+
                 <div class="corex-nav-sublabel">Setup</div>
                 @permission('access_worksheet_market')
                 <a href="{{ route('bm.worksheet.market') }}" class="corex-nav-subitem {{ request()->routeIs('bm.worksheet.market*') ? 'active' : '' }}">Worksheet Market</a>
                 @endpermission
                 @permission('manage_targets')
                 <a href="{{ route('admin.targets') }}" class="corex-nav-subitem {{ request()->routeIs('admin.targets') ? 'active' : '' }}">Targets</a>
-                <a href="{{ route('admin.targets.activity.definitions') }}" class="corex-nav-subitem {{ request()->routeIs('admin.targets.activity.definitions*') ? 'active' : '' }}">Activity Definitions</a>
                 @endpermission
+                @feature('tv-display')
                 @permission('manage_tv_messages')
                 <a href="{{ route('bm.tv-messages') }}" class="corex-nav-subitem {{ request()->routeIs('bm.tv-messages*') ? 'active' : '' }}">TV Messages</a>
                 @endpermission
-                @permission('view_daily_activity')
-                @if($effectiveBranchId)
-                <a href="{{ route('agent.daily') }}" class="corex-nav-subitem {{ request()->routeIs('agent.daily') && !request()->routeIs('agent.daily.summary*') ? 'active' : '' }}">Daily Activity Capture</a>
-                @endif
-                @endpermission
-                @endpermission
+                @endfeature
+                {{-- The @endpermission that used to sit here closed view_branch_stats
+                     (which now closes right after the Deal Register/DR2 block above,
+                     2026-08-22) — removed, not moved, since view_daily_activity already
+                     has its own self-contained @permission/@endpermission pair a few
+                     lines up and never needed this one. Leaving it here would have been
+                     a stray @endpermission with nothing left to close — a fatal Blade
+                     compile error, not just a silent visibility bug. --}}
 
                 {{-- Admin section (view company stats) --}}
                 @permission('view_company_stats')
                 <div class="corex-nav-sublabel">Admin</div>
                 @permission('view_performance')
                 <a href="{{ route('admin.performance') }}" class="corex-nav-subitem {{ request()->routeIs('admin.performance') ? 'active' : '' }}">Performance</a>
-                <a href="{{ route('performance.agency-report') }}" class="corex-nav-subitem {{ request()->routeIs('performance.agency-report') ? 'active' : '' }}">Performance &amp; ROI Report</a>
+                {{-- Performance & ROI Report moved to Tools → Reports (2026-08-20, Johan)
+                     — see the Reports group under the TOOLS SECTION below. Same route,
+                     same permission, one nav location instead of two. --}}
                 @endpermission
                 @permission('view_listings')
+                {{-- HIDDEN 2026-08-24 (Johan, quick wins) — menu-only hide, legacy/pre-CoreX
+                     screen; route + permission gate left fully live. Reversible: delete the
+                     "@if(false)"/"@endif" pair below. --}}
+                @if(false)
                 @if(\Illuminate\Support\Facades\Route::has('admin.listings.stock'))
                 <a href="{{ route('admin.listings.stock') }}" class="corex-nav-subitem {{ request()->routeIs('admin.listings.stock*') ? 'active' : '' }}">Company Listing Stock</a>
+                @endif
                 @endif
                 @endpermission
                 @permission('view_deals')
@@ -1076,41 +1288,61 @@
                 @endif
                 @endpermission
                 @permission('view_listings')
+                {{-- HIDDEN 2026-08-24 (Johan, quick wins) — menu-only hide, legacy/pre-CoreX
+                     screen; route + permission gate left fully live. Reversible: delete the
+                     "@if(false)"/"@endif" pair below. --}}
+                @if(false)
                 <a href="{{ route('admin.listings.agents') }}" class="corex-nav-subitem {{ request()->routeIs('admin.listings.agents*') ? 'active' : '' }}">Listing Stock</a>
+                @endif
                 @endpermission
                 @permission('access_import_listings')
+                {{-- HIDDEN 2026-08-24 (Johan, quick wins) — menu-only hide, legacy/pre-CoreX
+                     screen; route + permission gate left fully live. NOTE: this is the ONLY
+                     write path into ListingStock anywhere in the codebase, and TvController.php
+                     (:98, :252) reads ListingStock for the live TV display — hide only, do not
+                     remove without re-checking that dependency. Reversible: delete the
+                     "@if(false)"/"@endif" pair below. P24 Auto-Import stays visible, untouched. --}}
+                @if(false)
                 <a href="{{ route('admin.listings.import') }}" class="corex-nav-subitem {{ request()->routeIs('admin.listings.import*') ? 'active' : '' }}">Import Listings</a>
+                @endif
                 <a href="{{ route('admin.minion.setup') }}" class="corex-nav-subitem {{ request()->routeIs('admin.minion.*') ? 'active' : '' }}">P24 Auto-Import</a>
                 @endpermission
+                {{-- Daily Activities group — summary + merged Setup. De-dupe: the Branch
+                     "Setup" section above already renders the Setup link for users with
+                     view_branch_stats — only render it here for company-admins who don't
+                     see that section, so it appears exactly once. --}}
                 @permission('view_daily_activity')
+                <div class="corex-nav-sublabel">Daily Activities</div>
                 <a href="{{ route('admin.daily.summary') }}" class="corex-nav-subitem {{ request()->routeIs('admin.daily.summary*') ? 'active' : '' }}">Daily Activity Summary</a>
                 @endpermission
+                @unless(auth()->user()?->hasPermission('view_branch_stats'))
+                    @if(auth()->user()?->hasPermission('manage_targets') || auth()->user()?->hasPermission('manage_activity_mappings'))
+                    <a href="{{ route('admin.daily-activities.setup') }}" class="corex-nav-subitem {{ request()->routeIs('admin.daily-activities.setup*') ? 'active' : '' }}">Setup</a>
+                    @endif
+                @endunless
                 @permission('manage_targets')
-                {{-- De-dupe: the Setup section above already renders these two links for
-                     users with view_branch_stats. Only render them here for company-admins
-                     who do NOT see the Setup section, so each destination appears once. --}}
                 @unless(auth()->user()?->hasPermission('view_branch_stats'))
                 <a href="{{ route('admin.targets') }}" class="corex-nav-subitem {{ request()->routeIs('admin.targets') ? 'active' : '' }}">Targets</a>
-                <a href="{{ route('admin.targets.activity.definitions') }}" class="corex-nav-subitem {{ request()->routeIs('admin.targets.activity.definitions*') ? 'active' : '' }}">Activity Definitions</a>
                 @endunless
-                @endpermission
-                @permission('manage_activity_mappings')
-                <a href="{{ route('admin.activity-mappings.index') }}" class="corex-nav-subitem {{ request()->routeIs('admin.activity-mappings.*') ? 'active' : '' }}">Activity Scoring</a>
                 @endpermission
                 @permission('edit_worksheet')
                 <a href="{{ route('admin.worksheet-market') }}" class="corex-nav-subitem {{ request()->routeIs('admin.worksheet-market*') ? 'active' : '' }}">Worksheet Market</a>
                 @endpermission
+                @feature('tv-display')
                 @permission('manage_tv_messages')
                 <a href="{{ route('admin.tv-messages') }}" class="corex-nav-subitem {{ request()->routeIs('admin.tv-messages*') ? 'active' : '' }}">TV Messages</a>
                 @endpermission
+                @endfeature
                 @endpermission
 
                 {{-- Commission Management (admin/owner only) --}}
+                @feature('commission-management')
                 @if($isOwner || $effectiveRole === 'super_admin')
                 <div class="corex-nav-sublabel">Commission</div>
                 <a href="{{ route('commission.principal') }}" class="corex-nav-subitem {{ request()->routeIs('commission.principal') ? 'active' : '' }}">Commission Overview</a>
                 <a href="{{ route('commission.index') }}" class="corex-nav-subitem {{ request()->routeIs('commission.index') ? 'active' : '' }}">Commission Management</a>
                 @endif
+                @endfeature
 
                 {{-- Tools (all roles within AT) --}}
                 @permission('access_calculators')
@@ -1133,11 +1365,13 @@
             </div>
         </div>
         @endpermission
+        @endfeature{{-- agency-tracker --}}
 
         {{-- ═══════════════════════════════════════════
              DOCUMENTS (DocuPerfect — expandable group)
              ═══════════════════════════════════════════ --}}
         @if(auth()->check() && (auth()->user()->hasPermission('access_docuperfect') || auth()->user()->hasPermission('view_agency_documents') || auth()->user()->hasPermission('access_shared_drive')))
+        @feature('docuperfect')
         @if(\Illuminate\Support\Facades\Route::has('docuperfect.dashboard'))
         <div>
             <button type="button" @click="push('documents')"
@@ -1176,6 +1410,9 @@
                 @permission('esign.compiler.view')
                 <a href="{{ route('docuperfect.compiler.index') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.compiler.*') ? 'active' : '' }}">Compile Studio</a>
                 @endpermission
+                @permission('esign.settings')
+                <a href="{{ route('docuperfect.esign.recipient-presets.index') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.esign.recipient-presets.*') ? 'active' : '' }}">Recipient Presets</a>
+                @endpermission
                 @permission('manage_templates')
                 <a href="{{ route('docuperfect.templates.index') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.templates.*') ? 'active' : '' }}">Template Management</a>
                 <a href="{{ route('docuperfect.field-groups.index') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.field-groups.*') ? 'active' : '' }}">Field Groups</a>
@@ -1186,12 +1423,15 @@
                 @permission('view_agency_documents')
                 <a href="{{ route('my-portal.agency-documents') }}" class="corex-nav-subitem {{ request()->routeIs('my-portal.agency-documents*') ? 'active' : '' }}">Agency Documents</a>
                 @endpermission
+                @feature('shared-drive')
                 @permission('access_shared_drive')
                 <a href="{{ route('documents.shared-drive.index') }}" class="corex-nav-subitem {{ request()->routeIs('documents.shared-drive.*') ? 'active' : '' }}">Shared Drive</a>
                 @endpermission
+                @endfeature
             </div>
         </div>
         @endif
+        @endfeature
         @endif
 
 
@@ -1201,6 +1441,7 @@
 
         {{-- Compliance (expandable group) --}}
         @permission('access_compliance')
+        @feature('compliance')
         <div>
             <button type="button" @click="push('compliance')"
                     class="corex-nav-item corex-nav-group-toggle {{ $activeGroup === 'compliance' ? 'active' : '' }}">
@@ -1218,8 +1459,6 @@
                 </button>
                 <div class="corex-nav-panel-title">Compliance</div>
                 <a href="{{ route('compliance.fica.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.fica.*') ? 'active' : '' }}">FICA</a>
-                {{-- AT-173 — media encryption at rest status --}}
-                <a href="{{ route('compliance.media-encryption.status') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.media-encryption.*') ? 'active' : '' }}">Media Encryption</a>
                 @permission('access_rmcp')
                 <a href="{{ route('compliance.rmcp.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.rmcp.*') && !request()->routeIs('compliance.rmcp.dashboard.*') ? 'active' : '' }}">RMCP</a>
                 @endpermission
@@ -1245,7 +1484,13 @@
                 </a>
                 @endif
                 @permission('verify_user_documents')
-                @php $pendingVerificationCount = cache()->remember('pending-verification-count-' . (auth()->user()->agency_id ?? 'all'), 60, fn() => \App\Models\UserDocument::pending()->count()); @endphp
+                {{-- Perf (2026-08-23): was cache()->remember(60s) — cache store is the
+                     database here, so a warm hit is still a real MySQL round trip (~1ms)
+                     and a cold miss pays that PLUS this query PLUS a write (~25ms
+                     measured, 7-8 queries). Direct computation measured ~10-12ms, 5-6
+                     queries — cheaper than the cache wrapper in every case, not just the
+                     cold one. Same pattern as $nonCompliantAgents just above. --}}
+                @php $pendingVerificationCount = \App\Models\UserDocument::pending()->count(); @endphp
                 <a href="{{ route('compliance.verification.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.verification.*') ? 'active' : '' }}">
                     Verification Queue
                     @if($pendingVerificationCount > 0)
@@ -1260,15 +1505,23 @@
                 <a href="{{ route('compliance.agency-settings.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.agency-settings.*') ? 'active' : '' }}">Agency Documents</a>
                 @endif
                 @permission('compliance.whistleblow.view')
+                {{-- Perf (2026-08-23): was cache()->remember(60s) — ~24ms/7 queries cold,
+                     vs ~10-12ms/5 queries computed directly (measured); a warm hit is only
+                     marginally cheaper (~1.5ms) than computing fresh, and this app's cache
+                     store is itself the database, so caching bought little here. Removing
+                     it also closes a pre-existing bug: the cache KEY was agency-only but
+                     the QUERY varies by viewer's own permission (agency-wide vs own-only),
+                     so two users in the same agency could read each other's cached scope.
+                     Computing fresh removes that collision as a side effect. --}}
                 @php
-                    $wbPendingCount = cache()->remember('wb-pending-' . (auth()->user()->agency_id ?? 'all'), 60, function () {
+                    $wbPendingCount = (function () {
                         $q = \App\Models\Compliance\WhistleblowComplaint::where('status', 'pending_approval');
                         $u = auth()->user();
                         if (!$u->hasPermission('compliance.whistleblow.view_all_agency')) {
                             $q->where('reported_by_user_id', $u->id);
                         }
                         return $q->count();
-                    });
+                    })();
                 @endphp
                 <a href="{{ route('compliance.whistleblow.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.whistleblow.*') ? 'active' : '' }}">
                     Compliance Reporting
@@ -1290,6 +1543,7 @@
                      cross-link was removed so the archive highlights in one place only. --}}
             </div>
         </div>
+        @endfeature
         @endpermission
 
         {{-- Training (LMS) — moved to agent section above as "Training" --}}
@@ -1305,6 +1559,7 @@
 
         {{-- Payroll (slide-panel group) --}}
         @if($user && $user->hasAnyPermission(['manage_payroll', 'run_payroll', 'view_payroll_reports']))
+        @feature('payroll')
         <div>
             <button type="button" @click="push('payroll')"
                     class="corex-nav-item corex-nav-group-toggle {{ $activeGroup === 'payroll' ? 'active' : '' }}">
@@ -1333,10 +1588,12 @@
                 @endpermission
             </div>
         </div>
+        @endfeature
         @endif
 
         {{-- Leave Management (slide-panel group) --}}
         @if($user && $user->hasAnyPermission(['manage_leave', 'approve_leave', 'view_leave_reports', 'manage_leave_types', 'adjust_leave_balances']))
+        @feature('leave')
         <div>
             <button type="button" @click="push('leave')"
                     class="corex-nav-item corex-nav-group-toggle {{ $activeGroup === 'leave' ? 'active' : '' }}">
@@ -1379,6 +1636,7 @@
                 @endpermission
             </div>
         </div>
+        @endfeature
         @endif
         @endpermission {{-- /sidebar.section.branch_manager --}}
 
@@ -1389,35 +1647,10 @@
         <div class="corex-nav-divider"></div>
         <div class="corex-nav-section-label">Tools</div>
 
-        {{-- Training Help --}}
-        @php
-            $trainingUnreadCount = 0;
-            if ($user) {
-                $trainingRole = $user->effectiveRole();
-                $trainingRequired = \App\Models\Training\TrainingDoc::required()->forRole($trainingRole)->pluck('id');
-                if ($trainingRequired->isNotEmpty()) {
-                    $trainingReadDocIds = \App\Models\Training\TrainingDocRead::where('user_id', $user->id)
-                        ->whereIn('doc_id', $trainingRequired)
-                        ->whereNotNull('completed_at')
-                        ->whereNull('is_outdated_since')
-                        ->pluck('doc_id');
-                    $trainingUnreadCount = $trainingRequired->diff($trainingReadDocIds)->count();
-                }
-            }
-        @endphp
-        @if(\Illuminate\Support\Facades\Route::has('training-help.index'))
-        <a href="{{ route('training-help.index') }}" class="corex-nav-item {{ request()->routeIs('training-help.*') ? 'active' : '' }}">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.042A8.967 8.967 0 0 0 6 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 0 1 6 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 0 1 6-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0 0 18 18a8.967 8.967 0 0 0-6 2.292m0-14.25v14.25" />
-            </svg>
-            <span>Training</span>
-            @if($trainingUnreadCount > 0)
-            <span class="ml-auto inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold" style="background:color-mix(in srgb, var(--ds-amber, #f59e0b) 15%, transparent); color:var(--ds-amber, #f59e0b);">{{ $trainingUnreadCount }}</span>
-            @endif
-        </a>
-        @endif
+        {{-- Training Help moved to System Developer → Hidden (owner-only). --}}
 
         {{-- Ellie AI --}}
+        @feature('ellie')
         @permission('access_ellie')
         @if(\Illuminate\Support\Facades\Route::has('ellie.index'))
         <a href="{{ route('ellie.index') }}" class="corex-nav-item {{ request()->routeIs('ellie.*') ? 'active' : '' }}">
@@ -1428,8 +1661,10 @@
         </a>
         @endif
         @endpermission
+        @endfeature
 
         {{-- Ad Manager --}}
+        @feature('ad-manager')
         @permission('access_ad_manager')
         @if(\Illuminate\Support\Facades\Route::has('tools.ad-manager'))
         <a href="{{ route('tools.ad-manager') }}" class="corex-nav-item {{ request()->routeIs('tools.ad-manager') ? 'active' : '' }}">
@@ -1441,9 +1676,49 @@
         </a>
         @endif
         @endpermission
+        @endfeature
+
+        {{-- Reports (2026-08-20, Johan: "we need a report section under like tools")
+             — first two, nothing else moved: Performance & ROI Report (moved from
+             Agency Tracker → Admin, above) and the Buyers Report. Reuses each
+             report's EXISTING permission — no new permission key. The whole group
+             renders only if the user can reach at least one; each link only if the
+             user can reach that one. Same corex-nav-group-toggle / push() pattern
+             as every other nested group in this file (see "Hidden" above). --}}
+        @if($user && $user->hasAnyPermission(['view_performance', 'view_buyers_report']))
+        <div>
+            <button type="button" @click="push('reports')"
+                    class="corex-nav-item corex-nav-group-toggle {{ $groupOpen('reports') ? 'active' : '' }}">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 17.25v1.5m3-3v3m3-6v6m-9 0h12a2.25 2.25 0 0 0 2.25-2.25V6.75A2.25 2.25 0 0 0 18 4.5H6a2.25 2.25 0 0 0-2.25 2.25v10.5A2.25 2.25 0 0 0 6 19.5Z" />
+                </svg>
+                <span>Reports</span>
+                <svg class="corex-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
+            </button>
+
+            <div class="corex-nav-panel {{ $groupOpen('reports') ? 'is-open' : '' }}" :class="{ 'is-open': inStack('reports') }">
+                <button type="button" @click="pop()" class="corex-nav-back">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" /></svg>
+                    <span>Back</span>
+                </button>
+                <div class="corex-nav-panel-title">Reports</div>
+
+                @permission('view_performance')
+                <a href="{{ route('performance.agency-report') }}" class="corex-nav-subitem {{ request()->routeIs('performance.agency-report*') ? 'active' : '' }}">Performance &amp; ROI Report</a>
+                @endpermission
+
+                @permission('view_buyers_report')
+                @if(\Illuminate\Support\Facades\Route::has('buyers-report.index'))
+                <a href="{{ route('buyers-report.index') }}" class="corex-nav-subitem {{ request()->routeIs('buyers-report.*') ? 'active' : '' }}">Buyers Report</a>
+                @endif
+                @endpermission
+            </div>
+        </div>
+        @endif
 
         {{-- Trust Interest (slide-panel group) --}}
         @if($user && $user->hasAnyPermission(['access_trust_interest', 'access_deposit_calculator', 'access_deposit_calc_history', 'access_calculators']))
+        @feature('trust-interest')
         <div>
             <button type="button" @click="push('trust-interest')"
                     class="corex-nav-item corex-nav-group-toggle {{ $activeGroup === 'trust-interest' ? 'active' : '' }}">
@@ -1484,17 +1759,22 @@
                 @endif
                 @endpermission
 
+                @feature('calculators')
                 @permission('access_calculators')
                 @if(\Illuminate\Support\Facades\Route::has('calculators.index'))
                 <a href="{{ route('calculators.index') }}" class="corex-nav-subitem {{ request()->routeIs('calculators.*') ? 'active' : '' }}">Calculators</a>
                 @endif
                 @endpermission
+                @endfeature
             </div>
         </div>
+        @endfeature
         @endif
 
         {{-- PDF Suite --}}
         @if(auth()->check() && (auth()->user()->hasPermission('access_pdf_suite') || auth()->user()->hasPermission('access_pdf_splitter')))
+        @feature('pdf-suite')
+        @permission('access_pdf_suite')
         @if(\Illuminate\Support\Facades\Route::has('tools.pdf_suite.hub'))
         <a href="{{ route('tools.pdf_suite.hub') }}" class="corex-nav-item {{ (request()->routeIs('tools.pdf_suite.*') || request()->routeIs('tools.pdf_splitter.*')) ? 'active' : '' }}">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -1507,9 +1787,37 @@
             <span>PDF Suite</span>
         </a>
         @endif
+        @endpermission
+
+        {{-- PDF Splitter — its OWN entry (AUDIT 2026-07-26 F7).
+
+             The link above points at tools.pdf_suite.hub, which is gated
+             `permission:access_pdf_suite`. Until this entry existed, that single link was the
+             only navigation into EITHER tool, so a user holding access_pdf_splitter and not
+             access_pdf_suite had no way to reach the Splitter they are permitted to use
+             (non-negotiable #2). Rendered only when the Suite link is NOT already shown, so a
+             user with both permissions still sees one entry, not two. --}}
+        @unless(auth()->check() && auth()->user()->hasPermission('access_pdf_suite'))
+        @permission('access_pdf_splitter')
+        @if(\Illuminate\Support\Facades\Route::has('tools.pdf_splitter.index'))
+        <a href="{{ route('tools.pdf_splitter.index') }}" class="corex-nav-item {{ request()->routeIs('tools.pdf_splitter.*') ? 'active' : '' }}">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                <path d="M14 2v6h6"/>
+                <path d="M8 13h8"/>
+                <path d="M8 17h8"/>
+                <path d="M8 9h2"/>
+            </svg>
+            <span>PDF Splitter</span>
+        </a>
+        @endif
+        @endpermission
+        @endunless
+        @endfeature
         @endif
 
         {{-- Image Converter --}}
+        @feature('image-converter')
         @permission('access_image_converter')
         @if(\Illuminate\Support\Facades\Route::has('tools.image_converter.index'))
         <a href="{{ route('tools.image_converter.index') }}" class="corex-nav-item {{ request()->routeIs('tools.image_converter.*') ? 'active' : '' }}">
@@ -1522,8 +1830,10 @@
         </a>
         @endif
         @endpermission
+        @endfeature
 
         {{-- Document Library --}}
+        @feature('document-library')
         @permission('access_document_library')
         @if(config('features.document_library_v1'))
         <a href="{{ route('documents.library.index') }}" class="corex-nav-item {{ request()->routeIs('documents.library.*') ? 'active' : '' }}">
@@ -1534,8 +1844,10 @@
         </a>
         @endif
         @endpermission
+        @endfeature
 
         {{-- Filing Register --}}
+        @feature('filing-register')
         @permission('access_filing_register')
         <a href="{{ route('filing-register.index') }}" class="corex-nav-item {{ request()->routeIs('filing-register.*') ? 'active' : '' }}">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
@@ -1544,6 +1856,25 @@
             <span>Filing Register</span>
         </a>
         @endpermission
+        @endfeature
+
+        {{-- AT-338 — What's New: the archive of system updates. Sits under Filing
+             Register in Tools (moved here 2026-07-26).
+
+             Carries NO @feature or permission of its own, deliberately: an agency able
+             to switch off release notes would recreate the "ships inert" problem this
+             feature exists to solve. It is therefore visible to everyone who can see the
+             Tools section at all. The page itself still filters server-side to what the
+             viewer is eligible for (nothing published before their account existed), so
+             an ungated link can never leak another tenant's or an earlier era's content.
+             Spec: .ai/specs/system-updates.md §7.5 --}}
+        <a href="{{ route('corex.whats-new.index') }}"
+           class="corex-nav-item {{ request()->routeIs('corex.whats-new.*') ? 'active' : '' }}">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 7.5h1.5m-1.5 3h1.5m-7.5 3h7.5m-7.5 3h7.5m3-9h3.375c.621 0 1.125.504 1.125 1.125V18a2.25 2.25 0 0 1-2.25 2.25M16.5 7.5V18a2.25 2.25 0 0 0 2.25 2.25M16.5 7.5V4.875c0-.621-.504-1.125-1.125-1.125H4.125C3.504 3.75 3 4.254 3 4.875V18a2.25 2.25 0 0 0 2.25 2.25h13.5M6 7.5h3v3H6v-3Z" />
+            </svg>
+            <span>What's New</span>
+        </a>
 
         @endpermission {{-- /sidebar.section.tools --}}
 
@@ -1551,12 +1882,17 @@
              ADMIN SECTION (agency-level admins — BMs, super_admin)
              ═══════════════════════════════════════════ --}}
         @permission('sidebar.section.admin')
-        @if($user && $user->hasAnyPermission(['manage_performance_settings', 'access_knowledge_base', 'access_role_manager', 'access_finance_engine', 'access_settings', 'access_soft_deletes', 'manage_staff_take_on', 'marketing_suppressions.view', 'manage_payroll', 'run_payroll', 'view_payroll_reports']))
+        @if($user && $user->hasAnyPermission(['manage_performance_settings', 'access_knowledge_base', 'manage_reference_sources', 'access_role_manager', 'assistants.view', 'access_finance_engine', 'access_settings', 'access_soft_deletes', 'manage_staff_take_on', 'marketing_suppressions.view', 'manage_payroll', 'run_payroll', 'view_payroll_reports']))
         <div class="corex-nav-divider"></div>
         <div class="corex-nav-section-label">Admin</div>
 
         {{-- Company (slide-panel group) — agency-level configuration and people admin --}}
-        @if($user && $user->hasAnyPermission(['manage_performance_settings', 'access_role_manager', 'access_soft_deletes', 'manage_staff_take_on']))
+        {{-- `billing.view`, `assistants.view` and `proforma.view` are in this gate because the Company
+             GROUP is only rendered when the user holds at least one of its children's permissions —
+             without them, a role granted only billing.view (or only assistants.view, or only
+             proforma.view) would have the whole group hidden and could never reach Billing /
+             Assistants / Proforma Invoices. --}}
+        @if($user && $user->hasAnyPermission(['manage_performance_settings', 'access_role_manager', 'assistants.view', 'access_soft_deletes', 'manage_staff_take_on', 'billing.view', 'proforma.view']))
         <div>
             <button type="button" @click="push('company')"
                     class="corex-nav-item corex-nav-group-toggle {{ $activeGroup === 'company' ? 'active' : '' }}">
@@ -1575,35 +1911,68 @@
                 <div class="corex-nav-panel-title">Company</div>
 
                 @permission('manage_performance_settings')
-                <a href="{{ route('admin.company-settings') }}" class="corex-nav-subitem {{ request()->routeIs('admin.company-settings*') ? 'active' : '' }}">Company Settings</a>
+                @php
+                    // Sidebar badge: count of testimonials captured but not yet
+                    // published to the website. Only shown to users who can act
+                    // on it. Bust via ContactTestimonialObserver. Spec §14.
+                    $pendingTestimonialCount = 0;
+                    if (auth()->user()->hasPermission('testimonials.publish')) {
+                        $pendingTestimonialCount = cache()->remember(
+                            'testimonials.pending_count.' . (auth()->user()->agency_id ?? 'all'),
+                            60,
+                            fn () => \App\Models\ContactTestimonial::where('published', false)->count()
+                        );
+                    }
+                @endphp
+                <a href="{{ route('admin.company-settings') }}" class="corex-nav-subitem {{ request()->routeIs('admin.company-settings*') ? 'active' : '' }}">
+                    Company Settings
+                    @if($pendingTestimonialCount > 0)
+                    <span class="ml-auto flex-shrink-0 inline-flex items-center justify-center rounded-full text-[0.6875rem] font-bold px-1.5" style="min-width:18px; height:18px; background:color-mix(in srgb, var(--ds-amber, #f59e0b) 15%, transparent); color:var(--ds-amber, #f59e0b);">{{ number_format($pendingTestimonialCount) }}</span>
+                    @endif
+                </a>
                 @endpermission
+
+                {{-- Billing — what THIS agency pays CoreX (read-only). Spec: agency-billing.md §8.3 (AT-11) --}}
+                @permission('billing.view')
+                <a href="{{ route('billing.index') }}" class="corex-nav-subitem {{ request()->routeIs('billing.*') ? 'active' : '' }}">Billing</a>
+                @endpermission
+
+                {{-- Proforma Invoice list — moved here from Agency Tracker. Still
+                     scoped own/branch/all via proforma.view (Role Manager). --}}
+                @feature('proforma-invoices')
+                @permission('proforma.view')
+                <a href="{{ route('proforma.index') }}" class="corex-nav-subitem {{ request()->routeIs('proforma.index') ? 'active' : '' }}">Proforma Invoices</a>
+                @endpermission
+                @endfeature
 
                 @permission('access_role_manager')
                 <a href="{{ route('corex.role-manager') }}" class="corex-nav-subitem {{ request()->routeIs('corex.role-manager*') ? 'active' : '' }}">Role Manager</a>
+                @endpermission
+
+                {{-- AT-267 — Assistants. Sits beside Role Manager because it is the same kind of
+                     decision: who may do what. The difference is that an assistant's permissions
+                     are chosen by their agent, not by a role. --}}
+                @permission('assistants.view')
+                @if(\Illuminate\Support\Facades\Route::has('admin.assistants.index'))
+                <a href="{{ route('admin.assistants.index') }}" class="corex-nav-subitem {{ request()->routeIs('admin.assistants.*') ? 'active' : '' }}">Assistants</a>
+                @endif
                 @endpermission
 
                 @permission('access_soft_deletes')
                 <a href="{{ route('admin.soft-deletes.index') }}" class="corex-nav-subitem {{ request()->routeIs('admin.soft-deletes.*') ? 'active' : '' }}">Soft Deletes</a>
                 @endpermission
 
+                @feature('staff-take-on')
                 @permission('manage_staff_take_on')
                 <a href="{{ route('staff-take-on.index') }}" class="corex-nav-subitem {{ request()->routeIs('staff-take-on.*') ? 'active' : '' }}">Staff Take-On</a>
                 @endpermission
+                @endfeature
             </div>
         </div>
         @endif
 
-        {{-- Proforma Invoices settings (Accounting pillar) --}}
-        @permission('proforma.manage')
-        <a href="{{ route('admin.proforma-settings') }}" class="corex-nav-item {{ request()->routeIs('admin.proforma-settings*') ? 'active' : '' }}">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 3h6m2 6H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5.586a1 1 0 0 1 .707.293l5.414 5.414a1 1 0 0 1 .293.707V19a2 2 0 0 1-2 2Z" />
-            </svg>
-            <span>Proforma Invoices</span>
-        </a>
-        @endpermission
-
         {{-- Knowledge Base --}}
+        @feature('knowledge-base')
         @permission('access_knowledge_base')
         <a href="{{ route('admin.knowledge.index') }}" class="corex-nav-item {{ request()->routeIs('admin.knowledge.*') ? 'active' : '' }}">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
@@ -1612,8 +1981,20 @@
             <span>Knowledge Base</span>
         </a>
         @endpermission
+        @endfeature
+
+        {{-- Ellie Reference Sources (ellie-reference-sources spec) — super_admin only --}}
+        @permission('manage_reference_sources')
+        <a href="{{ route('admin.ellie.reference-sources.index') }}" class="corex-nav-item {{ request()->routeIs('admin.ellie.reference-sources.*') ? 'active' : '' }}">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 10.5V6.75a4.5 4.5 0 1 1 9 0v3.75M3.75 21.75h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H3.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z" />
+            </svg>
+            <span>Ellie Reference Sources</span>
+        </a>
+        @endpermission
 
         {{-- Marketing Suppressions (AT-49) --}}
+        @feature('marketing-suppressions')
         @permission('marketing_suppressions.view')
         <a href="{{ route('admin.marketing-suppressions.index') }}" class="corex-nav-item {{ request()->routeIs('admin.marketing-suppressions.*') ? 'active' : '' }}">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
@@ -1622,6 +2003,7 @@
             <span>Marketing Suppressions</span>
         </a>
         @endpermission
+        @endfeature
 
         {{-- Misfiled Documents (AT-167) --}}
         @permission('access_misfiled_documents')
@@ -1637,6 +2019,7 @@
 
         {{-- Onboarding (admin/owner only) --}}
         @if($isOwner || $effectiveRole === 'super_admin')
+        @feature('agent-onboarding')
         @php $onboardingCount = \App\Models\AgentApplication::pending()->count(); @endphp
         <a href="{{ route('onboarding.index') }}" class="corex-nav-item {{ request()->routeIs('onboarding.*') ? 'active' : '' }}">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
@@ -1647,6 +2030,7 @@
             <span class="ml-auto inline-flex items-center justify-center min-w-[18px] h-[18px] px-1.5 rounded-full text-[0.6875rem] font-bold" style="background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 15%, transparent); color:var(--brand-icon, #0ea5e9);">{{ number_format($onboardingCount) }}</span>
             @endif
         </a>
+        @endfeature
         @endif
 
         {{-- Finance Engine --}}
@@ -1843,6 +2227,12 @@
                 @permission('mic.view_ai_costs')
                 <a href="{{ route('admin.ai-usage.index') }}" class="corex-nav-subitem {{ request()->routeIs('admin.ai-usage.*') ? 'active' : '' }}">AI Usage</a>
                 @endpermission
+
+                {{-- Agency Billing (AT-11) — every agency's CoreX bill + custom amounts/discounts.
+                     No permission gate BY DESIGN: a permission key is grantable via Role Manager,
+                     and an agency admin handed it would see every other agency's commercial terms.
+                     Already inside if($isOwner). Spec: agency-billing.md §9. --}}
+                <a href="{{ route('admin.billing.index') }}" class="corex-nav-subitem {{ request()->routeIs('admin.billing.*') ? 'active' : '' }}">Agency Billing</a>
             </div>
         </div>
 
@@ -1885,6 +2275,11 @@
                 @permission('view_server_health')
                 <a href="{{ route('admin.system-health.index') }}" class="corex-nav-subitem {{ request()->routeIs('admin.system-health.*') ? 'active' : '' }}">Server Health</a>
                 @endpermission
+
+                {{-- Media Encryption at rest (AT-173) — moved from Compliance --}}
+                @permission('view_media_encryption_status')
+                <a href="{{ route('admin.media-encryption.status') }}" class="corex-nav-subitem {{ request()->routeIs('admin.media-encryption.*') ? 'active' : '' }}">Media Encryption</a>
+                @endpermission
             </div>
         </div>
 
@@ -1894,6 +2289,17 @@
                 <path stroke-linecap="round" stroke-linejoin="round" d="M6.429 9.75 2.25 12l4.179 2.25m0-4.5 5.571 3 5.571-3m-11.142 0L2.25 7.5 12 2.25l9.75 5.25-4.179 2.25m0 0L21.75 12l-4.179 2.25m0 0 4.179 2.25L12 21.75 2.25 16.5l4.179-2.25m11.142 0-5.571 3-5.571-3" />
             </svg>
             <span>Dev Settings</span>
+        </a>
+
+        {{-- System Updates (AT-338) — write the "what's new in CoreX" pop-up every
+             user sees once. Owner-only, and deliberately NOT permission-gated: a
+             permission key is grantable via Role Manager, and this broadcasts a
+             modal to every user of every agency. Spec: system-updates.md §10 --}}
+        <a href="{{ route('admin.system-updates.index') }}" class="corex-nav-item {{ request()->routeIs('admin.system-updates.*') ? 'active' : '' }}">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M10.34 15.84c-.688-.06-1.386-.09-2.09-.09H7.5a4.5 4.5 0 1 1 0-9h.75c.704 0 1.402-.03 2.09-.09m0 9.18c.253.962.584 1.892.985 2.783.247.55.06 1.21-.463 1.511l-.657.38c-.551.318-1.26.117-1.527-.461a20.845 20.845 0 0 1-1.44-4.282m3.102.069a18.03 18.03 0 0 1-.59-4.59c0-1.586.205-3.124.59-4.59m0 9.18a23.848 23.848 0 0 1 8.835 2.535M10.34 6.66a23.847 23.847 0 0 0 8.835-2.535m0 0A23.74 23.74 0 0 0 18.795 3m.38 1.125a23.91 23.91 0 0 1 1.014 5.395m-1.014 9.5c.205-.7.407-1.408.606-2.126m-.606 2.126A23.74 23.74 0 0 1 18.795 21m.38-1.125a23.91 23.91 0 0 0 1.014-5.395m0-4.96a2.62 2.62 0 0 1 0 4.96" />
+            </svg>
+            <span>System Updates</span>
         </a>
 
         {{-- Demo Access (AT-230) — system-owner sales tooling: who is evaluating
@@ -1944,6 +2350,7 @@
                 <a href="{{ route('admin.integrations.index') }}" class="corex-nav-subitem {{ request()->routeIs('admin.integrations.*') ? 'active' : '' }}">Meta (Facebook &amp; Instagram)</a>
                 <a href="{{ route('public.platform-privacy') }}" target="_blank" rel="noopener" class="corex-nav-subitem">Privacy Policy ↗</a>
                 <a href="{{ route('public.data-deletion') }}" target="_blank" rel="noopener" class="corex-nav-subitem">Data Deletion ↗</a>
+                <a href="{{ route('public.support') }}" target="_blank" rel="noopener" class="corex-nav-subitem">Support ↗</a>
             </div>
         </div>
 
@@ -1956,7 +2363,12 @@
         </a>
 
 {{-- Feedback Reports --}}
-        @php $feedbackCount = DB::table('feedback_reports')->where('agency_id', auth()->user()->effectiveAgencyId() ?? 1)->where('status', 'new')->count(); @endphp
+        @php
+            $sidebarAgencyId = auth()->user()?->effectiveAgencyId();
+            $feedbackCount = $sidebarAgencyId
+                ? DB::table('feedback_reports')->where('agency_id', $sidebarAgencyId)->where('status', 'new')->count()
+                : 0;
+        @endphp
         <a href="{{ route('command-center.feedback-reports') }}" class="corex-nav-item {{ request()->routeIs('command-center.feedback-reports*') ? 'active' : '' }}">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.087.16 2.185.283 3.293.369V21l4.076-4.076a1.526 1.526 0 0 1 1.037-.443 48.282 48.282 0 0 0 5.68-.494c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0 0 12 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018Z" /></svg>
             <span>Feedback Reports</span>
@@ -1980,7 +2392,9 @@
                     <span>Back</span>
                 </button>
                 <div class="corex-nav-panel-title">Importer</div>
-                <a href="{{ route('admin.importer.index') }}" class="corex-nav-subitem {{ request()->routeIs('admin.importer.index') ? 'active' : '' }}">P24 Importer</a>
+                {{-- Run detail + preview are children of the importer index — they keep
+                     "P24 Importer" lit so the nav never loses its place mid-import. --}}
+                <a href="{{ route('admin.importer.index') }}" class="corex-nav-subitem {{ request()->routeIs('admin.importer.index', 'admin.importer.show', 'admin.importer.preview') ? 'active' : '' }}">P24 Importer</a>
                 <a href="{{ route('admin.importer.review') }}" class="corex-nav-subitem {{ request()->routeIs('admin.importer.review') ? 'active' : '' }}">Property Review</a>
                 <a href="{{ route('admin.importer.p24-locations') }}" class="corex-nav-subitem {{ request()->routeIs('admin.importer.p24-locations') ? 'active' : '' }}">P24 Locations</a>
                 <a href="{{ route('admin.importer.pp-locations') }}" class="corex-nav-subitem {{ request()->routeIs('admin.importer.pp-locations') ? 'active' : '' }}">PP Locations</a>
@@ -2038,8 +2452,38 @@
                 {{-- Training Management (LMS authoring) --}}
                 <a href="{{ route('training.manage') }}" class="corex-nav-subitem {{ request()->routeIs('training.manage', 'training.create-course', 'training.edit-course', 'training.create-lesson', 'training.edit-lesson', 'training.store-course', 'training.update-course') ? 'active' : '' }}">Training Mgmt</a>
 
+                {{-- Training Help (in-app guides) — hidden from agency users. The
+                     unread-count query only runs for owners now that the link is
+                     inside the owner-only Hidden panel. --}}
+                @feature('training')
+                @if(\Illuminate\Support\Facades\Route::has('training-help.index'))
+                @php
+                    $trainingUnreadCount = 0;
+                    if ($user) {
+                        $trainingRole = $user->effectiveRole();
+                        $trainingRequired = \App\Models\Training\TrainingDoc::required()->forRole($trainingRole)->pluck('id');
+                        if ($trainingRequired->isNotEmpty()) {
+                            $trainingReadDocIds = \App\Models\Training\TrainingDocRead::where('user_id', $user->id)
+                                ->whereIn('doc_id', $trainingRequired)
+                                ->whereNotNull('completed_at')
+                                ->whereNull('is_outdated_since')
+                                ->pluck('doc_id');
+                            $trainingUnreadCount = $trainingRequired->diff($trainingReadDocIds)->count();
+                        }
+                    }
+                @endphp
+                <a href="{{ route('training-help.index') }}" class="corex-nav-subitem {{ request()->routeIs('training-help.*') ? 'active' : '' }}">
+                    <span>Training Help</span>
+                    @if($trainingUnreadCount > 0)
+                    <span class="ml-auto inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold" style="background:color-mix(in srgb, var(--ds-amber, #f59e0b) 15%, transparent); color:var(--ds-amber, #f59e0b);">{{ $trainingUnreadCount }}</span>
+                    @endif
+                </a>
+                @endif
+                @endfeature
+
                 {{-- Rentals — nested drill-down --}}
                 @permission('view_rentals')
+                @feature('rentals')
                 <div>
                     <button type="button" @click="push('rentals')"
                             class="corex-nav-subitem corex-nav-group-toggle corex-nav-subgroup-toggle {{ $groupOpen('rentals') ? 'active' : '' }}">
@@ -2066,6 +2510,7 @@
                         @endpermission
                     </div>
                 </div>
+                @endfeature
                 @endpermission
 
                 {{-- Evaluation — nested drill-down --}}
@@ -2158,6 +2603,9 @@
                     <form method="POST" action="{{ route('impersonate.start', ['user' => $su->id]) }}">
                         @csrf
                         <button type="submit" class="corex-switch-item">
+                            {{-- No assistant badge here (AUDIT 2026-07-26 F8): the query above
+                                 excludes is_assistant users outright, so a badge for them was
+                                 unreachable code that implied assistants are impersonable. --}}
                             <div class="text-xs" style="color:var(--text-primary);">{{ $su->name }}</div>
                             <div class="text-[0.6875rem]" style="color:var(--text-muted);">{{ $su->email }} · {{ $su->role }}</div>
                         </button>

@@ -58,22 +58,32 @@ final class ValuationGuardrailTest extends TestCase
         $this->assertFalse($cma['valuation_guardrail']['flagged']);
     }
 
-    /** Larger, same-basis subject (Harrison-class) → headline LIFTS toward size-normalised, then clean. */
-    public function test_larger_subject_lifts_headline_and_reads_clean(): void
+    /**
+     * Johan (2026-08-21, size-lift ruling): the size lift is no longer
+     * automatic. "CMA has been in the game for a long time. I think they
+     * are better at it at this stage than CoreX." — the headline stays the
+     * honest comp-median even for a larger, same-basis subject (the exact
+     * Harrison-class case that used to auto-lift); the Lower/Upper band
+     * follows that same un-lifted headline. This is Phase 1 (kill switch +
+     * band fix). Phase 2 adds an agent opt-in tick that reproduces the old
+     * lifted number on demand — that path isn't wired to compile() yet, so
+     * there is nothing to assert for it here.
+     */
+    public function test_larger_subject_no_longer_auto_lifts_headline(): void
     {
-        // Comps size 100, median R/m² 10_000; subject extent 160 → 1_600_000
-        // vs median 1_000_000 = +60% uplift, basis ratio 1.6 (in trust band).
+        // Comps size 100, median R/m² 10_000; subject extent 160 → the
+        // size-normalised value would be 1_600_000 vs median 1_000_000
+        // (+60% uplift, basis ratio 1.6 — in the trust band) — evidence
+        // that USED to trigger a full lift. It no longer does.
         [$presentation] = $this->seedWithComps(160, [[400_000, 100], [800_000, 100], [1_000_000, 100], [1_200_000, 100], [1_400_000, 100]]);
 
         $cma = $this->cma($presentation);
 
-        $this->assertTrue($cma['headline_lifted']);
-        $this->assertSame('size_adjusted', $cma['compute_method']);
-        $this->assertSame(1_000_000, $cma['headline_median_raw']);   // floor
-        $this->assertSame(1_600_000, $cma['cma_middle_baseline']);   // lifted to the size-normalised value
-        $this->assertSame(1_600_000, $cma['cma_middle']);            // no condition → shown == baseline
-        // Once lifted to meet the evidence, the guardrail no longer flags it.
-        $this->assertFalse($cma['valuation_guardrail']['flagged']);
+        $this->assertFalse($cma['headline_lifted']);
+        $this->assertSame('median', $cma['compute_method']);
+        $this->assertSame(1_000_000, $cma['headline_median_raw']);
+        $this->assertSame(1_000_000, $cma['cma_middle_baseline'], 'no lift — baseline stays the honest median');
+        $this->assertSame(1_000_000, $cma['cma_middle'], 'no condition → shown == baseline');
     }
 
     /** Subject far larger than comps (ratio above the trust band) → median kept, flagged (no explosion). */

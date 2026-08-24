@@ -15,7 +15,11 @@ after a short grace window — your personal chats are not retained).
 3. In Chrome go to `chrome://extensions`, enable **Developer mode**, click
    **Load unpacked**, and select the unzipped `wa-capture` folder.
 4. Click the extension icon → set your **CoreX URL** (e.g.
-   `https://corex.hfcoastal.co.za`) and paste the **device token** → Save.
+   `https://corexos.co.za`) and paste the **device token** → Save.
+   If yours still reads `https://corex.hfcoastal.co.za`, change it — that
+   hostname now only redirects (it serves no application since 2026-07-17).
+   Capture keeps working either way (the redirect preserves POST bodies), but
+   every request pays a needless extra hop.
 5. Open `https://web.whatsapp.com` and use WhatsApp normally. New messages in
    open chats are captured automatically.
 

@@ -8,9 +8,20 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 use App\Models\Concerns\BelongsToAgency;
+use App\Models\Concerns\BelongsToBranch;
+use App\Models\Concerns\InheritsBranchFromParent;
 class ProspectingListing extends Model
 {
-    use BelongsToAgency, SoftDeletes;
+    use BelongsToBranch, InheritsBranchFromParent, BelongsToAgency, SoftDeletes;
+
+    /**
+     * Branch follows the capturing agent — set here (not the acting user) so a
+     * queued/import capture with no auth still resolves the right branch.
+     */
+    protected function branchParent(): array
+    {
+        return [\App\Models\User::class, 'captured_by_user_id'];
+    }
 
     protected $fillable = [
         'agency_id',
@@ -110,6 +121,36 @@ class ProspectingListing extends Model
     public function scopeOffMarket($query)
     {
         return $query->whereIn('portal_status', self::OFF_MARKET_STATUSES);
+    }
+
+    /**
+     * AT-380 — role-driven visibility scope for the Market Intelligence
+     * canvassing pool. Honours the per-role Data Scope set in Role Manager
+     * (market_intelligence.view → own | branch | all | none). Agency
+     * isolation is already applied by BelongsToAgency, so this only narrows
+     * within the current agency.
+     *
+     *   own    → listings captured by this user
+     *   branch → listings captured by anyone in the user's branch. A user
+     *            with NO single branch_id legitimately spans every branch
+     *            (branches.view_all) — for them "branch" IS "all", so no
+     *            extra narrowing; a genuinely unassigned user falls back to
+     *            'own' (mirrors CalendarEvent::scopeVisibleTo()).
+     *   all    → no extra narrowing (whole agency)
+     *   none   → nothing (no access)
+     */
+    public function scopeVisibleTo($query, User $user, ?string $scope)
+    {
+        return match ($scope) {
+            'all'    => $query,
+            'branch' => $user->effectiveBranchId()
+                ? $query->where('branch_id', $user->effectiveBranchId())
+                : ($user->hasPermission('branches.view_all')
+                    ? $query
+                    : $query->where('captured_by_user_id', $user->id)),
+            'none'   => $query->whereRaw('1 = 0'),
+            default  => $query->where('captured_by_user_id', $user->id), // 'own' or null
+        };
     }
 
     public function agency()

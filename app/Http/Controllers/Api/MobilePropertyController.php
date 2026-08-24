@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Contact;
+use App\Models\Document;
 use App\Models\FicaSubmission;
 use App\Models\Property;
 use App\Models\PropertySellerLink;
@@ -141,6 +142,7 @@ class MobilePropertyController extends Controller
         $data = $this->applyP24Location($data, required: true);
 
         $data = $this->mapPayloadToColumns($data);
+        $data = $this->applyStatusLabelHygiene($data, null);
 
         $property = Property::create($data);
 
@@ -190,6 +192,7 @@ class MobilePropertyController extends Controller
         }
 
         $data = $this->mapPayloadToColumns($data);
+        $data = $this->applyStatusLabelHygiene($data, $property->status);
 
         $property->update($data);
 
@@ -229,6 +232,12 @@ class MobilePropertyController extends Controller
             'property_type' => "{$req}|string|max:100",
             'listing_type'  => "{$req}|string|in:sale,rental",
             'status'        => [$req, 'string', 'max:50', new \App\Rules\AllowedPropertyStatus()], // AT-307 membership
+            // Optional P24 sub-label banner (Reduced Price / Pending / Back on
+            // Market / Raised Price). Only meaningful on an on-market 'active'
+            // base — cleared automatically the moment the base status leaves
+            // 'active' (see applyStatusLabelHygiene). Web parity: the web
+            // store/update accept + clear this the same way (AT-P24).
+            'status_label'  => 'nullable|string|max:50',
             'price'         => "{$req}|integer|min:0",
 
             // ── Property24 location (the spine of suburb/city/province) ──
@@ -339,6 +348,34 @@ class MobilePropertyController extends Controller
             if ($bedSpace)  $data['beds']    = (int) floor($bedSpace['count']);
             if ($bathSpace) $data['baths']   = (int) floor($bathSpace['count']);
             if ($garSpace)  $data['garages'] = (int) floor($garSpace['count']);
+        }
+
+        return $data;
+    }
+
+    /**
+     * Clean-status-architecture parity (AT-P24). The P24 sub-label banner
+     * (`status_label` — Reduced Price / Pending / Back on Market / Raised Price)
+     * is only meaningful on an on-market 'active' base status. The moment the
+     * base status leaves 'active' — Withdrawn, Sold, Expired, … — the banner
+     * MUST be cleared, otherwise it lingers as a stale on-market signal:
+     * `Property24ListingMapper::getP24Status()` would (historically) resolve the
+     * banner ahead of the base and keep the listing LIVE on Property24 even
+     * though CoreX shows it Withdrawn. That is the mobile "withdraw doesn't sync
+     * to the portal" bug — the web edit form already clears the label here
+     * (CoreX\PropertyController::update), the mobile path was missed.
+     *
+     * PATCH-style safe: keyed off the EFFECTIVE status (the value being written,
+     * or the property's current status when the client didn't touch it), so a
+     * partial update that never sends `status` still can't leave a contradictory
+     * banner behind. `$currentStatus` is null on create.
+     */
+    private function applyStatusLabelHygiene(array $data, ?string $currentStatus): array
+    {
+        $effectiveStatus = array_key_exists('status', $data) ? $data['status'] : $currentStatus;
+
+        if ($effectiveStatus !== null && $effectiveStatus !== '' && $effectiveStatus !== 'active') {
+            $data['status_label'] = null;
         }
 
         return $data;
@@ -580,67 +617,180 @@ class MobilePropertyController extends Controller
         $this->authorizeProperty($request->user(), $property);
 
         $request->validate([
-            'image'    => 'required|image|max:10240',
+            // Accept the same set the sibling rental-images endpoint already
+            // accepts — HEIC/HEIF included. Laravel's `image` rule excludes
+            // HEIC, so before this an un-transcoded iPhone photo 422'd here even
+            // though rental uploads took it. The app normally transcodes
+            // HEIC→JPEG client-side; this is defence-in-depth for an older build
+            // or a transcode miss. GD can't downscale HEIC, so a stored HEIC
+            // simply gets no thumbnail (the thumbnail service falls back to the
+            // original) — it never 500s.
+            //
+            // Size: phone photos routinely exceed 10 MB (48 MP captures). The
+            // old 10 MB cap silently 422'd large photos the web edit form (200
+            // MB) and rental endpoint (50 MB) would take. 50 MB matches rental
+            // and sits far below nginx (1000 MB) and the FPM pool (512 MB).
+            'image'    => 'required|file|mimes:jpg,jpeg,png,webp,heic,heif|max:51200',
             'room_tag' => 'nullable|string|max:100',
+            // Client idempotency key (rebuilt app). The client retries a photo on
+            // timeout/network/5xx with the SAME key; we use it to dedupe so a retry
+            // returns the already-stored record instead of inserting a duplicate.
+            // Optional — older builds omit it and simply get no dedupe (the row
+            // lock below still protects them from the concurrent lost-update race).
+            'client_upload_id' => 'nullable|string|max:255',
         ]);
 
+        $clientUploadId = trim((string) $request->input('client_upload_id'));
+        $clientUploadId = $clientUploadId !== '' ? $clientUploadId : null;
+
+        // Fast-path idempotency: this exact client upload is already durably
+        // committed for this property → return the existing record, no second
+        // file, no second row. Re-checked under a row lock below to also close
+        // the window where two retries race in concurrently.
+        if ($clientUploadId !== null) {
+            $existingUrl = $property->gallery_upload_keys[$clientUploadId] ?? null;
+            if (is_string($existingUrl) && $existingUrl !== '') {
+                return $this->uploadedImageResponse($existingUrl, null, null, true);
+            }
+        }
+
+        // Resolve room_tag case- and whitespace-insensitively against the
+        // property's live tag library, then adopt the library's CANONICAL
+        // casing. getAvailableGalleryTags() de-dupes case-insensitively, so a
+        // client that echoes a tag with a different case/trailing space than it
+        // was stored under would otherwise fail the old strict in_array(...,
+        // true) check and 422 on a tag that is genuinely valid. Normalising
+        // here also files the photo under the SAME category the library shows.
         $roomTag = $request->input('room_tag');
 
-        if ($roomTag !== null && $roomTag !== '') {
+        if ($roomTag !== null && trim($roomTag) !== '') {
             $available = $property->getAvailableGalleryTags();
-            if (!in_array($roomTag, $available, true)) {
+            $canonical = null;
+            foreach ($available as $t) {
+                if (strcasecmp(trim((string) $t), trim($roomTag)) === 0) {
+                    $canonical = $t;
+                    break;
+                }
+            }
+            if ($canonical === null) {
                 return response()->json([
                     'message' => "Tag '{$roomTag}' is not available on this property. Add the matching space first.",
                     'errors'  => ['room_tag' => ["Tag '{$roomTag}' is not on this property's space list."]],
                     'available_tags' => $available,
                 ], 422);
             }
+            $roomTag = $canonical;
+        } else {
+            $roomTag = null;
         }
 
         $file = $request->file('image');
         $path = $file->store("properties/{$property->id}", 'public');
-        $url  = Storage::url($path);
 
-        // List-view thumbnail (original untouched).
-        app(\App\Services\Images\PropertyThumbnailService::class)->generateForUrl($url);
-
-        // Append to flat gallery list
-        $gallery   = $property->gallery_images_json ?? [];
-        $gallery[] = $url;
-        $property->gallery_images_json = $gallery;
-
-        // Tag into category if room_tag provided
-        if ($roomTag) {
-            $cats  = $property->gallery_categories_json ?? ['categories' => [], 'unsorted' => []];
-            $found = false;
-
-            foreach ($cats['categories'] as &$cat) {
-                if ($cat['name'] === $roomTag) {
-                    $cat['images'][] = $url;
-                    $found = true;
-                    break;
-                }
-            }
-            unset($cat);
-
-            if (! $found) {
-                $cats['categories'][] = ['name' => $roomTag, 'images' => [$url]];
-            }
-
-            $property->gallery_categories_json = $cats;
-        } else {
-            // No tag — add to unsorted
-            $cats = $property->gallery_categories_json ?? ['categories' => [], 'unsorted' => []];
-            $cats['unsorted'][] = $url;
-            $property->gallery_categories_json = $cats;
+        // Persistence integrity: never return 2xx if the file did not land on
+        // disk. The client drops a photo from its retry queue on any 2xx, so a
+        // swallowed storage failure = a permanently lost photo. A 500 here makes
+        // the client retry (exactly what we want).
+        if (! is_string($path) || $path === '' || ! Storage::disk('public')->exists($path)) {
+            return response()->json([
+                'message' => 'Image could not be stored. Please retry.',
+            ], 500);
         }
 
-        $property->saveQuietly();
+        // Bake EXIF orientation into the stored original BEFORE any thumbnail or
+        // downscale runs. Phone captures store portrait shots as landscape pixels
+        // plus a "rotate me" EXIF tag; GD re-encoding downstream drops that tag
+        // without turning the pixels, so the photo lands sideways (property 6118).
+        // Absorbing it here means every surface — and the current app build —
+        // shows it upright. No-op for HEIC/PNG/already-upright. See
+        // ImageOrientationNormalizer.
+        app(\App\Services\Images\ImageOrientationNormalizer::class)
+            ->normalizeInPlace(Storage::disk('public')->path($path));
 
-        // Queue AI vision analysis (gated by agency flag + user permission)
+        // Downscale to the same 2560px web-size cap the main gallery upload
+        // (PropertyController::uploadImages, via PropertyImageStorer::store)
+        // already applies — this path used to skip it entirely, so a mobile
+        // upload could stay several MB while a web upload of the same photo
+        // would have been capped. Mirrors PropertyImageStorer::store()'s own
+        // ordering (EXIF-normalize, then downscale, then thumbnail).
+        app(\App\Services\Images\PropertyImageStorer::class)->downscale($path);
+
+        $url = Storage::url($path);
+
+        // List-view thumbnail (now generated from the upright, downscaled original).
+        app(\App\Services\Images\PropertyThumbnailService::class)->generateForUrl($url);
+
+        // Serialise the gallery mutation on the property row. The gallery lives in
+        // a JSON column, so the read-modify-write append is a classic lost-update
+        // hazard: 3 concurrent uploads to one property each read the array, append
+        // one URL and save the whole thing — last write wins, the others' rows
+        // vanish (a real cause of "uploaded 30, only 14 landed"). lockForUpdate
+        // forces concurrent uploads to the SAME property to queue, and makes the
+        // idempotency check-and-set atomic. Different properties never contend.
+        $duplicateUrl = null;
+        DB::transaction(function () use ($property, $url, $roomTag, $clientUploadId, &$duplicateUrl) {
+            /** @var Property $locked */
+            $locked = Property::whereKey($property->getKey())->lockForUpdate()->firstOrFail();
+
+            // Re-check idempotency inside the lock: a concurrent retry may have
+            // committed this key between our fast-path read and acquiring the lock.
+            if ($clientUploadId !== null) {
+                $seen = $locked->gallery_upload_keys ?? [];
+                if (isset($seen[$clientUploadId]) && is_string($seen[$clientUploadId]) && $seen[$clientUploadId] !== '') {
+                    $duplicateUrl = $seen[$clientUploadId];
+                    return; // leave the gallery untouched; caller bins the dup file
+                }
+            }
+
+            $gallery   = $locked->gallery_images_json ?? [];
+            $gallery[] = $url;
+            $locked->gallery_images_json = $gallery;
+
+            // Tag into category if room_tag provided, else drop into unsorted.
+            $cats = $locked->gallery_categories_json ?? ['categories' => [], 'unsorted' => []];
+            if ($roomTag) {
+                $found = false;
+                foreach ($cats['categories'] as &$cat) {
+                    if ($cat['name'] === $roomTag) {
+                        $cat['images'][] = $url;
+                        $found = true;
+                        break;
+                    }
+                }
+                unset($cat);
+                if (! $found) {
+                    $cats['categories'][] = ['name' => $roomTag, 'images' => [$url]];
+                }
+            } else {
+                $cats['unsorted'][] = $url;
+            }
+            $locked->gallery_categories_json = $cats;
+
+            // Record the idempotency key -> url so a later retry short-circuits.
+            if ($clientUploadId !== null) {
+                $seen = $locked->gallery_upload_keys ?? [];
+                $seen[$clientUploadId] = $url;
+                $locked->gallery_upload_keys = $seen;
+            }
+
+            $locked->saveQuietly();
+        });
+
+        // A concurrent retry beat us to the commit: discard the redundant file we
+        // just stored (and its thumb) so we don't orphan bytes, and return the
+        // canonical existing record. Still a 2xx — nothing was lost.
+        if ($duplicateUrl !== null) {
+            Storage::disk('public')->delete($path);
+            app(\App\Services\Images\PropertyThumbnailService::class)->deleteForUrl($url);
+
+            return $this->uploadedImageResponse($duplicateUrl, $roomTag, null, true);
+        }
+
+        // Queue AI vision analysis (gated by user permission — AI is universal
+        // at the agency level, so there is no per-agency enable flag).
         $analysisId = null;
         $u = $request->user();
-        if ($u?->agency?->ai_image_recognition_enabled && $u->hasPermission('use_property_image_ai')) {
+        if ($u?->hasPermission('use_property_image_ai')) {
             $analysis = \App\Models\PropertyImageAnalysis::create([
                 'agency_id'   => $property->agency_id,
                 'property_id' => $property->id,
@@ -657,13 +807,24 @@ class MobilePropertyController extends Controller
             $analysisId = $analysis->id;
         }
 
+        return $this->uploadedImageResponse($url, $roomTag, $analysisId, false);
+    }
+
+    /**
+     * Uniform 2xx body for a stored (or already-stored) gallery image. Used for
+     * fresh uploads (201) and idempotent replays of a client_upload_id (200) so
+     * the app can render the photo straight back without a reload. The `duplicate`
+     * flag lets the client tell "this retry was absorbed" from "new photo stored".
+     */
+    private function uploadedImageResponse(string $url, ?string $roomTag, ?int $analysisId, bool $duplicate): JsonResponse
+    {
         return response()->json([
-            'message'     => 'Image uploaded.',
-            // Absolute so the app can render it straight back without a reload.
+            'message'     => $duplicate ? 'Image already uploaded.' : 'Image uploaded.',
             'url'         => $this->absoluteImageUrl($url),
             'room_tag'    => $roomTag,
             'analysis_id' => $analysisId,
-        ], 201);
+            'duplicate'   => $duplicate,
+        ], $duplicate ? 200 : 201);
     }
 
     // ── Response helpers ───────────────────────────────────────
@@ -694,8 +855,9 @@ class MobilePropertyController extends Controller
                       ?: ($owner->email ?: $owner->phone ?: 'Unnamed contact');
         }
 
-        // Live preview URL (always available even before publish).
-        $livePreviewUrl = route('corex.properties.preview', [$property, \Illuminate\Support\Str::slug($property->title ?: 'property')]);
+        // Live preview URL (always available even before publish). No title
+        // slug — {slug?} is unread by the controller and only bloats the URL.
+        $livePreviewUrl = route('corex.properties.preview', $property);
 
         // Canonical, extensible portal links (website + P24 + PP + any future
         // portal) from the single source of truth on the model.
@@ -892,6 +1054,83 @@ class MobilePropertyController extends Controller
             'snapshot_at'       => $property->compliance_snapshot_at?->toIso8601String(),
             'first_marketed_at' => $property->first_marketed_at?->toIso8601String(),
         ]);
+    }
+
+    // ── GET /api/mobile/properties/{id}/documents ───────────────────
+    // Property Drive, read-only. Mirrors the web Drive tab
+    // (PropertyController::show's $allDriveDocs + PropertyFileController) — every
+    // document filed against the property (upload / esign / pdf_splitter, any file
+    // type, not just PDF), newest first, plus server-computed folder counts so the
+    // app doesn't have to replicate the grouping logic. .ai/specs/mobile-property-drive.md
+    public function documentsIndex(Request $request, Property $property): JsonResponse
+    {
+        $user = $request->user();
+        $this->authorizeProperty($user, $property);
+
+        $documents = $property->documents()
+            ->with(['documentType', 'uploader'])
+            ->get();
+
+        $canDownload = $user->canDownloadDocuments();
+
+        $folders = $documents
+            ->groupBy(fn (Document $d) => $d->document_type_id)
+            ->map(function ($group, $typeId) {
+                $type = $group->first()->documentType;
+
+                return [
+                    'document_type_id' => $typeId ? (int) $typeId : null,
+                    'label'             => $type?->label ?? 'Unfiled',
+                    'slug'              => $type?->slug,
+                    'count'             => $group->count(),
+                ];
+            })
+            ->values();
+
+        return response()->json([
+            'property_id' => $property->id,
+            'folders'     => $folders,
+            'documents'   => $documents->map(fn (Document $d) => [
+                'id'            => $d->id,
+                'original_name' => $d->original_name,
+                'mime_type'     => $d->mime_type,
+                'size'          => $d->size,
+                'human_size'    => $d->human_size,
+                'document_type' => $d->documentType ? [
+                    'id'    => $d->documentType->id,
+                    'label' => $d->documentType->label,
+                    'slug'  => $d->documentType->slug,
+                ] : null,
+                'source_type'   => $d->source_type,
+                'uploaded_by'   => $d->uploader ? [
+                    'id'   => $d->uploader->id,
+                    'name' => $d->uploader->name,
+                ] : null,
+                'created_at'    => $d->created_at?->toIso8601String(),
+                'can_download'  => $canDownload,
+                'download_url'  => route('v1.mobile.properties.documents.download', [
+                    'property' => $property->id,
+                    'document' => $d->id,
+                ]),
+            ])->values(),
+        ]);
+    }
+
+    // ── GET /api/mobile/properties/{id}/documents/{document}/download ──
+    // Gated download of a property Drive file. Identical scoping/streaming to
+    // PropertyFileController::download — property VIEW scope + pivot-link check +
+    // whatever disk the file is on. The route additionally carries
+    // deny_assistant_download (routes/api.php), so an assistant whose agent has
+    // switched off downloads gets a 403 here exactly like on web.
+    public function documentsDownload(Request $request, Property $property, Document $document)
+    {
+        $this->authorizeProperty($request->user(), $property);
+        abort_unless($document->properties()->where('properties.id', $property->id)->exists(), 404);
+
+        $disk = $document->disk ?: 'local';
+        abort_unless(Storage::disk($disk)->exists($document->storage_path), 404);
+
+        return Storage::disk($disk)->download($document->storage_path, $document->original_name);
     }
 
     // ── GET /api/mobile/properties/{id}/contacts ───────────────────

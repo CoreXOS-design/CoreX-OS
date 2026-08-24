@@ -15,19 +15,19 @@
      }"
      x-init="window.addEventListener('hashchange', () => tab = (window.location.hash || '#overview').replace('#', ''))">
 
-    {{-- Page header (Pattern A — branded, matches Contacts / Core Matches) --}}
-    <div class="rounded-md px-6 py-5" style="background:var(--brand-default,#0b2a4a);">
+    {{-- Page header (Pattern A — flat neutral bar, AT-336; matches /worksheet + Properties) --}}
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div data-tour="portal-home-intro">
-                <h1 class="text-xl font-bold text-white leading-tight">My Portal</h1>
-                <p class="text-sm text-white/60">Your profile, documents, compliance, training and earnings in one place.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">My Portal</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Your profile, documents, compliance, training and earnings in one place.</p>
             </div>
-            <div class="flex items-center gap-2 flex-wrap">
-                @include('layouts.partials.tour-header-launcher')
+            <div class="flex flex-wrap items-center gap-2">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
                 <span class="inline-flex items-center gap-2 rounded-md px-3 py-1.5"
-                      style="background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.18);">
+                      style="background:var(--surface-2); border:1px solid var(--border);">
                     <span style="width:8px; height:8px; border-radius:50%; background:{{ $overallColor }}; display:inline-block;"></span>
-                    <span class="text-xs font-semibold text-white">
+                    <span class="text-xs font-semibold" style="color: var(--text-secondary);">
                         @if($complianceStatus['overall'] === 'green') Compliant
                         @elseif($complianceStatus['overall'] === 'amber') {{ $complianceStatus['issues_count'] }} item(s) need attention
                         @else Action required @endif
@@ -37,10 +37,10 @@
                 <a href="{{ url('/corex/settings?section=my-portal&s=my-portal') }}"
                    title="My Portal Settings"
                    aria-label="My Portal Settings"
-                   class="inline-flex items-center justify-center rounded-md text-white transition-colors"
-                   style="width:30px; height:30px; background: rgba(255,255,255,0.10); border: 1px solid rgba(255,255,255,0.18);"
-                   onmouseover="this.style.background='rgba(255,255,255,0.18)'"
-                   onmouseout="this.style.background='rgba(255,255,255,0.10)'">
+                   class="inline-flex items-center justify-center rounded-md transition-colors"
+                   style="width:32px; height:32px; background: transparent; border: 1px solid var(--border); color: var(--text-secondary);"
+                   onmouseover="this.style.background='var(--surface-2)'; this.style.borderColor='var(--border-hover)';"
+                   onmouseout="this.style.background='transparent'; this.style.borderColor='var(--border)';">
                     <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
                          fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <circle cx="12" cy="12" r="3"/>
@@ -70,19 +70,26 @@
     <div style="border-bottom:1px solid var(--border);" data-tour="portal-home-tabs">
         <nav class="-mb-px flex gap-1 overflow-x-auto" aria-label="Tabs">
             @php
+                // AT-267 §10 — an assistant's own portal is stripped to identity + FICA only.
+                // Tools (agent marketing), Payslips and Leave are hidden outright; Compliance
+                // shows only when FICA is required of the assistant.
                 $portalTabs = [
                     'overview' => 'Overview',
                     'profile' => 'Profile',
-                    'tools' => 'Tools',
-                    'documents' => 'Documents',
-                    'compliance' => 'Compliance',
-                    'training' => 'Training',
-                    'password' => 'Password',
                 ];
-                if (auth()->user()->hasPermission('view_own_payslips')) {
+                if (!($isAssistant ?? false)) {
+                    $portalTabs['tools'] = 'Tools';
+                }
+                $portalTabs['documents'] = 'Documents';
+                if (!($isAssistant ?? false) || $user->fica_required) {
+                    $portalTabs['compliance'] = 'Compliance';
+                }
+                $portalTabs['training'] = 'Training';
+                $portalTabs['password'] = 'Password';
+                if (!($isAssistant ?? false) && auth()->user()->hasPermission('view_own_payslips')) {
                     $portalTabs['payslips'] = 'Payslips';
                 }
-                if (auth()->user()->hasPermission('apply_for_leave')) {
+                if (!($isAssistant ?? false) && auth()->user()->hasPermission('apply_for_leave')) {
                     $portalTabs['leave'] = 'Leave';
                 }
             @endphp
@@ -128,7 +135,8 @@
          ═══════════════════════════════════════════ --}}
     <div x-show="tab === 'overview'" x-cloak>
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {{-- Earnings snapshot --}}
+            {{-- Earnings snapshot — AT-267 §10: hidden for assistants (no commission of their own) --}}
+            @unless($isAssistant ?? false)
             <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:20px 24px;" data-tour="portal-home-earnings">
                 <h3 class="text-sm font-bold mb-4" style="color:var(--text-primary);">My Earnings</h3>
                 <div class="grid grid-cols-2 gap-3 mb-4">
@@ -152,20 +160,29 @@
                 </div>
                 <a href="{{ route('commission.dashboard') }}" class="text-xs font-medium no-underline" style="color:var(--brand-icon);">View Full Earnings &rarr;</a>
             </div>
+            @endunless
 
             {{-- Quick compliance card --}}
             <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:20px 24px;" data-tour="portal-home-compliance">
                 <h3 class="text-sm font-bold mb-4" style="color:var(--text-primary);">Compliance Overview</h3>
                 @php $dotColors = ['green' => 'var(--ds-green)', 'amber' => 'var(--ds-amber)', 'red' => 'var(--ds-crimson)', 'grey' => 'var(--text-muted)', 'missing' => 'var(--text-muted)']; @endphp
-                <div class="space-y-2">
-                    @foreach([
+                @php
+                    // AT-267 §10 / AUDIT 2026-07-26 (F9) — filtered against the keys
+                    // computeComplianceStatus() actually produced, rather than a second hardcoded
+                    // list. An assistant holds no FFC / PI / tax clearance, so those keys are
+                    // absent for them. Deriving the rows from the data means the controller stays
+                    // the single source of truth and this card can never desync from it again.
+                    $overviewItems = array_filter([
                         'ffc_number' => 'FFC Number',
                         'ffc_certificate' => 'FFC Certificate',
                         'ffc_expiry' => 'FFC Expiry',
                         'id_copy' => 'ID Copy',
                         'pi_insurance' => 'PI Insurance',
                         'tax_clearance' => 'Tax Clearance',
-                    ] as $key => $label)
+                    ], fn ($label, $key) => array_key_exists($key, $complianceStatus), ARRAY_FILTER_USE_BOTH);
+                @endphp
+                <div class="space-y-2">
+                    @foreach($overviewItems as $key => $label)
                     @php $item = $complianceStatus[$key]; @endphp
                     <div class="flex items-center justify-between py-1.5 px-3" style="border:1px solid var(--border); border-radius:6px;">
                         <div class="flex items-center gap-2">
@@ -180,7 +197,8 @@
             </div>
         </div>
 
-        {{-- Phase 9a G2 — Presentations widget (light agent stats) --}}
+        {{-- Phase 9a G2 — Presentations widget (light agent stats). AT-267 §10: hidden for assistants. --}}
+        @unless($isAssistant ?? false)
         @if(isset($presentationStats))
         <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden; margin-top:16px;">
             <div class="px-5 py-3 flex items-center justify-between" style="border-bottom:1px solid var(--border);">
@@ -215,6 +233,7 @@
             </div>
         </div>
         @endif
+        @endunless
 
         {{-- Recent activity --}}
         <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden; margin-top:16px;">
@@ -400,6 +419,20 @@
                         @error('cell') <p style="font-size:0.6875rem; color:var(--ds-crimson); margin-top:3px;">{{ $message }}</p> @enderror
                     </div>
 
+                    {{-- WhatsApp --}}
+                    <div>
+                        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
+                            <label for="whatsapp_number" style="font-size:0.6875rem; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em;">WhatsApp</label>
+                            <button type="button"
+                                    onclick="const f=this.closest('form'); const w=f.querySelector('[name=whatsapp_number]'); w.value=f.querySelector('[name=cell]').value; w.dispatchEvent(new Event('input'));"
+                                    style="font-size:0.6875rem; font-weight:600; color:var(--brand-button); background:none; border:none; cursor:pointer; padding:0;">Same as cell</button>
+                        </div>
+                        <input id="whatsapp_number" name="whatsapp_number" type="tel" value="{{ old('whatsapp_number', $user->whatsapp_number) }}" placeholder="WhatsApp number"
+                               style="width:100%; border-radius:6px; border:1px solid var(--border); background:var(--surface-2); color:var(--text-primary); padding:9px 12px; font-size:0.8125rem; box-sizing:border-box; transition:border-color 200ms;"
+                               onfocus="this.style.borderColor='var(--brand-button)'" onblur="this.style.borderColor='var(--border)'">
+                        @error('whatsapp_number') <p style="font-size:0.6875rem; color:var(--ds-crimson); margin-top:3px;">{{ $message }}</p> @enderror
+                    </div>
+
                     {{-- ID Number --}}
                     <div>
                         <label for="id_number" style="display:block; font-size:0.6875rem; font-weight:600; color:var(--text-muted); margin-bottom:4px; text-transform:uppercase; letter-spacing:0.05em;">ID Number</label>
@@ -409,6 +442,8 @@
                         @error('id_number') <p style="font-size:0.6875rem; color:var(--ds-crimson); margin-top:3px;">{{ $message }}</p> @enderror
                     </div>
 
+                    {{-- FFC Number / Expiry — AT-267 §10: assistants are not PPRA practitioners --}}
+                    @unless($isAssistant ?? false)
                     {{-- FFC Number --}}
                     <div>
                         <label for="ffc_number" style="display:block; font-size:0.6875rem; font-weight:600; color:var(--text-muted); margin-bottom:4px; text-transform:uppercase; letter-spacing:0.05em;">FFC Number</label>
@@ -426,11 +461,13 @@
                                onfocus="this.style.borderColor='var(--brand-button)'" onblur="this.style.borderColor='var(--border)'">
                         @error('ffc_expiry_date') <p style="font-size:0.6875rem; color:var(--ds-crimson); margin-top:3px;">{{ $message }}</p> @enderror
                     </div>
+                    @endunless
                 </div>
 
                 {{-- Public website profile — About me + personal social links.
                      Shown on the agent's public website page (distinct from the
-                     ad/OAuth accounts under the Tools tab). --}}
+                     ad/OAuth accounts under the Tools tab). AT-267 §10: assistants have no public page. --}}
+                @unless($isAssistant ?? false)
                 <div style="margin-top:24px; padding-top:20px; border-top:1px solid var(--border);">
                     <div class="flex items-center gap-2 mb-1">
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width:14px; height:14px; color:var(--text-muted);"><path stroke-linecap="round" stroke-linejoin="round" d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Zm0 0a8.949 8.949 0 0 0 4.951-1.488A3.987 3.987 0 0 0 13 16h-2a3.987 3.987 0 0 0-3.951 3.512A8.949 8.949 0 0 0 12 21Zm3-11a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /></svg>
@@ -457,6 +494,7 @@
                         </div>
                     </div>
                 </div>
+                @endunless
 
                 {{-- Read-only admin fields --}}
                 <div style="margin-top:24px; padding-top:20px; border-top:1px solid var(--border);">
@@ -481,6 +519,7 @@
                             <div style="font-size:0.6875rem; font-weight:600; color:var(--text-muted); margin-bottom:4px; text-transform:uppercase; letter-spacing:0.05em;">Agency</div>
                             <div style="padding:9px 12px; border-radius:6px; background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); font-size:0.8125rem; opacity:0.7;">{{ $user->agency?->name ?? 'Not assigned' }}</div>
                         </div>
+                        @unless($isAssistant ?? false)
                         <div>
                             <div style="font-size:0.6875rem; font-weight:600; color:var(--text-muted); margin-bottom:4px; text-transform:uppercase; letter-spacing:0.05em;">PPRA Status</div>
                             <div style="padding:9px 12px; border-radius:6px; background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); font-size:0.8125rem; opacity:0.7;">
@@ -494,6 +533,7 @@
                                 @endif
                             </div>
                         </div>
+                        @endunless
                     </div>
                 </div>
 
@@ -791,7 +831,7 @@
                         <button type="submit" style="font-size:0.6875rem; padding:5px 12px; border-radius:6px; background:color-mix(in srgb, var(--ds-crimson) 10%, transparent); color:var(--ds-crimson); border:1px solid color-mix(in srgb, var(--ds-crimson) 25%, transparent); cursor:pointer;">Disconnect</button>
                     </form>
                     @else
-                    <a href="{{ route('corex.social.oauth.redirect', ['platform' => 'facebook']) }}" style="font-size:0.6875rem; padding:5px 12px; border-radius:6px; background:#1877f2; color:#fff; text-decoration:none; font-weight:600;">Connect</a>
+                    <button type="button" onclick="corexConnectSocial('facebook')" style="font-size:0.6875rem; padding:5px 12px; border-radius:6px; background:#1877f2; color:#fff; border:none; cursor:pointer; font-weight:600;">Connect</button>
                     @endif
                 </div>
             </div>
@@ -980,6 +1020,17 @@
                  'icon' => '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width:20px;height:20px;"><path stroke-linecap="round" stroke-linejoin="round" d="M6.827 6.175A2.31 2.31 0 0 1 5.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 0 0-1.134-.175 2.31 2.31 0 0 1-1.64-1.055l-.822-1.316a2.192 2.192 0 0 0-1.736-1.039 48.774 48.774 0 0 0-5.232 0 2.192 2.192 0 0 0-1.736 1.039l-.821 1.316Z" /><path stroke-linecap="round" stroke-linejoin="round" d="M16.5 12.75a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0Z" /></svg>'],
             ];
 
+            // AT-267 §10 — an assistant's Documents tab shows only identity docs (ID Copy +
+            // Profile Photo), never practitioner docs (FFC / PI / Tax Clearance). NOTE: the
+            // Proof-of-Residence card is still to be built (needs its upload endpoint wired —
+            // UserDocument::DOCUMENT_TYPE_PROOF_OF_ADDRESS exists); do that on the render lane.
+            if ($isAssistant ?? false) {
+                $docTypeConfig = array_values(array_filter(
+                    $docTypeConfig,
+                    fn ($c) => in_array($c['type'], ['id_copy', 'photo'], true)
+                ));
+            }
+
             $docTypeToKey = ['ffc_certificate' => 'ffc_certificate', 'id_copy' => 'id_copy', 'pi_insurance' => 'pi_insurance', 'tax_clearance' => 'tax_clearance', 'photo' => 'profile_photo'];
             $statusPills = [
                 'pending' => ['class' => 'ds-badge-warning', 'text' => 'Pending'],
@@ -1040,7 +1091,7 @@
                 {{-- Actions --}}
                 <div class="flex items-center gap-2 mt-auto">
                     @if($doc)
-                    <a href="{{ asset('storage/' . $doc->file_path) }}" target="_blank" style="font-size:0.6875rem; padding:4px 10px; border-radius:6px; border:1px solid var(--border); color:var(--text-muted); text-decoration:none;">View</a>
+                    <a href="{{ route('user-documents.download', $doc) }}" target="_blank" style="font-size:0.6875rem; padding:4px 10px; border-radius:6px; border:1px solid var(--border); color:var(--text-muted); text-decoration:none;">View</a>
                     @endif
 
                     @if($docCfg['type'] === 'id_copy')
@@ -1168,6 +1219,14 @@
                     ['key' => 'rmcp_acknowledged', 'label' => 'FICA Training & RMCP Acknowledgement', 'action_tab' => null, 'action_text' => 'Acknowledge RMCP', 'action_route' => true],
                     ['key' => 'employee_screening', 'label' => 'Employee Screening', 'action_tab' => null, 'action_text' => 'View records', 'action_route' => 'screening'],
                 ];
+
+                // AT-267 §10 / AUDIT 2026-07-26 (F9) — same rule as the overview card above: show
+                // exactly the items computeComplianceStatus() produced. An assistant is not a
+                // practitioner, so FFC / PI / tax-clearance rows are simply not in the data.
+                $complianceItems = array_values(array_filter(
+                    $complianceItems,
+                    fn ($ci) => array_key_exists($ci['key'], $complianceStatus)
+                ));
             @endphp
 
             <div class="divide-y" style="border-color:var(--border);">
@@ -1352,7 +1411,8 @@
             </form>
         </div>
 
-        {{-- Delete Account --}}
+        {{-- Delete Account — AT-267 §10: deleting an assistant is an admin action, not self-service --}}
+        @unless($isAssistant ?? false)
         <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:20px 24px; margin-top:20px;" x-data="{ confirmDelete: false }">
             <h3 class="text-sm font-semibold" style="color:var(--text-primary); margin:0 0 6px; border-left:3px solid var(--ds-crimson); padding-left:12px;">Delete Account</h3>
             <p style="font-size:0.75rem; color:var(--text-secondary); margin:0 0 16px;">Once your account is deleted, all of its resources and data will be permanently deleted.</p>
@@ -1375,10 +1435,11 @@
                 </form>
             </div>
         </div>
+        @endunless
     </div>
 
     {{-- ══ Payslips tab ══ --}}
-    @if(auth()->user()->hasPermission('view_own_payslips'))
+    @if(!($isAssistant ?? false) && auth()->user()->hasPermission('view_own_payslips'))
     <div x-show="tab === 'payslips'" x-cloak>
         <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:20px 24px;">
             <h3 style="font-size:1rem; font-weight:700; color:var(--text-primary); margin:0 0 6px;">My Payslips</h3>
@@ -1411,8 +1472,8 @@
     </div>
     @endif
 
-    {{-- ══ Leave tab ══ --}}
-    @if(auth()->user()->hasPermission('apply_for_leave'))
+    {{-- ══ Leave tab ══ · AT-267 §10: hidden for assistants (v1) --}}
+    @if(!($isAssistant ?? false) && auth()->user()->hasPermission('apply_for_leave'))
     <div x-show="tab === 'leave'" x-cloak>
         <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:20px 24px;">
             <h3 style="font-size:1rem; font-weight:700; color:var(--text-primary); margin:0 0 6px;">My Leave</h3>
@@ -1429,4 +1490,62 @@
         </div>{{-- .w-full content --}}
     </div>{{-- .p-4 --}}
 </div>{{-- .-m-4 x-data --}}
+
+@if($user->portal_show_social_accounts && \Illuminate\Support\Facades\Route::has('corex.social.oauth.redirect'))
+@push('scripts')
+<script>
+    // Meta requires Page permissions (pages_show_list, pages_manage_posts, etc.)
+    // for a Business-owned app to be requested via a Facebook Login for Business
+    // "Configuration" through the JS SDK — a plain server-side redirect to
+    // /dialog/oauth silently strips them down to public_profile only, even for
+    // an app Administrator. This is Meta's own documented pattern for config_id.
+    window.fbAsyncInit = function () {
+        FB.init({
+            appId: '{{ config('services.meta.app_id') }}',
+            cookie: true,
+            xfbml: false,
+            version: 'v19.0',
+        });
+    };
+    (function (d, s, id) {
+        var js, fjs = d.getElementsByTagName(s)[0];
+        if (d.getElementById(id)) { return; }
+        js = d.createElement(s); js.id = id;
+        js.src = 'https://connect.facebook.net/en_US/sdk.js';
+        fjs.parentNode.insertBefore(js, fjs);
+    }(document, 'script', 'facebook-jssdk'));
+
+    function corexConnectSocial(platform) {
+        var configId = @json(config('services.meta.login_config_id'));
+        var state = btoa(JSON.stringify({ user_id: {{ auth()->id() }}, platform: platform }));
+
+        // No Business Login configuration set up for this platform yet, or the
+        // SDK failed to load — fall back to the classic scope-based redirect.
+        if (!configId || typeof FB === 'undefined') {
+            window.location.href = '{{ route('corex.social.oauth.redirect') }}?platform=' + encodeURIComponent(platform);
+            return;
+        }
+
+        FB.login(function (response) {
+            // Default response_type ('token') hands back a ready-to-use user
+            // access token directly — avoids the /oauth/access_token code
+            // exchange entirely, which rejects codes minted by FB.login()
+            // because they're tied to an internal xd_arbiter redirect_uri
+            // our server can't reproduce.
+            if (response.authResponse && response.authResponse.accessToken) {
+                window.location.href = '{{ route('corex.social.oauth.callback') }}'
+                    + '?flow=js'
+                    + '&access_token=' + encodeURIComponent(response.authResponse.accessToken)
+                    + '&state=' + encodeURIComponent(state);
+            } else {
+                window.location.href = '{{ route('agent.portal') }}?tab=user';
+            }
+        }, {
+            config_id: configId,
+            auth_type: 'rerequest',
+        });
+    }
+</script>
+@endpush
+@endif
 @endsection

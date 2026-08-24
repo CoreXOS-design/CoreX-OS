@@ -30,7 +30,9 @@ use Illuminate\Support\Facades\Log;
  * P24 status on a manual change is set per-status by PropertyObserver's own
  * status-sync (Sold/Withdrawn/Expired…); this job's P24 step is the safety net
  * that catches anything that path missed (guard skips an already-deactivated
- * row, so the two never conflict).
+ * row). A plain sold status change also opts into $keepP24ForSold so this
+ * safety net can't race the status-sync's own 'Sold' push with a hard
+ * 'Withdrawn' — see AT-282-style guard on delistProperty24() below.
  *
  * A dedicated Job (rather than a queued listener) is used because the
  * MandateExpired domain event's readonly properties cannot be restored by
@@ -39,8 +41,20 @@ use Illuminate\Support\Facades\Log;
  * off current syndication status so retries never double-delist.
  *
  * Audit: .ai/audits/mandate-expiry-desyndication-2026-06-20.md,
- *        .ai/audits/syndication-bug-sweep-2026-06-20.md (PP-1)
+ *        .ai/audits/syndication-bug-sweep-2026-06-20.md (PP-1),
+ *        .ai/audits/2026-08-23-queue-failed-jobs-triage.md (bulk-retry hazard)
  * Non-Negotiable #9 — cross-pillar reactivity (Mandate/Property → Syndication).
+ *
+ * ⚠ NEVER BULK-RETRY FAILED ROWS OF THIS JOB WITHOUT PER-ROW REVIEW. (Johan,
+ * 2026-08-23, re: the 710 rows in failed_jobs failing on P24 HTTP 401 since
+ * April 2026.) This job de-lists real properties from real live portals. A
+ * property that failed to de-list months ago may since have been re-listed,
+ * sold, or had its status legitimately changed — blind-retrying a stale
+ * failure risks de-listing a property that should currently be live, which is
+ * real-world harm to a real agency's business, not a technical inconvenience.
+ * Any retry of this job's failed_jobs backlog MUST first confirm, per
+ * property, that off-market/de-syndication is still the correct current
+ * action — never a bulk `php artisan queue:retry` sweep on this class.
  */
 class DesyndicatePropertyFromPortalsJob implements ShouldQueue
 {
@@ -58,6 +72,12 @@ class DesyndicatePropertyFromPortalsJob implements ShouldQueue
         // 'Sold' (set by SyncPpListingStatusJob) instead of being de-listed. Default false so the
         // mandate-expiry / manual-delist callers still remove PP even for a sold listing.
         public readonly bool $keepPpForSold = false,
+        // P24 equivalent of $keepPpForSold, added after property #6099 (2026-08-18): a plain SOLD
+        // status change dispatches this job in the SAME request as PropertyObserver's synchronous
+        // 'Sold' push. Without this guard the queued job's delistProperty24() ran a moment later and
+        // sent a hard 'Withdrawn', instantly pulling a listing that should have stayed live ~1 week
+        // as sold stock. Default false so mandate-expiry / manual-delist callers still remove P24.
+        public readonly bool $keepP24ForSold = false,
     ) {
     }
 
@@ -102,6 +122,17 @@ class DesyndicatePropertyFromPortalsJob implements ShouldQueue
     private function delistProperty24(Property $property, array &$failures): void
     {
         if (! $property->mayBeLiveOnP24()) {
+            return;
+        }
+
+        // Mirrors the PP guard above — a SOLD listing stays on P24 as 'Sold' (pushed
+        // synchronously by PropertyObserver's status-sync), so this safety net must
+        // NOT also fire a delisting 'Withdrawn' for the same status change. Only
+        // skips when the caller opted in (the observer's off-market dispatch);
+        // mandate-expiry / manual delist still remove a sold listing from P24.
+        if ($this->keepP24ForSold
+            && \App\Services\Syndication\ListingLifecycle::resolve($property->status, $property->status_label)
+                === \App\Services\Syndication\ListingLifecycle::SOLD) {
             return;
         }
 

@@ -4,12 +4,12 @@
 @section('corex-content')
 <div class="w-full space-y-5">
 
-    {{-- Page header (Pattern A — branded) --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    {{-- Page header (flat neutral bar — AT-336) --}}
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Leave Balances</h1>
-                <p class="text-sm text-white/60">Track annual, sick and family responsibility leave per employee.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Leave Balances</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Track annual, sick and family responsibility leave per employee.</p>
             </div>
         </div>
     </div>

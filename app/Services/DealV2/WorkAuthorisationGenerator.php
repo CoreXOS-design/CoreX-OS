@@ -42,7 +42,7 @@ class WorkAuthorisationGenerator
         'water'          => 'Water Installation Certificate of Compliance',
     ];
 
-    public const DEFAULT_NOTES = 'Please deliver the original certificates to Home Finders Coastal office.';
+    public const DEFAULT_NOTES = 'Please deliver the original certificates to the agency office.';
 
     public function serviceLabel(?string $serviceType): string
     {
@@ -105,7 +105,7 @@ class WorkAuthorisationGenerator
         $html = view('documents.work-authorisation', [
             'deal'            => $deal,
             'agency'          => $agency,
-            'company'         => $agency?->trading_name ?: ($agency?->name ?? 'Home Finders Coastal'),
+            'company'         => $agency?->trading_name ?: ($agency?->name ?? 'Agency'),
             'logoData'        => $this->logoDataUri($agency),
             'fields'          => $fields,
             'serviceLabel'    => $serviceLbl,

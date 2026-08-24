@@ -396,6 +396,12 @@ class ImapMailboxPoller
             'from'         => $from,
             'counterpart'  => $counterpart,
             'participants' => $participants,
+            // CX-113 Phase G (Johan, 2026-08-22) — To/Cc were already parsed separately
+            // above (needed for $participants); kept here too instead of being merged
+            // away, so the archive can show real "To"/"Cc" instead of one flat list with
+            // no role.
+            'to'           => $to,
+            'cc'           => $cc,
             'subject'      => $this->safe(fn () => (string) $message->getSubject()),
             'body_text'    => $bodyText,
             'occurred_at'  => $this->safe(fn () => Carbon::instance($message->getDate()->toDate())) ?: now(),

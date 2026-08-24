@@ -8,7 +8,12 @@
      Consumes (per kind):
        'regenerating'     — (no extra)
        'no_data'          — (no extra)
-       'filtered_to_zero' — $filters (array), $urlWithout (closure: string → string URL)
+       'filtered_to_zero' — $filters (array), $urlWithout (closure: string → string URL),
+                             $clearAllUrl (optional string — "remove every filter" target;
+                             defaults to prospecting.index, correct for that page's own
+                             caller but MUST be passed explicitly by any other page, e.g.
+                             Market Intelligence's market-intelligence.work, or "clear all"
+                             silently bounces the user off the page they're on)
 --}}
 
 @php
@@ -26,7 +31,10 @@
         if (!empty($localFilters['unmapped_only']))      $clearButtons[] = ['key' => 'unmapped_only',      'label' => 'unmapped-only filter'];
         if (!empty($localFilters['sources']))            $clearButtons[] = ['key' => 'sources',            'label' => 'source filter'];
         if (!empty($localFilters['suburb_normalised']))  $clearButtons[] = ['key' => 'suburb_normalised',  'label' => 'suburb filter'];
+        if (!empty($localFilters['buyer_id']))            $clearButtons[] = ['key' => 'buyer_id',            'label' => 'buyer filter'];
     }
+
+    $clearAllUrl = $clearAllUrl ?? route('prospecting.index');
 @endphp
 
 @if($kind === 'regenerating')
@@ -74,7 +82,7 @@
                         ← Remove {{ $btn['label'] }}
                     </a>
                 @endforeach
-                <a href="{{ route('prospecting.index') }}"
+                <a href="{{ $clearAllUrl }}"
                    class="inline-flex items-center gap-1 px-3 py-1.5 rounded text-xs font-semibold no-underline transition hover:brightness-105"
                    style="background: var(--brand-button); color: #fff;">
                     Clear all filters

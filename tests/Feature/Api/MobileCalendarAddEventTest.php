@@ -197,6 +197,67 @@ class MobileCalendarAddEventTest extends TestCase
         $this->assertContains('agent', $types);
     }
 
+    /**
+     * A user-created event stays editable whatever its status, and even when
+     * its row carries NO source_type (voice-scheduled events and older rows).
+     * The old `in_array($source_type, ['manual','manual:demo'])` returned false
+     * for NULL, so the mobile edit sheet refused to open with "This event can't
+     * be edited" — while PUT on the same event happily accepted the change.
+     */
+    public function test_completed_manual_event_without_source_type_is_editable(): void
+    {
+        $agent = $this->agent('Owner');
+
+        $event = CalendarEvent::create([
+            'user_id'       => $agent->id,
+            'created_by_id' => $agent->id,
+            'agency_id'     => $this->agency->id,
+            'branch_id'     => $this->branch->id,
+            'event_type'    => 'manual',
+            'category'      => 'meeting',
+            'title'         => 'Follow-up',
+            'event_date'    => now()->subDay()->setTime(9, 0),
+            'status'        => 'completed',
+            'source_type'   => null,
+        ]);
+
+        $this->actingAs($agent)
+            ->getJson("/api/v1/command-center/calendar/{$event->id}")
+            ->assertOk()
+            ->assertJsonPath('is_editable', true);
+
+        // …and the edit the sheet would submit is accepted.
+        $this->actingAs($agent)
+            ->putJson("/api/v1/command-center/calendar/{$event->id}", ['title' => 'Follow-up (revised)'])
+            ->assertOk();
+    }
+
+    /** A source-driven event stays locked — its fields are owned by the source. */
+    public function test_source_driven_event_is_not_editable(): void
+    {
+        $agent    = $this->agent('Owner');
+        $property = $this->makeProperty($agent);
+
+        $event = CalendarEvent::create([
+            'user_id'     => $agent->id,
+            'agency_id'   => $this->agency->id,
+            'branch_id'   => $this->branch->id,
+            'event_type'  => 'property',
+            'category'    => 'meeting',
+            'title'       => 'Mandate expiry',
+            'event_date'  => now()->addDay(),
+            'status'      => 'pending',
+            'source_type' => Property::class,
+            'source_id'   => $property->id,
+            'property_id' => $property->id,
+        ]);
+
+        $this->actingAs($agent)
+            ->getJson("/api/v1/command-center/calendar/{$event->id}")
+            ->assertOk()
+            ->assertJsonPath('is_editable', false);
+    }
+
     public function test_property_owners_returns_linked_contacts(): void
     {
         $organizer = $this->agent('Organizer');

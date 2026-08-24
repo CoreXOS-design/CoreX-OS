@@ -8,7 +8,6 @@ use App\Models\MonthlyTargetGoal;
 use App\Services\Admin\CompanyPerformanceService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 
 class BranchPerformanceController extends Controller
 {
@@ -16,12 +15,27 @@ class BranchPerformanceController extends Controller
     {
         $period = $request->query('period') ?: Carbon::now()->format('Y-m');
 
-        // Basic branch existence check (safe)
-        $branchName = DB::table('branches')->where('id', $branchId)->value('name');
-        abort_unless($branchName, 404);
+        // Ownership check (was: existence-only). Branch::find() goes through
+        // Eloquent, so it runs under the BelongsToAgency global scope
+        // (AgencyScope): for a non-owner it 404s outright on a branch
+        // belonging to a foreign tenant, exactly like the plain "does this id
+        // exist" check used to for a missing id. Owners bypass AgencyScope
+        // (see AgencyScope::applyInner()) so they can still reach any
+        // agency's branch page by design.
+        $branch = \App\Models\Branch::find($branchId);
+        abort_unless($branch, 404);
+
+        // getBranchRollup()/getPeriodRollup() run raw DB::table() queries
+        // that bypass Eloquent's AgencyScope entirely, so they need the
+        // agency filter passed explicitly. Use the BRANCH's own agency_id
+        // (not the acting user's effectiveAgencyId()) — that keeps this
+        // correct for an owner (whose effectiveAgencyId() is typically null)
+        // as well as for an in-agency admin/BM, and it's already guaranteed
+        // to match the caller's tenant by the Branch::find() check above.
+        $agencyId = $branch->agency_id !== null ? (int) $branch->agency_id : -1;
 
         // Same truth engine BM uses
-        $rollup = $service->getBranchRollup($branchId, $period);
+        $rollup = $service->getBranchRollup($branchId, $period, $agencyId);
 
         // Ensure goal exists (same as BM)
         $branchGoal = MonthlyTargetGoal::firstOrCreate(

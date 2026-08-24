@@ -15,9 +15,13 @@ use App\Services\DealV2\DealDocumentService;
 use App\Services\DealV2\DealPipelineService;
 use App\Services\PermissionService;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 class DealV2Controller extends Controller
 {
+    // AT-267 C3 — per-record deal guard for the write paths (edit price/commission by id).
+    use \App\Http\Controllers\Concerns\AuthorizesDealV2Access;
+
     public function __construct(private DealPipelineService $pipelineService)
     {
     }
@@ -220,7 +224,7 @@ class DealV2Controller extends Controller
             ->groupBy('deal_type');
 
         $branches = Branch::orderBy('name')->get();
-        $agents = User::agencyMembers()->where('is_active', true)->orderBy('name')->get();
+        $agents = User::agencyMembers()->where('is_active', true)->where('is_assistant', false)->orderBy('name')->get(); // AT-267: assistants are never selectable agents
 
         // Pre-build template data for JS (avoid Blade closures in @json)
         $templatesJson = DealPipelineTemplate::active()
@@ -260,6 +264,11 @@ class DealV2Controller extends Controller
     {
         abort_unless($this->canCapture(auth()->user()), 403);
 
+        // SECURITY (Bug 1a) — plain exists:users,id lets a cross-tenant user id
+        // be attached to the commission pivot; scope every agent-id rule to the
+        // capturer's own agency (same idiom as AgencyComplianceSettingsController).
+        $agencyId = auth()->user()->effectiveAgencyId();
+
         $data = $request->validate([
             'property_id' => ['required', 'exists:properties,id'],
             'deal_type' => ['required', 'in:bond,cash,sale_of_2nd'],
@@ -294,13 +303,13 @@ class DealV2Controller extends Controller
             'selling_external_agency' => ['nullable', 'string', 'max:255'],
             // Accept both formats: wizard JSON (agents[].side) or form (listing_agents[])
             'agents' => ['nullable', 'array'],
-            'agents.*.user_id' => ['nullable', 'exists:users,id'],
+            'agents.*.user_id' => ['nullable', Rule::exists('users', 'id')->where('agency_id', $agencyId)],
             'agents.*.side' => ['nullable', 'in:listing,selling'],
             'agents.*.split_percent' => ['nullable', 'numeric', 'min:0', 'max:100'],
             'listing_agents' => ['nullable', 'array'],
-            'listing_agents.*' => ['exists:users,id'],
+            'listing_agents.*' => [Rule::exists('users', 'id')->where('agency_id', $agencyId)],
             'selling_agents' => ['nullable', 'array'],
-            'selling_agents.*' => ['exists:users,id'],
+            'selling_agents.*' => [Rule::exists('users', 'id')->where('agency_id', $agencyId)],
             'listing_override' => ['nullable', 'array'],
             'selling_override' => ['nullable', 'array'],
             'step_overrides' => ['nullable', 'array'],
@@ -319,10 +328,16 @@ class DealV2Controller extends Controller
             $data['agents'] = $this->buildAgentsFromForm($request);
         }
 
-        // Set listing_agent_id from first listing agent if not explicitly set
+        // Set listing_agent_id from first listing agent if not explicitly set.
+        // AT-267 — for an assistant the deal is the AGENT's (ownershipUserId), never the
+        // assistant's; commission and the deal register file it under the agent. created_by_id
+        // (below) still records the assistant as the capturer. A normal user's ownershipUserId
+        // is themselves, so behaviour is unchanged.
         if (empty($data['listing_agent_id'])) {
             $firstListing = collect($data['agents'] ?? [])->firstWhere('side', 'listing');
-            $data['listing_agent_id'] = $firstListing['user_id'] ?? auth()->id();
+            // multi-agent addendum §6.1 — honours an explicit "Acting for" choice.
+            $data['listing_agent_id'] = $firstListing['user_id']
+                ?? auth()->user()->ownershipUserId($request->integer('acting_for_user_id') ?: null);
         }
 
         // WS-V3 (Ruling b): an agent granted ONLY own-capture (not full create) may
@@ -352,6 +367,13 @@ class DealV2Controller extends Controller
 
         $data['listing_external'] = $request->boolean('listing_external');
         $data['selling_external'] = $request->boolean('selling_external');
+
+        // A deal must keep at least one internal agent — both sides can't be external.
+        if ($data['listing_external'] && $data['selling_external']) {
+            return back()->withInput()->withErrors(
+                "A deal must have at least one internal agent — both sides can't be external."
+            );
+        }
 
         // (AT-192 d) Branch attribution mirrors DR1 — NEVER silently fall back to
         // Branch::first() (which lands a NULL-home-branch capturer's deal on an
@@ -592,7 +614,7 @@ class DealV2Controller extends Controller
         $deal->load(['property', 'contacts', 'agents', 'listingAgent', 'sellingAgent', 'branch',
             'stepInstances' => fn ($q) => $q->orderBy('position')]);
 
-        $agents = User::agencyMembers()->where('is_active', true)->orderBy('name')->get();
+        $agents = User::agencyMembers()->where('is_active', true)->where('is_assistant', false)->orderBy('name')->get(); // AT-267: assistants are never selectable agents
         $branches = Branch::orderBy('name')->get();
         $locked = $deal->isFinanciallyLocked();
         $vatRate = (float) \App\Models\PerformanceSetting::get('vat_rate', 15);
@@ -617,8 +639,14 @@ class DealV2Controller extends Controller
     public function update(Request $request, DealV2 $deal)
     {
         abort_unless(auth()->user()?->hasPermission('deals_v2.edit'), 403);
+        $this->authorizeDealV2($deal);
 
         $locked = $deal->isFinanciallyLocked();
+
+        // SECURITY (Bug 1a) — same agency-scoped exists idiom as store(); the
+        // re-attach block below previously read *_agents straight off the raw
+        // request with zero validation.
+        $agencyId = auth()->user()->effectiveAgencyId();
 
         $rules = [
             'notes' => ['nullable', 'string'],
@@ -641,6 +669,12 @@ class DealV2Controller extends Controller
                 'selling_our_share_percent' => ['nullable', 'numeric', 'min:0', 'max:100'],
                 'selling_external_agency' => ['nullable', 'string', 'max:255'],
                 'offer_date' => ['required', 'date'],
+                'listing_agents' => ['nullable', 'array'],
+                'listing_agents.*' => [Rule::exists('users', 'id')->where('agency_id', $agencyId)],
+                'selling_agents' => ['nullable', 'array'],
+                'selling_agents.*' => [Rule::exists('users', 'id')->where('agency_id', $agencyId)],
+                'listing_override' => ['nullable', 'array'],
+                'selling_override' => ['nullable', 'array'],
             ]);
         }
 
@@ -673,6 +707,13 @@ class DealV2Controller extends Controller
                 return back()->withErrors("Listing + Selling split must equal 100.")->withInput();
             }
 
+            // A deal must keep at least one internal agent — both sides can't be external.
+            if ($request->boolean('listing_external') && $request->boolean('selling_external')) {
+                return back()->withErrors(
+                    "A deal must have at least one internal agent — both sides can't be external."
+                )->withInput();
+            }
+
             $deal->update([
                 'purchase_price' => $data['purchase_price'],
                 'commission_percentage' => $data['commission_percentage'] ?? null,
@@ -697,8 +738,11 @@ class DealV2Controller extends Controller
                     continue;
                 }
 
-                $agentIds = $request->input($side . '_agents', []);
-                $overrides = $request->input($side . '_override', []);
+                // SECURITY (Bug 1a) — use the validated (agency-scoped) $data, not
+                // the raw request, so a foreign-agency user id can no longer be
+                // attached to the commission pivot.
+                $agentIds = $data[$side . '_agents'] ?? [];
+                $overrides = $data[$side . '_override'] ?? [];
 
                 if (empty($agentIds)) {
                     continue;

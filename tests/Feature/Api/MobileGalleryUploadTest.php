@@ -1,0 +1,213 @@
+<?php
+
+namespace Tests\Feature\Api;
+
+use App\Models\Agency;
+use App\Models\Branch;
+use App\Models\Property;
+use App\Models\User;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Facades\Storage;
+use Tests\TestCase;
+
+/**
+ * Web-side robustness for the mobile gallery upload
+ * (POST /api/v1/mobile/properties/{id}/images):
+ *  - a valid tag sent with a different case must NOT 422 (it is resolved
+ *    case-insensitively to the property's canonical tag);
+ *  - an unknown tag still 422s cleanly (not 500);
+ *  - a tagless upload lands in the unsorted bucket.
+ */
+class MobileGalleryUploadTest extends TestCase
+{
+    use RefreshDatabase;
+
+    private Agency $agency;
+    private User $user;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        Storage::fake('public');
+        Queue::fake();
+
+        $this->agency = Agency::create(['name' => 'Coastal Realty', 'slug' => 'coastal-realty']);
+        $branch = Branch::create(['agency_id' => $this->agency->id, 'name' => 'Main']);
+        $this->user = User::factory()->create([
+            'agency_id' => $this->agency->id,
+            'branch_id' => $branch->id,
+            'role'      => 'agent',
+        ]);
+    }
+
+    private function makeProperty(array $overrides = []): Property
+    {
+        return Property::create(array_merge([
+            'agency_id'     => $this->agency->id,
+            'agent_id'      => $this->user->id,
+            'branch_id'     => $this->user->branch_id,
+            'title'         => 'Sea-view 3 bed',
+            'suburb'        => 'Uvongo',
+            'property_type' => 'house',
+            'listing_type'  => 'sale',
+            'status'        => 'active',
+            'price'         => 2495000,
+        ], $overrides));
+    }
+
+    public function test_a_valid_tag_with_different_casing_is_accepted_and_canonicalised(): void
+    {
+        // The property's tag library holds "Kitchen"; the app sends "kitchen".
+        $property = $this->makeProperty(['gallery_custom_tags' => ['Kitchen']]);
+
+        $res = $this->actingAs($this->user)
+            ->postJson("/api/v1/mobile/properties/{$property->id}/images", [
+                'image'    => UploadedFile::fake()->image('photo.jpg', 1200, 900),
+                'room_tag' => 'kitchen',
+            ]);
+
+        $res->assertStatus(201);
+
+        $property->refresh();
+        $cats = collect($property->gallery_categories_json['categories'] ?? []);
+        $this->assertTrue($cats->contains('name', 'Kitchen'),
+            'Photo must file under the canonical "Kitchen" category, not a new "kitchen".');
+        $this->assertFalse($cats->contains('name', 'kitchen'),
+            'A differently-cased duplicate category must never be created.');
+    }
+
+    public function test_an_unknown_tag_is_rejected_with_422_not_500(): void
+    {
+        $property = $this->makeProperty();
+
+        $res = $this->actingAs($this->user)
+            ->postJson("/api/v1/mobile/properties/{$property->id}/images", [
+                'image'    => UploadedFile::fake()->image('photo.jpg', 800, 600),
+                'room_tag' => 'Definitely Not A Space',
+            ]);
+
+        $res->assertStatus(422);
+        $res->assertJsonStructure(['message', 'errors' => ['room_tag'], 'available_tags']);
+    }
+
+    public function test_a_tagless_upload_lands_in_unsorted(): void
+    {
+        $property = $this->makeProperty();
+
+        $res = $this->actingAs($this->user)
+            ->postJson("/api/v1/mobile/properties/{$property->id}/images", [
+                'image' => UploadedFile::fake()->image('photo.jpg', 800, 600),
+            ]);
+
+        $res->assertStatus(201);
+
+        $property->refresh();
+        $this->assertCount(1, $property->gallery_categories_json['unsorted'] ?? []);
+    }
+
+    /**
+     * Idempotency: the rebuilt app retries a photo on timeout with the SAME
+     * client_upload_id. A retry must NOT create a second gallery row or a second
+     * stored file — it returns the already-stored record with a 2xx so the client
+     * safely drops it from its retry queue.
+     */
+    public function test_a_retried_upload_with_same_client_upload_id_is_deduped(): void
+    {
+        $property = $this->makeProperty();
+        $key = 'photo-abc-123';
+
+        $first = $this->actingAs($this->user)
+            ->postJson("/api/v1/mobile/properties/{$property->id}/images", [
+                'image'            => UploadedFile::fake()->image('a.jpg', 800, 600),
+                'client_upload_id' => $key,
+            ]);
+        $first->assertStatus(201);
+        $first->assertJson(['duplicate' => false]);
+
+        // The retry: same key, a fresh multipart body (as the client would resend).
+        $retry = $this->actingAs($this->user)
+            ->postJson("/api/v1/mobile/properties/{$property->id}/images", [
+                'image'            => UploadedFile::fake()->image('a.jpg', 800, 600),
+                'client_upload_id' => $key,
+            ]);
+        $retry->assertStatus(200);
+        $retry->assertJson(['duplicate' => true]);
+
+        $property->refresh();
+        $this->assertCount(1, $property->gallery_images_json ?? [],
+            'A retried client_upload_id must not add a second gallery row.');
+        // Only ONE file on disk for this property (the retry stored none / cleaned up).
+        $this->assertCount(1, Storage::disk('public')->files("properties/{$property->id}"),
+            'A retried upload must not orphan a second stored file.');
+        // And the returned URL is the original, canonical one.
+        $this->assertSame($first->json('url'), $retry->json('url'));
+    }
+
+    /**
+     * Two DISTINCT photos to the same property must both persist — guards the
+     * row-locked transaction path against dropping rows on the append.
+     */
+    public function test_two_distinct_uploads_both_persist(): void
+    {
+        $property = $this->makeProperty();
+
+        foreach (['one', 'two'] as $k) {
+            $this->actingAs($this->user)
+                ->postJson("/api/v1/mobile/properties/{$property->id}/images", [
+                    'image'            => UploadedFile::fake()->image("{$k}.jpg", 800, 600),
+                    'client_upload_id' => $k,
+                ])->assertStatus(201);
+        }
+
+        $property->refresh();
+        $this->assertCount(2, $property->gallery_images_json ?? []);
+    }
+
+    /**
+     * The property-6118 regression: a portrait phone photo arrives as landscape
+     * pixels + EXIF Orientation=6. The stored original must be rewritten upright
+     * (portrait) with the tag stripped, so every downstream surface renders it
+     * the right way up regardless of whether it honours EXIF.
+     */
+    public function test_a_sideways_exif_photo_is_stored_upright(): void
+    {
+        $property = $this->makeProperty();
+
+        // Real file with a genuine EXIF orientation tag — fake()->image() can't
+        // produce one, so we upload the committed fixture (900x600, orientation 6).
+        $upload = new UploadedFile(
+            base_path('tests/Fixtures/Images/portrait-exif6.jpg'),
+            'photo.jpg',
+            'image/jpeg',
+            null,
+            true, // test mode — skip the is_uploaded_file() check
+        );
+
+        $res = $this->actingAs($this->user)
+            ->postJson("/api/v1/mobile/properties/{$property->id}/images", [
+                'image' => $upload,
+            ]);
+
+        $res->assertStatus(201);
+
+        $property->refresh();
+        $storedUrl = $property->gallery_images_json[0] ?? null;
+        $this->assertNotNull($storedUrl, 'The photo must have been stored.');
+
+        $rel = ltrim(parse_url($storedUrl, PHP_URL_PATH) ?: '', '/');
+        $rel = preg_replace('#^storage/#', '', $rel);
+        $absolute = Storage::disk('public')->path($rel);
+
+        [$width, $height] = getimagesize($absolute);
+        $this->assertGreaterThan($width, $height,
+            'A portrait capture must be stored portrait (taller than wide), not sideways.');
+        $this->assertSame(600, $width);
+        $this->assertSame(900, $height);
+
+        $exif = @exif_read_data($absolute);
+        $this->assertArrayNotHasKey('Orientation', $exif ?: [],
+            'The baked-in orientation tag must be stripped so nothing double-rotates.');
+    }
+}

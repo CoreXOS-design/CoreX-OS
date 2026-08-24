@@ -512,7 +512,28 @@ class PresentationPdfService
         }
 
         $logoBase64 = null;
-        $agency = $agent ? ($agent->agency ?? \App\Models\Agency::first()) : \App\Models\Agency::first();
+        // Prefer the presentation's OWN agency_id (explicit withoutGlobalScopes()
+        // lookup — NOT the ->agency relation, which can be silently affected by
+        // whatever global-scope context is active on the calling request/queue
+        // worker rather than the presentation's own tenant), then the creating
+        // agent's agency — never Agency::first(), which silently picked agency 1
+        // (HFC) whenever $agent or $agent->agency was missing, stamping another
+        // tenant's PDF with HFC's real name/logo. If truly orphaned (no agency_id
+        // AND no resolvable agent agency), branding is skipped gracefully.
+        $agency = ($presentation->agency_id ? \App\Models\Agency::withoutGlobalScopes()->find($presentation->agency_id) : null)
+            ?? $agent?->agency;
+        if (!$agency) {
+            \Illuminate\Support\Facades\Log::warning('PresentationPdfService: presentation has no resolvable agency; skipping agency branding.', [
+                'presentation_id' => $presentation->id,
+                'presentation_agency_id' => $presentation->agency_id,
+            ]);
+        }
+        // Cover/footer TEXT branding — resolved from the SAME $agency as the
+        // logo above, never a hardcoded tenant. $agencyAddress is null (not a
+        // fallback string) when unresolved, so the address line is omitted
+        // rather than leaking another tenant's location.
+        $agencyName = $agency->name ?? config('app.name');
+        $agencyAddress = $agency->address ?? null;
         if ($agency && $agency->logo_path) {
             $logoFile = storage_path('app/public/' . $agency->logo_path);
             if (file_exists($logoFile)) {
@@ -1459,10 +1480,13 @@ a:hover { text-decoration: underline; }
       // PAGE 1 — COVER
       // ══════════════════════════════════════════════════════════════════════ ?>
 <div class="cover">
+    <?php // 2026-08-15 (Johan, HFC tenant-isolation fix) — $agency is
+          // already resolved above (line ~515); was never read for
+          // branding text, only for the logo file. ?>
     <?php if ($logoBase64): ?>
-    <div class="cover-brand"><img src="<?= $logoBase64 ?>" alt="Home Finders Coastal" style="max-height:120px;width:auto;"></div>
+    <div class="cover-brand"><img src="<?= $logoBase64 ?>" alt="<?= $esc($agencyName) ?>" style="max-height:120px;width:auto;"></div>
     <?php else: ?>
-    <div class="cover-brand">Home Finders Coastal</div>
+    <div class="cover-brand"><?= $esc($agencyName) ?></div>
     <?php endif ?>
     <h1>Market Analysis<br>&amp; Pricing Strategy</h1>
     <div style="height:24px"></div>
@@ -1480,7 +1504,7 @@ a:hover { text-decoration: underline; }
         <div class="cover-agent-row">
             <div class="cover-agent-info">
                 <div class="agent-name"><?= $esc($agentName) ?></div>
-                <div class="agent-company">Home Finders Coastal — Shelly Beach, KZN South Coast</div>
+                <div class="agent-company"><?= $esc($agencyAddress ? $agencyName . ' — ' . $agencyAddress : $agencyName) ?></div>
                 <div class="agent-contact">
                     <?php if ($agentEmail): ?><?= $esc($agentEmail) ?><br><?php endif ?>
                     <?php if (!empty($agentPhone)): ?><?= $esc($agentPhone) ?><br><?php endif ?>
@@ -3586,14 +3610,14 @@ for ($rowStart = 0; $rowStart < $visibleCount; $rowStart += $columns):
         Ready to discuss your pricing strategy?
     </p>
     <p style="font-size:12px;color:var(--text-muted);">
-        <strong><?= $esc($agentName) ?></strong> &middot; Home Finders Coastal<br>
+        <strong><?= $esc($agentName) ?></strong> &middot; <?= $esc($agencyName) ?><br>
         <?php if ($agentEmail): ?><?= $esc($agentEmail) ?><br><?php endif ?>
-        Shelly Beach, KZN South Coast
+        <?php if ($agencyAddress): ?><?= $esc($agencyAddress) ?><?php endif ?>
     </p>
 </div>
 
 <div style="margin-top:16px;text-align:center;font-size:8.5px;color:var(--text-light);border-top:1px solid var(--border-light);padding-top:12px;">
-    Prepared by <?= $esc($agentName) ?> &middot; Home Finders Coastal &middot; <?= $compiledAt ?>
+    Prepared by <?= $esc($agentName) ?> &middot; <?= $esc($agencyName) ?> &middot; <?= $compiledAt ?>
     &middot; Version #<?= $version->id ?>
     <br>
     This report is based on publicly available data and independent CMA valuation.

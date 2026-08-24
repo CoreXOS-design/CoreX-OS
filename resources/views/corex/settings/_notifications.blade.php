@@ -10,8 +10,7 @@
             <p class="text-xs" style="color:var(--text-muted);">Choose which events alert you, on which channel, and how soon. These preferences are always per-user — agency settings mode does not apply here.</p>
         </div>
         <button type="button" @click="resetDefaults()" :disabled="saving"
-                class="px-3 py-2 rounded-md text-xs font-medium"
-                style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-secondary);">
+                class="corex-btn-outline text-xs">
             Reset to defaults
         </button>
     </div>
@@ -93,10 +92,9 @@
     </template>
 
     <div class="flex items-center justify-end gap-3 sticky bottom-0 py-3" style="background:var(--surface);">
-        <span x-show="savedMsg" class="text-xs" style="color:#10b981;" x-text="savedMsg"></span>
+        <span x-show="savedMsg" class="text-xs" style="color:var(--ds-green);" x-text="savedMsg"></span>
         <button type="button" @click="save()" :disabled="saving"
-                class="px-4 py-2 rounded-md text-sm font-semibold"
-                style="background:var(--brand-button, #0ea5e9); color:white;">
+                class="corex-btn-primary text-sm">
             <span x-show="!saving">Save preferences</span>
             <span x-show="saving">Saving…</span>
         </button>

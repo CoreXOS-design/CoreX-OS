@@ -84,10 +84,15 @@ class SharedDrive extends Model
             return $query;
         }
 
-        return $query->where(function (Builder $q) use ($user) {
+        // AT-267 — an assistant sees the drives their Assigned Agent sees: the agent's own
+        // drives and the ones the agent was given access to. For everyone else this is
+        // exactly [$user->id] and behaviour is unchanged.
+        $identityIds = $user->dataIdentityIds();
+
+        return $query->where(function (Builder $q) use ($identityIds) {
             $q->where('is_restricted', false)
-                ->orWhere('created_by_user_id', $user->id)
-                ->orWhereHas('accessUsers', fn (Builder $a) => $a->where('users.id', $user->id));
+                ->orWhereIn('created_by_user_id', $identityIds)
+                ->orWhereHas('accessUsers', fn (Builder $a) => $a->whereIn('users.id', $identityIds));
         });
     }
 

@@ -27,7 +27,7 @@
     $waHref = $digits !== '' ? 'https://wa.me/' . $digits : null;
 
     $actionBtn = 'display: inline-flex; align-items: center; gap: 5px; padding: 6px 11px; font-size: 0.75rem; font-weight: 600; border-radius: 4px; cursor: pointer; text-decoration: none; white-space: nowrap;';
-    $actionPrimary = $actionBtn . 'background: var(--brand-default, #0b2a4a); color: #fff; border: 1px solid var(--brand-default, #0b2a4a);';
+    $actionPrimary = $actionBtn . 'background: var(--brand-button, #0ea5e9); color: #fff; border: 1px solid var(--brand-button, #0ea5e9);';
     $actionSecondary = $actionBtn . 'background: var(--surface-2); color: var(--text-primary); border: 1px solid var(--border);';
     $actionDisabled = $actionBtn . 'background: var(--surface); color: var(--text-muted); border: 1px dashed var(--border); cursor: not-allowed; opacity: 0.55;';
 @endphp
@@ -64,7 +64,7 @@
             <div style="margin-top: 8px; display: flex; flex-wrap: wrap; gap: 4px;">
                 @if($h['in_stock'])
                 <a href="{{ route('corex.properties.show', $h['matched_property_id']) }}"
-                   style="display: inline-flex; align-items: center; padding: 2px 7px; font-size: 0.625rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.02em; border-radius: 4px; background: var(--brand-default); color: #fff; text-decoration: none;"
+                   style="display: inline-flex; align-items: center; padding: 2px 7px; font-size: 0.625rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.02em; border-radius: 4px; background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 14%, transparent); color: var(--brand-icon, #0ea5e9); border: 1px solid color-mix(in srgb, var(--brand-icon, #0ea5e9) 35%, transparent); text-decoration: none;"
                    title="This property is in our agency stock — we already hold the mandate. Click to open the Property record.">
                     IN STOCK
                 </a>
@@ -103,7 +103,11 @@
                     Pitch
                 </a>
             @else
-                <a href="{{ route('seller-outreach.entry.from-prospecting', ['prospectingListingId' => $listing->id]) }}"
+                {{-- fresh=1 (2026-08-19) — marks this as a genuine fresh entry so the
+                     controller runs collision detection; a later browser refresh of
+                     the resulting (clean) URL will not carry this param, so it won't
+                     re-run and silently eject the agent mid-review. --}}
+                <a href="{{ route('seller-outreach.entry.from-prospecting', ['prospectingListingId' => $listing->id, 'fresh' => 1]) }}"
                    style="{{ $actionPrimary }}">
                     Pitch
                 </a>
@@ -123,8 +127,21 @@
             <span style="{{ $actionDisabled }}" title="No linked contact — pitch first">WhatsApp</span>
         @endif
 
-        @if($claim)
-            @if($claimedByMe)
+        @if($h['in_stock'] && !$claim)
+            {{-- Company/agency-owned stock (same canonical OnMarketStockService
+                 identity the server-side claim guard uses) is never claimable —
+                 show an inert state instead of a live Claim button. A pre-existing
+                 claim (e.g. predating this rule) still shows its own
+                 release/manager-release controls above, unchanged. --}}
+            <span style="{{ $actionDisabled }}" title="This is your agency's own stock — nothing to claim.">In stock</span>
+        @elseif($claim)
+            @if(!empty($claim['is_promoted']))
+                {{-- Already promoted to a Property — on the agency's books. No release
+                     path exists for this state (MarketIntelligenceController::release() /
+                     releaseAsManager() both reject it), so the control is hidden rather
+                     than offered and blocked. --}}
+                <span style="{{ $actionSecondary }} opacity:0.55; cursor:not-allowed;" title="Already promoted to a property — on the books, cannot be released.">On the books</span>
+            @elseif($claimedByMe)
                 <form method="POST" action="{{ route('market-intelligence.release', $listing->id) }}" style="display: inline; margin: 0;">
                     @csrf
                     <button type="submit" style="{{ $actionSecondary }}">Release claim</button>

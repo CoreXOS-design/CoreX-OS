@@ -8,6 +8,17 @@ use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
+/**
+ * 2026-08-15 (Johan, HFC tenant-isolation fix, Wave 2, #7) — added
+ * agency_id, but deliberately WITHOUT the BelongsToAgency trait. Unlike
+ * Document/SignatureTemplate/SalesDocumentSend, templates can be
+ * genuinely shared across every agency (is_global=true) — the trait's
+ * automatic global scope would hide a shared template whose agency_id is
+ * NULL (AgencyScope treats a NULL agency_id row as an orphan, not
+ * "shared"). scopeVisibleTo()'s 'all' branch and isVisibleToAgency() (used
+ * by TemplateController::webPreview()) implement the is_global-aware
+ * check explicitly instead.
+ */
 class Template extends Model
 {
     use SoftDeletes;
@@ -37,6 +48,7 @@ class Template extends Model
         'security_tier',
         'insertable_blocks',
         'owner_id',
+        'agency_id',
         'archived_at',
     ];
 
@@ -227,6 +239,53 @@ class Template extends Model
         return $this->belongsToMany(Branch::class, 'docuperfect_template_branches', 'template_id', 'branch_id');
     }
 
+    /**
+     * Cross-agency isolation audit 2026-08-20 follow-up: TemplateController's
+     * saveFields/uploadPageImages/archive/restore/webPreview/destroy/
+     * saveWizardConfig, PageImageController::show, and
+     * DocumentImporterController::editFromTemplate all did
+     * `Template::findOrFail($id)` with only a hasPermission('manage_templates')
+     * check (an ordinary, per-agency-grantable permission, not owner-only) --
+     * any agency's admin/agent could read, rewrite, delete, or clone ANY other
+     * agency's template by id. `docuperfect_templates` has no agency_id column
+     * (tenancy is via `is_global` + the docuperfect_template_branches pivot,
+     * since a branch belongs to exactly one agency) -- 404s rather than 403s
+     * to match this pipeline's existing convention (SignatureController::
+     * authorizeSignatureRequestForDocument).
+     */
+    public function assertAccessibleBy($user): void
+    {
+        if ($user->isOwnerRole()) {
+            return;
+        }
+        if ($this->is_global) {
+            return;
+        }
+        $agencyId = $user->effectiveAgencyId();
+
+        // 2026-08-24 mismatch fix: a template with branches assigned is
+        // explicitly narrowed to those branches -- honor that exactly as
+        // before. A template with NO branches assigned is not "narrowed to
+        // nothing" -- it falls back to the same is_global-aware agency match
+        // scopeVisibleTo() and isVisibleToAgency() already use for listing.
+        // Before this fix the two disagreed: a branch-less, agency-matching
+        // template was LISTED (scopeVisibleTo) but 404'd here the instant it
+        // was opened -- the exact shape that stranded every template created
+        // via the PDF-upload and .docx-import paths (neither links a branch).
+        if ($this->branches()->exists()) {
+            if ($agencyId && $this->branches()->where('branches.agency_id', $agencyId)->exists()) {
+                return;
+            }
+            abort(404);
+        }
+
+        if ($this->isVisibleToAgency($agencyId)) {
+            return;
+        }
+
+        abort(404);
+    }
+
     public function documents()
     {
         return $this->hasMany(Document::class, 'template_id');
@@ -256,7 +315,18 @@ class Template extends Model
     {
         $scope = \App\Services\PermissionService::getDataScope($user, 'templates');
 
-        if ($scope === 'all') return $query;
+        // 2026-08-15 — 'all' used to mean "every template on the entire
+        // platform," not "every template my agency can see." Now: this
+        // agency's own templates, plus anything genuinely global.
+        if ($scope === 'all') {
+            $agencyId = method_exists($user, 'effectiveAgencyId') ? $user->effectiveAgencyId() : $user->agency_id;
+            return $query->where(function ($q) use ($agencyId) {
+                $q->where('is_global', true);
+                if ($agencyId) {
+                    $q->orWhere('agency_id', $agencyId);
+                }
+            });
+        }
 
         $branchId = $user->effectiveBranchId();
 
@@ -268,6 +338,21 @@ class Template extends Model
                 });
             }
         });
+    }
+
+    /**
+     * Direct-id-lookup guard for callers (TemplateController::webPreview())
+     * that fetch a Template by id outside scopeVisibleTo() — same
+     * is_global-aware rule: visible if global, or owned by the caller's
+     * own agency.
+     */
+    public function isVisibleToAgency(?int $agencyId): bool
+    {
+        if ($this->is_global) {
+            return true;
+        }
+
+        return $agencyId !== null && (int) $this->agency_id === $agencyId;
     }
 
     public function isPerParty(): bool

@@ -159,7 +159,7 @@
     @if($locked)
         <div class="corex-card" role="status"
              style="margin:1rem 0;padding:1rem 1.15rem;display:flex;align-items:flex-start;gap:.75rem;
-                    border-left:4px solid var(--ds-crimson,#c41e3a);background:var(--surface,#fff);">
+                    border-left:4px solid var(--ds-crimson,#c41e3a);background:var(--surface);">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.8"
                  stroke="var(--ds-crimson,#c41e3a)" style="width:1.4rem;height:1.4rem;flex:0 0 auto;margin-top:.1rem;">
                 <path stroke-linecap="round" stroke-linejoin="round"
@@ -170,8 +170,8 @@
                     <span class="ds-badge ds-badge-danger">Pipeline locked</span>
                     <strong style="font-size:.95rem;">{{ $lockReason }}</strong>
                 </div>
-                <p style="margin:.4rem 0 .6rem;font-size:.85rem;color:var(--text-muted,#6b7280);">{{ $unlockHint }}</p>
-                <a href="{{ route('deals-dr2.index') }}" class="corex-btn-secondary"
+                <p style="margin:.4rem 0 .6rem;font-size:.85rem;color:var(--text-muted);">{{ $unlockHint }}</p>
+                <a href="{{ route('deals-dr2.index') }}" class="corex-btn-outline"
                    style="padding:.3rem .75rem;font-size:.8rem;">Reinstate on the deal register →</a>
             </div>
         </div>
@@ -186,27 +186,17 @@
         {{-- Declined and never worked: no pipeline to show, and none may be started. --}}
         <div class="corex-card" style="padding:1.5rem;">
             <h2 style="margin:0 0 .5rem;font-size:1.05rem;">No pipeline</h2>
-            <p style="margin:0;color:var(--text-muted,#6b7280);font-size:.9rem;">
+            <p style="margin:0;color:var(--text-muted);font-size:.9rem;">
                 This deal was declined without a pipeline being started, and a pipeline cannot be
                 started on a deal that is not proceeding. Reinstate it on the register first.
             </p>
         </div>
     @elseif($steps->isEmpty())
-        {{-- AT-334 — empty-state points at the Deal Structure tab (the new-model path). --}}
-        <div class="corex-card" style="padding:1.5rem;margin-bottom:1rem;text-align:center;">
-            <div style="font-size:2rem;line-height:1;margin-bottom:.5rem;">🧩</div>
-            <h2 style="margin:0 0 .4rem;font-size:1.05rem;">Complete the deal structure to build your pipeline</h2>
-            <p style="margin:0 0 .9rem;color:var(--text-muted,#6b7280);font-size:.9rem;">
-                Choose this deal's suspensive conditions (cash, bond, subject-to-sale) and the pipeline assembles itself — with the right steps, milestones and dates.
-            </p>
-            <button type="button" class="corex-btn-primary" onclick="document.querySelector('.dr2-tabbar')?.scrollIntoView({behavior:'smooth'}); window.dispatchEvent(new CustomEvent('dr2-open-structure'))"
-                    style="font-size:.9rem;">Open Deal Structure →</button>
-        </div>
-        {{-- Fallback: the standard-template attach still available. --}}
+        {{-- No pipeline yet → attach one. --}}
         <div class="corex-card" style="padding:1.5rem;">
-            <h2 style="margin:0 0 .75rem;font-size:1.05rem;">Or attach a standard template</h2>
+            <h2 style="margin:0 0 .75rem;font-size:1.05rem;">Attach a pipeline</h2>
             @if($templates->isEmpty())
-                <p style="color:var(--corex-text-muted,#6b7280);">
+                <p style="color:var(--text-muted);">
                     No active pipeline templates for this agency yet. Create one under
                     @if(\Illuminate\Support\Facades\Route::has('deals-v2.pipeline.index'))
                         <a href="{{ route('deals-v2.pipeline.index') }}" class="corex-link">Pipeline Setup</a>.
@@ -219,7 +209,7 @@
                 <label for="template_id" style="display:block;margin-bottom:.35rem;font-weight:600;">
                     Template
                     @if($deal->deal_type)
-                        <span style="font-weight:400;color:var(--corex-text-muted,#6b7280);">— defaulted from deal type "{{ $deal->deal_type }}"; change if needed</span>
+                        <span style="font-weight:400;color:var(--text-muted);">— defaulted from deal type "{{ $deal->deal_type }}"; change if needed</span>
                     @endif
                 </label>
                 <select name="template_id" id="template_id" class="corex-input" required style="width:100%;">
@@ -354,12 +344,12 @@
                 <div x-show="rm" x-cloak style="margin-top:.5rem;">
                     @foreach($removedSteps as $rs)
                     <div style="display:flex;align-items:center;justify-content:space-between;gap:.5rem;padding:.35rem 0;font-size:.85rem;">
-                        <span style="text-decoration:line-through;color:#6b7280;">{{ $rs->name }}</span>
+                        <span style="text-decoration:line-through;color:var(--text-muted);">{{ $rs->name }}</span>
                         @unless($locked)
                         @permission('view_deals')
                         <form method="POST" action="{{ route('deals-dr2.pipeline.step.restore', $deal) }}">@csrf
                             <input type="hidden" name="step_id" value="{{ $rs->id }}">
-                            <button type="submit" class="corex-btn-secondary" style="padding:.15rem .6rem;font-size:.75rem;">Restore</button>
+                            <button type="submit" class="corex-btn-outline" style="padding:.15rem .6rem;font-size:.75rem;">Restore</button>
                         </form>
                         @endpermission
                         @endunless
@@ -376,11 +366,11 @@
                 <button type="button" class="corex-btn-outline" style="padding:.2rem .6rem;font-size:.78rem;" @click="add = !add">+ Add custom step</button>
                 <div x-show="add" x-cloak style="margin-top:.5rem;">
                     <form method="POST" action="{{ route('deals-dr2.pipeline.step.add', $deal) }}" style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:flex-end;">@csrf
-                        <div><label style="display:block;font-size:.72rem;color:#6b7280;">Step name</label>
+                        <div><label style="display:block;font-size:.72rem;color:var(--text-muted);">Step name</label>
                             <input type="text" name="name" required placeholder="e.g. Plans approved" class="corex-input" style="font-size:.85rem;"></div>
-                        <div><label style="display:block;font-size:.72rem;color:#6b7280;">Due date</label>
+                        <div><label style="display:block;font-size:.72rem;color:var(--text-muted);">Due date</label>
                             <input type="date" name="due_date" class="corex-input" style="font-size:.85rem;"></div>
-                        <div><label style="display:block;font-size:.72rem;color:#6b7280;">Insert after</label>
+                        <div><label style="display:block;font-size:.72rem;color:var(--text-muted);">Insert after</label>
                             <select name="after_step_id" class="corex-input" style="font-size:.85rem;">
                                 <option value="">— at the end —</option>
                                 @foreach($steps as $r2)
@@ -440,4 +430,47 @@
         </div>
     </div>{{-- /grid --}}
 </div>
+
+@push('head')
+<style>
+    /* AT-336 — .corex-card / .corex-input / .corex-alert carry NO definition in
+       corex.css, so these panels rendered as bare unstyled divs. Scoped to this
+       page (and the partials it renders) so the fix cannot leak app-wide. */
+    .dr2-pipeline .corex-card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        box-shadow: 0 1px 3px var(--shadow, rgba(15,23,42,0.06));
+    }
+    .dr2-pipeline .corex-input {
+        background: var(--surface-2);
+        border: 1px solid var(--border);
+        color: var(--text-primary);
+        border-radius: 6px;
+        padding: 0.4rem 0.6rem;
+        transition: border-color 150ms ease;
+    }
+    .dr2-pipeline .corex-input:focus {
+        outline: none;
+        border-color: var(--brand-icon);
+    }
+    .dr2-pipeline .corex-alert {
+        border-radius: 6px;
+        padding: 0.75rem 1rem;
+        font-size: 0.875rem;
+        color: var(--text-primary);
+        border: 1px solid var(--border);
+        background: var(--surface);
+    }
+    .dr2-pipeline .corex-alert-info {
+        background: color-mix(in srgb, var(--brand-icon) 10%, transparent);
+        border-color: color-mix(in srgb, var(--brand-icon) 30%, transparent);
+    }
+    .dr2-pipeline .corex-alert-danger {
+        background: color-mix(in srgb, var(--ds-crimson, #c41e3a) 10%, transparent);
+        border-color: color-mix(in srgb, var(--ds-crimson, #c41e3a) 30%, transparent);
+    }
+    .dr2-pipeline .corex-link { color: var(--brand-icon); text-decoration: underline; }
+</style>
+@endpush
 @endsection

@@ -100,6 +100,17 @@ class ViewingPackController extends Controller
                 'eligible'    => $docs->eligibleDocumentsFor($vpp),
                 'selectedIds' => $docs->selectedDocumentIds($vpp),
             ]);
+            // AT-10 — render INSIDE the try so a blade failure (e.g. the historical
+            // "Undefined array key" that hit this exact view for user 44) is logged
+            // with context instead of surfacing as an untraceable 5xx. ->render()
+            // forces compilation here; returning the View would defer rendering to
+            // after this method, past the try/catch.
+            return response(view('command-center.viewing-packs.show', [
+                'pack'        => $viewingPack,
+                'coreMatches' => $coreMatches,
+                'selectedIds' => $selectedIds,
+                'docPanel'    => $docPanel,
+            ])->render());
         } catch (\Throwable $e) {
             Log::error('Viewing Pack show failed', [
                 'user_id'         => auth()->id(),
@@ -111,13 +122,6 @@ class ViewingPackController extends Controller
             ]);
             throw $e;
         }
-
-        return view('command-center.viewing-packs.show', [
-            'pack'        => $viewingPack,
-            'coreMatches' => $coreMatches,
-            'selectedIds' => $selectedIds,
-            'docPanel'    => $docPanel,
-        ]);
     }
 
     /**
@@ -376,7 +380,12 @@ class ViewingPackController extends Controller
                 // authenticated agent; we still pass the buyer's for non-auth paths.
                 'agency_id'  => $buyer->agency_id,
                 'contact_id' => $buyer->id,
-                'agent_id'   => $request->user()->id,
+                // AT-267 / AUDIT 2026-07-26 (F3) — an assistant's work is ALWAYS the agent's
+                // (assistant-control-page.md §Decisions 2). agent_id is both the owner AND the
+                // buyer-facing contact on the pack, so filing it under the assistant hid the pack
+                // from the agent it was built for AND put the assistant's name in front of the buyer.
+                // multi-agent addendum §6.1 — honours an explicit "Acting for" choice.
+                'agent_id'   => $request->user()->ownershipUserId($request->integer('acting_for_user_id') ?: null),
                 'status'     => ViewingPack::STATUS_DRAFT,
                 'title'      => $this->defaultTitle($buyer),
             ]);
@@ -532,7 +541,9 @@ class ViewingPackController extends Controller
             'agency_id'         => $calendarEvent->agency_id ?? $buyer->agency_id,
             'branch_id'         => $calendarEvent->branch_id,   // else BelongsToBranch fills from actor
             'contact_id'        => $buyer->id,
-            'agent_id'          => $request->user()->id,
+            // AT-267 / AUDIT 2026-07-26 (F3) — see store(): ownership is always the agent.
+            // multi-agent addendum §6.1 — honours an explicit "Acting for" choice.
+            'agent_id'          => $request->user()->ownershipUserId($request->integer('acting_for_user_id') ?: null),
             'calendar_event_id' => $calendarEvent->id,
             'tour_at'           => $calendarEvent->event_date,
             'status'            => ViewingPack::STATUS_DRAFT,
@@ -542,6 +553,84 @@ class ViewingPackController extends Controller
         return redirect()
             ->route('corex.viewing-packs.show', $pack)
             ->with('success', 'Viewing Pack launched from the appointment. Add the properties you can show, then Save to update the appointment.');
+    }
+
+    /**
+     * 2026-08-18 (Johan) — REGENERATE a viewing pack from an appointment's CURRENT
+     * property set. Fixes the pack/event property-set drift the calendar-buttons
+     * audit found (e.g. event #7047, whose directly-linked pack had 0 properties
+     * against 2 linked to the event). Always builds a FRESH pack seeded with
+     * exactly the event's linked properties right now, rather than mutating the
+     * old pack in place — the old pack is superseded (soft-deleted), never
+     * hard-deleted, so it stays recoverable from the archived list.
+     *
+     * Only the pack DIRECTLY linked to this event (viewingPack().calendar_event_id
+     * === this event) is superseded. A pack resolved only via the buyer-fallback
+     * (AT-367 — the buyer's most-recent pack, carrying no calendar_event_id for
+     * THIS event) is not this event's pack to begin with, so it is left untouched;
+     * the new pack simply becomes the event's direct link going forward.
+     */
+    public function regenerateFromEvent(Request $request, \App\Models\CommandCenter\CalendarEvent $calendarEvent, ViewingPackSelectionService $selection)
+    {
+        abort_unless(app(\App\Services\CommandCenter\Calendar\CalendarVisibilityResolver::class)
+            ->canSee($calendarEvent, $request->user()), 403);
+
+        $directlyLinked = $calendarEvent->viewingPack()->first();
+
+        // Resolve the buyer the same way launchFromEvent does; fall back to the
+        // superseded pack's own buyer if the event itself has lost its buyer link.
+        $contactId = $calendarEvent->contact_id;
+        if (! $contactId) {
+            $contactId = DB::table('calendar_event_links')
+                ->where('calendar_event_id', $calendarEvent->id)
+                ->where('linkable_type', Contact::class)
+                ->whereIn('role', ['buyer_contact', 'attendee'])
+                ->value('linkable_id');
+        }
+        if (! $contactId) {
+            $contactId = $directlyLinked?->contact_id;
+        }
+        if (! $contactId) {
+            session(['viewing_pack_link_event' => $calendarEvent->id]);
+
+            return redirect()->route('command-center.buyers.pipeline')
+                ->with('info', 'This appointment has no buyer to regenerate the pack for. Open the buyer and click "Build Viewing Pack" — the pack will link to this appointment.');
+        }
+
+        $eventAgencyId = (int) ($calendarEvent->agency_id ?? $request->user()->effectiveAgencyId());
+        $buyer = Contact::withoutGlobalScopes()->find($contactId);
+        abort_unless($buyer && (int) $buyer->agency_id === $eventAgencyId, 422, 'The appointment\'s buyer contact could not be found.');
+
+        if ($directlyLinked && (int) $directlyLinked->calendar_event_id === (int) $calendarEvent->id) {
+            $this->guardVisible($directlyLinked);
+        }
+
+        $pack = ViewingPack::create([
+            'agency_id'         => $calendarEvent->agency_id ?? $buyer->agency_id,
+            'branch_id'         => $calendarEvent->branch_id,
+            'contact_id'        => $buyer->id,
+            'agent_id'          => $request->user()->id,
+            'calendar_event_id' => $calendarEvent->id,
+            'tour_at'           => $calendarEvent->event_date,
+            'status'            => ViewingPack::STATUS_DRAFT,
+            'title'             => $this->defaultTitle($buyer),
+        ]);
+
+        foreach ($calendarEvent->linkedProperties as $property) {
+            $selection->addProperty($pack, $property, $request->user()->id);
+        }
+
+        // Supersede (not hard-delete) the pack this event was directly pointing
+        // at — the new pack, sharing the same calendar_event_id, is now the
+        // latest (viewingPack() resolves latestOfMany), so this only needs to
+        // archive the old row.
+        if ($directlyLinked && (int) $directlyLinked->calendar_event_id === (int) $calendarEvent->id) {
+            $directlyLinked->delete();
+        }
+
+        return redirect()
+            ->route('corex.viewing-packs.show', $pack)
+            ->with('success', 'Viewing Pack regenerated from the appointment\'s current properties. The previous pack was archived, not deleted.');
     }
 
     /**

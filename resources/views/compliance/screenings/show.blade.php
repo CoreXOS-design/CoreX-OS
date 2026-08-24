@@ -17,17 +17,17 @@
         <div class="flex gap-6">
             {{-- Left: User summary --}}
             <div class="flex-shrink-0 hidden lg:block" style="width:240px;">
-                <div class="bg-white border p-4" style="border-color:var(--border, #e5e7eb); border-radius:6px;">
-                    <h3 class="text-xs font-bold uppercase mb-3" style="color:#94a3b8; letter-spacing:0.05em;">Staff Member</h3>
+                <div class="border p-4" style="background:var(--surface); border-color:var(--border); border-radius:6px;">
+                    <h3 class="text-xs font-bold uppercase mb-3" style="color:var(--text-muted); letter-spacing:0.05em;">Staff Member</h3>
                     <div class="text-sm font-bold" style="color:var(--text-primary);">{{ $screening->user->name }}</div>
-                    <div class="mt-2 space-y-1 text-xs" style="color:#64748b;">
+                    <div class="mt-2 space-y-1 text-xs" style="color:var(--text-muted);">
                         <div>Role: {{ $screening->user->role }}</div>
                         <div>Designation: {{ $screening->user->designation ?? '-' }}</div>
                         <div>Risk Tier: <span class="font-semibold" style="color:{{ $screening->risk_tier === 'high' ? 'var(--ds-crimson)' : ($screening->risk_tier === 'medium' ? 'var(--ds-amber)' : 'var(--brand-icon)') }};">{{ ucfirst($screening->risk_tier) }}</span></div>
                         @if($screening->user->ffc_number) <div>FFC: {{ $screening->user->ffc_number }}</div> @endif
                         @if($screening->user->id_number) <div>ID: {{ $screening->user->id_number }}</div> @endif
                     </div>
-                    <div class="mt-3 pt-3 space-y-1 text-xs" style="border-top:1px solid var(--border, #e5e7eb); color:#64748b;">
+                    <div class="mt-3 pt-3 space-y-1 text-xs" style="border-top:1px solid var(--border); color:var(--text-muted);">
                         <div>Type: {{ \App\Models\Compliance\EmployeeScreening::$typeLabels[$screening->screening_type] ?? $screening->screening_type }}</div>
                         <div>Initiated: {{ $screening->initiated_on->format('d M Y') }}</div>
                         @if($screening->completed_on) <div>Completed: {{ $screening->completed_on->format('d M Y') }}</div> @endif
@@ -47,29 +47,29 @@
                 </div>
 
                 @foreach($screening->checks->sortBy('id') as $check)
-                <div class="bg-white border" style="border-color:var(--border, #e5e7eb); border-radius:6px;" x-data="{ open: {{ $check->result === 'pending' && $screening->status === 'in_progress' ? 'true' : 'false' }} }">
+                <div class="border" style="background:var(--surface); border-color:var(--border); border-radius:6px;" x-data="{ open: {{ $check->result === 'pending' && $screening->status === 'in_progress' ? 'true' : 'false' }} }">
                     <div class="flex items-center justify-between px-4 py-3 cursor-pointer" @click="open = !open">
                         <div class="flex items-center gap-3">
-                            <span class="w-2 h-2 rounded-full flex-shrink-0" style="background:{{ match($check->result) { 'clear' => 'var(--brand-icon)', 'concerns' => 'var(--ds-amber)', 'fail' => 'var(--ds-crimson)', 'not_applicable' => '#94a3b8', default => '#d1d5db' } }};"></span>
-                            <span class="text-sm font-semibold" style="color:var(--text-primary, #1f2937);">
+                            <span class="w-2 h-2 rounded-full flex-shrink-0" style="background:{{ match($check->result) { 'clear' => 'var(--brand-icon)', 'concerns' => 'var(--ds-amber)', 'fail' => 'var(--ds-crimson)', 'not_applicable' => 'var(--text-faint)', default => 'var(--border)' } }};"></span>
+                            <span class="text-sm font-semibold" style="color:var(--text-primary);">
                                 {{ \App\Models\Compliance\EmployeeScreeningCheck::$checkTypeLabels[$check->check_type] ?? $check->check_type }}
                             </span>
                         </div>
-                        <span class="inline-flex items-center px-2 py-0.5 text-xs font-semibold" style="border-radius:6px; background:{{ match($check->result) { 'clear' => 'color-mix(in srgb, var(--brand-icon) 15%, transparent)', 'concerns' => 'rgba(234,179,8,0.15)', 'fail' => 'rgba(239,68,68,0.15)', 'not_applicable' => 'rgba(148,163,184,0.15)', default => 'rgba(209,213,219,0.3)' } }}; color:{{ match($check->result) { 'clear' => 'var(--brand-icon)', 'concerns' => 'var(--ds-amber)', 'fail' => 'var(--ds-crimson)', 'not_applicable' => '#94a3b8', default => '#9ca3af' } }};">
+                        <span class="inline-flex items-center px-2 py-0.5 text-xs font-semibold" style="border-radius:6px; background:{{ match($check->result) { 'clear' => 'color-mix(in srgb, var(--brand-icon) 15%, transparent)', 'concerns' => 'rgba(234,179,8,0.15)', 'fail' => 'rgba(239,68,68,0.15)', 'not_applicable' => 'rgba(148,163,184,0.15)', default => 'rgba(209,213,219,0.3)' } }}; color:{{ match($check->result) { 'clear' => 'var(--brand-icon)', 'concerns' => 'var(--ds-amber)', 'fail' => 'var(--ds-crimson)', 'not_applicable' => 'var(--text-faint)', default => 'var(--text-muted)' } }};">
                             {{ \App\Models\Compliance\EmployeeScreeningCheck::$resultLabels[$check->result] ?? $check->result }}
                         </span>
                     </div>
 
-                    <div x-show="open" x-cloak x-transition class="px-4 pb-4 pt-1 space-y-3" style="border-top:1px solid var(--border, #e5e7eb);">
+                    <div x-show="open" x-cloak x-transition class="px-4 pb-4 pt-1 space-y-3" style="border-top:1px solid var(--border);">
                         @if($check->checked_on)
-                        <div class="text-xs" style="color:#64748b;">
+                        <div class="text-xs" style="color:var(--text-muted);">
                             Checked {{ $check->checked_on->format('d M Y') }} by {{ $check->checker?->name ?? 'Unknown' }}
                             @if($check->reference_number) | Ref: {{ $check->reference_number }} @endif
                         </div>
                         @endif
 
                         @if($check->notes)
-                        <div class="text-xs px-3 py-2 rounded" style="background:var(--surface-alt, #f8fafc); color:var(--text-primary, #1f2937);">{{ $check->notes }}</div>
+                        <div class="text-xs px-3 py-2 rounded" style="background:var(--surface-2); color:var(--text-primary);">{{ $check->notes }}</div>
                         @endif
 
                         @if($check->supportingDocument)
@@ -81,14 +81,14 @@
                         @if($screening->status === 'in_progress')
                         <div class="space-y-2">
                             <div class="grid grid-cols-2 gap-2">
-                                <input type="text" placeholder="Reference number" class="px-2 py-1.5 text-xs border" style="border-color:var(--border, #e5e7eb); border-radius:6px;" x-ref="ref_{{ $check->id }}">
-                                <textarea placeholder="Notes" rows="1" class="px-2 py-1.5 text-xs border" style="border-color:var(--border, #e5e7eb); border-radius:6px;" x-ref="notes_{{ $check->id }}">{{ $check->notes }}</textarea>
+                                <input type="text" placeholder="Reference number" class="px-2 py-1.5 text-xs border" style="border-color:var(--border); border-radius:6px;" x-ref="ref_{{ $check->id }}">
+                                <textarea placeholder="Notes" rows="1" class="px-2 py-1.5 text-xs border" style="border-color:var(--border); border-radius:6px;" x-ref="notes_{{ $check->id }}">{{ $check->notes }}</textarea>
                             </div>
                             <div class="flex items-center gap-2">
                                 <button @click="updateCheck({{ $check->id }}, 'clear')" class="px-2 py-1 text-[10px] font-semibold rounded" style="background:color-mix(in srgb, var(--brand-icon) 15%, transparent); color:var(--brand-icon);">Clear</button>
                                 <button @click="updateCheck({{ $check->id }}, 'concerns')" class="px-2 py-1 text-[10px] font-semibold rounded" style="background:rgba(234,179,8,0.15); color:var(--ds-amber);">Concerns</button>
                                 <button @click="updateCheck({{ $check->id }}, 'fail')" class="px-2 py-1 text-[10px] font-semibold rounded" style="background:rgba(239,68,68,0.15); color:var(--ds-crimson);">Fail</button>
-                                <button @click="updateCheck({{ $check->id }}, 'not_applicable')" class="px-2 py-1 text-[10px] font-semibold rounded" style="background:rgba(148,163,184,0.15); color:#94a3b8;">N/A</button>
+                                <button @click="updateCheck({{ $check->id }}, 'not_applicable')" class="px-2 py-1 text-[10px] font-semibold rounded" style="background:rgba(148,163,184,0.15); color:var(--text-faint);">N/A</button>
                             </div>
                         </div>
                         @endif
@@ -98,14 +98,14 @@
 
                 {{-- Complete screening --}}
                 @if($screening->status === 'in_progress')
-                <div class="bg-white border p-4 mt-4" style="border-color:var(--border, #e5e7eb); border-radius:6px;">
+                <div class="border p-4 mt-4" style="background:var(--surface); border-color:var(--border); border-radius:6px;">
                     <h3 class="text-sm font-bold mb-3" style="color:var(--text-primary);">Complete Screening</h3>
                     <form method="POST" action="{{ route('compliance.screenings.complete', $screening) }}" class="space-y-3">
                         @csrf
                         <div class="grid grid-cols-2 gap-3">
                             <div>
-                                <label class="block text-xs font-semibold mb-1" style="color:#64748b;">Overall Result *</label>
-                                <select name="overall_result" required class="w-full px-3 py-2 text-sm border" style="border-color:var(--border, #e5e7eb); border-radius:6px;">
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Overall Result *</label>
+                                <select name="overall_result" required class="w-full px-3 py-2 text-sm border" style="border-color:var(--border); border-radius:6px;">
                                     <option value="">Select...</option>
                                     <option value="pass">Pass</option>
                                     <option value="concerns_flagged">Concerns Flagged</option>
@@ -113,8 +113,8 @@
                                 </select>
                             </div>
                             <div>
-                                <label class="block text-xs font-semibold mb-1" style="color:#64748b;">Summary Notes</label>
-                                <textarea name="summary_notes" rows="2" class="w-full px-3 py-2 text-sm border" style="border-color:var(--border, #e5e7eb); border-radius:6px;"></textarea>
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Summary Notes</label>
+                                <textarea name="summary_notes" rows="2" class="w-full px-3 py-2 text-sm border" style="border-color:var(--border); border-radius:6px;"></textarea>
                             </div>
                         </div>
                         <button type="submit" class="px-4 py-2 text-sm font-semibold" style="background:var(--brand-icon); color:var(--text-primary); border-radius:6px;">Complete Screening</button>
@@ -123,10 +123,10 @@
                 @endif
 
                 @if($screening->status === 'completed' && $screening->summary_notes)
-                <div class="bg-white border p-4 mt-4" style="border-color:var(--border, #e5e7eb); border-radius:6px;">
-                    <h3 class="text-xs font-bold uppercase mb-2" style="color:#94a3b8;">Summary</h3>
-                    <div class="text-sm" style="color:var(--text-primary, #1f2937);">{{ $screening->summary_notes }}</div>
-                    <div class="text-xs mt-2" style="color:#64748b;">Result: <strong>{{ $screening->overall_result }}</strong> | Completed by {{ $screening->completer?->name }} on {{ $screening->completed_on?->format('d M Y') }}</div>
+                <div class="border p-4 mt-4" style="background:var(--surface); border-color:var(--border); border-radius:6px;">
+                    <h3 class="text-xs font-bold uppercase mb-2" style="color:var(--text-muted);">Summary</h3>
+                    <div class="text-sm" style="color:var(--text-primary);">{{ $screening->summary_notes }}</div>
+                    <div class="text-xs mt-2" style="color:var(--text-muted);">Result: <strong>{{ $screening->overall_result }}</strong> | Completed by {{ $screening->completer?->name }} on {{ $screening->completed_on?->format('d M Y') }}</div>
                 </div>
                 @endif
             </div>
@@ -135,13 +135,13 @@
 
     {{-- Flag modal --}}
     <div x-show="showFlag" x-cloak x-transition.opacity class="fixed inset-0 z-50 flex items-center justify-center" style="background:rgba(0,0,0,0.5);">
-        <form method="POST" action="{{ route('compliance.screenings.flag', $screening) }}" class="bg-white rounded p-6 w-full max-w-md mx-4" style="border-radius:6px;" @click.stop>
+        <form method="POST" action="{{ route('compliance.screenings.flag', $screening) }}" class="rounded p-6 w-full max-w-md mx-4" style="background:var(--surface); border-radius:6px;" @click.stop>
             @csrf
             <h3 class="text-sm font-bold mb-3" style="color:var(--text-primary);">Flag Screening</h3>
-            <textarea name="summary_notes" rows="3" required placeholder="Describe the concerns..." class="w-full px-3 py-2 text-sm border mb-3" style="border-color:var(--border, #e5e7eb); border-radius:6px;"></textarea>
+            <textarea name="summary_notes" rows="3" required placeholder="Describe the concerns..." class="w-full px-3 py-2 text-sm border mb-3" style="border-color:var(--border); border-radius:6px;"></textarea>
             <div class="flex items-center gap-2">
                 <button type="submit" class="px-4 py-2 text-sm font-semibold" style="background:var(--ds-crimson); color:#fff; border-radius:6px;">Flag</button>
-                <button type="button" @click="showFlag = false" class="px-4 py-2 text-sm" style="color:#6b7280;">Cancel</button>
+                <button type="button" @click="showFlag = false" class="px-4 py-2 text-sm" style="color:var(--text-secondary);">Cancel</button>
             </div>
         </form>
     </div>

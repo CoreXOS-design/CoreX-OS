@@ -66,7 +66,7 @@ final class OutreachActivityFeedService
     ];
 
     /**
-     * @param  array{days?:int,source?:string,user_id?:int,limit?:int}  $filters
+     * @param  array{days?:int,source?:string,user_id?:int,user_ids?:array<int,int>,limit?:int}  $filters
      * @return array{rows:array<int,array<string,mixed>>,subtotals:array<string,int>,total:int,days:int,source:?string,truncated:bool}
      */
     public function feed(int $agencyId, array $filters = []): array
@@ -87,6 +87,13 @@ final class OutreachActivityFeedService
 
         if (! empty($filters['user_id'])) {
             $query->where('user_id', (int) $filters['user_id']);
+        } elseif (array_key_exists('user_ids', $filters)) {
+            // AT-380 — branch-scope: every user_id in the acting user's branch.
+            // Checked via array_key_exists, not !empty(): a branch-scoped caller
+            // that resolved to ZERO teammates must see NOTHING, not silently
+            // fall through to unfiltered (agency-wide) results.
+            $ids = (array) $filters['user_ids'];
+            $query->whereIn('user_id', $ids ?: [-1]);
         }
 
         // Pull one extra to detect truncation.

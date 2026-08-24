@@ -32,6 +32,15 @@ class PropertyImageStorer
     public function store(UploadedFile $file, int $propertyId): string
     {
         $path = $file->store("properties/{$propertyId}", 'public');
+
+        // Bake EXIF orientation into the original before downscaling. downscale()
+        // re-encodes large captures with GD, which strips the EXIF orientation
+        // tag without rotating the pixels — a portrait phone photo would otherwise
+        // be saved sideways. Doing it first means downscale() (and every derived
+        // thumbnail) works from upright pixels. No-op for upright/non-JPEG.
+        app(ImageOrientationNormalizer::class)
+            ->normalizeInPlace(Storage::disk('public')->path($path));
+
         $this->downscale($path);
 
         $url = Storage::url($path);

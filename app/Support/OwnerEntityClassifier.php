@@ -82,8 +82,13 @@ final class OwnerEntityClassifier
     {
         $id = trim((string) $idNumber);
 
-        // 1. Explicit COMPANY registration signal.
-        if ($idType === 'company_reg' || self::looksLikeCipcReg($id)) {
+        // 1. Explicit COMPANY / TRUST registration signal. A trust registration
+        //    number (e.g. "IT 1203/91") is never an SA ID (fails
+        //    SouthAfricanIdNumber::isValid() outright — not 13 digits) and never a
+        //    natural person's identifier; routing it through here means a trust
+        //    owner is recognised from its ID shape alone even when its name carries
+        //    no "TRUST" marker (step 2 below already catches the name-marker case).
+        if ($idType === 'company_reg' || $idType === 'trust_reg' || self::looksLikeCipcReg($id) || self::looksLikeTrustReg($id)) {
             return true;
         }
 
@@ -140,5 +145,12 @@ final class OwnerEntityClassifier
     {
         $id = trim((string) $id);
         return $id !== '' && preg_match('#^\d{4}/\d{6}/\d{2}$#', $id) === 1;
+    }
+
+    /** SA trust registration number shape: "IT" + digits + "/" + 2-4 digit year (e.g. "IT 1203/91"). */
+    public static function looksLikeTrustReg(?string $id): bool
+    {
+        $id = trim((string) $id);
+        return $id !== '' && preg_match('/^IT\s*\d+\/\d{2,4}$/i', $id) === 1;
     }
 }

@@ -14,18 +14,17 @@
 <div class="w-full space-y-6">
 
     {{-- PAGE HEADER (Pattern A — branded) --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Worksheet Market — Branch</h1>
-                <p class="text-sm text-white/60">Set market average sale price per agent.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Worksheet Market — Branch</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Set market average sale price per agent.</p>
             </div>
-            <div class="flex items-center gap-2">
-                <form method="GET" action="{{ route('bm.worksheet.market') }}" class="flex items-center gap-2">
+            <div class="flex flex-wrap items-center gap-2">
+                <form method="GET" action="{{ route('bm.worksheet.market') }}" class="flex flex-wrap items-center gap-2">
                     <input type="month" name="period" value="{{ $period }}"
-                           class="h-9 text-sm rounded-md border border-white/20 bg-white/10 text-white px-2 transition-all duration-300" />
-                    <button type="submit"
-                            class="px-3 py-1.5 text-sm font-semibold rounded-md bg-white/20 text-white hover:bg-white/30 transition-all duration-300">
+                           class="list-header-filter" />
+                    <button type="submit" class="corex-btn-primary text-xs">
                         Go
                     </button>
                 </form>
@@ -158,7 +157,7 @@
                                                value="{{ old('avg.' . $a->id, $cur) }}"
                                                placeholder="e.g. 1200000"
                                                class="w-36 rounded-md px-3 py-2 text-sm"
-                                               style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);" />
+                                               style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);" />
                                         <div class="text-xs mt-1" style="color: var(--text-muted);">
                                             Current: {{ $cur === null ? '—' : ('R ' . number_format((float)$cur, 0)) }}
                                         </div>

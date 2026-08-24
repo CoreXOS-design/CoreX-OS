@@ -1,16 +1,27 @@
 @extends('layouts.corex-app')
 
 @section('corex-content')
-<div class="-m-4 lg:-m-6">
-    <x-page-header title="Take-On: {{ $takeOn->user->name }}" :back-route="route('staff-take-on.index')" back-label="Staff Take-On" :flush="true">
-        <x-slot:actions>
-            @if(!$takeOn->isComplete())
-                <a href="{{ route('staff-take-on.index') }}" class="corex-btn-outline">Save & Exit</a>
-            @endif
-        </x-slot:actions>
-    </x-page-header>
+<div class="w-full">
+    {{-- Page header (Pattern A) --}}
+    <div class="rounded-md px-6 py-5 corex-page-banner">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Take-On: {{ $takeOn->user->name }}</h1>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+                @if(!$takeOn->isComplete())
+                    <a href="{{ route('staff-take-on.index') }}" class="corex-btn-outline text-xs">Save &amp; Exit</a>
+                @endif
+                <a href="{{ route('staff-take-on.index') }}" class="corex-btn-outline text-xs inline-flex items-center gap-1.5">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+                    Staff Take-On
+                </a>
+            </div>
+        </div>
+    </div>
 
-    <div class="p-4 lg:p-6 max-w-5xl">
+    <div class="pt-5 max-w-5xl">
         @if(session('success'))
             <div class="mb-4 p-3 text-sm font-semibold rounded-md" style="background:color-mix(in srgb, var(--brand-icon) 8%, transparent); border:1px solid color-mix(in srgb, var(--brand-icon) 25%, transparent); color:var(--brand-icon);">{{ session('success') }}</div>
         @endif
@@ -40,7 +51,7 @@
                 @endphp
                 <a href="{{ route('staff-take-on.wizard', [$takeOn, $s]) }}"
                    class="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-semibold transition rounded-md"
-                   style="{{ $isCurrent ? 'background:var(--brand-icon); color:#fff;' : ($isDone ? 'background:color-mix(in srgb, var(--brand-icon) 8%, transparent); color:var(--brand-icon);' : 'background:var(--surface-2, #f1f5f9); color:var(--text-secondary, #94a3b8);') }}">
+                   style="{{ $isCurrent ? 'background:var(--brand-icon); color:#fff;' : ($isDone ? 'background:color-mix(in srgb, var(--brand-icon) 8%, transparent); color:var(--brand-icon);' : 'background:var(--surface-2); border:1px solid var(--border); color:var(--text-muted);') }}">
                     @if($isDone && !$isCurrent)
                         <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
                     @else
@@ -56,9 +67,9 @@
 
         {{-- Navigation --}}
         @if(!$takeOn->isComplete() && $step !== 'review')
-        <div class="flex items-center justify-between mt-6 pt-4" style="border-top:1px solid var(--border, #e5e7eb);">
+        <div class="flex items-center justify-between mt-6 pt-4" style="border-top:1px solid var(--border);">
             @if($currentIndex > 0)
-                <a href="{{ route('staff-take-on.wizard', [$takeOn, $steps[$currentIndex - 1]]) }}" class="text-xs font-semibold" style="color:var(--text-secondary, #6b7280);">Previous Step</a>
+                <a href="{{ route('staff-take-on.wizard', [$takeOn, $steps[$currentIndex - 1]]) }}" class="text-xs font-semibold" style="color:var(--text-muted);">Previous Step</a>
             @else
                 <span></span>
             @endif

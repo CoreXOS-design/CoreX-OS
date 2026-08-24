@@ -46,7 +46,7 @@ final class TrackedProperty extends Model
         'suburb', 'suburb_normalised', 'town', 'province', 'postal_code',
         'latitude', 'longitude', 'cma_gps_lat', 'cma_gps_lng',
         'geo_source', 'geo_confidence', 'geo_resolved_at',
-        'erf_number', 'title_deed_number', 'cadastral_extent',
+        'erf_number', 'title_deed_number', 'cadastral_extent', 'section_extent_m2',
         'municipal_valuation', 'municipal_valuation_year',
         'last_known_asking_price', 'last_known_sold_price', 'last_known_sold_date',
         'property_type', 'bedrooms', 'bathrooms', 'garages',
@@ -59,6 +59,12 @@ final class TrackedProperty extends Model
         // CMA / deeds capture (phase 1)
         'capture_kind', 'deeds_office', 'scheme_name', 'scheme_number', 'section_number',
         'bond_holder', 'bond_amount', 'sale_type', 'deeds_registered_date',
+        // DEEDS BUG 1 fix — the deeds-capture EVENT marker, stamped on every
+        // deeds capture (created or existing), independent of capture_kind.
+        'deeds_captured_at',
+        // Data-scope build (Johan, 2026-08-20) — who scraped it, stamped on every
+        // deeds capture alongside deeds_captured_at. See scopeVisibleToDeedsCapture().
+        'deeds_captured_by_user_id',
     ];
 
     protected $casts = [
@@ -77,6 +83,7 @@ final class TrackedProperty extends Model
         'garages'                  => 'integer',
         'floor_size_m2'            => 'decimal:2',
         'erf_size_m2'              => 'decimal:2',
+        'section_extent_m2'        => 'decimal:2',
         'promoted_at'              => 'datetime',
         'promoted_by_user_id'      => 'integer',
         'source_chain'             => 'array',
@@ -84,6 +91,7 @@ final class TrackedProperty extends Model
         'last_enriched_at'         => 'datetime',
         'bond_amount'              => 'decimal:2',
         'deeds_registered_date'    => 'date',
+        'deeds_captured_at'        => 'datetime',
     ];
 
     protected static function booted(): void
@@ -108,16 +116,15 @@ final class TrackedProperty extends Model
     }
 
     /**
-     * Canonical suburb normalisation: lowercase + trim + strip punctuation + collapse spaces.
-     * Used by both the model on save AND the match-or-create service when looking up.
+     * Canonical suburb normalisation. Delegates to TrackedPropertyAddress::
+     * normaliseSuburb() (2026-08-22, matcher-accuracy fix) — that is now the
+     * ONE implementation (apostrophe handling + township/marketing-suburb
+     * alias resolution live there), so this class and TrackedPropertyAddress
+     * can never silently drift apart on what "same suburb" means again.
      */
     public static function normaliseSuburb(?string $s): ?string
     {
-        if ($s === null || $s === '') return null;
-        $s = mb_strtolower(trim($s));
-        $s = preg_replace('/[^\w\s]/u', ' ', $s);
-        $s = preg_replace('/\s+/', ' ', (string) $s);
-        return trim((string) $s) ?: null;
+        return \App\Models\Prospecting\TrackedPropertyAddress::normaliseSuburb($s);
     }
 
     public function externalRefs(): HasMany
@@ -158,6 +165,16 @@ final class TrackedProperty extends Model
     }
 
     /**
+     * Agency-wide comments (newest first) — the MIC Work-tab row comment
+     * chip. Keyed to this TP so comments survive relisting and claim churn.
+     * Spec: .ai/specs/mic-property-row-comments.md
+     */
+    public function comments(): HasMany
+    {
+        return $this->hasMany(TrackedPropertyComment::class, 'tracked_property_id')->latest();
+    }
+
+    /**
      * Market data points anchored to this property (per-TP metric history).
      * The shared-pool default scope on MarketDataPoint is global — this
      * relation pre-filters to rows whose tracked_property_id matches.
@@ -175,6 +192,74 @@ final class TrackedProperty extends Model
     public function promotedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'promoted_by_user_id');
+    }
+
+    public function deedsCapturedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'deeds_captured_by_user_id');
+    }
+
+    /**
+     * Deeds Capture screen data scope (Johan, 2026-08-20). Mirrors
+     * ProspectingListing::scopeVisibleTo() exactly — same option set, same
+     * shape — swapping in the deeds-specific "own" column. tracked_properties
+     * has no branch_id of its own, so 'branch' is resolved via the scraping
+     * user's OWN branch (Johan's explicit call), not a column on this table.
+     *
+     * A NULL deeds_captured_by_user_id (no attributable scrape — a future
+     * ingestion path that predates this build, or a queued/system import with
+     * no acting user) never matches under 'own' or 'branch' (SQL NULL
+     * semantics — correctly excluded, an unattributed record can't be
+     * "mine"), but IS included under 'all' — nothing vanishes globally, an
+     * unattributed row simply isn't anyone's in particular. Currently 0 such
+     * rows exist for any agency (verified via the migration's own backfill).
+     */
+    public function scopeVisibleToDeedsCapture($query, User $user, ?string $scope)
+    {
+        return match ($scope) {
+            'all'    => $query,
+            'branch' => $user->effectiveBranchId()
+                ? $query->whereIn('deeds_captured_by_user_id', function ($q) use ($user) {
+                        $q->select('id')->from('users')->where('branch_id', $user->effectiveBranchId());
+                    })
+                : ($user->hasPermission('branches.view_all')
+                    ? $query
+                    : $query->where('deeds_captured_by_user_id', $user->id)),
+            'none'   => $query->whereRaw('1 = 0'),
+            default  => $query->where('deeds_captured_by_user_id', $user->id), // 'own' or null
+        };
+    }
+
+    /**
+     * Deeds Capture "address or contact" search (Johan, 2026-08-20, item 4). A single box,
+     * both kinds of term, exactly as asked — no separate address/contact fields to invent.
+     * Wrapped in ONE where(fn) closure so every alternative stays grouped and ANDs against
+     * whatever scope/agent filters the caller already applied — never OR's out of scope.
+     */
+    public function scopeSearchDeeds($query, string $term)
+    {
+        $term = trim($term);
+        if ($term === '') {
+            return $query;
+        }
+        $like = '%' . addcslashes($term, '%_\\') . '%';
+
+        return $query->where(function ($q) use ($like) {
+            $q->where('street_name', 'like', $like)
+                ->orWhere('street_number', 'like', $like)
+                ->orWhere('complex_name', 'like', $like)
+                ->orWhere('suburb', 'like', $like)
+                ->orWhere('town', 'like', $like)
+                ->orWhere('erf_number', 'like', $like)
+                ->orWhereHas('ownerContact', fn ($c) => $c->where(fn ($cc) => $cc
+                    ->where('first_name', 'like', $like)
+                    ->orWhere('last_name', 'like', $like)
+                    ->orWhereRaw("CONCAT(first_name, ' ', last_name) LIKE ?", [$like])))
+                ->orWhereHas('owners.contact', fn ($c) => $c->where(fn ($cc) => $cc
+                    ->where('first_name', 'like', $like)
+                    ->orWhere('last_name', 'like', $like)
+                    ->orWhereRaw("CONCAT(first_name, ' ', last_name) LIKE ?", [$like])));
+        });
     }
 
     /**
@@ -201,6 +286,38 @@ final class TrackedProperty extends Model
     public function isPromoted(): bool
     {
         return $this->promoted_to_property_id !== null;
+    }
+
+    /**
+     * PROSPECTING (Johan, 2026-08-20/21 — .ai/specs/2026-08-20-property-status-
+     * prospecting.md): "properties created by DEEDS INGEST and MIC INGEST get
+     * status Prospecting... properties created by an AGENT still get Draft."
+     * The single source of truth promoteToStock() uses to decide which -- so
+     * the deeds-capture "Promote" button and the generic Tracked Properties
+     * "Promote" button (which also serves P24/PP/cmainfo/chrome-capture as
+     * well as manually-tracked properties) can never disagree.
+     *
+     * Source-type prefix 'manual' (manual_prospect_entry, manual_agent,
+     * manual_admin -- confirmed against real qa1 AND live source_chain/
+     * external_refs data, 2026-08-21) means a human typed it in -- not
+     * automated ingest, even if the TP also picked up automated enrichment
+     * later. True if ANY non-manual source ever contributed.
+     *
+     * Reads source_chain (inline on the model, no extra query) first; falls
+     * back to the externalRefs relation for rows where source_chain is empty.
+     */
+    public function isFromAutomatedIngest(): bool
+    {
+        $types = collect($this->source_chain ?? [])
+            ->pluck('type')
+            ->filter()
+            ->map(fn ($t) => strtolower((string) $t));
+
+        if ($types->isEmpty()) {
+            $types = $this->externalRefs()->pluck('source_type')->filter()->map(fn ($t) => strtolower((string) $t));
+        }
+
+        return $types->contains(fn ($t) => ! str_starts_with($t, 'manual'));
     }
 
     public function displayAddress(): string

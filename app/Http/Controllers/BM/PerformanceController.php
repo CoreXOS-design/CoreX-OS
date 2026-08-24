@@ -442,8 +442,11 @@ class PerformanceController extends Controller
             return back()->with('status', 'No history found. Set Branch Budget for this month first.');
         }
 
+        // AT-278 §11 — raw query, no SoftDeletes scope. An archived agent must
+        // never dilute the branch split.
         $activeCount = (int) DB::table('users')
             ->where('branch_id', $branchId)
+            ->whereNull('deleted_at')
             ->where('is_active', 1)
             ->whereIn('role', ['agent','branch_manager','admin'])
             ->count();

@@ -3,17 +3,16 @@
 
 @section('corex-content')
 <div class="w-full space-y-5">
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div data-tour="comp-comm-archive-intro">
-                <h1 class="text-xl font-bold text-white leading-tight">Communication Archive</h1>
-                <p class="text-sm text-white/60">Immutable record of business email &amp; WhatsApp — retained for compliance.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Communication Archive</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Immutable record of business email &amp; WhatsApp — retained for compliance.</p>
             </div>
-            <div class="flex items-center gap-2">
+            <div class="flex flex-wrap items-center gap-2">
                 <a href="{{ route('compliance.comm-mailboxes.index') }}" data-tour="comp-comm-archive-mailboxes"
-                   class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all duration-300"
-                   style="background:rgba(255,255,255,0.08); color:#fff; border:1px solid rgba(255,255,255,0.18);">Mailboxes</a>
-                @include('layouts.partials.tour-header-launcher')
+                   class="corex-btn-outline text-xs">Mailboxes</a>
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
             </div>
         </div>
     </div>
@@ -36,12 +35,12 @@
                         <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-4.3-4.3M11 19a8 8 0 1 1 0-16 8 8 0 0 1 0 16Z"/>
                     </svg>
                     <input type="text" name="search" value="{{ $search }}" placeholder="Subject, sender or preview…"
-                           class="w-full rounded-md pl-9 pr-3 py-2 text-sm" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                           class="w-full rounded-md pl-9 pr-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                 </div>
             </div>
             <div>
                 <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Channel</label>
-                <select name="channel" onchange="this.form.submit()" class="rounded-md px-3 py-2 text-sm" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                <select name="channel" onchange="this.form.submit()" class="rounded-md px-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                     <option value="">All</option>
                     <option value="email" {{ $channel === 'email' ? 'selected' : '' }}>Email</option>
                     <option value="whatsapp" {{ $channel === 'whatsapp' ? 'selected' : '' }}>WhatsApp</option>
@@ -49,7 +48,7 @@
             </div>
             <div>
                 <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Direction</label>
-                <select name="direction" onchange="this.form.submit()" class="rounded-md px-3 py-2 text-sm" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                <select name="direction" onchange="this.form.submit()" class="rounded-md px-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                     <option value="">All</option>
                     <option value="inbound" {{ $direction === 'inbound' ? 'selected' : '' }}>Inbound</option>
                     <option value="outbound" {{ $direction === 'outbound' ? 'selected' : '' }}>Outbound</option>

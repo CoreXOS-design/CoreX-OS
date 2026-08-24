@@ -3,19 +3,19 @@
 
 @section('corex-content')
 <div class="w-full space-y-5" data-tour-root="contacts"
-     x-data="{ showAdd: {{ (session('duplicate_detected') || old('first_name')) ? 'true' : 'false' }}, showImport: false, editId: null, importLoading: false, contactKind: '{{ old('contact_kind', 'natural_person') }}' }">
+     x-data="{ showAdd: {{ (session('duplicate_detected') || old('first_name') || $errors->any()) ? 'true' : 'false' }}, showImport: false, editId: null, importLoading: false, contactKind: '{{ old('contact_kind', 'natural_person') }}', idKind: '{{ old('id_type', 'sa_id') }}' }">
 
     {{-- Page header --}}
-    <div class="rounded-md px-6 py-5" style="background:var(--brand-default,#0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Contacts</h1>
-                <p class="text-sm text-white/60">Manage your contacts and leads.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Contacts</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Manage your contacts and leads.</p>
             </div>
-            <div class="flex items-center gap-2 flex-wrap">
-            @include('layouts.partials.tour-header-launcher')
+            <div class="flex flex-wrap items-center gap-2">
+            @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
             @if(auth()->user()->effectiveRole() === 'super_admin')
-            <button type="button" @click="showImport = !showImport" class="corex-btn-outline text-sm">
+            <button type="button" @click="showImport = !showImport" class="corex-btn-outline text-xs">
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5"/>
                 </svg>
@@ -24,7 +24,7 @@
             @endif
             @permission('contacts.export')
             <div class="relative" x-data="{ exportOpen: false }" @keydown.escape="exportOpen = false">
-                <button type="button" @click="exportOpen = !exportOpen" @click.outside="exportOpen = false" class="corex-btn-outline text-sm">
+                <button type="button" @click="exportOpen = !exportOpen" @click.outside="exportOpen = false" class="corex-btn-outline text-xs">
                     <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"/>
                     </svg>
@@ -46,7 +46,7 @@
                 </div>
             </div>
             @endpermission
-            <button type="button" @click="showAdd = !showAdd" data-tour="contact-add-btn" class="corex-btn-primary text-sm">
+            <button type="button" @click="showAdd = !showAdd" data-tour="contact-add-btn" class="corex-btn-primary text-xs">
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
                 </svg>
@@ -56,10 +56,10 @@
             <a href="{{ url('/corex/settings?section=my-portal&s=feature-contacts') }}"
                title="Contacts Settings"
                aria-label="Contacts Settings"
-               class="inline-flex items-center justify-center rounded-md text-white transition-colors"
-               style="width:30px; height:30px; background: rgba(255,255,255,0.10); border: 1px solid rgba(255,255,255,0.18);"
-               onmouseover="this.style.background='rgba(255,255,255,0.18)'"
-               onmouseout="this.style.background='rgba(255,255,255,0.10)'">
+               class="inline-flex items-center justify-center rounded-md transition-colors"
+               style="width:32px; height:32px; background: transparent; border: 1px solid var(--border); color: var(--text-secondary);"
+               onmouseover="this.style.background='var(--surface-2)'; this.style.borderColor='var(--border-hover)'; this.style.color='var(--text-primary)';"
+               onmouseout="this.style.background='transparent'; this.style.borderColor='var(--border)'; this.style.color='var(--text-secondary)';">
                 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
                      fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <circle cx="12" cy="12" r="3"/>
@@ -83,12 +83,7 @@
             {{ session('error') }}
         </div>
     @endif
-    @if($errors->any())
-        <div class="rounded-md px-4 py-3 text-sm"
-             style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent); color: var(--text-primary);">
-            {{ $errors->first() }}
-        </div>
-    @endif
+    @include('corex.contacts._form-errors')
 
     {{-- Add Contact Form (collapsible) --}}
     <div x-show="showAdd" x-cloak data-tour="contact-form"
@@ -103,8 +98,12 @@
                 // IMPORTANT: scope the read to THIS New-Contact form ($root), NOT the
                 // whole document — the contact list renders each row's edit form with
                 // its own identifier inputs, so a document-wide query scraped another
-                // contact email/phone (esp. when the New-Contact email was empty),
-                // producing a phantom match against an unrelated record.
+                // contact's email/phone (esp. when the New-Contact email was empty),
+                // producing a phantom duplicate hit against an unrelated record.
+                // (No literal double-quote characters anywhere in this comment block
+                // — this whole function sits inside the x-data HTML attribute, which
+                // is itself double-quoted, so a bare double-quote here would close
+                // that attribute early and corrupt the rest of this component.)
                 const firstVal = (group) => [...this.$root.querySelectorAll(`[data-identifier-group='${group}'] [data-identifier-value]`)]
                     .map(el => el.value.trim()).find(v => v) || '';
                 const phone = firstVal('phones');
@@ -253,15 +252,42 @@
                 <div class="sm:col-span-2 lg:col-span-3" data-tour="contact-email">
                     @include('corex.contacts._identifier-repeater', ['kind' => 'emails', 'type' => 'email', 'title' => 'Emails (optional — but a contact needs at least one phone or email)', 'addLabel' => 'email', 'placeholder' => 'e.g. john@example.com', 'labels' => $contactIdentifierLabels])
                 </div>
+                {{-- #17 — SA ID vs foreign passport, as three native grid cells (ID Type / ID Number /
+                     Date of Birth), each label+control matching the surrounding field grid. A foreign
+                     national enters a passport + a directly-entered DOB (the passport doesn't encode it). --}}
                 <template x-if="contactKind === 'natural_person'">
                 <div>
-                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">ID Number <span style="color:var(--text-muted); font-weight:400;">(optional)</span></label>
+                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">ID Type</label>
+                    <select name="id_type" x-model="idKind"
+                            class="w-full rounded-md px-3 py-2 text-sm transition-all duration-300"
+                            style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); outline:none;">
+                        <option value="sa_id">South African ID</option>
+                        <option value="passport">Foreign / Passport</option>
+                    </select>
+                </div>
+                </template>
+                <template x-if="contactKind === 'natural_person'">
+                <div>
+                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);"><span x-text="idKind === 'passport' ? 'Passport Number' : 'ID Number'"></span> <span style="color:var(--text-muted); font-weight:400;">(optional)</span></label>
                     <input type="text" name="id_number" value="{{ old('id_number') }}"
-                           inputmode="numeric" maxlength="13" pattern="\d{13}"
-                           placeholder="e.g. 7610025020081" title="13 digits — empty is fine"
+                           :inputmode="idKind === 'passport' ? 'text' : 'numeric'"
+                           :maxlength="idKind === 'passport' ? 50 : 13"
+                           :placeholder="idKind === 'passport' ? 'e.g. AB1234567' : 'e.g. 7610025020081'"
+                           class="w-full rounded-md px-3 py-2 text-sm transition-all duration-300"
+                           style="background:var(--surface-2); border:1px solid {{ $errors->has('id_number') ? 'var(--ds-crimson)' : 'var(--border)' }}; color:var(--text-primary); outline:none; {{ $errors->has('id_number') ? 'box-shadow: 0 0 0 3px color-mix(in srgb, var(--ds-crimson) 20%, transparent);' : '' }}">
+                    @error('id_number')
+                        <p class="mt-1 text-[11px] font-semibold" style="color:var(--ds-crimson);">{{ $message }}</p>
+                    @else
+                        <p class="mt-1 text-[11px]" style="color:var(--text-muted);" x-text="idKind === 'passport' ? 'Foreign passport — free text.' : 'SA ID — 13 digits. Leave blank if not known.'"></p>
+                    @enderror
+                </div>
+                </template>
+                <template x-if="contactKind === 'natural_person'">
+                <div>
+                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Date of Birth <span style="color:var(--text-muted); font-weight:400;" x-show="idKind !== 'passport'">(optional)</span><span class="text-red-500" x-show="idKind === 'passport'" x-cloak>*</span></label>
+                    <input type="date" name="birthday" value="{{ old('birthday') }}" :required="idKind === 'passport'"
                            class="w-full rounded-md px-3 py-2 text-sm transition-all duration-300"
                            style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); outline:none;">
-                    <p class="mt-1 text-[11px]" style="color:var(--text-muted);">SA ID — 13 digits. Leave blank if not known.</p>
                 </div>
                 </template>
                 <div class="sm:col-span-2 lg:col-span-3" data-tour="contact-type">
@@ -357,6 +383,76 @@
          class="rounded-md px-4 py-3" style="background:var(--surface);border:1px solid var(--border);">
 
         <form method="GET" action="{{ route('corex.contacts.index') }}" x-ref="filterForm" class="flex flex-wrap items-center gap-3">
+
+            {{-- Street & Complex Search — AT-273. Lives at the far left of the filter
+                 bar as just the property icon + a "?" help popover. Clicking the house
+                 reveals an inline input; because the address report is a DIFFERENT
+                 route than this filter form, it navigates via JS (scGo) rather than a
+                 nested form. Searches ONLY Address + Linked Properties. --}}
+            <div x-data="{ scOpen: false, scHelp: false,
+                           scGo(v) {
+                               v = (v || '').trim();
+                               if (!v) { this.$refs.scInput && this.$refs.scInput.focus(); return; }
+                               {{-- No agent_id: the property search ALWAYS runs at the
+                                    agency's full contact-visibility scope, never the
+                                    list's "My Contacts" narrowing (AT-273). --}}
+                               let u = '{{ route('corex.contacts.street-complex-search') }}?q=' + encodeURIComponent(v);
+                               window.location.href = u;
+                           } }"
+                 class="flex items-center gap-1">
+
+                {{-- Property icon — click to open the street/complex search. --}}
+                <button type="button"
+                        @click="scOpen = !scOpen; scOpen && $nextTick(() => $refs.scInput && $refs.scInput.focus())"
+                        class="inline-flex items-center justify-center w-9 h-9 rounded-md flex-shrink-0 transition-all duration-300"
+                        :style="scOpen ? 'background:var(--brand-icon,#0ea5e9);color:#fff;' : 'background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 15%, transparent);color:var(--brand-icon,#0ea5e9);'"
+                        :aria-expanded="scOpen"
+                        data-tour="contact-street-search"
+                        title="Street &amp; Complex Search — click to search by street or complex name">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>
+                    </svg>
+                </button>
+
+                {{-- "?" help — sits right beside the house icon. --}}
+                <div class="relative flex-shrink-0">
+                    <button type="button" @click="scHelp = !scHelp" @click.outside="scHelp = false"
+                            class="inline-flex items-center justify-center w-6 h-6 transition-all duration-300"
+                            style="color:var(--text-muted);background:transparent;border:none;"
+                            :style="scHelp ? 'color:var(--brand-icon,#0ea5e9);' : ''"
+                            title="How does this work?">
+                        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 5.25h.008v.008H12v-.008Z" />
+                        </svg>
+                    </button>
+
+                    <div x-show="scHelp" x-cloak x-transition
+                         @keydown.escape.window="scHelp = false"
+                         class="absolute left-0 top-full mt-2 z-50 w-80 rounded-md p-3.5 text-xs font-normal normal-case"
+                         style="background:var(--surface);border:1px solid var(--border);box-shadow:0 12px 32px rgba(0,0,0,0.28);color:var(--text-secondary);line-height:1.5;">
+                        <div class="text-sm font-bold mb-1.5" style="color:var(--text-primary);">Street &amp; Complex Search</div>
+                        <p>Type a <strong style="color:var(--text-primary);">street name</strong> or <strong style="color:var(--text-primary);">complex / estate name</strong> and CoreX finds every contact whose <strong style="color:var(--text-primary);">Address</strong> or <strong style="color:var(--text-primary);">Linked Properties</strong> match. Names, phone numbers and emails are <em>not</em> searched here.</p>
+                        <p class="mt-2">The results open on their own page — each contact tagged with <em>Last Contacted</em>, <em>Last Modified</em> and its linked-property status — sortable (by unit number, complex, street…) and downloadable as a PDF.</p>
+                    </div>
+                </div>
+
+                {{-- Inline street/complex input — revealed when the house is clicked.
+                     Enter or the arrow navigates to the report (JS, not a form submit). --}}
+                <div x-show="scOpen" x-cloak x-transition class="relative">
+                    <input type="text" x-ref="scInput"
+                           @keydown.enter.prevent="scGo($refs.scInput.value)"
+                           placeholder="Street or complex name…"
+                           class="w-48 md:w-56 pl-3 pr-9 py-2 text-sm rounded-md"
+                           style="border:1px solid var(--border);background:var(--surface-2);color:var(--text-primary);outline:none;">
+                    <button type="button" @click="scGo($refs.scInput.value)"
+                            class="absolute right-1 top-1/2 -translate-y-1/2 inline-flex items-center justify-center w-7 h-7 rounded-md"
+                            style="background:var(--brand-icon,#0ea5e9);color:#fff;" title="Search street / complex">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3"/>
+                        </svg>
+                    </button>
+                </div>
+            </div>
 
             {{-- Search --}}
             <div class="relative flex-1 min-w-[180px] max-w-xs">

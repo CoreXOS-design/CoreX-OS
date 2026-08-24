@@ -30,18 +30,15 @@
      })">
 
     {{-- Header --}}
-    <div class="rounded-md px-6 py-4" style="background: var(--brand-default, #0b2a4a);">
-        <div class="flex items-center justify-between gap-3 flex-wrap">
+    <div class="rounded-md px-6 py-4 corex-page-banner">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <div class="flex items-center gap-2">
-                    <a href="{{ route('docuperfect.compiler.index') }}" class="text-white/60 text-xs">Compile Studio</a>
-                    <span class="text-white/40">/</span>
-                    <h1 class="text-lg font-bold text-white leading-tight">{{ $draft->family ?: 'Untitled draft' }}</h1>
-                </div>
-                <p class="text-xs text-white/60 mt-0.5" x-text="`${blocks.length} blocks · ${allFields.length} fields (${unboundFields.length} unbound) · ${(structure.parties||[]).length} parties`"></p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">{{ $draft->family ?: 'Untitled draft' }}</h1>
+                <p class="text-xs" style="color: var(--text-muted);" x-text="`${blocks.length} blocks · ${allFields.length} fields (${unboundFields.length} unbound) · ${(structure.parties||[]).length} parties`"></p>
             </div>
-            <div class="flex items-center gap-2">
+            <div class="flex flex-wrap items-center gap-2">
                 <span class="ds-badge" :class="lintBadge.cls" x-text="lintBadge.label"></span>
+                <a href="{{ route('docuperfect.compiler.index') }}" class="corex-btn-outline text-xs">&larr; Compile Studio</a>
             </div>
         </div>
     </div>
@@ -56,7 +53,7 @@
         <template x-for="s in stages" :key="s.key">
             <button type="button" @click="stage = s.key"
                     class="text-xs font-semibold px-4 py-2 rounded"
-                    :style="stage===s.key ? 'background:var(--surface);color:var(--text-primary);box-shadow:0 1px 2px rgba(0,0,0,0.06);' : 'color:var(--text-secondary);'"
+                    :style="stage===s.key ? 'background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 12%, var(--surface));color:var(--brand-icon,#0ea5e9);border:1px solid color-mix(in srgb, var(--brand-icon,#0ea5e9) 40%, transparent);' : 'color:var(--text-secondary);border:1px solid transparent;'"
                     x-text="s.label"></button>
         </template>
     </div>
@@ -142,7 +139,7 @@
                 <div><label class="block text-[10px] uppercase" style="color:var(--text-muted);">Cardinality</label>
                     <select x-model="newParty.cardinality" class="text-xs rounded px-2 py-1.5" style="background:var(--surface-2);border:1px solid var(--border);color:var(--text-primary);"><option value="one">1</option><option value="one_or_more">1..n</option></select></div>
                 <div><label class="block text-[10px] uppercase" style="color:var(--text-muted);">Order</label><input type="number" x-model.number="newParty.ordering" class="text-xs rounded px-2 py-1.5 w-16" style="background:var(--surface-2);border:1px solid var(--border);color:var(--text-primary);"></div>
-                <button type="button" @click="addParty()" class="text-xs font-semibold px-3 py-1.5 rounded" style="background: var(--brand-default,#0b2a4a); color:#fff;">Add / update party</button>
+                <button type="button" @click="addParty()" class="text-xs font-semibold px-3 py-1.5 rounded" style="background: var(--brand-button,#0ea5e9); color:#fff;">Add / update party</button>
             </div>
         </div>
 

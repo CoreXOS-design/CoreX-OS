@@ -22,7 +22,11 @@ class ScanPropertyNotifications extends Command
         Property::query()
             ->whereNotNull('agent_id')
             ->where(function ($q) {
-                $q->whereNull('status')->orWhereNotIn('status', ['sold','withdrawn','expired']);
+                // BUILD_STANDARD §6 — single source of truth for "not live".
+                // The hand-written ['sold','withdrawn','expired'] kept pushing
+                // alerts about archived/cancelled stock, and would have nagged
+                // agents about listings another agency had already sold (AT-350).
+                $q->whereNull('status')->orWhereNotIn('status', Property::OFF_MARKET_STATUSES);
             })
             ->chunkById(200, function ($props) use ($prefs, $dispatcher, $hasDocs) {
                 foreach ($props as $property) {

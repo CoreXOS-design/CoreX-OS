@@ -3,13 +3,24 @@
 
 @section('corex-content')
 <div class="space-y-6">
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
-        <h1 class="text-xl font-bold text-white leading-tight">Lost Deals Analysis</h1>
-        <p class="text-sm text-white/60">Understand why buyers and sellers leave. Last {{ number_format($days) }} days.</p>
+    {{-- Page header — flat neutral bar (AT-336). Type scale matches /worksheet:
+         16px bold title + 12px muted subtitle. --}}
+    <div class="rounded-md px-6 py-5 corex-page-banner">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div class="min-w-0">
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Lost Deals Analysis</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Understand why buyers and sellers leave. Last {{ number_format($days) }} days.</p>
+            </div>
+        </div>
     </div>
 
     {{-- Summary cards --}}
-    @php $recovered = DB::table('buyer_lost_records')->where('agency_id', auth()->user()->effectiveAgencyId() ?? 1)->where('recorded_at', '>=', now()->subDays($days))->whereNotNull('recovered_at')->count(); @endphp
+    @php
+        $lostDealsAgencyId = auth()->user()?->effectiveAgencyId();
+        $recovered = $lostDealsAgencyId
+            ? DB::table('buyer_lost_records')->where('agency_id', $lostDealsAgencyId)->where('recorded_at', '>=', now()->subDays($days))->whereNotNull('recovered_at')->count()
+            : 0;
+    @endphp
     @php $recoveryRate = $valueData['count'] > 0 ? round($recovered / $valueData['count'] * 100) : 0; @endphp
     <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div class="rounded-md p-4 text-center" style="background: var(--surface); border: 1px solid var(--border);">

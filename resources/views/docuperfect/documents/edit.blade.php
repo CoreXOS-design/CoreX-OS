@@ -10,8 +10,8 @@
     <div id="dp-page-header">
         <x-page-header :title="$document->name" :back-route="$document->pack_instance_id ? route('docuperfect.documents.index', ['pack_instance' => $document->pack_instance_id]) : route('docuperfect.documents.index')" :flush="true" :sticky="false">
             <x-slot:actions>
-                <button type="button" id="dpSaveBtn" class="px-3 py-1.5 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700">Save</button>
-                <button type="button" id="dpDownloadBtn" class="px-3 py-1.5 text-sm font-medium bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200">PDF</button>
+                <button type="button" id="dpSaveBtn" class="px-3 py-1.5 text-sm font-medium bg-[color:var(--brand-button)] text-white rounded-lg hover:opacity-90">Save</button>
+                <button type="button" id="dpDownloadBtn" class="px-3 py-1.5 text-sm font-medium bg-[color:var(--surface-2)] text-[color:var(--text-secondary)] rounded-lg hover:opacity-80">PDF</button>
             </x-slot:actions>
         </x-page-header>
     </div>
@@ -19,7 +19,7 @@
     {{-- Scrollable content (padding restored) --}}
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-4">
 
-        <div style="background:#0b2a4a;" class="rounded-2xl px-6 py-4"
+        <div style="background:var(--brand-default);" class="rounded-2xl px-6 py-4"
              x-data="{ editingName: false, docName: @js($document->name), saving: false }">
             <div class="min-w-0">
                 <div x-show="!editingName" class="flex items-center gap-2">
@@ -53,11 +53,11 @@
 
         {{-- Document Disposition Actions --}}
         <div class="ds-status-card p-4">
-            <h3 class="font-semibold text-slate-700 mb-3">What would you like to do with this document?</h3>
+            <h3 class="font-semibold text-[color:var(--text-secondary)] mb-3">What would you like to do with this document?</h3>
             <div class="flex flex-wrap gap-3">
                 {{-- Download PDF (always available) --}}
                 <button type="button" onclick="document.getElementById('dpDownloadBtn').click()"
-                        class="flex items-center gap-2 px-4 py-2 border rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50">
+                        class="flex items-center gap-2 px-4 py-2 border border-[color:var(--border)] rounded-lg text-sm font-medium text-[color:var(--text-secondary)] hover:bg-[color:var(--surface-2)]">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
                     </svg>
@@ -78,14 +78,14 @@
                     {{-- Send to Rentals Modal --}}
                     <div x-show="showSendModal" x-cloak
                          class="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-                        <div class="bg-white rounded-xl shadow-xl p-6 w-full max-w-md" @click.away="showSendModal = false">
+                        <div style="background:var(--surface);" class="rounded-xl shadow-xl p-6 w-full max-w-md" @click.away="showSendModal = false">
                             <h3 class="text-lg font-bold mb-4">Send to Rental E-Signatures</h3>
 
                             <form method="POST" action="{{ route('docuperfect.documents.sendToRentals', $document->id) }}">
                                 @csrf
 
                                 <div class="mb-4">
-                                    <label class="block text-sm font-medium text-gray-700 mb-1">Document Type *</label>
+                                    <label class="block text-sm font-medium text-[color:var(--text-secondary)] mb-1">Document Type *</label>
                                     <select name="document_type" required class="w-full border rounded-lg px-3 py-2 text-sm">
                                         <option value="">-- Select type --</option>
                                         @foreach(\App\Models\Rental\RentalDocumentType::active()->orderBy('sort_order')->get() as $dt)
@@ -97,7 +97,7 @@
                                 </div>
 
                                 <div class="mb-4">
-                                    <label class="block text-sm font-medium text-gray-700 mb-1">Property *</label>
+                                    <label class="block text-sm font-medium text-[color:var(--text-secondary)] mb-1">Property *</label>
                                     <select name="property_id" required class="w-full border rounded-lg px-3 py-2 text-sm">
                                         <option value="">-- Select Property --</option>
                                         @foreach(\App\Models\Rental\RentalProperty::active()->orderBy('full_address')->get() as $prop)
@@ -106,14 +106,14 @@
                                             </option>
                                         @endforeach
                                     </select>
-                                    <p class="text-xs text-gray-400 mt-1">
-                                        Property not listed? <a href="{{ route('rental.settings.properties.create') }}" class="text-blue-500 hover:underline" target="_blank">Add it first</a>
+                                    <p class="text-xs text-[color:var(--text-faint)] mt-1">
+                                        Property not listed? <a href="{{ route('rental.settings.properties.create') }}" class="text-[color:var(--brand-icon)] hover:underline" target="_blank">Add it first</a>
                                     </p>
                                 </div>
 
                                 <div class="flex justify-end gap-3 mt-6">
                                     <button type="button" @click="showSendModal = false"
-                                            class="px-4 py-2 text-sm text-gray-600">Cancel</button>
+                                            class="px-4 py-2 text-sm text-[color:var(--text-secondary)]">Cancel</button>
                                     <button type="submit"
                                             class="px-4 py-2 bg-teal-600 text-white rounded-lg text-sm font-medium hover:bg-teal-700">
                                         Send to Rental E-Signatures
@@ -127,7 +127,7 @@
 
                 {{-- Set Up Signatures (saves document first, then navigates) --}}
                 <button type="button" id="setup-signatures-btn"
-                        class="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700">
+                        class="flex items-center gap-2 px-4 py-2 bg-[color:var(--brand-button)] text-white rounded-lg text-sm font-medium hover:opacity-90">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
                     </svg>

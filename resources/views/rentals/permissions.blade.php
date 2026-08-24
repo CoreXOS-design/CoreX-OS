@@ -11,8 +11,8 @@
     <form method="POST" action="{{ route('rentals.permissions.update') }}">
         @csrf
 
-        <div class="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 overflow-hidden">
-            <div class="px-4 py-3 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+        <div class="rounded-2xl border overflow-hidden" style="background:var(--surface); border-color:var(--border)">
+            <div class="px-4 py-3 border-b flex items-center justify-between" style="border-color:var(--border)">
                 <h3 class="ds-section-header">User Permissions</h3>
                 <button type="submit" class="corex-btn-primary text-sm">Save Permissions</button>
             </div>
@@ -20,21 +20,22 @@
             <div class="overflow-x-auto">
                 <table class="min-w-full text-sm ds-table">
                     <thead>
-                        <tr class="border-b text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-900/40">
+                        <tr class="border-b" style="color:var(--text-secondary); background:var(--surface-2); border-color:var(--border)">
                             <th class="text-left px-4 py-3">User</th>
                             <th class="text-center px-4 py-3">Can Capture Rentals</th>
                         </tr>
                     </thead>
-                    <tbody class="divide-y divide-slate-200 dark:divide-slate-800">
+                    <tbody class="divide-y divide-[var(--border)]">
                         @foreach($users as $user)
-                            <tr class="hover:bg-slate-50/80 dark:hover:bg-slate-900/30">
-                                <td class="px-4 py-3 font-medium text-slate-900 dark:text-slate-100">{{ $user->name }}</td>
+                            <tr class="hover:bg-[var(--surface-2)]">
+                                <td class="px-4 py-3 font-medium" style="color:var(--text-primary)">{{ $user->name }}</td>
                                 <td class="px-4 py-3 text-center">
                                     <input type="checkbox"
                                            name="can_capture_rentals[]"
                                            value="{{ $user->id }}"
                                            {{ $user->can_capture_rentals ? 'checked' : '' }}
-                                           class="rounded border-slate-300 dark:border-slate-700">
+                                           class="rounded"
+                                           style="border-color:var(--border)">
                                 </td>
                             </tr>
                         @endforeach

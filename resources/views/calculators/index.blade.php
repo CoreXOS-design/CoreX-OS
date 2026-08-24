@@ -4,14 +4,14 @@
 <div class="w-full space-y-5" x-data="calculatorsApp()">
 
     {{-- Page Header --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);" data-tour="calc-hub-intro">
+    <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="calc-hub-intro">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Calculators</h1>
-                <p class="text-sm text-white/60">Commission, bond repayments, transfer costs &amp; overpayment savings.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Calculators</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Commission, bond repayments, transfer costs &amp; overpayment savings.</p>
             </div>
-            <div class="flex items-center gap-2 flex-wrap">
-                @include('layouts.partials.tour-header-launcher')
+            <div class="flex flex-wrap items-center gap-2">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
             </div>
         </div>
     </div>
@@ -185,7 +185,7 @@
                 <div>
                     <label class="ds-label block mb-1">Buyer needs bond?</label>
                     <label class="inline-flex items-center gap-2 cursor-pointer">
-                        <input type="checkbox" x-model="costs.needsBond" class="rounded-md" style="accent-color: var(--brand-button, #0ea5e9);" />
+                        <input type="checkbox" x-model="costs.needsBond" class="rounded-md" style="accent-color: var(--brand-icon, #0ea5e9);" />
                         <span class="text-sm" style="color: var(--text-secondary);" x-text="costs.needsBond ? 'Yes' : 'No'"></span>
                     </label>
                 </div>
@@ -398,8 +398,8 @@
     outline: none;
 }
 .calc-input:focus {
-    border-color: var(--brand-button, #0ea5e9);
-    box-shadow: 0 0 0 2px color-mix(in srgb, var(--brand-button, #0ea5e9) 20%, transparent);
+    border-color: var(--brand-icon, #0ea5e9);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--brand-icon, #0ea5e9) 20%, transparent);
 }
 /* Rate toggle buttons — theme-aware */
 .calc-rate {
@@ -413,9 +413,9 @@
     border-color: var(--brand-icon, #0ea5e9);
 }
 .calc-rate-active {
-    background: var(--brand-default, #0b2a4a);
-    color: #fff;
-    border: 1px solid var(--brand-default, #0b2a4a);
+    background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 12%, var(--surface));
+    color: var(--text-primary);
+    border: 1px solid color-mix(in srgb, var(--brand-icon, #0ea5e9) 40%, transparent);
 }
 </style>
 

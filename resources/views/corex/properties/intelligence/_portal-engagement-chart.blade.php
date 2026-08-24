@@ -40,7 +40,7 @@
     </div>
 
     @if(! $hasData && ! $ppHasData)
-        <div class="text-xs text-gray-400 py-8 text-center">
+        <div class="text-xs py-8 text-center" style="color: var(--text-faint);">
             No portal view data yet for this listing.
             <div class="text-[10px] mt-1" style="color: var(--text-muted);">Property24 stats are collected nightly and backfilled up to ~6 months where available. Private Property stats begin accumulating the day the snapshot is enabled.</div>
         </div>

@@ -7,6 +7,9 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use App\Models\Concerns\BelongsToAgency;
+use App\Models\Concerns\BelongsToBranch;
+use App\Models\Concerns\InheritsBranchFromParent;
 
 /**
  * Module 6 (M6.1) — Eloquent model for the daily_activity_entries table.
@@ -30,6 +33,24 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  */
 final class DailyActivityEntry extends Model
 {
+    // Branch follows the owning agent (user_id), stamped context-independently so
+    // auto-credit writes from services/jobs don't NULL it. The class's own branch()
+    // relation below overrides the trait's — behaviour is unchanged.
+    //
+    // BelongsToAgency added (security fix): this table has a NOT-shared
+    // agency_id column but had ZERO tenant scoping, because BranchScope is a
+    // no-op unless the owning agency has split_branches_enabled=true. Mirrors
+    // the sibling App\Models\DailyActivity model, which combines the same
+    // three traits in the same order for the same reason. See
+    // .ai/specs/multi-tenancy.md §2a — this model does not need shared/NULL
+    // agency_id rows, so the trait (not manual filtering) is the right fit.
+    use BelongsToBranch, InheritsBranchFromParent, BelongsToAgency;
+
+    protected function branchParent(): array
+    {
+        return [\App\Models\User::class, 'user_id'];
+    }
+
     public const STATE_PROVISIONAL = 'provisional';
     public const STATE_CONFIRMED   = 'confirmed';
     public const STATE_REVOKED     = 'revoked';

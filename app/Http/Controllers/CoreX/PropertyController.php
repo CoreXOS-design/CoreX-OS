@@ -32,6 +32,9 @@ class PropertyController extends Controller
         $user           = auth()->user();
         $dataScope      = PermissionService::getDataScope($user, 'properties');
         $canPickAgent   = in_array($dataScope, ['all', 'branch']);
+        // AT-267 — an assistant owns NO listings of their own; the list defaults to the agent they
+        // work under. $ownerId is the assigned agent for an assistant, else the user themselves.
+        $ownerId        = $user->isAssistant() ? ($user->assignedAgent()?->id ?? $user->id) : $user->id;
 
         // Agency-wide default ordering (Settings → Properties). 'status_priority'
         // orders by the admin-defined status sequence; otherwise newest first.
@@ -118,7 +121,7 @@ class PropertyController extends Controller
                 $saved = (array) $request->session()->get($SESSION_KEY, []);
                 $filterAgentIds = array_key_exists('agent_ids', $saved)
                     ? $this->parseAgentIds((string) $saved['agent_ids'])
-                    : [(string) $user->id];
+                    : [(string) $ownerId];
             }
         }
 
@@ -144,13 +147,16 @@ class PropertyController extends Controller
             }
             // dataScope 'all' ⇒ no restriction
         } else {
-            // Agent: 'my' = own listings only; 'branch' = all branch listings
+            // Agent: 'my' = own listings only; 'branch' = all branch listings. For an ASSISTANT
+            // "own" is the assigned agent's book (dataIdentityIds() = [agentId, selfId]), never the
+            // assistant's own empty id — so their list loads the agent's listings.
             if ($viewScope === 'branch' && $user->branch_id) {
                 $query->where('branch_id', $user->branch_id);
             } else {
-                $query->where(function ($q) use ($user) {
-                    $q->where('agent_id', $user->id)
-                      ->orWhere('pp_second_agent_id', $user->id);
+                $ids = $user->dataIdentityIds();
+                $query->where(function ($q) use ($ids) {
+                    $q->whereIn('agent_id', $ids)
+                      ->orWhereIn('pp_second_agent_id', $ids);
                 });
             }
         }
@@ -184,7 +190,13 @@ class PropertyController extends Controller
             $query->where('status', $status);
         }
         if ($listingType !== '')   $query->where('listing_type', $listingType);
-        if ($propertyType !== '')  $query->where('property_type', $propertyType);
+        if ($propertyType !== '') {
+            // 2026-08-20 audit — also match legacy/imported labels for the same
+            // type (Property::propertyTypeSynonyms), so older and P24-imported
+            // stock isn't invisible to today's exact settings-item name.
+            $typeValues = array_merge([$propertyType], Property::propertyTypeSynonyms($propertyType));
+            $query->whereIn('property_type', $typeValues);
+        }
         if ($category !== '')      $query->where('category', $category);
         if ($mandateType !== '')   $query->where('mandate_type', $mandateType);
         if ($branchFilter !== '' && $canPickAgent) $query->where('branch_id', (int) $branchFilter);
@@ -215,13 +227,19 @@ class PropertyController extends Controller
             "COUNT(*) as total,"
             . " SUM(CASE WHEN status NOT IN ($offMarketIn) THEN 1 ELSE 0 END) as active,"
             . " SUM(CASE WHEN status = 'draft' THEN 1 ELSE 0 END) as draft,"
-            . " SUM(CASE WHEN status = 'sold' THEN 1 ELSE 0 END) as sold"
+            . " SUM(CASE WHEN status = 'sold' THEN 1 ELSE 0 END) as sold,"
+            // PROSPECTING (Johan, 2026-08-20/21) — same clone-of-$query
+            // aggregate every other tile already uses, so this tile can never
+            // disagree with the filtered list: "whatever filters the list
+            // must also filter every count, badge and tile."
+            . " SUM(CASE WHEN status = '" . Property::STATUS_PROSPECTING . "' THEN 1 ELSE 0 END) as prospecting"
         )->first();
         $stats = [
-            'total'  => (int) ($agg->total ?? 0),
-            'active' => (int) ($agg->active ?? 0),
-            'draft'  => (int) ($agg->draft ?? 0),
-            'sold'   => (int) ($agg->sold ?? 0),
+            'total'       => (int) ($agg->total ?? 0),
+            'active'      => (int) ($agg->active ?? 0),
+            'draft'       => (int) ($agg->draft ?? 0),
+            'sold'        => (int) ($agg->sold ?? 0),
+            'prospecting' => (int) ($agg->prospecting ?? 0),
         ];
 
         // Sorting — whitelisted columns only
@@ -373,7 +391,10 @@ class PropertyController extends Controller
 
     public function show(Property $property)
     {
-        $this->authorizeProperty($property);
+        // Read path: an assistant may VIEW any listing their assigned agent can see (branch/all),
+        // but not edit it. forEdit:false selects view breadth; all write actions keep the default
+        // mutation pin to the agent's own listings. Spec §7.2 (AT-267).
+        $this->authorizeProperty($property, forEdit: false);
         $property->load(['agent', 'branch', 'notes.user', 'files.user', 'contacts.type']);
 
         $settingItems = [
@@ -519,14 +540,14 @@ class PropertyController extends Controller
                 ->get()
             : collect();
 
-        // AI photo suggestions — only when the agency has the feature on AND
-        // the user may use it. Built from completed, not-yet-reviewed image
-        // analyses and expressed in the web spaces/features vocabulary.
+        // AI photo suggestions — only when the user may use the feature. AI is
+        // universal at the agency level (no per-agency enable flag). Built from
+        // completed, not-yet-reviewed image analyses and expressed in the web
+        // spaces/features vocabulary.
         $aiImageSuggestions = ['hasSuggestions' => false, 'spaces' => [], 'features' => []];
         $user = auth()->user();
         if ($property->exists
-            && $user?->agency?->ai_image_recognition_enabled
-            && $user->hasPermission('use_property_image_ai')) {
+            && $user?->hasPermission('use_property_image_ai')) {
             $aiImageSuggestions = app(\App\Services\AI\PropertyAiSuggestionService::class)->forProperty($property);
         }
 
@@ -554,10 +575,37 @@ class PropertyController extends Controller
                 ->get();
         }
 
+        // AT-267 — may the current user actually EDIT this listing? An assistant may VIEW a
+        // colleague's listing (above) but not change it; the view renders read-only when false so
+        // no edit affordance is shown that would only 403 on save.
+        $canEdit = $this->canMutateProperty($property);
+
+        // AT-350 — the OPEN loss record (another agency sold this listing), or null.
+        // Drives the amber loss banner at the top of the page and suppresses the
+        // "Sold by 3rd Party" capture action while one is already standing.
+        $thirdPartySale = $property->openThirdPartySale();
+
+        // CX-102 part 2 (2026-08-19, Johan) — "the system must show its
+        // working and let the agent overrule it." An agent who just landed
+        // here because MarketIntelligenceController::claim() decided this
+        // property IS a MIC listing they tried to claim gets the reason and
+        // a "Not the same property" control. Session-flashed (one redirect
+        // only — matches how 'success'/'error' already flash on this exact
+        // arrival), never a permanent panel on the property page.
+        $micClaimDecision = null;
+        $micClaimListingId = session('mic_claim_listing_id');
+        if ($micClaimListingId !== null && $property->exists) {
+            $micClaimDecision = app(\App\Services\Prospecting\PropertyMatchDecisionService::class)
+                ->current((int) $property->agency_id, 'mic_claim', 'listing:' . $micClaimListingId);
+            if ($micClaimDecision && ($micClaimDecision->isRejected() || (int) $micClaimDecision->matched_id !== (int) $property->id)) {
+                $micClaimDecision = null; // stale/superseded — nothing current to show
+            }
+        }
+
         return view('corex.properties.show', compact(
             'property', 'settingItems', 'branches', 'agents', 'activeTab', 'coreMatches', 'ppMissingFields', 'p24MissingFields', 'hfcMissingFields',
             'allDriveDocs', 'documentTypes', 'driveFolders', 'activityTimeline', 'fullAuditLog', 'includeSystem', 'readinessReport', 'complianceChecklist', 'propertyComplianceComplaints',
-            'aiImageSuggestions', 'propertyComms'
+            'aiImageSuggestions', 'propertyComms', 'canEdit', 'thirdPartySale', 'micClaimDecision', 'micClaimListingId'
         ));
     }
 
@@ -636,8 +684,14 @@ class PropertyController extends Controller
         $branches  = Branch::orderBy('name')->get();
         $agents    = $this->agentList($property);
         $activeTab = 'info';
+        // This path is the just-created listing shown to its creator — always editable. (Assistants
+        // cannot reach property creation at all, so this never renders read-only.)
+        $canEdit   = true;
+        // AT-350 — a just-created listing cannot yet have been lost to a competitor.
+        // Declared rather than omitted so the shared view never hits an undefined var.
+        $thirdPartySale = null;
 
-        return view('corex.properties.show', compact('property', 'settingItems', 'branches', 'agents', 'activeTab', 'preLinkedContact', 'existingPropertyMatch', 'heldCapturedMatch'));
+        return view('corex.properties.show', compact('property', 'settingItems', 'branches', 'agents', 'activeTab', 'preLinkedContact', 'existingPropertyMatch', 'heldCapturedMatch', 'canEdit', 'thirdPartySale'));
     }
 
     /**
@@ -1144,6 +1198,23 @@ class PropertyController extends Controller
             'gallery_images.*' => 'image|max:204800',
         ]);
 
+        // AT-267 H3 — ownership-column injection. agent_id / pp_second_agent_id validate only
+        // exists:users,id (NOT agency-scoped) and there is no reassign gate. So:
+        //   (a) an ASSISTANT may NEVER reassign a listing (ownership change / theft) — pin the
+        //       agent columns to the listing's current values, whatever the payload says;
+        //   (b) for EVERYONE, a reassignment target must belong to THIS listing's agency, so no
+        //       user can move a listing to another agency's practitioner.
+        if ($request->user()?->is_assistant) {
+            unset($data['agent_id'], $data['pp_second_agent_id']);
+        }
+        foreach (['agent_id', 'pp_second_agent_id'] as $agentCol) {
+            if (!empty($data[$agentCol])
+                && (int) $data[$agentCol] !== (int) ($property->{$agentCol} ?? 0)
+                && !User::where('id', $data[$agentCol])->where('agency_id', $property->agency_id)->exists()) {
+                abort(422, 'The selected agent must belong to this agency.');
+            }
+        }
+
         // AT-221 — Layer 1: prevent at capture (see store()).
         $this->guardPortalContent($data['description'] ?? null);
 
@@ -1520,6 +1591,67 @@ class PropertyController extends Controller
         return back()->with('success', $msg);
     }
 
+    /**
+     * PROSPECTING → DRAFT (Johan, 2026-08-20/21 — .ai/specs/2026-08-20-
+     * property-status-prospecting.md): "the change from prospecting to draft
+     * happens manually by an agent whe[n] the[y] won the mandate." The spec's
+     * own risk #3: if this move isn't easy and obvious, the prospecting pile
+     * just grows instead of clearing — treated as a requirement, one click,
+     * same shape as publishToggle() above (auth, direct field update, JSON/
+     * back dual response), not a new mechanism.
+     */
+    public function convertFromProspecting(Request $request, Property $property)
+    {
+        $this->authorizeProperty($property);
+
+        if (! $property->isProspecting()) {
+            $msg = 'This property is not in Prospecting.';
+            if ($request->wantsJson() || $request->ajax()) {
+                return response()->json(['error' => $msg], 422);
+            }
+            return back()->with('error', $msg);
+        }
+
+        $property->status = 'draft';
+        $property->save();
+
+        $msg = 'Moved to Draft — mandate won.';
+        if ($request->wantsJson() || $request->ajax()) {
+            return response()->json(['success' => true, 'message' => $msg, 'status' => $property->status]);
+        }
+        return back()->with('success', $msg);
+    }
+
+    /**
+     * PROSPECTING → NOT SELLING (Johan, 2026-08-20/21, label confirmed
+     * verbatim): the one-click dead end for prospecting stock that will never
+     * convert — owner contacted, won't sell / not on market / lost. Only
+     * valid from Prospecting (mirrors convertFromProspecting() above); a
+     * draft or live listing has its own lifecycle (Archive, Withdraw) and
+     * isn't this button's job.
+     */
+    public function markNotSelling(Request $request, Property $property)
+    {
+        $this->authorizeProperty($property);
+
+        if (! $property->isProspecting()) {
+            $msg = 'Only a Prospecting property can be marked Not selling.';
+            if ($request->wantsJson() || $request->ajax()) {
+                return response()->json(['error' => $msg], 422);
+            }
+            return back()->with('error', $msg);
+        }
+
+        $property->status = Property::STATUS_NOT_SELLING;
+        $property->save();
+
+        $msg = 'Marked Not selling.';
+        if ($request->wantsJson() || $request->ajax()) {
+            return response()->json(['success' => true, 'message' => $msg, 'status' => $property->status]);
+        }
+        return back()->with('success', $msg);
+    }
+
     public function uploadImages(Request $request, Property $property)
     {
         $this->authorizeProperty($property);
@@ -1570,6 +1702,12 @@ class PropertyController extends Controller
 
     public function deleteImage(Request $request, Property $property)
     {
+        // AT-267 — an assistant may NEVER delete a listing's photos, on ANY listing (including their
+        // assigned agent's own). A hard capability rule, not a data-scope one — deleting marketing
+        // photos is destructive and is reserved to the agent. Belt to the deny_assistant_property_write
+        // middleware, and unambiguous at the point of action.
+        abort_if((bool) $request->user()?->is_assistant, 403, 'Assistants cannot delete listing photos.');
+
         $this->authorizeProperty($property);
 
         $request->validate([
@@ -1627,6 +1765,11 @@ class PropertyController extends Controller
      */
     public function deleteImages(Request $request, Property $property)
     {
+        // AT-267 — assistants may never delete listing images (see deleteImage()).
+        // This bulk endpoint is at least as destructive as the single delete it
+        // mirrors, so it carries the exact same hard capability rule.
+        abort_if((bool) $request->user()?->is_assistant, 403, 'Assistants cannot delete listing photos.');
+
         $this->authorizeProperty($property);
 
         $validated = $request->validate([
@@ -1831,6 +1974,9 @@ class PropertyController extends Controller
      */
     public function deleteRentalImage(Request $request, Property $property)
     {
+        // AT-267 — assistants may never delete listing images (see deleteImage()).
+        abort_if((bool) $request->user()?->is_assistant, 403, 'Assistants cannot delete listing photos.');
+
         $this->authorizeProperty($property);
 
         $data = $request->validate([
@@ -1878,6 +2024,11 @@ class PropertyController extends Controller
      */
     public function deleteRentalImages(Request $request, Property $property)
     {
+        // AT-267 — assistants may never delete listing images (see deleteRentalImage()).
+        // This bulk endpoint is at least as destructive as the single delete it
+        // mirrors, so it carries the exact same hard capability rule.
+        abort_if((bool) $request->user()?->is_assistant, 403, 'Assistants cannot delete listing photos.');
+
         $this->authorizeProperty($property);
 
         $validated = $request->validate([
@@ -1996,15 +2147,28 @@ class PropertyController extends Controller
             // tags leaned entirely on filed photos to survive (property 6060).
             if ($request->has('gallery_available_tags')) {
                 $available = array_values(array_filter(
-                    (array) $request->input('gallery_available_tags', []),
-                    'is_string'
+                    array_map('trim', array_filter(
+                        (array) $request->input('gallery_available_tags', []),
+                        'is_string'
+                    )),
+                    fn ($t) => $t !== ''
                 ));
                 $derivedLower = array_map('strtolower', $property->derivedGalleryTags());
                 $custom = array_values(array_filter(
-                    array_map('trim', $available),
-                    fn ($t) => $t !== '' && !in_array(strtolower($t), $derivedLower, true)
+                    $available,
+                    fn ($t) => !in_array(strtolower($t), $derivedLower, true)
                 ));
                 $updates['gallery_custom_tags'] = $custom;
+
+                // Persist the FULL order too — derived tags and custom tags
+                // together, exactly as the user arranged them. gallery_custom_tags
+                // alone only records custom-tag membership and their order
+                // relative to each other; it can't represent a derived (room)
+                // tag being dragged, or a custom tag being interleaved among
+                // derived ones. Without this, any reorder that touched a
+                // derived tag or crossed the derived/custom boundary reverted
+                // to the default room order on the next page load.
+                $updates['gallery_tag_order'] = $available;
             }
 
             $property->update($updates);
@@ -2237,7 +2401,14 @@ class PropertyController extends Controller
 
     public function ad(Property $property)
     {
-        $this->authorizeProperty($property);
+        // AT-267 — an assistant may build an ad for ANY of the agency's listings
+        // (the property is already agency-scoped by route-model binding). The ad
+        // always carries the LISTING agent's own contact details, never the
+        // assistant's, so this cannot misattribute a listing. Everyone else stays
+        // data-scope gated.
+        if (! auth()->user()?->is_assistant) {
+            $this->authorizeProperty($property);
+        }
         $property->load(['agent', 'branch']);
 
         /** @var User $user */
@@ -2287,14 +2458,23 @@ class PropertyController extends Controller
      */
     public function brochure(Property $property, \App\Services\Properties\PropertyBrochureService $service)
     {
-        $this->authorizeProperty($property);
+        // AT-267 — assistants may print a brochure for ANY of the agency's
+        // listings (agency-scoped by binding). Everyone else stays scope-gated.
+        $isAssistant = (bool) auth()->user()?->is_assistant;
+        if (! $isAssistant) {
+            $this->authorizeProperty($property);
+        }
 
         // Agent identity (ad-manager.md §"Agent identity"): ?ad_agent points the
         // footer at another in-scope agent; ?co=1 co-brands with the co-listing
         // agent. AgencyScope on User::find keeps the override inside the agency;
         // an out-of-agency or unknown id silently falls back to the listing agent.
+        //
+        // An ASSISTANT can never repoint the footer — a brochure they produce
+        // always carries the listing agent's own details, never the assistant's
+        // (or any agent they might name in the URL).
         $primary = null;
-        if ($id = (int) request('ad_agent')) {
+        if (! $isAssistant && $id = (int) request('ad_agent')) {
             $primary = User::find($id);
         }
         $secondary = request()->boolean('co') && $property->pp_second_agent_id
@@ -2407,7 +2587,9 @@ class PropertyController extends Controller
                     ->where('id', (int) $agentChoice)
                     ->where('agency_id', $property->agency_id)
                     ->first();
-            } elseif ($agentChoice === 'me' && $authUser) {
+            } elseif ($agentChoice === 'me' && $authUser && ! $authUser->is_assistant) {
+                // AT-267 — an assistant never surfaces themselves on a listing
+                // preview; it falls back to the listing agent below.
                 $displayAgent = $authUser;
             }
 
@@ -2522,7 +2704,9 @@ class PropertyController extends Controller
             $property?->pp_second_agent_id,
         ]);
 
-        $query = User::agencyMembers()->orderBy('name')->where(function ($q) use ($scope, $user, $assignedIds) {
+        // AT-267 — an assistant is never a selectable AGENT (they own no listings). Top-level so the
+        // orWhereIn(assignedIds) below can never re-admit one.
+        $query = User::agencyMembers()->where('is_assistant', false)->orderBy('name')->where(function ($q) use ($scope, $user, $assignedIds) {
             $q->where('is_active', 1);
 
             if ($scope === 'branch') {
@@ -2664,6 +2848,10 @@ class PropertyController extends Controller
     {
         abort_unless(auth()->user()->hasPermission('properties.edit'), 403);
         $record = Property::onlyTrashed()->findOrFail($id);
+        // AT-267 H4 — restore is on the DenyAssistantPropertyWrite allow-list (reversible, no new
+        // stock), but it lacked a per-record guard: a properties.edit holder / an assistant could
+        // un-archive ANY agent's listing by id. Pin it to the acting user's own book.
+        $this->authorizeProperty($record);
         $record->restore();
         return redirect()->back()->with('success', 'Record restored.');
     }

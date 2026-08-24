@@ -60,7 +60,11 @@ class AgencyComplianceSettingsController extends Controller
         ]);
 
         $file = $request->file('document');
-        $path = $file->store('agency-compliance', 'public');
+        // Private disk: these are sensitive tenant compliance documents (FICA/mandate/
+        // disclosure) and must never be served as a static file. All access goes through
+        // AgencyDocumentsViewerController::download(), which enforces the multi-tenant +
+        // branch + anti-tamper checks before streaming.
+        $path = $file->store('agency-compliance', 'local');
 
         // Supersede previous active provision for same (type, branch) tuple
         AgencyComplianceProvision::where('document_type_config_id', $validated['document_type_config_id'])
@@ -139,7 +143,8 @@ class AgencyComplianceSettingsController extends Controller
 
         if ($request->hasFile('document')) {
             $file = $request->file('document');
-            $path = $file->store('agency-compliance', 'public');
+            // Private disk — see note in store() above.
+            $path = $file->store('agency-compliance', 'local');
             $provision->document_path = $path;
             $provision->document_original_name = $file->getClientOriginalName();
         }

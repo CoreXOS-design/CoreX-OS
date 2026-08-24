@@ -2,13 +2,17 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Exceptions\SeatReinstatementLockedException;
 use App\Http\Controllers\Controller;
 use App\Jobs\SyncAgentToP24Job;
 use App\Mail\UserInviteMail;
+use App\Models\Agency;
+use App\Models\Billing\AgentSeatRelease;
 use App\Models\Role;
 use App\Models\User;
 use App\Models\Branch;
 use App\Services\Admin\AgentDeletionService;
+use App\Services\Admin\AgentSeatLockService;
 use App\Services\Images\AgentProfilePhotoService;
 use App\Services\Syndication\Property24\Property24ApiClient;
 use App\Services\Syndication\Property24\Property24SyndicationService;
@@ -28,7 +32,12 @@ class UserManagementController extends Controller
 
         $agencyId = auth()->user()?->effectiveAgencyId();
 
+        // Assistants (users.is_assistant) are managed on their own screen
+        // (Company → Assistants), not here. They are an extension of an agent,
+        // not a standalone staff member, so they never appear in the user
+        // directory. (Johan, 2026-07-22.)
         $users = User::agencyMembers()
+            ->where('is_assistant', 0)
             ->when($agencyId, function ($q) use ($agencyId) {
                 $q->where(function ($q2) use ($agencyId) {
                     $q2->where('agency_id', $agencyId)
@@ -53,6 +62,7 @@ class UserManagementController extends Controller
 
         // PPRA verification due count (never verified or >12 months)
         $ppraDueCount = User::agencyMembers()
+            ->where('is_assistant', 0)   // assistants are not PPRA practitioners
             ->when($agencyId, fn ($q) => $q->where('agency_id', $agencyId))
             ->where(function ($q) {
                 $q->whereNull('ppra_last_verified_at')
@@ -60,7 +70,27 @@ class UserManagementController extends Controller
             })
             ->count();
 
-        return view('admin.users.index', compact('users','branches','designations','p24AgentMap','ppraDueCount'));
+        // AT-278 — archived count for the nav entry, and the open seat holds so a
+        // locked agent's Activate toggle renders disabled WITH its unlock date
+        // rather than failing after the click. Spec §6.3.
+        $archivedCount = User::onlyTrashed()->agencyMembers()->where('is_assistant', 0)
+            ->when($agencyId, fn ($q) => $q->where('agency_id', $agencyId))
+            ->count();
+
+        $seatHolds = AgentSeatRelease::query()
+            ->whereIn('user_id', $users->pluck('id'))
+            ->open()
+            ->get()
+            ->keyBy('user_id');
+
+        // AT-278 — a CoreX System Owner can lift a hold from here too, not only
+        // from Archived Agents; a deactivated-but-not-deleted agent never shows
+        // up on that page at all.
+        $canOverride = (bool) auth()->user()?->isOwnerRole();
+
+        return view('admin.users.index', compact(
+            'users','branches','designations','p24AgentMap','ppraDueCount','archivedCount','seatHolds','canOverride'
+        ));
     }
 
     /**
@@ -104,7 +134,7 @@ class UserManagementController extends Controller
             ->orderBy('name')->get(['id','name']);
         $designations = DB::table('designations')
             ->where('is_enabled', 1)->orderBy('sort_order')->orderBy('name')->get(['id','name']);
-        $roles = Role::orderBy('sort_order')->get();
+        $roles = Role::allRoles($agencyId);
 
         return view('admin.users.create-edit', [
             'user'         => null,
@@ -125,6 +155,7 @@ class UserManagementController extends Controller
             'display_email' => ['nullable', 'email', 'max:255'],
             'phone'         => ['nullable', 'string', 'max:50'],
             'cell'          => ['required', 'string', 'max:50'],
+            'whatsapp_number' => ['nullable', 'string', 'max:50', 'regex:' . \App\Models\User::SA_MOBILE_REGEX],
             'fax'           => ['nullable', 'string', 'max:50'],
             'ffc_number'    => ['nullable', 'string', 'max:100'],
             'website'       => ['nullable', 'string', 'max:255'],
@@ -140,6 +171,7 @@ class UserManagementController extends Controller
             'sliding_tier3_cut_percent'   => ['nullable', 'numeric', 'min:0', 'max:100'],
             'can_capture_rentals'         => ['nullable', 'in:0,1'],
             'counts_for_branch_split'     => ['nullable', 'in:0,1'],
+            'show_in_performance_reports' => ['nullable', 'in:0,1'],
             'agent_photo'     => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:2048'],
             'ffc_certificate' => ['nullable', 'file', 'mimes:pdf,jpg,jpeg,png', 'max:5120'],
             'test_agent'      => ['nullable', 'in:0,1'],
@@ -157,8 +189,57 @@ class UserManagementController extends Controller
 
         $fullName = trim($data['name'] . ' ' . $data['surname']);
 
-        // Permanently remove any previously soft-deleted user with this email
-        User::onlyTrashed()->where('email', $data['email'])->forceDelete();
+        // AT-378 follow-up — same defense the agency-creation form now has:
+        // if the caller didn't pick a branch AND the agency has exactly one,
+        // default onto it server-side too (not just the form's preselect),
+        // so a blank branch_id can't slip through a bypassed form, an API
+        // caller, or a future UI regression the way it did for AT-378.
+        if (empty($data['branch_id'])) {
+            $agencyId = auth()->user()?->effectiveAgencyId();
+            $onlyBranch = Branch::when($agencyId, fn ($q) => $q->where('agency_id', $agencyId))->limit(2)->pluck('id');
+            if ($agencyId && $onlyBranch->count() === 1) {
+                $data['branch_id'] = $onlyBranch->first();
+            }
+        }
+
+        // AT-278 — re-creating someone is the same act as reinstating them, and
+        // is gated identically. Spec: agent-seat-release-lock.md §6.4.
+        //
+        // This used to be `User::onlyTrashed()->where('email', …)->forceDelete()`
+        // — a HARD DELETE (non-negotiable #1) that destroyed the archived record,
+        // its AT-118 offboarding audit trail and its QR reroute pointer, and
+        // handed any agency a one-form bypass of the seat hold. Removed outright.
+        $trashed = User::onlyTrashed()->where('email', $data['email'])->first();
+
+        if ($trashed) {
+            $seatLock = app(AgentSeatLockService::class);
+
+            if ($until = $seatLock->lockedUntil($trashed)) {
+                return back()->withInput()->withErrors([
+                    'email' => sprintf(
+                        '%s was archived on %s and cannot be added back until %s. '
+                        . 'Creating a new account for them is not a way around that hold. '
+                        . 'If this was a mistake, contact CoreX support — CoreX Dev can lift it immediately.',
+                        $trashed->name,
+                        optional($trashed->deleted_at)->format('j F Y') ?? 'an earlier date',
+                        $until->format('j F Y'),
+                    ),
+                ]);
+            }
+
+            // Hold elapsed — they may come back, but as THEMSELVES. A second
+            // account for the same person orphans their deals, contacts,
+            // commission history and printed QR code; that is a data-integrity
+            // bug regardless of billing.
+            return back()->withInput()->withErrors([
+                'email' => sprintf(
+                    '%s was archived on %s. Restore them from Archived Agents so their history, '
+                    . 'deals and QR code stay attached — creating a new account would orphan all of it.',
+                    $trashed->name,
+                    optional($trashed->deleted_at)->format('j F Y') ?? 'an earlier date',
+                ),
+            ]);
+        }
 
         $user = User::create([
             'name'                        => $fullName,
@@ -169,7 +250,12 @@ class UserManagementController extends Controller
             'branch_id'                   => ($data['branch_id'] ?? null) ?: null,
             'agency_id'                   => auth()->user()?->effectiveAgencyId(),
             'designation'                 => ($data['designation'] ?? null) ?: null,
-            'is_active'                   => true,
+            // Agent Activation Gate (.ai/specs/agent-activation-gate.md) — an invited
+            // agent stays inactive until they set a password and sign in for the first
+            // time. AgencyAdminFirstLoginService flips this on genuine first login. The
+            // test-agent bypass below force-activates immediately, same as it already
+            // force-verifies, since there is no real person expected to sign in.
+            'is_active'                   => false,
             'is_admin'                    => in_array($data['role'], ['admin', 'super_admin']) ? 1 : 0,
             'email_verified_at'           => null,
             'agent_cut_percent'           => $data['agent_cut_percent'] ?? 50,
@@ -181,8 +267,10 @@ class UserManagementController extends Controller
             'sliding_tier3_cut_percent'   => $data['sliding_tier3_cut_percent'] ?? null,
             'can_capture_rentals'         => isset($data['can_capture_rentals']) && $data['can_capture_rentals'] == '1' ? 1 : 0,
             'counts_for_branch_split'     => isset($data['counts_for_branch_split']) && $data['counts_for_branch_split'] == '1' ? 1 : 0,
+            'show_in_performance_reports' => isset($data['show_in_performance_reports']) && $data['show_in_performance_reports'] == '1' ? 1 : 0,
             'phone'                       => $data['phone'] ?? null,
             'cell'                        => $data['cell'] ?? null,
+            'whatsapp_number'             => $data['whatsapp_number'] ?? null,
             'fax'                         => $data['fax'] ?? null,
             'ffc_number'                  => $data['ffc_number'] ?? null,
             'website'                     => $data['website'] ?? null,
@@ -206,14 +294,16 @@ class UserManagementController extends Controller
         }
         if ($request->hasFile('ffc_certificate')) {
             $ext = $request->file('ffc_certificate')->getClientOriginalExtension();
-            $path = $request->file('ffc_certificate')->storeAs("agents/{$user->id}", "ffc.{$ext}", 'public');
+            // Private disk — sensitive compliance doc. Access goes through
+            // UserDocumentDownloadController::downloadFfcCertificate().
+            $path = $request->file('ffc_certificate')->storeAs("agents/{$user->id}", "ffc.{$ext}", 'local');
             $user->update(['ffc_certificate_path' => $path]);
         }
 
         if ($isTestAgent) {
-            // Test-agent flow: mark verified immediately (bypass invite),
-            // force-fill because email_verified_at is not in $fillable.
-            $user->forceFill(['email_verified_at' => now()])->save();
+            // Test-agent flow: mark verified AND active immediately (bypass invite) —
+            // force-fill because email_verified_at/is_active are not both in $fillable.
+            $user->forceFill(['email_verified_at' => now(), 'is_active' => true])->save();
 
             // Register on P24 so the agent gets an ID — on the queue, so the
             // create request returns instantly instead of blocking on P24.
@@ -240,9 +330,16 @@ class UserManagementController extends Controller
             ->orderBy('name')->get(['id','name']);
         $designations = DB::table('designations')
             ->where('is_enabled', 1)->orderBy('sort_order')->orderBy('name')->get(['id','name']);
-        $roles = Role::orderBy('sort_order')->get();
+        $roles = Role::allRoles($agencyId);
 
-        return view('admin.users.create-edit', compact('user', 'branches', 'designations', 'roles'));
+        $canViewLoginHistory = (bool) auth()->user()?->hasPermission('users.login_history.view');
+        $loginHistory = $canViewLoginHistory
+            ? \App\Models\LoginHistory::forUser($user->id)->latest('created_at')->limit(25)->get()
+            : collect();
+
+        return view('admin.users.create-edit', compact(
+            'user', 'branches', 'designations', 'roles', 'canViewLoginHistory', 'loginHistory'
+        ));
     }
 
     public function update(Request $request, User $user)
@@ -256,6 +353,7 @@ class UserManagementController extends Controller
             'display_email' => ['nullable', 'email', 'max:255'],
             'phone'         => ['nullable', 'string', 'max:50'],
             'cell'          => ['required', 'string', 'max:50'],
+            'whatsapp_number' => ['nullable', 'string', 'max:50', 'regex:' . \App\Models\User::SA_MOBILE_REGEX],
             'fax'           => ['nullable', 'string', 'max:50'],
             'ffc_number'    => ['nullable', 'string', 'max:100'],
             'ffc_expiry_date' => ['nullable', 'date'],
@@ -274,6 +372,7 @@ class UserManagementController extends Controller
             'sliding_tier3_cut_percent'   => ['nullable', 'numeric', 'min:0', 'max:100'],
             'can_capture_rentals'         => ['nullable', 'in:0,1'],
             'counts_for_branch_split'     => ['nullable', 'in:0,1'],
+            'show_in_performance_reports' => ['nullable', 'in:0,1'],
             'agent_photo'     => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:2048'],
             'ffc_certificate' => ['nullable', 'file', 'mimes:pdf,jpg,jpeg,png', 'max:5120'],
             'password'        => ['nullable', 'string', 'min:8'],
@@ -335,9 +434,11 @@ class UserManagementController extends Controller
         $user->sliding_tier3_cut_percent = $data['sliding_tier3_cut_percent'] ?? null;
         $user->can_capture_rentals       = isset($data['can_capture_rentals']) && $data['can_capture_rentals'] == '1' ? 1 : 0;
         $user->counts_for_branch_split   = isset($data['counts_for_branch_split']) && $data['counts_for_branch_split'] == '1' ? 1 : 0;
+        $user->show_in_performance_reports = isset($data['show_in_performance_reports']) && $data['show_in_performance_reports'] == '1' ? 1 : 0;
 
         $user->phone      = $data['phone'] ?? null;
         $user->cell        = $data['cell'] ?? null;
+        $user->whatsapp_number = $data['whatsapp_number'] ?? null;
         $user->fax         = $data['fax'] ?? null;
         $user->ffc_number  = $data['ffc_number'] ?? null;
         $user->ffc_expiry_date = $data['ffc_expiry_date'] ?? null;
@@ -422,16 +523,20 @@ class UserManagementController extends Controller
         }
         if ($request->hasFile('ffc_certificate')) {
             if ($user->ffc_certificate_path) {
-                Storage::disk('public')->delete($user->ffc_certificate_path);
+                // Delete from whichever disk the old file actually lives on — legacy
+                // rows may still be on 'public' from before this fix.
+                Storage::disk(Storage::disk('local')->exists($user->ffc_certificate_path) ? 'local' : 'public')
+                    ->delete($user->ffc_certificate_path);
             }
             $ext = $request->file('ffc_certificate')->getClientOriginalExtension();
-            $path = $request->file('ffc_certificate')->storeAs("agents/{$user->id}", "ffc.{$ext}", 'public');
+            $path = $request->file('ffc_certificate')->storeAs("agents/{$user->id}", "ffc.{$ext}", 'local');
             $user->update(['ffc_certificate_path' => $path]);
         }
 
         $p24Note = $this->pushUserToP24($user->fresh());
 
-        return redirect()->route('admin.users.edit', $user)->with('status', "User \"{$fullName}\" updated.{$p24Note}");
+        return $this->withActiveTab(redirect()->route('admin.users.edit', $user), $request)
+            ->with('status', "User \"{$fullName}\" updated.{$p24Note}");
     }
 
     /**
@@ -448,6 +553,24 @@ class UserManagementController extends Controller
         SyncAgentToP24Job::dispatch($user->id, registerIfMissing: false);
 
         return ' Property24 sync queued.';
+    }
+
+    /**
+     * Carry the edit page's active tab through a redirect. The tab lives only
+     * in the URL hash fragment — browsers never send it to the server — so
+     * callers that know which tab they're on flash it back explicitly via a
+     * hidden `active_tab` input; back()/route() alone silently drops it and
+     * bounces the admin to the Profile tab. These same routes are also
+     * submitted from the (tab-less) Users list page, which never sends
+     * `active_tab` — there this is a no-op and the redirect behaves exactly
+     * as before.
+     */
+    private function withActiveTab($redirect, Request $request)
+    {
+        $tab = $request->input('active_tab');
+        $validTabs = ['profile', 'role', 'finance', 'compliance', 'actions'];
+
+        return in_array($tab, $validTabs, true) ? $redirect->withFragment($tab) : $redirect;
     }
 
     public function updateDefaults(Request $request, User $user)
@@ -581,12 +704,14 @@ class UserManagementController extends Controller
         $contact = $request->validate([
             'phone' => ['nullable','string','max:50'],
             'cell' => ['required','string','max:50'],
+            'whatsapp_number' => ['nullable','string','max:50','regex:' . \App\Models\User::SA_MOBILE_REGEX],
             'fax' => ['nullable','string','max:50'],
             'ffc_number' => ['nullable','string','max:100'],
             'website' => ['nullable','string','max:255'],
         ]);
         $user->phone = $contact['phone'] ?? null;
         $user->cell = $contact['cell'] ?? null;
+        $user->whatsapp_number = $contact['whatsapp_number'] ?? null;
         $user->fax = $contact['fax'] ?? null;
         $user->ffc_number = $contact['ffc_number'] ?? null;
         $user->website = $contact['website'] ?? null;
@@ -646,9 +771,45 @@ class UserManagementController extends Controller
         $designation = trim((string)($data['designation'] ?? ''));
         $user->designation = ($designation !== '') ? $designation : null;
 
-        $user->is_active = 1;
-        if (!$user->email_verified_at) $user->email_verified_at = now();
-        $user->save();
+        // AT-278 — this used to set is_active = 1 UNCONDITIONALLY, which made a
+        // role edit a silent back door into a billable seat: deactivate an agent,
+        // tweak their role, and they are live again with no gate crossed.
+        // Now a deactivated agent is only lifted when their hold has cleared, and
+        // the admin is told plainly when it has not.
+        //
+        // reinstate() closes the agent_seat_releases hold in its own DB write, so
+        // it must run AFTER $user->save() has actually persisted is_active = 1 —
+        // never before. Calling it first (as an earlier version of this did) would
+        // mark the hold closed even if save() then failed for an unrelated reason,
+        // silently defeating the lock: a later reactivation would find no open
+        // hold at all. toggle() and restore() already get this order right.
+        // Agent Activation Gate (.ai/specs/agent-activation-gate.md) — first_login_at is
+        // only ever set once, on a genuine first sign-in. A NULL here means this agent
+        // has never activated (still holds the unguessable invite password) — a
+        // role/branch/designation touch must never reactivate or auto-verify them; that
+        // silently strands their invite link (AccountSetupController::show() would see
+        // email_verified_at set and refuse to let them set a password at all). The
+        // AT-278 seat-lock reinstatement gate below applies ONLY to an agent who has
+        // been active before and was later deactivated by an admin.
+        $seatLockNote = '';
+        $reinstating  = false;
+        if (! $user->is_active && $user->first_login_at !== null) {
+            try {
+                app(AgentSeatLockService::class)->assertCanReinstate($user, auth()->user());
+                $user->is_active = 1;
+                $reinstating = true;
+            } catch (SeatReinstatementLockedException $e) {
+                $seatLockNote = ' They remain deactivated — '.$e->getMessage();
+            }
+        }
+
+        if (!$user->email_verified_at && $user->first_login_at !== null) $user->email_verified_at = now();
+
+        AgentSeatLockService::bypass(fn () => $user->save());
+
+        if ($reinstating) {
+            app(AgentSeatLockService::class)->reinstate($user, auth()->user());
+        }
 
         // ── Domain events (spec corex-domain-events-spec.md) ─────────────────
         $freshUR = $user->fresh() ?? $user;
@@ -702,31 +863,34 @@ class UserManagementController extends Controller
 
         if ($request->hasFile('ffc_certificate')) {
             if ($user->ffc_certificate_path) {
-                Storage::disk('public')->delete($user->ffc_certificate_path);
+                // Delete from whichever disk the old file actually lives on — legacy
+                // rows may still be on 'public' from before this fix.
+                Storage::disk(Storage::disk('local')->exists($user->ffc_certificate_path) ? 'local' : 'public')
+                    ->delete($user->ffc_certificate_path);
             }
             $ext = $request->file('ffc_certificate')->getClientOriginalExtension();
             $path = $request->file('ffc_certificate')->storeAs(
-                "agents/{$user->id}", "ffc.{$ext}", 'public'
+                "agents/{$user->id}", "ffc.{$ext}", 'local'
             );
             $user->update(['ffc_certificate_path' => $path]);
         }
 
         $p24Note = $this->pushUserToP24($user->fresh());
 
-        return back()->with('status', "Updated role/branch for {$user->name}.{$p24Note}");
+        return back()->with('status', "Updated role/branch for {$user->name}.{$seatLockNote}{$p24Note}");
     }
 
-    public function resendInvite(User $user)
+    public function resendInvite(Request $request, User $user)
     {
         abort_unless(auth()->user()?->hasPermission('manage_users'), 403);
 
         if ($user->email_verified_at) {
-            return back()->withErrors('This user has already set up their account.');
+            return $this->withActiveTab(back(), $request)->withErrors('This user has already set up their account.');
         }
 
         Mail::to($user->email)->send(new UserInviteMail($user));
 
-        return back()->with('status', "Invitation email resent to {$user->email}.");
+        return $this->withActiveTab(back(), $request)->with('status', "Invitation email resent to {$user->email}.");
     }
 
     /**
@@ -741,16 +905,19 @@ class UserManagementController extends Controller
         if ($field === 'agent_photo' && $user->agent_photo_path) {
             // Clear the file, the user_documents row and the column together.
             app(AgentProfilePhotoService::class)->clear($user);
-            return back()->with('status', "Agent photo removed for {$user->name}.");
+            return $this->withActiveTab(back(), $request)->with('status', "Agent photo removed for {$user->name}.");
         }
 
         if ($field === 'ffc_certificate' && $user->ffc_certificate_path) {
-            Storage::disk('public')->delete($user->ffc_certificate_path);
+            // Delete from whichever disk the file actually lives on — legacy rows
+            // may still be on 'public' from before this fix.
+            Storage::disk(Storage::disk('local')->exists($user->ffc_certificate_path) ? 'local' : 'public')
+                ->delete($user->ffc_certificate_path);
             $user->update(['ffc_certificate_path' => null]);
-            return back()->with('status', "FFC certificate removed for {$user->name}.");
+            return $this->withActiveTab(back(), $request)->with('status', "FFC certificate removed for {$user->name}.");
         }
 
-        return back();
+        return $this->withActiveTab(back(), $request);
     }
 
     /**
@@ -770,17 +937,47 @@ class UserManagementController extends Controller
         return back()->with('status', "Syncing {$user->name} to Property24 — the agent ID will appear here shortly. Refresh in a moment.");
     }
 
-    public function toggle(User $user)
+    public function toggle(Request $request, User $user, AgentSeatLockService $seatLock)
     {
         abort_unless(auth()->user()?->hasPermission('manage_users'), 403);
 
         if ($user->id === auth()->id()) {
-            return back()->withErrors('You cannot deactivate yourself.');
+            return $this->withActiveTab(back(), $request)->withErrors('You cannot deactivate yourself.');
         }
 
-        $user->update([
-            'is_active' => !$user->is_active
-        ]);
+        $reactivating = ! $user->is_active;
+
+        // AT-278 — deactivating frees a billable seat exactly as archiving does
+        // (billing spec §3 D1), so reactivating must clear the same 30-day hold.
+        // Spec: .ai/specs/agent-seat-release-lock.md §5.1 (points 2 and 3).
+        //
+        // A CoreX System Owner can lift the hold here too, not only from the
+        // Archived Agents page — a deactivated-but-not-deleted agent never shows
+        // up there at all, so without this the override had no way to reach them.
+        $overrideReason = $request->filled('override_reason')
+            ? trim((string) $request->input('override_reason'))
+            : null;
+
+        if ($reactivating) {
+            try {
+                $seatLock->assertCanReinstate($user, auth()->user(), $overrideReason);
+            } catch (SeatReinstatementLockedException $e) {
+                return $this->withActiveTab(back(), $request)->withErrors($e->getMessage());
+            }
+        }
+
+        // The gate above is the authority; suspend the observer backstop so it
+        // does not re-refuse the write the gate just authorised.
+        AgentSeatLockService::bypass(fn () => $user->update([
+            'is_active' => ! $user->is_active,
+        ]));
+
+        if ($reactivating) {
+            $seatLock->reinstate($user, auth()->user(), $overrideReason);
+        } else {
+            $seatLock->release($user, AgentSeatRelease::REASON_DEACTIVATED, (int) auth()->id());
+            $this->revokeAccess($user);
+        }
 
         $fresh = $user->fresh();
         $p24Note = $this->pushUserToP24($fresh);
@@ -793,7 +990,16 @@ class UserManagementController extends Controller
             event(new \App\Events\Agent\AgentDeactivated($fresh, auth()->id()));
         }
 
-        return back()->with('status', "{$user->name} {$state}.{$p24Note}");
+        // Tell the admin about the hold UP FRONT rather than letting them
+        // discover it when they try to undo the click (STANDARDS: no silent locks).
+        $holdNote = '';
+        if (! $fresh->is_active && ($until = $seatLock->lockedUntil($fresh))) {
+            $holdNote = " They are no longer billed. They cannot be reactivated until {$until->format('j F Y')}.";
+        } elseif ($reactivating && $overrideReason) {
+            $holdNote = ' The hold was lifted early and the reason recorded.';
+        }
+
+        return $this->withActiveTab(back(), $request)->with('status', "{$user->name} {$state}.{$holdNote}{$p24Note}");
     }
 
     /**
@@ -938,15 +1144,26 @@ class UserManagementController extends Controller
         // house account). Sold/historic stock, the deal register and commissions stay
         // attributed to the departing agent. The transfer is immutably audit-logged.
         $data = $request->validate([
-            'target_user_id'     => ['required', 'integer', 'different:user', Rule::exists('users', 'id')->where($sameAgencyActive)],
-            'secondary_handling' => ['required', Rule::in(['promote', 'replace'])],
+            'target_user_id'          => ['required', 'integer', 'different:user', Rule::exists('users', 'id')->where($sameAgencyActive)],
+            'secondary_handling'      => ['required', Rule::in(['promote', 'replace'])],
+            // Opt-in, off by default (AT-118's historic-stays-with-departed-agent
+            // default is unchanged). When checked, sold/withdrawn/expired/draft
+            // stock also transfers to the successor instead of staying with the
+            // departing agent's now-inaccessible account.
+            'transfer_historic_stock' => ['sometimes', 'boolean'],
         ], [
             'target_user_id.required' => 'Nominate a successor — the departing agent\'s contacts, FICA and communications must transfer to an active agent before they can be removed.',
             'target_user_id.exists'   => 'The chosen successor is not a valid active user in this agency.',
         ]);
 
         $target = User::findOrFail($data['target_user_id']);
-        $service->transferForOffboarding($user, $target, $data['secondary_handling'], (int) auth()->id());
+        $service->transferForOffboarding(
+            $user,
+            $target,
+            $data['secondary_handling'],
+            (int) auth()->id(),
+            $request->boolean('transfer_historic_stock')
+        );
 
         DB::table('branch_assignments')->where('user_id', $user->id)->delete();
 
@@ -957,6 +1174,146 @@ class UserManagementController extends Controller
 
         $user->delete(); // soft delete (sets deleted_at)
 
-        return redirect()->route('admin.users')->with('status', "User \"{$name}\" has been deleted.{$p24Note}");
+        // AT-278 — the seat is now free and stops being billed immediately, but
+        // this person cannot occupy a seat again for 30 days. Spec §5.1 (point 1).
+        $release = app(AgentSeatLockService::class)
+            ->release($user, AgentSeatRelease::REASON_DELETED, (int) auth()->id());
+
+        // Their credentials die with the account (spec §11).
+        $this->revokeAccess($user);
+
+        $holdNote = $release
+            ? " They are no longer billed. They cannot be reinstated until {$release->reinstatable_at->format('j F Y')}."
+            : '';
+
+        return redirect()->route('admin.users')
+            ->with('status', "User \"{$name}\" has been deleted.{$holdNote}{$p24Note}");
+    }
+
+    /**
+     * Kill every credential a released agent still holds.
+     *
+     * AT-278 / spec §11. Login already fails for them — the eloquent provider
+     * applies the SoftDeletes scope, and Authenticate rejects is_active = 0 —
+     * so this is defence in depth rather than a live hole. But an API token or
+     * session row that outlives its user is a loaded gun lying around, and
+     * "it happens to fail upstream" is not access control.
+     *
+     * Failure-isolated: an admin must always be able to offboard a resigning
+     * agent, even if the session table is unhappy.
+     */
+    private function revokeAccess(User $user): void
+    {
+        try {
+            $user->tokens()->delete();
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning("Token revoke failed for user #{$user->id}: {$e->getMessage()}");
+        }
+
+        try {
+            if (config('session.driver') === 'database') {
+                DB::table(config('session.table', 'sessions'))->where('user_id', $user->id)->delete();
+            }
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning("Session purge failed for user #{$user->id}: {$e->getMessage()}");
+        }
+    }
+
+    /**
+     * Archived agents — the restore path.
+     *
+     * AT-278 / spec §6.1. Before this, there was NO way back: "reinstating" an
+     * agent meant re-creating them, which hard-deleted the archived record
+     * (non-negotiable #1) and orphaned their deals, QR code and audit trail.
+     * You cannot gate a door that does not exist, so this build adds it.
+     */
+    public function archived(AgentSeatLockService $seatLock)
+    {
+        abort_unless(auth()->user()?->hasPermission('manage_users'), 403);
+
+        $agencyId = auth()->user()?->effectiveAgencyId();
+
+        $users = User::onlyTrashed()
+            ->agencyMembers()
+            ->where('is_assistant', 0)
+            ->when($agencyId, fn ($q) => $q->where('agency_id', $agencyId))
+            ->orderByDesc('deleted_at')
+            ->get();
+
+        // A System Owner not viewing-as a specific agency sees archived agents
+        // across EVERY agency in one table. Without a name on each row there is
+        // no way to tell which agency an "Override & restore" or "recorded
+        // permanently against the agency" action is actually being taken against.
+        $agencyNames = $agencyId
+            ? collect()
+            : Agency::query()->whereIn('id', $users->pluck('agency_id')->unique())->pluck('name', 'id');
+
+        // One query for every hold rather than one per row.
+        $releases = AgentSeatRelease::query()
+            ->whereIn('user_id', $users->pluck('id'))
+            ->open()
+            ->get()
+            ->keyBy('user_id');
+
+        return view('admin.users.archived', [
+            'users'          => $users,
+            'releases'       => $releases,
+            'lockDays'       => $seatLock->lockDays(),
+            'canOverride'    => (bool) auth()->user()?->isOwnerRole(),
+            'agencyNames'    => $agencyNames,
+            // Independent of whether $agencyNames happens to be non-empty — that
+            // collection is built FROM $users, so it is empty whenever the list is,
+            // which is exactly when the "no archived agents" copy needs this flag.
+            'spansAgencies'  => ! $agencyId,
+        ]);
+    }
+
+    /**
+     * Restore an archived agent — gated by the 30-day hold (spec §5.1 point 4).
+     *
+     * A CoreX System Owner may lift the hold early by supplying a reason; the
+     * override is recorded permanently. Nobody inside the agency can, whatever
+     * permissions they hold — that authority is deliberately not delegable,
+     * because a delegable bypass is not a bypass anyone would fail to delegate.
+     */
+    public function restore(Request $request, int $userId, AgentSeatLockService $seatLock)
+    {
+        abort_unless(auth()->user()?->hasPermission('manage_users'), 403);
+
+        $agencyId = auth()->user()?->effectiveAgencyId();
+
+        $user = User::onlyTrashed()
+            ->when($agencyId, fn ($q) => $q->where('agency_id', $agencyId))
+            ->findOrFail($userId);
+
+        $overrideReason = $request->filled('override_reason')
+            ? trim((string) $request->input('override_reason'))
+            : null;
+
+        try {
+            $seatLock->assertCanReinstate($user, auth()->user(), $overrideReason);
+        } catch (SeatReinstatementLockedException $e) {
+            return back()->withErrors($e->getMessage());
+        }
+
+        // Gate cleared — suspend the observer backstop for the authorised write.
+        AgentSeatLockService::bypass(function () use ($user) {
+            $user->restore();
+            $user->update([
+                'is_active' => true,
+                // They are back as themselves — resolveByQrSlug() already skips a
+                // reroute pointer once is_active/deleted_at say "here", but a
+                // restored agent still carrying their old forwarding target is
+                // stale data waiting to confuse the next person who reads it.
+                'qr_reroute_user_id' => null,
+            ]);
+        });
+
+        $seatLock->reinstate($user, auth()->user(), $overrideReason);
+
+        $note = $overrideReason ? ' The hold was lifted early and the reason recorded.' : '';
+
+        return redirect()->route('admin.users')
+            ->with('status', "{$user->name} has been restored and is active again.{$note}");
     }
 }

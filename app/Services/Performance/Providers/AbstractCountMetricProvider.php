@@ -21,6 +21,9 @@ abstract class AbstractCountMetricProvider implements MetricProvider
 
     abstract protected function periodColumn(): string;
 
+    /** Every count-metric provider so far is activity volume — override if a future one isn't. */
+    public function direction(): string { return 'higher_is_better'; }
+
     protected function baseQuery(): Builder
     {
         return DB::table($this->table());

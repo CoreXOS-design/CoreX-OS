@@ -74,6 +74,22 @@ final class SuggestedActionResolver
             return $this->buildPitched((int) $listing->property_id);
         }
 
+        // FALLBACK for the same PITCHED short-circuit above (2026-08-19) — the
+        // $listing->is_pitched/property_id dynamic properties are hydrated from
+        // prospecting_listings' OWN pitched_at/matched_property_id columns, which
+        // the Deeds-Capture promotion path never writes (confirmed on QA1: NULL on
+        // 94 real promoted claims). $claim['is_promoted'] is the same
+        // tracked_properties-backed signal MarketIntelligenceController::release()/
+        // releaseAsManager()/feedback() now guard on (2026-08-19 fix) — use it here
+        // so a promoted claim renders "Pitched"/"On the books" instead of falling
+        // through to R2's stale-hours "CLAIM EXPIRES SOON" countdown.
+        if ($claim && ($claim['is_promoted'] ?? false) === true) {
+            $promotedPropertyId = $claim['property_id'] ?? $claim['tracked_property_promoted_id'] ?? null;
+            if ($promotedPropertyId !== null) {
+                return $this->buildPitched((int) $promotedPropertyId);
+            }
+        }
+
         // R1 — manager-only, stale listing-status claim
         if ($isManager && $claim
             && ($claim['status'] ?? null) === 'listing'

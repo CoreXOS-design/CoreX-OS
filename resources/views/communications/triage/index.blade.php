@@ -3,14 +3,14 @@
 
 @section('corex-content')
 <div class="w-full space-y-5" x-data="triage()">
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);" data-tour="comms-triage-intro">
+    <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="comms-triage-intro">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Review Incoming Messages</h1>
-                <p class="text-sm text-white/60">Unknown-contact messages awaiting your decision. Add the contact to archive the conversation, or mark it not real-estate related to remove it from your list.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Review Incoming Messages</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Unknown-contact messages awaiting your decision. Add the contact to archive the conversation, or mark it not real-estate related to remove it from your list.</p>
             </div>
-            <div class="flex items-center gap-2 flex-wrap">
-                @include('layouts.partials.tour-header-launcher')
+            <div class="flex flex-wrap items-center gap-2">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
             </div>
         </div>
     </div>
@@ -55,7 +55,7 @@
                             <div class="text-xs" style="color: var(--text-muted);">{{ \Illuminate\Support\Str::limit($p->body_preview ?: $p->body_text, 100) }}</div>
                         </td>
                         <td class="px-4 py-3 text-right whitespace-nowrap">
-                            <div class="inline-flex items-center gap-3">
+                            <div class="inline-flex items-center gap-2">
                                 <button type="button" class="corex-btn-primary corex-btn-xs"
                                         @if($loop->first) data-tour="comms-triage-add" @endif
                                         @click="openAdd(@js($p->from_identifier))">Add contact</button>
@@ -63,7 +63,7 @@
                                     @csrf
                                     <input type="hidden" name="identifier" value="{{ $p->from_identifier }}">
                                     <input type="hidden" name="message_external_id" value="{{ $p->external_id }}">
-                                    <button type="submit" class="text-xs font-semibold" style="color: var(--text-muted);" @if($loop->first) data-tour="comms-triage-dismiss" @endif>Not real estate</button>
+                                    <button type="submit" class="corex-btn-outline corex-btn-xs" @if($loop->first) data-tour="comms-triage-dismiss" @endif>Not real estate</button>
                                 </form>
                             </div>
                         </td>
@@ -91,19 +91,19 @@
                 <div class="px-5 py-4 space-y-3">
                     <div>
                         <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">First name <span class="text-red-500">*</span></label>
-                        <input type="text" name="first_name" required class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                        <input type="text" name="first_name" required class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                     </div>
                     <div>
                         <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Last name</label>
-                        <input type="text" name="last_name" class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                        <input type="text" name="last_name" class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                     </div>
                     <div>
                         <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Phone</label>
-                        <input type="text" name="phone" x-model="phone" class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                        <input type="text" name="phone" x-model="phone" class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                     </div>
                     <div>
                         <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Email</label>
-                        <input type="email" name="email" x-model="email" class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                        <input type="email" name="email" x-model="email" class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                     </div>
                     <p class="text-xs" style="color: var(--text-muted);">A phone or email is required.</p>
                 </div>

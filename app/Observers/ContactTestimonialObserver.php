@@ -4,6 +4,7 @@ namespace App\Observers;
 
 use App\Events\Website\TestimonialVisibilityChanged;
 use App\Models\ContactTestimonial;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -21,6 +22,8 @@ class ContactTestimonialObserver
 
     public function created(ContactTestimonial $testimonial): void
     {
+        $this->forgetPendingCountCache($testimonial);
+
         try {
             if ($testimonial->published) {
                 event(new TestimonialVisibilityChanged($testimonial, 'published'));
@@ -32,6 +35,10 @@ class ContactTestimonialObserver
 
     public function updated(ContactTestimonial $testimonial): void
     {
+        if ($testimonial->wasChanged('published')) {
+            $this->forgetPendingCountCache($testimonial);
+        }
+
         try {
             // publish flag flipped → published / removed.
             if ($testimonial->wasChanged('published')) {
@@ -53,12 +60,32 @@ class ContactTestimonialObserver
 
     public function deleted(ContactTestimonial $testimonial): void
     {
+        // Unpublished testimonials count toward the sidebar badge (§14); a
+        // published one leaving via delete also drops the live website count.
+        if (!$testimonial->published) {
+            $this->forgetPendingCountCache($testimonial);
+        }
+
         try {
             if ($testimonial->published) {
                 event(new TestimonialVisibilityChanged($testimonial, 'removed'));
             }
         } catch (\Throwable $e) {
             Log::warning("Testimonial website webhook (delete) failed for #{$testimonial->id}: {$e->getMessage()}");
+        }
+    }
+
+    /**
+     * Sidebar badge (Company Settings) reads a 60s-cached unpublished count
+     * keyed per agency (spec §14). Bust it on every state change that could
+     * move the count so the badge never lags behind reality.
+     */
+    private function forgetPendingCountCache(ContactTestimonial $testimonial): void
+    {
+        try {
+            Cache::forget('testimonials.pending_count.' . $testimonial->agency_id);
+        } catch (\Throwable $e) {
+            Log::warning("Testimonial pending-count cache bust failed for #{$testimonial->id}: {$e->getMessage()}");
         }
     }
 }

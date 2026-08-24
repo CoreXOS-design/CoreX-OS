@@ -84,6 +84,24 @@ class PropertyThumbnailService
     }
 
     /**
+     * Delete the thumbnail for one original image URL, if present. Best-effort —
+     * used when an upload is discarded (e.g. a concurrent idempotent duplicate)
+     * so a freshly-generated thumb for the binned original isn't left orphaned.
+     * Returns true when no thumb remains afterwards.
+     */
+    public function deleteForUrl(?string $publicUrl): bool
+    {
+        $rel = $this->relativePathFromUrl($publicUrl);
+        if ($rel === null) {
+            return false;
+        }
+        $thumbRel = $this->thumbRelPath($rel);
+        $disk = Storage::disk('public');
+
+        return $disk->exists($thumbRel) ? $disk->delete($thumbRel) : true;
+    }
+
+    /**
      * Generate thumbnails for every image on a property. Returns the number of
      * thumbnails produced (or already present when not forcing).
      */

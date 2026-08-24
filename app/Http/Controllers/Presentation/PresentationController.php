@@ -960,6 +960,9 @@ class PresentationController extends Controller
             subjectSizeM2:   isset($validated['size_m2']) ? (int) $validated['size_m2'] : null,
             subjectPriceInc: isset($validated['price']) ? (float) $validated['price'] : null,
             presentationId:  $presentation->id,
+            // SECURITY — scopes MarketCompRowsSoldAdapter / MarketCompRowsActiveAdapter
+            // reads of market_report_comp_rows to this presentation's own agency.
+            agencyId:        (int) $presentation->agency_id,
         );
 
         $maService = new MarketAnalyticsService(
@@ -1280,6 +1283,9 @@ class PresentationController extends Controller
             subjectSizeM2:   isset($validated['size_m2']) ? (int) $validated['size_m2'] : null,
             subjectPriceInc: $subjectPrice,
             presentationId:  $presentation->id,
+            // SECURITY — scopes MarketCompRowsSoldAdapter / MarketCompRowsActiveAdapter
+            // reads of market_report_comp_rows to this presentation's own agency.
+            agencyId:        (int) $presentation->agency_id,
         );
 
         $maService = new MarketAnalyticsService(
@@ -1676,6 +1682,7 @@ class PresentationController extends Controller
             'scenarios'    => $savedConfig['scenarios'],
             'narrative'    => $savedConfig['narrative'] ?? '',
             'agentName'    => $agent->name ?? 'Agent',
+            'agencyName'   => $agent?->agency?->name ?? 'Agency',
             'stock'        => $analysisData['stock_absorption'] ?? [],
         ]);
     }
@@ -1778,6 +1785,11 @@ class PresentationController extends Controller
     {
         abort_unless(auth()->user()->hasPermission('presentations.edit'), 403);
         $record = Presentation::onlyTrashed()->findOrFail($id);
+        // AT-267 H4 — per-record: only restore within the acting user's data scope.
+        abort_unless(
+            Presentation::onlyTrashed()->visibleTo(auth()->user())->whereKey($record->getKey())->exists(),
+            403
+        );
         $record->restore();
         return redirect()->back()->with('success', 'Record restored.');
     }

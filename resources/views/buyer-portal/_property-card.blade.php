@@ -20,7 +20,7 @@
 
     // Public preview with the listing agent hidden (agent=none) — the buyer keeps
     // their own agent as point of contact.
-    $previewUrl = route('corex.properties.preview', [$prop, \Illuminate\Support\Str::slug($prop->title ?? 'property')]) . '?agent=none';
+    $previewUrl = route('corex.properties.preview', $prop) . '?agent=none';
 @endphp
 
 <article class="surface-card overflow-hidden">

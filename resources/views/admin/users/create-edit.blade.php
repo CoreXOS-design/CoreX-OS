@@ -9,6 +9,15 @@
     $designList  = $designations ?? collect();
     $roleList    = $roles ?? collect();
 
+    // AT-378 follow-up — a brand-new agency's only branch should be the
+    // obvious default for every agent invited into it, not a blank "(no
+    // branch)" the admin has to remember to change. Only applies to NEW
+    // users with no branch already picked (old() input wins on validation
+    // redisplay) — an existing user's branch is never silently changed.
+    $defaultBranchId = (!$isEdit && $branchList->count() === 1)
+        ? (string) $branchList->first()->id
+        : '';
+
     $nameParts = $isEdit ? explode(' ', $user->name, 2) : [];
     $firstName = old('name', $nameParts[0] ?? '');
     $surname   = old('surname', $nameParts[1] ?? '');
@@ -28,7 +37,7 @@
 <div class="w-full space-y-5">
 
     {{-- Page header --}}
-    <div class="rounded-md px-6 py-5 flex flex-col md:flex-row md:items-center md:justify-between gap-3" style="background:var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner flex flex-col md:flex-row md:items-center md:justify-between gap-3">
         <div class="flex items-center gap-4">
             @if($isEdit && $user->profilePhotoUrl())
                 <img src="{{ $user->profilePhotoUrl() }}" alt=""
@@ -88,6 +97,7 @@
           autocomplete="off">
         @csrf
         @if($isEdit) @method('PUT') @endif
+        <input type="hidden" name="active_tab" :value="activeTab">
 
         {{-- Hidden honeypot to absorb browser autofill --}}
         <input type="text" name="_autocomplete_trap" style="display:none;" tabindex="-1" autocomplete="username">
@@ -201,6 +211,22 @@
                         @enderror
                     </div>
                     <div>
+                        <div class="flex items-center justify-between mb-1.5">
+                            <label class="block text-xs font-medium" style="color:var(--text-secondary);">WhatsApp</label>
+                            <button type="button"
+                                    onclick="const f=this.closest('form'); const w=f.querySelector('[name=whatsapp_number]'); w.value=f.querySelector('[name=cell]').value; w.dispatchEvent(new Event('input'));"
+                                    class="text-xs font-medium" style="color:var(--brand-icon, #0ea5e9);">Same as cell</button>
+                        </div>
+                        <input type="tel" name="whatsapp_number" value="{{ old('whatsapp_number', $isEdit ? $user->whatsapp_number : '') }}" placeholder="WhatsApp number"
+                               autocomplete="off"
+                               class="w-full rounded-md px-3 py-2.5 text-sm outline-none transition-colors"
+                               style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
+                               onfocus="this.style.borderColor='var(--brand-icon, #0ea5e9)'" onblur="this.style.borderColor='var(--border)'">
+                        @error('whatsapp_number')
+                            <p class="text-xs mt-1" style="color:var(--ds-crimson, #c41e3a);">{{ $message }}</p>
+                        @enderror
+                    </div>
+                    <div>
                         <label class="block text-xs font-medium mb-1.5" style="color:var(--text-secondary);">Fax</label>
                         <input type="tel" name="fax" value="{{ old('fax', $isEdit ? $user->fax : '') }}" placeholder="Fax number"
                                autocomplete="off"
@@ -257,7 +283,7 @@
                                 style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
                             <option value="">(no branch)</option>
                             @foreach($branchList as $b)
-                            <option value="{{ $b->id }}" {{ (string) old('branch_id', $isEdit ? $user->branch_id : '') === (string) $b->id ? 'selected' : '' }}>{{ $b->name }}</option>
+                            <option value="{{ $b->id }}" {{ (string) old('branch_id', $isEdit ? $user->branch_id : $defaultBranchId) === (string) $b->id ? 'selected' : '' }}>{{ $b->name }}</option>
                             @endforeach
                         </select>
                     </div>
@@ -334,6 +360,16 @@
                                style="accent-color:var(--brand-icon, #0ea5e9);"
                                {{ old('counts_for_branch_split', $isEdit ? (int)($user->counts_for_branch_split ?? 1) : 1) ? 'checked' : '' }}>
                         Counts for Branch Split
+                    </label>
+                    {{-- ROI report user selector — persistent exclude for IT/office-admin accounts
+                         (Johan, Andre, Ronel) so they never appear on the Agency Performance &
+                         ROI report. Default checked (on) for every user. --}}
+                    <label class="flex items-center gap-2.5 text-sm cursor-pointer" style="color:var(--text-secondary);">
+                        <input type="hidden" name="show_in_performance_reports" value="0">
+                        <input type="checkbox" name="show_in_performance_reports" value="1" class="rounded"
+                               style="accent-color:var(--brand-icon, #0ea5e9);"
+                               {{ old('show_in_performance_reports', $isEdit ? (int)($user->show_in_performance_reports ?? 1) : 1) ? 'checked' : '' }}>
+                        Show on Performance &amp; ROI Report
                     </label>
                     {{-- Agency Public API — agent appears on the agency website(s). Spec §2 (layer 3).
                          Only shown once the agency has a website (≥1 API key). --}}
@@ -591,7 +627,7 @@
                         @if($isEdit && $user->profilePhotoUrl())
                         <button type="button" class="text-[11px] font-medium mt-2 px-2 py-1 rounded-md transition-colors"
                                 style="color:var(--ds-crimson); background:color-mix(in srgb, var(--ds-crimson) 10%, transparent);"
-                                onclick="if(confirm('Remove agent photo?')){let f=document.createElement('form');f.method='POST';f.action='{{ route('admin.users.remove-file', $user) }}';f.innerHTML='<input type=hidden name=_token value='+document.querySelector('meta[name=csrf-token]').getAttribute('content')+'><input name=field value=agent_photo>';document.body.appendChild(f);f.submit();}">Remove current photo</button>
+                                onclick="if(confirm('Remove agent photo?')){let f=document.createElement('form');f.method='POST';f.action='{{ route('admin.users.remove-file', $user) }}';f.innerHTML='<input type=hidden name=_token value='+document.querySelector('meta[name=csrf-token]').getAttribute('content')+'><input name=field value=agent_photo><input type=hidden name=active_tab value=compliance>';document.body.appendChild(f);f.submit();}">Remove current photo</button>
                         @endif
                     </div>
                     {{-- FFC Certificate --}}
@@ -603,13 +639,13 @@
                         @if($isEdit && $user->ffc_certificate_path)
                         <div class="flex items-center gap-3 mb-3 p-2.5 rounded-md" style="background:var(--surface-2); border:1px solid var(--border);">
                             <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="color:var(--brand-icon, #0ea5e9);"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" /></svg>
-                            <a href="{{ asset('storage/'.$user->ffc_certificate_path) }}" target="_blank"
+                            <a href="{{ route('admin.users.ffc-certificate.download', $user) }}" target="_blank"
                                class="text-xs flex-1 truncate" style="color:var(--brand-icon, #0ea5e9);">
                                 {{ basename($user->ffc_certificate_path) }}
                             </a>
                             <button type="button" class="text-xs font-medium px-2 py-1 rounded-md transition-colors"
                                     style="color:var(--ds-crimson); background:color-mix(in srgb, var(--ds-crimson) 10%, transparent);"
-                                    onclick="if(confirm('Remove FFC certificate?')){let f=document.createElement('form');f.method='POST';f.action='{{ route('admin.users.remove-file', $user) }}';f.innerHTML=document.querySelector('meta[name=csrf-token]').content?'<input type=hidden name=_token value='+document.querySelector('meta[name=csrf-token]').getAttribute('content')+'><input name=field value=ffc_certificate>':'';;document.body.appendChild(f);f.submit();}">Remove</button>
+                                    onclick="if(confirm('Remove FFC certificate?')){let f=document.createElement('form');f.method='POST';f.action='{{ route('admin.users.remove-file', $user) }}';f.innerHTML=document.querySelector('meta[name=csrf-token]').content?'<input type=hidden name=_token value='+document.querySelector('meta[name=csrf-token]').getAttribute('content')+'><input name=field value=ffc_certificate><input type=hidden name=active_tab value=compliance>':'';;document.body.appendChild(f);f.submit();}">Remove</button>
                         </div>
                         @endif
                         <input type="file" name="ffc_certificate" accept=".pdf,.jpg,.jpeg,.png"
@@ -755,12 +791,55 @@
                 <p class="text-xs mb-3" style="color:var(--text-muted);">This user has not yet set up their password. You can resend the invitation email.</p>
                 <form method="POST" action="{{ route('admin.users.resend-invite', $user) }}">
                     @csrf
+                    <input type="hidden" name="active_tab" value="actions">
                     <button type="submit"
                             class="px-4 py-2 rounded-md text-sm font-medium transition-colors"
                             style="background:color-mix(in srgb, var(--ds-amber, #f59e0b) 12%, transparent); color:var(--ds-amber, #f59e0b); border:1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 30%, transparent);">
                         Resend Invitation Email
                     </button>
                 </form>
+            </div>
+            @endif
+
+            {{-- Card: Login History (audit trail — .ai/specs/login-audit-trail.md) --}}
+            @if($canViewLoginHistory)
+            <div class="rounded-md p-5" style="background:var(--surface); border:1px solid var(--border);">
+                <div class="flex items-center gap-2 mb-4">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="color:var(--brand-icon, #0ea5e9);"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 5.25a3 3 0 0 1 3 3m3 0a6 6 0 0 1-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1 1 21.75 8.25Z" /></svg>
+                    <h3 class="text-sm font-bold uppercase tracking-wider" style="color:var(--text-primary);">Login History</h3>
+                </div>
+                @if($loginHistory->isEmpty())
+                <p class="text-xs" style="color:var(--text-muted);">No login activity recorded for this account yet.</p>
+                @else
+                <div class="overflow-x-auto">
+                    <table class="w-full text-xs">
+                        <thead>
+                            <tr style="border-bottom:1px solid var(--border);">
+                                <th class="text-left py-2 pr-4 font-medium" style="color:var(--text-muted);">Event</th>
+                                <th class="text-left py-2 pr-4 font-medium" style="color:var(--text-muted);">IP Address</th>
+                                <th class="text-left py-2 pr-4 font-medium" style="color:var(--text-muted);">Device / Browser</th>
+                                <th class="text-left py-2 font-medium" style="color:var(--text-muted);">When</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach($loginHistory as $entry)
+                            <tr style="border-bottom:1px solid var(--border);">
+                                <td class="py-2 pr-4">
+                                    <span class="px-2 py-0.5 rounded-md font-medium"
+                                          style="{{ $entry->event === 'login' ? 'color:var(--ds-green, #059669); background:color-mix(in srgb, var(--ds-green, #059669) 12%, transparent);' : 'color:var(--text-muted); background:var(--surface-2);' }}">
+                                        {{ ucfirst($entry->event) }}
+                                    </span>
+                                </td>
+                                <td class="py-2 pr-4" style="color:var(--text-primary);">{{ $entry->ip_address ?? '—' }}</td>
+                                <td class="py-2 pr-4 truncate max-w-xs" style="color:var(--text-secondary);" title="{{ $entry->user_agent }}">{{ $entry->user_agent ?? '—' }}</td>
+                                <td class="py-2" style="color:var(--text-secondary);">{{ $entry->created_at->format('Y-m-d H:i:s') }}</td>
+                            </tr>
+                            @endforeach
+                        </tbody>
+                    </table>
+                </div>
+                <p class="text-[11px] mt-3" style="color:var(--text-muted);">Showing the {{ $loginHistory->count() }} most recent events.</p>
+                @endif
             </div>
             @endif
 
@@ -771,14 +850,62 @@
                     <h3 class="text-sm font-bold uppercase tracking-wider" style="color:var(--text-primary);">Danger Zone</h3>
                 </div>
                 <div class="flex flex-wrap gap-3">
-                    <form method="POST" action="{{ route('admin.users.toggle', $user) }}" class="inline">
-                        @csrf
-                        <button type="submit"
-                                class="px-4 py-2 rounded-md text-sm font-medium transition-colors w-full sm:w-auto"
-                                style="{{ $user->is_active ? 'background:color-mix(in srgb, var(--ds-amber, #f59e0b) 10%, transparent); color:var(--ds-amber, #f59e0b); border:1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 25%, transparent);' : 'background:color-mix(in srgb, var(--ds-green, #059669) 10%, transparent); color:var(--ds-green, #059669); border:1px solid color-mix(in srgb, var(--ds-green, #059669) 25%, transparent);' }}">
-                            {{ $user->is_active ? 'Deactivate User' : 'Activate User' }}
-                        </button>
-                    </form>
+                    @if($user->is_active)
+                        {{-- Custom CoreX confirm — a native browser confirm() reads as a
+                             stray Chrome/OS dialog, not part of the product. --}}
+                        <div x-data="{ open: false }" class="inline-block">
+                            <button type="button" @click="open = true"
+                                    class="px-4 py-2 rounded-md text-sm font-medium transition-colors w-full sm:w-auto"
+                                    style="background:color-mix(in srgb, var(--ds-amber, #f59e0b) 10%, transparent); color:var(--ds-amber, #f59e0b); border:1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 25%, transparent);">
+                                Deactivate User
+                            </button>
+
+                            <div x-show="open" x-cloak
+                                 class="fixed inset-0 z-50 flex items-center justify-center px-4"
+                                 style="background: rgba(0,0,0,0.6);"
+                                 @keydown.escape.window="open = false">
+                                <div class="w-full max-w-md rounded-md p-5 text-left"
+                                     style="background: var(--surface); border:1px solid var(--border);"
+                                     @click.outside="open = false">
+                                    <h3 class="text-base font-bold mb-2" style="color: var(--text-primary);">
+                                        Deactivate {{ $user->name }}?
+                                    </h3>
+                                    <p class="text-sm mb-4" style="color: var(--text-secondary);">
+                                        This stops billing for them immediately, but they cannot be
+                                        reactivated for
+                                        <strong>{{ config('corex-billing.seat_release.lock_days', 30) }} days</strong>
+                                        — only CoreX Dev can lift that early. They keep all their data,
+                                        but cannot sign in or do anything on CoreX while deactivated.
+                                    </p>
+                                    <div class="flex items-center justify-end gap-2">
+                                        <button type="button" @click="open = false"
+                                                class="px-3 py-1.5 rounded-md text-xs font-semibold"
+                                                style="background: var(--surface-2); border:1px solid var(--border); color: var(--text-primary);">
+                                            Cancel
+                                        </button>
+                                        <form method="POST" action="{{ route('admin.users.toggle', $user) }}">
+                                            @csrf
+                                            <input type="hidden" name="active_tab" value="actions">
+                                            <button type="submit" class="corex-btn-primary text-xs"
+                                                    style="background: var(--ds-crimson); border-color: var(--ds-crimson);">
+                                                Deactivate
+                                            </button>
+                                        </form>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    @else
+                        <form method="POST" action="{{ route('admin.users.toggle', $user) }}" class="inline">
+                            @csrf
+                            <input type="hidden" name="active_tab" value="actions">
+                            <button type="submit"
+                                    class="px-4 py-2 rounded-md text-sm font-medium transition-colors w-full sm:w-auto"
+                                    style="background:color-mix(in srgb, var(--ds-green, #059669) 10%, transparent); color:var(--ds-green, #059669); border:1px solid color-mix(in srgb, var(--ds-green, #059669) 25%, transparent);">
+                                Activate User
+                            </button>
+                        </form>
+                    @endif
                     <button type="button"
                             data-agent-delete
                             data-user-id="{{ $user->id }}"

@@ -1,7 +1,7 @@
 # Ad Manager — Module Spec
 
 > Status: ACTIVE — build in flight on `AT-7-Finish-ad-manager-for-CoreX`
-> Last updated: 2026-06-13 (Andre)
+> Last updated: 2026-08-02 (Johan) — §14 numeric feature display format + icon
 > Pillars: **Property** (read), **Agent** (read), **Agency** (read/scope)
 
 ---
@@ -249,6 +249,88 @@ Custom templates return `layout_json` + `adData` and render client-side.
 link, no invented facts, optional emojis). Each call is budget-gated + cost-logged. If AI is
 unavailable (no key / budget), the ad image still renders; the row shows the reason instead of
 copy. Batch capped at 50 properties.
+
+### 10b.1 "N selected" showing 0 (fixed) + an ad-generated counter/badge per property
+
+> Status: LIVE · 2026-08-02
+
+**Bug — the agent-group "N selected" summary always read 0, even with real
+selections.** `resources/views/tools/_ad-manager-property-card.blade.php:10`'s
+checkbox bound `x-model="selected"` (no `.number` modifier). Per Alpine's
+checkbox-array binding, a manually-ticked checkbox pushes the DOM `value`
+attribute as a **string** (`"42"`), while every property id elsewhere on the
+page (`p.id`, `agentProperties()`, `selectAllForAgent()`/`selectAllEverything()`
+which push `p.id` directly in JS) is a genuine **number**. `agentSelectedCount()`
+compares them with `ids.includes(s)` — strict equality — so a manually-checked
+property was never found, and the per-agent header always showed 0 selected.
+The overall footer count (`selected.length`) was unaffected — `.length` doesn't
+care about element type — which is why that count looked right while the
+per-agent one didn't, the tell that pointed at a type mismatch rather than a
+wrong-array bug. The SAME mismatch silently broke two other things sharing the
+same array: the selected-card highlight border (`selected.includes(p.id)`,
+same partial, line 5) and `skipAgent()` (line ~320, filtered `selected` by the
+same string ids that were never actually removed). **Fix: one word** —
+`x-model="selected"` → `x-model.number="selected"` — matching the existing
+convention already used elsewhere in this codebase (`drive.blade.php`,
+`command-center/feedback/index.blade.php` both already use `x-model.number`
+on an id checkbox for exactly this reason).
+
+**New feature — an ad-generated counter + last-generated date, per property,
+shown on that property's own card in this tool's selection grid.** Two new
+`properties` columns (additive, defaulted/nullable, no backfill — a property
+simply starts at 0/null, which is honest: CoreX has no historical record of
+past Ad Manager runs before this shipped):
+- `ad_generated_count` (`unsignedInteger`, default `0`)
+- `ad_last_generated_at` (`timestamp`, nullable)
+
+**Stamped only for properties an asset was ACTUALLY generated for** — not
+every id in the request. `AdManagerController::markAdsGenerated(array $ids)`
+does one bulk `Property::whereIn('id', $ids)->update([...])` call, called from
+BOTH `generate()` (the custom-template/pre-built path) and `generateBrochures()`
+(the Printable Brochure path), each keyed on `array_column($results, 'id')` —
+the ids that survived the per-property `canAdvertise()` scope check and made
+it into the response, never the raw request input. A property skipped by the
+scope check (outside the user's data scope) is never counted, verified by a
+dedicated test. One query per batch, not one increment per property — a
+50-property batch costs the same one UPDATE as a 1-property generate.
+
+**Same-pillar, no domain event needed.** This is Property acting on Property
+(the Ad Manager reads and writes back to the same record, same tool, same
+request) — no other pillar (Contact, Deal, Agent, Mandate, FICA) reacts to it,
+so it doesn't need the domain-events pattern (`.ai/specs/corex-domain-events-
+spec.md`), which exists specifically for cross-pillar reactivity (CLAUDE.md
+non-negotiable #9). Confirmed by precedent: the existing `p24_stats_synced_at`
+column (the direct precedent this migration is modelled on) is also a plain
+same-pillar timestamp, stamped with a direct write, no event involved.
+
+**UI — a small badge in the thumbnail's top-right corner** (`_ad-manager-
+property-card.blade.php`), shown only when `ad_generated_count > 0` (a
+property with zero ads generated shows no badge at all, not a "0"). Top-right
+was chosen deliberately over the literally-requested "top-left" because that
+corner is already occupied by the selection checkbox chip — stacking two
+elements there would collide; top-right was empty and reads cleanly. Hovering
+shows the last-generated date via a title tooltip (`formatAdDate()`).
+
+**Acceptance criteria**
+- [x] Manually ticking one or more properties inside an agent group updates
+      that group's own "N selected" count correctly (was stuck at 0).
+- [x] The selected-card highlight border lights up for a manually-ticked card
+      (same root cause, same fix).
+- [x] "Skip" on an agent group actually removes that agent's manually-ticked
+      properties from the selection (same root cause, same fix).
+- [x] `generate()` (custom-template and pre-built paths) increments
+      `ad_generated_count` and stamps `ad_last_generated_at` for every
+      property an asset was generated for.
+- [x] `generateBrochures()` does the same for the Printable Brochure path.
+- [x] Calling generate twice increments the counter to 2, not resetting to 1.
+- [x] A property skipped by `canAdvertise()`'s scope check is never counted,
+      even when it was in the original request alongside a property that WAS
+      generated.
+- [x] The badge shows only when the count is greater than 0; a property with
+      no Ad Manager history shows no badge.
+- [x] Verified end-to-end via Tinker through the real `generate()` endpoint
+      (not just the model/migration in isolation): count 0→1, timestamp
+      stamped, `index()`'s payload shape carries both new fields correctly.
 
 ---
 
@@ -527,6 +609,21 @@ snapshots the fallback face.
   born, and second renderers drift;
 - every font in the kernel's `FONTS` is actually loaded by `_ad-fonts`.
 
+### 12.6 Cache-busting (§15.1 round 4)
+
+All three surfaces load the kernel via `asset_v('js/corex-ad-render.js')`
+(`app/Support/helpers.php`) instead of a hand-written `?v=1` query string.
+`asset_v()` appends the file's own `filemtime()` as the version — it changes
+automatically the moment the file is edited/deployed, with no manual number
+to remember to bump. Before this, every fix shipped this session (rounds 1–4,
+§18) went out behind the SAME unbumped `?v=1` — a browser that had already
+cached the kernel kept running whichever version it fetched first,
+indefinitely, with no way to tell which fixes were actually live in a given
+tab without a hard refresh. This is very likely why property 3080's "ear
+disc" symptom was reported as still present in the same investigation that
+found round 3 already fixes it against the current photo (§15.1 round 4) —
+a stale cached copy of the script, not a live bug.
+
 `tests/js/ad-render-kernel.mjs` (`node tests/js/ad-render-kernel.mjs`) exercises the render
 logic itself against the shipped kernel — the four drift bugs, the new properties, legacy
 back-compat, HTML escaping, and the photo-override path. 31 checks.
@@ -610,9 +707,1769 @@ reactive state; "fit" re-fits on window resize and on canvas-size change.
 - **Preview mode** hides all editor chrome to check the artwork alone.
 
 **Deliberately NOT in this slice:** inline text editing on the canvas (the panel's Text field
-is the single entry point); grouping; free rotation of a multi-selection (the bounding box is
+is the single entry point); free rotation of a multi-selection (the bounding box is
 axis-aligned); starting a custom template from a pre-built one (pre-builts are server-rendered
 Blade, not `layout_json` — a real conversion, specced separately if wanted).
+**Grouping was deferred here — built in §13.1.**
+
+---
+
+## 13.1 Element grouping — select and move together
+
+> Status: LIVE · 2026-08-02
+
+**What/why.** Building a multi-element composite (e.g. a price badge + its
+background shape, or an agent photo + name + phone as one unit) meant re-selecting
+every piece by hand — shift-click each one, every time — with no way to move the
+composite as a single thing by default. A group is a **persisted multi-select**,
+not a new geometry concept: elements sharing an `el.groupId` behave as one unit
+everywhere a selection is FORMED, and the existing multi-select drag/nudge/rotate/
+lock/delete/duplicate logic then applies completely unchanged, because all of it
+already operates on whatever is in `selIds` — grouping only had to change how
+`selIds` gets FORMED, nothing about what happens once it's formed.
+
+**Selection routes through `groupMembers(id)`/`expandToGroups(ids)`** in all three
+places a selection is formed — `elMouseDown()` (plain click and shift-click),
+the marquee-drag mouseup, and `selectFromLayers()` — so a plain click on ANY
+member selects the whole group, a marquee that catches even one member expands to
+the whole group, and shift-click toggles the whole group on/off as a unit (never a
+single member peeled off an otherwise-intact group).
+
+**Group** (toolbar button, `Ctrl G`) bundles the current 2+-element selection into
+one new group, overwriting any `groupId` its members already had — groups don't
+nest; combining pieces of two existing groups (via shift-click) flattens them into
+one new group. **Ungroup** (`Ctrl Shift G`) clears `groupId` from the current
+selection — since selecting any one member already expands to the whole group,
+this always ungroups the WHOLE thing, never a partial slice. The toolbar shows a
+single toggling button (mirrors the existing Lock/Unlock pattern) gated by
+`selIsGroup` — a getter that also requires the selection to be the group's ENTIRE
+membership, not a shift-clicked subset, so the icon and tooltip never promise an
+Ungroup that would actually leave part of the group behind.
+
+**Duplicate/copy-paste remap group IDs** (`_remapGroups()`) — a duplicated or
+pasted group becomes its OWN new group, never silently re-merged with the
+original, which is what would happen if `groupId` were copied verbatim onto the
+clone. A small link icon in the Layers panel marks a grouped row (discoverability
+— nothing else in the panel would otherwise reveal that a row belongs to a group).
+
+**Top-bar "Group…" picker (an alternative to shift-click-first).** A dedicated
+`Group…` button in the top toolbar (`toggleGroupPick()`) enters an explicit
+picking mode instead of requiring the elements to already be selected: click any
+element (canvas OR Layers panel — both route through the same toggle) to add or
+remove it from the pending set, marquee-drag to add several at once (the marquee
+is force-additive while picking, never a replace), then **Confirm** (shown in the
+header, green accent) to group, or **Cancel**/`Esc` to back out with nothing
+changed. Reuses `selIds` as the pending set — no parallel data structure — so
+every touched element gets the SAME per-element `.selected` outline it always
+gets; a lock doesn't block a pick (grouping never moves anything). While picking,
+the floating per-element toolbar and resize handles are suspended
+(`!groupPickMode` added to their `x-if`) so a stray click can't drag, resize or
+delete something mid-pick — picking is a protected, single-purpose mode.
+
+**`groupId` is builder-only**, the same treatment `locked` already gets (§12.3):
+the kernel's `makeElement()` seeds it as `null` so the schema stays symmetric
+across all three ad surfaces, but neither `frameStyle()` nor `contentHtml()` ever
+reads it — the generator and bulk Ad Manager render a grouped element exactly like
+an ungrouped one. A legacy element (saved before this change, no `groupId` key at
+all) is simply ungrouped — `!el.groupId` is falsy for `undefined` — so nothing
+about an existing template changes.
+
+**Design-panel ungroup — everything, or a single item.** Clicking any member
+always selects the WHOLE group (by design, above) — so there was previously no
+way to target just one member for removal. When the current selection
+`selIsGroup`, the Design tab now shows a **"Grouped — N elements"** block: a
+list of every member (`selGroupMembers`) with its own small ✕ button —
+`ungroupOne(el)` clears `groupId` on JUST that element, leaving the rest of the
+group intact — plus an **"Ungroup All"** button (the existing
+`ungroupSelected()`, same as `Ctrl Shift G`/the toolbar toggle). If removing one
+member leaves a single element behind, `ungroupOne()` clears its `groupId` too
+— a "group" of one is meaningless leftover state, not a real group.
+
+**Deliberately not in this slice:** a whole-group bounding-box RESIZE that scales
+every member proportionally — resizing still targets one element at a time, even
+inside a group; free rotation of a group (inherits the existing multi-select
+rotation limit, §13); nested groups (a group inside a group — grouping always
+flattens to one level).
+
+**Acceptance criteria**
+- [x] Clicking any one member of a group selects every member; dragging any one
+      moves the whole group together, preserving relative layout.
+- [x] Group requires 2+ selected; Ungroup only fires on a selection that is a
+      whole existing group.
+- [x] Duplicating or pasting a group produces an independent new group, not a
+      silent merge back into the original.
+- [x] A template saved before this change opens with every element ungrouped.
+- [x] Grouping has zero effect on the rendered ad — same PNG/HTML on the
+      generator and bulk Ad Manager whether an element is grouped or not.
+- [x] The top-bar Group… button enters a picking mode; clicking/marqueeing toggles
+      membership without dragging, resizing or deleting anything; Confirm requires
+      2+ picked; Cancel/Esc discards the pick with zero mutation.
+- [x] The Design panel, when a group is selected, offers both "Ungroup All" and a
+      per-member "remove just this one" control; removing down to one member
+      dissolves that leftover member's group too.
+
+---
+
+## 14. Numeric feature fields — display format + icon (Beds/Baths/Garages/Parking)
+
+> Status: LIVE · 2026-08-02
+
+**What/why.** The Beds/Baths/Garages builder fields only ever rendered a bare
+number (`"3"`). An agent building a custom template had no way to show
+`"3 Bedrooms"` with correct singular/plural, or to pair the value with a
+real-estate icon — both standard on the printable brochure (§10c) but missing
+from the customisable Ad Builder. This closes that gap and adds a fourth
+numeric field, **Parking** (previously brochure-only), to the builder catalogue
+for consistency.
+
+**Data model.** No new table/column — everything lives in the existing
+`layout_json.elements[]` shape (§3). Three new per-element properties, valid
+only on `field ∈ {beds, baths, garages, parking}`:
+
+| Property | Values | Default |
+|---|---|---|
+| `numberFormat` | `'number'` \| `'label'` | `'number'` (bare number — unchanged legacy behaviour) |
+| `icon` | a key into the kernel's `ICONS` map, or `null` | `null` (no icon) |
+| `iconSize` | px, falls back to `fontSize` when unset | `null` |
+
+A legacy element (saved before this change) carries none of these keys —
+`el.numberFormat === 'label'` is false for `undefined`, so it renders exactly
+as before. Icon default is **off**, including for brand-new elements the
+agent hasn't touched, so nothing changes until the agent opts in.
+
+**Singular/plural.** `"label"` format renders `"{number} {word}"` with the
+word chosen by count — Bedroom/Bedrooms, Bathroom/Bathrooms, Garage/Garages —
+mirroring the brochure's existing rule exactly (`_brochure.blade.php`). A real
+half (e.g. 1.5 baths) is kept and pluralises. **Parking never pluralises**
+("Parking" at any count) — same convention the brochure already uses. Handles
+the full input space per BUILD_STANDARD.md §2: empty on the **generator**
+renders nothing (never `"undefined Bedrooms"`); empty on the **builder**
+(`opts.placeholders`) falls back to the field's preview, still formatted;
+non-numeric garbage falls back to the raw string rather than throwing.
+
+**Icon set.** A curated 12-icon real-estate set (Bed, Bath, Garage/Car,
+Parking, Size, House, Location, Key, Pool, Garden, Door, Price Tag) — single-
+path/simple-shape SVGs, `viewBox="0 0 24 24"`, `fill="currentColor"` so an
+icon always follows the element's own text colour (no separate icon-colour
+control). The Bed/Bath/Garage/Parking icons are the SAME paths already
+proven in the printable brochure. Icon is purely decorative/optional — an
+agent can pair any icon with any of the four fields (e.g. a Key icon on
+Garages), it is not locked to a "matching" icon.
+
+**Parking as a new field.** `Property::spaceCount(string $type): int` is the
+single derivation (sum of `spaces_json` entries of that `type`) — previously
+duplicated as a private method on `PropertyBrochureService`; that now
+delegates to the Property method so the brochure and the Ad Manager can never
+compute two different Parking counts for the same listing.
+`Property::adData()['parking']` is `''` when the count is 0 (no data to show,
+same "hide the zero" convention as the brochure's specs bar), else the count
+as a string — matching how `beds`/`baths`/`garages` are already emitted.
+
+**Rendering (one kernel, three surfaces — §12).** `contentHtml()`'s shared
+text-field branch prefixes an inline `<span>` icon (sized to `iconSize` or
+`fontSize`, `margin-right` scaled to size) before the value span — it is not
+a separate canvas element, so it always moves and aligns with the text as one
+unit. Because all three ad surfaces (Builder, single-property generator, bulk
+Ad Manager) render through `corex-ad-render.js`, the format/icon choice
+appears identically on all three the moment it's saved — no per-surface work.
+
+**Builder UI.** A "Display as" select (Number only / Number + label) and a
+6-column icon grid (mirrors the existing Shape picker's visual-swatch
+pattern, §13) appear in the property panel only when the selected element's
+field is one of the four numeric fields. Selecting an icon shows an "Icon
+size" px input. Panel: `ad-builder.blade.php`, right after the frame/opacity
+controls, before the Features chooser block.
+
+**Acceptance criteria**
+- [x] A Beds/Baths/Garages/Parking element defaults to a bare number — no
+      visual change to any template saved before this change.
+- [x] "Number + label" pluralises correctly at 0, 1, 2+, and a real half
+      (baths); Parking never pluralises.
+- [x] An icon renders inline, sized and coloured correctly, on Builder,
+      generator and bulk Ad Manager alike (one kernel, no drift).
+- [x] Empty value on the generator renders nothing; on the builder falls
+      back to the preview; non-numeric input never throws.
+- [x] `Property::spaceCount()` is the only Parking-counting code path;
+      `PropertyBrochureService` and `adData()` agree on every listing.
+- [x] `tests/js/ad-render-kernel.mjs` and `AdRenderKernelTest.php` pass.
+
+### 14.1 "Garages / Parking" combined field — for bulk ad runs across mixed listings
+
+> Status: LIVE · 2026-08-02
+
+**What/why.** Bulk **Tools → Ad Manager** applies ONE template across MANY
+properties in a single run (§10b). A template built with a plain **Garages**
+field prints blank (or "0 Garages" in label mode) on any listing that only
+has parking bays, and a **Parking** field does the mirror-image wrong thing
+on a listing with a garage — there is no single template that reads correctly
+across a mixed batch. New field **`garages_or_parking`** (catalogue label
+"Garages / Parking") resolves **per property, at render time**: garages if
+the listing has any (`> 0`), else parking, else hidden — never both, never a
+"0" value. The two existing standalone **Garages** and **Parking** fields are
+unchanged and still exist for a template that must always read one specific
+source.
+
+**Resolution (`resolveGaragesOrParking(prop)`)** — garages wins whenever it
+is a real positive count; "no garage" covers both an explicit `"0"` and an
+absent/empty value the same way, because a bulk run cannot assume every
+listing's garage column was ever populated. Falls to parking only when
+garages resolves to nothing. Neither present → `null`, which renders **empty**
+on the generator (the same "hide the zero" convention as the Parking field
+and the printable brochure's specs bar) and the label-format word for
+whichever source won ("1 Garage" / "3 Garages" / "2 Parking" — Parking still
+never pluralises).
+
+**No new backend data.** The resolver reads the SAME `prop.garages` /
+`prop.parking` values `Property::adData()` already emits — no new PHP, no new
+column. It is a value-selection rule at the rendering layer, not a new data
+source.
+
+**Builder UI — nothing to add.** `garages_or_parking` is a member of
+`NUMERIC_FEATURE_FIELDS` (§14), so it automatically gets the same "Display
+as" + icon-picker panel as Beds/Baths/Garages/Parking with zero additional
+Blade code — the panel is gated on membership in that list, not on a
+per-field template block.
+
+**Builder preview (no real property yet).** Falls back to the field's
+`preview` value read as a **garages** count/word ("2 Garages") — "defaults to
+garages" holds even before a real listing is attached.
+
+**Acceptance criteria**
+- [x] A listing with a garage shows the garages count/word; a listing with
+      only parking bays shows the parking count/word from the SAME template
+      element — no per-property re-editing needed for a bulk run.
+- [x] A listing with neither renders empty, never "0 Garages".
+- [x] Works identically in bare-number and "Number + label" mode.
+- [x] Carries an icon exactly like the other three numeric fields (no special
+      icon-switching — the icon is the agent's own choice, independent of
+      which source resolved).
+- [x] `tests/js/ad-render-kernel.mjs` covers both-present / zero-explicit /
+      absent / neither / builder-placeholder / icon paths.
+
+---
+
+## 14.2 "Size / Land Size" combined field — vacant land has no floor size
+
+> Status: LIVE · 2026-08-02
+
+**What/why.** Same shape of problem as §14.1, reported the same way: a fixed
+"Size m²" field shows the property's floor size — but **vacant land has no
+floor size at all**, only a stand/erf size. Before the placeholder-leak fix
+(§17, found investigating this exact report), a vacant-land listing didn't
+even render blank — it showed the field's design-time **preview text
+("450 m²") as if it were the property's real size**, on the actual generated
+ad. New field **`size_or_land`** resolves per property: floor size
+(`size_m2`) if the property has one (`> 0`), else the land/erf size
+(`erf_size_m2`), else hidden — never both, matching `garages_or_parking`'s
+exact resolution shape.
+
+**Data.** `Property::adData()` already exposed `size_m2` **pre-formatted**
+(`"450 M²"` string, via PHP `number_format()`) for the existing plain "Size
+m²" field — changing that would break every template already using it. So
+this adds two NEW raw (unformatted) keys instead: `floor_size_m2` (mirrors
+`size_m2`'s own value, just not pre-formatted) and `land_size_m2`
+(`erf_size_m2`, previously not exposed to the Ad Manager at all). The
+combined field does its OWN formatting client-side (`formatSizeNumber()`,
+matching PHP's `number_format()` thousands-separator convention exactly, so
+"1,250 M²" reads identically whichever field shows it) so both candidates
+can be formatted identically regardless of which one wins.
+
+**The "Erf" suffix is deliberate, not decoration.** Showing land size with
+no indication it ISN'T the floor size would be exactly the kind of ambiguous
+real-estate marketing copy CoreX exists to prevent (a buyer could easily read
+"450 M²" as house size when it's actually the stand size). Floor size shows
+bare (`"450 M²"`, matching the existing plain field's convention exactly);
+land size always appends `" Erf"` (`"2,754 M² Erf"`) — the standard SA term
+for a stand/plot, per `CLAUDE.md`'s South African context.
+
+**No icon/"Number + label" panel** — unlike Beds/Baths/Garages/Parking,
+size has no singular/plural concept, so `size_or_land` is deliberately NOT a
+member of `NUMERIC_FEATURE_FIELDS` (that set specifically gates the icon +
+display-format panel, §14) — it needs no extra per-element configuration
+beyond the position/style every element already gets.
+
+**Acceptance criteria**
+- [x] A listing with a floor size shows it, bare, exactly like the existing
+      plain Size m² field.
+- [x] Vacant land (no floor size, real erf size) shows the erf size with the
+      "Erf" suffix — verified against a real property (id 1290) via Tinker.
+- [x] A listing with neither renders empty, never a fabricated size.
+- [x] Thousands-separator formatting matches the plain field's PHP
+      `number_format()` output exactly.
+- [x] `tests/js/ad-render-kernel.mjs` covers both-present / zero-explicit /
+      absent / neither / builder-placeholder / thousands-separator paths.
+
+---
+
+## 17. Placeholder-leak fix — a missing field must never fabricate data onto a real ad
+
+> Status: LIVE · 2026-08-02 — found investigating the §14.2 report, fixed the same day
+
+**What/why.** While diagnosing "vacant land shows a fabricated 450 m²",
+traced `textValue()`'s generic fallback (every text field that isn't one of
+the special-cased ones above) and found: **`return el.preview || el.label ||
+'';` ran unconditionally, ignoring `opts.placeholders` entirely.** The
+Agent-2 fields and the numeric feature fields (§14) already had their own
+`if (!opts.placeholders) return '';` guard — but the generic path every OTHER
+field falls through (`reference`, `address`, `agent_phone`, `agency_name`,
+`website`, `size_m2` before §14.2, and any custom/decorative field with no
+matching property key) did not. **This meant any of those fields, on any
+property missing that data, rendered its DESIGN-TIME PREVIEW TEXT on the
+actual generated ad as if it were real** — a property with no captured
+floor size showed "450 m²", one with no reference showed "REF 12345", one
+with a blank agent phone column would have shown "082 000 0000" — all
+fabricated, all indistinguishable from real data to whoever received the ad.
+
+**Fix.** The generic fallback now carries the exact same guard the
+special-cased fields already had: `if (!opts.placeholders) return '';` before
+falling back to `el.preview || el.label`. The Builder still shows every
+field's preview copy when the real value is missing (so designing against an
+incomplete property still looks right); the generator and bulk Ad Manager now
+render nothing rather than fiction. This generalises a rule that was already
+correct for two special cases to the one function that governs all of them —
+"fix the class, not the instance" (BUILD_STANDARD §6).
+
+**Acceptance criteria**
+- [x] Every generic text field with no real data renders empty on the
+      generator, never its design-time preview.
+- [x] The Ad Builder is completely unaffected — still shows every preview
+      when designing against an incomplete property.
+- [x] A field WITH real data is completely unaffected either way.
+- [x] `tests/js/ad-render-kernel.mjs` covers the generic path directly
+      (`reference`, `address`, `agent_phone`) plus the untouched real-data case.
+
+---
+
+## 15. Agent Image — renamed from "Avatar", plus a shape picker
+
+> Status: LIVE · 2026-08-02
+
+**What/why.** The catalogue label read **"Agent 1 · Avatar"** / **"Agent 2 ·
+Avatar"** — renamed to **"Agent Image"** to match the rest of CoreX's copy
+(`profilePhotoUrl()`, the My Portal profile page, etc. all say "photo"/"image",
+never "avatar"). This is a **display-label change only** — the underlying field
+keys (`agent_avatar`, `agent_2_avatar`) are unchanged, so nothing about a saved
+template's data shape moved. A pre-existing element's OWN saved `label` (which
+may have been hand-edited, or is simply the old catalogue text baked in at
+creation time) is untouched — only the catalogue text a fresh drag reads from
+changes; per-element labels have always been editor-set copy, never a live
+lookup.
+
+**Shape picker.** The Agent Image previously offered only a plain numeric
+"Border Radius (px)" field — in practice used to fake a circle by setting it
+larger than half the box. It now gets the **same shape picker as the
+decorative Shape element** (§13): a 10-shape visual grid (Rectangle, Rounded,
+Circle, Pill, Triangle, Diamond, Pentagon, Hexagon, Star, Chevron), reusing
+`CoreXAd.SHAPES` and `CoreXAd.shapeCss()` for the swatch previews verbatim — no
+new picker UI to design or maintain, and no separate "matching" rule (an agent
+can put their photo in a star cutout if they want).
+
+**Mechanism (`el.shapeType`, same property name the Shape element already
+uses).** `frameStyle()` gains `avatarShapeCss(shapeType, borderRadius)`:
+- A clip-path shape (Triangle…Chevron) sets `clip-path` from the SAME
+  `SHAPE_CLIPS` map the decorative Shape element uses, and zeroes
+  `border-radius` (the two would fight otherwise).
+- `circle` → `border-radius:50%` (a true ellipse on a non-square box, the
+  conventional profile-photo crop — NOT the old oversized-px hack).
+- `pill` → `border-radius:9999px` (stays a stadium shape even on a wide box,
+  distinct from `circle`).
+- `rounded` → `el.borderRadius`px, a REAL adjustable corner radius (previously
+  the only option was the oversized-hack number, which only ever looked like a
+  circle no matter what value was entered).
+- `rectangle` → `border-radius:0`.
+The frame — not the `<img>` — carries the clip/radius (`overflow:hidden` on the
+frame does the actual visual clipping, same pattern the Shape element already
+uses for its own children); `imgTag()` needed zero changes.
+
+**Backward compatible by construction.** An element with no `shapeType` at all
+— every Agent Image saved before this change — skips `avatarShapeCss()`
+entirely and falls through to the EXISTING `el.borderRadius || 0` handling, so
+a legacy avatar (saved with the old `borderRadius:50` default) renders
+byte-identical to before. A brand-new element defaults to `shapeType: 'circle'`
+(seeded in `FIELD_DEFAULTS`), preserving today's circular default look — this
+is a pure superset, not a behaviour change for anyone who does nothing.
+
+**Deliberately not built (dropped mid-conversation on request):** a
+"backgroundless" option — either a transparent fill behind the shape mask, or
+suppressing the placeholder box shown when no photo is uploaded. Neither is
+built; the existing tinted-box placeholder behaviour (`emptyPhotoHtml()`) is
+unchanged.
+
+**Acceptance criteria**
+- [x] Catalogue reads "Agent 1 · Image" / "Agent 2 · Image", not "Avatar".
+- [x] A legacy Agent Image (no `shapeType`) renders exactly as it did before —
+      same circular crop, same `borderRadius` value.
+- [x] A brand-new Agent Image defaults to a circle (no visual regression for
+      an agent who never touches the new picker).
+- [x] Every one of the 10 shapes, including clip-path shapes, can mask an
+      Agent Image, identically for Agent 1 and Agent 2.
+- [x] `tests/js/ad-render-kernel.mjs` covers the rename, the default, every
+      shape branch, and the legacy fallback.
+
+---
+
+## 15.1 "Remove background" — client-side cutout for a plain-backdrop photo
+
+> Status: SUPERSEDED 2026-08-03 by §15.2 (AI segmentation API) in the LIVE
+> render path — see §15.2 for why and exactly what changed. The algorithm,
+> tests and this write-up are kept below verbatim as the historical record of
+> six rounds of evidence-based iteration; nothing here was deleted. The
+> underlying functions (`_floodFillTransparent`, `_fillEnclosedHoles`,
+> `_featherAlpha`, `stripBackground`, `_processBackgroundRemoval`,
+> `configureBgRemoval`/`_bgRemovalConfig`) remain in
+> `public/js/corex-ad-render.js`, exported on `window.CoreXAd`, but are no
+> longer called from the live render path (`imgTag()` no longer adds the
+> `onload` hook that triggered them) — see §15.2's "Dead code" note for the
+> exact removal-candidate list for a later round.
+
+**What/why.** The request's own example: an agent's headshot on a **white studio
+backdrop** should lose that backdrop and show only the person, so the photo sits
+directly on the ad's own background/colour instead of carrying a visible white
+box around it. This is scoped to the Agent Image element (`agent_avatar`/
+`agent_2_avatar`) only, same as the shape picker (§15) — not a general image
+tool.
+
+**This is NOT AI/ML person segmentation** — no model, no third-party API (no
+`remove.bg`-style cost or network dependency, no photo ever leaves the browser).
+It is a **flood-fill colour cutout**, the same class of technique behind
+PowerPoint's "Remove Background": sample the backdrop colour, then flood-fill
+transparency inward from seed pixels that colour-match (within a tolerance) —
+stopping wherever the colour changes sharply. A pixel only turns transparent if
+it is both colour-matched AND reachable from a seed without crossing that edge,
+so **a white shirt collar in the middle of the photo survives** (it's not
+connected to any seed) while an actual solid/near-solid backdrop is removed.
+Works best on the case it's built for — a plain, evenly-lit, roughly-solid-
+colour backdrop (the common studio-headshot shape) — not a photo with a
+busy/textured/gradient background, which is a materially harder problem this
+deliberately does not attempt.
+
+**Fixed 2026-08-02, in two rounds — a real photo (Retha's) exposed both ends
+of this trade-off in production, same day.**
+
+*Round 1 — the shirt got swept away with the backdrop.* The original version
+sampled the backdrop colour from all FOUR image corners and seeded the flood
+fill from the ENTIRE frame border, including the bottom row. A headshot crop
+routinely has the subject's shoulders/shirt reaching the bottom (and sometimes
+lower-side) edge of the frame — when that garment is a similar tone to the
+backdrop (a white shirt on a white/light backdrop is the common case, not an
+edge case), seeding from the bottom edge let the fill flow straight from the
+backdrop into the garment. Fixed: **seeds no longer include the bottom row**,
+side-column seeding is **restricted to the upper half of the frame**
+(`sideSeedLimit = h * 0.5`), and **corner sampling uses only the TOP-LEFT/
+TOP-RIGHT corners** (bottom corners are often clothing, and averaging them in
+had pulled the sampled "backdrop colour" toward the clothing colour). Tolerance
+tightened 40→26 now the sample is cleaner.
+
+*Round 1 ALSO added a hard floor* (`noRemoveBelow = h * 0.82`, "never erase
+the bottom ~18% of the frame, full stop") as a backstop, reasoning that
+restricting seeds alone doesn't stop the fill reaching a garment via
+propagation through legitimately-connected background above the seed line.
+
+*Round 2 — the floor overcorrected: "left ~20% at the bottom."* Reported the
+same day. The floor is BLIND — it has no idea whether that band is actually
+backdrop or clothing, and Retha's actual photo has genuine visible backdrop
+below the shoulders (not every crop has the garment reaching the literal
+bottom pixel), which the floor now refused to touch. **The floor is removed.**
+Propagation is unrestricted by y-position once a pixel is seeded — a
+background pixel below the seed line still connects upward to more background
+regardless of its row — so genuine connected backdrop is correctly cleared
+all the way down again. What actually stops a real garment from being eaten is
+what a colour algorithm can legitimately reason about: not seeding from the
+ambiguous bottom edge, sampling the backdrop colour from a clean spot, and a
+tolerance tight enough to catch a real (even modest) colour difference.
+
+**The remaining, accepted limit — stated, not silently patched around:** a
+garment truly colour-IDENTICAL to the backdrop, with zero edge between them,
+gives no signal any colour-based algorithm can use, and will still be swept in
+too. A blind position-based floor could paper over that one synthetic
+worst-case, but at the cost of breaking the much more common real case (a real
+photo where the garment DOES differ from the backdrop, even subtly, and
+genuine backdrop legitimately extends low in the frame) — precisely the
+regression Retha's photo demonstrated. `tests/js/ad-render-kernel.mjs` covers
+all three shapes explicitly: a garment with a real colour difference survives
+even at the bottom edge; genuine low-frame backdrop is removed; a
+colour-identical garment is knowingly, explicitly swept in (asserted, not
+discovered by surprise).
+
+**Mechanism.** A checkbox — "Remove background" — in the Agent Image panel sets
+`el.removeBackground`. The kernel's `imgTag()` adds `onload="window.CoreXAd.
+stripBackground(this)"` to the `<img>` when that's on; `stripBackground()`
+downscales the photo onto an offscreen `<canvas>` (capped at 500px on the
+longest side, so a full-resolution profile photo is never slow), runs the
+flood-fill (`_floodFillTransparent`/`_cornerColor`), and swaps the `<img>`'s
+`src` to the resulting transparent-PNG data URL. **One `onload` attribute is
+the ONLY per-surface change** — it fires identically whether the `<img>` was
+inserted via Alpine's reactive `x-html` (Builder) or `renderLayout()`'s
+imperative `innerHTML` (generator/bulk manager), so nothing else needed
+touching in any of the three surfaces.
+
+**Same-origin only** (relies on the existing `Property::adSafeImageUrl()`
+resolution, §10e, that already makes html2canvas work) — a genuinely
+cross-origin photo makes the canvas "tainted", `getImageData()` throws, and the
+function resolves to `null`: the original photo keeps showing rather than the
+ad breaking. Errors of any kind degrade the same way — this never crashes an ad.
+
+**Cached per source URL, re-processed only once even across a bulk run.** A
+`_bgRemovalCache` keyed by the ORIGINAL `<img>.src` stores the in-flight/settled
+Promise, so if the same agent's photo appears across many properties in a bulk
+Ad Manager run, only the FIRST occurrence actually runs the flood-fill; every
+other `<img>` for that same URL gets the cached result instantly. Re-loading the
+SAME processed data URL (the swap itself triggers a second `load` event) is
+guarded by `img.dataset.bgStripped`, so it can't loop.
+
+**Capture-timing safety.** Both capture paths — the single-property generator's
+`_capture()` and the bulk Ad Manager's `downloadRow()` — now `await
+CoreXAd.backgroundRemovalsSettled()` before calling `html2canvas`, alongside
+their existing fixed-delay buffers (80ms/60ms — precedent already in this
+codebase for the identical font-loading race, §12.4-adjacent). This is a
+best-effort guarantee, not a formally provable one — genuinely slow processing
+(a very large source photo before downscaling, or a slow device) could in
+theory still race a capture that fires immediately; flagged here rather than
+silently assumed solved.
+
+**Toggling off reverts cleanly.** `imgTag()` always starts from `imageSrc()`'s
+resolved ORIGINAL photo URL — turning `removeBackground` off simply stops
+adding the `onload` hook on the next render, so the element shows the
+untouched original photo. Nothing is ever mutated on the `Property`/`User`
+model or `prop` data; the swap only ever touches the live `<img>` DOM node.
+
+*Round 3 (2026-08-02, same day) — enclosed holes and hard edges (property
+3080, agent Elize Reichel).* Investigated first, empirically, before touching
+any code: two hard-edged white discs sat at the ear/earring positions, and a
+pale block sat near the collar/shoulder, all left completely untouched by
+rounds 1–2 — because they're genuine backdrop colour that the border-seeded
+flood fill can never reach in the first place. A hoop earring encircles a
+disc of visible backdrop; a lapel gap does the same — both are fully enclosed
+pockets, connected to no border, so no seed ever reaches them. Separately, the
+cutout's edge was hard/aliased (binary alpha, 0 or 255, nothing between) —
+correct per the flood-fill's own logic but visibly "pasted on" compared to a
+studio matte cut.
+
+Fixed with two new passes, run after the existing flood fill, inside the SAME
+`_processBackgroundRemoval()` pipeline:
+
+- **`_fillEnclosedHoles()`** — a second connected-components pass over
+  backdrop-coloured pixels the first pass left opaque. A pocket is filled
+  ONLY if (a) it touches NO frame border anywhere along its connected
+  boundary — anything that does is exactly the garment case rounds 1/2
+  already protect and is left strictly alone — and (b) it is at least
+  `HOLE_MIN_PX = 30` pixels, measured at the real 500px working resolution.
+  (b) exists because an eye catch-light is ALSO an enclosed near-white pocket
+  within the same colour tolerance, and had to be ruled out empirically before
+  shipping this: measured on a real photo, catch-lights ran 19px and under
+  while real holes (the earring, the collar gap) ran 46–851px — a clean
+  separation with margin on both sides, not a threshold picked by feel.
+  Verified against Retha's and Kym's photos too (previously-clean cutouts,
+  not just Elize's) — no new artifacts introduced.
+- **`_featherAlpha()`** — a 1px-radius (3×3) box blur applied to the ALPHA
+  CHANNEL ONLY, never the colour channels, so a hard cut-out boundary reads as
+  a soft anti-aliased line instead of a binary jump — most visible on fine
+  hair strands. Colour-channel blurring was deliberately avoided: it would
+  bleed backdrop colour into edge pixels, the opposite of the goal.
+
+The collar/shoulder pale block is only PARTIALLY fixed by this round: the
+portion of it that's fully enclosed is now correctly filled, but the portion
+that touches the frame border is — correctly — left alone, for the same
+reason a real garment must be. That's the accepted boundary of a
+border-connectivity technique, not an oversight; see the existing "remaining,
+accepted limit" note above, which this round doesn't change.
+
+*Round 4 (2026-08-02, same day) — an upper bound on `_fillEnclosedHoles`
+(property 2934, SAME agent, a different pose).* Reported as "additional
+evidence": the same agent's photo produced a DIFFERENT artefact on a
+different property's ad — earrings rendered correctly, but a large section of
+the white collar/blouse was missing, cut with a hard straight edge. Investigated
+before any code change, per the same evidence-based discipline as round 3:
+
+- **Which file did each property actually process?** Could not be proven.
+  `agents/{id}/photo.webp`'s underlying bytes were overwritten in place on
+  2026-06-25 (the `user_documents` row's `file_path` never changed, only its
+  content did) — an orphaned older photo with a different pose (arms crossed,
+  a wide open V-neck collar) still sat on disk, unreferenced since. nginx
+  access logs on the host only retain ~14 days, starting well after that
+  replacement — every retained request for the current URL returns the
+  CURRENT file's byte count, with no trace of the old one ever being served in
+  the retained window. The fix below is deliberately justified on its own
+  merits, NOT on an assumed timeline of which file which ad used — the defect
+  it fixes is real and reproducible against the actual old file regardless.
+- **Ruled out:** a persistent/shared cache serving stale output (none
+  exists — confirmed by re-reading `stripBackground()`/`_bgRemovalCache`, a
+  plain in-memory object scoped to one page load); the algorithm referencing
+  the AD's own background/colour behind the subject (`_processBackgroundRemoval`
+  draws only the `<img>` element's own decoded bitmap — nothing in the kernel
+  reads or blends against the surrounding template); non-determinism (a
+  faithful PHP/GD port run twice against the same file produced byte-identical
+  output, `md5sum` confirmed).
+- **Confirmed, reproducible defect:** `_fillEnclosedHoles()` (round 3) had a
+  size FLOOR (`HOLE_MIN_PX`) but no ceiling. A pose where a genuine patch of
+  light-coloured clothing is fully enclosed by dark clothing on every side
+  (arms crossed, an open collar) satisfies the exact same "enclosed pocket"
+  test as an earring gap — round 3 had no way to tell them apart, so it
+  erased a real 2059px patch of collar outright.
+
+**Fix — two additional guards, both required, both agency-configurable
+(never hardcoded per-call):**
+- `holeMaxPx` (area cap, default **1200**) — rejects a pocket whose total pixel
+  count exceeds this.
+- `holeMaxDimensionPx` (bounding-box cap, default **45**) — rejects a pocket
+  whose LONGEST bounding-box side exceeds this.
+
+Both are necessary; NEITHER alone covers every measured case. Measured on the
+real photos (500px working resolution):
+
+| | area (px) | longest bbox side (px) |
+|---|---|---|
+| genuine holes (earrings, small gaps) | 46–851 | ≤41 |
+| failing case A (small collar gap) | 602 | 51 |
+| failing case B (large collar patch) | 2059 | 131 |
+
+Failing case A's AREA (602) is *smaller* than the largest genuine hole
+(851) — an area cap tight enough to exclude 602 would also wrongly exclude
+725 and 851. The bounding-box dimension is what separates every measured case
+cleanly (≤41 vs. ≥51), which is why it exists as an independent guard, not
+folded into the area check. `holeMaxPx` still exists as a second, independent
+line of defence for a large pocket whose proportions happen to keep its
+longest side under the dimension cap.
+
+Existing `HOLE_MIN_PX` was renamed `holeMinPx` and folded into the same
+agency-configurable mechanism (default unchanged, 30).
+
+**Agency-configurable, not hardcoded.** All three thresholds live on
+`agencies.ad_bg_removal_hole_{min,max,max_dimension}_px` (nullable —
+null = "use the kernel's default"), read once per page load by each of the
+three render surfaces and pushed into the kernel via
+`CoreXAd.configureBgRemoval({ holeMinPx, holeMaxPx, holeMaxDimensionPx })`,
+called immediately after the kernel script tag. **Deliberately NOT surfaced
+in the Agency Onboarding Setup Wizard** — non-negotiable #10a's own carve-out
+for "an expert/rarely-touched knob" applies here: this is pixel-level tuning
+for a specific photo-processing edge case, not a business-relevant setting an
+agency needs walking through at setup. This is Johan's own call, made
+directly in this session, not inferred by the lane — recorded here per
+non-negotiable #10a so the omission is a decision on the record, not an
+oversight.
+
+**Regression-tested against real photos, not just synthetic cases:** Elize's
+current photo (close-up headshot) — both earring holes still fill correctly,
+zero change from round 3; Elize's old orphaned photo (arms-crossed pose) —
+the 602px and 2059px collar patches are now correctly rejected, composited
+onto a contrasting background and visually confirmed intact; Retha's, Kym's,
+Johan's and Maggie's photos — no change, still clean, across a real mix of
+poses/clothing (a dark shirt with no light collar at all, busy hair with many
+small strand-gaps, a name-badge pinhole).
+
+**A genuine footgun found and fixed along the way — `@json()` cannot take an
+inline multi-key array literal.** The first attempt at wiring
+`configureBgRemoval({...})` into all three surfaces passed the array directly:
+`@json(['holeMinPx' => …, 'holeMaxPx' => …, …])`. This compiled "successfully"
+(`artisan view:cache` reported no error) but threw a `ParseError` — "Unclosed
+`[` … does not match `)`" — the moment the view actually RENDERED. Root cause,
+confirmed by reading `Illuminate\View\Compilers\Concerns\CompilesJson`:
+`@json($value, $options, $depth)` is compiled by exploding its ENTIRE argument
+on every top-level comma, expecting up to three positional arguments — an
+inline array literal's own key-value commas get sliced apart the same way,
+truncating the array and feeding its own later fragments in as `$options`/
+`$depth`. `view:cache` never catches this because it only pre-compiles each
+file's Blade syntax; it does not exercise the `@extends`/`@section` render
+path the same way an actual `view()->render()` call does — this is why the
+bug was invisible until Tinker-rendered the real controller output. **Fix:**
+build the array in a `@php` block first, assign it to a bare variable with NO
+top-level commas, then pass ONLY that variable to `@json($var)`. Applies to
+all three surfaces identically (`$_bgRemovalCfg` in `ad.blade.php`/
+`ad-builder.blade.php`, same in `ad-manager.blade.php`). Worth remembering for
+any FUTURE `@json(...)` call anywhere in this codebase that isn't a single
+bare variable/expression.
+
+**Deliberately not built:** manual background-colour picking (always
+auto-sampled from the corners); a "transparent fill behind the shape mask" or
+"no placeholder box when the photo is missing" option (both explicitly
+dropped from scope on request, see §15's "Deliberately not built"); an
+aspect-ratio-based guard (evaluated and rejected — some GENUINE small holes
+measured MORE elongated, e.g. 5.33:1, than the failing large patch's 2.18:1,
+so aspect ratio alone is not a safe discriminator on this data; absolute
+bounding-box dimension is what actually separates every case).
+
+*Round 5 (2026-08-02, same day) — a THIRD, distinct failure shape found on
+the SAME real photo: the main flood fill leaking into a lit collar highlight.*
+Reported as "a pale, hard-edged region at the bottom-left that runs to the
+frame border" — round 4 shipped correctly (its own regression table showed
+zero change on this exact photo) but didn't touch this artefact, because it
+turned out not to be an enclosed-hole issue at all.
+
+**Investigation corrected the initial framing before any code changed.** The
+natural first hypothesis — a border-touching region incorrectly PROTECTED
+from removal (i.e. something `_fillEnclosedHoles`'s border-touch guard was
+over-protecting) — was measured first, exactly as asked, and ruled out: the
+one border-touching survivor found (3052px, bbox 75×123, touching the bottom
+edge) traced back to source and was confirmed correct — genuine, untouched
+fabric, never a candidate for removal at all. The ACTUAL defect is the
+OPPOSITE: real collar fabric being ERASED, by `_floodFillTransparent()`
+(rounds 1/2's original pass), not anything `_fillEnclosedHoles` (rounds 3/4)
+ever touches. Confirmed by colour-coding which pass removes which pixel and
+tracing a probe pixel's ancestry: it belongs to the SAME single connected
+component as the entire 131,319px border-seeded fill.
+
+**Root cause, measured precisely.** A well-lit patch of the (real, present —
+confirmed against the unprocessed source photo, no gap in the garment) white
+collar sits at a colour distance from the sampled backdrop that individual
+pixels never exceed the flat tolerance (measured: min 0, median 17.7, max
+26.0 in the affected area) — this is NOT the "truly colour-identical garment"
+case rounds 1/2 already accept as a hard limit. It's a smooth, unbroken
+4-connected chain from real backdrop into the lit fabric. Traced the actual
+flood-fill path into the leak: distance from backdrop sits at ~0 for roughly
+600 hops (genuine, flat backdrop) then jumps to ~23 in a SINGLE hop at the
+exact point the fill crosses from background into the collar edge, staying
+elevated (17–25) for the rest of the path deeper into the fabric. A per-pixel
+tolerance check cannot see this — it only ever asks "is this ONE pixel close
+enough to backdrop", never "how far has the fill already drifted to get
+here." Confirmed the `objectFit:cover` crop (180×200) is not a contributing
+factor — cover's own geometry keeps the full vertical range visible here (no
+crop) and only trims 25px off each side horizontally, well clear of the
+leak's location. Ran the same measurement against Retha's, Kym's, Johan's and
+Maggie's photos — zero leaks in any of them; this is 1-in-5 tested, not a
+systemic problem, correlating with a specific evenly-lit highlight condition.
+
+**Fix — `floodFillDriftCapPx` (default 20): a path-max drift cap on the main
+flood fill.** Tracks, per pixel, the HIGHEST single-pixel colour distance
+seen anywhere along the chain of already-accepted pixels connecting it back
+to a seed (each pixel inherits the max of its own distance and whichever
+neighbour first reached it). Once that running max exceeds the cap,
+propagation stops — the pixel is neither removed nor does the fill continue
+past it, so everything beyond is protected too. Evidence for the default:
+measured path-max-distance across every removed pixel in all 5 test photos —
+**the 90th percentile is 0 in EVERY photo** (real backdrop is genuinely flat,
+so this signal is silent almost everywhere) — while the failing photo's leak
+sits at 22–25 the moment it crosses from backdrop into fabric. 20 sits below
+where the leak starts climbing and above where four clean photos' own
+highest percentiles sat, so it engages ONLY on the measured failure case, not
+as a blanket tightening of every photo's cutout.
+
+**Three explored alternatives, and why this one shipped:**
+- **A narrow relaxation of the border-touch rule** (the ask's own first
+  hypothesis) — moot once investigation corrected the framing: there was
+  never a survivor to relax protection for; the pixels in question were
+  never protected in the first place, they were being wrongly erased.
+- **Fix at source (re-crop/re-shoot the agent photo)** — doesn't touch the
+  algorithm, zero regression risk to any other photo, but is a process
+  fix, not retroactive: already-uploaded photos with this lighting stay
+  broken, and CoreX can't enforce photography practice. Recorded as ongoing
+  guidance, not a substitute for a code fix.
+- **A soft fade at the cut-out's bottom edge** — would only soften the edge
+  of whatever got removed; the real collar detail is still lost. Rejected
+  as symptom-masking, not a fix (BUILD_STANDARD.md: "fix root causes, not
+  symptoms... no quick patches").
+
+**Regression-tested against all 5 real photos, composited on a contrasting
+background and visually confirmed, plus an exact pixel-diff (not just
+eyeballing) between the pre- and post-fix output:**
+- Elize's photo (the failing case): the 3052px-class leak is gone, collar
+  fully intact, matching the untouched side of the same photo. Both earrings
+  still correctly filled (round 3, unaffected).
+- Elize's OLD orphaned photo (round 4's test case): unaffected — the
+  602px/2059px collar-patch rejections are byte-for-byte identical before
+  and after this change, confirming no interaction between round 4's
+  enclosed-hole guard and round 5's flood-fill guard.
+- Retha, Kym, Johan, Maggie: pixel-diffed before vs. after — 0.3–0.8% of
+  removed pixels changed in each, exclusively as thin (≤14px-wide) fringe
+  clusters along hair/subject edges, not blob-shaped erasures. Visually
+  inspected the single largest cluster (Retha, 495px, a hair edge) — the
+  diff is a few strands of fine hair now correctly PRESERVED instead of
+  swept away with the backdrop, a marginal improvement, not a regression.
+
+**Agency-configurable, not hardcoded.** `agencies
+.ad_bg_removal_flood_fill_drift_cap_px` (nullable — null = kernel default,
+20), same mechanism and same non-negotiable #10a Setup Wizard carve-out as
+the round-4 thresholds it sits alongside.
+
+**Acceptance criteria (round 5)**
+- [x] A smooth-gradient path that individually stays within the flat colour
+      tolerance the whole way is stopped once its cumulative path-max
+      distance exceeds `floodFillDriftCapPx` — the collar-leak regression.
+- [x] Genuine flat backdrop (path-max ~0 throughout) is completely
+      unaffected — clears exactly as before.
+- [x] Raising `floodFillDriftCapPx` above the flat tolerance (26) recovers
+      the pre-round-5 behaviour exactly, proving the cap — not something
+      else — is what protects the gradient case.
+- [x] `configureBgRemoval()` actually changes `floodFillDriftCapPx` when an
+      agency sets it; defaults to 20 when unset.
+- [x] Round 1/2's "a garment with a real colour difference survives touching
+      the bottom edge" is not regressed by the new cap.
+- [x] Round 4's enclosed-hole guard (602px/2059px collar-patch rejection) is
+      byte-for-byte unchanged with the new cap active.
+- [x] Verified against 5 real photos (not just synthetic frames): the one
+      failing case is fixed; the other four show only thin, non-blob edge
+      fringing (0.3–0.8% of removed pixels), visually confirmed harmless.
+- [x] `tests/js/ad-render-kernel.mjs` covers the mechanism directly with a
+      synthetic gradient-corridor frame: default cap stops before the
+      "plateau", raised cap sweeps it, real flat backdrop unaffected.
+
+**⛔ REVERTED (2026-08-02, same day) — see "Round 6 — REVERTED" note at the
+end of this section before reading any further.** The fix below shipped to
+live, was found to make the ad visibly WORSE (a flat white rectangle over a
+photographic background, not a colour-matched blend), and was pulled the
+same day. Round 5 is the accepted state. This write-up is kept for the
+record — do not re-implement `cutoutMatteColor` from this description
+without reading why it failed.
+
+*Round 6 (2026-08-02, same day) — the remaining artefact was a compositing
+gap, not the removal algorithm at all.* Round 5 fixed the collar erasure,
+confirmed on a fresh pull. What remained on the SAME photo: a hard, straight
+vertical edge down the left side of the jacket ("reads as a crop boundary,
+not a photo edge"), and a pale wedge near the shoulder with a hard edge.
+Investigated before touching any code, per the same discipline as every
+prior round — and this time the cause was NOT the algorithm at all.
+
+**Root cause, proven with the real template's own saved data.** Template 1's
+`agent_avatar` element sits at `x:0, y:880, w:180, h:200` — its own template
+also has a white "card" background shape at `x:43, w:990` (spans canvas
+x 43–1033) sitting on top of a full-bleed dark shape at `x:-20, w:1130`
+(spans the whole canvas, `zIndex:2`, BELOW the card's `zIndex:3`). The Agent
+Image element (`zIndex:20`) draws on top of both. `frameStyle()`
+(`public/js/corex-ad-render.js:311-347`, read directly, not assumed) has
+never painted any background of its own for Agent Image elements — only
+`shapeCss()` (line 349) applies `el.bg`, for decorative shapes. So a
+transparent (correctly-removed) cutout pixel simply reveals whatever's
+underneath in the real DOM stack: for canvas x 0–43 (43px of the 180px-wide
+box, since the box starts at x=0, 43px LEFT of the card's own boundary)
+that's the dark shape; for x 43–180 that's the white card. Confirmed by
+simulation, not just reasoning: composited the SAME round-5-fixed cutout,
+cropped with the EXACT `objectFit:cover` math (`prepareImagesForCapture()`),
+onto (a) the template's real split background — reproduces the reported hard
+vertical stripe pixel-for-pixel — and (b) a uniform white background —
+completely clean, no edge, no wedge, both artefacts gone at once. This also
+rules out the `objectFit:cover` crop itself as a contributing cause: cover's
+own geometry (natural 500×500 post-strip, box 180×200) keeps the FULL
+vertical range visible (no vertical crop at all) and only trims 25px off
+each side horizontally — nowhere near where the seam actually sits (which is
+a compositing/z-stack effect, not a slice through the subject). This is
+systemic geometry (this exact template's element positioning vs. its own
+card), not photo-specific — it would reproduce identically for any agent's
+photo run through this same template, since it depends only on the
+template's own layout, never on the photo's pixels.
+
+**Three options considered, one chosen:**
+- **A narrow relaxation of the border-touch rule** (a natural first guess,
+  matching how round 4 was framed) — doesn't apply: there is no removal-
+  algorithm boundary involved anywhere in this defect.
+- **Reposition the element** so it sits entirely within the card (e.g.
+  `x:45`) — would fix Template 1 alone, permanently forecloses the
+  legitimate design pattern of an agent photo deliberately bleeding off a
+  card's edge for future templates, and fixes nothing for the NEXT template
+  a designer builds with the same positioning choice.
+- **`cutoutMatteColor` — an explicit fill painted behind the cutout,
+  bounded to the element's own box** (shipped). Doesn't constrain future
+  template design at all; a designer who wants exactly this bleed-off-the-
+  card look keeps it, and just tells the cutout what colour to show instead
+  of leaving it to accident.
+
+**Fix — `el.cutoutMatteColor`, a PER-ELEMENT property (not a numeric
+threshold, and not agency-wide).** `frameStyle()` now paints
+`background-color: <cutoutMatteColor>` on an Agent Image frame when BOTH
+`removeBackground` and `cutoutMatteColor` are set — scoped tightly: a normal
+(non-cutout) Agent Image has no transparent pixels to matte, so the property
+is inert there; an element with `removeBackground` but no `cutoutMatteColor`
+(every existing template, by definition, since the property is brand new)
+renders IDENTICALLY to before — zero visual change unless a designer
+explicitly opts in. This is deliberately NOT an agency-wide numeric
+threshold like rounds 3–5's: it's a design choice (which colour goes behind
+THIS element in THIS template) exactly the same shape as `bg`/`color`/
+`shapeType`, which are ALL already per-element, set in the Ad Builder, not
+agency settings — an agency-wide "matte colour" would be meaningless anyway,
+since the correct value depends entirely on what a SPECIFIC template's OTHER
+elements look like at that exact position.
+
+**Ad Builder UI** — a checkbox + colour picker ("Fill removed background
+with a colour") inside the existing Agent Image panel, visible only when
+"Remove background" is on, with a hint explaining WHY ("match whatever this
+element overlaps behind it").
+
+**Data correction — one-time, exhaustive, not agent/photo-specific.**
+Queried the live system directly (not assumed): Template 1 is the ONLY
+template, in the entire system, with `removeBackground` enabled on any
+element — so correcting it is the COMPLETE fix for every current usage, not
+a special case picked for one property. A migration
+(`2026_08_20_000008_backfill_cutout_matte_color_for_removebg_avatars.php`)
+finds every `agent_avatar`/`agent_2_avatar` element with `removeBackground`
+and no `cutoutMatteColor`, and derives the correct colour from the
+template's OWN data — the `bg` of whichever overlapping sibling `shape` has
+the HIGHEST z-index below the avatar's own (i.e. whichever shape the browser
+actually paints on top, matching real DOM order) — never a hardcoded guess.
+**Important correction made DURING testing, not after:** the first version
+picked the LARGEST overlapping shape by AREA, not z-index — tested against a
+replica of the real case and it picked the WRONG shape (the full-bleed dark
+background, which geometrically covers the entire box by construction,
+outscoring the smaller-but-actually-on-top white card). Fixed to select by
+z-index; re-tested against the same replica and it now correctly resolves to
+the card's own `#ffffff`. Idempotent (re-running never touches an
+already-set `cutoutMatteColor`) and safe on every edge case tested: no
+overlapping shape at all (stays unset, no crash), `removeBackground` false
+(never touched), already-configured (never overwritten), two consecutive
+runs (identical result both times).
+
+**Deployed to Staging and live 2026-08-02, then reverted the same day** —
+prepared and fully tested against a locally-constructed replica in QA2
+(QA2's own database has no ad templates at all, so the real Template 1 row
+was read directly from live for investigation, per explicit instruction).
+Approved, deployed QA2→Staging→live, ran cleanly, backfilled Template 1's
+`agent_avatar` element to `cutoutMatteColor:#ffffff` — and was visibly wrong
+in production: see "Round 6 — REVERTED" below.
+
+**Acceptance criteria (round 6)**
+- [x] Compositing the real cutout onto the template's actual split
+      background reproduces both reported artefacts exactly.
+- [x] Compositing the SAME cutout onto a uniform matching colour eliminates
+      both artefacts at once — proves a single mechanism explains both, and
+      that the removal algorithm's own output was never the problem.
+- [x] The `objectFit:cover` crop is confirmed NOT a contributing factor —
+      full vertical range visible, horizontal trim nowhere near the seam.
+- [x] `cutoutMatteColor` unset (every existing template) paints nothing —
+      zero visual change.
+- [x] `cutoutMatteColor` without `removeBackground` is a no-op.
+- [x] `cutoutMatteColor` WITH `removeBackground` paints exactly that colour,
+      scoped to Agent Image fields only, both Agent 1 and Agent 2.
+- [x] The data-correction migration derives the correct colour from the
+      template's own z-order, is idempotent, and is verified safe against
+      every edge case (no overlap, flag off, already-set, re-run).
+- [x] Confirmed via live query: Template 1 is the only template with
+      `removeBackground` enabled anywhere in the system — the migration is
+      the complete fix, not a special case.
+- [x] `tests/js/ad-render-kernel.mjs` covers `cutoutMatteColor` directly.
+
+**Round 6 — REVERTED (2026-08-02, same day).** Deployed to Staging and live,
+then pulled the same day on the agency's report that ad 2934 got visibly
+worse, not better. **The root-cause diagnosis above (the compositing gap)
+was correct — the fix was wrong.** `cutoutMatteColor` assumed whatever sits
+behind the Agent Image element at that position is a flat-coloured
+decorative SHAPE (the case simulated and tested against: a synthetic
+black/white split). In the ACTUAL Template 1 design, the shape at that
+z-order is a property/marketing PHOTO, not a flat colour — the "white card"
+read as flat in the simulation because the sample template used for the
+geometry test happened to have `bg:#ffffff`, but the real template paints a
+photographic background there. Painting a solid `#ffffff` rectangle over a
+photographic background is visibly WORSE than the seam it was meant to
+hide: a flat colour block can never blend into a photograph, at any colour
+value. This is a fundamental mismatch in the fix's own assumption, not a
+threshold or tuning problem — no colour choice fixes it, which is why this
+is reverted rather than re-tuned.
+
+**What actually shipped, reverted, in order QA2 → Staging → live:**
+- `public/js/corex-ad-render.js` — the `cutoutMatteColor` block in
+  `frameStyle()` removed (restored to the exact round-5 file, via
+  `git show` against the round-5 commit, not hand-edited).
+- `resources/views/corex/properties/ad-builder.blade.php` — the "Fill
+  removed background with a colour" checkbox + colour picker removed
+  (restored to the round-5 file, same method).
+- `tests/js/ad-render-kernel.mjs` — the 5 `cutoutMatteColor` checks removed
+  (restored to the round-5 file, same method); suite back to 123/123.
+- **Data reversal** — the forward migration
+  (`2026_08_20_000008_backfill_cutout_matte_color_for_removebg_avatars.php`)
+  is kept in place (already ran in production; migration files that have
+  run are not deleted, consistent with the project's no-hard-deletes
+  posture). A new migration,
+  `2026_08_20_000009_revert_cutout_matte_color_backfill.php`, clears
+  `cutoutMatteColor` from every `agent_avatar`/`agent_2_avatar` element that
+  has it set, system-wide (not just Template 1) — undoing the class of
+  change 000008 made, not one row by hand.
+
+**Status:** round 5 is the accepted state until Johan says otherwise. The
+original left-edge seam on ad 2934 (documented above) is UNFIXED and stays
+unfixed — no further attempt was made in this pass, per explicit
+instruction not to reach for another fix immediately.
+
+**Acceptance criteria (round 4)**
+- [x] A large enclosed hole (area > `holeMaxPx`) is NOT filled.
+- [x] A modest-area but elongated hole (longest bbox side > `holeMaxDimensionPx`)
+      is NOT filled — proves the area cap alone would have missed this case.
+- [x] The original earring-sized fix (round 3) is NOT regressed by adding the
+      upper bound.
+- [x] `configureBgRemoval()` actually changes behaviour when an agency raises
+      or lowers any of the three thresholds.
+- [x] Every threshold defaults sensibly when an agency has never configured
+      it (`null` on the agencies row) — every agency before this shipped gets
+      identical behaviour to before it existed.
+- [x] Verified against real photos, not only synthetic test frames: Elize
+      current + old, Retha, Kym — before/after composited on a contrasting
+      background and visually confirmed.
+- [x] `tests/js/ad-render-kernel.mjs` covers all of the above directly.
+
+**Acceptance criteria (rounds 1–3, unchanged)**
+- [x] A plain white/near-white backdrop is removed; the person is preserved.
+- [x] A white patch fully inside the subject (not touching the image border)
+      is NOT removed — proves this is a border-connectivity flood fill, not a
+      naive global colour threshold.
+- [x] A garment with a real (even modest) colour difference from the backdrop
+      is NOT removed even touching the bottom edge — round 1's regression
+      (Retha's shirt), reproduced realistically (not a same-colour edge case).
+- [x] Genuine backdrop connected all the way to the bottom of the frame IS
+      removed — round 2's regression ("left ~20% at the bottom"), fixed by
+      removing the blind height floor round 1 added.
+- [x] A garment truly colour-identical to the backdrop is knowingly swept in
+      too — the accepted, stated limit of a colour-based cutout, asserted
+      explicitly rather than left as a surprise.
+- [x] Toggling the checkbox off reverts to the untouched original photo.
+- [x] A cross-origin/tainted photo degrades to showing the original — never a
+      broken/blank image, never a thrown error visible to the user.
+- [x] The SAME source photo across many bulk-run properties is only processed
+      once (cache hit for every subsequent occurrence).
+- [x] A fully-enclosed backdrop-coloured pocket (e.g. through a hoop earring)
+      at least `HOLE_MIN_PX` is filled — round 3's fix for the ear-disc
+      artifact.
+- [x] A small enclosed near-white pocket (e.g. an eye catch-light) below
+      `HOLE_MIN_PX` is NOT filled — proves the size floor protects genuine
+      facial highlights, not just an assumption.
+- [x] A backdrop-coloured patch that touches the frame border is never
+      touched by the enclosed-holes pass, no matter its size — the
+      garment-safety guarantee holds through round 3, not just rounds 1–2.
+- [x] The cutout edge is feathered (intermediate alpha at the boundary), not a
+      hard binary 0/255 jump — round 3's fix for aliased/hard edges.
+- [x] `tests/js/ad-render-kernel.mjs` covers the flood-fill algorithm directly
+      (synthetic pixel buffers — no real Canvas/Image needed), the
+      onload-hook emission/omission, the enclosed-holes pass (filled vs. not
+      filled vs. border-touching), and edge feathering.
+
+---
+
+## 15.2 "Remove background" — AI segmentation API, superseding the colour heuristic
+
+> Status: SUPERSEDED 2026-08-03, same day, by §15.3 (self-hosted rembg) as
+> the DEFAULT driver in the LIVE render path. Built and left fully wired —
+> `App\Services\Images\BackgroundRemoval\PhotoroomDriver`/`RemoveBgDriver`
+> are unchanged, still selectable via `BG_REMOVAL_DRIVER=photoroom|remove_bg`,
+> deliberately never deleted (see §15.3's "why the paid drivers stay"). NOT
+> on Staging or live in either form as of this writing.
+>
+> **Why the reversal, same day:** this section's own feasibility reasoning
+> ("a shared/disk-constrained production host, and an unverified ARM
+> inference cost — in favour of a paid segmentation API") was built on a
+> wrong model of the disk layout. `/corex`, `/corex-qa1`, `/corex-qa2` and
+> `/corex-staging` are bind-mounts off a 200GB Hetzner Cloud Volume
+> (`/mnt/HC_Volume_103099143`, 69GB free), not the 38GB root disk the
+> original report measured against. Once that was corrected and rembg was
+> actually installed and measured on the real volume — ~1.1s/photo on this
+> ARM box, ~750MB footprint, cutout quality visibly better than the flood
+> fill on the cases that mattered (earrings, hair strands) — self-hosting
+> won on its own merits, not despite them. See §15.3.
+
+**What/why (original reasoning, unchanged below — the API-vs-self-host call
+is what flipped, not this diagnosis).** §15.1's flood fill is a genuinely
+good "prevent" for the common case (a plain studio backdrop) but has an
+INHERENT, accepted limit stated in its own write-up: a garment truly
+colour-identical to the backdrop gives no signal any colour algorithm can
+use, and is knowingly swept in too. Six rounds of increasingly careful
+colour-space engineering (border-seed restriction, a drift cap, enclosed-hole
+fill with area/dimension caps, edge feathering — round 6 shipped and reverted
+the same day) is the ceiling of what a heuristic can do; the only way past it
+is a real segmentation model that understands "this is a person" rather than
+"this pixel is a colour." Photoroom vs remove.bg was left unresolved
+deliberately (see "Provider is a config choice" below) — moot now that
+neither is the active driver, but both remain correctly implemented and
+tested.
+
+**Architecture — provider is a config choice, not an architecture choice.**
+Both providers have an identical integration shape (multipart POST, an
+API-key header, PNG bytes back), so the whole feature is built against one
+interface:
+
+- `App\Contracts\Images\BackgroundRemovalDriver` — `name()` +
+  `removeBackground(string $absolutePath): BackgroundRemovalResult`.
+- `App\Services\Images\BackgroundRemoval\PhotoroomDriver` /
+  `RemoveBgDriver` — the two implementations. `BackgroundRemovalResult` is a
+  plain DTO (PNG bytes, driver name, optional `costCredits` string from
+  whichever cost/credit response header the provider returns).
+  `BackgroundRemovalException` carries the driver name + HTTP status for
+  logging.
+- `App\Services\Images\BackgroundRemoval\BackgroundRemovalManager::driver()`
+  resolves the active implementation from ONE config value,
+  `services.bg_removal.driver` (env `BG_REMOVAL_DRIVER=photoroom|remove_bg`,
+  default `photoroom`). **Swapping providers is a one-line .env change — no
+  code edit, no migration, no redeploy.**
+- Output resolution tier is also config, `services.bg_removal.resolution`
+  (env `BG_REMOVAL_RESOLUTION`, default `medium`) — our photos are
+  1200×1200 (1.44MP), so each driver's default "preview" tier (0.25MP)
+  would visibly soften the cutout; `medium` (1.5MP) is the floor that
+  actually covers our source resolution.
+- API keys are `.env`-only, never the database (STANDARDS.md "API Keys and
+  Credentials Live in .env Only"), consistent with `config/services.php`'s
+  general pattern (`anthropic`, `google`, `p24_imap`). Unlike P24/PP, which
+  support a per-agency DB-encrypted override precedent
+  (`agencies.p24_password`/`pp_password`), there is no per-agency key here —
+  every agency's photos go through ONE system-wide provider account.
+
+**One call per upload, never per render, never per property — proof.**
+`AgentProfilePhotoService::set()` (the single entry point all three upload
+paths — admin create, admin edit/role-tab, agent self-service portal — and
+the existing `agents:backfill-photo-cutouts` command all funnel through)
+dispatches `RemoveAgentPhotoBackgroundJob` exactly once, immediately after
+`AgentPhotoNormalizer` has written the normalised file. The ad-render kernel
+(`imageSrc()`) only ever READS the already-stored `agent_avatar_cutout` /
+`agent_2_avatar_cutout` URL that `Property::adData()` resolves from
+`User::profilePhotoCutoutUrl()` — rendering an ad, however many times, never
+triggers a new API call. The backfill command is the only OTHER caller of a
+driver's `removeBackground()`, and it is a manually-invoked, one-row-per-photo
+CLI tool, not something a render path can trigger.
+
+**Mechanism.**
+1. `AgentProfilePhotoService::set()` resets the new document row's
+   `bg_removal_*` fields to null (a fresh upload has no cutout yet — the
+   PREVIOUS photo's status/error must never show against the new file), then
+   calls `dispatchBackgroundRemoval()`, which checks the agency kill switch
+   (`agencies.ad_bg_removal_api_enabled`) before hashing the just-written
+   file's bytes (`md5()`) and queuing
+   `RemoveAgentPhotoBackgroundJob::dispatch($user->id, $path, $hash)` on its
+   own queue lane, `bg_removal` — the existing
+   `p24import`/`p24images`/`matching` lane-per-job-type pattern, no new
+   infrastructure (same Supervisor/systemd + `database` queue driver already
+   running). QA2's `corex-qa2-queue.service` `--queue=` list now includes
+   `bg_removal`.
+2. `RemoveAgentPhotoBackgroundJob::handle()` re-checks the agency toggle
+   (defence in depth against a mid-flight change), that
+   `$user->agent_photo_path` still equals the path captured at dispatch time
+   (catches a removed photo), AND that the CURRENT file at that path still
+   hashes to the value captured at dispatch time. The hash check is the one
+   that actually matters: `AgentPhotoNormalizer` always writes the SAME path
+   for a given user — `agents/{id}/photo.webp` — overwriting the previous
+   file's bytes in place rather than writing a new path, exactly the gotcha
+   the P24 round-4 investigation hit ("agents/{id}/photo.webp's underlying
+   bytes were overwritten in place... the user_documents row's file_path
+   never changed, only its content did"). A path-only comparison — the first
+   version built this round — can therefore NEVER detect a same-user
+   replacement (caught by a feature test that failed for exactly this
+   reason: two uploads for one user, then manually invoking the job for the
+   FIRST upload's captured path, unexpectedly called the API instead of
+   no-op'ing, because the path matched even though the bytes underneath it
+   had already changed). The hash check is the actual guard against a job
+   still in flight for an OLD photo attaching its cutout to a DIFFERENT
+   photo that has since overwritten the same path. Any of the three checks
+   failing is a silent no-op (logged `bg_removal.superseded`/
+   `.agency_disabled`), not a failure.
+3. On success, the PNG is stored at `agents/{id}/photo-cutout.png` —
+   ALONGSIDE `agents/{id}/photo.webp`, never overwriting or deleting it —
+   and `user_documents` (the `profile_photo` row) records
+   `bg_removal_status=done`, `bg_removal_cutout_path`, `bg_removal_driver`,
+   `bg_removal_processed_at`.
+4. On ANY failure (bad/missing key, timeout, quota, malformed response) the
+   job's own `$tries=3`/`$backoff=[30,120,300]` retry automatically; once
+   exhausted, `failed()` records `bg_removal_status=failed` +
+   `bg_removal_error` (never mid-retry, so an admin never sees a
+   false-terminal state for a retry still in flight) and logs
+   `bg_removal.terminally_failed`. **The original photo is never touched by
+   any failure path** — `User::profilePhotoCutoutUrl()` returns null
+   whenever `bg_removal_status !== 'done'`, and the kernel's `imageSrc()`
+   falls straight back to the plain photo whenever no cutout URL is present.
+   This can only ever ADD a cutout, never remove the original as a
+   fallback — an ad can never render blank because of this feature.
+5. Every call — driver, user/photo id, success/failure, the provider's
+   cost/credit response header when present (`X-Credits-Charged`) — is
+   logged (`bg_removal.api_call_succeeded` / `.api_call_failed` /
+   `.terminally_failed` / `.superseded` / `.agency_disabled`), so spend is
+   visible without logging into the provider's dashboard.
+
+**Ad-render kernel change (all three surfaces, one shared file).**
+`imageSrc()` in `public/js/corex-ad-render.js` now prefers
+`prop[field + '_cutout']` over `prop[field]` when the element's own
+`removeBackground` toggle is on AND a cutout URL is present — otherwise it
+returns the plain photo exactly as before. `imgTag()` no longer adds the
+`onload="window.CoreXAd.stripBackground(this)"` hook at all — there is
+nothing left for it to trigger client-side. Because all three ad surfaces
+(Ad Builder, the single-property generator, the bulk Ad Manager) share this
+one kernel file and read `prop` from `Property::adData()`, this is the
+ONLY file that needed changing for the new source to reach every surface —
+same "one place to put it" property the kernel was built to guarantee (§12).
+
+**Agency setting — `ad_bg_removal_api_enabled`, default ON.** A per-agency
+kill switch, business-relevant (unlike the §15.1 pixel-tuning thresholds,
+which stay an expert-knob carve-out), surfaced as a real toggle in Company
+Settings (Feature Settings → Properties tab), next to the existing Marketing
+toggle: `resources/views/corex/settings.blade.php`,
+`SettingsController::updateAdBgRemovalApiEnabled()`, route
+`corex.settings.ad-bg-removal-api`. **Deliberately NOT added to the Agency
+Onboarding Setup Wizard in this round** (non-negotiable #10a) — there is no
+live provider key yet (QA2-only, key not supplied), so there is nothing an
+agency could meaningfully be walked through turning on. Revisit once a real
+key is confirmed on Staging/live; this is Johan's call, recorded here rather
+than a silent omission.
+
+**Backfill — `agents:backfill-photo-cutouts`.** Idempotent (skips any
+`profile_photo` row already `bg_removal_status=done` unless `--force`),
+processes SYNCHRONOUSLY (not via the queue) so it can print a per-agent
+result table as it runs rather than requiring a poll of queue state
+afterward — appropriate at this volume. `--limit=N` and `--user=ID` exist
+specifically so the pipeline can be proven on a handful of photos against a
+provider's free tier without spending the full run's worth of calls before a
+paid key is supplied.
+
+**Dead code — not deleted this round.** `_floodFillTransparent()`,
+`_fillEnclosedHoles()`, `_featherAlpha()`, `stripBackground()`,
+`_processBackgroundRemoval()`, `_cornerColor()`, `_bgRemovalCache`,
+`backgroundRemovalsSettled()`, `configureBgRemoval()`/`_bgRemovalConfig`,
+and the three views' `CoreXAd.configureBgRemoval({...})` calls all remain in
+place, fully functional, but nothing in the live render path calls
+`stripBackground()` any more (the only trigger — `imgTag()`'s `onload`
+hook — is gone). `backgroundRemovalsSettled()` is still awaited by both
+capture paths (`ad.blade.php`'s `_capture()`, `ad-manager.blade.php`'s
+`downloadRow()`) — harmless, resolves instantly against an always-empty
+cache. Also now dead: the four `agencies.ad_bg_removal_hole_*`/
+`ad_bg_removal_flood_fill_drift_cap_px` threshold columns and their
+`Agency.php` casts (still readable/writable, just no longer read by
+anything in the live path). **Remove in a separate, later round, once the
+AI path is proven live** — not this one.
+
+**Verification performed this round (QA2, no real provider key).**
+- `Http::fake()` feature tests
+  (`tests/Feature/Agents/AgentPhotoBackgroundRemovalTest.php`) cover: a
+  successful call storing the cutout + driver + cost; a missing-key failure;
+  a simulated provider-down (503) failure; both failure paths leaving the
+  original photo the only resolvable photo
+  (`profilePhotoCutoutUrl()` null, `profilePhotoUrl()` still non-null); the
+  agency toggle blocking dispatch AND blocking a mid-flight job; the
+  superseded-photo race guard (a second upload before the first job runs
+  never gets its cutout attached to the wrong photo); the driver resolving
+  purely from config; and a fresh upload clearing the previous photo's
+  `bg_removal_*` state.
+- `tests/js/ad-render-kernel.mjs` covers `imageSrc()`'s cutout-vs-plain
+  resolution (cutout present + toggle on → cutout; toggle on + no cutout →
+  plain; toggle off → always plain, even with a cutout present; Agent 2;
+  scoped away from unrelated image fields) and that `imgTag()` no longer
+  emits any `onload` hook.
+- **Not yet proven with a REAL provider call** — no key is configured on
+  QA2. The one real HTTP round-trip made (a deliberately blank/invalid key
+  against the live endpoint) correctly produced a clean failure with the
+  original photo intact, proving the failure-fallback path for real without
+  spending a paid call. A genuine SUCCESSFUL segmentation (including
+  Elize's photo specifically — no collar loss, no earring discs, no hard
+  seam) and the full 23-photo backfill are BLOCKED on Johan supplying a real
+  `PHOTOROOM_API_KEY`/`REMOVE_BG_API_KEY` and are the first thing to run
+  once it lands.
+
+### Files
+
+- `app/Contracts/Images/BackgroundRemovalDriver.php` — the interface.
+- `app/Services/Images/BackgroundRemoval/BackgroundRemovalResult.php`,
+  `BackgroundRemovalException.php`, `PhotoroomDriver.php`,
+  `RemoveBgDriver.php`, `BackgroundRemovalManager.php`.
+- `app/Jobs/RemoveAgentPhotoBackgroundJob.php` — queued on `bg_removal`.
+- `app/Console/Commands/AgentsBackfillPhotoCutouts.php`.
+- `database/migrations/2026_08_20_000010_add_ad_bg_removal_api_settings_to_agencies.php` —
+  `agencies.ad_bg_removal_api_enabled` (boolean, default true).
+- `database/migrations/2026_08_20_000011_add_bg_removal_cutout_tracking_to_user_documents.php` —
+  `user_documents.bg_removal_{status,cutout_path,driver,processed_at,error}`.
+- `app/Models/Agency.php` — `ad_bg_removal_api_enabled` fillable + boolean cast.
+- `app/Models/UserDocument.php` — the five `bg_removal_*` fields fillable +
+  `bg_removal_processed_at` datetime cast.
+- `app/Models/User.php` — `profilePhotoCutoutUrl()`, mirroring
+  `profilePhotoUrl()`'s priority/existence-check shape.
+- `app/Models/Property.php` — `adData()` gains `agent_avatar_cutout`/
+  `agent_2_avatar_cutout`, both through `adSafeImageUrl()` exactly like the
+  existing `agent_avatar`/`agent_2_avatar` keys.
+- `app/Services/Images/AgentProfilePhotoService.php` — `set()` resets
+  `bg_removal_*` on every fresh upload and dispatches the job (agency-toggle
+  gated); `clear()` deletes the cutout file alongside the original.
+- `config/services.php` — new `bg_removal` block (`driver`, `resolution`,
+  `photoroom.*`, `remove_bg.*`).
+- `public/js/corex-ad-render.js` — `imageSrc()` prefers the cutout;
+  `imgTag()` no longer emits the onload hook.
+- `app/Http/Controllers/CoreX/SettingsController.php` —
+  `updateAdBgRemovalApiEnabled()`; `index()` resolves `$data['agency']`
+  earlier and derives `adBgRemovalApiEnabled`.
+- `resources/views/corex/settings.blade.php` — the toggle, next to Marketing.
+- `routes/web.php` — `corex.settings.ad-bg-removal-api` (PUT,
+  `manage_performance_settings`).
+- `.env` / `.env.example` — `BG_REMOVAL_DRIVER`, `BG_REMOVAL_RESOLUTION`,
+  `PHOTOROOM_API_KEY`, `REMOVE_BG_API_KEY` (blank on QA2 — Johan supplies
+  the real key after review).
+- `/etc/systemd/system/corex-qa2-queue.service` — `--queue=` gains
+  `bg_removal`.
+- `tests/Feature/Agents/AgentPhotoBackgroundRemovalTest.php` — new, see
+  "Verification" above.
+- `tests/Feature/Agents/AgentProfilePhotoServiceTest.php` — `Queue::fake()`
+  added (the job now dispatches on every `set()`), plus an assertion that
+  exactly one `RemoveAgentPhotoBackgroundJob` is pushed carrying the correct
+  path.
+- `tests/js/ad-render-kernel.mjs` — the cutout-resolution + no-onload
+  coverage described above, replacing the old onload-hook assertions.
+
+---
+
+## 15.3 "Remove background" — self-hosted rembg, superseding the paid API
+
+> Status: BUILD on QA2 · 2026-08-03, same day as §15.2. NOT on Staging or
+> live. Default driver (`BG_REMOVAL_DRIVER=rembg`); Photoroom/remove.bg stay
+> wired, unused, as a config-only fallback. Deployment order once approved:
+> QA2 → Johan's approval → Staging → live (live last).
+
+**What/why.** §15.2's feasibility call — paid API over self-hosting — was
+built on a wrong model of this box's disk layout: the original report
+measured `/corex` against the 38GB root disk's headroom, but `/corex`,
+`/corex-qa1`, `/corex-qa2` and `/corex-staging` are actually bind-mounts off
+`/mnt/HC_Volume_103099143`, a 200GB Hetzner Cloud Volume with 69GB free
+(confirmed via `/etc/fstab`). A follow-up spike, run entirely on that volume
+with zero application-code changes, corrected the picture: rembg
+(`u2net_human_seg`) installs in ~600MB, the model is another ~168MB, and
+measured CPU-only inference on this ARM Neoverse-N1 box is ~1.1s/photo
+(~0.7s one-time model load + ~0.4s/photo once warm) — nowhere near the
+~10s/image figure the original feasibility report cited from an unrelated
+x86 benchmark. Composited-on-magenta quality checks on Elize's, Retha's and
+Kym's real photos showed the model correctly handling earring gaps and hair
+strands natively — exactly the cases that took the flood-fill six rounds of
+hand-tuned pixel heuristics to partially address (§15.1), and still caps out
+on an accepted, inherent limit (a garment colour-identical to the backdrop).
+Self-hosting won on quality and cost, not just disk headroom — see the
+spike's own report for the full measured comparison.
+
+**Why the paid drivers stay.** `PhotoroomDriver`/`RemoveBgDriver` (§15.2)
+are NOT deleted — `BackgroundRemovalManager` keeps all three
+`BackgroundRemovalDriver` implementations wired, selectable by one `.env`
+line. A self-hosted model is infrastructure Johan now owns: a bad model
+update, an onnxruntime regression, or the service misbehaving in a way
+that's easier to diagnose with the pressure off is a `BG_REMOVAL_DRIVER=
+photoroom` away from being bypassed while it's investigated, without a
+rebuild. That safety net costs nothing to keep — the paid drivers are
+fully implemented, fully tested, and simply unused while `rembg` is the
+default.
+
+**Architecture — a persistent local service, not a process per photo.** The
+volume spike measured ~0.7s of a photo's ~1.1s cold-call cost as model
+load alone; running a fresh Python process per photo would re-pay that on
+EVERY call. Instead, following the existing `/opt/hf-ai` precedent
+(self-hosted FastAPI + uvicorn + systemd, already serving Ellie chat/
+Whisper/embeddings to every CoreX environment on this box) — but
+deliberately relocated OFF the root disk, onto the volume, per this round's
+explicit instruction:
+
+- **Source of truth**: `services/bgremoval/app.py` +
+  `services/bgremoval/requirements.txt`, committed to the repo — mirrors
+  `services/hf-ai/app.py`'s own hard-learned lesson (that runtime copy was
+  once found completely missing because it was never version-controlled;
+  see its docstring). Never let the runtime copy drift from this file.
+- **Runtime deployment**: `/mnt/HC_Volume_103099143/corex-bgremoval-svc/` —
+  isolated venv (`venv/`, ~616MB), the model cache (`models/`, ~168MB,
+  `U2NET_HOME` pointed here so it never touches `~/.u2net` on the root
+  disk), and a copy of `app.py`/`requirements.txt`. Installed with
+  `pip install --no-cache-dir` — the volume spike caught pip's DEFAULT
+  cache landing 153MB on the root disk despite the venv itself living on
+  the volume; `--no-cache-dir` makes that structurally impossible to
+  recur, rather than relying on remembering to purge it afterward.
+- **The model loads ONCE, at process startup** (FastAPI `@app.on_event
+  ("startup")`), not per request — `/health` reports `model_load_seconds`
+  so this is directly observable, not just asserted.
+- **systemd unit**: `/etc/systemd/system/corex-bgremoval.service` —
+  `Type=simple`, `Restart=always`, `RestartSec=2`,
+  `RequiresMountsFor=/mnt/HC_Volume_103099143` (so systemd orders startup
+  after the volume mount, not just after `network.target`), `WantedBy=
+  multi-user.target` + `systemctl enable` (starts at boot). Listens on
+  `127.0.0.1:3106` only — localhost, no auth needed, same posture as
+  `hf-ai.service` on :3100. One process serves every environment on this
+  box that opts in via `BGREMOVAL_SERVICE_URL`, exactly like hf-ai already
+  does for Ellie/Whisper across prod/staging/demo/QA — this round only
+  QA2's `.env` points at it.
+- **Endpoints**: `GET /health` (model status, load time, cumulative
+  requests served — used below to prove the exact-once-per-photo call
+  count) and `POST /remove-background` (multipart `image` field in, raw
+  PNG bytes back, `Content-Type: image/png` — the same response shape the
+  paid-API drivers already use, so `RembgDriver` reuses their exact
+  validation logic).
+- **Reboot survival**: NOT verified by an actual reboot — this box serves
+  live production (`corexos.co.za`) plus staging/QA1/QA2/demo/hf-ai, and a
+  real reboot to prove one new service is far more disruptive than what
+  this check is worth. What IS confirmed: `systemctl is-enabled
+  corex-bgremoval.service` reports `enabled`; the unit's
+  `RequiresMountsFor` correctly orders it after the volume mounts; and the
+  volume itself already backs `/corex`/`/corex-qa1`/`/corex-qa2`/
+  `/corex-staging` today, which only works because it already reliably
+  survives this box's reboots. Said plainly: mechanism-level confidence,
+  not an end-to-end reboot test.
+
+**`RembgDriver`** — `App\Services\Images\BackgroundRemoval\RembgDriver`,
+the same `BackgroundRemovalDriver` interface as the paid-API drivers:
+`Http::attach('image', $bytes, ...)->post("{$baseUrl}/remove-background")`,
+raising `BackgroundRemovalException` on a transport failure (service down —
+`systemctl stop`, a crash, a reboot mid-flight), a non-2xx response, or a
+non-image response — the exact same three failure shapes
+`RemoveAgentPhotoBackgroundJob` already knows how to retry/fail cleanly on
+from §15.2, unchanged. `costCredits` is always null (self-hosted — no
+per-call cost concept).
+
+**Everything else from §15.2 carries over unchanged** — the driver
+selection is the only thing that moved: `RemoveAgentPhotoBackgroundJob`
+(queue lane `bg_removal`, the content-hash superseded-photo guard,
+`$tries=3`/`$backoff`), `AgentProfilePhotoService::set()` dispatching
+exactly once per upload, the agency `ad_bg_removal_api_enabled` toggle, the
+Settings UI, and the ad-render kernel's cutout preference in `imageSrc()`
+all work identically regardless of which `BackgroundRemovalDriver` is
+active — that's the entire point of building against the interface in
+§15.2 rather than a single provider's SDK.
+
+**Verification performed this round (QA2, real service, real photos).**
+- Full backfill (`agents:backfill-photo-cutouts --force`) against every
+  existing agent photo: **22 succeeded, 0 failed, 1 skipped**. The skipped
+  row (agent 45, Ronel Botha) is a pre-existing stale `user_documents` row
+  whose `file_path` no longer matches the user's current
+  `agent_photo_path` — the same superseded-guard logic the queued job uses,
+  correctly refusing to process a row that isn't the agent's current photo.
+  Of the 23 `profile_photo` rows in the system, 22 are genuinely eligible;
+  this is a pre-existing data state, not a defect introduced here.
+- **Elize's photo (agent 23) specifically**, from the real backfill (not a
+  separate script): no collar loss, both hoop earrings show backdrop
+  cleanly through the loop, no hard seam along the hairline or collar —
+  visually confirmed by compositing the actual stored
+  `agents/23/photo-cutout.png` onto a contrasting background.
+- **Call-count discipline**: the service's `/health` request counter read
+  2 immediately before the backfill (from earlier manual verification
+  calls) and 24 immediately after — exactly the 22 photos processed, zero
+  extra calls. Confirms "one call per photo, never per render" isn't just
+  architectural intent; every `/remove-background` hit is accounted for.
+- **Root disk, before → after the full round** (service install + full
+  backfill): **7.3G free → 7.0G free**. The venv/model install itself was
+  proven to cost the root disk nothing (§ above, `--no-cache-dir`); the
+  remaining ~300MB drift across the round is not clearly attributable to
+  this work specifically versus other activity on this long-running shared
+  session — flagged rather than silently rounded away.
+- **Service killed deliberately**: `systemctl stop corex-bgremoval.service`,
+  then a real (uncaught by any test double) `RemoveAgentPhotoBackgroundJob`
+  run against a throwaway test upload — real `cURL error 7: Failed to
+  connect to 127.0.0.1 port 3106` surfaced, caught by `RembgDriver`,
+  recorded as `bg_removal_status=failed` with the connection error as
+  `bg_removal_error`. `User::profilePhotoUrl()` resolved the plain photo
+  throughout; `profilePhotoCutoutUrl()` correctly stayed null. The ad
+  renders with the plain photo — never blank, never broken. Service
+  restarted afterward, confirmed healthy again
+  (`model_load_seconds` ≈0.7s, matching the first boot). Throwaway test
+  data (agency/branch/user) deleted after the check.
+- **One known edge case, disclosed rather than silently left**: `failed()`
+  updates `bg_removal_status`/`bg_removal_error` but does NOT clear
+  `bg_removal_cutout_path`. For a FRESH upload (the normal path) this is
+  irrelevant — there is no prior cutout to lose. But a DELIBERATE re-run of
+  an already-successful photo (e.g. `--force` on the backfill command)
+  that then fails would flip `bg_removal_status` to `'failed'` even though
+  the previously-generated cutout file is still sitting on disk untouched
+  — `profilePhotoCutoutUrl()`'s `status === 'done'` gate would hide a
+  perfectly good, still-present cutout until the next successful run. The
+  core guarantee still holds (falls back to the plain photo, never blank/
+  broken), so this was not fixed reactively this round — but it is a real,
+  narrow gap (re-run-during-an-outage only) worth closing in a later round
+  rather than the kind of thing to discover by surprise.
+- Not verified this round: an actual host reboot (see "Reboot survival"
+  above for why, and what IS confirmed instead).
+
+### Files (in addition to §15.2's list, all still in place)
+
+- `services/bgremoval/app.py`, `services/bgremoval/requirements.txt` — new,
+  source of truth for the self-hosted service.
+- `/mnt/HC_Volume_103099143/corex-bgremoval-svc/` — runtime deployment
+  (venv, model cache, a deployed copy of app.py) — NOT in the repo, entirely
+  on the volume.
+- `/etc/systemd/system/corex-bgremoval.service` — new, enabled + running.
+- `app/Services/Images/BackgroundRemoval/RembgDriver.php` — new.
+- `app/Services/Images/BackgroundRemoval/BackgroundRemovalManager.php` —
+  `rembg` case added, now the default (was `photoroom`).
+- `config/services.php` — `bg_removal.rembg` block (`base_url`, `timeout`);
+  default driver changed to `rembg`; `photoroom`/`remove_bg` blocks
+  unchanged.
+- `.env` / `.env.example` — `BG_REMOVAL_DRIVER=rembg`,
+  `BGREMOVAL_SERVICE_URL=http://127.0.0.1:3106`; paid-API keys stay blank,
+  unused.
+- `tests/Feature/Agents/AgentPhotoBackgroundRemovalTest.php` — rembg
+  success/service-down coverage added; a `photoroom` success test kept to
+  prove the fallback still works; the driver-config test extended to assert
+  `rembg` is the default.
+
+---
+
+## 16. Generator fixes — the "zoom" glitch, a canvas-size mismatch, and a picker preview
+
+> Status: LIVE · 2026-08-02
+
+**Reported by Johan against a real custom template** ("For Sale Template",
+`property_ad_templates.id=1`) — clicking Generate did "a weird zoom in", the
+Agent Image looked stretched, and elements (the agency logo named specifically)
+appeared out of position. Inspected the actual saved `layout_json` via Tinker
+rather than guessing.
+
+**Confirmed and fixed — the zoom glitch.** `_capture()` briefly sets
+`#ad-scale-wrapper`'s CSS `transform` to `none` so html2canvas can grab the
+design at its true native pixel size. But that wrapper sits inside a box sized
+to the SCALED-DOWN preview with `overflow:hidden` — removing the transform
+made the full-size canvas render behind that small clip window, so the user
+saw the preview snap to a cropped, zoomed-in corner of the design for the
+whole capture window (fonts + `backgroundRemovalsSettled()` + the 80ms buffer
++ the actual html2canvas run), then snap back. Fixed with a **capture veil** —
+a `data-html2canvas-ignore` overlay (`capturingPreview`) covering the preview
+with a spinner for exactly that window, wrapped in `try/finally` so it (and
+the transform) are ALWAYS restored even if the capture throws — previously an
+error mid-capture could leave the preview permanently un-scaled until some
+unrelated reactive trigger happened to fix it.
+
+**Confirmed and fixed — a latent canvas-size bug (general fix, not proven to
+be THIS template's specific cause).** `get cfg()` returned
+`platforms[canvasPreset]` — the STANDARD size for whatever preset name is
+stored — instead of the template's own saved `canvasW`/`canvasH`, whenever
+`canvasPreset` happened to match a real platform key. `canvasPreset` is just
+the label of the last preset button clicked in the Ad Builder; a designer can
+pick a preset THEN resize the canvas, leaving the preset name stale relative
+to the actual dimensions every element was positioned against — sizing the
+LIVE preview/canvas wrong while `_capture()` (which always read
+`canvasW`/`canvasH` directly) rendered correctly, so any mismatch would only
+ever surface at generate time. Fixed: `cfg` now always trusts the template's
+own `canvasW`/`canvasH`, never the preset. (This template's own
+`canvasPreset` is the literal string `"custom"` — not a real platform key — so
+its OWN `cfg` was already resolving correctly via the old fallback; this fix
+protects every OTHER custom template that started from a real preset and was
+then resized, which this bug would have silently mis-sized.)
+
+**§16.1 — the Agent Image "stretch", root-caused and fixed.** A follow-up
+investigation (`MODE:INVESTIGATION` — no code changed until Johan confirmed
+the diagnosis, per the Conductor & Lane Intake Protocol) traced every line
+touching this element's geometry in both the live preview and the
+`html2canvas` capture and found **no code path in this app that treats them
+differently** — same DOM,
+same `cfg`, same `frameStyle()`/`imgTag()` output either way (§12's whole
+premise — one kernel, no drift — held up under scrutiny). The remaining
+candidate: **`html2canvas` 1.4.1 has long-documented gaps in its CSS
+`object-fit` support** — it can rasterise an `<img>` at its raw intrinsic
+aspect ratio stretched to fill the box instead of correctly cropping it the
+way the live browser (correctly) does, exactly the "enlarged/stretched, breaks
+past the frame" symptom reported. Every image field uses precisely the
+pattern this class of `html2canvas` bug targets: `overflow:hidden` on the
+frame (`frameStyle()`) + `width:100%;height:100%;object-fit:cover|contain` on
+the child `<img>` (`imgTag()`).
+
+**Fix: pre-bake the crop, don't fight the rasteriser.** Same principle
+already established for the printable brochure's location pin (§10c — "an
+inline SVG's point gets clipped in dompdf; a raster sizes predictably") —
+when a rendering engine has a known gap in a CSS feature, don't rely on it;
+pre-compute the correct pixels yourself. New kernel function
+`prepareImagesForCapture(root)` walks every `<img>` inside the capture root,
+and for each one whose `object-fit` is `cover` or `contain` (`fill` is left
+alone — it's supposed to stretch), draws the SAME crop `object-fit` would
+onto an offscreen `<canvas>` sized to the element's own box (geometry
+factored into a pure, unit-tested `objectFitRect(fitVal, boxW, boxH, natW,
+natH)` — cover picks `Math.max` scale and crops, contain picks `Math.min`
+and letterboxes transparently), then swaps the `<img>`'s `src` to that
+pre-cropped PNG data URL. By the time `html2canvas` captures it, the image
+genuinely **is** the right shape — there is nothing left for its object-fit
+handling to get wrong, regardless of the exact nature of the underlying gap.
+`img.decode()` is awaited before capture so the swapped src is actually
+painted-ready; a same-origin/CORS failure on any one image is caught and that
+image is simply left as-is (never a thrown error, never breaks the ad).
+
+**A restore function is mandatory and always called in `finally`** — the live
+preview, the "change photo" overlay, and "reset to original" all still read
+the ORIGINAL `<img src>`/`data-orig-src` outside the capture window; the swap
+is real but strictly temporary, exactly mirroring how the capture veil
+(above) restores the wrapper's transform.
+
+**Fixed the class, not the instance (BUILD_STANDARD §6).** The same
+`html2canvas` gap can hit ANY image field, and a grep of every `html2canvas(`
+call site found **three**, not one — the single-property generator
+(`ad.blade.php` `_capture()`, already covered above), the Ad Builder's own
+"Export for Marketing" (`ad-builder.blade.php` `capture()`), and the bulk Ad
+Manager (`tools/ad-manager.blade.php` `downloadRow()`). All three now call
+`prepareImagesForCapture()` immediately before their `html2canvas()` call.
+The Ad Builder's `capture()` was ALSO missing the `backgroundRemovalsSettled()`
+await every other capture path already had (§15.1) — a sibling gap, fixed
+alongside it.
+
+**§16.2 — the dead platform-selector for a custom template, fixed.** The
+Facebook/Instagram/Story/WhatsApp/Custom buttons (`ad.blade.php`) stayed fully
+clickable and visually "active" for a custom template even though `cfg`'s
+custom-template branch never reads `platform` at all — clicking them is a
+complete no-op, yet "Facebook 1200×628" showing highlighted while the actual
+export renders the template's own (possibly totally different, e.g. square)
+saved size is exactly what read as "the size I picked isn't what exported."
+The platform row is now hidden entirely (`x-if="template !== 'custom'"`) for
+a custom template, replaced with a plain, honest, read-only line — the
+template's actual `cfg.w`×`cfg.h` — plus a direct **"Change in Ad Builder →"**
+link (new `_customTemplateId`, set alongside `_customLayout` in
+`selectCustomTemplate()`) to the one place that size can actually be changed.
+
+**Built — custom template picker previews (the separate feature ask).**
+Custom (agency-built) template cards showed only a letter avatar
+(`tpl.name.charAt(0)`) where pre-built cards already show a live, real-data
+thumbnail (server-rendered Blade, scaled via `transform:scale()`). Custom
+templates can't use that — `layout_json` is client-side JSON, not a Blade
+partial — so each card mounts `CoreXAd.renderLayout()` directly (`x-init`,
+using the page's own `propertyData` + `{placeholders:true}` so a template
+with no chosen agent/photo still shows sensible placeholder copy, same as the
+Ad Builder).
+
+**Fixed same day — the first version rendered noticeably smaller than the
+pre-built previews.** It reused the OLD compact list-row card (`.custom-tpl-
+card`/`.custom-tpl-thumb`, a 100×52px icon-sized box next to the name) rather
+than the pre-built cards' big-thumbnail grid layout (`.tpl-card`/`.tpl-thumb`,
+`width:100%; aspect-ratio:1200/628`, in the same `minmax(300px,1fr)` grid).
+Custom template cards now use the IDENTICAL `.tpl-card`/`.tpl-thumb` markup
+and grid as pre-built cards, so every card in the picker is the same size.
+The harder part: pre-built thumbnails are always designed at exactly
+1200×628 and rescaled to the card's actual responsive width by the existing
+`fitThumbs()` (`.tpl-thumb-inner` scaled by `clientWidth/1200`, re-run on
+resize/search/step-change) — a custom template can be ANY canvas size, so
+`customThumbStyle(tpl)` first **contain-fits it, centred, into that SAME
+1200×628 logical reference frame** (not a smaller ad-hoc box), and
+`fitThumbs()` then scales that whole frame down to the card's real width
+exactly as it already does for pre-built cards — no new resize/observer code
+needed, since the custom cards use the exact same `.tpl-thumb`/`.tpl-thumb-
+inner` class names `fitThumbs()` already queries. Dead CSS from the old
+compact layout (`.custom-tpl-card`, `.custom-tpl-thumb`, `.custom-tpl-badge`
+— the last one already unused before this) removed.
+
+**Acceptance criteria**
+- [x] Clicking Generate/Download/Export never visibly flashes a cropped,
+      zoomed-in view of the design.
+- [x] A capture error always restores the preview's transform and clears the
+      veil — never leaves it stuck un-scaled.
+- [x] A custom template whose `canvasPreset` matches a real platform name but
+      whose actual `canvasW`/`canvasH` differs renders at ITS OWN size, live,
+      not the preset's.
+- [x] Every custom template card in the picker shows a live, correctly-
+      proportioned preview of the actual design, not a letter avatar.
+- [x] A custom template's picker preview is the SAME on-screen size as a
+      pre-built template's — both use `.tpl-card`/`.tpl-thumb` and the same
+      `fitThumbs()` responsive scaling, only the reference-frame contain-fit
+      differs.
+- [x] Every `html2canvas()` call site (single-property generator, Ad Builder
+      export, bulk Ad Manager) pre-bakes the object-fit crop before capturing,
+      via `CoreXAd.prepareImagesForCapture()`; each restores the original
+      `<img src>` in `finally` so the live preview/"change photo"/"reset to
+      original" paths are never affected.
+- [x] `objectFitRect()`'s cover/contain geometry is unit-tested directly
+      (`tests/js/ad-render-kernel.mjs`) — crop vs letterbox, centring on both
+      axes, matching-aspect no-op, and the zero-size/zero-natural-size guard.
+- [x] A custom template's platform-size row is hidden (not just inert) and
+      replaced with the template's real size + a link to change it in the Ad
+      Builder.
+
+---
+
+## 18. Property-type template variants — one template, different designs per property type
+
+> Status: LIVE · 2026-08-02
+
+**What/why.** Johan's own example: a template built for a house needs
+Bedrooms/Bathrooms; the same template used on a vacant land listing has no
+floor size at all — only a stand/erf size. Until now the only fix was a
+second, separate template kept in sync by hand. This gives a saved template
+a "Design for" picker: a **Default** design (used by any property type
+without one of its own) plus, per property type, an optional **fully
+independent alternate design** — its own canvas AND its own elements —
+created by cloning the current Default and then editing it separately.
+Most valuable for the bulk Ad Manager and the single-property generator,
+where the SAME template runs across a mixed portfolio (houses, vacant land,
+apartments, …) without an agent hand-picking a different template per
+listing.
+
+**This replaced an earlier, narrower attempt shipped the same day** (a
+per-element `visibleFor` checklist toggling individual elements on/off per
+type). Johan's actual ask was a full alternate design per type, not
+element-by-element show/hide — corrected before that version reached wide
+use; see the git history for the superseded commit. The mechanism below is
+what shipped.
+
+**Data model — `layout_json.variants`.** A template's `layout_json` keeps its
+existing top-level shape (`canvasW`, `canvasH`, `canvasBg`, `elements`, …) as
+the **Default** design — unchanged, so every template saved before this
+feature needs no migration and no template loses anything. A NEW sibling key,
+`variants`, is a map keyed by the EXACT property-type name (the same string
+the property's own "Property Type" dropdown uses — Settings-driven per
+agency, never a hardcoded taxonomy) to a full alternate design of the same
+shape (`canvasW`/`canvasH`/`canvasBg`/`canvasBgMode`/`canvasBgFrom`/
+`canvasBgTo`/`canvasBgAngle`/`canvasPreset`/`elements`). A property type with
+no entry in `variants` simply uses the Default.
+
+**Resolution — one function, both runtimes.** `CoreXAd.resolveTemplateLayout
+(layoutJson, propertyTypeRaw)` (kernel, pure, unit-tested) and
+`PropertyAdTemplate::resolvedLayoutFor(?string $propertyTypeRaw)` (PHP model
+method, same cases unit-tested) both do the identical thing: case-
+insensitive/trimmed match of the property's type against `variants` keys;
+match → that variant's design; no match (blank type, no variants at all, or
+a type nobody made custom) → the Default. Two implementations exist only
+because resolution has to happen in two different runtimes — the bulk Ad
+Manager resolves server-side (PHP, one property's real classified type at a
+time, inside `AdManagerController::generate()`'s per-property loop, verified
+via Tinker to make two properties of different types in the SAME batch
+render genuinely different designs — 1000×500 custom canvas + a
+`custom_text` element for a vacant-land property vs. the Default 1200×628
+`beds` element for a house, one call, one template); the single-property
+generator and Ad Builder picker thumbnails resolve client-side (JS, from
+`propertyData.property_type_raw`). Never a broken/empty render over missing
+classification data — no match always falls back to the Default design.
+
+**New data key — `Property::adData()['property_type_raw']`.** The exact,
+untransformed `property_type` column value (e.g. `"Vacant Land / Plot"`),
+kept deliberately separate from the existing `'property_type'` key (which
+uppercases for on-ad DISPLAY, §10's "Type" element) so matching never
+depends on that display string's formatting choices.
+
+**Ad Builder — the "Design for" bar.** A pill row above the canvas: "Default"
+(always first, always exists) plus one pill per the agency's own active
+Property Type. Clicking a type that's still using Default clones the CURRENT
+Default design into a brand-new independent variant and switches straight to
+editing it; clicking an already-custom type (badged "Custom") just switches
+to it; a "Revert to Default" link deletes the active variant and falls back.
+Only `elements`/`canvasW`/etc are ever "live" — whichever design is
+currently active — while every OTHER design sits parked in plain JS state
+(`variants` for custom ones, `_defaultLayout` for the Default while a
+variant is being edited) until switched back to. This re-uses every existing
+drag/resize/undo/group/layers mechanic completely unchanged: none of that
+code has any idea a variant switch ever happened, it just keeps operating on
+`elements`/`canvasW` as it always did. Undo history resets on switch — each
+design gets its own fresh stack, since undoing a drag on one design has no
+meaning on a completely different one. A loaded real property (`?property=`)
+auto-opens on ITS OWN design if the template already has a matching variant,
+so the Ad Builder previews exactly what that property's ad will look like.
+
+Verified by direct behavioural simulation (the pack/unpack logic isn't
+unit-testable in the current jsdom-less harness, being tightly coupled to
+the full Alpine component — the same limitation `stripBackground()`'s DOM-
+touching wrapper already had in §15.1, worked around there by testing only
+its pure algorithmic core): create Default content → make a Vacant Land
+variant (confirmed it starts as an exact clone) → edit the variant → switch
+to Default (confirmed unaffected by the variant edit) → switch back to the
+variant (confirmed the edit persisted) → read the save payload while the
+variant is active (confirmed BOTH the Default and the variant are present,
+correctly separated) → revert (confirmed the variant is deleted and the
+Default is restored). Every step passed before this shipped.
+
+**Deliberately not built this round:** a higher-level "property category"
+taxonomy above the agency's own configured type names (e.g. bucketing
+Farm/Commercial under one label) — the agency's own exact type names are
+more precise and need no new taxonomy invented or kept in sync; canvas-size
+mismatch warnings when a variant's dimensions differ from the Default's
+(they're free to differ — the clone is just a starting point) — not
+reported as an issue and adds a UI affordance nobody asked for; any change
+to the pre-built (non-custom) ad templates — those are hardcoded Blade
+markup per design, not `layout_json`-driven, and were never part of "the
+template builder" this was asked for.
+
+**Acceptance criteria**
+- [x] A template with no `variants` key at all (every template saved before
+      this feature) resolves to its own unchanged design for every property
+      type — no migration needed.
+- [x] A property whose exact (case-insensitive/trimmed) type matches a
+      variant resolves to THAT variant's canvas AND elements, not the
+      Default's.
+- [x] A property whose type has no matching variant — including a blank/
+      unclassified type — resolves to the Default design.
+- [x] Two properties of different types, in the SAME bulk-generate batch,
+      using the SAME selected template, resolve to genuinely different
+      designs (verified via Tinker through the real `generate()` endpoint,
+      not just the model method in isolation).
+- [x] In the Ad Builder, giving a property type its own design starts as an
+      exact clone of the current Default, then edits independently of it —
+      editing the variant never mutates the Default, and vice versa.
+- [x] Switching between Default and a variant, back and forth, always shows
+      each one's own correct, current content — never stale, never bleeding
+      into the other.
+- [x] The save payload includes the Default (top level, unchanged shape) and
+      every custom variant (`variants`), including whichever one is
+      currently being edited at save time.
+- [x] Reverting a variant deletes it and falls back to Default, without
+      resurrecting the deleted content.
+- [x] A real property loaded via `?property=` auto-opens the Ad Builder on
+      its own matching variant, if one exists.
+- [x] `tests/js/ad-render-kernel.mjs` and
+      `tests/Unit/Properties/PropertyAdTemplateVariantTest.php` cover
+      `resolveTemplateLayout()`/`resolvedLayoutFor()` identically: exact
+      match, case/whitespace tolerance, no-match fallback, blank/missing
+      type fallback, no-`variants`-key fallback.
 
 ---
 
@@ -656,3 +2513,193 @@ Blade, not `layout_json` — a real conversion, specced separately if wanted).
   drift bugs in §12.1).
 - `tests/Feature/Properties/AdRenderKernelTest.php` — the drift guard (new).
 - `tests/js/ad-render-kernel.mjs` — render-logic checks against the shipped kernel (new).
+
+### Numeric feature display format + icon (§14)
+- `public/js/corex-ad-render.js` — `NUMERIC_FEATURE_FIELDS`, `FEATURE_LABELS`, `ICONS`,
+  `ICON_LIST`, `parking` field/defaults, label formatting in `textValue()`, icon rendering
+  in `contentHtml()`/`iconHtml()`.
+- `app/Models/Property.php` — `spaceCount()` (new, shared with the brochure); `adData()`
+  gains the `parking` key.
+- `app/Services/Properties/PropertyBrochureService.php` — delegates Parking counting to
+  `Property::spaceCount()` instead of its own private copy.
+- `resources/views/corex/properties/ad-builder.blade.php` — "Display as" + icon-picker
+  panel for the four numeric fields.
+- `tests/js/ad-render-kernel.mjs` — label/pluralisation/icon/legacy-back-compat checks.
+
+### "Garages / Parking" combined field (§14.1)
+- `public/js/corex-ad-render.js` — `garages_or_parking` field/defaults/catalogue entry,
+  `resolveGaragesOrParking()`, its `textValue()` branch. No backend/Blade changes — reuses
+  existing `prop.garages`/`prop.parking` and the existing numeric-feature panel.
+- `tests/js/ad-render-kernel.mjs` — both-present / zero / absent / neither / builder-preview
+  / icon coverage.
+
+### "Size / Land Size" combined field + placeholder-leak fix (§14.2, §17)
+- `public/js/corex-ad-render.js` — `size_or_land` field/defaults/catalogue entry,
+  `resolveSizeOrLand()`, `formatSizeNumber()`, its `textValue()` branch; the generic
+  `textValue()` fallback now guards on `opts.placeholders` (the actual bug fix, affects
+  every field that falls through to it, not just size).
+- `app/Models/Property.php` — `adData()` gains `floor_size_m2`/`land_size_m2` (raw,
+  unformatted) alongside the existing pre-formatted `size_m2`.
+- `tests/js/ad-render-kernel.mjs` — both-present / zero / absent / neither / builder-preview
+  / thousands-separator coverage for the new field; generic-fallback placeholder-leak
+  coverage (`reference`, `address`, `agent_phone`, plus the untouched real-data case).
+
+### Element grouping (§13.1)
+- `public/js/corex-ad-render.js` — `makeElement()` seeds `groupId: null` (builder-only,
+  unread by `frameStyle()`/`contentHtml()`).
+- `resources/views/corex/properties/ad-builder.blade.php` — `groupMembers()`,
+  `expandToGroups()`, `selIsGroup`, `groupSelected()`, `ungroupSelected()`, `_remapGroups()`;
+  group-aware `elMouseDown()`/marquee/`selectFromLayers()`; toolbar Group/Ungroup button;
+  `Ctrl G`/`Ctrl Shift G`; shortcuts panel entry; Layers panel group indicator; top-bar
+  `Group…` picker (`groupPickMode`, `toggleGroupPick()`/`cancelGroupPick()`/
+  `confirmGroupPick()`) + header Confirm/Cancel bar; Design-panel "Grouped — N
+  elements" block (`selGroupMembers` getter, `ungroupOne()`) with a per-member
+  ✕ plus an "Ungroup All" button.
+
+### Agent Image rename + shape picker (§15)
+- `public/js/corex-ad-render.js` — catalogue labels; `isAgentAvatarField()`,
+  `avatarShapeCss()`; `frameStyle()` applies the shape mask to Agent Image elements;
+  `FIELD_DEFAULTS` seeds `shapeType: 'circle'`, `borderRadius: 16` for both agent avatar
+  fields.
+- `resources/views/corex/properties/ad-builder.blade.php` — shape-picker panel block
+  (reuses the existing Shape-element grid markup) for `agent_avatar`/`agent_2_avatar`;
+  suppresses the plain Border Radius input for those two fields only.
+- `tests/js/ad-render-kernel.mjs` — rename, default-circle, every shape branch, legacy
+  fallback coverage.
+
+### "Remove background" cutout (§15.1)
+- `public/js/corex-ad-render.js` — `stripBackground()`, `_processBackgroundRemoval()`,
+  `_floodFillTransparent()`, `_cornerColor()`, `backgroundRemovalsSettled()`,
+  `_bgRemovalCache`; `imgTag()` adds the onload hook; `makeElement()` seeds
+  `removeBackground: false`; round 3 adds `_fillEnclosedHoles()` and
+  `_featherAlpha()`, both called from `_processBackgroundRemoval()` right after
+  `_floodFillTransparent()`, and both exported on `CoreXAd`; round 4 adds
+  `_bgRemovalConfig` (`holeMinPx`/`holeMaxPx`/`holeMaxDimensionPx`, agency-
+  configurable defaults) and `configureBgRemoval(cfg)` (exported on `CoreXAd`),
+  and extends `_fillEnclosedHoles()` to track each component's bounding box and
+  gate on the area + dimension caps alongside the existing floor; round 5 adds
+  `floodFillDriftCapPx` to `_bgRemovalConfig`/`configureBgRemoval()` and
+  rewrites `_floodFillTransparent()`'s stack entries to carry an inherited
+  path-max-distance value alongside each pixel's coordinates, gating
+  propagation on it in addition to the existing flat tolerance check.
+  Round 6 added `el.cutoutMatteColor` handling to `frameStyle()` — **shipped,
+  then REVERTED the same day** (wrong fix for a correctly-diagnosed cause;
+  see the round-6 write-up's "REVERTED" note above) — the kernel file is
+  back to its round-5 form.
+- `database/migrations/2026_08_20_000006_add_ad_bg_removal_hole_thresholds_to_agencies.php` —
+  additive, nullable `agencies.ad_bg_removal_hole_{min,max,max_dimension}_px`.
+- `database/migrations/2026_08_20_000007_add_ad_bg_removal_drift_cap_to_agencies.php` —
+  additive, nullable `agencies.ad_bg_removal_flood_fill_drift_cap_px` (round 5).
+- `database/migrations/2026_08_20_000008_backfill_cutout_matte_color_for_removebg_avatars.php` —
+  round 6's one-time data correction. Ran against live/Staging, then its
+  effect was reversed by 000009 the same day. Kept in place (not deleted) as
+  the historical record of an already-run migration.
+- `database/migrations/2026_08_20_000009_revert_cutout_matte_color_backfill.php` —
+  reverses 000008: clears `cutoutMatteColor` from every `agent_avatar`/
+  `agent_2_avatar` element that has it set, system-wide.
+- `app/Models/Agency.php` — the three round 4/5 threshold columns added to
+  `$fillable`/`$casts` (round 6 introduced no new agency column).
+- `app/Http/Controllers/Tools/AdManagerController.php` — `index()` resolves the
+  current agency and passes it to the view.
+- `app/Support/helpers.php` — new `asset_v()` global helper (filemtime-based
+  cache-busting query string, no manual version number to remember to bump).
+- `resources/views/corex/properties/ad-builder.blade.php` — "Remove background"
+  checkbox in the Agent Image panel. (Round 6 added a "Fill removed
+  background with a colour" checkbox + colour picker here — shipped, then
+  REVERTED the same day; the file is back to its round-5 form.)
+- `resources/views/corex/properties/ad-builder.blade.php`,
+  `resources/views/corex/properties/ad.blade.php`,
+  `resources/views/tools/ad-manager.blade.php` — all three call
+  `window.CoreXAd.configureBgRemoval({...})` immediately after the kernel
+  script tag loads, with the current agency's (nullable) threshold values; all
+  three load the kernel via `asset_v('js/corex-ad-render.js')` instead of a
+  static `?v=1` (round 4 — see §12 cache-busting note); `ad.blade.php`'s
+  `_capture()` and `ad-manager.blade.php`'s `downloadRow()` await
+  `backgroundRemovalsSettled()` before `html2canvas`.
+- `tests/js/ad-render-kernel.mjs` — flood-fill algorithm (synthetic pixel buffers),
+  onload-hook emission/omission, enclosed-holes fill/no-fill/border-touching cases,
+  edge feathering, round 4's large-hole/elongated-hole rejection and
+  `configureBgRemoval()` override coverage, round 5's synthetic gradient-corridor
+  frame (default cap stops before the plateau, raised cap sweeps it, real flat
+  backdrop unaffected, round 1/2's regression re-asserted unaffected). Round 6
+  added 5 `cutoutMatteColor` checks here — removed on revert; suite is back
+  to 123/123.
+
+### Generator fixes + picker previews (§16)
+- `resources/views/corex/properties/ad.blade.php` — `capturingPreview` + capture veil
+  (`try/finally` in `_capture()`); `get cfg()` always trusts the custom template's own
+  `canvasW`/`canvasH`; `customThumbStyle(tpl)` + live `CoreXAd.renderLayout()` mount per
+  custom-template picker card, replacing the letter-avatar thumb; `@keyframes ad-spin`.
+
+### Agent Image "stretch" root-cause fix + dead platform-selector fix (§16.1, §16.2)
+- `public/js/corex-ad-render.js` — `objectFitRect()` (pure crop geometry, unit-tested),
+  `prepareImagesForCapture()` (pre-bakes the crop onto an offscreen canvas, swaps `<img
+  src>`, returns a restore function).
+- `resources/views/corex/properties/ad.blade.php` — `_capture()` calls
+  `prepareImagesForCapture()` before `html2canvas()`; platform-selector row hidden for
+  `template === 'custom'`, replaced with a read-only size + "Change in Ad Builder →" link;
+  new `_customTemplateId` (set in `selectCustomTemplate()`, cleared in `selectTemplate()`).
+- `resources/views/corex/properties/ad-builder.blade.php` — `capture()` gains the SAME
+  `backgroundRemovalsSettled()` await and `prepareImagesForCapture()` call the other two
+  capture paths already had (a sibling gap, BUILD_STANDARD §6).
+- `resources/views/tools/ad-manager.blade.php` — `downloadRow()` calls
+  `prepareImagesForCapture()` before `html2canvas()`.
+- `tests/js/ad-render-kernel.mjs` — `objectFitRect()` cover/contain/matching-aspect/
+  zero-size coverage.
+
+### Property-type template variants (§18)
+- `app/Models/Property.php` — `adData()` gains `'property_type_raw'` (exact,
+  untransformed `property_type`, kept separate from the display-uppercased
+  `'property_type'` key already there).
+- `public/js/corex-ad-render.js` — `resolveTemplateLayout(layoutJson,
+  propertyTypeRaw)` (pure, unit-tested), exported on `CoreXAd`; `renderLayout()`
+  itself is unchanged (reverted to its pre-§18 form — resolution happens
+  BEFORE calling it, not inside it).
+- `app/Models/PropertyAdTemplate.php` — `resolvedLayoutFor(?string
+  $propertyTypeRaw)`, the PHP mirror, unit-tested identically
+  (`tests/Unit/Properties/PropertyAdTemplateVariantTest.php`).
+- `app/Http/Controllers/Tools/AdManagerController.php` — `generate()` resolves
+  each property's OWN layout INSIDE the per-property loop (was resolved once,
+  outside the loop, shared by the whole batch); `$row['cw']`/`['ch']` now come
+  from that property's resolved layout too.
+- `app/Http/Controllers/CoreX/PropertyAdTemplateController.php` — `builder()`
+  fetches the agency's active `property_setting_items` (group
+  `property_type`) and passes `$propertyTypeOptions` to the view.
+- `resources/views/corex/properties/ad-builder.blade.php` — the "Design for"
+  pill bar (`#varbar`); `variants`/`activeVariantType`/`_defaultLayout` state;
+  `_packActiveVariant()`/`_unpackVariant()`/`switchVariant()`/
+  `makeCustomVariant()`/`revertVariant()`; new `layoutJsonFull` getter feeds
+  `save()` (was building the payload inline from top-level fields); `init()`
+  auto-opens a loaded real property's matching variant.
+- `resources/views/corex/properties/ad.blade.php` — `selectCustomTemplate()`
+  and the picker's thumbnail/`customThumbStyle()`/element-count line all
+  resolve via a new `resolvedTemplateLayout(tpl)` helper instead of reading
+  `tpl.layout_json` directly.
+- `resources/views/tools/ad-manager.blade.php` — picker thumbnails (`loadPreviews()`)
+  resolve via a new `thumbLayout(t)` helper (feeds both the render call and
+  the thumbnail's aspect-ratio sizing); the bulk-generated rows themselves need
+  no client-side resolution — the server already resolves them per property.
+- `tests/js/ad-render-kernel.mjs` — `resolveTemplateLayout()` coverage: exact
+  match, case/whitespace tolerance, a variant's own canvas background coming
+  along with its elements, no-match fallback, blank/missing-type fallback,
+  no-`variants`-key fallback.
+- `tests/Unit/Properties/PropertyAdTemplateVariantTest.php` — same cases,
+  server-side.
+
+### "N selected" counter fix + ad-generated counter/badge (§10b.1)
+- `database/migrations/2026_08_20_000005_add_ad_generated_tracking_to_properties.php` —
+  additive `ad_generated_count` (default 0) + `ad_last_generated_at` (nullable) on
+  `properties`; `database/schema/mysql-schema.sql` re-dumped in the same change.
+- `app/Models/Property.php` — both columns added to `$casts` (integer / datetime).
+- `app/Http/Controllers/Tools/AdManagerController.php` — new private
+  `markAdsGenerated(array $propertyIds)`, called from both `generate()` and
+  `generateBrochures()` after their result loops; `index()`'s per-property
+  payload gains `ad_generated_count`/`ad_last_generated_at`.
+- `resources/views/tools/_ad-manager-property-card.blade.php` — checkbox
+  `x-model="selected"` → `x-model.number="selected"` (the one-word fix); new
+  top-right ad-count badge, shown only when `ad_generated_count > 0`.
+- `resources/views/tools/ad-manager.blade.php` — new `formatAdDate(iso)`
+  helper for the badge's tooltip.
+- `tests/Feature/Tools/AdManagerGeneratedCounterTest.php` — counter stamped on
+  generate (pre-built + brochure paths), increments across repeated calls, a
+  scope-skipped property is never counted.

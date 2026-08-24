@@ -6,7 +6,7 @@
 @section('corex-content')
 <div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
 
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <h1 class="text-xl font-bold text-white leading-tight">Amendment Review</h1>
         <p class="text-sm text-white/60 mt-1">
             {{ $document?->name ?? 'Document' }}

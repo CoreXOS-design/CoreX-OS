@@ -39,7 +39,7 @@
 
 <div class="min-h-screen flex flex-col">
     <header class="setup-header">
-        <div class="max-w-[1100px] mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between gap-4">
+        <div class="w-full px-4 sm:px-6 lg:px-12 py-4 flex items-center justify-between gap-4">
             <div class="flex items-center gap-3 min-w-0">
                 @if (!empty($agency?->logo_path))
                     <img src="{{ asset('storage/' . $agency->logo_path) }}" alt="{{ $agency->name }}" class="h-10 w-10 rounded-md bg-white object-contain p-1">
@@ -71,7 +71,7 @@
     </main>
 
     <footer class="border-t border-black/5 py-4 mt-8">
-        <div class="max-w-[1100px] mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between text-xs" style="color:var(--text-muted,#64748b);">
+        <div class="w-full px-4 sm:px-6 lg:px-12 flex items-center justify-between text-xs" style="color:var(--text-muted,#64748b);">
             <div>Powered by <span class="font-semibold">CoreX <span class="setup-accent">OS</span></span></div>
             <div>© {{ date('Y') }} CoreX OS</div>
         </div>

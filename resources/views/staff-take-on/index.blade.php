@@ -8,14 +8,14 @@
 <div class="w-full space-y-5">
 
     {{-- Page header (branded — §2.4 Pattern A) --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Staff Take-On</h1>
-                <p class="text-sm text-white/60">Onboard new employees and capture their payroll, leave and compliance details.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Staff Take-On</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Onboard new employees and capture their payroll, leave and compliance details.</p>
             </div>
-            <div class="flex items-center gap-2 flex-wrap">
-                <a href="{{ route('staff-take-on.create') }}" class="corex-btn-primary inline-flex items-center gap-2">
+            <div class="flex flex-wrap items-center gap-2">
+                <a href="{{ route('staff-take-on.create') }}" class="corex-btn-primary text-xs inline-flex items-center gap-2">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
                     Start New Take-On
                 </a>
@@ -32,7 +32,7 @@
     @endif
     @if(session('info'))
         <div class="rounded-md px-4 py-3 text-sm font-medium"
-             style="background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 10%, transparent); border:1px solid color-mix(in srgb, var(--brand-icon, #0ea5e9) 30%, transparent); color: var(--text-primary);">
+             style="background: color-mix(in srgb, var(--brand-icon) 10%, transparent); border:1px solid color-mix(in srgb, var(--brand-icon) 30%, transparent); color: var(--text-primary);">
             {{ session('info') }}
         </div>
     @endif
@@ -49,10 +49,10 @@
             <a href="{{ route('staff-take-on.index', ['status' => $key]) }}"
                class="px-3 py-1.5 text-xs font-semibold transition-colors duration-150"
                style="{{ $status === $key
-                   ? 'border-bottom:2px solid var(--brand-icon, #0ea5e9); color:var(--brand-icon, #0ea5e9);'
-                   : 'color:var(--text-secondary);' }}">
+                   ? 'border-bottom:2px solid var(--brand-icon); color:var(--brand-icon);'
+                   : 'color:var(--text-muted);' }}">
                 {{ $label }}
-                <span class="ml-1 text-[0.625rem] font-semibold" style="color:var(--text-muted);">{{ number_format($counts[$key]) }}</span>
+                <span class="ml-1 text-[0.625rem] font-semibold" style="color:var(--text-faint);">{{ number_format($counts[$key]) }}</span>
             </a>
         @endforeach
     </div>
@@ -61,7 +61,7 @@
         {{-- Empty state (§3.10) --}}
         <div class="rounded-md py-12 px-6 text-center" style="background: var(--surface); border:1px solid var(--border);">
             <div class="w-12 h-12 rounded-full mx-auto mb-4 flex items-center justify-center"
-                 style="background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 12%, transparent); color:var(--brand-icon, #0ea5e9);">
+                 style="background:color-mix(in srgb, var(--brand-icon) 12%, transparent); color:var(--brand-icon);">
                 <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M18 7.5v3m0 0v3m0-3h3m-3 0h-3m-2.25-4.125a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0ZM3 19.235v-.11a6.375 6.375 0 0 1 12.75 0v.109A12.318 12.318 0 0 1 9.374 21c-2.331 0-4.512-.645-6.374-1.766Z"/></svg>
             </div>
             <h3 class="text-base font-semibold mb-1" style="color:var(--text-primary);">No take-on records yet</h3>
@@ -94,7 +94,7 @@
                                 <td class="px-4 py-3">
                                     <div class="flex items-center gap-2">
                                         <div class="ds-progress-track" style="max-width:6rem;">
-                                            <div class="ds-progress-bar ds-bar-navy" style="width:{{ $rec->progressPercentage() }}%;"></div>
+                                            <div class="ds-progress-bar" style="width:{{ $rec->progressPercentage() }}%; background:var(--brand-icon);"></div>
                                         </div>
                                         <span class="text-xs font-semibold" style="color:var(--text-secondary);">{{ number_format($rec->progressPercentage()) }}%</span>
                                     </div>
@@ -109,9 +109,9 @@
                                 </td>
                                 <td class="px-4 py-3 text-right">
                                     @if($rec->isComplete())
-                                        <a href="{{ route('staff-take-on.wizard', [$rec, 'review']) }}" class="text-xs font-semibold" style="color:var(--brand-icon, #0ea5e9);">View</a>
+                                        <a href="{{ route('staff-take-on.wizard', [$rec, 'review']) }}" class="text-xs font-semibold" style="color:var(--brand-icon);">View</a>
                                     @else
-                                        <a href="{{ route('staff-take-on.wizard', [$rec, $rec->nextStep() ?? 'review']) }}" class="text-xs font-semibold" style="color:var(--brand-icon, #0ea5e9);">Resume</a>
+                                        <a href="{{ route('staff-take-on.wizard', [$rec, $rec->nextStep() ?? 'review']) }}" class="text-xs font-semibold" style="color:var(--brand-icon);">Resume</a>
                                     @endif
                                 </td>
                             </tr>

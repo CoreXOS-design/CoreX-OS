@@ -52,6 +52,9 @@ class RecordDomainEvent
                 'event_name'       => $event->eventName(),
                 'agency_id'        => $event->agencyId(),
                 'actor_user_id'    => $event->actorUserId(),
+                // AT-267 §11 — raw insert (no model), so the on-behalf-of fact is stamped here
+                // rather than via the StampsOnBehalfOf trait. Null unless an assistant is acting.
+                'on_behalf_of_user_id' => \App\Support\ActingFor::onBehalfOfUserId(),
                 'subject_type'     => $subject[0] ?? null,
                 'subject_id'       => $subject[1] ?? null,
                 'payload_snapshot' => json_encode($event->payloadSnapshot()),

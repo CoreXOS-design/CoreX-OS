@@ -6,14 +6,14 @@
 <div class="w-full space-y-5">
 
     {{-- Page Header --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <div class="flex items-center gap-3">
-                    <a href="{{ $document->category ? route('admin.knowledge.category', $document->category->id) : route('admin.knowledge.index') }}" class="text-sm text-white/60 hover:text-white transition-colors">&larr; Back</a>
-                    <h1 class="text-xl font-bold text-white leading-tight">Document Preview</h1>
-                </div>
-                <p class="text-sm text-white/60">{{ $document->title }}</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Document Preview</h1>
+                <p class="text-xs" style="color: var(--text-muted);">{{ $document->title }}</p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+                <a href="{{ $document->category ? route('admin.knowledge.category', $document->category->id) : route('admin.knowledge.index') }}" class="corex-btn-outline text-xs">&larr; Back</a>
             </div>
         </div>
     </div>

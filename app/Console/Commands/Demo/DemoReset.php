@@ -81,7 +81,16 @@ class DemoReset extends Command
         // clickwrap has nothing to show and every prospect is hard-blocked.
         $this->call('deploy:sync-reference-data');
 
-        $this->call('demo:seed');
+        // --force: required by DemoSeed's own double-lock on any non-local
+        // environment (DEMO_SEED_ALLOWED=true in .env is the other half).
+        // Omitting it here meant demo:seed silently refused on every call —
+        // migrate:fresh had already dropped every table by this point, so the
+        // demo was left freshly-migrated but with zero application data every
+        // single time this command ran (AT-265's role_permissions-empty halt
+        // was the visible symptom of this, not the cause). Confirmed live
+        // 2026-08-20: this exact gap left corex_demo empty for ~2 days across
+        // two silent nightly failures before being caught.
+        $this->call('demo:seed', ['--force' => true]);
 
         Log::info('[demo-access] Demo database reset.', [
             'next_reset' => DemoResetSchedule::next()->toIso8601String(),

@@ -5,14 +5,14 @@
 <div class="w-full space-y-5">
 
     {{-- Page header (Pattern A — branded) --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Leave Types</h1>
-                <p class="text-sm text-white/60">Configure agency-specific leave types — BCEA-mandated types are system-locked.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Leave Types</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Configure agency-specific leave types — BCEA-mandated types are system-locked.</p>
             </div>
-            <div class="flex items-center gap-2 flex-wrap">
-                <a href="{{ route('payroll.leave.types.create') }}" class="corex-btn-primary text-sm inline-flex items-center gap-2">
+            <div class="flex flex-wrap items-center gap-2">
+                <a href="{{ route('payroll.leave.types.create') }}" class="corex-btn-primary text-xs inline-flex items-center gap-2">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
                     Add Leave Type
                 </a>
@@ -39,7 +39,7 @@
             'all'      => ['label' => 'All',      'bg' => 'color-mix(in srgb, var(--brand-icon) 12%, transparent)',  'fg' => 'var(--brand-icon, #0ea5e9)'],
             'active'   => ['label' => 'Active',   'bg' => 'color-mix(in srgb, var(--ds-green) 12%, transparent)',   'fg' => 'var(--ds-green, #059669)'],
             'inactive' => ['label' => 'Inactive', 'bg' => 'color-mix(in srgb, var(--ds-amber) 12%, transparent)',   'fg' => 'var(--ds-amber, #f59e0b)'],
-            'system'   => ['label' => 'System',   'bg' => 'color-mix(in srgb, var(--ds-navy) 12%, transparent)',    'fg' => 'var(--ds-navy, #0b2a4a)'],
+            'system'   => ['label' => 'System',   'bg' => 'color-mix(in srgb, var(--brand-icon) 12%, transparent)',  'fg' => 'var(--brand-icon, #0ea5e9)'],
             'custom'   => ['label' => 'Custom',   'bg' => 'color-mix(in srgb, var(--brand-icon) 12%, transparent)', 'fg' => 'var(--brand-icon, #0ea5e9)'],
         ];
     @endphp

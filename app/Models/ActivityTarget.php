@@ -4,10 +4,18 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use App\Models\Concerns\BelongsToBranch;
+use App\Models\Concerns\InheritsBranchFromParent;
 
 class ActivityTarget extends Model
 {
-    use SoftDeletes;
+    use BelongsToBranch, InheritsBranchFromParent, SoftDeletes;
+
+    /** An activity target's branch is its owning agent's. */
+    protected function branchParent(): array
+    {
+        return [\App\Models\User::class, 'user_id'];
+    }
 
     protected $fillable = [
         'period',

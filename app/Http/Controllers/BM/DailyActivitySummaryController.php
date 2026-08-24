@@ -66,14 +66,29 @@ class DailyActivitySummaryController extends Controller
 
         $defIds = $defs->pluck('id')->map(fn($v)=>(int)$v)->all();
 
+        // daily_activity_entries has agency_id but no automatic tenant scope on
+        // this raw query-builder path. branch_id is filtered above, but
+        // branch ids are globally unique (not namespaced per agency) and the
+        // owner "no branch" fallback below can resolve to ANY agency's first
+        // branch — so the agency_id filter is added as an explicit, unambiguous
+        // tenant boundary, matching every other daily_activity_entries call
+        // site fixed in this pass.
+        $agencyId = $u->effectiveAgencyId();
+
         // M6.5 — achievement-total filter (confirmed/overridden + manual/auto_*).
+        // Source breakdown (manual vs auto) alongside the total — the achievement-
+        // total filter above already restricts 'e.source' to manual/auto_calendar/
+        // auto_instant, so anything not 'manual' within that set is auto.
         $agg = DB::table('daily_activity_entries as e')
-            ->selectRaw('e.activity_definition_id as def_id, SUM(e.value) as total_count')
+            ->selectRaw("e.activity_definition_id as def_id, SUM(e.value) as total_count, SUM(CASE WHEN e.source = 'manual' THEN e.value ELSE 0 END) as manual_count, SUM(CASE WHEN e.source != 'manual' THEN e.value ELSE 0 END) as auto_count")
             ->where('e.branch_id', $branchId)
             ->whereBetween('e.activity_date', [$start->toDateString(), $end->toDateString()])
             ->whereIn('e.activity_definition_id', $defIds)
             ->whereIn('e.point_state', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_STATES)
             ->whereIn('e.source', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_SOURCES)
+            ->when($agencyId, function ($q) use ($agencyId) {
+                $q->where('e.agency_id', $agencyId);
+            })
             ->groupBy('e.activity_definition_id')
             ->get()
             ->keyBy('def_id');
@@ -91,6 +106,8 @@ class DailyActivitySummaryController extends Controller
                 'count' => $count,
                 'weight' => (float)$d->weight,
                 'points' => $points,
+                'manual_count' => (int)($agg[$d->id]->manual_count ?? 0),
+                'auto_count' => (int)($agg[$d->id]->auto_count ?? 0),
             ];
             $grandCount += $count;
             $grandPoints += $points;
@@ -133,6 +150,11 @@ class DailyActivitySummaryController extends Controller
 
         abort_unless($def, 404);
 
+        // daily_activity_entries has agency_id but no automatic tenant scope on
+        // this raw query-builder path — added as defense in depth (see
+        // index() above for the same fix and rationale).
+        $agencyId = $u->effectiveAgencyId();
+
         // Agent totals for this activity in this branch + range
         // M6.5 — achievement-total filter.
         $rows = DB::table('daily_activity_entries as e')
@@ -143,6 +165,9 @@ class DailyActivitySummaryController extends Controller
             ->whereBetween('e.activity_date', [$start->toDateString(), $end->toDateString()])
             ->whereIn('e.point_state', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_STATES)
             ->whereIn('e.source', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_SOURCES)
+            ->when($agencyId, function ($q) use ($agencyId) {
+                $q->where('e.agency_id', $agencyId);
+            })
             ->groupBy('e.user_id', 'u.name')
             ->orderByRaw('SUM(e.value) DESC')
             ->get();
@@ -203,12 +228,18 @@ class DailyActivitySummaryController extends Controller
         $agentName = DB::table('users')->where('id', $user)->where('branch_id', $branchId)->value('name');
         abort_unless($agentName, 404);
 
+        // M6.5 — achievement-total filter (confirmed/overridden + manual/auto_*).
+        // Was missing here, so the drill-down total could exceed the summary-
+        // level total (which does apply this filter) whenever provisional,
+        // revoked, or auto_other entries existed for the activity.
         $entries = DB::table('daily_activity_entries as e')
             ->select(['e.activity_date','e.value'])
             ->where('e.branch_id', $branchId)
             ->where('e.user_id', $user)
             ->where('e.activity_definition_id', (int)$def->id)
             ->whereBetween('e.activity_date', [$start->toDateString(), $end->toDateString()])
+            ->whereIn('e.point_state', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_STATES)
+            ->whereIn('e.source', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_SOURCES)
             ->orderBy('e.activity_date', 'desc')
             ->get();
 

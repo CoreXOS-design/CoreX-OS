@@ -87,8 +87,64 @@ Use the `.glass` class pattern.
 - Border radius: `rounded-md` (6px)
 
 ### Page Headers
-- Background: `--brand-default` `[AGENCY]` — the dark branded bar at the top of each page.
-- Text: white, `font-bold`, `tracking-tight`.
+> **Updated 2026-07-22 (AT-336 restyle).** The solid `--brand-default` banner is
+> retired on restyled pages (Properties first). Page headers are now **flat, sticky,
+> translucent chrome** — not a raised coloured block. The agency brand colour must
+> NOT fill the header surface; it appears only on the primary CTA (`--brand-button`)
+> and accent icons/links (`--brand-icon`).
+- Layout: `sticky top-0 z-10`, `px-6 py-3.5`, breaking out of the content padding
+  (`-mx`/`-mt`) so it pins to the scrollport top.
+- Background: app bg at 85% opacity + `backdrop-blur`. A single **1px bottom border**
+  in the fixed neutral border colour. No side/top borders, no surface fill, no rounded
+  corners, no shadow.
+- Title: `text-primary`, 16px bold. Subtitle: 12px muted.
+- Buttons: ghost (`corex-btn-outline` — 1px neutral border, no fill, muted text that
+  brightens on hover) for secondary actions; the single primary CTA uses
+  `corex-btn-primary` (`--brand-button` + `shadow-md` at 25%). 32px square ghost icon
+  buttons for Help/Settings. Pass `variant => 'surface'` to the tour launcher include
+  so the "?" adapts to the neutral bar.
+
+_Legacy (pre-AT-336): brand-default banner with white bold text. Still in use on
+un-restyled pages; migrate them to the flat header as they are restyled._
+
+### Stat / KPI cards (AT-336)
+- Surface, background and border come ONLY from the fixed neutral slate system —
+  never the agency brand. `rounded-lg`, 1px neutral border, card shadow, `px-5 py-4`.
+- Value 26px bold tabular + 11px uppercase muted label; 36px `rounded-md` bordered icon
+  tub on the right (neutral, or emerald for a "live" metric).
+- **Active/selected filter** is indicated SOFTLY: border in `--brand-icon` ~40% + a
+  faint `--brand-icon` 10% tint. No bright 2px ring, no glow.
+
+### Dark-theme neutral tokens — confirmed (AT-336 fidelity pass)
+The lift in dark mode comes from a two-tone step: the surface must be visibly LIGHTER
+than the page bg, plus a just-visible border. These are the exact neutral values —
+**no brand/teal tint on any neutral**:
+
+| Token | Value | Role |
+|---|---|---|
+| `--bg` | `#020617` (slate-950) | page background **and sidebar** — one shared base tone |
+| `--surface` | `#0F172A` (slate-900) | card / panel / stat-tile surface — lifts off bg |
+| `--surface-2` | `#020617` (slate-950) | inner tiles, idle icon tubs (on the #0F172A surface) |
+| `--border` | `#1E293B` (slate-800) | all card/panel/tile borders |
+| `--text-primary` | `#FFFFFF` | headings, values |
+| `--text-secondary` | `#E2E8F0` (slate-200) | body |
+| `--text-muted` | `#94A3B8` (slate-400) | muted / ref-chip value |
+| `--text-faint` | `#64748B` (slate-500) | faint / ref-chip label |
+
+Elevation: each card also carries `box-shadow: 0 4px 12px rgba(0,0,0,0.30)`; hover
+lifts the border to `--brand-icon` at 50% (no translate/bounce).
+
+**Sidebar tone:** in dark mode the sidebar background **equals the page base
+(`#020617`)** — not `--surface`, not pure black — with a `#1E293B` right border; its
+drill-down panels use the same `#020617`. Page + sidebar are one deep tone; cards
+float above both.
+
+- **Glass status badges** (on the property image): `rgba(0,0,0,0.45)` + `backdrop-blur(6px)`
+  + 1px ring `rgba(255,255,255,0.10)`, text `#F1F5F9`, 11px, 6px radius. Every real
+  status stays (For Sale / Active / Open / Sole). "Active" adds a 6px emerald dot
+  `#34D399` + emerald text `#34D399`. Same recipe for the photo-count badge.
+- **Ref chip** (P24 / PP): 4px radius, 1px `--border`, **no fill**; label `--text-faint`,
+  value `--text-muted` — neutral, never brand-tinted.
 
 ### Scrollbars
 - Width: `6px` ultra-thin

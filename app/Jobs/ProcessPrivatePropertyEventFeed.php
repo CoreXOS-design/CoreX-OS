@@ -22,6 +22,14 @@ class ProcessPrivatePropertyEventFeed implements ShouldQueue
     public int $timeout = 300;
     public int $tries = 1;
 
+    /**
+     * Consecutive failed runs (this job runs every 15 min) before escalating to
+     * Log::critical. ~45 min — long enough to absorb a transient network blip,
+     * short enough that a stuck cursor (e.g. an invalidated continuationKey) is
+     * surfaced well within a working day instead of failing silently forever.
+     */
+    private const FAIL_STREAK_ALERT_THRESHOLD = 3;
+
     public function handle(PrivatePropertySoapClient $client): void
     {
         // Every enabled PP agency gets its own feed drain, bound to its branch
@@ -75,9 +83,11 @@ class ProcessPrivatePropertyEventFeed implements ShouldQueue
             $response = $client->getListingEventFeed($key, $startDateTime);
 
             if (isset($response['error']) && $response['error'] === true) {
-                Log::channel('private_property')->error('Event feed: SOAP error', $response);
+                $this->recordFeedFailure($cursorKey, $response);
                 return;
             }
+
+            $this->clearFeedFailure($cursorKey);
 
             // PP wraps the entire payload in a <GetListingEventFeedByBranchResult>
             // envelope — ContinuationKey AND FeedData live INSIDE it, not at the
@@ -111,6 +121,63 @@ class ProcessPrivatePropertyEventFeed implements ShouldQueue
             if (count($events) < 100 || !$newKey || $newKey === $key) {
                 $moreToProcess = false;
             }
+        }
+    }
+
+    /**
+     * A SOAP fault on this branch's cursor. Tracks a consecutive-failure streak in
+     * the same pp_event_feed_settings store the cursor itself lives in, and
+     * escalates once the streak is long enough to mean "stuck," not "blip."
+     *
+     * This is a DETECTOR, not a fixer — mirrors App\Console\Commands\QueueHealthcheck's
+     * loud-log-only convention rather than paging an owner directly (that richer
+     * pattern, App\Services\Security\PermissionLockdownAlarm, is reserved for
+     * platform-wide lockdowns). It does not distinguish an invalidated
+     * continuationKey from any other fault — PP's exact fault shape for that case
+     * is an open question as of the Rev 4.7 investigation.
+     */
+    private function recordFeedFailure(string $cursorKey, array $response): void
+    {
+        $streakKey = $cursorKey . ':fail_streak';
+        $sinceKey  = $cursorKey . ':fail_since';
+
+        $streak = ((int) PpEventFeedSetting::getValue($streakKey)) + 1;
+        PpEventFeedSetting::setValue($streakKey, (string) $streak);
+
+        $since = PpEventFeedSetting::getValue($sinceKey);
+        if (!$since) {
+            $since = now()->toIso8601String();
+            PpEventFeedSetting::setValue($sinceKey, $since);
+        }
+
+        Log::channel('private_property')->error('Event feed: SOAP error', $response + [
+            'cursor_key'  => $cursorKey,
+            'fail_streak' => $streak,
+        ]);
+
+        if ($streak >= self::FAIL_STREAK_ALERT_THRESHOLD) {
+            Log::critical(
+                "PP EVENT FEED DOWN: {$cursorKey} has failed {$streak} consecutive scheduled runs "
+                . "(failing since {$since}). Activations, deactivations and image-error detection for "
+                . "this branch have stopped. Check storage/logs/private_property.log for the underlying "
+                . "SOAP fault and verify the stored continuation key (pp_event_feed_settings) is still valid.",
+                [
+                    'cursor_key'  => $cursorKey,
+                    'fail_streak' => $streak,
+                    'since'       => $since,
+                    'raw_message' => $response['message'] ?? null,
+                ]
+            );
+        }
+    }
+
+    /** Reset the failure streak once a call succeeds. */
+    private function clearFeedFailure(string $cursorKey): void
+    {
+        $streakKey = $cursorKey . ':fail_streak';
+        if (PpEventFeedSetting::getValue($streakKey)) {
+            PpEventFeedSetting::setValue($streakKey, null);
+            PpEventFeedSetting::setValue($cursorKey . ':fail_since', null);
         }
     }
 

@@ -6,11 +6,11 @@
      x-init="$watch('activeSection', v => { const u = new URL(window.location); u.searchParams.set('s', v); u.searchParams.delete('tab'); u.searchParams.delete('fsec'); window.history.replaceState({}, '', u); })">
 
     {{-- Page header --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Settings</h1>
-                <p class="text-sm text-white/60">System configuration and preferences.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Settings</h1>
+                <p class="text-xs" style="color: var(--text-muted);">System configuration and preferences.</p>
             </div>
         </div>
     </div>
@@ -94,7 +94,11 @@
             ],
             [
                 'label' => 'Modules',
-                'items' => [
+                'items' => array_values(array_filter([
+                    // Feature Registry — the on/off switchboard for every module.
+                    $can('agency_features.manage')
+                        ? ['key'=>'features', 'label'=>'Features (on/off)', 'type'=>'section', 'keywords'=>'feature registry modules enable disable turn on off capability toggle rentals payroll compliance']
+                        : null,
                     ['key'=>'feature-documents',     'label'=>'Documents',             'type'=>'section', 'keywords'=>'docuperfect named fields'],
                     ['key'=>'feature-rentals',       'label'=>'Rentals',               'type'=>'section', 'keywords'=>'rental document types reminders'],
                     ['key'=>'feature-contacts',      'label'=>'Contacts',              'type'=>'section', 'keywords'=>'contact types sources tags labels phone email personal business dial code country prefix'],
@@ -106,7 +110,7 @@
                     ['key'=>'doc-types',             'label'=>'Document Types',        'type'=>'link', 'href'=>route('admin.settings.document-types.index'), 'keywords'=>'splitter filing'],
                     ['key'=>'docuperfect-types',    'label'=>'DocuPerfect — Types',   'type'=>'link', 'href'=>route('docuperfect.settings.types'), 'keywords'=>'document templates'],
                     ['key'=>'docuperfect-fields',   'label'=>'DocuPerfect — Named Fields','type'=>'link', 'href'=>route('docuperfect.settings.namedFields'), 'keywords'=>'merge fields'],
-                ],
+                ])),
             ],
             [
                 'label' => 'Operations',
@@ -127,6 +131,9 @@
                         : null,
                     ['key'=>'leave-visibility',      'label'=>'Leave Visibility',      'type'=>'section', 'keywords'=>'leave calendar matrix roles branch'],
                     $can('compliance.whistleblow.configure') ? ['key'=>'whistleblow-settings', 'label'=>'Compliance Reporting', 'type'=>'section', 'keywords'=>'whistleblower ppra approver complaints'] : null,
+                    ($u && $u->hasFeature('proforma-invoices') && $can('proforma.manage'))
+                        ? ['key'=>'proforma-settings', 'label'=>'Proforma Invoices', 'type'=>'link', 'href'=>route('admin.proforma-settings'), 'keywords'=>'accounting invoice numbering vat bank details terms']
+                        : null,
                 ])),
             ],
             [
@@ -179,13 +186,13 @@
                                             x-show="{{ $matchExpr }}"
                                             :class="activeSection === '{{ $item['key'] }}' ? 'font-semibold' : ''"
                                             :style="activeSection === '{{ $item['key'] }}' ? 'background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 12%, transparent); color:var(--brand-icon, #0ea5e9);' : 'color:var(--text-secondary);'"
-                                            class="w-full text-left px-3 py-2 rounded-md text-sm transition-colors duration-150 hover:bg-white/5 outline-none focus:outline-none">
+                                            class="w-full text-left px-3 py-2 rounded-md text-sm transition-colors duration-150 hover:bg-[color:var(--surface-2)] outline-none focus:outline-none">
                                         {{ $item['label'] }}
                                     </button>
                                 @else
                                     <a href="{{ $item['href'] }}"
                                        x-show="{{ $matchExpr }}"
-                                       class="flex items-center justify-between gap-2 px-3 py-2 rounded-md text-sm no-underline transition-colors duration-150 hover:bg-white/5"
+                                       class="flex items-center justify-between gap-2 px-3 py-2 rounded-md text-sm no-underline transition-colors duration-150 hover:bg-[color:var(--surface-2)]"
                                        style="color:var(--text-secondary);">
                                         <span>{{ $item['label'] }}</span>
                                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" class="w-3.5 h-3.5 flex-shrink-0" style="color:var(--text-muted);"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" /></svg>
@@ -212,7 +219,7 @@
             <div>
                 <h3 class="text-xs font-semibold uppercase tracking-wider mb-3" style="color:var(--text-muted);">Company</h3>
                 <a href="{{ route('admin.company-settings') }}"
-                   class="flex items-center gap-3 p-3 rounded-md transition-all duration-300 no-underline group hover:bg-white/5"
+                   class="flex items-center gap-3 p-3 rounded-md transition-all duration-300 no-underline group hover:bg-[color:var(--surface-2)]"
                    style="border:1px solid var(--border);">
                     <div class="w-9 h-9 rounded-md flex items-center justify-center flex-shrink-0" style="background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 12%, transparent);">
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="color: var(--brand-icon, #0ea5e9);" class="w-5 h-5"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21"/></svg>
@@ -264,7 +271,7 @@
                             <input type="text" name="vat_no" value="{{ old('vat_no', $agency->vat_no) }}"
                                    class="w-full rounded-md px-3 py-2 text-sm"
                                    style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"
-                                   placeholder="e.g. 4870264498">
+                                   placeholder="e.g. 4123456789">
                         </div>
                         <div>
                             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">FFC No</label>
@@ -418,7 +425,7 @@
             <div>
                 <h3 class="text-xs font-semibold uppercase tracking-wider mb-3" style="color:var(--text-muted);">Super Admin</h3>
                 <a href="{{ route('agencies.index') }}"
-                   class="flex items-center gap-3 p-3 rounded-md transition-all duration-300 no-underline hover:bg-white/5"
+                   class="flex items-center gap-3 p-3 rounded-md transition-all duration-300 no-underline hover:bg-[color:var(--surface-2)]"
                    style="border:1px solid var(--border);">
                     <div class="w-9 h-9 rounded-md flex items-center justify-center flex-shrink-0" style="background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 12%, transparent);">
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="color: var(--brand-icon, #0ea5e9);" class="w-5 h-5"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21" /></svg>
@@ -598,7 +605,7 @@
                         <label class="relative inline-flex items-center cursor-pointer flex-shrink-0">
                             <input type="hidden" name="mentor_program_enabled" value="0">
                             <input type="checkbox" name="mentor_program_enabled" value="1" x-model="mentor" class="sr-only peer">
-                            <span class="w-11 h-6 rounded-full transition-colors bg-slate-300 peer-checked:bg-[var(--brand-button,#0ea5e9)]"></span>
+                            <span class="w-11 h-6 rounded-full transition-colors bg-[color:var(--border-hover)] peer-checked:bg-[var(--brand-button,#0ea5e9)]"></span>
                             <span class="absolute left-0.5 top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform peer-checked:translate-x-5"></span>
                         </label>
                     </div>
@@ -1014,7 +1021,7 @@
                         <input type="checkbox" name="{{ $t['name'] }}" value="1" {{ $t['value'] ? 'checked' : '' }}
                                class="peer sr-only">
                         <span class="absolute inset-0 rounded-full transition-colors peer-checked:bg-[var(--brand-button)]"
-                              style="background:var(--border);"></span>
+                              style="background:var(--border-hover);"></span>
                         <span class="absolute top-0.5 left-0.5 w-[18px] h-[18px] rounded-full bg-white shadow transition-transform peer-checked:translate-x-4"></span>
                     </span>
                 </label>
@@ -1033,7 +1040,7 @@
                 <h3 class="text-xs font-semibold uppercase tracking-wider mb-3" style="color:var(--text-muted);">Management</h3>
                 <div class="space-y-2">
                     <a href="{{ route('admin.users') }}"
-                       class="flex items-center gap-3 p-3 rounded-md transition-all duration-300 no-underline hover:bg-white/5"
+                       class="flex items-center gap-3 p-3 rounded-md transition-all duration-300 no-underline hover:bg-[color:var(--surface-2)]"
                        style="border:1px solid var(--border);">
                         <div class="w-9 h-9 rounded-md flex items-center justify-center flex-shrink-0" style="background: color-mix(in srgb, var(--ds-green) 12%, transparent);">
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="color: var(--ds-green);" class="w-5 h-5"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 0 1 8.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0 1 11.964-3.07M12 6.375a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0Zm8.25 2.25a2.625 2.625 0 1 1-5.25 0 2.625 2.625 0 0 1 5.25 0Z" /></svg>
@@ -1045,7 +1052,7 @@
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" class="w-4 h-4 flex-shrink-0" style="color:var(--border-hover);"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
                     </a>
                     <a href="{{ route('corex.role-manager') }}"
-                       class="flex items-center gap-3 p-3 rounded-md transition-all duration-300 no-underline hover:bg-white/5"
+                       class="flex items-center gap-3 p-3 rounded-md transition-all duration-300 no-underline hover:bg-[color:var(--surface-2)]"
                        style="border:1px solid var(--border);">
                         <div class="w-9 h-9 rounded-md flex items-center justify-center flex-shrink-0" style="background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 12%, transparent);">
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="color: var(--brand-icon, #0ea5e9);" class="w-5 h-5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.99 11.99 0 0 0 3 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285Z" /></svg>
@@ -1185,7 +1192,7 @@
                         @csrf
                         <div class="space-y-1 max-h-48 overflow-y-auto mb-3 rounded-md p-2" style="border:1px solid var(--border); background:var(--surface);">
                             @foreach($agencyUsers as $u)
-                            <label class="flex items-center gap-2 py-1 px-1 text-sm cursor-pointer hover:bg-white/5 rounded">
+                            <label class="flex items-center gap-2 py-1 px-1 text-sm cursor-pointer hover:bg-[color:var(--surface-2)] rounded">
                                 <input type="checkbox" name="mlro_user_ids[]" value="{{ $u->id }}" {{ in_array($u->id, $activeMlroUserIds) ? 'checked' : '' }} style="accent-color: var(--brand-button, #0ea5e9);">
                                 <span style="color:var(--text-primary);">{{ $u->name }}</span>
                                 <span class="text-xs" style="color:var(--text-muted);">{{ $u->role }}</span>
@@ -1343,7 +1350,7 @@
                         @csrf
                         <div class="space-y-1 max-h-48 overflow-y-auto mb-3 rounded-md p-2" style="border:1px solid var(--border); background:var(--surface);">
                             @foreach($agencyUsers as $u)
-                            <label class="flex items-center gap-2 py-1 px-1 text-sm cursor-pointer hover:bg-white/5 rounded">
+                            <label class="flex items-center gap-2 py-1 px-1 text-sm cursor-pointer hover:bg-[color:var(--surface-2)] rounded">
                                 <input type="checkbox" name="deputy_user_ids[]" value="{{ $u->id }}" {{ in_array($u->id, $activeDeputyIOUserIds) ? 'checked' : '' }} style="accent-color: var(--brand-button, #0ea5e9);">
                                 <span style="color:var(--text-primary);">{{ $u->name }}</span>
                                 <span class="text-xs" style="color:var(--text-muted);">{{ $u->role }}</span>
@@ -1552,7 +1559,7 @@
                 <div>
                     <h3 class="text-xs font-semibold uppercase tracking-wider mb-3" style="color:var(--text-muted);">Properties</h3>
                     <a href="{{ route('rental.settings.properties.index') }}"
-                       class="flex items-center gap-3 p-3 rounded-md transition-all duration-300 no-underline hover:bg-white/5"
+                       class="flex items-center gap-3 p-3 rounded-md transition-all duration-300 no-underline hover:bg-[color:var(--surface-2)]"
                        style="border:1px solid var(--border);">
                         <div class="w-9 h-9 rounded-md flex items-center justify-center flex-shrink-0" style="background: color-mix(in srgb, var(--ds-green) 12%, transparent);">
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="color: var(--ds-green);" class="w-5 h-5"><path stroke-linecap="round" stroke-linejoin="round" d="m2.25 12 8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25" /></svg>
@@ -2361,6 +2368,33 @@
                     </form>
                 </div>
 
+                {{-- AI background removal (agent photos) toggle — ad-manager.md §15.2 --}}
+                <div class="p-4 rounded-md flex items-center justify-between gap-4" style="background:var(--surface-2); border:1px solid var(--border);">
+                    <div>
+                        <div class="text-sm font-semibold" style="color:var(--text-primary);">AI background removal for agent photos</div>
+                        <div class="text-xs mt-0.5" style="color:var(--text-secondary);">When enabled, a new or replaced agent photo is automatically sent to an AI background-removal service and the cutout is used wherever the Ad Builder's "Remove background" option is turned on. Turn off to stop sending this agency's agent photos to the service — existing cutouts stay in place, but no new ones are generated.</div>
+                    </div>
+                    <form method="POST" action="{{ route('corex.settings.ad-bg-removal-api') }}" class="flex items-center gap-3 flex-shrink-0">
+                        @csrf
+                        @method('PUT')
+                        <input type="hidden" name="ad_bg_removal_api_enabled" value="0">
+                        <label class="relative cursor-pointer flex-shrink-0" style="width:44px; height:24px; display:block;"
+                               title="{{ $adBgRemovalApiEnabled ? 'Enabled — click to disable' : 'Disabled — click to enable' }}">
+                            <input type="checkbox" name="ad_bg_removal_api_enabled" value="1"
+                                   {{ $adBgRemovalApiEnabled ? 'checked' : '' }}
+                                   class="sr-only"
+                                   onchange="this.closest('form').submit()">
+                            <span class="block w-full h-full rounded-full transition-colors duration-200"
+                                  style="background:{{ $adBgRemovalApiEnabled ? 'var(--brand-button, #0ea5e9)' : 'var(--border-hover)' }}"></span>
+                            <span class="absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-all duration-200"
+                                  style="transform:translateX({{ $adBgRemovalApiEnabled ? '20px' : '0' }})"></span>
+                        </label>
+                        <span class="text-sm font-semibold" style="color:{{ $adBgRemovalApiEnabled ? 'var(--brand-button, #0ea5e9)' : 'var(--text-muted)' }};">
+                            {{ $adBgRemovalApiEnabled ? 'On' : 'Off' }}
+                        </span>
+                    </form>
+                </div>
+
                 {{-- Syndication portals — controls which portals appear in the property syndication panel --}}
                 <div class="p-4 rounded-md" style="background:var(--surface-2); border:1px solid var(--border);">
                     <div class="mb-3">
@@ -2371,11 +2405,13 @@
                           x-data="{
                             pp:  {{ $syndicationPpEnabled      ? 'true' : 'false' }},
                             p24: {{ $syndicationP24Enabled     ? 'true' : 'false' }},
+                            ppExcl: {{ $ppExclusivityEnabled   ? 'true' : 'false' }},
                             submit() { this.$refs.frm.submit(); }
                           }" x-ref="frm">
                         @csrf
                         <input type="hidden" name="syndication_pp_enabled"      :value="pp  ? 1 : 0">
                         <input type="hidden" name="syndication_p24_enabled"     :value="p24 ? 1 : 0">
+                        <input type="hidden" name="pp_exclusivity_enabled"      :value="ppExcl ? 1 : 0">
 
                         @foreach([
                             ['key' => 'pp',  'label' => 'Private Property', 'desc' => 'Submit listings to Private Property'],
@@ -2395,6 +2431,42 @@
                             </label>
                         </div>
                         @endforeach
+
+                        {{-- AT-369 follow-up — master kill switch for the agent opt-in
+                             PP-exclusivity sub-feature. Off removes the tick from every
+                             sole-mandate Sale listing's syndication panel entirely; it does
+                             not touch listings already exclusive on PP (pp_delay_until keeps
+                             gating P24 until it lapses — turning this off is not a delist). --}}
+                        <div class="flex items-center justify-between gap-3 px-3 py-2 rounded-md" style="background:var(--surface); border:1px solid var(--border);">
+                            <div>
+                                <div class="text-sm font-medium" style="color:var(--text-primary);">Private Property exclusivity</div>
+                                <div class="text-xs" style="color:var(--text-muted);">Let agents opt a sole mandate sale into Private Property exclusivity. Off hides the option entirely — existing exclusive listings are unaffected until their window lapses.</div>
+                            </div>
+                            <label class="relative cursor-pointer flex-shrink-0" style="width:44px; height:24px; display:block;">
+                                <input type="checkbox" class="sr-only" x-model="ppExcl" @change="submit()">
+                                <span class="block w-full h-full rounded-full transition-colors duration-200"
+                                      :style="ppExcl ? 'background:var(--brand-button, #0ea5e9)' : 'background:var(--border-hover)'"></span>
+                                <span class="absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-all duration-200"
+                                      :style="ppExcl ? 'transform:translateX(20px)' : 'transform:translateX(0)'"></span>
+                            </label>
+                        </div>
+
+                        {{-- AT-369 — agency cap on agent-opted-in PP sole-mandate exclusivity
+                             days. This is a MAXIMUM only: nothing is exclusive unless an agent
+                             explicitly ticks it on that listing's syndication panel. --}}
+                        <div class="flex items-center justify-between gap-3 px-3 py-2 rounded-md flex-wrap" style="background:var(--surface); border:1px solid var(--border);">
+                            <div>
+                                <div class="text-sm font-medium" style="color:var(--text-primary);">Maximum PP exclusive days</div>
+                                <div class="text-xs" style="color:var(--text-muted);">Caps how many days an agent may request Private Property exclusivity for a sole mandate sale. Private Property's own hard limit is 92 days.</div>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <input type="number" name="pp_exclusive_days_max" min="1" max="92" step="1" required
+                                       value="{{ old('pp_exclusive_days_max', $ppExclusiveDaysMax) }}"
+                                       class="w-20 rounded-md px-3 py-2 text-sm"
+                                       style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                                <button type="submit" class="corex-btn-primary text-sm px-4 py-2">Save</button>
+                            </div>
+                        </div>
                     </form>
                 </div>
 
@@ -3352,6 +3424,31 @@
                     </form>
                 </div>
 
+                {{-- Email message template --}}
+                <div class="p-4 rounded-md space-y-3" style="background:var(--surface-2); border:1px solid var(--border);">
+                    <div>
+                        <div class="text-sm font-semibold" style="color:var(--text-primary);">Email Message Template</div>
+                        <div class="text-xs mt-0.5" style="color:var(--text-secondary);">
+                            This is the default subject and message pre-filled when sending matches via email — for clients who don't use WhatsApp. Use <code class="rounded font-mono text-[11px]" style="background:var(--surface); padding:1px 4px;">{name}</code> for the client's first name and <code class="rounded font-mono text-[11px]" style="background:var(--surface); padding:1px 4px;">{link}</code> for the matches page link.
+                        </div>
+                    </div>
+                    <form method="POST" action="{{ route('corex.settings.matches-email-message') }}" class="space-y-3">
+                        @csrf
+                        <input type="text" name="matches_email_subject" maxlength="200"
+                               value="{{ old('matches_email_subject', $matchesEmailSubject) }}"
+                               placeholder="Subject line"
+                               class="w-full rounded-md px-3 py-2 text-sm"
+                               style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                        <textarea name="matches_email_message" rows="8" maxlength="2000"
+                                  class="w-full rounded-md px-3 py-2 text-sm font-mono"
+                                  style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary); resize:vertical; line-height:1.6;">{{ old('matches_email_message', $matchesEmailMessage) }}</textarea>
+                        <div class="flex items-center justify-between">
+                            <span class="text-[10px]" style="color:var(--text-muted);">Subject max 200 characters, message max 2000 characters.</span>
+                            <button type="submit" class="corex-btn-primary text-sm px-4 py-2">Save Template</button>
+                        </div>
+                    </form>
+                </div>
+
             </div>{{-- /matches --}}
 
             {{-- ════════════════════════════════════════════════════════════════
@@ -3599,6 +3696,16 @@
         </div>
 
         {{-- ============================================================
+             FEATURES — per-agency feature registry (module on/off).
+             Spec: .ai/specs/corex-feature-registry.md §6.4.
+             ============================================================ --}}
+        @if ($can('agency_features.manage'))
+        <div x-show="activeSection === 'features'" x-cloak class="p-6">
+            @include('corex.settings._features')
+        </div>
+        @endif
+
+        {{-- ============================================================
              SYSTEM SETTINGS TAB
              Contains: General, P24 Suburbs, System Info
              ============================================================ --}}
@@ -3633,7 +3740,7 @@
                 {{-- P24 Suburbs + Document Types --}}
                 <div class="space-y-2">
                     <a href="{{ route('admin.p24-suburbs.index') }}"
-                       class="flex items-center gap-3 p-3 rounded-md transition-all duration-300 no-underline hover:bg-white/5"
+                       class="flex items-center gap-3 p-3 rounded-md transition-all duration-300 no-underline hover:bg-[color:var(--surface-2)]"
                        style="border:1px solid var(--border);">
                         <div class="w-9 h-9 rounded-md flex items-center justify-center flex-shrink-0" style="background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 12%, transparent);">
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="color: var(--brand-icon, #0ea5e9);" class="w-5 h-5"><path stroke-linecap="round" stroke-linejoin="round" d="M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1 1 15 0Z" /></svg>
@@ -3646,7 +3753,7 @@
                     </a>
 
                     <a href="{{ route('admin.settings.document-types.index') }}"
-                       class="flex items-center gap-3 p-3 rounded-md transition-all duration-300 no-underline hover:bg-white/5"
+                       class="flex items-center gap-3 p-3 rounded-md transition-all duration-300 no-underline hover:bg-[color:var(--surface-2)]"
                        style="border:1px solid var(--border);">
                         <div class="w-9 h-9 rounded-md flex items-center justify-center flex-shrink-0" style="background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 12%, transparent);">
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="color: var(--brand-icon, #0ea5e9);" class="w-5 h-5"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" /></svg>
@@ -3660,7 +3767,7 @@
 
                     <button type="button"
                        @click="activeSection = 'commission'; $nextTick(() => window.scrollTo({top:0, behavior:'smooth'}))"
-                       class="w-full text-left flex items-center gap-3 p-3 rounded-md transition-all duration-300 no-underline hover:bg-white/5"
+                       class="w-full text-left flex items-center gap-3 p-3 rounded-md transition-all duration-300 no-underline hover:bg-[color:var(--surface-2)]"
                        style="border:1px solid var(--border); background:transparent;">
                         <div class="w-9 h-9 rounded-md flex items-center justify-center flex-shrink-0" style="background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 12%, transparent);">
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="color: var(--brand-icon, #0ea5e9);" class="w-5 h-5"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18.75a60.07 60.07 0 0 1 15.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 0 1 3 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 0 0-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 0 1-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 0 0 3 15h-.75M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm3 0h.008v.008H18V10.5Zm-12 0h.008v.008H6V10.5Z" /></svg>

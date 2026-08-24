@@ -5,10 +5,19 @@ namespace App\Models\Docuperfect;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use App\Models\Concerns\BelongsToAgency;
 
+/**
+ * 2026-08-15 (Johan, HFC tenant-isolation fix, Wave 2, #7) — added
+ * BelongsToAgency. scopeVisibleTo()'s 'all' branch was fully unscoped
+ * (every agency's e-sign ceremonies visible), and ESignWizardController::
+ * myDocuments()'s needsAuthorisation sub-query pooled every agency's
+ * pending-authorisation documents into one shared queue. Both fixed "for
+ * free" by the global scope — no changes needed in either file.
+ */
 class SignatureTemplate extends Model
 {
-    use SoftDeletes;
+    use BelongsToAgency, SoftDeletes;
 
     protected $table = 'signature_templates';
 
@@ -19,6 +28,7 @@ class SignatureTemplate extends Model
         'parties_json',
         'signing_order_json',
         'group_order_json',
+        'agency_id',
         'created_by',
         'is_candidate_flow',
         'supervisor_user_id',
@@ -118,6 +128,18 @@ class SignatureTemplate extends Model
     public function document()
     {
         return $this->belongsTo(Document::class, 'document_id');
+    }
+
+    /**
+     * Derived (not a real column): signature_templates has a NOT NULL
+     * document_id FK, so every template has exactly one parent Document —
+     * agency_id is resolved via that relation (single lazy/eager load)
+     * rather than duplicating and re-backfilling the column here. See
+     * 2026_08_23_000004_add_agency_id_to_docuperfect_documents_table.php.
+     */
+    public function getAgencyIdAttribute(): ?int
+    {
+        return $this->document?->agency_id;
     }
 
     public function creator()
@@ -327,7 +349,8 @@ class SignatureTemplate extends Model
             });
         }
 
-        return $query->where('created_by', $user->id);
+        // AT-267 — an assistant's 'own' is their Assigned Agent's; everyone else: [$user->id].
+        return $query->whereIn('created_by', $user->dataIdentityIds());
     }
 
     // --- Helpers ---

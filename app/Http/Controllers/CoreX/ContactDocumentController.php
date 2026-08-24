@@ -14,10 +14,13 @@ use Illuminate\Support\Str;
 
 class ContactDocumentController extends Controller
 {
+    use \App\Http\Controllers\Concerns\AuthorizesContactAccess;
+
     use ValidatesDocumentUploads;
 
     public function store(Request $request, Contact $contact)
     {
+        $this->authorizeContact($contact);
         $request->validate([
             'file' => $this->documentUploadRule(20480),
             'document_type_id' => 'nullable|exists:document_types,id',
@@ -77,6 +80,7 @@ class ContactDocumentController extends Controller
 
     public function destroy(Contact $contact, Document $document)
     {
+        $this->authorizeContact($contact);
         abort_unless($document->contacts()->where('contacts.id', $contact->id)->exists(), 404);
 
         // Detach from this contact
@@ -100,6 +104,7 @@ class ContactDocumentController extends Controller
 
     public function updateTag(Request $request, Contact $contact, Document $document)
     {
+        $this->authorizeContact($contact);
         abort_unless($document->contacts()->where('contacts.id', $contact->id)->exists(), 404);
 
         $request->validate([

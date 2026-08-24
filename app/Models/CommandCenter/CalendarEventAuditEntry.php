@@ -7,9 +7,10 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 use App\Models\Concerns\BelongsToAgency;
+use App\Models\Concerns\StampsOnBehalfOf;
 class CalendarEventAuditEntry extends Model
 {
-    use BelongsToAgency;
+    use BelongsToAgency, StampsOnBehalfOf;
 
     protected $table = 'calendar_event_audit_log';
 

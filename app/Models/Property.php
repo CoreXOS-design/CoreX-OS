@@ -34,6 +34,16 @@ class Property extends Model
     public bool $skipNewListingAutomation = false;
 
     /**
+     * Set by the P24 importer (ConfirmP24PropertyRowJob) so a bulk import — which
+     * saves properties with p24_ref/status set from the export — does NOT make the
+     * PropertyObserver fire live P24 push/deactivation calls. An import is a
+     * snapshot load, not a live edit; without this an import of off-market stock
+     * would hit P24 (or 401) once per listing and churn the portal. Declared (not
+     * dynamic) so it survives PHP 8.2 strictness.
+     */
+    public bool $skipSyndicationAutomation = false;
+
+    /**
      * Off-market / terminal listing statuses — the single source of truth for
      * "this listing is NOT live on the market". Everything else (for_sale, incl.
      * Reduced Price / Pending sub-labels, under_offer, on_show, on_auction,
@@ -45,9 +55,43 @@ class Property extends Model
      * is about mandate expiry, not on-market display.
      */
     public const OFF_MARKET_STATUSES = [
-        'sold', 'transferred', 'withdrawn', 'expired',
+        'sold', 'sold_by_3rd_party', 'transferred', 'withdrawn', 'expired',
         'cancelled', 'let_out', 'draft', 'archived', 'unavailable',
+        'prospecting', 'not_selling',
     ];
+
+    /**
+     * PROSPECTING / NOT SELLING (Johan, 2026-08-20/21 — .ai/specs/2026-08-20-
+     * property-status-prospecting.md). Prospecting = ingested-but-unmandated
+     * stock (deeds/MIC ingest), kept separate from 'draft' (agent-created,
+     * about to go live) so the two pools never dilute each other. We do NOT
+     * hold the mandate on a prospecting property -- it must be exactly as
+     * unsyndicatable as any other off-market status, which is why closing
+     * this gap meant pointing the ONE existing syndication guard
+     * (EnforcesMarketingReadiness::enforceListingNotDraft()) at
+     * OFF_MARKET_STATUSES generally (via isOnMarket()) rather than adding a
+     * second, prospecting-specific check beside it.
+     *
+     * Not selling = the one-click dead-end for prospecting stock that will
+     * never convert (owner contacted, won't sell / not on market / lost).
+     * Label confirmed verbatim by Johan: "Not selling".
+     */
+    public const STATUS_PROSPECTING = 'prospecting';
+    public const STATUS_NOT_SELLING = 'not_selling';
+
+    /**
+     * AT-350 — the listing sold, but ANOTHER agency sold it (typically under an
+     * open mandate). Off-market and concluded like any sale, but never ours:
+     * excluded from the Sold KPI, the website/agent Sold showcases, the Map
+     * "our sold stock" layer, and from any commission or performance figure.
+     *
+     * Spec: .ai/specs/property-sold-by-third-party.md
+     *
+     * The value is the slug of the 'Sold by 3rd Party' property_status setting
+     * item (the Status dropdown slugs an item's name with
+     * strtolower(str_replace(' ', '_', $name))). Migration 2026_08_20_000001.
+     */
+    public const STATUS_SOLD_BY_3RD_PARTY = 'sold_by_3rd_party';
 
     /**
      * On-market listings = base status NOT in OFF_MARKET_STATUSES. This is the
@@ -71,6 +115,56 @@ class Property extends Model
     }
 
     /**
+     * Most recent of the four portal submit/activate timestamps we hold — the
+     * "last advertised" signal for isStaleStock() below. Null when the property
+     * has never been synced to either portal (e.g. hand-captured stock).
+     */
+    public function lastAdvertisedAt(): ?\Carbon\Carbon
+    {
+        return collect([
+            $this->p24_last_submitted_at,
+            $this->pp_last_submitted_at,
+            $this->p24_activated_at,
+            $this->pp_activated_at,
+        ])->filter()->max();
+    }
+
+    /**
+     * CX-101 — Johan's stale-stock rule, verbatim (2026-08-19): "if a property
+     * is not active and being advertised, or has not been advertised in the
+     * last month, and has not been worked with for a week then it can be
+     * treated as available to prospect." Both halves must hold — a property
+     * worked on this week is NEVER stale, even if off-market.
+     *
+     * "Not active and being advertised" is answered by isOnMarket() alone —
+     * status is the authoritative "currently on the market" signal, not the
+     * portal submit/activate timestamps (lastAdvertisedAt() above). Verified
+     * against QA1's real data before shipping: p24/pp_last_submitted_at and
+     * _activated_at are ONE-TIME "when did this first go live" stamps, not a
+     * recurring "still live" refresh — a healthy listing that has sat
+     * unchanged for months has an old timestamp but is NOT stale. Gating on
+     * "last advertised > 30 days" independently of status flipped 190 of 200
+     * genuinely on-market QA1 properties to stale — the opposite of the
+     * established baseline (138 live properties should keep blocking). Status
+     * is kept as the sole "currently marketed" test to avoid that regression;
+     * lastAdvertisedAt() is kept as informational context for messaging, not
+     * as a gate.
+     *
+     * This is the ONE definition of "actively on our books right now." Every
+     * surface that answers the "already in stock" question (claim guard,
+     * promote path, compose screen, MIC list badge) calls this — none may
+     * re-derive it. See .ai/specs/2026-08-19-stale-stock-and-mic-resolution.md §3.1.
+     */
+    public function isStaleStock(): bool
+    {
+        $notCurrentlyMarketed = ! $this->isOnMarket();
+
+        $notWorkedRecently = \App\Support\HumanDiff::daysBetween($this->last_activity_at ?? $this->updated_at) > 7;
+
+        return $notCurrentlyMarketed && $notWorkedRecently;
+    }
+
+    /**
      * The one value of p24_syndication_status / pp_syndication_status that means
      * "the portal no longer carries this listing". Every other value — including
      * the terminal-but-still-listed 'sold' / 'rented' — means the listing may
@@ -85,6 +179,23 @@ class Property extends Model
      * means. See Property24ListingMapper::removesFromPortal().
      */
     public const P24_ON_PORTAL_TERMINAL_STATUSES = ['sold', 'rented'];
+
+    /**
+     * Statuses that CLAIM the portal is not carrying the listing. If P24 is in
+     * fact still showing one of these, it is a stranded public advert — the
+     * harmful direction of status drift, and the class that stranded #2142.
+     *
+     * This is the suspect set for p24:reconcile-portal-presence. It is deliberately
+     * WIDER than PORTAL_OFF_STATUS alone: 'error' and 'rejected' equally read as
+     * "not advertised" to a human looking at the panel, and they equally hide a
+     * listing that is publicly live. Sweeping only 'deactivated' left 189 rows
+     * (159 error + 30 rejected) that nothing ever checked.
+     *
+     * NOT included: 'submitted'/'pending'/'active' (the 15-min SyncProperty24Activations
+     * job owns those) and 'sold'/'rented' (terminal but legitimately still ON the
+     * portal — see P24_ON_PORTAL_TERMINAL_STATUSES).
+     */
+    public const P24_CLAIMS_OFF_PORTAL_STATUSES = [self::PORTAL_OFF_STATUS, 'error', 'rejected'];
 
     /**
      * True when P24 may still be showing this listing. The ONLY safe basis for a
@@ -107,6 +218,19 @@ class Property extends Model
     {
         return ! empty($this->pp_ref)
             && $this->pp_syndication_status !== self::PORTAL_OFF_STATUS;
+    }
+
+    /**
+     * AT-369 — is this listing currently inside an agent-opted-in Private
+     * Property exclusivity window? Single source of truth for every P24 gate:
+     * `pp_delay_until` is only ever populated from PP's own
+     * DelayListingOnOtherWebsitesUntil response (PrivatePropertySyndicationService),
+     * so a future timestamp here means PP itself is holding the listing exclusive
+     * — no other portal (P24 or otherwise) may receive it until it lapses.
+     */
+    public function isPpExclusiveActive(): bool
+    {
+        return $this->pp_delay_until !== null && $this->pp_delay_until->isFuture();
     }
 
     /**
@@ -153,12 +277,27 @@ class Property extends Model
      * True when this property is still an unpublished draft. A draft is never
      * ready to be pushed to any portal/website — it must be set Active first.
      * Case-insensitive so 'Draft'/'DRAFT' are caught alongside the canonical
-     * lowercase 'draft'. The single source of truth for the syndication draft
-     * guard (EnforcesMarketingReadiness::enforceListingNotDraft()).
+     * lowercase 'draft'. EnforcesMarketingReadiness::enforceListingNotDraft()
+     * (2026-08-21) now gates on isOnMarket() generally rather than this
+     * method specifically, but isDraft() stays as the precise "is it exactly
+     * a draft" check other callers (canChangeType(), the properties-list
+     * marketing-status column) still need.
      */
     public function isDraft(): bool
     {
         return strtolower(trim((string) $this->status)) === 'draft';
+    }
+
+    /** True when this is ingested-but-unmandated stock (deeds/MIC ingest). */
+    public function isProspecting(): bool
+    {
+        return strtolower(trim((string) $this->status)) === self::STATUS_PROSPECTING;
+    }
+
+    /** True when an agent has closed this out as a dead end ("Not selling"). */
+    public function isNotSelling(): bool
+    {
+        return strtolower(trim((string) $this->status)) === self::STATUS_NOT_SELLING;
     }
 
     /**
@@ -319,6 +458,9 @@ class Property extends Model
         'gallery_images_json',
         'gallery_categories_json',
         'gallery_custom_tags',
+        'gallery_tag_order',
+        'gallery_upload_keys',
+        'rental_upload_keys',
         'agent_id',
         'branch_id',
         // agency_id is the tenant key. It stays fillable so trusted non-auth ingress
@@ -348,6 +490,14 @@ class Property extends Model
         'p24_city_id',
         'p24_province_id',
         'p24_suburb_mismatch',
+        // P24 import completeness (audit run 10, 2026-07-17)
+        'occupation_date',
+        'source_reference',
+        'lightstone_id',
+        'development_id',
+        'eyespy_360_id',
+        'erf_area_unit',
+        'floor_area_unit',
         'pp_syndication_enabled',
         'pp_syndication_status',
         'pp_ref',
@@ -385,6 +535,10 @@ class Property extends Model
         'p24_images_last_synced_at',
         'p24_listing_last_synced_at',
         'p24_image_signature',
+        'gallery_expected_count',
+        'gallery_stored_count',
+        'gallery_import_status',
+        'p24_source_image_signature',
         'compliance_snapshot_at',
         'compliance_snapshot_data',
         'compliance_evidence_flags',
@@ -408,6 +562,13 @@ class Property extends Model
         'gallery_images_json' => 'array',
         'gallery_categories_json' => 'array',
         'gallery_custom_tags'     => 'array',
+        'gallery_tag_order'       => 'array',
+        'gallery_upload_keys'     => 'array',
+        'rental_upload_keys'      => 'array',
+        'gallery_expected_count'  => 'integer',
+        'gallery_stored_count'    => 'integer',
+        'ad_generated_count'      => 'integer',
+        'ad_last_generated_at'    => 'datetime',
         'rental_images_json'      => 'array',
         'features_json'       => 'array',
         'features_json_meta'  => 'array',
@@ -435,6 +596,7 @@ class Property extends Model
         'special_levy'        => 'integer',
         'listed_date'         => 'date',
         'expiry_date'         => 'date',
+        'occupation_date'     => 'date',
         'lease_start_date'    => 'date',
         'lease_end_date'      => 'date',
         'baths'               => 'decimal:1',
@@ -479,6 +641,7 @@ class Property extends Model
         'cma_gps_lng'                 => 'decimal:7',
         'last_cma_at'                 => 'datetime',
         'last_cma_presentation_id'    => 'integer',
+        'sg_last_searched_at'         => 'datetime',
     ];
 
     protected static function boot(): void
@@ -486,6 +649,17 @@ class Property extends Model
         parent::boot();
 
         static::creating(function (Property $property) {
+            // AT-267 — the model-level backstop of the property-upload lock. An assistant may NEVER
+            // bring a listing onto the agency's books, on ANY path. Route middleware + the resolver
+            // locked-set cover the KNOWN entry points, but new create paths (promote-to-stock,
+            // outreach compose, legacy mobile create, future ingress) keep appearing and slipping
+            // the hand-maintained route list. This closes the CLASS: any Property::create fired
+            // while an assistant is the acting user is refused. Non-auth ingress (webhooks, imports,
+            // seeders, queued jobs) has no assistant and is unaffected. Spec §9 (make it structural).
+            if ((bool) (auth()->user()?->is_assistant)) {
+                abort(403, 'Assistants cannot create or import listings. Ask the agent to create it.');
+            }
+
             if (empty($property->external_id)) {
                 $property->external_id = (string) Str::uuid();
             }
@@ -648,6 +822,36 @@ class Property extends Model
             'landlord'     => ['landlord'],
             'lessor'       => ['lessor'],
         ][$contactRole] ?? [];
+    }
+
+    /**
+     * 2026-08-20 properties-filter audit — the Property Type filter compares
+     * property_type by exact string, but ~2,600 live properties (mostly a P24
+     * bulk import batch and pre-PropertySettingItem manual entries) hold an
+     * older/shorter label for the same physical type instead of today's
+     * agency-configured PropertySettingItem name — 'Apartment' vs 'Apartment
+     * / Flat', 'VacantLand'/'Vacant Land' vs 'Vacant Land / Plot', 'Commercial'
+     * vs 'Commercial Property', 'Industrial' vs 'Industrial Property' — so
+     * selecting the current label hid every property still carrying the old
+     * one. This is the synonym set the filter matches ADDITIONALLY to the
+     * agency's own settings-item name; it never changes what's stored on the
+     * property, only what the filter recognises as "the same type". A small
+     * number of orphaned values ('sectional_title', 'Business', 'Land' — 5
+     * properties total) aren't included: they're ambiguous enough (e.g.
+     * sectional_title describes title type, not physical type) that guessing
+     * risks silently mis-bucketing them, so those need a human reclassifying
+     * the record rather than a synonym guess.
+     *
+     * @return string[]
+     */
+    public static function propertyTypeSynonyms(string $canonicalName): array
+    {
+        return [
+            'Apartment / Flat'    => ['Apartment'],
+            'Vacant Land / Plot'  => ['VacantLand', 'Vacant Land'],
+            'Commercial Property' => ['Commercial'],
+            'Industrial Property' => ['Industrial'],
+        ][$canonicalName] ?? [];
     }
 
     /**
@@ -1045,7 +1249,44 @@ class Property extends Model
             return $query;
         }
 
-        foreach ($tokens as $token) {
+        // Field-designator keywords: "unit 14" / "erf 442" name a SPECIFIC column,
+        // so the value token must bind to THAT column only — not roam across all
+        // 11 OR'd address fields the way a bare token does. Without this, "unit 14"
+        // degraded to "(any field has 'unit') AND (any field has '14')", so an
+        // unrelated property (e.g. "Unit 13") matched merely because ITS
+        // street_number/property_number/p24_ref happened to contain "14" — a
+        // false-positive cross-column match with no relevance signal to rank it
+        // below the true "Unit 14" match (AT-274). unit_number is nullable per
+        // PropertyAddressReconciler's UNIT-AS-NUMBER drift (legacy rows where the
+        // unit landed in street_number instead), so street_number is still
+        // consulted for the "unit" keyword — but ONLY when unit_number is empty,
+        // never as a blanket alternative once a row already has a real unit_number.
+        $keywordFields = [
+            'unit' => ['unit_number', 'unit_section_block'],
+            'erf'  => ['erf_number', 'property_number', 'stand_number'],
+        ];
+
+        for ($i = 0, $count = count($tokens); $i < $count; $i++) {
+            $keyword = $keywordFields[strtolower($tokens[$i])] ?? null;
+            $value   = $tokens[$i + 1] ?? null;
+
+            if ($keyword !== null && $value !== null) {
+                $query->where(function ($q) use ($keyword, $value) {
+                    $like = "%{$value}%";
+                    foreach ($keyword as $field) {
+                        $q->orWhere($field, 'like', $like);
+                    }
+                    if (in_array('unit_number', $keyword, true)) {
+                        $q->orWhere(function ($q2) use ($like) {
+                            $q2->whereNull('unit_number')->where('street_number', 'like', $like);
+                        });
+                    }
+                });
+                $i++; // value token consumed by the keyword pairing above
+                continue;
+            }
+
+            $token = $tokens[$i];
             $query->where(function ($q) use ($token) {
                 $like = "%{$token}%";
                 $q->where('address', 'like', $like)
@@ -1058,6 +1299,7 @@ class Property extends Model
                   ->orWhere('unit_number', 'like', $like)
                   ->orWhere('unit_section_block', 'like', $like)
                   ->orWhere('property_number', 'like', $like)
+                  ->orWhere('erf_number', 'like', $like)
                   ->orWhere('p24_ref', 'like', $like);
             });
         }
@@ -1067,13 +1309,14 @@ class Property extends Model
 
     /**
      * The listing is CONCLUDED — the deal is done and it must never be advertised
-     * as available again. Sale side: sold/transferred. Rental side: rented/let_out
-     * (the rental equivalent of "sold", and the pair everyone forgets).
+     * as available again. Sale side: sold/transferred, plus sold_by_3rd_party (the
+     * property is just as gone when a competitor sells it — AT-350). Rental side:
+     * rented/let_out (the rental equivalent of "sold", and the pair everyone forgets).
      */
-    private const CONCLUDED_STATUSES = ['sold', 'transferred', 'rented', 'let_out'];
+    private const CONCLUDED_STATUSES = ['sold', self::STATUS_SOLD_BY_3RD_PARTY, 'transferred', 'rented', 'let_out'];
 
     /** Off-market, but not concluded — withdrawn, expired, never published, etc. */
-    private const INACTIVE_STATUSES = ['withdrawn', 'cancelled', 'expired', 'unavailable', 'archived', 'draft'];
+    private const INACTIVE_STATUSES = ['withdrawn', 'cancelled', 'expired', 'unavailable', 'archived', 'draft', self::STATUS_PROSPECTING, self::STATUS_NOT_SELLING];
 
     /**
      * THE single source of truth for reading `status`. ALWAYS compare against this,
@@ -1170,10 +1413,51 @@ class Property extends Model
         self::$allowedStatusCache = [];
     }
 
-    /** A concluded listing (sold / transferred / rented / let out). */
+    /** A concluded listing (sold / sold by 3rd party / transferred / rented / let out). */
     public function isConcluded(): bool
     {
         return in_array($this->normalizedStatus(), self::CONCLUDED_STATUSES, true);
+    }
+
+    /**
+     * AT-350 — does this status string mean "another agency sold it"?
+     *
+     * Tolerates the vocabulary the way [[normalizedStatus]] does, in ONE place, so
+     * no caller has to know it varies. `properties.status` is genuinely mixed-case
+     * and mixed-separator in production (the wizard writes lowercase slugs, the P24
+     * sync writes capitalised labels), and Property24ListingMapper::getP24Status
+     * normalises underscores to SPACES before it tests — so a check that only knew
+     * `sold_by_3rd_party` would silently miss `Sold by 3rd Party` and
+     * `sold by 3rd party`. Accepts the "third party" spelling too, so a hand-typed
+     * or imported variant resolves rather than falling through to the generic
+     * `str_contains('sold')` arm — which would badge a competitor's sale as ours.
+     */
+    public static function isSoldByThirdPartyStatus(?string $status): bool
+    {
+        $s = strtolower(str_replace([' ', '-', '•'], ['_', '_', ''], trim((string) $status)));
+
+        return str_contains($s, '3rd_party') || str_contains($s, 'third_party');
+    }
+
+    /** Instance mirror of [[isSoldByThirdPartyStatus]]. */
+    public function isSoldByThirdParty(): bool
+    {
+        return self::isSoldByThirdPartyStatus($this->status);
+    }
+
+    /** Every loss event recorded against this property, newest first (AT-350). */
+    public function thirdPartySales(): HasMany
+    {
+        return $this->hasMany(PropertyThirdPartySale::class)->latest('recorded_at');
+    }
+
+    /**
+     * The loss record matching the property's CURRENT status — i.e. not yet
+     * re-listed. Null once the property goes back on the market.
+     */
+    public function openThirdPartySale(): ?PropertyThirdPartySale
+    {
+        return $this->thirdPartySales()->whereNull('reverted_at')->first();
     }
 
     /**
@@ -1186,11 +1470,23 @@ class Property extends Model
         $status = $this->normalizedStatus();
 
         return match (true) {
+            // AT-350 — MUST precede the 'sold' arm. That arm is an exact-match
+            // in_array, so without this one 'sold_by_3rd_party' falls through
+            // every arm to the default and badges a SOLD property "For Sale" —
+            // the identical bug-class the [[normalizedStatus]] docblock above
+            // describes (60 'Sold' rows badged For Sale).
+            self::isSoldByThirdPartyStatus($status)          => 'Sold by 3rd Party',
             in_array($status, ['sold', 'transferred'], true) => 'Sold',
             $status === 'under_offer'                        => 'Under Offer',
             // A concluded rental reads "Rented" / "Let Out" — never "To Let", which
             // would advertise a tenanted property as available.
             in_array($status, ['rented', 'let_out'], true)   => ucwords(str_replace('_', ' ', $status)),
+            // Exact labels (2026-08-21, Johan) — MUST precede the generic
+            // INACTIVE_STATUSES ucwords() fallback below: "Not selling" is
+            // sentence case, not Title Case, and ucwords() would badge it
+            // "Not Selling".
+            $status === self::STATUS_PROSPECTING => 'Prospecting',
+            $status === self::STATUS_NOT_SELLING => 'Not selling',
             in_array($status, self::INACTIVE_STATUSES, true) => ucwords(str_replace('_', ' ', $status)),
             $this->isRental()                                => 'To Let',
             default => 'For Sale',
@@ -1269,7 +1565,10 @@ class Property extends Model
 
         if ($scope === 'all') return $query;
         if ($scope === 'branch') return $query->where('branch_id', $user->effectiveBranchId());
-        if ($scope === 'own') return $query->where('agent_id', $user->id);
+        // AT-267 — 'own' means the acting user's book. For an ASSISTANT that is their
+        // Assigned Agent's book, not their own (dataIdentityIds()); for everyone else this
+        // is exactly [$user->id] and behaviour is unchanged.
+        if ($scope === 'own') return $query->whereIn('agent_id', $user->dataIdentityIds());
 
         return $query->whereRaw('1 = 0');
     }
@@ -1762,7 +2061,43 @@ class Property extends Model
             $appendIfNew($cat['name'] ?? null);
         }
 
-        return $tags;
+        return $this->applyGalleryTagOrder($tags);
+    }
+
+    /**
+     * Apply the user's saved drag-reorder (gallery_tag_order) on top of the
+     * freshly-merged tag list. gallery_tag_order is the FULL order — derived
+     * room tags and custom tags together — exactly as last arranged in the
+     * sort-order UI; it always wins over the default "derived tags, then
+     * custom tags" concatenation. A tag not present in the saved order (a
+     * room added, or a custom tag created, after the last sort) is appended
+     * at the end in its default position rather than dropped.
+     *
+     * @param string[] $tags
+     * @return string[]
+     */
+    private function applyGalleryTagOrder(array $tags): array
+    {
+        $order = $this->gallery_tag_order ?? [];
+        if (empty($order)) {
+            return $tags;
+        }
+
+        $remaining = $tags;
+        $ordered = [];
+
+        foreach ($order as $name) {
+            if (!is_string($name)) continue;
+            foreach ($remaining as $i => $t) {
+                if (strcasecmp($t, $name) === 0) {
+                    $ordered[] = $t;
+                    unset($remaining[$i]);
+                    break;
+                }
+            }
+        }
+
+        return array_merge($ordered, array_values($remaining));
     }
 
     /**
@@ -1813,6 +2148,7 @@ class Property extends Model
 
         return [];
     }
+
 
     /**
      * The gallery tags DERIVED from the property's rooms — `spaces_json`
@@ -2169,6 +2505,25 @@ class Property extends Model
     }
 
     /**
+     * Count of `spaces_json` entries of a given `type` (e.g. 'Parking') — unlike
+     * beds/baths/garages there is no dedicated column, so this is the shared
+     * derivation used by both the Ad Manager (adData()) and the printable
+     * brochure (PropertyBrochureService), which must never drift onto two
+     * different counts for the same listing.
+     */
+    public function spaceCount(string $type): int
+    {
+        $sj   = $this->spaces_json ?? [];
+        $list = $sj['spaces'] ?? (isset($sj[0]) ? $sj : []);
+
+        $sum = collect($list)
+            ->where('type', $type)
+            ->sum(fn ($s) => (float) ($s['count'] ?? 1));
+
+        return (int) round($sum);
+    }
+
+    /**
      * Single source of truth for the data the Ad Manager injects into a
      * template — used by both the generator (ad.blade.php) and the
      * property-linked builder live preview (ad-builder.blade.php).
@@ -2200,6 +2555,7 @@ class Property extends Model
         $beds    = $this->beds;
         $baths   = $this->baths;
         $garages = $this->garages;
+        $parking = $this->spaceCount('Parking');
         $size    = $this->size_m2 ? number_format($this->size_m2) . ' M²' : null;
 
         // Status badge — honest label derived from the listing, never fabricated.
@@ -2213,6 +2569,16 @@ class Property extends Model
         $adStatus = $this->normalizedStatus();
 
         $statusBadge = match (true) {
+            // AT-350 — MUST precede the 'sold' arm, which is an exact-match
+            // in_array: without this, a property another agency sold falls
+            // through every arm to the default and generates an ad card reading
+            // "FOR SALE" for stock we no longer have. Identical to the bug this
+            // method's own docblock records (60 SOLD properties badged FOR SALE);
+            // the only difference is which literal the exact-match missed.
+            // Defence in depth — AdManagerController already excludes off-market
+            // stock from ad generation, so nothing should reach here; this makes
+            // sure that if anything ever does, it cannot advertise a sold house.
+            self::isSoldByThirdPartyStatus($adStatus)          => 'SOLD',
             in_array($adStatus, ['sold', 'transferred'], true) => 'SOLD',
             // The rental equivalent of SOLD. Without this a tenanted property
             // generates an ad advertising it "TO LET".
@@ -2232,6 +2598,13 @@ class Property extends Model
             'title'             => strtoupper((string) $this->title),
             'suburb'            => strtoupper((string) $this->suburb) . ($this->city ? ', ' . strtoupper((string) $this->city) : ''),
             'property_type'     => strtoupper(str_replace('_', ' ', (string) $this->property_type)),
+            // Exact, untransformed property_type name (matches a
+            // property_setting_items.name literally) — kept separate from the
+            // display-formatted 'property_type' above so the ad kernel's
+            // per-property template-variant resolution (§18,
+            // CoreXAd.resolveTemplateLayout()) never depends on that display
+            // string's casing/formatting choices.
+            'property_type_raw' => trim((string) $this->property_type),
             'features'          => trim(($beds ? $beds . ' Bed' : '') . ($baths ? ' · ' . $baths . ' Bath' : '') . ($garages ? ' · ' . $garages . ' Garage' : ''), ' · '),
             // Full amenity list — the Ad Builder "Features" element lets the user
             // pick which of these to display. Deduped, blanks dropped.
@@ -2242,7 +2615,15 @@ class Property extends Model
             'beds'              => (string) ($beds ?? ''),
             'baths'             => (string) ($baths ?? ''),
             'garages'           => (string) ($garages ?? ''),
+            'parking'           => $parking > 0 ? (string) $parking : '',
             'size_m2'           => $size,
+            // Raw (unformatted) floor/land size for the "Size / Land Size" combined
+            // field — it does its own formatting client-side so it can pick either
+            // number and format it identically. Vacant land has no floor size at
+            // all, only an erf size — this is the same "prefer X, fall back to Y"
+            // shape as garages_or_parking, for the same reason.
+            'floor_size_m2'     => (string) ($this->size_m2 ?? ''),
+            'land_size_m2'      => (string) ($this->erf_size_m2 ?? ''),
             'reference'         => $this->external_id ?: ('REF ' . $this->id),
             'address'           => $this->address ?: null,
             'status_badge'      => $statusBadge,
@@ -2256,6 +2637,13 @@ class Property extends Model
             // User has no `avatar_url` column — the photo URL comes from
             // profilePhotoUrl() (user_documents → legacy agent_photo_path).
             'agent_avatar'      => self::adSafeImageUrl($agent?->profilePhotoUrl()),
+            // §15.2 — the AI-segmented cutout, when one exists. The ad-render
+            // kernel prefers this over agent_avatar ONLY when the element's
+            // own removeBackground toggle is on, falling back to the plain
+            // photo whenever no cutout is recorded (never attempted, still
+            // processing, or the API call failed) — see corex-ad-render.js
+            // imageSrc().
+            'agent_avatar_cutout' => self::adSafeImageUrl($agent?->profilePhotoCutoutUrl()),
 
             // Agent 2 — the co-listing agent (empty when the listing is single-agent).
             // Powers the dual-agent prebuilt layouts + the builder's Agent 2 fields.
@@ -2264,6 +2652,7 @@ class Property extends Model
             'agent_2_phone'       => $agent2 ? ($agent2->cell ?: $agent2->phone ?: '') : '',
             'agent_2_designation' => $agent2 ? ($agent2->designation ?: 'Property Practitioner') : '',
             'agent_2_avatar'      => self::adSafeImageUrl($agent2?->profilePhotoUrl()),
+            'agent_2_avatar_cutout' => self::adSafeImageUrl($agent2?->profilePhotoCutoutUrl()),
             'agent_2_initial'     => $agent2 ? strtoupper(mb_substr((string) $agent2->name, 0, 1)) : '',
 
             'agency_name'       => $agency?->name ?? '',

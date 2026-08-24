@@ -32,12 +32,21 @@ class ListingsController extends Controller
      *     pivot was enabled BEFORE that guard existed.
      *   - 'expired'/'withdrawn' are dead mandates.
      *
-     * 'sold'/'let_out' are deliberately NOT here — agencies showcase sold stock
-     * (bulkActivateSold). See audits mandate-expiry-desyndication and
+     *   - 'sold_by_3rd_party' is ANOTHER AGENCY'S sale (AT-350). Unlike 'sold' it
+     *     must never appear on our website in any form: a competitor's sale in our
+     *     own "recently sold" wall is the most misleading thing the site could
+     *     tell a prospective seller. PropertyObserver already delists it
+     *     (isWebsiteRemovalStatus), but that runs through a QUEUED job — and this
+     *     list exists exactly for the case where the pivot is still enabled
+     *     because the job never ran (a stopped worker has stranded thousands of
+     *     jobs before now). This guard is synchronous and cannot be missed.
+     *
+     * 'sold'/'let_out' are deliberately NOT here — agencies showcase their OWN
+     * sold stock (bulkActivateSold). See audits mandate-expiry-desyndication and
      * syndication-bug-sweep (2026-06-20). A website narrows to live stock with
      * ?status=active; it is not forced here.
      */
-    private const NEVER_PUBLIC_STATUSES = ['expired', 'withdrawn', 'draft'];
+    private const NEVER_PUBLIC_STATUSES = ['expired', 'withdrawn', 'draft', 'sold_by_3rd_party'];
 
     /** Whitelisted public sort keys. Anything else falls back to -published_at. */
     private const SORTABLE = ['published_at', 'price', 'id', 'created_at', 'updated_at'];

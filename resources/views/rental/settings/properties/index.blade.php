@@ -24,13 +24,13 @@
 
     <div class="space-y-3">
         @forelse($active as $property)
-        <div class="bg-white border rounded-lg p-4">
+        <div class="border rounded-lg p-4" style="background:var(--surface); border-color:var(--border)">
             <div class="flex items-start justify-between">
                 <div>
-                    <h4 class="font-semibold text-gray-900">{{ $property->full_address }}</h4>
-                    <div class="flex flex-wrap gap-3 mt-2 text-sm text-gray-500">
+                    <h4 class="font-semibold" style="color:var(--text-primary)">{{ $property->full_address }}</h4>
+                    <div class="flex flex-wrap gap-3 mt-2 text-sm" style="color:var(--text-muted)">
                         @if($property->property_type)
-                            <span class="bg-blue-50 text-blue-700 px-2 py-0.5 rounded text-xs">
+                            <span class="px-2 py-0.5 rounded text-xs" style="background:color-mix(in srgb, var(--brand-icon) 12%, transparent); color:var(--brand-icon)">
                                 {{ \App\Models\Rental\RentalProperty::PROPERTY_TYPES[$property->property_type] ?? $property->property_type }}
                             </span>
                         @endif
@@ -44,7 +44,7 @@
                 </div>
                 <div class="flex items-center gap-2">
                     <a href="{{ route('rental.settings.properties.edit', $property) }}"
-                       class="text-sm text-blue-600 hover:text-blue-800">Edit</a>
+                       class="text-sm hover:underline" style="color:var(--brand-icon)">Edit</a>
                     <form method="POST" action="{{ route('rental.settings.properties.toggle', $property) }}">
                         @csrf
                         <button type="submit" class="text-sm text-orange-500 hover:text-orange-700"
@@ -54,11 +54,11 @@
             </div>
         </div>
         @empty
-        <div class="bg-white border rounded-lg p-8 text-center text-gray-400">
+        <div class="border rounded-lg p-8 text-center" style="background:var(--surface); border-color:var(--border); color:var(--text-faint)">
             <p class="text-lg">No properties yet</p>
             <p class="text-sm mt-1">Add your first rental property to get started</p>
             <a href="{{ route('rental.settings.properties.create') }}"
-               class="inline-block mt-4 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700">
+               class="inline-block mt-4 px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:var(--brand-button)">
                 + Add Property
             </a>
         </div>
@@ -67,14 +67,14 @@
         {{-- Inactive properties --}}
         @if($inactive->count() > 0)
         <div x-data="{ show: false }" class="mt-6">
-            <button @click="show = !show" class="text-sm text-gray-400 hover:text-gray-600">
+            <button @click="show = !show" class="text-sm" style="color:var(--text-faint)">
                 Inactive Properties ({{ $inactive->count() }}) <span x-text="show ? '&#9660;' : '&#9654;'"></span>
             </button>
             <div x-show="show" x-collapse class="mt-2 space-y-2">
                 @foreach($inactive as $property)
-                <div class="bg-gray-50 border rounded-lg p-4 opacity-60">
+                <div class="border rounded-lg p-4 opacity-60" style="background:var(--surface-2); border-color:var(--border)">
                     <div class="flex items-center justify-between">
-                        <span class="text-gray-500">{{ $property->full_address }}</span>
+                        <span style="color:var(--text-muted)">{{ $property->full_address }}</span>
                         <form method="POST" action="{{ route('rental.settings.properties.toggle', $property) }}">
                             @csrf
                             <button type="submit" class="text-sm text-green-600 hover:text-green-800">Reactivate</button>

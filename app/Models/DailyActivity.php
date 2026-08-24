@@ -6,9 +6,17 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 use App\Models\Concerns\BelongsToAgency;
+use App\Models\Concerns\BelongsToBranch;
+use App\Models\Concerns\InheritsBranchFromParent;
 class DailyActivity extends Model
 {
-    use BelongsToAgency, SoftDeletes;
+    use BelongsToBranch, InheritsBranchFromParent, BelongsToAgency, SoftDeletes;
+
+    /** A daily activity's branch is its owning agent's. */
+    protected function branchParent(): array
+    {
+        return [\App\Models\User::class, 'user_id'];
+    }
 
     protected $fillable = [
         'agency_id',
@@ -51,7 +59,8 @@ class DailyActivity extends Model
 
         if ($scope === 'all') return $query;
         if ($scope === 'branch') return $query->where('branch_id', $user->effectiveBranchId());
-        if ($scope === 'own') return $query->where('user_id', $user->id);
+        // AT-267 — an assistant's 'own' is their Assigned Agent's; everyone else: [$user->id].
+        if ($scope === 'own') return $query->whereIn('user_id', $user->dataIdentityIds());
 
         return $query->whereRaw('1 = 0');
     }

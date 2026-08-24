@@ -1536,8 +1536,10 @@
                                             </template>
                                         </select>
                                     </div>
-                                    {{-- Mandate type --}}
-                                    <div>
+                                    {{-- Mandate type — seller-facing classes only (listing presentation /
+                                         property evaluation). No mandate concept for a buyer-facing
+                                         viewing, so this hides itself when the server sends no options. --}}
+                                    <div x-show="feedbackData.lp_mandate_types.length > 0">
                                         <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Mandate type</label>
                                         <select x-model="feedbackForm['prop:' + item.property_id].mandate_type"
                                                 class="w-full rounded-md px-3 py-2 text-sm"
@@ -1585,12 +1587,13 @@
                             </div>
                         </template>
                         <template x-if="feedbackData.items.length === 0">
-                            <p class="text-sm py-4 text-center" style="color: var(--text-muted);">No properties linked to this listing presentation.</p>
+                            <p class="text-sm py-4 text-center" style="color: var(--text-muted);">No properties linked to this event.</p>
                         </template>
                     </div>
                 </template>
 
-                {{-- Per-contact feedback (viewings — original UI) --}}
+                {{-- Per-contact feedback (listing presentation / property evaluation —
+                     the seller-facing classes; viewing now uses per_property above) --}}
                 <template x-for="contact in (feedbackData.feedback_mode === 'per_property' ? [] : feedbackData.contacts)" :key="contact.id">
                     <div class="rounded-md p-4" style="background: var(--surface-2); border: 1px solid var(--border);">
                         <h3 class="text-sm font-semibold mb-3" style="color: var(--text-primary);" x-text="contact.label"></h3>
@@ -2033,6 +2036,76 @@
                     </span>
                 </template>
             </div>
+
+            {{-- CX-103 (Johan, 2026-08-19) — buyers linked to the selected
+                 property/properties, offered as an UNTICKED pick list. Ticking
+                 a box is the ONLY way a buyer becomes an attendee — nothing
+                 here is auto-added. This is what replaced the auto-fill that
+                 put eleven buyers on one viewing; Shawn had been manually
+                 un-ticking them (by deleting chips) every single time. --}}
+            {{-- CX-103 follow-up (Johan hit this live 2026-08-19 — the property
+                 he tested against genuinely had zero buyers linked to it at
+                 that moment; contact_property rows for it are timestamped
+                 minutes AFTER his test, so this was never silent JS failure,
+                 but the section showing nothing at all for a genuine zero was
+                 indistinguishable from broken and needed fixing regardless.
+                 buyerCandidatesLoaded flips true the first time a fetch for
+                 the CURRENT property selection completes, empty or not, so
+                 "checked, found none" is never confused with "never ran". --}}
+            <template x-if="buyerCandidatesLoaded && buyerCandidates.length === 0">
+                <p class="text-xs mb-3 px-3 py-2 rounded-md" style="color: var(--text-muted); background: var(--surface-2); border: 1px solid var(--border);">
+                    No buyers are currently linked to this property.
+                </p>
+            </template>
+
+            {{-- CX-103 follow-up (Johan, 2026-08-19) — "similar to seller size
+                 ... image Shawn having 11 buyers ... he will take forever with
+                 massive buyers boxes". One line per buyer, name + phone on
+                 the SAME line (not stacked), row height in the seller-chip
+                 region, light divider instead of a heavy card border per row.
+                 Whole row stays the click/tap target (just visually smaller);
+                 the tick square keeps a real 1.5px border in both states —
+                 small is fine, invisible is what Johan already flagged twice
+                 today on other screens. hover:brightness-95 gives a clear
+                 hover cue without fighting the ticked/unticked :style
+                 binding (it darkens whatever background is already there,
+                 correct in both light and dark since it's a filter, not a
+                 hardcoded color). --}}
+            <template x-if="buyerCandidates.length > 0">
+                <div class="mb-3">
+                    <label class="block text-xs font-medium mb-1.5" style="color: var(--text-secondary);">
+                        Buyers linked to this property — tick who the appointment is with
+                    </label>
+                    <div class="rounded-md overflow-hidden" style="border: 1px solid var(--border);">
+                        <template x-for="(candidate, idx) in buyerCandidates" :key="candidate.type + ':' + candidate.id">
+                            <label class="flex items-center gap-2 px-2 py-1 cursor-pointer transition hover:brightness-95"
+                                   :style="(candidate.ticked
+                                        ? 'background: color-mix(in srgb, var(--brand-icon, #00d4aa) 14%, var(--surface-2));'
+                                        : 'background: var(--surface-2);')
+                                        + (idx > 0 ? ' border-top: 1px solid var(--border);' : '')">
+                                <input type="checkbox" :checked="candidate.ticked"
+                                       @change="toggleBuyerCandidate(candidate)" class="sr-only">
+                                <span class="flex-none w-3.5 h-3.5 rounded-sm flex items-center justify-center"
+                                      :style="candidate.ticked
+                                            ? 'background: var(--brand-icon, #00d4aa); border: 1.5px solid var(--brand-icon, #00d4aa);'
+                                            : 'background: var(--surface); border: 1.5px solid var(--text-secondary);'">
+                                    <svg x-show="candidate.ticked" x-cloak viewBox="0 0 24 24" class="w-2.5 h-2.5" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M5 13l4 4L19 7"></path>
+                                    </svg>
+                                </span>
+                                <span class="flex-1 min-w-0 flex items-baseline gap-1.5 truncate">
+                                    <span class="text-xs font-medium truncate"
+                                          style="color: var(--text-primary);"
+                                          x-text="(((candidate.first_name || '') + ' ' + (candidate.last_name || '')).trim()) || candidate.name || ('Contact #' + candidate.id)"></span>
+                                    <span class="text-[11px] truncate" style="color: var(--text-muted);"
+                                          x-text="candidate.phone || candidate.email || ''"></span>
+                                </span>
+                            </label>
+                        </template>
+                    </div>
+                </div>
+            </template>
+
             <div class="relative">
                 <input type="text" x-model="query" @input.debounce.250ms="search()"
                        placeholder="Search contacts or agents…"
@@ -2255,6 +2328,18 @@
             </div>
         </template>
 
+        {{-- Dismissal reason — 2026-08-19 (Johan): "an agent must be able to see
+             why that appointment died." Surfaced right where an agent looks
+             first, same treatment as the Contact page's dismissal_reason
+             field (ContactController::show()) — both read the same
+             CalendarEvent::dismissalReasonLabel(). --}}
+        <template x-if="panelData.status === 'dismissed' && panelData.dismissal_reason_label">
+            <div class="px-5 py-3" style="border-bottom: 1px solid var(--border); background: color-mix(in srgb, var(--text-muted) 6%, transparent);">
+                <div class="text-[10px] font-semibold uppercase tracking-wider mb-1" style="color: var(--text-muted);">Dismissed</div>
+                <div class="text-xs" style="color: var(--text-secondary);" x-text="panelData.dismissal_reason_label"></div>
+            </div>
+        </template>
+
         {{-- Activity timeline --}}
         <template x-if="panelData.audit_log && panelData.audit_log.length > 0">
             <div class="px-5 py-3" style="border-bottom: 1px solid var(--border);">
@@ -2270,8 +2355,10 @@
             </div>
         </template>
 
-        {{-- Feedback CTA --}}
-        <template x-if="panelData.is_actionable && panelData.is_past && panelData.has_contacts">
+        {{-- Feedback CTA — 2026-08-18 (Johan): gated on completion_behaviour, not
+             is_actionable, so a freeform class (e.g. task, which is is_actionable=true
+             but freeform) never offers a feedback CTA it shouldn't have. --}}
+        <template x-if="panelData.completion_behaviour === 'require_feedback' && panelData.is_past && panelData.has_contacts">
             <div class="px-5 py-3" style="border-bottom: 1px solid var(--border);">
                 <button type="button" @click="openFeedbackModal(panelData.id)"
                         class="text-xs font-medium transition-colors hover:underline" style="color: var(--brand-button); background: none; border: none; cursor: pointer;">
@@ -2282,8 +2369,30 @@
 
     </div>
 
-    {{-- Sticky footer action bar --}}
-    <div class="px-5 py-2.5 flex items-center gap-4 flex-shrink-0" style="border-top: 1px solid var(--border); background: var(--surface);">
+    {{-- Sticky footer action bar — 2026-08-18 (Johan) — the row can carry up to 7
+         controls (viewing + linked pack: Edit, Download Buyer Pack, Download Agent
+         Sheet, Regenerate, Capture Feedback, Dismiss, Delete). At the panel's
+         normal widths (resizable, and computed as ~27% of the content area —
+         narrows on smaller screens) that never fits on one line, so this uses
+         flex-wrap — the house pattern for crowded rows documented in
+         UI_DESIGN_SYSTEM.md §6.5/§6.6 and used by docuperfect/packs/index.blade.php's
+         card footer and the filter-bar in components/list-header.blade.php: a
+         control that doesn't fit starts a new line INSIDE the panel. There is no
+         edge to overflow past, at any width.
+         2026-08-18 (Johan, second pass) — an earlier version of this fix tucked
+         Download Buyer Pack / Download Agent Sheet / Regenerate behind a "⋮ More"
+         overflow menu. Reverted: Johan named Edit/Delete/Regenerate together as
+         all needed when a pack exists, and wants both pack downloads reachable
+         (not one canonical link standing in for both) — hiding any of them behind
+         a menu the agent has to discover is wrong here. Every control that
+         applies is a direct, always-visible sibling in this wrapping row; none
+         are grouped or collapsed. This also drops the old plain "Download viewing
+         pack" link (opened the pack's own page, not actually a download) as a
+         duplicate of the two real downloads below it.
+         Delete stays last, pushed right with ml-auto (same separation
+         docuperfect/packs/index.blade.php uses for its own Delete), so it is
+         never the easiest control to hit by accident. --}}
+    <div data-testid="event-panel-actionbar" class="px-5 py-2.5 flex flex-wrap items-center gap-2 flex-shrink-0" style="border-top: 1px solid var(--border); background: var(--surface);">
         <template x-if="panelData.is_editable">
             <button type="button" @click="editFromPanel()"
                     class="text-xs font-medium transition-colors hover:opacity-70 inline-flex items-center gap-1"
@@ -2293,36 +2402,49 @@
             </button>
         </template>
 
-        {{-- AT-111 — Viewing pack ↔ appointment. Linked pack → Open + (when prepared)
-             download buttons, straight from the event. No pack yet → launch one from
-             this appointment (schedule-now-prep-later). --}}
-        <template x-if="panelData.linked_viewing_pack">
-            <span class="inline-flex items-center gap-4">
-                <a :href="panelData.linked_viewing_pack.url"
-                   class="text-xs font-medium transition-colors hover:opacity-70 inline-flex items-center gap-1"
-                   style="color: var(--text-primary); text-decoration:none;">
-                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z"/></svg>
-                    Download viewing pack
-                </a>
-                <template x-if="panelData.linked_viewing_pack.property_count > 0">
-                    <span class="inline-flex items-center gap-4">
-                        <a :href="panelData.linked_viewing_pack.buyer_pack_url"
-                           class="text-xs font-medium transition-colors hover:opacity-70 inline-flex items-center gap-1"
-                           style="color: var(--brand-button); text-decoration:none;">
-                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"/></svg>
-                            Download Buyer Pack
-                        </a>
-                        <a :href="panelData.linked_viewing_pack.agent_sheet_url"
-                           class="text-xs font-medium transition-colors hover:opacity-70 inline-flex items-center gap-1"
-                           style="color: var(--text-secondary); text-decoration:none;">
-                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"/></svg>
-                            Download Agent Sheet
-                        </a>
-                    </span>
-                </template>
-            </span>
+        {{-- AT-111 — Viewing pack ↔ appointment. Exactly one of two states: no
+             pack linked -> "Create viewing pack" only; a pack IS linked ->
+             Download Buyer Pack + Download Agent Sheet (each its own real PDF,
+             both always reachable — not one link standing in for both) +
+             Regenerate (never "Create" alongside a linked pack). Gated to
+             supports_viewing_pack (viewing events only) — was ungated, so ANY
+             editable event (a meeting, a listing presentation, …) offered
+             "Create viewing pack". --}}
+        <template x-if="panelData.linked_viewing_pack && panelData.supports_viewing_pack && panelData.linked_viewing_pack.property_count > 0">
+            <a :href="panelData.linked_viewing_pack.buyer_pack_url"
+               class="text-xs font-medium transition-colors hover:opacity-70 inline-flex items-center gap-1"
+               style="color: var(--brand-button); text-decoration:none;">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"/></svg>
+                Download Buyer Pack
+            </a>
         </template>
-        <template x-if="!panelData.linked_viewing_pack && panelData.is_editable">
+        <template x-if="panelData.linked_viewing_pack && panelData.supports_viewing_pack && panelData.linked_viewing_pack.property_count > 0">
+            <a :href="panelData.linked_viewing_pack.agent_sheet_url"
+               class="text-xs font-medium transition-colors hover:opacity-70 inline-flex items-center gap-1"
+               style="color: var(--text-secondary); text-decoration:none;">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"/></svg>
+                Download Agent Sheet
+            </a>
+        </template>
+        {{-- 2026-08-18 (Johan) — rebuilds the linked pack from the event's CURRENT
+             property set (fixes the pack/event property-set drift the calendar-
+             buttons audit found, e.g. event #7047). Supersedes (soft-deletes) the
+             old direct-linked pack rather than mutating it in place — no hard
+             deletes, ever. Always offered whenever a pack is linked, regardless
+             of property_count (it's how a 0-property pack gets fixed). --}}
+        <template x-if="panelData.linked_viewing_pack && panelData.supports_viewing_pack">
+            <form :action="'/corex/command-center/calendar/' + panelData.id + '/viewing-pack/regenerate'" method="POST" class="inline">
+                @csrf
+                <button type="submit"
+                        class="text-xs font-medium transition-colors hover:opacity-70 inline-flex items-center gap-1"
+                        style="color: var(--text-primary); background:none; border:none; cursor:pointer;"
+                        onclick="return confirm('Regenerate the viewing pack from this appointment\'s current properties? The existing pack will be archived, not deleted.');">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99"/></svg>
+                    Regenerate viewing pack
+                </button>
+            </form>
+        </template>
+        <template x-if="panelData.is_editable && panelData.supports_viewing_pack && !panelData.linked_viewing_pack">
             <form :action="panelData.viewing_pack_launch_url" method="POST" class="inline">
                 @csrf
                 <button type="submit"
@@ -2334,7 +2456,7 @@
             </form>
         </template>
 
-        <template x-if="panelData.is_actionable && panelData.completion_behaviour === 'require_feedback'">
+        <template x-if="panelData.completion_behaviour === 'require_feedback'">
             <button type="button" @click="openFeedbackModal(panelData.id)"
                     class="text-xs font-medium transition-colors hover:opacity-70 inline-flex items-center gap-1"
                     style="color: #00d4aa; background: none; border: none; cursor: pointer;">
@@ -2350,7 +2472,14 @@
                 Complete with Reason
             </button>
         </template>
-        <template x-if="panelData.is_actionable && (!panelData.completion_behaviour || panelData.completion_behaviour === 'freeform')">
+        {{-- 2026-08-18 (Johan) — derived purely from completion_behaviour (no
+             hardcoded class-slug list): freeform -> Mark Complete, require_feedback
+             -> Capture Feedback above, require_reason -> Complete with Reason above.
+             meeting/other/private/task all read freeform from
+             calendar_event_class_settings, so this covers them without needing an
+             is_actionable OR — a newly configured freeform class gets this button
+             automatically, with zero code change. --}}
+        <template x-if="panelData.completion_behaviour === 'freeform'">
             {{-- AT-335 — a recurring event needs a this/all scope decision first;
                  intercept the native submit and hand off to the scope modal instead. --}}
             <form :action="'/corex/command-center/calendar/' + panelData.id + '/complete'" method="POST"
@@ -2378,10 +2507,13 @@
         </template>
         {{-- Delete — on EVERY editable panel (incl. private/informational events that
              have no Complete/Dismiss). Soft-delete, audited. Recurring events branch
-             into the this/future/all scope modal; one-offs get a simple confirm. --}}
+             into the this/future/all scope modal; one-offs get a simple confirm.
+             ml-auto pushes it to the far right, separated from every other control —
+             same separation docuperfect/packs/index.blade.php uses for its own
+             Delete — so it is never the easiest thing in the row to hit by accident. --}}
         <template x-if="panelData.is_editable">
             <button type="button" @click="deleteEvent()"
-                    class="text-xs font-medium transition-colors hover:opacity-70 inline-flex items-center gap-1"
+                    class="ml-auto text-xs font-medium transition-colors hover:opacity-70 inline-flex items-center gap-1"
                     style="color: #ef4444; background: none; border: none; cursor: pointer;">
                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"/></svg>
                 <span x-text="panelData.is_recurring ? 'Delete…' : 'Delete'"></span>
@@ -3674,8 +3806,8 @@ function calendarPage() {
 
                 // Property (multi-select: load all linked properties into chosen[])
                 const propPicker = form.querySelector('[x-data*="propertySearch"]');
-                if (propPicker) {
-                    const propData = Alpine.$data(propPicker);
+                const propData = propPicker ? Alpine.$data(propPicker) : null;
+                if (propData) {
                     if (d.linked_properties && d.linked_properties.length > 0) {
                         propData.chosen = d.linked_properties.map(p => ({ id: p.id, address: p.address }));
                     } else if (d.linked_property) {
@@ -3687,6 +3819,18 @@ function calendarPage() {
                 const attPicker = form.querySelector('[x-ref="attendeePicker"]');
                 if (attPicker && d.attendees && d.attendees.length) {
                     Alpine.$data(attPicker).chosen = d.attendees;
+                }
+
+                // CX-103 — rebuild the buyer tick list for the properties
+                // already on this appointment, so editing a damaged event
+                // (Chanri Gardens and its siblings) shows every buyer linked
+                // to the property with the CURRENT attendees ticked and
+                // everyone else unticked — not a blank slate the agent has to
+                // rebuild from scratch. Must run AFTER chosen[] is set above:
+                // setBuyerCandidates() reads it to decide each box's initial
+                // tick state.
+                if (propData && propData.chosen.length > 0) {
+                    propData.chosen.forEach(p => propData.autoPopulateOwners(p.id));
                 }
             });
         },
@@ -3798,7 +3942,7 @@ function calendarPage() {
         },
 
         formatAuditAction(entry) {
-            const labels = { created: 'Event created', rescheduled: 'Rescheduled', cancelled: 'Cancelled', completed: 'Marked complete', feedback_captured: 'Feedback captured', feedback_task_created: 'Auto-task created' };
+            const labels = { created: 'Event created', rescheduled: 'Rescheduled', cancelled: 'Cancelled', completed: 'Marked complete', dismissed: 'Dismissed', feedback_captured: 'Feedback captured', feedback_task_created: 'Auto-task created' };
             const base = labels[entry.action] || entry.action;
             return entry.by ? `${base} by ${entry.by}` : base;
         },
@@ -4191,6 +4335,25 @@ function calendarPage() {
                 this.openRecurScopeModal('edit');
                 return;
             }
+            // CX-103 (Johan, 2026-08-19) — a buyer-driven class (viewing) with
+            // NO buyer ticked must not save silently. Some appointments
+            // legitimately have no buyer (a fallen-through viewing, a
+            // walk-in never confirmed) — so this confirms rather than blocks,
+            // but it never sails through unnoticed the way the auto-fill did.
+            try {
+                const mapEl = document.getElementById('classConfigMap');
+                const map = JSON.parse(mapEl?.textContent || '{}');
+                const cfg = map[this.form.category] || {};
+                if (cfg.autofill_buyers) {
+                    const attPicker = e.target.querySelector('[x-ref="attendeePicker"]');
+                    const chosen = attPicker ? (Alpine.$data(attPicker).chosen || []) : [];
+                    const hasBuyer = chosen.some(c => c.role === 'buyer_contact');
+                    if (!hasBuyer && !confirm('No buyer is ticked for this viewing. Save anyway?')) {
+                        e.preventDefault();
+                        return;
+                    }
+                }
+            } catch (err) { /* config lookup failure never blocks a save */ }
             this.submitting = true;
             sessionStorage.removeItem('corex.calendar.createEventState');
             this.clearStalePickerState();
@@ -4411,6 +4574,18 @@ function propertySearch() {
                 pickerData.chosen = (pickerData.chosen || []).filter(c => {
                     return Number(c.source_property_id) !== Number(p.id);
                 });
+                // CX-103 — a deselected property's buyer candidates (ticked or
+                // not) no longer belong to this appointment either.
+                pickerData.buyerCandidates = (pickerData.buyerCandidates || []).filter(c => {
+                    return Number(c.source_property_id) !== Number(p.id);
+                });
+                // No property selected at all any more — "checked, found
+                // none" no longer applies; go back to showing nothing rather
+                // than a stale "no buyers linked" message with no property
+                // in view to have checked.
+                if (this.chosen.length === 0) {
+                    pickerData.buyerCandidatesLoaded = false;
+                }
             }
         },
         get selected() { return this.chosen.length > 0 ? this.chosen[0] : null; },
@@ -4445,9 +4620,18 @@ function propertySearch() {
                     ...o,
                     source_property_id: Number(propertyId),
                 }));
+                // CX-103 — split before it ever reaches Attendees. Sellers and
+                // the neutral attendee bucket still auto-fill exactly as
+                // before (Johan did not ask to change that); buyers become
+                // pick-list candidates instead of auto-added attendees — the
+                // fix for eleven buyers landing on one viewing.
+                const buyers = stamped.filter(o => o.role === 'buyer_contact');
+                const nonBuyers = stamped.filter(o => o.role !== 'buyer_contact');
                 const picker = form?.querySelector('[x-ref="attendeePicker"]');
                 if (picker) {
-                    Alpine.$data(picker).setOwners(stamped);
+                    const pickerData = Alpine.$data(picker);
+                    pickerData.setOwners(nonBuyers);
+                    pickerData.setBuyerCandidates(buyers);
                 }
             } catch (e) { console.warn('Auto-populate owners failed:', e); }
         },
@@ -4457,6 +4641,18 @@ function propertySearch() {
 function contactSearch() {
     return {
         query: '', results: [], chosen: [],
+        // CX-103 (Johan, 2026-08-19) — buyers linked to a selected property are
+        // NEVER auto-added to Attendees any more (that was the bug: Shawn had
+        // to manually remove up to eleven wrongly-added buyers on every single
+        // viewing, and never reported it). They now land here instead, as a
+        // tick list the agent must actively choose from. Every box starts
+        // UNTICKED — that is the entire point of the change; a pre-ticked list
+        // gets rubber-stamped exactly like the auto-fill did.
+        buyerCandidates: [],
+        // Flips true once a buyer-candidate fetch for the current property
+        // selection has completed, empty result or not — lets the template
+        // tell "checked, found none" apart from "hasn't run yet".
+        buyerCandidatesLoaded: false,
         async search() {
             if (this.query.length < 2) { this.results = []; return; }
             const r = await fetch('/corex/command-center/calendar/search/attendees?q=' + encodeURIComponent(this.query), {
@@ -4523,6 +4719,35 @@ function contactSearch() {
                     this.chosen.push(o);
                 }
             });
+        },
+        // CX-103 — the buyers linked to a selected property, offered as an
+        // UNTICKED pick list (never auto-added — see buyerCandidates above).
+        // A candidate already present in chosen[] (editing an existing
+        // appointment, or re-selecting a property already contributing an
+        // attendee) starts pre-ticked, matching Johan's requirement that
+        // editing a damaged event shows the truth, not a blank slate.
+        // Merges across properties on a multi-property event; a buyer linked
+        // to more than one selected property appears once.
+        setBuyerCandidates(owners) {
+            this.buyerCandidatesLoaded = true;
+            owners.forEach(o => {
+                if (!o.type) o.type = 'contact';
+                const key = o.type + ':' + o.id;
+                if (this.buyerCandidates.some(c => c.type + ':' + c.id === key)) return;
+                const alreadyChosen = this.chosen.some(c => c.type + ':' + c.id === key);
+                this.buyerCandidates.push({ ...o, role: 'buyer_contact', ticked: alreadyChosen });
+            });
+        },
+        toggleBuyerCandidate(candidate) {
+            candidate.ticked = !candidate.ticked;
+            const key = candidate.type + ':' + candidate.id;
+            if (candidate.ticked) {
+                if (!this.chosen.some(c => c.type + ':' + c.id === key)) {
+                    this.chosen.push({ ...candidate });
+                }
+            } else {
+                this.chosen = this.chosen.filter(c => c.type + ':' + c.id !== key);
+            }
         },
     };
 }

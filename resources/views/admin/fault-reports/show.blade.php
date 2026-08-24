@@ -3,19 +3,20 @@
 
 @section('corex-content')
 <div class="w-full space-y-5">
-    {{-- Page header (Pattern A — branded) --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    {{-- Page header (flat neutral bar) --}}
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-            <div class="flex items-center gap-3 min-w-0">
-                <a href="{{ route('admin.fault-reports') }}" class="text-white/60 hover:text-white transition-colors flex-shrink-0" title="Back to Fault Reports">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
+            <div class="min-w-0">
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Fault Report #{{ $report->id }}</h1>
+                <p class="text-xs truncate" style="color: var(--text-muted);">{{ $report->exception_class ?? 'System fault detail' }}</p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+                <a href="{{ route('admin.fault-reports') }}" class="corex-btn-outline text-xs" title="Back to Fault Reports">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" />
                     </svg>
+                    Back to Fault Reports
                 </a>
-                <div class="min-w-0">
-                    <h1 class="text-xl font-bold text-white leading-tight">Fault Report #{{ $report->id }}</h1>
-                    <p class="text-sm text-white/60 truncate">{{ $report->exception_class ?? 'System fault detail' }}</p>
-                </div>
             </div>
         </div>
     </div>
@@ -121,7 +122,7 @@
                 <form method="POST" action="{{ route('admin.fault-reports.update-status', $report->id) }}">
                     @csrf
                     <select name="status" class="w-full rounded-md px-3 py-2 text-sm mb-3"
-                            style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                            style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                         <option value="new" {{ $report->status === 'new' ? 'selected' : '' }}>New</option>
                         <option value="investigating" {{ $report->status === 'investigating' ? 'selected' : '' }}>Investigating</option>
                         <option value="fixed" {{ $report->status === 'fixed' ? 'selected' : '' }}>Fixed</option>
@@ -138,7 +139,7 @@
                     @csrf
                     <textarea name="notes" rows="4"
                               class="w-full rounded-md px-3 py-2 text-sm mb-3"
-                              style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
+                              style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);"
                               placeholder="Internal notes...">{{ $report->notes }}</textarea>
                     <button type="submit" class="corex-btn-outline w-full justify-center">Save Notes</button>
                 </form>

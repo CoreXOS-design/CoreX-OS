@@ -2,9 +2,16 @@
 
 @section('corex-content')
 <div class="space-y-4">
-    <div class="flex items-center justify-between">
-        <h1 class="text-xl font-bold" style="color:var(--text-primary);">Feedback #{{ $report->id }}</h1>
-        <a href="{{ route('command-center.feedback-reports') }}" class="text-xs px-3 py-1.5 rounded-md no-underline" style="background:var(--surface-2);color:var(--text-secondary);">Back to List</a>
+    {{-- Page header (AT-336) — flat neutral bar; back link lives in the right action cluster. --}}
+    <div class="rounded-md px-6 py-5 corex-page-banner">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h1 class="text-base font-bold leading-tight" style="color:var(--text-primary);">Feedback #{{ $report->id }}</h1>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+                <a href="{{ route('command-center.feedback-reports') }}" class="corex-btn-outline text-xs">Back to List</a>
+            </div>
+        </div>
     </div>
 
     @if(session('success'))

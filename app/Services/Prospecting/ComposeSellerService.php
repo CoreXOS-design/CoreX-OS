@@ -382,6 +382,22 @@ class ComposeSellerService
             $item->update(['ingested_at' => now(), 'ingested_contact_id' => $contact->id]);
         }
 
+        // (2026-08-18) Twin fix to ingestTva()'s discard-non-ticked-items behaviour
+        // (027b3fd80) — flagged as a known gap at the time ("the twin implementation
+        // ... has the same leftover items linger forever shape"), now confirmed hit.
+        // Ticking a subset here is a one-shot decision on the WHOLE capture the ticked
+        // items came from, not a partial one — anything left un-ticked is discarded
+        // (ingested_at set, ingested_contact_id left null), same soft/logical discard
+        // as ingestTva(), never a hard delete (non-negotiable #1).
+        $captureIds = $items->pluck('tva_contact_capture_id')->unique();
+        if ($captureIds->isNotEmpty()) {
+            TvaContactCaptureItem::query()
+                ->whereIn('tva_contact_capture_id', $captureIds)
+                ->whereNotIn('id', $itemIds)
+                ->whereNull('ingested_at')
+                ->update(['ingested_at' => now()]);
+        }
+
         if ($addedPhones) {
             $this->identifiers->reconcilePhones($contact->id);
         }

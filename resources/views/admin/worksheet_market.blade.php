@@ -16,18 +16,19 @@
     <div class="w-full space-y-6">
 
         {{-- Page Header (Pattern A) --}}
-        <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+        <div class="rounded-md px-6 py-5 corex-page-banner">
             <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                 <div>
-                    <h1 class="text-xl font-bold text-white leading-tight">Worksheet Market — Company</h1>
-                    <p class="text-sm text-white/60">Set planned average sale price per agent</p>
+                    <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Worksheet Market — Company</h1>
+                    <p class="text-xs" style="color: var(--text-muted);">Set planned average sale price per agent</p>
                 </div>
-                <form method="GET" class="flex items-center gap-2">
-                    <input type="month" name="period" value="{{ $period }}"
-                           class="rounded-md text-sm px-3 py-1.5 [&::-webkit-calendar-picker-indicator]:invert"
-                           style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: #fff;" />
-                    <button type="submit" class="corex-btn-primary">Go</button>
-                </form>
+                <div class="flex flex-wrap items-center gap-2">
+                    <form method="GET" class="flex flex-wrap items-center gap-2">
+                        <input type="month" name="period" value="{{ $period }}"
+                               class="list-header-filter dark:[&::-webkit-calendar-picker-indicator]:invert" />
+                        <button type="submit" class="corex-btn-primary text-xs">Go</button>
+                    </form>
+                </div>
             </div>
         </div>
 
@@ -126,17 +127,17 @@
                 {{-- Market Averages Stat Tiles --}}
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-4 p-5">
                     <div class="rounded-md p-4" style="background: var(--surface-2); border: 1px solid var(--border);">
-                        <div class="text-xs font-medium uppercase tracking-wide" style="color: var(--text-muted);">Deals counted</div>
-                        <div class="text-[1.625rem] font-semibold mt-1" style="color: var(--text-primary);">{{ number_format((int)($ma['deals_count'] ?? 0)) }}</div>
+                        <div class="text-[0.6875rem] font-medium uppercase tracking-wider" style="color: var(--text-muted);">Deals counted</div>
+                        <div class="text-[1.625rem] font-bold leading-none tabular-nums mt-1.5" style="color: var(--text-primary);">{{ number_format((int)($ma['deals_count'] ?? 0)) }}</div>
                     </div>
                     <div class="rounded-md p-4" style="background: var(--surface-2); border: 1px solid var(--border);">
-                        <div class="text-xs font-medium uppercase tracking-wide" style="color: var(--text-muted);">Avg Sale Price (Incl VAT)</div>
-                        <div class="text-[1.625rem] font-semibold mt-1" style="color: var(--text-primary);">R {{ number_format((float)($ma['avg_sale_price_inc_vat'] ?? 0), 0) }}</div>
-                        <div class="text-xs mt-1" style="color: var(--text-muted);">Ex VAT: R {{ number_format((float)($ma['avg_sale_price_ex_vat'] ?? 0), 0) }}</div>
+                        <div class="text-[0.6875rem] font-medium uppercase tracking-wider" style="color: var(--text-muted);">Avg Sale Price (Incl VAT)</div>
+                        <div class="text-[1.625rem] font-bold leading-none tabular-nums mt-1.5" style="color: var(--text-primary);">R {{ number_format((float)($ma['avg_sale_price_inc_vat'] ?? 0), 0) }}</div>
+                        <div class="text-xs mt-1.5 tabular-nums" style="color: var(--text-muted);">Ex VAT: R {{ number_format((float)($ma['avg_sale_price_ex_vat'] ?? 0), 0) }}</div>
                     </div>
                     <div class="rounded-md p-4" style="background: var(--surface-2); border: 1px solid var(--border);">
-                        <div class="text-xs font-medium uppercase tracking-wide" style="color: var(--text-muted);">Effective Comm % (Ex VAT)</div>
-                        <div class="text-[1.625rem] font-semibold mt-1" style="color: var(--text-primary);">{{ number_format((float)($ma['effective_commission_percent_ex_vat'] ?? 0), 1) }}%</div>
+                        <div class="text-[0.6875rem] font-medium uppercase tracking-wider" style="color: var(--text-muted);">Effective Comm % (Ex VAT)</div>
+                        <div class="text-[1.625rem] font-bold leading-none tabular-nums mt-1.5" style="color: var(--text-primary);">{{ number_format((float)($ma['effective_commission_percent_ex_vat'] ?? 0), 1) }}%</div>
                     </div>
                 </div>
 
@@ -211,9 +212,9 @@
                                             </label>
                                         </td>
 
-                                        <td class="px-4 py-3" style="color: var(--text-secondary);">{{ number_format((int)($m['deals_count'] ?? 0)) }}</td>
-                                        <td class="px-4 py-3 font-medium" style="color: var(--text-primary);">R {{ number_format((float)($m['avg_sale_price_inc_vat'] ?? 0), 0) }}</td>
-                                        <td class="px-4 py-3 font-medium" style="color: var(--text-primary);">{{ number_format((float)($m['effective_commission_percent_ex_vat'] ?? 0), 1) }}%</td>
+                                        <td class="px-4 py-3 tabular-nums" style="color: var(--text-secondary);">{{ number_format((int)($m['deals_count'] ?? 0)) }}</td>
+                                        <td class="px-4 py-3 font-medium tabular-nums" style="color: var(--text-primary);">R {{ number_format((float)($m['avg_sale_price_inc_vat'] ?? 0), 0) }}</td>
+                                        <td class="px-4 py-3 font-medium tabular-nums" style="color: var(--text-primary);">{{ number_format((float)($m['effective_commission_percent_ex_vat'] ?? 0), 1) }}%</td>
                                     </tr>
                                 @endforeach
                             </tbody>

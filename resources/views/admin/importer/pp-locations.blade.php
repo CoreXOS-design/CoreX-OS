@@ -6,7 +6,7 @@
 <div class="w-full space-y-5">
 
     {{-- Header --}}
-    <div class="rounded-md px-6 py-5 space-y-3" style="background:var(--brand-default, #0b2a4a);"
+    <div class="rounded-md px-6 py-5 corex-page-banner space-y-3"
          x-data="ppSyncWidget({
              refreshUrl: '{{ route('admin.importer.pp-locations.refresh') }}',
              statusUrl:  '{{ route('admin.importer.pp-locations.status') }}',
@@ -14,38 +14,40 @@
          })" x-init="init()">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Private Property Locations</h1>
-                <p class="text-sm text-white/60">
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Private Property Locations</h1>
+                <p class="text-xs" style="color: var(--text-muted);">
                     PP's geography hierarchy cached locally. Used to resolve suburb IDs at submission time — listings are validated against this list before being sent to PP.
                 </p>
             </div>
-            <button type="button" @click="start()"
-                    :disabled="running"
-                    class="corex-btn-primary text-sm disabled:opacity-60 disabled:cursor-not-allowed">
-                <span x-text="running ? 'Sync in progress…' : 'Refresh from Private Property'"></span>
-            </button>
+            <div class="flex flex-wrap items-center gap-2">
+                <button type="button" @click="start()"
+                        :disabled="running"
+                        class="corex-btn-primary text-xs disabled:opacity-60 disabled:cursor-not-allowed">
+                    <span x-text="running ? 'Sync in progress…' : 'Refresh from Private Property'"></span>
+                </button>
+            </div>
         </div>
 
         <div x-show="running || finishedAt" x-cloak class="space-y-1.5">
-            <div class="flex items-center justify-between text-xs" style="color:rgba(255,255,255,0.8);">
+            <div class="flex items-center justify-between text-xs" style="color: var(--text-secondary);">
                 <span x-text="statusLabel"></span>
                 <span x-text="percent + '%'"></span>
             </div>
-            <div class="h-2 rounded-md overflow-hidden" style="background:rgba(255,255,255,0.1);">
+            <div class="h-2 rounded-md overflow-hidden" style="background: var(--surface-2); border: 1px solid var(--border);">
                 <div class="h-full transition-all duration-300"
-                     :style="'width: ' + percent + '%; background: ' + (failed ? '#f87171' : (running ? 'var(--brand-button, #0ea5e9)' : '#34d399'))"></div>
+                     :style="'width: ' + percent + '%; background: ' + (failed ? 'var(--ds-crimson, #c41e3a)' : (running ? 'var(--brand-button, #0ea5e9)' : 'var(--ds-green, #059669)'))"></div>
             </div>
-            <div class="flex flex-wrap items-center gap-x-4 gap-y-0.5 text-[11px]" style="color:rgba(255,255,255,0.7);">
-                <span>Provinces <span class="font-semibold text-white" x-text="(progress.provinces_done||0) + '/' + (progress.provinces_total||'?')"></span></span>
-                <span>Cities <span class="font-semibold text-white" x-text="progress.cities_done || 0"></span></span>
-                <span>Suburbs <span class="font-semibold text-white" x-text="(progress.suburbs_done||0).toLocaleString()"></span></span>
-                <span style="color:rgba(255,255,255,0.5);" x-text="progress.current || ''"></span>
+            <div class="flex flex-wrap items-center gap-x-4 gap-y-0.5 text-[11px]" style="color: var(--text-muted);">
+                <span>Provinces <span class="font-semibold" style="color: var(--text-primary);" x-text="(progress.provinces_done||0) + '/' + (progress.provinces_total||'?')"></span></span>
+                <span>Cities <span class="font-semibold" style="color: var(--text-primary);" x-text="progress.cities_done || 0"></span></span>
+                <span>Suburbs <span class="font-semibold" style="color: var(--text-primary);" x-text="(progress.suburbs_done||0).toLocaleString()"></span></span>
+                <span style="color: var(--text-faint);" x-text="progress.current || ''"></span>
             </div>
-            <div x-show="failed" x-cloak class="text-xs mt-1" style="color:#fecaca;">
+            <div x-show="failed" x-cloak class="text-xs mt-1" style="color: var(--ds-crimson);">
                 <span class="font-semibold">Sync failed:</span>
                 <span x-text="progress.error || ''"></span>
             </div>
-            <div x-show="!running && !failed && finishedAt" x-cloak class="text-xs mt-1" style="color:#a7f3d0;">
+            <div x-show="!running && !failed && finishedAt" x-cloak class="text-xs mt-1" style="color: var(--ds-green);">
                 Sync complete.
                 <button type="button" @click="reload()" class="underline ml-2 hover:opacity-80 transition-all duration-300">Reload now</button>
             </div>
@@ -54,7 +56,7 @@
 
     @if(session('success'))
         <div class="rounded-md px-4 py-3 text-sm transition-all duration-300"
-             style="background:color-mix(in srgb, var(--ds-green, #059669) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-green, #059669) 30%, transparent); color:var(--text-primary, #111827);">
+             style="background:color-mix(in srgb, var(--ds-green, #059669) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-green, #059669) 30%, transparent); color:var(--text-primary);">
             {{ session('success') }}
         </div>
     @endif
@@ -68,22 +70,22 @@
             <p class="corex-kpi-title">Last Synced</p>
             <p class="corex-kpi-value" style="font-size:1.125rem;">{{ $lastSyncedAt ? $lastSyncedAt->diffForHumans() : 'never' }}</p>
             @if($lastSyncedAt)
-                <p class="text-xs mt-0.5" style="color:var(--text-muted, #9ca3af);">{{ $lastSyncedAt->format('Y-m-d H:i') }}</p>
+                <p class="text-xs mt-0.5 tabular-nums" style="color:var(--text-faint);">{{ $lastSyncedAt->format('Y-m-d H:i') }}</p>
             @endif
         </div>
     </div>
 
     @if($lastSyncError)
         <div class="rounded-md px-4 py-3 text-xs transition-all duration-300"
-             style="background:color-mix(in srgb, var(--ds-amber, #f59e0b) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 30%, transparent); color:var(--text-primary, #111827);">
+             style="background:color-mix(in srgb, var(--ds-amber, #f59e0b) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 30%, transparent); color:var(--text-primary);">
             <span class="font-semibold">Last sync error:</span>
             <span class="break-all">{{ \Illuminate\Support\Str::limit($lastSyncError, 500) }}</span>
         </div>
     @endif
 
     {{-- Explanatory note in place of the tree (data is intentionally hidden) --}}
-    <div class="rounded-md border px-5 py-4 text-sm transition-all duration-300"
-         style="background:var(--surface, #ffffff); border-color:var(--border, rgba(0,0,0,0.07)); color:var(--text-secondary, #64748b);">
+    <div class="rounded-lg border px-5 py-4 text-sm transition-all duration-300"
+         style="background:var(--surface); border-color:var(--border); color:var(--text-secondary);">
         The full suburb list is held in the background. Listings are validated against it automatically at submit time — agents are blocked with a clear message if a suburb is not on PP's list.
     </div>
 </div>

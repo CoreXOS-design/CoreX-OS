@@ -27,12 +27,12 @@
                 <span class="inline-block w-2 h-2 rounded-full" style="background:#3b82f6;"></span>
                 PP <span class="font-semibold">{{ $ppCount }}</span>
             </span>
-            <span class="text-gray-500">· Total {{ $portalLeadsForProp->count() }}</span>
+            <span style="color: var(--text-muted);">· Total {{ $portalLeadsForProp->count() }}</span>
         </div>
     </div>
 
     @if($portalLeadsForProp->isEmpty())
-        <div class="text-xs text-gray-400 py-3 text-center">No portal enquiries received for this property yet.</div>
+        <div class="text-xs py-3 text-center" style="color: var(--text-faint);">No portal enquiries received for this property yet.</div>
     @else
         <table class="w-full text-xs">
             <thead class="text-[10px] uppercase tracking-wide" style="color: var(--text-muted);">
@@ -74,7 +74,7 @@
         </table>
         <div class="text-right mt-2">
             <a href="{{ route('corex.portal-leads.index', ['from' => optional($portalLeadsForProp->last()->received_at)->toDateString()]) }}"
-               class="text-xs text-blue-600 hover:underline">View on Portal Leads page →</a>
+               class="text-xs hover:underline" style="color: var(--brand-icon);">View on Portal Leads page →</a>
         </div>
     @endif
 </div>

@@ -7,27 +7,31 @@ use App\Models\ProspectingListing;
 use App\Models\Property;
 
 /**
- * Canonical "our on-market stock" — the SINGLE source of truth for what counts
- * as the agency's own live stock on the MIC surfaces.
+ * Canonical "our stock" — the SINGLE source of truth for what counts as the
+ * agency's own property on the MIC surfaces (CX-101, 2026-08-19).
  *
- * "On-market" is Property::scopeOnMarket() / OFF_MARKET_STATUSES (sold /
- * transferred / withdrawn / expired / cancelled / let_out / draft / archived /
- * unavailable are OFF-market; everything else — for_sale, under_offer, to_let,
- * the legacy 'active', … — is ON-market). This service NEVER forks that list; it
- * reuses the scope so the count and the pool-suppression can never drift.
+ * Two separate questions, never conflated:
+ *  1. IS this listing OURS AT ALL — identity: portal_ref exact match, OR
+ *     normalized_address exact match, OR the listing's own tracked property
+ *     is already promoted (tracked_properties.promoted_to_property_id — the
+ *     one field every promotion path writes, draft status or not). Matches
+ *     ANY property regardless of on-market status: a draft or withdrawn
+ *     property is still ours.
+ *  2. IF ours, is it STALE — Property::isStaleStock() (the single stale-stock
+ *     rule, .ai/specs/2026-08-19-stale-stock-and-mic-resolution.md §3.1).
  *
- * Two things every MIC in-stock surface needs, both driven from the properties
- * table, on-market only:
+ * identitySets() / applyIsStock() / applyNotStock() / stockMapForListings()
+ * answer question 1 filtered to LIVE (non-stale) matches only — that is what
+ * "our stock" means for pool-exclusion / the IN STOCK badge: a stale match is
+ * NOT excluded from the pool and NOT badged, because Johan's rule says it's
+ * fair game to re-prospect. resolveForClaim() answers BOTH questions for a
+ * single listing, for surfaces (claim guard, compose screen) that must act
+ * differently on a stale match (link, don't block) than a live one (block,
+ * name the holder) — see .ai/specs/2026-08-19-stale-stock-and-mic-resolution.md §3.2-3.3.
  *
- *  1. COUNT of our on-market stock — per LITERAL suburb (Uvongo and Uvongo Beach
- *     are distinct; suburbs are NEVER normalised) and agency-wide. This is the
- *     TRUE "in stock" number; the old exact-portal_ref match undercounts because
- *     most owned properties have no matching scraped listing.
- *  2. IDENTITY of our on-market stock, for suppressing our own listings from the
- *     prospectable pool / badging them IN STOCK: a prospecting listing is our
- *     stock when its portal_ref exactly matches a property's P24/PP ref OR its
- *     normalized_address exactly matches a property's normalized address —
- *     gated to ON-MARKET properties only.
+ * countBySuburb() / totalCount() stay on-market-only by design — they answer
+ * "how much do we have actively on the market," a different, legitimate
+ * question from "is this listing ours."
  *
  * Reused by ProspectingListing::scopeWhereCompanyStock / whereNotCompanyStock and
  * the Work-tab KPI / row badge. The four MIC deep-dive services (Strategic Brief,
@@ -46,10 +50,13 @@ class OnMarketStockService
     private static array $suburbCountCache = [];
 
     /**
-     * On-market owned-stock identity for the agency:
+     * Our LIVE (non-stale) stock identity for the agency:
      *   ['refs' => ['P24-<num>'|'PP-<ref>' => propertyId, …],
      *    'normAddrs' => [normalizedAddress => propertyId, …]]
-     * ON-MARKET only. Chunked + memoised per agency per request.
+     * Matches ANY property regardless of on-market status (drafts included —
+     * CX-101 draft-hole fix), then drops any match whose Property::isStaleStock()
+     * is true, so a genuinely dead record never suppresses/badges a listing.
+     * Chunked + memoised per agency per request.
      */
     public function identitySets(int $agencyId): array
     {
@@ -58,13 +65,20 @@ class OnMarketStockService
             $normAddrs = [];
 
             Property::withoutGlobalScopes()
-                ->onMarket()
                 ->where('agency_id', $agencyId)
                 ->whereNull('deleted_at')
-                ->select('id', 'p24_ref', 'pp_ref', 'address', 'suburb')
+                ->select([
+                    'id', 'p24_ref', 'pp_ref', 'address', 'suburb', 'status',
+                    'p24_last_submitted_at', 'pp_last_submitted_at',
+                    'p24_activated_at', 'pp_activated_at',
+                    'last_activity_at', 'updated_at',
+                ])
                 ->orderBy('id')
                 ->chunk(2000, function ($rows) use (&$refs, &$normAddrs) {
                     foreach ($rows as $p) {
+                        if ($p->isStaleStock()) {
+                            continue;
+                        }
                         if (!empty($p->p24_ref)) {
                             $refs['P24-' . $p->p24_ref] = (int) $p->id;
                         }
@@ -82,6 +96,92 @@ class OnMarketStockService
         }
 
         return self::$identityCache[$agencyId];
+    }
+
+    /**
+     * CX-101 — resolve BOTH questions (is it ours, and if so is it stale) for
+     * ONE listing, for surfaces that must act differently on each answer (the
+     * claim guard, the compose screen). Checks, in order: portal_ref exact
+     * match, normalized_address exact match, then the listing's own tracked
+     * property's promoted_to_property_id (catches a promotion whose resulting
+     * Property never got a matching ref/address — the "spiderweb" case Johan
+     * described, .ai/specs/2026-08-19-stale-stock-and-mic-resolution.md §2.3).
+     * Deliberately bypasses the LIVE-only identitySets() cache — this must see
+     * a STALE match too, to link rather than silently miss it.
+     *
+     * CX-102 part 2 (2026-08-19, Johan: "the system must show its working
+     * and let the agent overrule it") — also returns which check matched
+     * ('portal_ref', 'normalized_address', or 'promoted_link') and skips any
+     * property an agent has already rejected THIS EXACT listing against
+     * (subject_type 'mic_claim', subject_key "listing:{id}" —
+     * PropertyMatchDecisionService is the veto/record mechanism, shared with
+     * the deeds-capture matcher). A rejected match at one check falls
+     * through to the next, same "never a dead end" rule as the deeds
+     * matcher — never returns null just because the FIRST candidate was
+     * vetoed when a later check might still find a genuine one.
+     *
+     * @return array{property: Property, stale: bool, strategy: string}|null
+     */
+    public function resolveForClaim(ProspectingListing $listing, int $agencyId): ?array
+    {
+        $decisions = app(\App\Services\Prospecting\PropertyMatchDecisionService::class);
+        $subjectKey = 'listing:' . $listing->id;
+        $rejected = fn (Property $p) => $decisions->isRejected($agencyId, 'mic_claim', $subjectKey, 'property', $p->id);
+
+        $property = null;
+        $strategy = null;
+
+        $ref = $listing->portal_ref;
+        if ($ref !== null && $ref !== '') {
+            $candidate = Property::withoutGlobalScopes()
+                ->where('agency_id', $agencyId)
+                ->whereNull('deleted_at')
+                ->where(function ($q) use ($ref) {
+                    if (str_starts_with($ref, 'P24-')) {
+                        $q->where('p24_ref', substr($ref, 4));
+                    } elseif (str_starts_with($ref, 'PP-')) {
+                        $q->where('pp_ref', substr($ref, 3));
+                    } else {
+                        $q->where('p24_ref', $ref)->orWhere('pp_ref', $ref);
+                    }
+                })
+                ->first();
+            if ($candidate && !$rejected($candidate)) {
+                $property = $candidate;
+                $strategy = 'portal_ref';
+            }
+        }
+
+        if (!$property && $listing->normalized_address) {
+            $candidate = Property::withoutGlobalScopes()
+                ->where('agency_id', $agencyId)
+                ->whereNull('deleted_at')
+                ->get(['id', 'address', 'suburb'])
+                ->first(fn ($p) => ProspectingListing::normalizeAddress($p->address, $p->suburb ?? '') === $listing->normalized_address);
+            if ($candidate && !$rejected($candidate)) {
+                $property = $candidate;
+                $strategy = 'normalized_address';
+            }
+        }
+
+        if (!$property) {
+            $trackedProperty = $listing->trackedProperty;
+            if ($trackedProperty && $trackedProperty->promoted_to_property_id) {
+                $candidate = Property::withoutGlobalScopes()
+                    ->whereNull('deleted_at')
+                    ->find($trackedProperty->promoted_to_property_id);
+                if ($candidate && !$rejected($candidate)) {
+                    $property = $candidate;
+                    $strategy = 'promoted_link';
+                }
+            }
+        }
+
+        if (!$property) {
+            return null;
+        }
+
+        return ['property' => $property, 'stale' => $property->isStaleStock(), 'strategy' => $strategy];
     }
 
     /** Prefixed portal_refs of the agency's on-market owned stock. */

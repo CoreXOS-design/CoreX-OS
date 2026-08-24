@@ -14,21 +14,21 @@
     <x-page-header title="Communication" :back-route="$backRoute" :back-label="$backLabel" :flush="true" />
 
     <div class="p-4 lg:p-6">
-        <div class="max-w-3xl mx-auto bg-white border" style="border-color:var(--border, #e5e7eb); border-radius:6px;">
-            <div class="px-5 py-4" style="border-bottom:1px solid var(--border, #f1f5f9);">
+        <div class="max-w-3xl mx-auto border" style="background:var(--surface); border-color:var(--border); border-radius:6px;">
+            <div class="px-5 py-4" style="border-bottom:1px solid var(--border);">
                 <div class="flex items-center gap-2 mb-1">
                     <span class="ds-badge {{ $communication->channel === 'email' ? 'ds-badge-default' : 'ds-badge-success' }}">{{ ucfirst($communication->channel) }}</span>
-                    <span class="text-xs" style="color:#64748b;">{{ $communication->direction === 'inbound' ? '↓ Inbound' : '↑ Outbound' }}</span>
-                    <span class="text-xs ml-auto" style="color:#94a3b8;">{{ $communication->occurred_at?->format('d M Y H:i') }}</span>
+                    <span class="text-xs" style="color:var(--text-secondary);">{{ $communication->direction === 'inbound' ? '↓ Inbound' : '↑ Outbound' }}</span>
+                    <span class="text-xs ml-auto" style="color:var(--text-muted);">{{ $communication->occurred_at?->format('d M Y H:i') }}</span>
                 </div>
                 <h2 class="text-base font-bold" style="color:var(--text-primary);">{{ $communication->subject ?: '(no subject)' }}</h2>
-                <div class="text-xs mt-1" style="color:#64748b;">From: {{ $communication->from_display }}</div>
+                <div class="text-xs mt-1" style="color:var(--text-secondary);">From: {{ $communication->from_display }}</div>
             </div>
-            <div class="px-5 py-4 text-sm whitespace-pre-wrap" style="color:#334155; line-height:1.7;">{{ $communication->body_text ?: $communication->body_preview }}</div>
+            <div class="px-5 py-4 text-sm whitespace-pre-wrap" style="color:var(--text-secondary); line-height:1.7;">{{ $communication->body_text ?: $communication->body_preview }}</div>
 
             @if($communication->attachments->isNotEmpty())
-            <div class="px-5 py-3" style="border-top:1px solid var(--border, #f1f5f9);">
-                <h4 class="text-xs font-bold uppercase mb-2" style="color:#94a3b8;">Attachments</h4>
+            <div class="px-5 py-3" style="border-top:1px solid var(--border);">
+                <h4 class="text-xs font-bold uppercase mb-2" style="color:var(--text-muted);">Attachments</h4>
                 <div class="flex flex-col gap-2">
                     @foreach($communication->attachments as $att)
                         @php
@@ -39,23 +39,23 @@
                         @if($att->isAudio() && $att->isPlayable())
                             {{-- AT-148 — inline voice-note player (authenticated route) --}}
                             <div class="flex items-center gap-2">
-                                <span class="text-xs" style="color:#64748b;">🎙️ Voice note{{ $duration ? ' · '.$duration : '' }} · {{ number_format($att->size_bytes / 1024, 1) }} KB</span>
+                                <span class="text-xs" style="color:var(--text-secondary);">🎙️ Voice note{{ $duration ? ' · '.$duration : '' }} · {{ number_format($att->size_bytes / 1024, 1) }} KB</span>
                                 <audio controls preload="none" style="height:34px; max-width:280px;">
                                     <source src="{{ route('compliance.comm-archive.attachment', $att->id) }}" type="{{ $att->mime }}">
                                     Your browser cannot play this voice note.
                                 </audio>
                             </div>
                         @elseif($att->isAudio())
-                            <span class="text-xs px-2 py-1 inline-block" style="background:var(--surface-alt, #f8fafc); border-radius:6px; color:#94a3b8;">🎙️ Voice note — processing{{ $duration ? ' · '.$duration : '' }}</span>
+                            <span class="text-xs px-2 py-1 inline-block" style="background:var(--surface-2); border-radius:6px; color:var(--text-muted);">🎙️ Voice note — processing{{ $duration ? ' · '.$duration : '' }}</span>
                         @else
-                            <span class="text-xs px-2 py-1 inline-block" style="background:var(--surface-alt, #f8fafc); border-radius:6px; color:#64748b;">📎 {{ $att->filename ?? 'attachment' }} ({{ number_format($att->size_bytes / 1024, 1) }} KB)</span>
+                            <span class="text-xs px-2 py-1 inline-block" style="background:var(--surface-2); border-radius:6px; color:var(--text-secondary);">📎 {{ $att->filename ?? 'attachment' }} ({{ number_format($att->size_bytes / 1024, 1) }} KB)</span>
                         @endif
                     @endforeach
                 </div>
             </div>
             @endif
 
-            <div class="px-5 py-3 text-xs" style="border-top:1px solid var(--border, #f1f5f9); color:#94a3b8;">
+            <div class="px-5 py-3 text-xs" style="border-top:1px solid var(--border); color:var(--text-muted);">
                 Ref: COMM-{{ str_pad($communication->id, 8, '0', STR_PAD_LEFT) }} · captured {{ $communication->captured_at?->format('d M Y H:i') }}
                 @if($communication->thread_key) · <a href="{{ route('compliance.comm-archive.thread', $communication->thread_key) }}" style="color:var(--brand-icon);">view thread</a> @endif
                 @php $cid = optional($communication->links->firstWhere('linkable_type', \App\Models\Contact::class))->linkable_id; @endphp

@@ -8,7 +8,6 @@ use App\Models\Property;
 use App\Services\AI\AiUsageRecorder;
 use GuzzleHttp\Client;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Str;
 
 /**
  * Generates AI-assisted ad copy for property marketing ("Generate with Ellie AI").
@@ -272,12 +271,11 @@ class MarketingCopyService
     /**
      * Public, shareable live-preview link for the property — the call-to-action
      * link placed in the ad copy (instead of a listing reference number).
-     * Matches the canonical format used elsewhere: {property}/preview/{title-slug}.
      */
     private function previewUrl(Property $property): string
     {
         try {
-            return route('corex.properties.preview', [$property, Str::slug($property->title ?: 'property')]);
+            return route('corex.properties.preview', $property);
         } catch (\Throwable $e) {
             return '';
         }

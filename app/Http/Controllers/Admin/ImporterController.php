@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Jobs\ConfirmP24PropertyRowJob;
+use App\Jobs\ParseP24ListingsImportJob;
 use App\Jobs\ProcessImporterRunJob;
 use App\Jobs\SendAgentInviteJob;
 use App\Models\Agency;
@@ -11,11 +12,12 @@ use App\Models\P24ImportRow;
 use App\Models\P24ImportRun;
 use App\Models\P24OnboardingPortal;
 use App\Models\P24PortalEvent;
+use App\Models\Property;
+use App\Models\Scopes\AgencyScope;
+use App\Models\Scopes\BranchScope;
 use App\Models\User;
 use App\Notifications\OnboardingPortalInvitation;
 use App\Services\Importer\P24AgentsCsvParser;
-use App\Services\Importer\P24ImagesCsvParser;
-use App\Services\Importer\P24ListingsCsvParser;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -209,87 +211,13 @@ class ImporterController extends Controller
             'mark_compliant_on_confirm' => $request->boolean('mark_compliant_on_confirm'),
         ]);
 
-        try {
-            $listings = (new P24ListingsCsvParser())->parse(\Storage::path($listingsPath));
-            $images   = (new P24ImagesCsvParser())->parse(\Storage::path($imagesPath));
-
-            $totalImages = array_sum(array_map('count', $images));
-            $counts = [
-                'listings'      => count($listings),
-                'images_total'  => $totalImages,
-                'listings_with_images' => count(array_intersect_key($images, array_flip(array_column($listings, 'external_id')))),
-            ];
-
-            // Build agent resolver map: p24_agent_id → users.id for this agency
-            $agentMap = User::withoutGlobalScopes()
-                ->where('agency_id', $agencyId)
-                ->whereNotNull('p24_agent_id')
-                ->pluck('id', 'p24_agent_id')
-                ->toArray();
-
-            // Fallback owner for listings whose P24 agent isn't in this agency.
-            // Rather than fail the row, assign it to an active admin so the
-            // listing still imports; it can be reassigned from the portal
-            // later. Prefer the admin running the import. The Agency Admin
-            // Rule (User::booted) guarantees ≥1 active admin per agency.
-            $fallbackAdmin = User::withoutGlobalScopes()
-                ->where('agency_id', $agencyId)
-                ->where('role', 'admin')
-                ->where('is_active', 1)
-                ->orderByRaw('CASE WHEN id = ? THEN 0 ELSE 1 END', [auth()->id()])
-                ->orderBy('id')
-                ->first();
-            $fallbackAdminId = $fallbackAdmin?->id;
-
-            foreach ($listings as $r) {
-                $errors = $r['errors'];
-                $primary = $r['primary_agent_p24'];
-                $resolvedId = $primary ? ($agentMap[$primary] ?? null) : null;
-                if (!$resolvedId) {
-                    if ($fallbackAdminId) {
-                        // Auto-assign to admin so the listing imports. Keep the
-                        // "Primary agent not resolved" phrase so the reassign
-                        // endpoints can detect and clear this note.
-                        $resolvedId = $fallbackAdminId;
-                        $errors[] = 'Primary agent not resolved (p24_agent_id=' . ($primary ?? 'null')
-                            . ') — auto-assigned to ' . ($fallbackAdmin->name ?? 'admin') . '; reassign if needed.';
-                    } else {
-                        // No admin to fall back to — keep it a hard error.
-                        $errors[] = 'Primary agent not resolved (p24_agent_id=' . ($primary ?? 'null') . ')';
-                    }
-                }
-
-                $urls = $images[$r['external_id']] ?? [];
-
-                // A row only blocks (status=error) on a fatal parser problem,
-                // or an unresolved agent with no admin fallback. An auto-assigned
-                // listing is importable, so it stays pending.
-                $isError = !empty($r['errors']) || !$resolvedId;
-
-                P24ImportRow::create([
-                    'run_id'            => $run->id,
-                    'row_type'          => 'listing',
-                    'external_id'       => $r['external_id'],
-                    'payload_json'      => $r['payload'],
-                    'mapped_json'       => $r['mapped'],
-                    'resolved_agent_id' => $resolvedId,
-                    'image_urls_json'   => $urls,
-                    'errors_json'       => $errors ?: null,
-                    'action'            => $r['action'],
-                    'status'            => $isError ? 'error' : 'pending',
-                ]);
-            }
-
-            $run->update(['status' => 'pending_confirm', 'counts_json' => $counts]);
-        } catch (\Throwable $e) {
-            $run->update(['status' => 'failed', 'error_message' => $e->getMessage()]);
-            if ($request->ajax() || $request->expectsJson()) {
-                return response()->json(['errors' => ['listings_csv' => ['Parse failed: ' . $e->getMessage()]]], 422);
-            }
-            return back()->withErrors(['listings_csv' => 'Parse failed: ' . $e->getMessage()]);
-        }
-
-        // Each listings upload gets its own portal so prior runs stay isolated.
+        // Async parse (.ai/specs/importer-async-parse.md) — thousands of
+        // individual P24ImportRow inserts used to run fully synchronously in
+        // this request; for a large agency that request could run long enough
+        // to interact badly with session/CSRF handling under load (observed
+        // live 2026-08-14, 4,753 listings). The portal is created NOW, before
+        // parsing even starts, so the admin gets a shareable link immediately;
+        // the review page shows a "still parsing" state until the job finishes.
         $agency = Agency::find($agencyId);
         $label  = ($agency?->name ?? 'Agency') . ' · ' . now()->format('Y-m-d H:i');
         $portal = P24OnboardingPortal::create([
@@ -307,9 +235,13 @@ class ImporterController extends Controller
             'actor_type'  => 'admin',
             'actor_label' => auth()->user()?->name ?? 'admin',
             'event'       => 'portal.created',
-            'meta_json'   => ['auto' => true, 'run_id' => $run->id, 'rows' => $counts['listings'] ?? null],
+            // Row count is not yet known — parsing has not started. Unlike the
+            // pre-fix synchronous flow, this event fires before that count exists.
+            'meta_json'   => ['auto' => true, 'run_id' => $run->id, 'rows' => null],
             'ip'          => $request->ip(),
         ]);
+
+        ParseP24ListingsImportJob::dispatch($run->id);
 
         if ($request->ajax() || $request->expectsJson()) {
             return response()->json([
@@ -318,7 +250,7 @@ class ImporterController extends Controller
             ]);
         }
         return redirect()->route('admin.importer.review', ['run_id' => $run->id])
-            ->with('status', 'Upload complete. Review link: ' . $portal->publicUrl());
+            ->with('status', 'Upload received — parsing in the background. Review link: ' . $portal->publicUrl());
     }
 
     /**
@@ -329,10 +261,12 @@ class ImporterController extends Controller
     public function review(Request $request)
     {
         // Agencies that either have at least one listing row OR an existing portal
-        $agencyIdsWithRows = P24ImportRun::where('kind', 'listings_images')
+        $agencyIdsWithRows = P24ImportRun::withoutGlobalScope(AgencyScope::class)
+            ->where('kind', 'listings_images')
             ->whereNotNull('agency_id')
             ->distinct()->pluck('agency_id');
-        $agencyIdsWithPortals = P24OnboardingPortal::whereNull('deleted_at')
+        $agencyIdsWithPortals = P24OnboardingPortal::withoutGlobalScope(AgencyScope::class)
+            ->whereNull('deleted_at')
             ->distinct()->pluck('agency_id');
         $agencyIds = $agencyIdsWithRows->merge($agencyIdsWithPortals)->unique()->filter()->values();
 
@@ -341,7 +275,7 @@ class ImporterController extends Controller
         $cards = $agencies->map(function (Agency $agency) {
             $rowQ = P24ImportRow::query()
                 ->where('row_type', 'listing')
-                ->whereHas('run', fn($r) => $r->where('agency_id', $agency->id));
+                ->whereHas('run', fn($r) => $r->withoutGlobalScope(AgencyScope::class)->where('agency_id', $agency->id));
 
             $counts = [
                 'pending'    => (clone $rowQ)->where('status', 'pending')->whereNull('processing_at')->count(),
@@ -352,21 +286,79 @@ class ImporterController extends Controller
                 'total'      => (clone $rowQ)->count(),
             ];
 
-            $portals = P24OnboardingPortal::where('agency_id', $agency->id)
+            $portals = P24OnboardingPortal::withoutGlobalScope(AgencyScope::class)
+                ->where('agency_id', $agency->id)
                 ->orderByDesc('id')->limit(10)->get();
 
-            $events = P24PortalEvent::where('agency_id', $agency->id)
+            $events = P24PortalEvent::withoutGlobalScope(AgencyScope::class)
+                ->where('agency_id', $agency->id)
                 ->orderByDesc('id')->limit(25)->get();
 
+            $agents = $this->importedAgents($agency);
+
             return [
-                'agency'  => $agency,
-                'counts'  => $counts,
-                'portals' => $portals,
-                'events'  => $events,
+                'agency'      => $agency,
+                'counts'      => $counts,
+                'portals'     => $portals,
+                'events'      => $events,
+                'agents'      => $agents,
+                'agentCounts' => $this->agentInviteCounts($agents),
             ];
         });
 
         return view('admin.importer.review', compact('cards'));
+    }
+
+    /**
+     * Every agent CoreX imported for this agency, across every agent run it
+     * has ever had — an agency imported over two runs still gets one list.
+     *
+     * Sourced from the import rows rather than `users.role = 'agent'` so the
+     * list means "agents we imported", not "agents that exist". An agent the
+     * agency added by hand afterwards is not ours to invite.
+     *
+     * Unscoped deliberately: the importer is owner-only and spans agencies,
+     * but AgencyScope/BranchScope resolve against the *viewing* owner's own
+     * agency. They no-op for an owner until they use the agency switcher —
+     * at which point a scoped query silently returns an empty list and the
+     * page reports "no agents" for an agency that has twenty. SoftDeletes is
+     * left on, so an archived agent drops out of the list and the counts.
+     */
+    private function importedAgents(Agency $agency): \Illuminate\Support\Collection
+    {
+        $userIds = P24ImportRow::query()
+            ->where('row_type', 'agent')
+            ->where('status', 'confirmed')
+            ->whereNotNull('target_id')
+            ->whereHas('run', fn($r) => $r->withoutGlobalScope(AgencyScope::class)->where('agency_id', $agency->id))
+            ->pluck('target_id')
+            ->map(fn($id) => (int) $id)
+            ->unique()
+            ->values();
+
+        if ($userIds->isEmpty()) {
+            return collect();
+        }
+
+        return User::withoutGlobalScopes([AgencyScope::class, BranchScope::class])
+            ->whereIn('id', $userIds)
+            ->orderBy('name')
+            ->get();
+    }
+
+    /**
+     * The three states that drive both the card and the bulk button's skip
+     * logic. `active` = already set a password via a previous invite;
+     * `invited` = invite sent, not yet accepted; `pending` = never invited.
+     */
+    private function agentInviteCounts(\Illuminate\Support\Collection $agents): array
+    {
+        return [
+            'total'   => $agents->count(),
+            'active'  => $agents->filter(fn(User $u) => (bool) $u->is_active)->count(),
+            'invited' => $agents->filter(fn(User $u) => !$u->is_active && $u->invited_at !== null)->count(),
+            'pending' => $agents->filter(fn(User $u) => !$u->is_active && $u->invited_at === null)->count(),
+        ];
     }
 
     public function createPortal(Request $request)
@@ -533,24 +525,173 @@ class ImporterController extends Controller
         return response()->json(['ok' => true, 'count' => count($ids)]);
     }
 
-    public function sendInvite(User $user)
+    /**
+     * Owner-only gallery-completeness reconciliation across every P24-imported
+     * property, grouped by agency. This is the live proof of the parallel
+     * importer's acceptance bar: `short` (stored < expected), `incomplete`, and
+     * `failed` must all settle to 0 once the p24images lane drains. A nonzero
+     * figure after that is a listing sitting live with missing photos.
+     *
+     * Unscoped: the importer spans agencies and this runs for an owner who may
+     * have switched into one via the agency switcher — a scoped query would
+     * report a clean slate for every agency but their own. See
+     * [[project_agencyscope_owner_switcher_blindspot]].
+     */
+    public function galleryReconciliation(Request $request)
     {
-        SendAgentInviteJob::dispatchSync($user->id);
-        return back()->with('status', "Invite sent to {$user->email}");
+        $rows = Property::withoutGlobalScopes()
+            ->whereIn('id', function ($q) {
+                $q->select('target_id')
+                    ->from('p24_import_rows')
+                    ->where('row_type', 'listing')
+                    ->where('status', 'confirmed')
+                    ->whereNotNull('target_id');
+            })
+            ->selectRaw("
+                agency_id,
+                COUNT(*)                                          as total,
+                SUM(gallery_import_status = 'complete')          as complete,
+                SUM(gallery_import_status = 'pending')           as pending,
+                SUM(gallery_import_status = 'incomplete')        as incomplete,
+                SUM(gallery_import_status = 'failed')            as failed,
+                SUM(gallery_stored_count < gallery_expected_count) as short,
+                COALESCE(SUM(gallery_expected_count), 0)         as images_expected,
+                COALESCE(SUM(gallery_stored_count), 0)           as images_stored
+            ")
+            ->groupBy('agency_id')
+            ->get();
+
+        $names = Agency::whereIn('id', $rows->pluck('agency_id')->filter())->pluck('name', 'id');
+
+        return response()->json([
+            'generated_at' => now()->toIso8601String(),
+            'agencies'     => $rows->map(fn ($r) => [
+                'agency_id'       => (int) $r->agency_id,
+                'agency'          => $names[$r->agency_id] ?? null,
+                'total'           => (int) $r->total,
+                'complete'        => (int) $r->complete,
+                'pending'         => (int) $r->pending,
+                'incomplete'      => (int) $r->incomplete,
+                'failed'          => (int) $r->failed,
+                'short'           => (int) $r->short,
+                'images_expected' => (int) $r->images_expected,
+                'images_stored'   => (int) $r->images_stored,
+            ])->values(),
+            'totals' => [
+                'short'      => (int) $rows->sum('short'),
+                'incomplete' => (int) $rows->sum('incomplete'),
+                'failed'     => (int) $rows->sum('failed'),
+                'pending'    => (int) $rows->sum('pending'),
+            ],
+        ]);
     }
 
-    public function sendAllInvites(P24ImportRun $run)
+    /**
+     * Invite one agent — the "chase the bounced one" path.
+     *
+     * Bound by raw id, not by `User $user`: implicit route-model binding
+     * resolves through AgencyScope, so an owner who has switched agencies
+     * would get a 404 on an agent that plainly exists on the page in front
+     * of them.
+     */
+    public function sendInvite(Request $request, int $userId)
     {
-        abort_if($run->kind !== 'agents', 400);
-        $userIds = $run->rows()
-            ->where('row_type', 'agent')
-            ->where('status', 'confirmed')
-            ->whereNotNull('target_id')
-            ->pluck('target_id');
-        foreach ($userIds as $uid) {
-            SendAgentInviteJob::dispatchSync((int)$uid);
+        $user = User::withoutGlobalScopes([AgencyScope::class, BranchScope::class])->find($userId);
+
+        if (!$user) {
+            return back()->with('error', 'That agent no longer exists — they may have been archived since this page loaded.');
         }
-        return back()->with('status', 'Invites sent to ' . count($userIds) . ' agents.');
+
+        if (blank($user->email)) {
+            return back()->with('error', "{$user->name} has no email address on file, so there is nowhere to send an invite.");
+        }
+
+        $resend = $user->invited_at !== null;
+        SendAgentInviteJob::dispatch($user->id);
+
+        return back()->with('status', $this->inviteVerb(1) . ' for ' . $user->email . ($resend ? ' (re-sent).' : '.'));
+    }
+
+    /**
+     * Send invite links to every agent imported for this agency — the last
+     * step of onboarding, once their properties are in.
+     *
+     * Agency-scoped rather than run-scoped: an agency imported over two agent
+     * runs is still one agency to the person pressing the button, and they
+     * should not have to know which run an agent arrived in.
+     *
+     * Safe to press twice. Agents who already accepted an invite (`is_active`)
+     * or already hold an unaccepted one (`invited_at`) are skipped and
+     * reported, so a second press chases only the genuinely uninvited rather
+     * than re-mailing the whole agency. Re-sending is a per-agent decision.
+     */
+    public function sendAgencyInvites(Request $request, Agency $agency)
+    {
+        $agents = $this->importedAgents($agency);
+        $counts = $this->agentInviteCounts($agents);
+
+        $sendable = $agents->filter(
+            fn(User $u) => !$u->is_active && $u->invited_at === null && filled($u->email)
+        );
+
+        // Absorb rather than reject: nothing to do is a normal end-state here,
+        // not an error. Tell them why the press did nothing.
+        if ($sendable->isEmpty()) {
+            $why = match (true) {
+                $counts['total'] === 0 => 'No agents have been imported for ' . $agency->name . ' yet.',
+                $counts['pending'] === 0 => 'Every imported agent for ' . $agency->name . ' has already been invited or is already active.',
+                default => 'No agent for ' . $agency->name . ' has an email address on file.',
+            };
+            return back()->with('status', $why);
+        }
+
+        foreach ($sendable as $agent) {
+            SendAgentInviteJob::dispatch($agent->id);
+        }
+
+        $noEmail = $agents->filter(fn(User $u) => !$u->is_active && $u->invited_at === null && blank($u->email))->count();
+
+        $skips = collect([
+            $counts['invited'] ? $counts['invited'] . ' already invited' : null,
+            $counts['active'] ? $counts['active'] . ' already active' : null,
+            $noEmail ? $noEmail . ' with no email address' : null,
+        ])->filter();
+
+        P24PortalEvent::log([
+            'portal_id'   => null,
+            'agency_id'   => $agency->id,
+            'actor_type'  => 'admin',
+            'actor_label' => auth()->user()?->name ?? 'admin',
+            'event'       => 'agents.invites_sent',
+            'meta_json'   => [
+                'sent'            => $sendable->count(),
+                'skipped_invited' => $counts['invited'],
+                'skipped_active'  => $counts['active'],
+                'skipped_no_email' => $noEmail,
+                'total_imported'  => $counts['total'],
+            ],
+            'ip'          => $request->ip(),
+        ]);
+
+        $message = $this->inviteVerb($sendable->count()) . ' for ' . $sendable->count() . ' ' .
+            str('agent')->plural($sendable->count()) . '.';
+
+        if ($skips->isNotEmpty()) {
+            $message .= ' Skipped ' . $skips->join(', ', ' and ') . '.';
+        }
+
+        return back()->with('status', $message);
+    }
+
+    /**
+     * Invites go through the queue, so on a queued connection "sent" is a lie
+     * until the worker picks them up — say what actually happened instead.
+     */
+    private function inviteVerb(int $count): string
+    {
+        return config('queue.default') === 'sync'
+            ? ($count === 1 ? 'Invite sent' : 'Invites sent')
+            : ($count === 1 ? 'Invite queued' : 'Invites queued');
     }
 
     /**

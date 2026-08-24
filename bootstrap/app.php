@@ -47,11 +47,22 @@ return Application::configure(basePath: dirname(__DIR__))
             \App\Http\Middleware\AgencyMaintenanceGate::class,
             \App\Http\Middleware\EnsureDemoGrant::class,
             \App\Http\Middleware\SetPropertyAuditActor::class,   // AT-321 attribution
+            // AT-267 — records which records an assistant opens/edits. No-op for
+            // everyone who is not an assistant (a single bool check).
+            \App\Http\Middleware\LogAssistantActivity::class,
+            // AT-267 / AUDIT 2026-07-26 (F1) — layer 2 of the agent's "can edit & delete my
+            // records" toggle. GLOBAL on purpose: only a fraction of CoreX's mutating routes
+            // pass through a per-record guard, and a hand-picked list of the rest is the thing
+            // that goes stale. Denies PUT/PATCH/DELETE for an assistant whose agent switched
+            // the toggle off; inert (one boolean) for everyone else.
+            \App\Http\Middleware\DenyAssistantRecordMutation::class,
         ]);
 
         // AT-321 — attribute API-driven property writes (mobile app etc.) too.
+        // AT-267 — and the assistant mutation gate, so the mobile app cannot do what the web cannot.
         $middleware->api(append: [
             \App\Http\Middleware\SetPropertyAuditActor::class,
+            \App\Http\Middleware\DenyAssistantRecordMutation::class,
         ]);
 
         // EnsureDemoGrant MUST run BEFORE Authenticate.
@@ -88,7 +99,20 @@ return Application::configure(basePath: dirname(__DIR__))
                 'auth.wa_capture' => \App\Http\Middleware\AuthenticateWaCapture::class,
                 'waha.webhook' => \App\Http\Middleware\VerifyWahaWebhook::class,
                 'permission' => \App\Http\Middleware\CheckPermission::class,
+                // Per-agency feature gate — orthogonal to permission; 404s when a
+                // feature is off. Spec: .ai/specs/corex-feature-registry.md §6.3.
+                'feature' => \App\Http\Middleware\CheckFeature::class,
                 'owner_only' => \App\Http\Middleware\OwnerOnly::class,
+                // AT-267 — an assistant may never create a listing. Layer 2 of the
+                // property-upload lock: covers the creation paths that carry NO permission
+                // key at all, which a slug-based lock cannot reach.
+                'deny_assistant_property_write' => \App\Http\Middleware\DenyAssistantPropertyWrite::class,
+                // AT-267 — hard block on agent-personal surfaces (e.g. /my-earnings) an assistant
+                // must never see, regardless of matrix. The route-level half of the nav @unless.
+                'deny_assistant' => \App\Http\Middleware\DenyAssistant::class,
+                // AT-267 — the "download documents" toggle. Applied to every document-download
+                // route; 403s an assistant whose assignment has can_download_documents off.
+                'deny_assistant_download' => \App\Http\Middleware\DenyAssistantDownload::class,
                 'onboarding.portal' => \App\Http\Middleware\ResolveOnboardingPortal::class,
                 'agency.setup.portal' => \App\Http\Middleware\ResolveAgencySetupPortal::class,
                 'agency.required' => \App\Http\Middleware\RequireAgencyContext::class,

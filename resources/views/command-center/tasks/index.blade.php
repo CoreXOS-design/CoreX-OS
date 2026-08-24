@@ -65,11 +65,11 @@
 <div class="space-y-4" x-data="taskBoard()" x-init="init()">
 
     {{-- ══════ PAGE HEADER (Pattern A — branded) ══════ --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div data-tour="task-intro">
-                <h1 class="text-xl font-bold text-white leading-tight">Tasks</h1>
-                <div class="flex items-center gap-3 mt-1 text-sm flex-wrap" style="color: rgba(255,255,255,0.65);">
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Tasks</h1>
+                <div class="flex items-center gap-3 mt-1 text-xs flex-wrap" style="color: var(--text-muted);">
                     <span>{{ number_format($summary['open']) }} open</span>
                     @if($summary['overdue'] > 0)
                         <span class="inline-flex items-center gap-1.5">
@@ -83,19 +83,19 @@
             </div>
 
             <div class="flex items-center gap-2 flex-wrap">
-                @include('layouts.partials.tour-header-launcher')
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
                 {{-- View mode: Board / List --}}
-                <div class="inline-flex rounded-md overflow-hidden" data-tour="task-view" style="background: rgba(255,255,255,0.12);">
+                <div class="inline-flex rounded-md overflow-hidden" data-tour="task-view" style="background: var(--surface-2); border: 1px solid var(--border);">
                     @foreach(['kanban' => 'Board', 'list' => 'List'] as $vKey => $vLabel)
                         <a href="{{ route('command-center.tasks', array_merge(request()->query(), ['view' => $vKey])) }}"
                            class="px-3 py-1.5 text-xs font-semibold transition-colors"
-                           style="{{ $currentView === $vKey ? 'background: rgba(255,255,255,0.2); color: #fff;' : 'color: rgba(255,255,255,0.75);' }}">
+                           style="{{ $currentView === $vKey ? 'background: var(--brand-icon); color: #fff;' : 'color: var(--text-muted);' }}">
                             {{ $vLabel }}
                         </a>
                     @endforeach
                 </div>
 
-<a href="{{ route('command-center.tasks.archived') }}" class="corex-btn-outline">
+                <a href="{{ route('command-center.tasks.archived') }}" class="corex-btn-outline text-xs">
                     <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m20.25 7.5-.625 10.632a2.25 2.25 0 0 1-2.247 2.118H6.622a2.25 2.25 0 0 1-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125Z" /></svg>
                     Archived
                 </a>
@@ -104,12 +104,12 @@
                       onsubmit="return confirm('Archive all Done tasks? They can be restored from the Archived view.');"
                       class="inline">
                     @csrf
-                    <button type="submit" class="corex-btn-outline">
+                    <button type="submit" class="corex-btn-outline text-xs">
                         Clear Done
                     </button>
                 </form>
 
-                <button @click="showCreateTask = true" class="corex-btn-primary" data-tour="task-add">
+                <button @click="showCreateTask = true" class="corex-btn-primary text-xs" data-tour="task-add">
                     <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
                     New Task
                 </button>
@@ -335,7 +335,7 @@
                                                 ));
                                                 $statusVariant = $statusBadgeVariant[$task->status] ?? 'ds-badge-default';
                                             @endphp
-                                            <tr class="transition-colors cursor-pointer hover:bg-black/5"
+                                            <tr class="transition-colors cursor-pointer hover:bg-[color:var(--surface-2)]"
                                                 data-task-row
                                                 data-task-clickable
                                                 data-task-id="{{ $task->id }}"
@@ -545,14 +545,14 @@
                         <label for="task-title" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Title <span class="text-red-500">*</span></label>
                         <input id="task-title" type="text" name="title" required
                                class="w-full rounded-md px-3 py-2 text-sm transition-colors"
-                               style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                               style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                     </div>
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
                             <label for="task-priority" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Priority</label>
                             <select id="task-priority" name="priority"
                                     class="w-full rounded-md px-3 py-2 text-sm"
-                                    style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                    style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                                 <option value="normal">Normal</option>
                                 <option value="low">Low</option>
                                 <option value="high">High</option>
@@ -563,14 +563,14 @@
                             <label for="task-due" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Due Date</label>
                             <input id="task-due" type="date" name="due_date"
                                    class="w-full rounded-md px-3 py-2 text-sm"
-                                   style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                   style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                         </div>
                     </div>
                     <div>
                         <label for="task-type" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Type</label>
                         <select id="task-type" name="task_type"
                                 class="w-full rounded-md px-3 py-2 text-sm"
-                                style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                             <option value="custom">General</option>
                             <option value="document_upload">Document Upload</option>
                             <option value="follow_up">Follow-up</option>
@@ -583,7 +583,7 @@
                         <label for="task-desc" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Description</label>
                         <textarea id="task-desc" name="description" rows="4"
                                   class="w-full rounded-md px-3 py-2 text-sm"
-                                  style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"></textarea>
+                                  style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);"></textarea>
                     </div>
                     <div>
                         <label class="flex items-center gap-2 text-sm" style="color: var(--text-secondary);">

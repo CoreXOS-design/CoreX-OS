@@ -15,7 +15,7 @@
     <div class="p-4 lg:p-6" style="padding-bottom:80px;">
         {{-- Section content --}}
         <div class="max-w-3xl mx-auto">
-            <div class="bg-white border" style="border-color:var(--border, #e5e7eb); border-radius:6px;">
+            <div class="border" style="background:var(--surface); border-color:var(--border, #e5e7eb); border-radius:6px;">
                 <div class="px-6 py-4" style="border-bottom:2px solid var(--brand-icon);">
                     <div class="text-xs font-semibold uppercase" style="color:#64748b; letter-spacing:0.05em;">{{ $section->section_type === 'section' ? 'Section' : ucfirst($section->section_type) }} {{ $section->section_number }}</div>
                     <h2 class="text-lg font-bold mt-1" style="color:var(--text-primary);">{{ $section->title }}</h2>

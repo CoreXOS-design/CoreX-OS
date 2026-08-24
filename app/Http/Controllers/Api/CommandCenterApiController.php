@@ -22,6 +22,43 @@ use Illuminate\Support\Facades\DB;
 class CommandCenterApiController extends Controller
 {
     /**
+     * AT-267 H1 (audit 2026-07-21) — per-record guards. tasksUpdate/Destroy/Complete/UpdateStatus
+     * and calendarUpdate/Destroy bound a record by id and ran with NO owner check, so any user
+     * could edit/reassign (assigned_to)/delete ANY task or calendar event in the agency by id
+     * (task hijack). These gate every mutation through the SAME scope the list uses; an assistant
+     * is clamped to 'own' — the assigned agent's task list — never another agent's.
+     */
+    private function authorizeTask(CommandTask $task): void
+    {
+        $user = auth()->user();
+        $this->assertMayMutateRecords($user);
+        $scope = $user?->is_assistant ? 'own' : \App\Services\PermissionService::taskScope($user);
+        abort_unless(CommandTask::visibleTo($user, $scope)->whereKey($task->getKey())->exists(), 403);
+    }
+
+    private function authorizeEvent(CalendarEvent $event): void
+    {
+        $user = auth()->user();
+        $this->assertMayMutateRecords($user);
+        $scope = $user?->is_assistant ? 'own' : \App\Services\PermissionService::calendarScope($user);
+        abort_unless(CalendarEvent::visibleTo($user, $scope)->whereKey($event->getKey())->exists(), 403);
+    }
+
+    /**
+     * AT-267 / AUDIT 2026-07-26 (F1) — the agent's "can edit & delete my records" toggle.
+     *
+     * Tasks and calendar events resolve their own scope (taskScope / calendarScope) rather than
+     * PermissionService::mutationScope(), so the toggle is read explicitly on both guards. Both
+     * guards are called only from the UPDATE/DELETE paths — creating stays available, which is
+     * the whole point of the toggle ("not just add them").
+     */
+    private function assertMayMutateRecords(?\App\Models\User $user): void
+    {
+        abort_if($user && ! $user->canMutateRecords(), 403,
+            'Editing and deleting records is switched off for your assistant account. You can still add new ones.');
+    }
+
+    /**
      * Classes an agent may create manually from the mobile app — mirrors
      * CalendarController::MANUAL_CREATABLE_CLASSES. Surfaced verbatim by
      * calendarOptions() so the app never offers (or POSTs) a class the web
@@ -49,7 +86,8 @@ class CommandCenterApiController extends Controller
     public function todayRefresh(Request $request): JsonResponse
     {
         // Bust the 5-min cache used by assembleForUser() then return fresh cards
-        \Illuminate\Support\Facades\Cache::forget("command_centre_{$request->user()->id}");
+        $user = $request->user();
+        \Illuminate\Support\Facades\Cache::forget("command_centre_{$user->id}_" . (int) ($user->effectiveAgencyId() ?: 0));
         return $this->today($request);
     }
 
@@ -64,6 +102,12 @@ class CommandCenterApiController extends Controller
         $defIds = DB::table('activity_definitions')
             ->where('is_enabled', 1)->where('scope', 'system')->pluck('id');
 
+        // daily_activity_entries has agency_id but no automatic tenant scope on
+        // this raw query-builder path. user_id is self-scoped here, but the
+        // agency_id filter is added as defense in depth, matching every other
+        // daily_activity_entries call site fixed in this pass.
+        $agencyId = $user->effectiveAgencyId();
+
         // M6.5 — achievement-total filter.
         $mtdPoints = (int) DB::table('daily_activity_entries as e')
             ->join('activity_definitions as d', 'd.id', '=', 'e.activity_definition_id')
@@ -71,6 +115,9 @@ class CommandCenterApiController extends Controller
             ->whereIn('e.activity_definition_id', $defIds)
             ->whereIn('e.point_state', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_STATES)
             ->whereIn('e.source', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_SOURCES)
+            ->when($agencyId, function ($q) use ($agencyId) {
+                $q->where('e.agency_id', $agencyId);
+            })
             ->sum(DB::raw('e.value * d.weight'));
 
         $monthlyTarget = (int) (DB::table('targets')
@@ -305,18 +352,21 @@ class CommandCenterApiController extends Controller
 
     public function calendarComplete(CalendarEvent $calendarEvent): JsonResponse
     {
+        $this->authorizeEvent($calendarEvent);
         $calendarEvent->markCompleted();
         return response()->json(['ok' => true]);
     }
 
     public function calendarDismiss(CalendarEvent $calendarEvent): JsonResponse
     {
+        $this->authorizeEvent($calendarEvent);
         $calendarEvent->markDismissed();
         return response()->json(['ok' => true]);
     }
 
     public function calendarUpdate(Request $request, CalendarEvent $calendarEvent): JsonResponse
     {
+        $this->authorizeEvent($calendarEvent);
         $data = $request->validate([
             'title'         => 'sometimes|required|string|max:255',
             'event_date'    => 'sometimes|required|date',
@@ -376,6 +426,7 @@ class CommandCenterApiController extends Controller
 
     public function calendarDestroy(Request $request, CalendarEvent $calendarEvent): JsonResponse
     {
+        $this->authorizeEvent($calendarEvent);
         // Cancel cascade — notify attendees + cancel invitations (parity with web destroy)
         $invitations = \App\Models\CommandCenter\CalendarEventInvitation::where('event_id', $calendarEvent->id)
             ->whereIn('status', ['pending', 'accepted', 'tentative'])->get();
@@ -537,7 +588,11 @@ class CommandCenterApiController extends Controller
         ]);
 
         $data = $request->all();
-        $data['assigned_to']   = $request->user()->id;
+        // AT-267 — an assistant's work is filed as the AGENT. ownershipUserId() = the assigned agent
+        // for an assistant, and $user->id for everyone else, so a task an assistant creates lands on
+        // the agent's board (never the assistant's).
+        // multi-agent addendum §6.1 — honours an explicit "Acting for" choice.
+        $data['assigned_to']   = $request->user()->ownershipUserId($request->integer('acting_for_user_id') ?: null);
         $data['task_type']     = $data['task_type'] ?? 'custom';
         $data['send_reminder'] = $request->boolean('send_reminder', true);
 
@@ -549,12 +604,14 @@ class CommandCenterApiController extends Controller
 
     public function tasksComplete(CommandTask $task): JsonResponse
     {
+        $this->authorizeTask($task);
         $task->markDone();
         return response()->json(['ok' => true]);
     }
 
     public function tasksUpdateStatus(Request $request, CommandTask $task): JsonResponse
     {
+        $this->authorizeTask($task);
         $request->validate(['status' => 'required|in:todo,in_progress,awaiting,done,dismissed']);
 
         $service = new TaskService();
@@ -565,6 +622,7 @@ class CommandCenterApiController extends Controller
 
     public function tasksUpdate(Request $request, CommandTask $task): JsonResponse
     {
+        $this->authorizeTask($task);
         $data = $request->validate([
             'title'         => 'sometimes|required|string|max:255',
             'task_type'     => 'nullable|string|max:50',
@@ -592,6 +650,7 @@ class CommandCenterApiController extends Controller
      */
     public function tasksDestroy(CommandTask $task): JsonResponse
     {
+        $this->authorizeTask($task);
         $task->delete();
         return response()->json(['ok' => true]);
     }
@@ -638,9 +697,14 @@ class CommandCenterApiController extends Controller
     /**
      * Restore a soft-deleted task back to the Done column.
      */
-    public function tasksRestore(int $taskId): JsonResponse
+    public function tasksRestore(Request $request, int $taskId): JsonResponse
     {
-        $task = CommandTask::onlyTrashed()->findOrFail($taskId);
+        // Scoped to the caller the same way tasksArchiveDone/tasksArchived are —
+        // without this, any authenticated user could restore (and thus act on)
+        // another agent's soft-deleted task by guessing/enumerating its id.
+        $task = CommandTask::onlyTrashed()
+            ->where('assigned_to', $request->user()->id)
+            ->findOrFail($taskId);
         $task->restore();
         return response()->json($this->formatTask($task->load('property')));
     }

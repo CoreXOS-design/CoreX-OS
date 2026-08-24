@@ -82,6 +82,15 @@ return [
             'replace_placeholders' => true,
         ],
 
+        // AT-321-C — contact audit-write failures (never silent).
+        'contact_audit' => [
+            'driver' => 'daily',
+            'path' => storage_path('logs/contact_audit.log'),
+            'level' => 'debug',
+            'days' => 60,
+            'replace_placeholders' => true,
+        ],
+
         'daily' => [
             'driver' => 'daily',
             'path' => storage_path('logs/laravel.log'),

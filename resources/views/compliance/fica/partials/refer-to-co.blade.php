@@ -28,7 +28,7 @@
         </label>
         <textarea name="referral_note" rows="3" required minlength="3" maxlength="2000"
                   class="w-full rounded-md px-3 py-2 text-sm focus:outline-none mb-3"
-                  style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"
+                  style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
                   placeholder="Why does this need the Compliance Officer's decision?"></textarea>
         <button type="submit" class="corex-btn-primary w-full justify-center text-sm"
                 style="background:var(--ds-amber,#f59e0b); box-shadow:none;">

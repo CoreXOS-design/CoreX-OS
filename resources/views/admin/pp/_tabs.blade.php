@@ -14,7 +14,7 @@
         @php $isActive = request()->routeIs($tab['route']); @endphp
         <a href="{{ route($tab['route']) }}"
            class="flex-1 sm:flex-none text-center px-4 py-2 text-sm font-medium rounded-md transition-colors"
-           style="{{ $isActive ? 'background: var(--brand-button, #0ea5e9); color: #fff;' : 'color: var(--text-secondary);' }}">
+           style="{{ $isActive ? 'background: var(--brand-icon, #0ea5e9); color: #fff;' : 'color: var(--text-secondary);' }}">
             {{ $tab['label'] }}
         </a>
     @endforeach

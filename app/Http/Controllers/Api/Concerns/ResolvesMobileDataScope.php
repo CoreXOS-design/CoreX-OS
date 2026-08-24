@@ -65,7 +65,10 @@ trait ResolvesMobileDataScope
             $branchId = $user->effectiveBranchId();
             $query->where('branch_id', $branchId ?: -1);
         } elseif ($scope !== 'all') {
-            $query->where('id', $user->id);
+            // AT-267 — for an ASSISTANT this is their Assigned Agent (dataIdentityIds()), so the
+            // agent picker on mobile offers the agent whose book they actually work. For everyone
+            // else it is exactly [$user->id] and nothing changes.
+            $query->whereIn('id', $user->dataIdentityIds());
         }
 
         return $query->get(['id', 'name', 'email']);
@@ -89,13 +92,18 @@ trait ResolvesMobileDataScope
     {
         $scope = PermissionService::getDataScope($user, $module) ?? 'own';
 
+        // AT-267 — the records an assistant works are OWNED by their Assigned Agent
+        // (User::ownershipUserId()), so an own-scope filter has to resolve to the AGENT's id.
+        // Filtering to the assistant's own id would return an empty list on mobile — the
+        // assistant owns nothing, by design. For every other user ownershipUserId() is their
+        // own id and this is a no-op.
         if (! in_array($scope, ['branch', 'all'], true)) {
-            return $user->id; // own-only — never wider than self
+            return $user->ownershipUserId(); // own-only — never wider than the agent's book
         }
 
         // Param not sent at all → default to the user's own records.
         if ($param === null) {
-            return $user->id;
+            return $user->ownershipUserId();
         }
 
         // Explicit "all in scope".
@@ -130,12 +138,16 @@ trait ResolvesMobileDataScope
         // Own listing — always allowed, whether the user is the PRIMARY
         // (agent_id) or the SECONDARY co-listing agent (pp_second_agent_id).
         // A co-listed property is "theirs" for both agents (mirrors the web).
-        if ((int) $property->agent_id === (int) $user->id
-            || (int) $property->pp_second_agent_id === (int) $user->id) {
+        // dataIdentityIds() is [$user->id] for a normal user and [agent, self] for an
+        // ASSISTANT, so an assistant's "own" here is the assigned agent's listings.
+        if (in_array((int) $property->agent_id, $user->dataIdentityIds(), true)
+            || in_array((int) $property->pp_second_agent_id, $user->dataIdentityIds(), true)) {
             return;
         }
 
-        $scope = PermissionService::getDataScope($user, 'properties') ?? 'own';
+        // MUTATION scope: an assistant is capped at 'own' (handled above), so a branch/all
+        // agent's assistant cannot edit a colleague's listing on mobile either.
+        $scope = PermissionService::mutationScope($user, 'properties') ?? 'own';
 
         if ($scope === 'all') {
             return;

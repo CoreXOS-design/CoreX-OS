@@ -1,7 +1,7 @@
 <x-guest-layout>
     <div class="space-y-4">
         <div class="text-center">
-            <h2 class="text-lg font-semibold" style="color: #ffffff;">System Owner Login</h2>
+            <h2 class="text-lg font-semibold" style="color: var(--text-primary);">System Owner Login</h2>
             <p class="text-xs mt-1" style="color: var(--text-secondary);">
                 Sign in with System Owner credentials to access platform tools.
             </p>

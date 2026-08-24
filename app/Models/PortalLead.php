@@ -125,7 +125,8 @@ class PortalLead extends Model
         if ($scope === 'branch' && ($branchId = $user->effectiveBranchId())) {
             $agentIds = User::where('branch_id', $branchId)->pluck('id')->all();
         } else { // 'own' (and the null default)
-            $agentIds = [$user->id];
+            // AT-267 — an assistant's 'own' is their Assigned Agent's; everyone else: [$user->id].
+            $agentIds = $user->dataIdentityIds();
         }
 
         return $query->where(function (Builder $q) use ($agentIds) {

@@ -7,10 +7,11 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use App\Models\Concerns\BelongsToBranch;
 use App\Models\Concerns\InheritsBranchFromParent;
+use App\Models\Concerns\StampsOnBehalfOf;
 
 class PropertyAuditLog extends Model
 {
-    use BelongsToBranch, InheritsBranchFromParent, BelongsToAgency;
+    use BelongsToBranch, InheritsBranchFromParent, BelongsToAgency, StampsOnBehalfOf;
 
     /** A child's branch is its parent's branch, never the acting user's. */
     protected function branchParent(): array
@@ -28,6 +29,10 @@ class PropertyAuditLog extends Model
         'event_category', 'event_type',
         'old_values', 'new_values', 'metadata',
         'human_summary', 'created_at',
+        // multi-agent addendum §6.3 — must be fillable for an explicit resolution (the
+        // property's own agent_id) to win over StampsOnBehalfOf's creating() hook, which only
+        // ever fills a BLANK value.
+        'on_behalf_of_user_id',
     ];
 
     protected $casts = [

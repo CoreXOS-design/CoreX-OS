@@ -1,11 +1,26 @@
 # Spec — Agent Delete with Reassignment
 
-**Status:** Draft, awaiting approval
+**Status:** Superseded — see note below
 **Owner:** Andre
 **Created:** 2026-05-09
 **Pillars touched:** Agent (User), Property, Contact
 
 ---
+
+> **Superseded 2026-06-30 by AT-118 (`.ai/specs/at118-communications-access-gate.md` §3.4).**
+> The unconditional full reassignment described below (`AgentDeletionService::reassignAndCleanup()`,
+> wired into `UserManagementController::delete()`) was replaced by
+> `AgentDeletionService::transferForOffboarding()`, which requires a mandatory successor and only
+> transfers ON-MARKET stock by default — sold/withdrawn/expired/draft stock stays attributed to
+> the departing agent. `reassignAndCleanup()` still exists in the codebase but has no caller; it is
+> dead code, not the live path. This file is kept for the parts AT-118 didn't change (the QR-reroute
+> mechanics in §"QR rerouting", the deals leave-or-move behaviour, the modal UI conventions).
+>
+> **2026-07-30 addendum:** the "historic stock stays with the departed agent" default from AT-118
+> is now an opt-in choice, not a hard rule — see AT-118 spec §3.4.1. `transferForOffboarding()`
+> takes an optional `$transferHistoricStock` flag; the delete modal shows an unchecked-by-default
+> checkbox ("Also transfer historic stock…") when the agent has any. Read §3.4.1, not the property
+> behaviour table below, for what actually reaches production today.
 
 ## Why
 

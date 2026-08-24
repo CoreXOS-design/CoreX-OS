@@ -98,7 +98,7 @@ class PropertyBrochureService
         $beds    = (int) ($property->beds ?? 0);
         $baths   = $property->baths !== null ? (float) $property->baths : 0.0;
         $garages = (int) ($property->garages ?? 0);
-        $parking = $this->countSpaces($property, 'Parking');
+        $parking = $property->spaceCount('Parking');
         $size    = $property->size_m2 ? number_format((int) $property->size_m2) . ' m²' : null;
 
         // ── Location line: full address — street, suburb, city, province ──
@@ -683,19 +683,6 @@ class PropertyBrochureService
     }
 
     // ── data helpers ────────────────────────────────────────────────────
-
-    /** Sum of `count` over spaces of the given type in spaces_json. */
-    private function countSpaces(Property $property, string $type): int
-    {
-        $sj   = $property->spaces_json ?? [];
-        $list = $sj['spaces'] ?? (isset($sj[0]) ? $sj : []);
-
-        $sum = collect($list)
-            ->where('type', $type)
-            ->sum(fn ($s) => (float) ($s['count'] ?? 1));
-
-        return (int) round($sum);
-    }
 
     /**
      * Flat, deduped feature list for the checklist (features_json). Long lists

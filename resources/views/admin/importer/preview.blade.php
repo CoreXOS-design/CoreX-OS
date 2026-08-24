@@ -1,20 +1,23 @@
 @extends('layouts.corex')
 
 @section('corex-content')
-<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+<div class="w-full space-y-5">
 
-    <div class="rounded-md px-6 py-4 flex items-center justify-between" style="background:var(--brand-default, #0b2a4a);">
-        <div>
-            <h2 class="text-xl font-bold text-white">Agents Import Preview — Run #{{ $run->id }}</h2>
-            <div class="text-sm mt-0.5" style="color:rgba(255,255,255,0.6);">
-                Agency: {{ $run->agency?->name }} · Status: {{ $run->status }}
+    {{-- Page header (Pattern A) --}}
+    <div class="rounded-md px-6 py-5 corex-page-banner">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div class="min-w-0">
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Agents Import Preview — Run #{{ $run->id }}</h1>
+                <p class="text-xs" style="color: var(--text-muted);">
+                    Agency: {{ $run->agency?->name }} · Status: {{ $run->status }}
+                </p>
             </div>
-        </div>
-        <div class="flex items-center gap-2">
-            <form method="POST" action="{{ route('admin.importer.cancel', $run) }}" onsubmit="return confirm('Cancel this run?');">
-                @csrf
-                <button class="rounded-md bg-surface-2 px-4 py-2 text-sm">Cancel</button>
-            </form>
+            <div class="flex flex-wrap items-center gap-2">
+                <form method="POST" action="{{ route('admin.importer.cancel', $run) }}" onsubmit="return confirm('Cancel this run?');">
+                    @csrf
+                    <button class="corex-btn-outline text-xs">Cancel</button>
+                </form>
+            </div>
         </div>
     </div>
 
@@ -30,47 +33,48 @@
         // Action presentation: label, one-line reason, colour. Matches the
         // import job's create/link/skip outcomes (spec §4.1 / §13 Q1).
         $actionMeta = [
-            'create' => ['Create',  'New agent — will be created (inactive).',                              'text-emerald-300'],
-            'update' => ['Link',    'Matches an existing user in this agency — linked, not duplicated.',    'text-sky-300'],
-            'skip'   => ['Skip',    'Email belongs to a user in another agency — excluded by default.',     'text-amber-300'],
+            'create' => ['Create',  'New agent — will be created (inactive).',                              'var(--ds-green)'],
+            'update' => ['Link',    'Matches an existing user in this agency — linked, not duplicated.',    'var(--brand-icon)'],
+            'skip'   => ['Skip',    'Email belongs to a user in another agency — excluded by default.',     'var(--ds-amber)'],
         ];
     @endphp
 
     <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
-        <div class="rounded-md bg-surface p-4">
-            <div class="text-xs text-muted uppercase">Total</div>
-            <div class="text-2xl font-bold">{{ $rows->count() }}</div>
+        <div class="rounded-lg p-4" style="background: var(--surface); border: 1px solid var(--border);">
+            <div class="text-[11px] uppercase tracking-wider font-semibold" style="color: var(--text-muted);">Total</div>
+            <div class="text-2xl font-bold mt-1 tabular-nums" style="color: var(--text-primary);">{{ $rows->count() }}</div>
         </div>
-        <div class="rounded-md bg-surface p-4">
-            <div class="text-xs text-muted uppercase">New</div>
-            <div class="text-2xl font-bold text-emerald-400">{{ $newCount }}</div>
+        <div class="rounded-lg p-4" style="background: var(--surface); border: 1px solid var(--border);">
+            <div class="text-[11px] uppercase tracking-wider font-semibold" style="color: var(--text-muted);">New</div>
+            <div class="text-2xl font-bold mt-1 tabular-nums" style="color: var(--ds-green);">{{ $newCount }}</div>
         </div>
-        <div class="rounded-md bg-surface p-4">
-            <div class="text-xs text-muted uppercase">Link existing</div>
-            <div class="text-2xl font-bold text-sky-400">{{ $linkCount }}</div>
+        <div class="rounded-lg p-4" style="background: var(--surface); border: 1px solid var(--border);">
+            <div class="text-[11px] uppercase tracking-wider font-semibold" style="color: var(--text-muted);">Link existing</div>
+            <div class="text-2xl font-bold mt-1 tabular-nums" style="color: var(--brand-icon);">{{ $linkCount }}</div>
         </div>
-        <div class="rounded-md bg-surface p-4">
-            <div class="text-xs text-muted uppercase">Skip</div>
-            <div class="text-2xl font-bold text-amber-400">{{ $skipCount }}</div>
+        <div class="rounded-lg p-4" style="background: var(--surface); border: 1px solid var(--border);">
+            <div class="text-[11px] uppercase tracking-wider font-semibold" style="color: var(--text-muted);">Skip</div>
+            <div class="text-2xl font-bold mt-1 tabular-nums" style="color: var(--ds-amber);">{{ $skipCount }}</div>
         </div>
-        <div class="rounded-md bg-surface p-4">
-            <div class="text-xs text-muted uppercase">With errors</div>
-            <div class="text-2xl font-bold text-red-400">{{ $errorCount }}</div>
+        <div class="rounded-lg p-4" style="background: var(--surface); border: 1px solid var(--border);">
+            <div class="text-[11px] uppercase tracking-wider font-semibold" style="color: var(--text-muted);">With errors</div>
+            <div class="text-2xl font-bold mt-1 tabular-nums" style="color: var(--ds-crimson);">{{ $errorCount }}</div>
         </div>
     </div>
 
-    <form method="POST" action="{{ route('admin.importer.confirm', $run) }}" class="rounded-md bg-surface p-5 space-y-3">
+    <form method="POST" action="{{ route('admin.importer.confirm', $run) }}" class="rounded-lg p-5 space-y-3"
+          style="background: var(--surface); border: 1px solid var(--border);">
         @csrf
-        <table class="w-full text-sm">
-            <thead class="text-xs uppercase text-muted border-b border-subtle">
-                <tr>
-                    <th class="px-2 py-2 text-left">Exclude</th>
-                    <th class="px-2 py-2 text-left">AgentId</th>
-                    <th class="px-2 py-2 text-left">Name</th>
-                    <th class="px-2 py-2 text-left">Email</th>
-                    <th class="px-2 py-2 text-left">P24 Status</th>
-                    <th class="px-2 py-2 text-left">Action</th>
-                    <th class="px-2 py-2 text-left">Errors</th>
+        <table class="w-full text-sm ds-table">
+            <thead>
+                <tr class="text-xs uppercase tracking-wider" style="background: var(--surface-2); color: var(--text-muted);">
+                    <th class="px-2 py-2 text-left font-semibold">Exclude</th>
+                    <th class="px-2 py-2 text-left font-semibold">AgentId</th>
+                    <th class="px-2 py-2 text-left font-semibold">Name</th>
+                    <th class="px-2 py-2 text-left font-semibold">Email</th>
+                    <th class="px-2 py-2 text-left font-semibold">P24 Status</th>
+                    <th class="px-2 py-2 text-left font-semibold">Action</th>
+                    <th class="px-2 py-2 text-left font-semibold">Errors</th>
                 </tr>
             </thead>
             <tbody>
@@ -78,26 +82,26 @@
                 @php
                     $m = $r->mapped_json ?? [];
                     $act = $r->action ?? 'create';
-                    [$actLabel, $actReason, $actCls] = $actionMeta[$act] ?? [$act, '', 'text-muted'];
+                    [$actLabel, $actReason, $actCls] = $actionMeta[$act] ?? [$act, '', 'var(--text-muted)'];
                     $isSkip = $act === 'skip';
                 @endphp
-                <tr class="border-b border-subtle/40 {{ !empty($r->errors_json) ? 'bg-red-500/5' : ($isSkip ? 'bg-amber-500/5' : '') }}">
+                <tr class="{{ !empty($r->errors_json) ? 'bg-red-500/5' : ($isSkip ? 'bg-amber-500/5' : '') }}" style="border-top: 1px solid var(--border);">
                     <td class="px-2 py-2">
                         <input type="checkbox" name="excluded[]" value="{{ $r->id }}" {{ $isSkip ? 'checked' : '' }}>
                     </td>
-                    <td class="px-2 py-2 font-mono text-xs">{{ $m['p24_agent_id'] ?? '—' }}</td>
-                    <td class="px-2 py-2">{{ $m['name'] ?? '' }}</td>
-                    <td class="px-2 py-2">{{ $m['email'] ?? '' }}</td>
-                    <td class="px-2 py-2 text-xs">{{ $m['p24_status'] ?? '' }}</td>
+                    <td class="px-2 py-2 font-mono text-xs tabular-nums" style="color: var(--text-muted);">{{ $m['p24_agent_id'] ?? '—' }}</td>
+                    <td class="px-2 py-2" style="color: var(--text-primary);">{{ $m['name'] ?? '' }}</td>
+                    <td class="px-2 py-2" style="color: var(--text-secondary);">{{ $m['email'] ?? '' }}</td>
+                    <td class="px-2 py-2 text-xs" style="color: var(--text-muted);">{{ $m['p24_status'] ?? '' }}</td>
                     <td class="px-2 py-2 text-xs">
                         @if (empty($r->errors_json))
-                            <span class="font-medium {{ $actCls }}">{{ $actLabel }}</span>
-                            <div class="text-muted text-[11px] leading-tight mt-0.5">{{ $actReason }}</div>
+                            <span class="font-medium" style="color: {{ $actCls }};">{{ $actLabel }}</span>
+                            <div class="text-[11px] leading-tight mt-0.5" style="color: var(--text-muted);">{{ $actReason }}</div>
                         @else
-                            <span class="text-muted">—</span>
+                            <span style="color: var(--text-muted);">—</span>
                         @endif
                     </td>
-                    <td class="px-2 py-2 text-xs text-red-400">
+                    <td class="px-2 py-2 text-xs" style="color: var(--ds-crimson);">
                         @foreach ((array)($r->errors_json ?? []) as $e) <div>{{ $e }}</div> @endforeach
                     </td>
                 </tr>
@@ -105,7 +109,7 @@
             </tbody>
         </table>
         <div class="flex justify-end">
-            <button type="submit" class="rounded-md px-5 py-2 text-sm font-medium text-white" style="background:var(--brand-button, #0ea5e9);">
+            <button type="submit" class="corex-btn-primary">
                 Confirm &amp; Import Agents
             </button>
         </div>

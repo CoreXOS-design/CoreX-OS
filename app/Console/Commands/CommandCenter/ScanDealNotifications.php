@@ -152,7 +152,28 @@ class ScanDealNotifications extends Command
 
         // AT-259 — deal.milestone_due: a deal-milestone CalendarEvent (event_type='deal') coming within the
         // threshold window. Fires to the event owner (user_id). DEFAULT OFF (opt-in).
-        \App\Models\CalendarEvent::withoutGlobalScopes()->query()
+        //
+        // 2026-08-23 — this whole block had never executed: CalendarEvent::withoutGlobalScopes() already
+        // returns a Builder (it's a static passthrough to query()->withoutGlobalScopes()), so the ->query()
+        // that followed it called a method that only exists on the MODEL, not the builder, and crashed
+        // notifications:scan-deals on every single scheduled run (every 30 minutes, per routes/console.php).
+        // The crash happens AFTER the two blocks above (deal.stalled_offer/bond/conveyancing, both
+        // default_enabled=true in notification_event_types, and deal.commission_unpaid) — those have been
+        // executing and dispatching normally the whole time; this fix does not change their behaviour at
+        // all. Only THIS block (deal.milestone_due, default_enabled=false, opt-in) has never run.
+        //
+        // Gated behind command_center.deal_milestone_due_scan_enabled (default OFF) rather than turned on
+        // outright the moment the crash is fixed — same reasoning as OVERSIGHT_NUDGES_ENABLED
+        // (config/oversight.php): nobody has seen this path execute in production, so nobody knows what it
+        // actually sends. Unlike the oversight nudge case, there is no "silent backlog accumulates while
+        // off" risk here worth a more careful gate: the query below only ever considers events dated TODAY
+        // or later (whereDate('event_date', '>=', today)) and a rolling per-user threshold window, so
+        // leaving this off for a week and then switching it on does not create a backlog to flood on — it
+        // just starts evaluating THAT day's qualifying events fresh, same as any other tick. Measured on
+        // live before landing this (see .ai/audits/): only 3 users have ever opted into deal.milestone_due
+        // (it defaults OFF), and of those, exactly 2 notifications would fire on the very first run.
+        if (config('command_center.deal_milestone_due_scan_enabled')) {
+        \App\Models\CommandCenter\CalendarEvent::withoutGlobalScopes()
             ->where('event_type', 'deal')
             ->where('status', 'pending')
             ->whereNotNull('user_id')
@@ -185,6 +206,7 @@ class ScanDealNotifications extends Command
                     }
                 }
             });
+        }
 
         return self::SUCCESS;
     }

@@ -2,34 +2,45 @@
 @extends('layouts.corex-app')
 
 @section('corex-content')
-<div class="-m-4 lg:-m-6">
-    <x-page-header title="RMCP v{{ $version->version_number }}" :back-route="route('compliance.rmcp.index')" back-label="RMCP List" :flush="true">
-        <x-slot:actions>
-            @if($version->status === 'active')
-            <span class="ds-badge ds-badge-success">Active</span>
-            @elseif($version->status === 'draft')
-            <span class="ds-badge ds-badge-warning">Draft</span>
-            @else
-            <span class="ds-badge ds-badge-default">Superseded</span>
-            @endif
+<div class="w-full space-y-5">
+    {{-- Page header (Pattern A — flat neutral) --}}
+    <div class="rounded-md px-6 py-5 corex-page-banner">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div class="min-w-0">
+                <h1 class="text-base font-bold leading-tight truncate" style="color: var(--text-primary);">RMCP v{{ $version->version_number }}</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Risk Management &amp; Compliance Programme</p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
 
-            @if($version->canBeEdited())
-            @permission('edit_rmcp')
-            <a href="{{ route('compliance.rmcp.edit', $version) }}" class="corex-btn-outline">Edit</a>
-            @endpermission
-            @permission('approve_rmcp')
-            <a href="{{ route('compliance.rmcp.approve.form', $version) }}" class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-semibold rounded-md transition" style="background: var(--ds-amber, #f59e0b); color: #fff;">Approve</a>
-            @endpermission
-            @endif
+                @if($version->status === 'active')
+                <span class="ds-badge ds-badge-success">Active</span>
+                @elseif($version->status === 'draft')
+                <span class="ds-badge ds-badge-warning">Draft</span>
+                @else
+                <span class="ds-badge ds-badge-default">Superseded</span>
+                @endif
 
-            <a href="{{ route('compliance.rmcp.pdf', $version) }}" target="_blank" class="corex-btn-outline">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6.72 13.829c-.24.03-.48.062-.72.096m.72-.096a42.415 42.415 0 0 1 10.56 0m-10.56 0L6.34 18m10.94-4.171c.24.03.48.062.72.096m-.72-.096L17.66 18m0 0 .229 2.523a1.125 1.125 0 0 1-1.12 1.227H7.231c-.662 0-1.18-.568-1.12-1.227L6.34 18m11.318 0h1.091A2.25 2.25 0 0 0 21 15.75V9.456c0-1.081-.768-2.015-1.837-2.175a48.055 48.055 0 0 0-1.913-.247M6.34 18H5.25A2.25 2.25 0 0 1 3 15.75V9.456c0-1.081.768-2.015 1.837-2.175a48.041 48.041 0 0 1 1.913-.247m0 0a48.1 48.1 0 0 1 10.5 0m-10.5 0V5.625A2.625 2.625 0 0 1 9.875 3h4.25a2.625 2.625 0 0 1 2.625 2.625v3.18"/></svg>
-                PDF
-            </a>
-        </x-slot:actions>
-    </x-page-header>
+                <a href="{{ route('compliance.rmcp.index') }}" class="corex-btn-outline text-xs">&larr; RMCP List</a>
 
-    <div class="p-4 lg:p-6">
+                @if($version->canBeEdited())
+                @permission('edit_rmcp')
+                <a href="{{ route('compliance.rmcp.edit', $version) }}" class="corex-btn-outline text-xs">Edit</a>
+                @endpermission
+                @permission('approve_rmcp')
+                <a href="{{ route('compliance.rmcp.approve.form', $version) }}" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md transition" style="background: var(--ds-amber, #f59e0b); color: #fff;">Approve</a>
+                @endpermission
+                @endif
+
+                <a href="{{ route('compliance.rmcp.pdf', $version) }}" target="_blank" class="corex-btn-outline text-xs">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6.72 13.829c-.24.03-.48.062-.72.096m.72-.096a42.415 42.415 0 0 1 10.56 0m-10.56 0L6.34 18m10.94-4.171c.24.03.48.062.72.096m-.72-.096L17.66 18m0 0 .229 2.523a1.125 1.125 0 0 1-1.12 1.227H7.231c-.662 0-1.18-.568-1.12-1.227L6.34 18m11.318 0h1.091A2.25 2.25 0 0 0 21 15.75V9.456c0-1.081-.768-2.015-1.837-2.175a48.055 48.055 0 0 0-1.913-.247M6.34 18H5.25A2.25 2.25 0 0 1 3 15.75V9.456c0-1.081.768-2.015 1.837-2.175a48.041 48.041 0 0 1 1.913-.247m0 0a48.1 48.1 0 0 1 10.5 0m-10.5 0V5.625A2.625 2.625 0 0 1 9.875 3h4.25a2.625 2.625 0 0 1 2.625 2.625v3.18"/></svg>
+                    PDF
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <div>
         {{-- Status banner --}}
         @if($version->status === 'draft')
         <div class="mb-4 px-4 py-3 text-sm font-semibold rounded-md" style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 10%, transparent); border: 1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 30%, transparent); color: var(--text-primary);">
@@ -65,12 +76,12 @@
             <div class="flex-1 min-w-0">
                 <div class="rounded-md" style="background: var(--surface); border: 1px solid var(--border);">
                     {{-- Cover --}}
-                    <div class="text-center rounded-t-md" style="background: var(--brand-default, #0b2a4a); color: #fff; padding:2.5rem;">
-                        <p class="text-xs font-semibold uppercase" style="color: var(--brand-icon, #0ea5e9); letter-spacing:2px;">Financial Intelligence Centre Act 38 of 2001</p>
-                        <h1 class="text-xl font-bold mt-2">{{ $version->title }}</h1>
-                        <p class="text-sm mt-1" style="color: rgba(255,255,255,0.7);">Prepared in terms of Section 42 of the FIC Act</p>
-                        <p class="text-sm mt-3" style="color: rgba(255,255,255,0.85);">Version {{ $version->version_number }}</p>
-                        <p class="text-xs mt-4" style="color: rgba(255,255,255,0.6);">{{ $variables['agency.name'] ?? '' }}</p>
+                    <div class="text-center rounded-t-md" style="background: var(--surface-2); border-bottom: 1px solid var(--border); padding:2.5rem;">
+                        <p class="text-xs font-semibold uppercase" style="color: var(--brand-icon); letter-spacing:2px;">Financial Intelligence Centre Act 38 of 2001</p>
+                        <h1 class="text-xl font-bold mt-2" style="color: var(--text-primary);">{{ $version->title }}</h1>
+                        <p class="text-sm mt-1" style="color: var(--text-muted);">Prepared in terms of Section 42 of the FIC Act</p>
+                        <p class="text-sm mt-3" style="color: var(--text-secondary);">Version {{ $version->version_number }}</p>
+                        <p class="text-xs mt-4" style="color: var(--text-faint);">{{ $variables['agency.name'] ?? '' }}</p>
                     </div>
 
                     {{-- Sections --}}

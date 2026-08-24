@@ -11,6 +11,13 @@ use Illuminate\Support\Facades\DB;
  *
  * Ships in the foundation to prove the provider → rollup pipeline end-to-end.
  * AT-366-B adds the remaining categories alongside it in the registry.
+ *
+ * 2026-08 (stale attribution fix, Johan-confirmed) — attributed by the CURRENT
+ * owner (agent_id), not the original creator (created_by_user_id). A contact
+ * that changed hands now counts toward whoever is working it today, matching
+ * BuyersAddedProvider (same 'contacts' table, same agent_id column) — the two
+ * were inconsistent before this: buyers_added already followed the current
+ * owner while contacts_created stayed stuck on the creator.
  */
 class ContactsCreatedProvider extends AbstractCountMetricProvider
 {
@@ -31,7 +38,7 @@ class ContactsCreatedProvider extends AbstractCountMetricProvider
 
     protected function userColumn(): string
     {
-        return 'created_by_user_id';
+        return 'agent_id';
     }
 
     protected function periodColumn(): string

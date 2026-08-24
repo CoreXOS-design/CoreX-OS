@@ -11,6 +11,7 @@ use App\Models\User;
 use App\Services\PropertyMatchScoringService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 
 class BuyerPortalController extends Controller
 {
@@ -91,13 +92,6 @@ class BuyerPortalController extends Controller
         $link = DB::table('buyer_portal_links')->where('token', $token)->first();
         if (!$link || $link->revoked_at) abort(403);
 
-        $data = $request->validate([
-            'property_id' => 'required|integer|exists:properties,id',
-            'response' => 'required|in:interested,not_interested,viewing_requested',
-            'reason' => 'nullable|string|max:100',
-            'notes' => 'nullable|string|max:500',
-        ]);
-
         // agency_id is NOT NULL (no DB default) on buyer_property_responses. A raw
         // DB::table() insert gets NO BelongsToAgency auto-stamp, so omitting it
         // 500s every buyer response — the buyer-loop's heartbeat (AT-204; the
@@ -106,6 +100,21 @@ class BuyerPortalController extends Controller
         $agencyId = (int) ($link->agency_id
             ?? Contact::withoutGlobalScopes()->where('id', $link->contact_id)->value('agency_id')
             ?? 1);
+
+        // property_id must belong to THIS link's own agency — cross-agency
+        // isolation audit 2026-08-20, finding M1: a bare exists:properties,id
+        // rule let a holder of a legitimate buyer-portal token record a
+        // response against ANY agency's property id, writing a cross-tenant
+        // row into buyer_property_responses/BuyerActivityLog.
+        $data = $request->validate([
+            'property_id' => [
+                'required', 'integer',
+                Rule::exists('properties', 'id')->where('agency_id', $agencyId),
+            ],
+            'response' => 'required|in:interested,not_interested,viewing_requested',
+            'reason' => 'nullable|string|max:100',
+            'notes' => 'nullable|string|max:500',
+        ]);
 
         // Idempotent: one row per (contact, property) — a buyer changing their
         // mind updates the same row instead of stacking duplicates (BUILD_STANDARD

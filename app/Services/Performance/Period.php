@@ -27,6 +27,23 @@ class Period
         return new self($prevStart, $prevEnd, 'Previous: ' . $this->label, $this->preset);
     }
 
+    /** 2026-08-19 — this period's start/end shifted back exactly one calendar year. */
+    public function sameLastYear(): self
+    {
+        return new self(
+            $this->start->subYear(),
+            $this->end->subYear(),
+            'Same period last year: ' . $this->label,
+            $this->preset,
+        );
+    }
+
+    /** Whole-day length, for the unequal-length-ranges comparison warning. */
+    public function lengthInDays(): int
+    {
+        return (int) $this->start->startOfDay()->diffInDays($this->end->startOfDay()) + 1;
+    }
+
     public function toArray(): array
     {
         return [

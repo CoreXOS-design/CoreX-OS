@@ -3,7 +3,7 @@
 @section('corex-content')
 <div class="max-w-5xl mx-auto space-y-6">
 
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <h1 class="text-xl font-bold text-white leading-tight">Branch Assignments</h1>
@@ -165,7 +165,7 @@
                             <input class="w-full rounded-md px-3 py-2 text-sm"
                                    style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
                                    name="vat_no" value="{{ old('vat_no', $branch->vat_no) }}"
-                                   placeholder="e.g. 4870264498">
+                                   placeholder="e.g. 4123456789">
                         </div>
                         <div>
                             <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">FFC No Override</label>

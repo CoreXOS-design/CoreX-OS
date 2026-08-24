@@ -30,8 +30,15 @@ use Tests\TestCase;
 /**
  * AT-231 P2 — inbound attorney correspondence: park (known attorney only),
  * resolve (token > thread_key > single-active-deal), first-verify + file + learn,
- * silent auto on a learned second email, reassign (correct the learned pattern),
- * and the POPIA drop for unknown senders.
+ * reassign (correct the learned pattern), and the POPIA drop for unknown senders.
+ *
+ * CX-113 Phase H (Johan, 2026-08-22, standing rule restated twice): "suggest, never
+ * auto-file." A learned (TIER_AUTO) second email on the same reference used to file
+ * itself silently here — no suspense row, no human. Killed: the real-data
+ * investigation that triggered this found 12 of 15 pending suggestions on staging all
+ * pointing at the same wrong deal. TIER_AUTO now raises a suspense row like every
+ * other tier, just pre-filled with the strongest confidence — see
+ * test_second_same_ref_email_still_raises_a_suspense_row_never_files_itself below.
  */
 class InboundCorrespondenceTest extends TestCase
 {
@@ -173,7 +180,13 @@ class InboundCorrespondenceTest extends TestCase
         $this->assertSame(CommunicationFilingSuspense::STATUS_VERIFIED, $suspense->fresh()->status);
     }
 
-    public function test_second_same_ref_email_auto_files_silently_after_verify(): void
+    /**
+     * CX-113 Phase H (Johan, 2026-08-22) — replaces the old "auto-files silently"
+     * test. A learned second email on the same reference must STILL land in front of
+     * a human — pre-filled with the strongest confidence (TIER_AUTO -> CONF_HIGH), one
+     * click to confirm, but never filed on its own.
+     */
+    public function test_second_same_ref_email_still_raises_a_suspense_row_never_files_itself(): void
     {
         Storage::fake('local');
         $w = $this->makeWorld();
@@ -191,15 +204,25 @@ class InboundCorrespondenceTest extends TestCase
             ->where('id', '!=', $first->id)->first();
         $this->assertNotNull($second);
 
-        // Silent: NO new pending suspense for the second email.
-        $this->assertSame(0, CommunicationFilingSuspense::withoutGlobalScopes()
-            ->where('communication_id', $second->id)->where('status', 'pending')->count());
+        // A NEW pending suspense row — never silent, even for a learned/verified ref.
+        $s2 = CommunicationFilingSuspense::withoutGlobalScopes()
+            ->where('communication_id', $second->id)->where('status', 'pending')->first();
+        $this->assertNotNull($s2, 'second email still raises a suspense row for a human to confirm');
+        $this->assertSame(CommunicationFilingSuspense::CONF_HIGH, $s2->confidence);
+        $this->assertSame($w['deal']->id, (int) $s2->suggested_deal_id);
 
-        // Auto-filed: the second email produced its own Document link.
+        // NOT auto-filed: no Document link exists yet — nothing files itself.
         $docLink = CommunicationLink::withoutGlobalScopes()
             ->where('communication_id', $second->id)
             ->where('linkable_type', (new Document())->getMorphClass())->first();
-        $this->assertNotNull($docLink, 'second email auto-files a document');
+        $this->assertNull($docLink, 'second email is never auto-filed — a human must confirm it');
+
+        // It DOES get a provisional (unconfirmed) deal link — the pre-filled suggestion.
+        $provisionalLink = CommunicationLink::withoutGlobalScopes()
+            ->where('communication_id', $second->id)
+            ->where('linkable_type', DealV2::class)->first();
+        $this->assertNotNull($provisionalLink);
+        $this->assertNull($provisionalLink->confirmed_at, 'the suggestion is provisional, not a filing decision');
     }
 
     public function test_known_attorney_single_active_deal_no_token_is_medium(): void

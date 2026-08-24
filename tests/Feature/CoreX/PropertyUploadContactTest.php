@@ -27,13 +27,13 @@ final class PropertyUploadContactTest extends TestCase
 
         $this->actingAs($agent)
             ->post(route('corex.properties.store'), $this->propertyPayload($agent->id, $suburbId, [
-                ['first_name' => 'Owner', 'last_name' => 'One', 'phone' => '0825557777', 'id_number' => '7610025020081'],
+                ['first_name' => 'Owner', 'last_name' => 'One', 'phone' => '0825557777', 'id_number' => '9001015030082'],
             ]))
             ->assertSessionHasNoErrors();
 
         $contact = Contact::withoutGlobalScopes()->where('phone', '0825557777')->firstOrFail();
 
-        $this->assertSame('7610025020081', $contact->id_number);
+        $this->assertSame('9001015030082', $contact->id_number);
         $this->assertSame('property_inline_create', $contact->id_number_source);
         $this->assertNotNull($contact->id_number_captured_at);
         $this->assertSame($agent->id, $contact->agent_id, 'primary agent defaults to the capturer');

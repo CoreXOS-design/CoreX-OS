@@ -53,13 +53,27 @@ class DailyActivitySummaryController extends Controller
 
         $defIds = $defs->pluck('id')->map(fn($v)=>(int)$v)->all();
 
+        // daily_activity_entries has agency_id but no automatic tenant scope on
+        // this raw query-builder path (Eloquent's BelongsToAgency global scope
+        // does not apply to DB::table()). Without this filter, a company-wide
+        // "all definitions" aggregate would sum every agency's activity into
+        // one company's totals. Owner-role admins with no active switcher
+        // override see everything, mirroring AgencyScope's read bypass.
+        $agencyId = $u->effectiveAgencyId();
+
         // M6.5 — achievement-total filter (confirmed/overridden + manual/auto_*).
+        // Source breakdown (manual vs auto) alongside the total — the achievement-
+        // total filter above already restricts 'e.source' to manual/auto_calendar/
+        // auto_instant, so anything not 'manual' within that set is auto.
         $agg = DB::table('daily_activity_entries as e')
-            ->selectRaw('e.activity_definition_id as def_id, SUM(e.value) as total_count')
+            ->selectRaw("e.activity_definition_id as def_id, SUM(e.value) as total_count, SUM(CASE WHEN e.source = 'manual' THEN e.value ELSE 0 END) as manual_count, SUM(CASE WHEN e.source != 'manual' THEN e.value ELSE 0 END) as auto_count")
             ->whereBetween('e.activity_date', [$start->toDateString(), $end->toDateString()])
             ->whereIn('e.activity_definition_id', $defIds)
             ->whereIn('e.point_state', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_STATES)
             ->whereIn('e.source', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_SOURCES)
+            ->when($agencyId, function ($q) use ($agencyId) {
+                $q->where('e.agency_id', $agencyId);
+            })
             ->groupBy('e.activity_definition_id')
             ->get()
             ->keyBy('def_id');
@@ -80,6 +94,8 @@ class DailyActivitySummaryController extends Controller
                 'points' => $points,
                 'scope' => (string)$d->scope,
                 'branch_id' => $d->branch_id !== null ? (int)$d->branch_id : null,
+                'manual_count' => (int)($agg[$d->id]->manual_count ?? 0),
+                'auto_count' => (int)($agg[$d->id]->auto_count ?? 0),
             ];
 
             $grandCount += $count;
@@ -111,15 +127,32 @@ class DailyActivitySummaryController extends Controller
 
         abort_unless($def, 404);
 
+        // daily_activity_entries has agency_id but no automatic tenant scope on
+        // this raw query-builder path. Without the filters below, this leaked
+        // two ways: (1) the aggregate would sum every agency's activity for
+        // this definition, and (2) the unscoped `leftJoin('branches as b', ...)`
+        // would resolve branch NAMES belonging to other agencies (branches.name
+        // is not itself agency-guarded by a raw join). Restrict the branches
+        // join and the entries themselves to the caller's own agency.
+        $agencyId = $u->effectiveAgencyId();
+
         // Branch totals for this activity (include null branch -> "Unassigned")
         // M6.5 — achievement-total filter.
         $rows = DB::table('daily_activity_entries as e')
-            ->leftJoin('branches as b', 'b.id', '=', 'e.branch_id')
+            ->leftJoin('branches as b', function ($join) use ($agencyId) {
+                $join->on('b.id', '=', 'e.branch_id');
+                if ($agencyId) {
+                    $join->where('b.agency_id', '=', $agencyId);
+                }
+            })
             ->selectRaw('e.branch_id as branch_id, COALESCE(b.name, "Unassigned") as branch_name, SUM(e.value) as total_count')
             ->where('e.activity_definition_id', (int)$def->id)
             ->whereBetween('e.activity_date', [$start->toDateString(), $end->toDateString()])
             ->whereIn('e.point_state', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_STATES)
             ->whereIn('e.source', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_SOURCES)
+            ->when($agencyId, function ($q) use ($agencyId) {
+                $q->where('e.agency_id', $agencyId);
+            })
             ->groupBy('e.branch_id', 'b.name')
             ->orderByRaw('SUM(e.value) DESC')
             ->get();
@@ -161,9 +194,21 @@ class DailyActivitySummaryController extends Controller
 
         abort_unless($def, 404);
 
+        // daily_activity_entries has agency_id but no automatic tenant scope on
+        // this raw query-builder path (Eloquent's BelongsToAgency global scope
+        // does not apply to DB::table()). Without this filter, an admin could
+        // pass another agency's branch id and pull its agent activity totals,
+        // and the unscoped branches name lookup below would leak that
+        // agency's branch name too. Mirrors index()/activity()/agent() above.
+        $agencyId = $u->effectiveAgencyId();
+
         // branch=0 means "Unassigned"
         $branchName = $branch > 0
-            ? DB::table('branches')->where('id', $branch)->value('name')
+            ? DB::table('branches')->where('id', $branch)
+                ->when($agencyId, function ($q) use ($agencyId) {
+                    $q->where('agency_id', $agencyId);
+                })
+                ->value('name')
             : 'Unassigned';
 
         // Agent totals for this activity in this branch
@@ -174,7 +219,10 @@ class DailyActivitySummaryController extends Controller
             ->where('e.activity_definition_id', (int)$def->id)
             ->whereBetween('e.activity_date', [$start->toDateString(), $end->toDateString()])
             ->whereIn('e.point_state', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_STATES)
-            ->whereIn('e.source', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_SOURCES);
+            ->whereIn('e.source', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_SOURCES)
+            ->when($agencyId, function ($q) use ($agencyId) {
+                $q->where('e.agency_id', $agencyId);
+            });
 
         if ($branch > 0) $q->where('e.branch_id', $branch);
         else $q->whereNull('e.branch_id');
@@ -221,6 +269,21 @@ class DailyActivitySummaryController extends Controller
 
         abort_unless($def, 404);
 
+        // daily_activity_entries has no model-level agency scope, and this route
+        // takes raw branch/user ids, so without an explicit tenancy check any
+        // admin with daily_activity.view could enumerate another agency's
+        // branch/user ids to read its activity/points data. Resolve the branch's
+        // agency through the scoped model (Branch uses BelongsToAgency) and
+        // require it to match the caller's own effective agency.
+        if ($branch > 0) {
+            $branchModel = \App\Models\Branch::find($branch);
+            abort_unless($branchModel, 404);
+            abort_unless(
+                (int) $branchModel->agency_id === (int) $u->effectiveAgencyId() || $u->isOwnerRole(),
+                404
+            );
+        }
+
         $branchName = $branch > 0
             ? (DB::table('branches')->where('id', $branch)->value('name') ?: ('Branch #' . $branch))
             : 'Unassigned';
@@ -228,11 +291,26 @@ class DailyActivitySummaryController extends Controller
         $agentName = DB::table('users')->where('id', $user)->value('name');
         abort_unless($agentName, 404);
 
+        // Also verify the target user actually belongs to the caller's agency —
+        // the branch check above covers branch>0, but a foreign-tenant user id
+        // paired with branch=0 ("Unassigned") would otherwise slip through.
+        $agentAgencyId = DB::table('users')->where('id', $user)->value('agency_id');
+        abort_unless(
+            (int) $agentAgencyId === (int) $u->effectiveAgencyId() || $u->isOwnerRole(),
+            404
+        );
+
+        // M6.5 — achievement-total filter (confirmed/overridden + manual/auto_*).
+        // Was missing here, so the drill-down total could exceed the summary-
+        // level total (which does apply this filter) whenever provisional,
+        // revoked, or auto_other entries existed for the activity.
         $q = DB::table('daily_activity_entries as e')
             ->select(['e.activity_date','e.value'])
             ->where('e.activity_definition_id', (int)$def->id)
             ->where('e.user_id', $user)
-            ->whereBetween('e.activity_date', [$start->toDateString(), $end->toDateString()]);
+            ->whereBetween('e.activity_date', [$start->toDateString(), $end->toDateString()])
+            ->whereIn('e.point_state', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_STATES)
+            ->whereIn('e.source', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_SOURCES);
 
         if ($branch > 0) $q->where('e.branch_id', $branch);
         else $q->whereNull('e.branch_id');

@@ -708,33 +708,27 @@ class TargetController extends Controller
 
         $auth = auth()->user();
         $defScope = PermissionService::getDataScope($auth, 'targets');
+        $agencyId = $auth?->effectiveAgencyId();
+        abort_unless($agencyId, 403);
 
-        // Scope:
-        // - Branch-scoped: see global + their branch-specific definitions
-        // - All-scoped: for now, see global definitions (we'll add branch switch next)
-        $branchId = null;
-        if ($defScope === 'branch') {
-            $branchId = (int)($auth?->branch_id ?? 0);
-            if ($branchId <= 0) $branchId = null;
-        }
+        // Tenant-isolation fix — this used to read the single shared
+        // scope='system' row set, so every agency's admin saw (and edited,
+        // see activityDefinitionsSave()) the exact same global list. Each
+        // agency now has its OWN scope='agency' copy, seeded from the
+        // system template the first time this loads (safe/idempotent — see
+        // ActivityDefinitionDefaultsService).
+        app(\App\Services\ActivityDefinitions\ActivityDefinitionDefaultsService::class)->ensureDefaults($agencyId);
 
         $definitions = DB::table('activity_definitions')
-            ->when($branchId !== null, function ($q) use ($branchId) {
-                $q->where(function ($qq) use ($branchId) {
-                    $qq->where('scope', 'system')
-                       ->orWhere('scope', (string)$branchId);
-                });
-            }, function ($q) {
-                // Admin (default): global only for now
-                $q->where('scope', 'system');
-            })
+            ->where('scope', 'agency')
+            ->where('agency_id', $agencyId)
             ->orderBy('sort_order')
             ->orderBy('name')
             ->get();
 
         return view('admin.targets.activity-definitions', [
             'definitions' => $definitions,
-            'branchId' => $branchId,
+            'branchId' => null,
             'isAdmin' => $defScope === 'all',
             'isBM' => $defScope === 'branch',
         ]);
@@ -748,13 +742,8 @@ class TargetController extends Controller
         abort_unless(auth()->user()->hasPermission('manage_targets'), 403);
 
         $auth = auth()->user();
-        $defSaveScope = PermissionService::getDataScope($auth, 'targets');
-
-        $branchId = null;
-        if ($defSaveScope === 'branch') {
-            $branchId = (int)($auth?->branch_id ?? 0);
-            if ($branchId <= 0) $branchId = null;
-        }
+        $agencyId = $auth?->effectiveAgencyId();
+        abort_unless($agencyId, 403);
 
         $name = trim((string)$request->input('name'));
         if ($name === '') {
@@ -786,13 +775,25 @@ class TargetController extends Controller
         ];
 
         if ($id) {
-            DB::table('activity_definitions')
+            // Tenant-isolation fix — this used to update by bare id with no
+            // ownership check, so any agency's admin could edit the ONE
+            // shared scope='system' row set (or, now, another agency's own
+            // row by guessing its id). Only this agency's own row may be
+            // updated.
+            $updated = DB::table('activity_definitions')
                 ->where('id', (int)$id)
+                ->where('scope', 'agency')
+                ->where('agency_id', $agencyId)
                 ->update($payload);
+
+            abort_unless($updated > 0, 403, 'You can only edit your own agency\'s activity definitions.');
         } else {
+            // Tenant-isolation fix — this used to hardcode scope='system',
+            // agency_id=null, so "adding" a new activity actually created a
+            // new GLOBAL row visible to (and editable by) every agency.
             DB::table('activity_definitions')->insert(array_merge($payload, [
-                'scope' => 'system',
-                'agency_id' => null,
+                'scope' => 'agency',
+                'agency_id' => $agencyId,
                 'branch_id' => null,
                 'created_at' => now(),
             ]));
@@ -820,6 +821,19 @@ class TargetController extends Controller
             $branchId = (int)($auth?->branch_id ?? 0);
         } elseif ($setupScope === 'all') {
             $branchId = (int)($request->get('branch_id') ?? 0);
+
+            // AT-SEC: 'all' data-scope is grantable to per-agency admin/owner-flagged
+            // roles, not just platform System Owners — a non-owner with that scope
+            // must not be able to view another agency's branch overrides by supplying
+            // a foreign branch_id. Mirrors AgencyApiKeyController::authorizeAgency() /
+            // BranchAssignmentController::createBranch()'s isOwnerRole()+effectiveAgencyId() idiom.
+            if ($branchId > 0 && !$auth->isOwnerRole()) {
+                $ownsBranch = Branch::withoutGlobalScopes()
+                    ->whereKey($branchId)
+                    ->where('agency_id', $auth->effectiveAgencyId())
+                    ->exists();
+                abort_unless($ownsBranch, 403, 'You can only manage activity setup for your own agency.');
+            }
         }
         if ($branchId <= 0) $branchId = null;
 
@@ -845,9 +859,17 @@ class TargetController extends Controller
             }
         }
 
+        // Cross-agency isolation audit 2026-08-20, finding M2: this raw
+        // DB::table() query bypassed Branch's BelongsToAgency global scope
+        // entirely, listing every branch across every agency into this
+        // dropdown -- 20 lines below (897-903), the SAME setupScope==='all'
+        // branch selection is correctly checked against the caller's own
+        // agency, but this listing query was missed. Branch::query() is
+        // auto-scoped, matching the pattern already used elsewhere in this
+        // controller (see the branchNames lookups above).
         $branches = [];
         if ($setupScope === 'all') {
-            $branches = DB::table('branches')->select('id', 'name')->orderBy('name')->get();
+            $branches = Branch::query()->select('id', 'name')->orderBy('name')->get();
         }
 
         return view('admin.targets.activity-setup', [
@@ -872,6 +894,21 @@ class TargetController extends Controller
             $branchId = (int)($auth?->branch_id ?? 0);
         } elseif ($setupSaveScope === 'all') {
             $branchId = (int)($request->input('branch_id') ?? 0);
+
+            // AT-SEC: 'all' data-scope is grantable to per-agency admin/owner-flagged
+            // roles, not just platform System Owners — a non-owner with that scope
+            // must not be able to overwrite another agency's branch_activity_columns
+            // by supplying a foreign branch_id. Verify the target branch belongs to
+            // the caller's own agency before it is used for anything (lookup below,
+            // and the updateOrInsert write). Mirrors AgencyApiKeyController::authorizeAgency()
+            // / BranchAssignmentController::createBranch()'s isOwnerRole()+effectiveAgencyId() idiom.
+            if ($branchId > 0 && !$auth->isOwnerRole()) {
+                $ownsBranch = Branch::withoutGlobalScopes()
+                    ->whereKey($branchId)
+                    ->where('agency_id', $auth->effectiveAgencyId())
+                    ->exists();
+                abort_unless($ownsBranch, 403, 'You can only manage activity setup for your own agency.');
+            }
         }
         if ($branchId <= 0) $branchId = null;
 

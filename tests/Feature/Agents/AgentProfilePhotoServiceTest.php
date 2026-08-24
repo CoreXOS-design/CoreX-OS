@@ -6,9 +6,11 @@ use App\Models\Agency;
 use App\Models\Branch;
 use App\Models\User;
 use App\Models\UserDocument;
+use App\Jobs\RemoveAgentPhotoBackgroundJob;
 use App\Services\Images\AgentProfilePhotoService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
@@ -22,6 +24,17 @@ use Tests\TestCase;
 class AgentProfilePhotoServiceTest extends TestCase
 {
     use RefreshDatabase;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        // §15.2 — set() now also dispatches RemoveAgentPhotoBackgroundJob. Faked
+        // here so this file's assertions (about the file/document/column lockstep)
+        // stay isolated from the background-removal pipeline, which has its own
+        // dedicated test coverage (AgentPhotoBackgroundRemovalTest).
+        Queue::fake();
+    }
 
     private function makeAgent(): User
     {
@@ -57,6 +70,12 @@ class AgentProfilePhotoServiceTest extends TestCase
         $this->assertSame($path, $doc->file_path, 'document must match the file');
         $this->assertSame('image/webp', $doc->mime_type);
         $this->assertSame('verified', $doc->status);
+
+        // §15.2 — one background-removal job per upload, carrying THIS photo's path.
+        Queue::assertPushed(RemoveAgentPhotoBackgroundJob::class, function ($job) use ($user, $path) {
+            return $job->userId === $user->id && $job->originalPath === $path;
+        });
+        Queue::assertPushed(RemoveAgentPhotoBackgroundJob::class, 1);
     }
 
     public function test_set_updates_the_existing_document_rather_than_duplicating(): void

@@ -1827,7 +1827,6 @@
         if (C.mode === 'template') {
             var nameEl  = document.getElementById('dpTemplateName');
             var typeEl  = document.getElementById('dpTemplateType');
-            var globEl  = document.getElementById('dpGlobal');
             var docTypeEl = document.getElementById('dpDocumentType');
 
             var catEl   = document.getElementById('dpCategory');
@@ -1835,7 +1834,8 @@
             if (nameEl) body.name = nameEl.value;
             if (typeEl) body.template_type = typeEl.value;
             if (catEl) body.category = catEl.value || null;
-            if (globEl) body.is_global = globEl.checked;
+            // 2026-08-24 — is_global is deliberately never sent from this editor.
+            // No UI path sets it; see TemplateController::saveFields().
             var esignEl = document.getElementById('dpEsign');
             if (esignEl) body.is_esign = esignEl.checked;
             var partyModeEl = document.querySelector('input[name="party_mode"]:checked');

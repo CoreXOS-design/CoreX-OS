@@ -291,6 +291,12 @@
                     if (convoIdValue) fd.append('conversation_id', String(parseInt(convoIdValue, 10)));
                     fd.append('message', msg);
 
+                    // Tell Ellie where the user is standing. Without this, "how do
+                    // I rename it" has no referent and she has to guess the module.
+                    // Spec: .ai/specs/ellie-v2.md §6.
+                    fd.append('page_path', window.location.pathname);
+                    fd.append('page_title', (document.title || '').slice(0, 255));
+
                     const r = await fetch("/ellie/send", {
                         method: 'POST',
                         credentials: 'same-origin',

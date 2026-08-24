@@ -10,6 +10,8 @@ use App\Services\Performance\Period;
 use App\Services\Performance\PeriodResolver;
 use App\Services\Performance\PerformanceDrilldownService;
 use App\Services\Performance\PerformanceScope;
+use App\Services\Performance\PeriodComparison;
+use App\Services\Performance\ReportPeriodComparator;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -21,7 +23,7 @@ use Illuminate\Support\Facades\DB;
  */
 class AgencyPerformanceReportController extends Controller
 {
-    public function index(Request $request, PeriodResolver $periods, AgencyPerformanceReportService $service, BuyerActivityService $buyers)
+    public function index(Request $request, PeriodResolver $periods, AgencyPerformanceReportService $service, BuyerActivityService $buyers, ReportPeriodComparator $comparator)
     {
         $user     = $request->user();
         $agencyId = $user?->effectiveAgencyId();
@@ -38,6 +40,44 @@ class AgencyPerformanceReportController extends Controller
         // AT-366-E — company-level buyer-activity summary (period-scoped).
         $buyerActivity = $buyers->rollup($scope, $period);
 
+        // 2026-08-19 (Johan, period-comparison) — resolved ADDITIVELY: $report and
+        // $buyerActivity above are completely untouched either way, so "comparison
+        // off" is byte-identical to before this feature existed. See
+        // .ai/specs/at366-period-comparison.md.
+        [$comparePeriod, $compareMode, $compareError] = $this->resolveComparisonPeriod($request, $periods, $period);
+
+        $comparison = null;
+        $buyerComparison = null;
+        $comparisonMeta = null;
+        if ($comparePeriod !== null) {
+            $prevReport = $service->build($scope, $comparePeriod);
+            $comparison = $comparator->build($report, $prevReport);
+
+            $prevBuyer = $buyers->rollup($scope, $comparePeriod);
+            $buyerComparison = $this->compareBuyerRollup($buyerActivity, $prevBuyer);
+
+            $comparisonMeta = [
+                'period'         => $comparePeriod->toArray(),
+                'mode'           => $compareMode,
+                'unequal_length' => $period->lengthInDays() !== $comparePeriod->lengthInDays(),
+                'period_days'    => $period->lengthInDays(),
+                'comparison_days' => $comparePeriod->lengthInDays(),
+                // 2026-08-19 (Johan, Phase 2) — "every delta reads as '+R124k vs
+                // previous period'... the reader must never have to work out what
+                // it's being compared to." One phrase, built once, used everywhere
+                // a delta renders (hero line, tiles, table captions) so it can
+                // never drift between surfaces.
+                'phrase' => match ($compareMode) {
+                    'previous'       => 'vs previous period',
+                    'same_last_year' => 'vs same period last year',
+                    'custom'         => 'vs ' . $comparePeriod->label,
+                    default          => 'vs comparison period',
+                },
+            ];
+        } elseif ($compareError) {
+            session()->flash('compare_error', $compareError);
+        }
+
         return view('performance.agency-report.index', [
             'report' => $report,
             'buyer'  => [
@@ -46,7 +86,76 @@ class AgencyPerformanceReportController extends Controller
             ],
             'preset' => $preset,
             'presets' => PeriodResolver::PRESETS,
+            'compareMode'      => $compareMode,
+            'compareModes'     => PeriodResolver::COMPARE_MODES,
+            'comparison'       => $comparison,
+            'buyerComparison'  => $buyerComparison,
+            'comparisonMeta'   => $comparisonMeta,
         ]);
+    }
+
+    /**
+     * 2026-08-19 (Johan, period-comparison) — mirrors resolvePeriod()'s
+     * fail-soft shape: an invalid custom comparison range falls back to
+     * comparison OFF (never a 500, never a broken page) with the error
+     * flashed for the header to show. Returns [?Period, string mode, ?string error].
+     */
+    private function resolveComparisonPeriod(Request $request, PeriodResolver $periods, Period $period): array
+    {
+        $mode = (string) $request->query('compare', 'off');
+        if (!in_array($mode, PeriodResolver::COMPARE_MODES, true)) {
+            $mode = 'off';
+        }
+
+        try {
+            $comparePeriod = $periods->resolveComparison($mode, $period, $request->query('compare_start'), $request->query('compare_end'));
+        } catch (\InvalidArgumentException $e) {
+            return [null, 'off', $e->getMessage()];
+        }
+
+        return [$comparePeriod, $mode, null];
+    }
+
+    /** The 6 buyer-activity metrics get the identical treatment as the 13 company metrics, without needing ReportPeriodComparator's branch/agent/deal_status merge logic. */
+    private function compareBuyerRollup(array $current, array $previous): array
+    {
+        $out = ['company' => [], 'branches' => [], 'agents' => []];
+        foreach (BuyerActivityService::METRICS as $m) {
+            $out['company'][$m['key']] = PeriodComparison::compute(
+                (float) ($current['company'][$m['key']] ?? 0),
+                (float) ($previous['company'][$m['key']] ?? 0),
+                $m['direction'],
+            );
+        }
+
+        $branchKeys = array_unique(array_merge(array_keys($current['branches']), array_keys($previous['branches'])));
+        foreach ($branchKeys as $key) {
+            $curB  = $current['branches'][$key]['metrics']  ?? [];
+            $prevB = $previous['branches'][$key]['metrics'] ?? [];
+            $row = [];
+            foreach (BuyerActivityService::METRICS as $m) {
+                $row[$m['key']] = PeriodComparison::compute((float) ($curB[$m['key']] ?? 0), (float) ($prevB[$m['key']] ?? 0), $m['direction']);
+            }
+            $out['branches'][$key] = [
+                'label'   => $current['branches'][$key]['label'] ?? $previous['branches'][$key]['label'] ?? (string) $key,
+                'metrics' => $row,
+            ];
+        }
+
+        $prevAgentsByUser = [];
+        foreach ($previous['agents'] as $a) {
+            $prevAgentsByUser[$a['user_id']] = $a;
+        }
+        foreach ($current['agents'] as $a) {
+            $prevA = $prevAgentsByUser[$a['user_id']] ?? ['metrics' => []];
+            $row = [];
+            foreach (BuyerActivityService::METRICS as $m) {
+                $row[$m['key']] = PeriodComparison::compute((float) ($a['metrics'][$m['key']] ?? 0), (float) ($prevA['metrics'][$m['key']] ?? 0), $m['direction']);
+            }
+            $out['agents'][] = ['user_id' => $a['user_id'], 'name' => $a['name'], 'metrics' => $row];
+        }
+
+        return $out;
     }
 
     /**
@@ -267,7 +376,12 @@ class AgencyPerformanceReportController extends Controller
             ],
             'commission' => [
                 ['key' => 'address', 'label' => 'Deal', 'align' => 'left'],
-                ['key' => 'commission', 'label' => 'Commission (ex-VAT)', 'align' => 'right', 'format' => 'currency'],
+                // 2026-08 (company-share refinement) — a joint deal has one row per agent
+                // (per deal_money_lines line); without this column two rows for the same
+                // deal read as a duplicate. Now each row is visibly a different agent's cut.
+                ['key' => 'agent', 'label' => 'Agent', 'align' => 'left'],
+                ['key' => 'commission', 'label' => 'Agent share (ex-VAT)', 'align' => 'right', 'format' => 'currency'],
+                ['key' => 'company_commission', 'label' => 'Company share (ex-VAT)', 'align' => 'right', 'format' => 'currency'],
             ],
             default => [],
         };
@@ -287,7 +401,7 @@ class AgencyPerformanceReportController extends Controller
             'portal_views' => ['title' => $r['title'], 'views' => $r['views'], 'href' => $r['url']],
             'appointments' => ['title' => $r['title'], 'category' => ucfirst(str_replace('_', ' ', (string) ($r['category'] ?? ''))), 'date' => $r['event_date'], 'href' => $r['url']],
             'outreach_messages' => ['contact' => $r['contact'], 'channel' => ucfirst((string) ($r['channel'] ?? '')), 'sent' => $r['sent_at'], 'href' => $r['url']],
-            'commission' => ['address' => $r['address'], 'commission' => $r['commission'], 'href' => $r['url']],
+            'commission' => ['address' => $r['address'], 'agent' => $r['agent'] ?? '—', 'commission' => $r['commission'], 'company_commission' => $r['company_commission'] ?? 0, 'href' => $r['url']],
             default => $r,
         };
     }

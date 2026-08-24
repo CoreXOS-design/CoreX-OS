@@ -70,7 +70,7 @@
     .review-pin { background: transparent !important; border: 0 !important; }
     .review-pin svg { display: block; filter: drop-shadow(0 1px 2px rgba(0,0,0,0.4)); }
     .review-pin-cross { outline: 2px dashed var(--ds-amber, #f59e0b); outline-offset: 2px; border-radius: 6px; }
-    .review-toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: var(--brand-default, #0b2a4a); color: #fff; padding: 8px 16px; border-radius: 6px; font-size: 12px; opacity: 0; transition: opacity 200ms; pointer-events: none; z-index: 9999; }
+    .review-toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: var(--surface); border: 1px solid var(--border); box-shadow: 0 4px 12px rgba(0,0,0,0.30); color: var(--text-primary); padding: 8px 16px; border-radius: 6px; font-size: 12px; opacity: 0; transition: opacity 200ms; pointer-events: none; z-index: 9999; }
     .review-toast.show { opacity: 1; }
     /* Build 3 — condition picker + valuation strip. */
     .cond-picker { padding: 5px 10px; font-size: 12.5px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text-primary); min-width: 280px; }
@@ -129,20 +129,19 @@
     @endif
 
     {{-- Header — branded Pattern A (UI_DESIGN_SYSTEM.md §2.4). --}}
-    <div class="rounded-md px-6 py-5 mb-4" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner mb-4">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Review Presentation</h1>
-                <p class="text-sm text-white/60">
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Review Presentation</h1>
+                <p class="text-xs" style="color: var(--text-muted);">
                     Confirm the subject facts and the comparable sales we picked, then continue.
                     Untick anything you don't want included — your overrides are logged for future learning.
                 </p>
             </div>
             @if($presentation->property)
-            <div class="flex items-center gap-2 flex-wrap">
+            <div class="flex flex-wrap items-center gap-2">
                 <a href="{{ route('corex.properties.show', $presentation->property) }}" target="_blank"
-                   class="corex-btn-outline text-sm"
-                   style="color:#fff; border-color:rgba(255,255,255,0.25); background:rgba(255,255,255,0.08);">
+                   class="corex-btn-outline text-xs">
                     Open property record
                 </a>
             </div>
@@ -349,17 +348,39 @@
                 comps included (method: {{ ($cmaValuation['compute_method'] ?? 'median') === 'size_adjusted' ? 'size-adjusted' : 'median' }}).
             </div>
 
-            {{-- STEP 2a — size-adjusted headline note. Shown only when the median
-                 was lifted toward the size-normalised value because the subject is
-                 a genuinely larger, same-basis stand than its comparables. --}}
-            @if(!empty($cmaValuation['headline_lifted']))
-            <div id="cma-size-adjusted-note" style="margin-top:6px; font-size:11px; color:var(--text-secondary);">
+            {{-- Johan (2026-08-21, size-lift ruling) — "CMA has been in the game
+                 for a long time. I think they are better at it at this stage than
+                 CoreX." The size lift (median R/m² × subject extent) is an agent
+                 opt-in, defaulting OFF — the headline is the honest comp-median
+                 unless the agent deliberately ticks this. Shown only when the
+                 subject's erf/unit is materially larger than the comparables
+                 (size_lift_available); the real percentages come from the same
+                 evidence that drives the lift itself, never a fixed sentence. --}}
+            <div id="cma-size-lift-row" style="margin-top:8px;{{ !empty($cmaValuation['size_lift_available']) ? '' : ' display:none;' }}">
+                <label style="display:flex; align-items:flex-start; gap:6px; font-size:12px; color:var(--text-secondary); cursor:pointer;">
+                    <input type="checkbox" id="cma-size-lift-tick" style="margin-top:2px;"
+                        {{ !empty($cmaValuation['size_lift_applied']) ? 'checked' : '' }}>
+                    <span id="cma-size-lift-label">
+                        This {{ $cmaValuation['size_lift_subject_noun'] ?? 'erf' }} is
+                        <strong>{{ $cmaValuation['size_diff_pct'] ?? 0 }}%</strong> larger than the comparable sales.
+                        Tick to lift the valuation by <strong>{{ $cmaValuation['size_lift_pct'] ?? 0 }}%</strong>.
+                    </span>
+                </label>
+            </div>
+            {{-- Size-adjusted headline note — reflects whichever headline is
+                 ACTUALLY shown (median, or lifted when the tick above is on).
+                 Always rendered (hidden via attribute, not @if) so the tick's
+                 client-side handler can reveal/update it without a page
+                 reload — mirrors cma-adj-line's pattern above. --}}
+            <div id="cma-size-adjusted-note" style="margin-top:6px; font-size:11px; color:var(--text-secondary);"
+                 {{ !empty($cmaValuation['headline_lifted']) ? '' : 'hidden' }}>
+                <span id="cma-size-adjusted-text">
                 Size-adjusted: comp-median R {{ number_format((int) ($cmaValuation['headline_median_raw'] ?? 0), 0, '.', ' ') }}
                 lifted to R {{ number_format((int) ($cmaValuation['cma_middle_baseline'] ?? 0), 0, '.', ' ') }}
                 (+{{ $cmaValuation['headline_uplift_pct'] ?? 0 }}%) — subject larger than the comparables
                 (size-normalised R {{ number_format((int) ($cmaValuation['size_normalised_value'] ?? 0), 0, '.', ' ') }}).
+                </span>
             </div>
-            @endif
             @php
                 $bm = $cmaValuation['cma_info_benchmark'] ?? [];
                 $bmAny = !empty($bm['lower']) || !empty($bm['middle']) || !empty($bm['upper']);
@@ -731,6 +752,7 @@
     const CONTINUE_URL = @json(route('presentations.review.continue', $version->id));
     const REVERT_URL  = @json(route('presentations.review.revert',  $version->id));
     const CONDITION_URL = @json(route('presentations.review.condition', $version->id));
+    const SIZE_LIFT_URL = @json(route('presentations.review.size-lift', $version->id));
     {{-- AT-27 Phase B.3 — SECTION_URL moved with the toggles to Analysis. --}}
     const SECTION_LABELS = @json($sectionsCatalogue);
 
@@ -1248,6 +1270,10 @@
         return 'R ' + Number(n).toLocaleString('en-ZA', { useGrouping: true, maximumFractionDigits: 0 }).replace(/,/g, ' ');
     }
     const poolNEl = document.getElementById('cma-pool-n');
+    const sizeLiftRow   = document.getElementById('cma-size-lift-row');
+    const sizeLiftTick  = document.getElementById('cma-size-lift-tick');
+    const sizeLiftLabel = document.getElementById('cma-size-lift-label');
+    const sizeAdjNote   = document.getElementById('cma-size-adjusted-note');
     _applyCmaUpdate = function (data) {
         if (!data || !data.cma) return;
         lowerEl.textContent  = fmtZAR(data.cma.lower);
@@ -1258,6 +1284,35 @@
         // included" subtitle. Updates whenever ticks change.
         if (poolNEl && typeof data.cma.pool_n !== 'undefined') {
             poolNEl.textContent = String(data.cma.pool_n);
+        }
+
+        // Johan (2026-08-21, size-lift ruling) — any curation change (comp
+        // toggle, bulk set, condition) can change whether the lift is
+        // available and by how much, since the comp pool feeds both the
+        // median and the size-normalised value. Refresh the tick's
+        // visibility, checked state, and real-percentage label every time.
+        if (sizeLiftRow) {
+            const available = !!data.cma.size_lift_available;
+            sizeLiftRow.style.display = available ? '' : 'none';
+            if (sizeLiftTick) sizeLiftTick.checked = !!data.cma.size_lift_applied;
+            if (sizeLiftLabel && available) {
+                sizeLiftLabel.innerHTML = 'This ' + (data.cma.size_lift_subject_noun || 'erf') +
+                    ' is <strong>' + (data.cma.size_diff_pct ?? 0) + '%</strong> larger than the comparable sales. ' +
+                    'Tick to lift the valuation by <strong>' + (data.cma.size_lift_pct ?? 0) + '%</strong>.';
+            }
+        }
+        if (sizeAdjNote) {
+            sizeAdjNote.hidden = !data.cma.size_lift_applied;
+            if (data.cma.size_lift_applied) {
+                const noteText = document.getElementById('cma-size-adjusted-text');
+                if (noteText) {
+                    noteText.textContent =
+                        'Size-adjusted: comp-median ' + fmtZAR(data.cma.headline_median_raw) +
+                        ' lifted to ' + fmtZAR(data.cma.middle_baseline) +
+                        ' (+' + (data.cma.headline_uplift_pct ?? 0) + '%) — subject larger than the comparables ' +
+                        '(size-normalised ' + fmtZAR(data.cma.size_normalised_value) + ').';
+                }
+            }
         }
 
         const applied = !!(data.condition && data.condition.applied);
@@ -1286,6 +1341,37 @@
     // AT-27 Phase B.3 — section-toggle handler MOVED to the Analysis screen
     // (resources/views/presentations/analysis.blade.php). Review keeps per-comp
     // curation only.
+
+    // Johan (2026-08-21, size-lift ruling) — the tick posts the agent's
+    // choice, then patches tiles + its own label via the same
+    // applyCmaUpdate() every other curation action uses. Reverts the
+    // checkbox on failure so it never shows a state that didn't save.
+    if (sizeLiftTick) {
+        sizeLiftTick.addEventListener('change', async () => {
+            const wantApplied = sizeLiftTick.checked;
+            const body = new FormData();
+            body.append('_token', csrf);
+            body.append('applied', wantApplied ? '1' : '0');
+            try {
+                const r = await fetch(SIZE_LIFT_URL, {
+                    method: 'POST',
+                    headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                    body, credentials: 'same-origin',
+                });
+                const d = await r.json();
+                if (d?.ok) {
+                    applyCmaUpdate(d);
+                    toast(wantApplied ? 'Size lift applied — valuation updated.' : 'Size lift removed — back to comp median.');
+                } else {
+                    sizeLiftTick.checked = !wantApplied;
+                    toast('Could not update the size lift — please retry.');
+                }
+            } catch (e) {
+                sizeLiftTick.checked = !wantApplied;
+                toast('Network error updating the size lift.');
+            }
+        });
+    }
 
     if (condEl) {
         condEl.addEventListener('change', async () => {

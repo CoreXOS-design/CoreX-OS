@@ -3,16 +3,16 @@
 
 @section('corex-content')
 <div class="w-full space-y-5">
-    {{-- Page header (Pattern A — branded) --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);" data-tour="comp-fica-create-intro">
+    {{-- Page header (Pattern A — flat neutral) --}}
+    <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="comp-fica-create-intro">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Send FICA Request</h1>
-                <p class="text-sm text-white/60">Select a contact to send a FICA verification form to.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Send FICA Request</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Select a contact to send a FICA verification form to.</p>
             </div>
             <div class="flex flex-wrap items-center gap-2">
-                @include('layouts.partials.tour-header-launcher')
-                <a href="{{ route('compliance.fica.index') }}" class="corex-btn-outline corex-btn-on-brand">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+                <a href="{{ route('compliance.fica.index') }}" class="corex-btn-outline text-xs">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4"><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" /></svg>
                     Back to FICA
                 </a>
@@ -44,12 +44,33 @@
               open: false,
               selected: {{ \Illuminate\Support\Js::from(old('contact_id') ?: null) }},
               selectedName: {{ \Illuminate\Support\Js::from('') }},
-              contactInfo: null
-          }">
+              contactInfo: null,
+              newEmail: '',
+              results: [],
+              loading: false,
+              _searchTimer: null,
+              searchUrl: {{ \Illuminate\Support\Js::from(route('compliance.fica.contacts.search')) }},
+              doSearch() {
+                  const q = this.search.trim();
+                  this.selected = null; this.contactInfo = null;
+                  if (q.length < 2) { this.results = []; this.open = false; return; }
+                  this.open = true; this.loading = true;
+                  fetch(this.searchUrl + '?q=' + encodeURIComponent(q), { headers: { Accept: 'application/json' } })
+                      .then(r => r.ok ? r.json() : { contacts: [] })
+                      .then(j => { this.results = j.contacts || []; })
+                      .catch(() => { this.results = []; })
+                      .finally(() => { this.loading = false; });
+              },
+              pick(c) {
+                  this.selected = c.id; this.selectedName = c.name; this.open = false; this.results = [];
+                  this.contactInfo = { name: c.name, email: c.email, phone: c.phone };
+              }
+          }"
+          x-init="$watch('search', () => { clearTimeout(_searchTimer); _searchTimer = setTimeout(() => doSearch(), 250); })">
         @csrf
 
         {{-- Select Contact --}}
-        <div class="rounded-md p-5" style="background: var(--surface, #fff); border: 1px solid var(--border, #e2e8f0);" data-tour="comp-fica-create-contact">
+        <div class="rounded-md p-5" style="background: var(--surface); border: 1px solid var(--border);" data-tour="comp-fica-create-contact">
             <h3 class="text-sm font-semibold mb-4" style="color: var(--text-primary);">Select Contact <span style="color: var(--ds-crimson, #c41e3a);">*</span></h3>
 
             <div class="relative mb-3">
@@ -59,7 +80,7 @@
                        @click.away="open = false"
                        placeholder="Search contacts..."
                        class="w-full rounded-md px-3 py-2 text-sm outline-none"
-                       style="border: 1px solid var(--border, #e2e8f0); background: var(--surface-2, #f8fafc); color: var(--text-primary);"
+                       style="border: 1px solid var(--border); background: var(--surface-2); color: var(--text-primary);"
                        x-show="!selected">
                 <div x-show="selected" x-cloak class="flex items-center justify-between rounded-md px-3 py-2" style="border: 1px solid var(--border); background: var(--surface-2);">
                     <span class="text-sm font-medium" style="color: var(--text-primary);" x-text="selectedName"></span>
@@ -69,25 +90,17 @@
 
                 <div x-show="open && search.length >= 2" x-cloak
                      class="absolute z-30 mt-1 w-full max-h-60 overflow-y-auto rounded-md"
-                     style="background: var(--surface, #fff); border: 1px solid var(--border); box-shadow: 0 8px 24px rgba(0,0,0,0.18);">
-                    @foreach($contacts as $c)
-                        @php
-                            $haystack = strtolower(trim(($c->first_name ?? '') . ' ' . ($c->last_name ?? '') . ' ' . ($c->email ?? '')));
-                            $label    = trim(($c->first_name ?? '') . ' ' . ($c->last_name ?? ''));
-                            $info     = json_encode([
-                                'name'  => $label,
-                                'email' => $c->email ?? 'No email',
-                                'phone' => $c->phone ?? 'No phone',
-                            ]);
-                        @endphp
+                     style="background: var(--surface); border: 1px solid var(--border); box-shadow: 0 8px 24px rgba(0,0,0,0.18);">
+                    <template x-for="c in results" :key="c.id">
                         <button type="button"
-                                x-show="{{ \Illuminate\Support\Js::from($haystack) }}.includes(search.toLowerCase())"
-                                @click="selected = {{ (int) $c->id }}; selectedName = {{ \Illuminate\Support\Js::from($label) }}; open = false; contactInfo = {{ $info }}"
+                                @click="pick(c)"
                                 class="w-full text-left px-3 py-2 text-sm transition-colors hover:bg-[var(--surface-2)]" style="border-bottom: 1px solid var(--border);">
-                            <div class="font-medium" style="color: var(--text-primary);">{{ $c->first_name }} {{ $c->last_name }}</div>
-                            <div class="text-xs" style="color: var(--text-muted);">{{ $c->email ?? 'No email' }} {{ $c->phone ? '/ ' . $c->phone : '' }}</div>
+                            <div class="font-medium" style="color: var(--text-primary);" x-text="c.name"></div>
+                            <div class="text-xs" style="color: var(--text-muted);" x-text="c.email + (c.phone && c.phone !== 'No phone' ? ' / ' + c.phone : '')"></div>
                         </button>
-                    @endforeach
+                    </template>
+                    <div x-show="loading" class="px-3 py-2 text-xs" style="color: var(--text-muted);">Searching&hellip;</div>
+                    <div x-show="!loading && search.length >= 2 && results.length === 0" class="px-3 py-2 text-xs" style="color: var(--text-muted);">No matching contacts.</div>
                 </div>
             </div>
 
@@ -99,7 +112,19 @@
                 </div>
             </div>
 
-            <p class="mt-3 text-xs" style="color: var(--text-muted);">The contact must have an email address on file — that's where the secure verification link is sent.</p>
+            {{-- #11 inline add-email — a selected contact with no email on file can be given one on
+                 the spot; it is saved to the contact and the FICA request is then sent to it. --}}
+            <template x-if="contactInfo && (!contactInfo.email || contactInfo.email === 'No email')">
+                <div class="mt-3 rounded-md p-3" style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 10%, var(--surface)); border: 1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 35%, var(--border));">
+                    <label class="block text-xs font-semibold mb-1" style="color: var(--text-primary);">This contact has no email &mdash; add one to send the FICA request <span style="color: var(--ds-crimson, #c41e3a);">*</span></label>
+                    <input type="email" name="email" x-model="newEmail" required placeholder="name@example.com"
+                           class="w-full rounded-md px-3 py-2 text-sm outline-none"
+                           style="border: 1px solid var(--border); background: var(--surface); color: var(--text-primary);">
+                    <p class="text-[11px] mt-1" style="color: var(--text-muted);">Saved to the contact record, then the secure verification link is sent here.</p>
+                </div>
+            </template>
+
+            <p class="mt-3 text-xs" style="color: var(--text-muted);">The contact must have an email address on file &mdash; that's where the secure verification link is sent.</p>
         </div>
 
         {{-- Submit --}}

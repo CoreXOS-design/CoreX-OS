@@ -23,7 +23,7 @@
     })">
 
     {{-- Header --}}
-    <div class="rounded-md px-6 py-5 mb-5" style="background:var(--brand-default,#0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner mb-5">
         <div class="flex items-start justify-between">
             <div>
                 <h2 class="text-xl font-bold text-white tracking-tight">New Property</h2>

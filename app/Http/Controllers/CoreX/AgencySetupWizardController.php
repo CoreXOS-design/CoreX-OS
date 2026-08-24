@@ -6,6 +6,8 @@ use App\Http\Controllers\Controller;
 use App\Models\Agency;
 use App\Models\AgencyOnboardingSetup;
 use App\Models\PerformanceSetting;
+use App\Models\Proforma\AgencyProformaSettings;
+use App\Models\Prospecting\Town;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
@@ -33,8 +35,15 @@ class AgencySetupWizardController extends Controller
     /** GET /corex/agency-setup — resume at the current step. */
     public function index()
     {
-        $setup = $this->resolveOrCreateSetup();
-        $stepKey = AgencyOnboardingSetup::STEPS[($setup->current_step ?? 1) - 1] ?? AgencyOnboardingSetup::STEPS[0];
+        $setup  = $this->resolveOrCreateSetup();
+        $agency = $this->agency();
+        $active = AgencyOnboardingSetup::activeSteps($agency);
+
+        // Resume pointer → the step at current_step, clamped to the nearest
+        // ACTIVE step (a gated-off step must never be the resume target).
+        $pointerKey = AgencyOnboardingSetup::STEPS[($setup->current_step ?? 1) - 1] ?? AgencyOnboardingSetup::STEPS[0];
+        $stepKey = $this->nearestActiveStep($pointerKey, $active);
+
         return redirect()->route('corex.agency-setup.step', ['step' => $stepKey]);
     }
 
@@ -44,6 +53,16 @@ class AgencySetupWizardController extends Controller
         $this->assertStep($step);
         $setup  = $this->resolveOrCreateSetup();
         $agency = $this->agency();
+
+        // A legitimately-gated step (e.g. `matches` with Core Matches switched
+        // off in the capabilities step) is not a 404 — it is skipped. Redirect
+        // forward to the nearest active step. assertStep still 404s truly-unknown
+        // keys above.
+        $active = AgencyOnboardingSetup::activeSteps($agency);
+        if (!in_array($step, $active, true)) {
+            return redirect()->route('corex.agency-setup.step', ['step' => $this->nearestActiveStep($step, $active)]);
+        }
+
         $config = config("agency-onboarding-copy.$step");
 
         return view('agency-setup.wizard', array_merge([
@@ -71,6 +90,13 @@ class AgencySetupWizardController extends Controller
         'contact_source' => ['step' => 'contacts', 'model' => \App\Models\ContactSource::class, 'label' => 'Contact sources', 'placeholder' => 'e.g. Walk-in'],
         'contact_identifier_label' => ['step' => 'contacts', 'model' => \App\Models\ContactIdentifierLabel::class, 'label' => 'Contact labels', 'placeholder' => 'e.g. Personal'],
         'branch'         => ['step' => 'branches', 'label' => 'Branches', 'placeholder' => 'e.g. Seabreeze Bay'],
+        // Market Intelligence / Prospecting Setup — mirrors the settings.prospecting
+        // page's own collections, delegating to the SAME canonical CRUD controllers.
+        'mic_town'            => ['step' => 'market_intelligence', 'label' => 'Towns', 'placeholder' => 'e.g. Margate'],
+        'mic_suburb'          => ['step' => 'market_intelligence', 'label' => 'Suburbs', 'placeholder' => 'e.g. Uvongo'],
+        'mic_property_type'   => ['step' => 'market_intelligence', 'label' => 'Property types', 'placeholder' => 'e.g. Vacant Land'],
+        'mic_bedroom_segment' => ['step' => 'market_intelligence', 'label' => 'Bedroom segments', 'placeholder' => 'e.g. 3 Bed'],
+        'mic_price_band'      => ['step' => 'market_intelligence', 'label' => 'Price bands', 'placeholder' => 'e.g. Entry Level'],
     ];
 
     private function stepData(string $step, Agency $agency): array
@@ -121,6 +147,24 @@ class AgencySetupWizardController extends Controller
                     ->whereIn('role', ['admin', 'branch_manager', 'agent'])
                     ->orderBy('name')->get(['id', 'name', 'email']),
             ],
+            // Same reads settings.prospecting.index itself uses (SettingsController)
+            // — the wizard step shows exactly what that page would.
+            'market_intelligence' => (function () use ($agency) {
+                $config = app(\App\Services\Prospecting\ProspectingConfigurationService::class);
+                $config->clearCache($agency->id);
+
+                return [
+                    'micTowns' => Town::withoutGlobalScopes()
+                        ->where('agency_id', $agency->id)
+                        ->orderBy('display_order')->orderBy('name')
+                        ->with(['suburbs' => fn ($q) => $q->withoutGlobalScopes()->orderBy('suburb_name')])
+                        ->get(),
+                    'micPropertyTypes'    => $config->propertyTypes($agency->id, activeOnly: false),
+                    'micBedroomSegments'  => $config->bedroomSegments($agency->id),
+                    'micPriceBandsSale'   => $config->priceBandsFor($agency->id, 'sale'),
+                    'micPriceBandsRental' => $config->priceBandsFor($agency->id, 'rental'),
+                ];
+            })(),
             default => [],
         };
     }
@@ -185,6 +229,18 @@ class AgencySetupWizardController extends Controller
                 app(\App\Http\Controllers\CoreX\ContactIdentifierLabelController::class)->store($request);
             } elseif ($collection === 'branch') {
                 app(\App\Http\Controllers\Admin\BranchAssignmentController::class)->createBranch($request);
+            } elseif ($collection === 'mic_town') {
+                app(\App\Http\Controllers\Settings\Prospecting\TownsController::class)->store($request);
+            } elseif ($collection === 'mic_suburb') {
+                // Nested under a town — the aux_partial posts town_id per suburb-add form.
+                $town = Town::findOrFail($request->input('town_id'));
+                app(\App\Http\Controllers\Settings\Prospecting\SuburbsController::class)->store($request, $town);
+            } elseif ($collection === 'mic_property_type') {
+                app(\App\Http\Controllers\Settings\Prospecting\PropertyTypesController::class)->store($request);
+            } elseif ($collection === 'mic_bedroom_segment') {
+                app(\App\Http\Controllers\Settings\Prospecting\BedroomSegmentsController::class)->store($request);
+            } elseif ($collection === 'mic_price_band') {
+                app(\App\Http\Controllers\Settings\Prospecting\PriceBandsController::class)->store($request);
             }
         } catch (ValidationException $e) {
             throw $e;
@@ -218,6 +274,21 @@ class AgencySetupWizardController extends Controller
                 // swallowed. It flashes to session immediately, so it survives
                 // our own redirect below.
                 app(\App\Http\Controllers\Admin\BranchAssignmentController::class)->deleteBranch($request, $branch);
+            } elseif ($collection === 'mic_town') {
+                $town = Town::findOrFail($id);
+                app(\App\Http\Controllers\Settings\Prospecting\TownsController::class)->archive($request, $town);
+            } elseif ($collection === 'mic_suburb') {
+                $suburb = \App\Models\Prospecting\TownSuburb::findOrFail($id);
+                app(\App\Http\Controllers\Settings\Prospecting\SuburbsController::class)->archive($request, $suburb);
+            } elseif ($collection === 'mic_property_type') {
+                $type = \App\Models\Prospecting\PropertyTypeOption::findOrFail($id);
+                app(\App\Http\Controllers\Settings\Prospecting\PropertyTypesController::class)->archive($request, $type);
+            } elseif ($collection === 'mic_bedroom_segment') {
+                $segment = \App\Models\Prospecting\BedroomSegment::findOrFail($id);
+                app(\App\Http\Controllers\Settings\Prospecting\BedroomSegmentsController::class)->archive($request, $segment);
+            } elseif ($collection === 'mic_price_band') {
+                $band = \App\Models\Prospecting\PriceBand::findOrFail($id);
+                app(\App\Http\Controllers\Settings\Prospecting\PriceBandsController::class)->archive($request, $band);
             }
         } catch (HttpException $e) {
             if (!in_array($e->getStatusCode(), [403, 404], true)) {
@@ -249,25 +320,64 @@ class AgencySetupWizardController extends Controller
 
     private function advance(AgencyOnboardingSetup $setup, string $step, ?string $flash, bool $skipped = false)
     {
-        $steps = AgencyOnboardingSetup::STEPS;
+        // Advance over ACTIVE steps only — a gated-off step is stepped past
+        // (switchboard spec §7). The capabilities step may itself have just
+        // toggled a feature off, so recompute against the fresh state.
+        $steps = AgencyOnboardingSetup::activeSteps($this->agency());
         $i = array_search($step, $steps, true);
-        $isLast = $i === (count($steps) - 1);
 
+        // The just-saved step is no longer active (edge: a step that gated
+        // itself off). Fall back to the first active step.
+        if ($i === false) {
+            return redirect()->route('corex.agency-setup.step', ['step' => $steps[0] ?? AgencyOnboardingSetup::STEPS[0]]);
+        }
+
+        $isLast = $i === (count($steps) - 1);
         if ($isLast) {
-            // Last step's Save routes straight to finish.
+            // Last active step's Save routes straight to finish.
             return $this->finish();
         }
 
-        if ($skipped && $step !== end($steps)) {
-            // Move the resume pointer forward past a skipped step without
-            // marking it complete.
-            $setup->current_step = max($setup->current_step, $i + 2);
+        $next = $steps[$i + 1];
+
+        if ($skipped) {
+            // Move the resume pointer forward past the skipped step, to the next
+            // active step's 1-based position in the FULL step list.
+            $globalPos = (int) array_search($next, AgencyOnboardingSetup::STEPS, true) + 1;
+            $setup->current_step = max($setup->current_step, $globalPos);
             $setup->save();
         }
 
-        $next = $steps[$i + 1];
         $redirect = redirect()->route('corex.agency-setup.step', ['step' => $next]);
         return $flash ? $redirect->with('success', $flash) : $redirect;
+    }
+
+    /**
+     * Resolve a step key to the nearest ACTIVE step: itself if active, else the
+     * first active step after it in the full list, else the last active before
+     * it, else the first active step. Never returns a gated-off key.
+     */
+    private function nearestActiveStep(string $step, array $active): string
+    {
+        if (in_array($step, $active, true)) {
+            return $step;
+        }
+        $all = AgencyOnboardingSetup::STEPS;
+        $i = array_search($step, $all, true);
+        if ($i === false) {
+            return $active[0] ?? $all[0];
+        }
+        for ($j = $i + 1; $j < count($all); $j++) {
+            if (in_array($all[$j], $active, true)) {
+                return $all[$j];
+            }
+        }
+        for ($j = $i - 1; $j >= 0; $j--) {
+            if (in_array($all[$j], $active, true)) {
+                return $all[$j];
+            }
+        }
+        return $active[0] ?? $all[0];
     }
 
     private function resolveOrCreateSetup(): AgencyOnboardingSetup
@@ -314,8 +424,12 @@ class AgencySetupWizardController extends Controller
         foreach (($config['controls'] ?? []) as $control) {
             $key = $control['key'];
             $values[$key] = match ($control['source'] ?? 'agency') {
-                'perf'  => PerformanceSetting::get($key, $control['default'] ?? null),
-                default => $agency->{$key} ?? ($control['default'] ?? null),
+                'perf'      => PerformanceSetting::get($key, $control['default'] ?? null),
+                // DR2 Wave 2 — Deal → Property → Portal sync settings live on their
+                // own singleton row (agency_deal_sync_settings), not on Agency.
+                'deal_sync' => \App\Models\AgencyDealSyncSettings::forAgency($agency->id)->{$key} ?? ($control['default'] ?? null),
+                'proforma'  => AgencyProformaSettings::forAgency($agency->id)->{$key} ?? ($control['default'] ?? null),
+                default     => $agency->{$key} ?? ($control['default'] ?? null),
             };
         }
         return $values;
@@ -323,18 +437,26 @@ class AgencySetupWizardController extends Controller
 
     private function progress(AgencyOnboardingSetup $setup, string $step): array
     {
-        $steps = AgencyOnboardingSetup::STEPS;
+        // "Step X of N" where N is the ACTIVE-step count for this agency
+        // (switchboard spec §8) — gated-off steps are neither shown nor counted.
+        $steps = AgencyOnboardingSetup::activeSteps($this->agency());
+        $pos = array_search($step, $steps, true);
         return [
-            'current' => (int) (array_search($step, $steps, true) + 1),
+            'current' => $pos === false ? 1 : (int) ($pos + 1),
             'total'   => count($steps),
-            'percent' => $setup->progressPercent(),
+            'percent' => $setup->progressPercent($this->agency()),
         ];
     }
 
     private function nav(string $step): array
     {
-        $steps = AgencyOnboardingSetup::STEPS;
+        // prev/next computed over ACTIVE steps, so Back/Next step over a
+        // gated-off step invisibly (switchboard spec §7).
+        $steps = AgencyOnboardingSetup::activeSteps($this->agency());
         $i = array_search($step, $steps, true);
+        if ($i === false) {
+            return ['prev' => null, 'next' => null, 'isLast' => true, 'index' => 0];
+        }
         return [
             'prev'   => $i > 0 ? $steps[$i - 1] : null,
             'next'   => $i < count($steps) - 1 ? $steps[$i + 1] : null,

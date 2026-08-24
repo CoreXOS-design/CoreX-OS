@@ -417,6 +417,43 @@ class Phase2WebsiteApiTest extends TestCase
         $this->assertStringNotContainsString('Marina Drive', json_encode($data));
     }
 
+    /**
+     * 2026-08-20 — live bug on property #1322: the website feed showed ~24
+     * extra photos the agent had already removed from the gallery. images_json
+     * is a divergent legacy mirror that isn't pruned when the gallery is
+     * edited, so allImages() (gallery + images_json + dawn/noon/dusk) resurfaced
+     * stale entries. The feed must show exactly the curated gallery.
+     */
+    public function test_listing_images_are_scoped_to_the_gallery_not_the_legacy_images_json_mirror(): void
+    {
+        $p = Property::withoutGlobalScope(AgencyScope::class)->create([
+            'agency_id' => $this->agency->id, 'agent_id' => $this->agent->id, 'branch_id' => $this->branch->id,
+            'external_id' => (string) Str::uuid(), 'title' => 'Gallery-pruned unit', 'suburb' => 'Uvongo',
+            'property_type' => 'house', 'listing_type' => 'sale', 'status' => 'active', 'price' => 2000000,
+            'beds' => 3, 'baths' => 2,
+            'gallery_images_json' => [
+                'https://img.example/current-1.jpg',
+                'https://img.example/current-2.jpg',
+            ],
+            // Stale mirror — still carries a photo the agent already removed
+            // from the gallery. Must NOT reach the website.
+            'images_json' => [
+                'https://img.example/current-1.jpg',
+                'https://img.example/current-2.jpg',
+                'https://img.example/removed-from-gallery.jpg',
+            ],
+            'published_at' => now(),
+        ]);
+        $this->syndicate($p, true);
+
+        $data = $this->withToken($this->token)->getJson("/api/v1/website/listings/{$p->id}")->assertOk()->json('data');
+
+        $this->assertCount(2, $data['images']);
+        $this->assertContains('https://img.example/current-1.jpg', $data['images']);
+        $this->assertContains('https://img.example/current-2.jpg', $data['images']);
+        $this->assertNotContains('https://img.example/removed-from-gallery.jpg', $data['images']);
+    }
+
     public function test_listing_images_do_not_double_the_storage_prefix(): void
     {
         // gallery_images_json stores values exactly as Storage::url() emits them

@@ -99,6 +99,16 @@ class PrivatePropertyListingMapper
             'SoleMandateExclusiveDays' => 0,
         ];
 
+        // SoleMandateExclusiveDays — AGENT OPT-IN ONLY (AT-369). Never derived from
+        // dates; never assumed from mandate type alone. Sent ONLY when the agent has
+        // explicitly ticked exclusivity on the syndication panel (pp_exclusive_days
+        // >= 1) AND the listing is a sole mandate Sale. Per Rev 4.6 p20, omitted/
+        // nil/0 = feature not requested — so every other case leaves the field at
+        // its 0 default above and PP treats it as not requested.
+        if ($mandateType === 'FullMandate' && $listingType === 'Sale' && (int) ($property->pp_exclusive_days ?? 0) >= 1) {
+            $listing['SoleMandateExclusiveDays'] = min(92, (int) $property->pp_exclusive_days);
+        }
+
         // Resolve the property's suburb against the cached PP suburb list
         // (populated by `php artisan pp:sync-locations`) and persist it as useful
         // metadata for other call paths. It is NOT used to switch the submission
@@ -122,14 +132,6 @@ class PrivatePropertyListingMapper
         // client. Name mode is the proven-working path (verified live on 6049).
         // If SuburbId mode is ever needed, the fix is to send ListingImport as a
         // pre-rendered SoapVar so Province can be omitted entirely.
-
-        // SoleMandateExclusiveDays — auto-calculated from listed_date and expiry_date for sole mandates
-        if ($mandateType === 'FullMandate' && $listingType === 'Sale' && $property->listed_date && $property->expiry_date) {
-            $days = (int) $property->listed_date->diffInDays($property->expiry_date);
-            if ($days >= 1 && $days <= 92) {
-                $listing['SoleMandateExclusiveDays'] = $days;
-            }
-        }
 
         // Photo URLs — always send images on every submission
         $photos = $this->buildPhotoUrls($property);

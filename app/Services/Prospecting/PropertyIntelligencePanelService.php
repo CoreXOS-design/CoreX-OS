@@ -356,17 +356,31 @@ final class PropertyIntelligencePanelService
                     'text'  => 'Released claim',
                 ]);
             }
-            // Notes entries — parse the `[YYYY-MM-DD HH:MM] message` format.
+            // Notes entries — parse the `[YYYY-MM-DD HH:MM] message` format. A note
+            // typed into the multi-line "Add note" textarea is stored as one entry
+            // whose message spans several `\n`-separated lines; only the first line
+            // carries the `[timestamp]` prefix. Lines that don't match the prefix are
+            // continuation lines of the entry above them, NOT separate/dropped
+            // entries — append them back instead of discarding them.
             if ($claim->notes) {
-                $lines = preg_split('/\n+/', (string) $claim->notes);
+                $lines = preg_split('/\n/', (string) $claim->notes);
+                $current = null;
                 foreach ($lines as $line) {
                     if (preg_match('/^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2})\]\s*(.+)$/', trim($line), $m)) {
-                        $entries->push([
+                        if ($current !== null) {
+                            $entries->push($current);
+                        }
+                        $current = [
                             'at'    => Carbon::parse($m[1]),
                             'actor' => $claim->user_name ?? 'agent',
                             'text'  => $m[2],
-                        ]);
+                        ];
+                    } elseif ($current !== null && trim($line) !== '') {
+                        $current['text'] .= "\n" . trim($line);
                     }
+                }
+                if ($current !== null) {
+                    $entries->push($current);
                 }
             }
         }

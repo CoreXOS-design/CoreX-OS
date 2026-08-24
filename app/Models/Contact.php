@@ -49,7 +49,7 @@ class Contact extends Model
         // shadowed the pre-existing Contact::type() relationship
         // (belongsTo(ContactType::class)), see the incident-fix migration
         // 2026_08_21_000100_rename_type_to_contact_kind_on_contacts_table.
-        'contact_kind', 'entity_name', 'entity_reg_no',
+        'contact_kind', 'entity_name', 'entity_reg_no', 'entity_shape',
         // AT-60 — structured PROPERTY-address capture (independent of the
         // residential `address` above; never auto-composed into it).
         'unit_number', 'floor_number', 'unit_section_block', 'complex_name',
@@ -430,11 +430,25 @@ class Contact extends Model
         foreach (preg_split('/\s+/', $term, -1, PREG_SPLIT_NO_EMPTY) as $token) {
             $like   = '%' . $token . '%';
             $lcLike = '%' . mb_strtolower($token) . '%';
-            $digits = preg_replace('/\D/', '', $token);
+
+            // Only treat the token as a phone-number fragment when it actually
+            // LOOKS like one (digits + common phone punctuation only, nothing
+            // else). Extracting digits from an arbitrary alphanumeric token —
+            // an email like "roets12@gmail.com", a unit number like "12B" —
+            // turns a 1-2 digit fragment into a near-useless filter that
+            // matches most of the phone book. Confirmed in production
+            // 2026-08-13: searching an email containing "12" matched 519
+            // unrelated contacts via phone_normalised LIKE '%12%', burying
+            // the real result many pages deep.
+            $strippedPunct = preg_replace('/[\s\-()+]/', '', $token);
+            $digits = ($strippedPunct !== '' && ctype_digit($strippedPunct)) ? $strippedPunct : '';
 
             $query->where(function ($q) use ($like, $lcLike, $digits) {
                 $q->where('first_name', 'like', $like)
                   ->orWhere('last_name', 'like', $like)
+                  // ENTITY contacts: match on the company/trust name directly (not
+                  // just via the observer's first_name mirror) so they're findable.
+                  ->orWhere('entity_name', 'like', $like)
                   ->orWhere('id_number', 'like', $like)
                   // mirror columns — fast path / belt
                   ->orWhere('phone', 'like', $like)
@@ -543,6 +557,56 @@ class Contact extends Model
                     ->withTimestamps();
     }
 
+    /**
+     * Street & Complex Search (AT-273) — an ADDRESS-ONLY search, deliberately
+     * distinct from scopeSearch (which is name/id/phone/email). It matches ONLY
+     * the two address surfaces a user thinks of as "where this contact is":
+     *
+     *   1. the contact's own Address — the residential free-text `address`
+     *      column PLUS the structured property-address components
+     *      (complex_name / street_name / suburb / city); and
+     *   2. the contact's Linked Properties — the same address surfaces on any
+     *      `Property` joined through the contact_property pivot.
+     *
+     * Multi-token AND: every whitespace-separated token must hit at least one
+     * surface, so "marine estate" finds a contact only when BOTH words appear
+     * somewhere in its address graph — never everything matching either word.
+     * Name / phone / email are intentionally NOT searched here.
+     */
+    public function scopeStreetComplexSearch($query, ?string $term)
+    {
+        $term = trim((string) $term);
+        if ($term === '') {
+            return $query;
+        }
+
+        foreach (preg_split('/\s+/', $term, -1, PREG_SPLIT_NO_EMPTY) as $token) {
+            $like = '%' . $token . '%';
+
+            $query->where(function ($q) use ($like) {
+                // The contact's own address surfaces.
+                $q->where('address', 'like', $like)
+                  ->orWhere('complex_name', 'like', $like)
+                  ->orWhere('street_name', 'like', $like)
+                  ->orWhere('suburb', 'like', $like)
+                  ->orWhere('city', 'like', $like)
+                  // Linked Properties — the property's address surfaces.
+                  ->orWhereHas('properties', function ($p) use ($like) {
+                      $p->where('complex_name', 'like', $like)
+                        ->orWhere('street_name', 'like', $like)
+                        ->orWhere('suburb', 'like', $like)
+                        ->orWhere('city', 'like', $like)
+                        ->orWhere('address', 'like', $like)
+                        ->orWhere('title', 'like', $like);
+                  });
+            });
+        }
+
+        // Ordering is applied by the caller (ContactController::applyStreetComplexSort)
+        // so the results page and its PDF can share one sort selection.
+        return $query;
+    }
+
     public function getFullNameAttribute(): string
     {
         if ($this->contact_kind === self::TYPE_ENTITY) {
@@ -574,7 +638,7 @@ class Contact extends Model
             'contact_representatives',
             'entity_contact_id',
             'representative_contact_id'
-        )->using(ContactRepresentative::class)->withPivot('is_primary')->withTimestamps()->wherePivotNull('deleted_at');
+        )->using(ContactRepresentative::class)->withPivot('is_primary', 'capacity', 'signs_as_proxy')->withTimestamps()->wherePivotNull('deleted_at');
     }
 
     /**
@@ -588,7 +652,71 @@ class Contact extends Model
             'contact_representatives',
             'representative_contact_id',
             'entity_contact_id'
-        )->using(ContactRepresentative::class)->withPivot('is_primary')->withTimestamps()->wherePivotNull('deleted_at');
+        )->using(ContactRepresentative::class)->withPivot('is_primary', 'capacity', 'signs_as_proxy')->withTimestamps()->wherePivotNull('deleted_at');
+    }
+
+    /**
+     * ENTITY-REP FOUNDATION (Johan, 2026-08-15) — the representatives who must
+     * SIGN on behalf of this entity, applying the proxy rule. If ANY linked rep
+     * holds proxy (contact_representatives.signs_as_proxy) only that rep signs
+     * (e.g. one director signs for all); otherwise EVERY rep signs (4 directors
+     * each sign). Each returned Contact carries its pivot (capacity, is_primary,
+     * signs_as_proxy) for phrasing. Returns an empty collection for a natural
+     * person or an entity with no linked reps (the caller gates on that).
+     *
+     * Consumed by esign (recipient builder) AND DR2 (company attorney/supplier
+     * signers) — the single canonical resolver; do NOT re-implement per lane.
+     *
+     * @return \Illuminate\Support\Collection<int, \App\Models\Contact>
+     */
+    public function signingRepresentatives(): \Illuminate\Support\Collection
+    {
+        return $this->proxyAwareRepresentatives();
+    }
+
+    /**
+     * The representatives who should RECEIVE the e-sign / correspondence email
+     * for this entity. Proxy-aware, same resolution as signingRepresentatives()
+     * — the signer is the emailee (the person who must act gets the link). Kept
+     * as a distinct method so a later "cc the primary contact" behaviour can
+     * diverge the email set without touching the signing rule.
+     *
+     * @return \Illuminate\Support\Collection<int, \App\Models\Contact>
+     */
+    public function emailRepresentatives(): \Illuminate\Support\Collection
+    {
+        return $this->proxyAwareRepresentatives();
+    }
+
+    /** True if this entity has a representative marked as proxy (signs for all). */
+    public function hasProxyRepresentative(): bool
+    {
+        if (! $this->isEntity()) {
+            return false;
+        }
+
+        return $this->representatives()->wherePivot('signs_as_proxy', true)->exists();
+    }
+
+    /**
+     * Shared proxy resolution for signingRepresentatives()/emailRepresentatives().
+     * Defensive against dirty data: if more than one rep is somehow flagged
+     * proxy, the FIRST (lowest pivot id) is taken rather than throwing —
+     * single-proxy is enforced at the write paths, this is the read-side floor.
+     *
+     * @return \Illuminate\Support\Collection<int, \App\Models\Contact>
+     */
+    private function proxyAwareRepresentatives(): \Illuminate\Support\Collection
+    {
+        if (! $this->isEntity()) {
+            return collect();
+        }
+
+        $reps = $this->representatives()->get();
+
+        $proxy = $reps->first(fn (Contact $rep) => (bool) ($rep->pivot->signs_as_proxy ?? false));
+
+        return $proxy ? collect([$proxy]) : $reps;
     }
 
     /**

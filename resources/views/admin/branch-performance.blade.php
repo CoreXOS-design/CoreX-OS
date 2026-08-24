@@ -42,7 +42,7 @@
 
 <x-app-layout>
     <x-slot name="header">
-        <div style="background:#0b2a4a;" class="rounded-2xl px-6 py-4">
+        <div style="background:var(--brand-default, #0b2a4a);" class="rounded-2xl px-6 py-4">
             <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
                 <div>
                     <h2 class="text-xl font-bold text-white leading-tight">
@@ -102,21 +102,21 @@
                 <a href="/admin/deals?status=Pending&commission_status=Not%20Paid&branch_id={{ (int)($r['branch_id'] ?? 0) }}" class="block">
                     <div class="ds-status-card ds-money-pending">
                         <div class="ds-label">Pending (Not Paid) — Company ex VAT</div>
-                        <div class="ds-value-xl" style="color:#0b2a4a">R {{ number_format((float)($statusSummary['pending_unpaid_company_ex_vat'] ?? 0), 0) }}</div>
+                        <div class="ds-value-xl" style="color:var(--brand-default, #0b2a4a)">R {{ number_format((float)($statusSummary['pending_unpaid_company_ex_vat'] ?? 0), 0) }}</div>
                     </div>
                 </a>
 
                 <a href="/admin/deals?status=Granted&commission_status=Not%20Paid&branch_id={{ (int)($r['branch_id'] ?? 0) }}" class="block">
                     <div class="ds-status-card ds-money-granted">
                         <div class="ds-label">Granted (Not Paid) — Company ex VAT</div>
-                        <div class="ds-value-xl" style="color:#0b2a4a">R {{ number_format((float)($statusSummary['granted_unpaid_company_ex_vat'] ?? 0), 0) }}</div>
+                        <div class="ds-value-xl" style="color:var(--brand-default, #0b2a4a)">R {{ number_format((float)($statusSummary['granted_unpaid_company_ex_vat'] ?? 0), 0) }}</div>
                     </div>
                 </a>
 
                 <a href="/admin/deals?status=Registered&commission_status=Not%20Paid&branch_id={{ (int)($r['branch_id'] ?? 0) }}" class="block">
                     <div class="ds-status-card ds-money-registered">
                         <div class="ds-label">Registered (Not Paid) — Company ex VAT</div>
-                        <div class="ds-value-xl" style="color:#0b2a4a">R {{ number_format((float)($statusSummary['registered_unpaid_company_ex_vat'] ?? 0), 0) }}</div>
+                        <div class="ds-value-xl" style="color:var(--brand-default, #0b2a4a)">R {{ number_format((float)($statusSummary['registered_unpaid_company_ex_vat'] ?? 0), 0) }}</div>
                     </div>
                 </a>
             </div>
@@ -163,21 +163,21 @@
                 <a href="/admin/deals?status=Pending&commission_status=Not%20Paid&branch_id={{ (int)($r['branch_id'] ?? 0) }}" class="block">
                     <div class="ds-status-card ds-money-pending">
                         <div class="ds-label">Pending (Not Paid) — Company ex VAT</div>
-                        <div class="ds-value-xl" style="color:#0b2a4a">R {{ number_format((float)($statusSummary['pending_unpaid_company_ex_vat'] ?? 0), 0) }}</div>
+                        <div class="ds-value-xl" style="color:var(--brand-default, #0b2a4a)">R {{ number_format((float)($statusSummary['pending_unpaid_company_ex_vat'] ?? 0), 0) }}</div>
                     </div>
                 </a>
 
                 <a href="/admin/deals?status=Granted&commission_status=Not%20Paid&branch_id={{ (int)($r['branch_id'] ?? 0) }}" class="block">
                     <div class="ds-status-card ds-money-granted">
                         <div class="ds-label">Granted (Not Paid) — Company ex VAT</div>
-                        <div class="ds-value-xl" style="color:#0b2a4a">R {{ number_format((float)($statusSummary['granted_unpaid_company_ex_vat'] ?? 0), 0) }}</div>
+                        <div class="ds-value-xl" style="color:var(--brand-default, #0b2a4a)">R {{ number_format((float)($statusSummary['granted_unpaid_company_ex_vat'] ?? 0), 0) }}</div>
                     </div>
                 </a>
 
                 <a href="/admin/deals?status=Registered&commission_status=Not%20Paid&branch_id={{ (int)($r['branch_id'] ?? 0) }}" class="block">
                     <div class="ds-status-card ds-money-registered">
                         <div class="ds-label">Registered (Not Paid) — Company ex VAT</div>
-                        <div class="ds-value-xl" style="color:#0b2a4a">R {{ number_format((float)($statusSummary['registered_unpaid_company_ex_vat'] ?? 0), 0) }}</div>
+                        <div class="ds-value-xl" style="color:var(--brand-default, #0b2a4a)">R {{ number_format((float)($statusSummary['registered_unpaid_company_ex_vat'] ?? 0), 0) }}</div>
                     </div>
                 </a>
             </div>
@@ -192,11 +192,11 @@
         </div>
         <div class="ds-status-card">
             <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div class="rounded-2xl border border-black/10 bg-gray-50 p-4">
+                <div class="rounded-2xl border p-4" style="background:var(--surface-2); border-color:var(--border)">
                     <div class="ds-label">Branch Value (Actual / Agent-Sum Target)</div>
                     <div class="ds-value-lg leading-tight">
                         R {{ number_format($branchValueActual, 0) }}
-                        <span class="text-gray-400 font-bold">/ R {{ number_format($branchValueTarget, 0) }}</span>
+                        <span class="font-bold" style="color:var(--text-faint)">/ R {{ number_format($branchValueTarget, 0) }}</span>
                     </div>
                     <div class="ds-progress-track mt-2">
                         <div class="ds-progress-bar {{ $valueBar }}" style="width: {{ min(100, max(0, $valuePct)) }}%"></div>
@@ -204,11 +204,11 @@
                     <div class="mt-2 ds-label">Progress {{ number_format($valuePct, 1) }}%</div>
                 </div>
 
-                <div class="rounded-2xl border border-black/10 bg-gray-50 p-4">
+                <div class="rounded-2xl border p-4" style="background:var(--surface-2); border-color:var(--border)">
                     <div class="ds-label">Deals (Actual / Agent-Sum Target)</div>
                     <div class="ds-value-lg leading-tight">
                         {{ number_format($branchDealsActual, 0) }}
-                        <span class="text-gray-400 font-bold">/ {{ number_format($branchDealsTarget, 0) }}</span>
+                        <span class="font-bold" style="color:var(--text-faint)">/ {{ number_format($branchDealsTarget, 0) }}</span>
                     </div>
                     <div class="ds-progress-track mt-2">
                         <div class="ds-progress-bar {{ $dealsBar }}" style="width: {{ min(100, max(0, $dealsPct)) }}%"></div>
@@ -228,22 +228,22 @@
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-3">
 
                 {{-- TEAM --}}
-                <div class="rounded-2xl border border-black/10 bg-gray-50 p-4">
+                <div class="rounded-2xl border p-4" style="background:var(--surface-2); border-color:var(--border)">
                     <div class="ds-label tracking-wide">TEAM (Agent-based)</div>
                     <div class="ds-label mt-1">Company retained (ex VAT)</div>
                     <div class="ds-value-lg leading-tight">
                         R {{ number_format($teamCompanyRetained, 0) }}
                     </div>
                     <div class="mt-3 grid grid-cols-3 gap-2 text-xs">
-                        <div class="rounded-xl bg-white border border-black/10 p-2">
+                        <div class="rounded-xl border p-2" style="background:var(--surface); border-color:var(--border)">
                             <div class="ds-label">Income</div>
                             <div class="ds-value">R {{ number_format($teamCompanyIncome, 0) }}</div>
                         </div>
-                        <div class="rounded-xl bg-white border border-black/10 p-2">
+                        <div class="rounded-xl border p-2" style="background:var(--surface); border-color:var(--border)">
                             <div class="ds-label">Agent share</div>
                             <div class="ds-value">R {{ number_format($teamAgentIncome, 0) }}</div>
                         </div>
-                        <div class="rounded-xl bg-white border border-black/10 p-2">
+                        <div class="rounded-xl border p-2" style="background:var(--surface); border-color:var(--border)">
                             <div class="ds-label">Retained</div>
                             <div class="ds-value">R {{ number_format($teamCompanyRetained, 0) }}</div>
                         </div>
@@ -251,22 +251,22 @@
                 </div>
 
                 {{-- LEDGER --}}
-                <div class="rounded-2xl border border-black/10 bg-gray-50 p-4">
+                <div class="rounded-2xl border p-4" style="background:var(--surface-2); border-color:var(--border)">
                     <div class="ds-label tracking-wide">LEDGER (Deal.branch_id)</div>
                     <div class="ds-label mt-1">Company retained (ex VAT)</div>
                     <div class="ds-value-lg leading-tight">
                         R {{ number_format($ledgerCompanyRetained, 0) }}
                     </div>
                     <div class="mt-3 grid grid-cols-3 gap-2 text-xs">
-                        <div class="rounded-xl bg-white border border-black/10 p-2">
+                        <div class="rounded-xl border p-2" style="background:var(--surface); border-color:var(--border)">
                             <div class="ds-label">Income</div>
                             <div class="ds-value">R {{ number_format($ledgerCompanyIncome, 0) }}</div>
                         </div>
-                        <div class="rounded-xl bg-white border border-black/10 p-2">
+                        <div class="rounded-xl border p-2" style="background:var(--surface); border-color:var(--border)">
                             <div class="ds-label">Agent share</div>
                             <div class="ds-value">R {{ number_format($ledgerAgentIncome, 0) }}</div>
                         </div>
-                        <div class="rounded-xl bg-white border border-black/10 p-2">
+                        <div class="rounded-xl border p-2" style="background:var(--surface); border-color:var(--border)">
                             <div class="ds-label">Retained</div>
                             <div class="ds-value">R {{ number_format($ledgerCompanyRetained, 0) }}</div>
                         </div>
@@ -274,7 +274,7 @@
                 </div>
 
                 {{-- PACE --}}
-                <div class="rounded-2xl border border-black/10 bg-gray-50 p-4">
+                <div class="rounded-2xl border p-4" style="background:var(--surface-2); border-color:var(--border)">
                     <div class="ds-label tracking-wide">PACE</div>
                     <div class="ds-label mt-1">Today points: <span class="ds-value">{{ number_format($todayPoints, 0) }}</span></div>
                     <div class="ds-label mt-1">Status: <span class="ds-value">{{ $pointsStatus }}</span></div>
@@ -296,10 +296,10 @@
         <div class="ds-section-header">Agents</div>
         <div class="ds-section-sub">Click an agent to drill down.</div>
         <div class="ds-status-card">
-            <div class="rounded-2xl border border-black/10 bg-gray-50 overflow-hidden">
+            <div class="rounded-2xl border overflow-hidden" style="background:var(--surface-2); border-color:var(--border)">
                 <div class="overflow-x-auto">
                     <table class="ds-table min-w-full text-sm">
-                        <thead class="bg-white border-b border-black/10">
+                        <thead class="border-b" style="background:var(--surface); border-color:var(--border)">
                             <tr class="text-left">
                                 <th class="px-4 py-3">Agent</th>
                                 <th class="px-4 py-3 text-right">Team Retained</th>
@@ -310,9 +310,9 @@
                                 <th class="px-4 py-3 text-right">Pace</th>
                             </tr>
                         </thead>
-                        <tbody class="divide-y divide-black/10 bg-gray-50">
+                        <tbody class="divide-y" style="background:var(--surface-2); border-color:var(--border)">
                             @foreach(($r['rows'] ?? []) as $row)
-                                <tr class="hover:bg-black/5">
+                                <tr class="hover:[background:color-mix(in_srgb,var(--text-primary)_5%,transparent)]">
                                     <td class="px-4 py-3">
                                         <div class="font-extrabold">
                                             <a class="ds-agent-link" href="{{ route('admin.agent.performance', ['userId' => $row['user_id'], 'period' => $r['period']]) }}">{{ $row['name'] }}</a>
@@ -324,17 +324,17 @@
                                         </div>
                                         <div class="ds-label text-xs">{{ $row['email'] }}</div>
                                     </td>
-                                    <td class="px-4 py-3 text-right font-extrabold text-gray-900">R {{ number_format((float)($row['actuals']['company_retained'] ?? 0), 0) }}</td>
-                                    <td class="px-4 py-3 text-right font-semibold text-gray-900">R {{ number_format((float)($row['actuals']['company_income'] ?? 0), 0) }}</td>
-                                    <td class="px-4 py-3 text-right text-gray-900">{{ (int)($row['actuals']['deals'] ?? 0) }} / {{ (int)($row['targets']['deals'] ?? 0) }}</td>
-                                    <td class="px-4 py-3 text-right text-gray-900">R {{ number_format((float)($row['actuals']['value'] ?? $row['actuals']['sales_value'] ?? 0),0) }} / R {{ number_format((float)($row['targets']['value'] ?? 0),0) }}</td>
-                                    <td class="px-4 py-3 text-right text-gray-900">{{ number_format((float)($row['actuals']['points'] ?? 0),0) }} / {{ number_format((float)($row['targets']['points'] ?? 0),0) }}</td>
-                                    <td class="px-4 py-3 text-right text-gray-900 font-semibold">{{ $row['progress']['points_status'] ?? '—' }}</td>
+                                    <td class="px-4 py-3 text-right font-extrabold" style="color:var(--text-primary)">R {{ number_format((float)($row['actuals']['company_retained'] ?? 0), 0) }}</td>
+                                    <td class="px-4 py-3 text-right font-semibold" style="color:var(--text-primary)">R {{ number_format((float)($row['actuals']['company_income'] ?? 0), 0) }}</td>
+                                    <td class="px-4 py-3 text-right" style="color:var(--text-primary)">{{ (int)($row['actuals']['deals'] ?? 0) }} / {{ (int)($row['targets']['deals'] ?? 0) }}</td>
+                                    <td class="px-4 py-3 text-right" style="color:var(--text-primary)">R {{ number_format((float)($row['actuals']['value'] ?? $row['actuals']['sales_value'] ?? 0),0) }} / R {{ number_format((float)($row['targets']['value'] ?? 0),0) }}</td>
+                                    <td class="px-4 py-3 text-right" style="color:var(--text-primary)">{{ number_format((float)($row['actuals']['points'] ?? 0),0) }} / {{ number_format((float)($row['targets']['points'] ?? 0),0) }}</td>
+                                    <td class="px-4 py-3 text-right font-semibold" style="color:var(--text-primary)">{{ $row['progress']['points_status'] ?? '—' }}</td>
                                 </tr>
                             @endforeach
 
                             @if(empty($r['rows']))
-                                <tr><td colspan="7" class="px-4 py-8 text-gray-500 font-semibold">No agents found.</td></tr>
+                                <tr><td colspan="7" class="px-4 py-8 font-semibold" style="color:var(--text-muted)">No agents found.</td></tr>
                             @endif
                         </tbody>
                     </table>

@@ -3,30 +3,28 @@
 
 @section('corex-content')
 <div class="w-full space-y-5" x-data="faultReports()">
-        {{-- Page header (Pattern A — branded) --}}
-        <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+        {{-- Page header (flat neutral bar) --}}
+        <div class="rounded-md px-6 py-5 corex-page-banner">
             <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                 <div>
-                    <h1 class="text-xl font-bold text-white leading-tight">Fault Reports</h1>
-                    <p class="text-sm text-white/60">System errors, warnings, and manual reports.</p>
+                    <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Fault Reports</h1>
+                    <p class="text-xs" style="color: var(--text-muted);">System errors, warnings, and manual reports.</p>
                 </div>
-                <div class="flex items-center gap-2">
+                <div class="flex flex-wrap items-center gap-2">
                     <form method="POST" action="{{ route('admin.fault-reports.scan') }}">
                         @csrf
-                        <button type="submit" class="corex-btn-outline"
-                                style="padding: 0.375rem 0.875rem; font-size: 0.75rem; background: rgba(255,255,255,0.1); color: #fff; border-color: rgba(255,255,255,0.25);">
+                        <button type="submit" class="corex-btn-outline text-xs">
                             Scan for Faults
                         </button>
                     </form>
                     <form method="POST" action="{{ route('admin.fault-reports.clear-all') }}"
                           onsubmit="return confirm('Clear ALL fault reports? They will be soft-deleted and can be restored from the database.');">
                         @csrf
-                        <button type="submit" class="corex-btn-outline"
-                                style="padding: 0.375rem 0.875rem; font-size: 0.75rem; background: rgba(255,255,255,0.1); color: #fff; border-color: rgba(255,255,255,0.25);">
+                        <button type="submit" class="corex-btn-outline text-xs">
                             Clear All
                         </button>
                     </form>
-                    <span class="text-xs text-white/70 ml-2">
+                    <span class="text-xs ml-2" style="color: var(--text-muted);">
                         Showing {{ number_format($reports->count()) }} of {{ number_format($reports->total()) }}
                     </span>
                 </div>
@@ -48,7 +46,7 @@
                 <a href="{{ $f['key'] ? route('admin.fault-reports', ['status' => $f['key']]) : route('admin.fault-reports') }}"
                    class="px-3 py-1.5 rounded-md text-xs font-semibold transition-colors"
                    @if($f['active'])
-                       style="background: color-mix(in srgb, var(--brand-button) 15%, transparent); color: var(--brand-button); border: 1px solid color-mix(in srgb, var(--brand-button) 30%, transparent);"
+                       style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent); color: var(--brand-icon); border: 1px solid color-mix(in srgb, var(--brand-icon) 40%, transparent);"
                    @else
                        style="background: var(--surface); color: var(--text-secondary); border: 1px solid var(--border);"
                    @endif>
@@ -60,15 +58,15 @@
         {{-- Bulk action bar --}}
         <div x-show="selectedIds.length > 0" x-cloak x-transition
              class="sticky top-0 z-30 flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 rounded-md"
-             style="background: var(--brand-default, #0b2a4a); color: #fff; box-shadow: 0 4px 12px rgba(0,0,0,0.15);">
-            <span class="text-xs font-semibold"><span x-text="selectedIds.length"></span> selected</span>
+             style="background: var(--surface); border: 1px solid var(--border); box-shadow: 0 4px 12px rgba(0,0,0,0.15);">
+            <span class="text-xs font-semibold" style="color: var(--text-primary);"><span x-text="selectedIds.length"></span> selected</span>
             <div class="flex flex-wrap items-center gap-2">
                 <input type="text" x-model="bulkNotes" placeholder="Resolution notes (optional)"
                        class="rounded-md px-3 py-1.5 text-xs"
-                       style="background: rgba(255,255,255,0.1); color: #fff; border: 1px solid rgba(255,255,255,0.15); width: 220px;">
-                <button @click="bulkSubmit('fixed')" class="corex-btn-primary" style="padding: 0.375rem 0.75rem; font-size: 0.75rem;">Mark Fixed</button>
-                <button @click="bulkSubmit('ignored')" class="corex-btn-outline" style="padding: 0.375rem 0.75rem; font-size: 0.75rem; background: rgba(255,255,255,0.1); color: #fff; border-color: rgba(255,255,255,0.2);">Won't Fix</button>
-                <button @click="selectedIds = []; selectAll = false;" class="corex-btn-outline" style="padding: 0.375rem 0.75rem; font-size: 0.75rem; background: transparent; color: rgba(255,255,255,0.7); border-color: rgba(255,255,255,0.2);">Cancel</button>
+                       style="background: var(--surface-2); color: var(--text-primary); border: 1px solid var(--border); width: 220px;">
+                <button @click="bulkSubmit('fixed')" class="corex-btn-primary text-xs" style="padding: 0.375rem 0.75rem;">Mark Fixed</button>
+                <button @click="bulkSubmit('ignored')" class="corex-btn-outline text-xs" style="padding: 0.375rem 0.75rem;">Won't Fix</button>
+                <button @click="selectedIds = []; selectAll = false;" class="corex-btn-outline text-xs" style="padding: 0.375rem 0.75rem;">Cancel</button>
             </div>
         </div>
 
@@ -88,7 +86,7 @@
 
         {{-- Select all --}}
         <label class="flex items-center gap-2 text-xs cursor-pointer" style="color: var(--text-muted);">
-            <input type="checkbox" x-model="selectAll" @change="toggleAll()" style="accent-color: var(--brand-button);">
+            <input type="checkbox" x-model="selectAll" @change="toggleAll()" style="accent-color: var(--brand-icon);">
             Select all on this page
         </label>
 
@@ -100,7 +98,7 @@
                     <input type="checkbox" value="{{ $report->id }}" class="mt-1.5 flex-shrink-0"
                            :checked="selectedIds.includes({{ $report->id }})"
                            @change="toggleId({{ $report->id }})"
-                           style="accent-color: var(--brand-button);">
+                           style="accent-color: var(--brand-icon);">
 
                     {{-- Severity indicator --}}
                     @php
@@ -199,7 +197,7 @@
                             </label>
                             <textarea name="notes" rows="2"
                                       class="w-full rounded-md px-3 py-2 text-sm"
-                                      style="border: 1px solid var(--border); background: var(--surface); color: var(--text-primary);"
+                                      style="border: 1px solid var(--border); background: var(--surface-2); color: var(--text-primary);"
                                       :required="actionType === 'ignored'"></textarea>
                         </div>
                         <div class="flex items-center gap-2">

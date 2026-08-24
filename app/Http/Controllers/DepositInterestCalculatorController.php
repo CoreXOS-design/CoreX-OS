@@ -180,7 +180,10 @@ class DepositInterestCalculatorController extends Controller
         );
 
         // Get agency for header
-        $agency = \App\Models\Agency::first();
+        $agencyId = auth()->user()?->effectiveAgencyId();
+        abort_unless($agencyId, 422, 'Agency context required. Select an agency first.');
+        $agency = \App\Models\Agency::find($agencyId);
+        abort_unless($agency, 422, 'Agency context required. Select an agency first.');
         $logoBase64 = null;
         if ($agency && $agency->logo_path) {
             $logoFullPath = storage_path('app/public/' . $agency->logo_path);
@@ -230,7 +233,10 @@ class DepositInterestCalculatorController extends Controller
             $topups,
         );
 
-        $agency = \App\Models\Agency::first();
+        $agencyId = auth()->user()?->effectiveAgencyId();
+        abort_unless($agencyId, 422, 'Agency context required. Select an agency first.');
+        $agency = \App\Models\Agency::find($agencyId);
+        abort_unless($agency, 422, 'Agency context required. Select an agency first.');
         $logoBase64 = null;
         if ($agency && $agency->logo_path) {
             $logoFullPath = storage_path('app/public/' . $agency->logo_path);

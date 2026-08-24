@@ -20,11 +20,31 @@ class LeaseController extends Controller
     }
 
     /**
+     * Per-record authorization for a lease action.
+     *
+     * SECURITY (audit 2026-07-21): lease_records has NO agency_id and NO global scope, so
+     * route-model binding resolves ANY lease by id across ALL agencies. renew/terminate/history
+     * previously ran with no check at all — any authenticated DocuPerfect user could terminate any
+     * lease in any agency. This gates every lease action through the SAME scope the list uses
+     * (LeaseRecord::visibleTo), so a user only ever touches leases within their rentals data scope,
+     * and (see scopeVisibleTo) never outside their own agency.
+     */
+    private function authorizeLease(LeaseRecord $lease, \App\Models\User $user): void
+    {
+        abort_unless(
+            LeaseRecord::visibleTo($user)->whereKey($lease->getKey())->exists(),
+            403,
+            'You do not have access to this lease.'
+        );
+    }
+
+    /**
      * Renew a lease — clone the document and create a linked lease record.
      */
     public function renewLease(Request $request, LeaseRecord $lease)
     {
         $user = $request->user();
+        $this->authorizeLease($lease, $user);
 
         // Ensure the lease can be renewed
         if (!in_array($lease->status, [LeaseRecord::STATUS_ACTIVE, LeaseRecord::STATUS_EXPIRING_SOON, LeaseRecord::STATUS_EXPIRED])) {
@@ -99,6 +119,8 @@ class LeaseController extends Controller
      */
     public function terminateLease(Request $request, LeaseRecord $lease)
     {
+        $this->authorizeLease($lease, $request->user());
+
         $request->validate([
             'termination_date' => 'required|date',
             'reason' => 'nullable|string|max:500',
@@ -134,6 +156,8 @@ class LeaseController extends Controller
      */
     public function leaseHistory(Request $request, LeaseRecord $lease)
     {
+        $this->authorizeLease($lease, $request->user());
+
         $versions = $lease->allVersions();
 
         // Determine current version number

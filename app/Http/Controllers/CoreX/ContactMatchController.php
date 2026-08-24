@@ -151,26 +151,19 @@ class ContactMatchController extends Controller
      * Per-match property counts (total resolved / visible / hidden), keyed by
      * match id. Resolved agency-wide so the figures line up with the results page.
      *
+     * Batched via MatchingService::propertyCountsForMatches() — this used to
+     * call propertiesForMatch() once per match (one-to-three queries EACH),
+     * which on a page with hundreds of matches was the page's N+1 (measured
+     * ~12.9s wall / 1,154 queries for one agency). See that method's doc
+     * comment for the correctness note on why the per-match SQL filtering was
+     * ported to a PHP mirror instead of shared verbatim.
+     *
      * @param  \Illuminate\Support\Collection<int,ContactMatch>  $matches
      * @return array<int,array{total:int,visible:int,hidden:int}>
      */
     private function propertyCountsFor($matches): array
     {
-        $counts = [];
-        foreach ($matches as $m) {
-            $resolved  = $this->matching->propertiesForMatch($m, [
-                'agent_id'       => null,
-                'include_hidden' => true,
-            ]);
-            $hiddenIds = $m->hidden_property_ids ?? [];
-            $hidden    = $resolved->filter(fn ($p) => in_array($p->id, $hiddenIds, true))->count();
-            $counts[$m->id] = [
-                'total'   => $resolved->count(),
-                'hidden'  => $hidden,
-                'visible' => $resolved->count() - $hidden,
-            ];
-        }
-        return $counts;
+        return $this->matching->propertyCountsForMatches($matches);
     }
 
     public function store(Request $request, Contact $contact)

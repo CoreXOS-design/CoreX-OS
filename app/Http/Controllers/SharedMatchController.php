@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Agency;
+use App\Models\Contact;
 use App\Models\ContactMatch;
 use App\Models\ContactMatchFeedback;
 use App\Models\Property;
@@ -10,6 +11,7 @@ use App\Models\Scopes\AgencyScope;
 use App\Services\Matching\MatchingService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 
 class SharedMatchController extends Controller
 {
@@ -39,35 +41,93 @@ class SharedMatchController extends Controller
 
         Property::withoutEvents(fn () => null); // no-op, keep observers on
 
-        // Respect the agency-level "matches_visibility_scope" setting on the shared
-        // (client-facing) page — agent / branch / agency stock.
-        $overrides += MatchingService::scopeOverridesFor($match);
-
-        $properties = $this->matching->propertiesForMatch($match, $overrides);
-
-        // Existing feedback per property, keyed by property_id
-        $feedback = $match->feedback()->get()->keyBy('property_id');
-
-        $filters = [
-            'category'     => $overrides['category']      ?? $match->category,
-            'propertyType' => $overrides['property_type'] ?? $match->property_type,
-            'suburb'       => $match->suburb,
-            'priceMin'     => $overrides['price_min']     ?? $match->price_min,
-            'priceMax'     => $overrides['price_max']     ?? $match->price_max,
-            'bedsMin'      => $overrides['beds_min']      ?? $match->beds_min,
-            'bathsMin'     => $overrides['baths_min']     ?? $match->baths_min,
-            'garagesMin'   => $overrides['garages_min']   ?? $match->garages_min,
-            'floorMin'     => $overrides['floor_size_min'] ?? $match->floor_size_min,
-            'floorMax'     => $overrides['floor_size_max'] ?? $match->floor_size_max,
-            'erfMin'       => $overrides['erf_size_min']  ?? $match->erf_size_min,
-            'erfMax'       => $overrides['erf_size_max']  ?? $match->erf_size_max,
-        ];
+        // AT-266 — a contact with more than one saved wishlist used to hand out a
+        // separate share link per wishlist. Now the link stays singular per
+        // contact: whichever wishlist's token was shared, the page resolves
+        // EVERY active wishlist for that contact (same agency) and renders each
+        // as its own section. `match`/`token` above stay the page's identity
+        // (header, agent card, footer); `matchGroups` drives the results.
+        $matchGroups = $this->buildMatchGroups($match, $contact, $overrides, $request);
 
         $agency = $match->agency_id
             ? Agency::withoutGlobalScope(AgencyScope::class)->find($match->agency_id)
             : null;
 
-        return view('shared.match', compact('match', 'contact', 'properties', 'filters', 'token', 'feedback', 'agency'));
+        return view('shared.match', compact('match', 'contact', 'matchGroups', 'token', 'agency'));
+    }
+
+    /**
+     * One row per wishlist this contact has, in display order — the token-linked
+     * wishlist always leads (so its section opens by default), followed by the
+     * contact's other ACTIVE wishlists (a paused/fulfilled/expired sibling stays
+     * hidden; the token-linked one shows regardless of its own status, matching
+     * the page's pre-existing behaviour of trusting whichever token was shared).
+     *
+     * The `overrides` query-string filters (the "Change your search criteria"
+     * form) apply to exactly ONE wishlist per request: the one named by
+     * `match_id` in the request, or — for old bookmarked/shared links that
+     * predate `match_id` — the token-linked wishlist. Every other wishlist
+     * renders against its own saved criteria, untouched.
+     */
+    protected function buildMatchGroups(ContactMatch $match, Contact $contact, array $overrides, Request $request): Collection
+    {
+        $requestedMatchId = $request->filled('match_id') ? (int) $request->input('match_id') : null;
+
+        $siblings = ContactMatch::withoutGlobalScope(AgencyScope::class)
+            ->where('contact_id', $contact->id)
+            ->where('agency_id', $match->agency_id)
+            ->where(function ($q) use ($match) {
+                $q->where('status', ContactMatch::STATUS_ACTIVE)->orWhere('id', $match->id);
+            })
+            ->with('createdBy')
+            ->orderByDesc('is_primary')
+            ->orderBy('created_at')
+            ->get();
+
+        $ordered = collect([$siblings->firstWhere('id', $match->id) ?? $match])
+            ->merge($siblings->reject(fn (ContactMatch $m) => $m->id === $match->id));
+
+        return $ordered->map(function (ContactMatch $m) use ($match, $overrides, $requestedMatchId) {
+            $appliesOverride = $requestedMatchId !== null
+                ? $requestedMatchId === $m->id
+                : $m->id === $match->id;
+
+            // Respect the agency-level "matches_visibility_scope" setting on the
+            // shared (client-facing) page — agent / branch / agency stock.
+            $matchOverrides = $appliesOverride ? $overrides : [];
+            $matchOverrides += MatchingService::scopeOverridesFor($m);
+
+            $properties = $this->matching->propertiesForMatch($m, $matchOverrides);
+
+            return [
+                'match'      => $m,
+                'properties' => $properties,
+                'feedback'   => $m->feedback()->get()->keyBy('property_id'),
+                'filters'    => [
+                    'category'     => $matchOverrides['category']      ?? $m->category,
+                    'propertyType' => $matchOverrides['property_type'] ?? $m->property_type,
+                    'suburb'       => $m->suburb,
+                    'priceMin'     => $matchOverrides['price_min']      ?? $m->price_min,
+                    'priceMax'     => $matchOverrides['price_max']      ?? $m->price_max,
+                    'bedsMin'      => $matchOverrides['beds_min']       ?? $m->beds_min,
+                    'bathsMin'     => $matchOverrides['baths_min']      ?? $m->baths_min,
+                    'garagesMin'   => $matchOverrides['garages_min']    ?? $m->garages_min,
+                    'floorMin'     => $matchOverrides['floor_size_min'] ?? $m->floor_size_min,
+                    'floorMax'     => $matchOverrides['floor_size_max'] ?? $m->floor_size_max,
+                    'erfMin'       => $matchOverrides['erf_size_min']   ?? $m->erf_size_min,
+                    'erfMax'       => $matchOverrides['erf_size_max']   ?? $m->erf_size_max,
+                ],
+                // The section that opens by default follows whichever wishlist's
+                // filter form was just submitted (match_id), not just the URL
+                // token — otherwise editing a sibling's criteria and reloading
+                // re-collapses the very section the client just filtered.
+                'isCurrent'  => $appliesOverride,
+                // Each wishlist keeps its OWN token for record-view/feedback calls
+                // so a reaction on a sibling's property never gets misfiled against
+                // the wishlist the page happened to be opened with.
+                'token'      => $m->share_slug ?: $m->share_token,
+            ];
+        })->values();
     }
 
     public function recordView(string $token, int $property): JsonResponse

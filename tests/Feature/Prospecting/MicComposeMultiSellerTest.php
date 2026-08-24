@@ -413,6 +413,75 @@ final class MicComposeMultiSellerTest extends TestCase
         return $tpId;
     }
 
+    /**
+     * 2026-08-22 regression (Johan) — the manual "+ Link as seller" path used to call
+     * ComposeSellerService::dismissMatchingTvaCapture() here, which silently marked every
+     * pending TVA number for this ID "reviewed" even though the agent never opened the
+     * picker. It cost 249 real scraped numbers before anyone noticed. Linking a seller must
+     * never touch a TVA item the agent never saw.
+     */
+    public function test_manual_link_does_not_dismiss_pending_tva_numbers(): void
+    {
+        [$agencyId, $userId] = $this->seedAgency();
+        $listingId = $this->seedListing($agencyId, '1486 Beaumont Drive');
+        $idNumber = '8001015009087';
+
+        $captureId = (int) DB::table('tva_contact_captures')->insertGetId([
+            'agency_id' => $agencyId, 'captured_by_user_id' => $userId, 'id_number' => $idNumber,
+            'first_name' => 'Marcelle', 'surname' => 'Petersen', 'source' => 'test', 'consent_status' => 'consented',
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $itemId = (int) DB::table('tva_contact_capture_items')->insertGetId([
+            'tva_contact_capture_id' => $captureId, 'type' => 'cell', 'value' => '0821234567',
+            'date' => now(), 'link_date' => now(), 'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $url = route('seller-outreach.entry.link-seller-prospecting', ['prospectingListingId' => $listingId]);
+        $response = $this->actingAs(User::find($userId))
+            ->postJson($url, ['first_name' => 'Marcelle', 'last_name' => 'Petersen', 'id_number' => $idNumber])
+            ->assertOk();
+
+        // The item is still pending — never silently dismissed — and the compose
+        // screen's own response still offers it in the pick-list.
+        $this->assertDatabaseHas('tva_contact_capture_items', ['id' => $itemId, 'ingested_at' => null]);
+        $response->assertJsonPath("tva.{$idNumber}.items.0.id", $itemId);
+    }
+
+    /**
+     * 2026-08-22 (Johan) — honest replacement for the removed dismiss call. A TVA capture
+     * whose person is already a linked seller (via the manual path) must say so on the Deeds
+     * Capture screen instead of either looking permanently "stuck" (the 2026-08-18 symptom)
+     * or having its numbers silently marked reviewed. The numbers stay visible and pickable.
+     */
+    public function test_deeds_capture_screen_shows_seller_already_linked_badge_and_keeps_numbers(): void
+    {
+        [$agencyId, $userId] = $this->seedAgency();
+        $listingId = $this->seedListing($agencyId, '1486 Beaumont Drive');
+        $idNumber = '8001015009087';
+
+        $captureId = (int) DB::table('tva_contact_captures')->insertGetId([
+            'agency_id' => $agencyId, 'captured_by_user_id' => $userId, 'id_number' => $idNumber,
+            'first_name' => 'Marcelle', 'surname' => 'Petersen', 'source' => 'test', 'consent_status' => 'consented',
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        DB::table('tva_contact_capture_items')->insert([
+            'tva_contact_capture_id' => $captureId, 'type' => 'cell', 'value' => '0821234567',
+            'date' => now(), 'link_date' => now(), 'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $url = route('seller-outreach.entry.link-seller-prospecting', ['prospectingListingId' => $listingId]);
+        $this->actingAs(User::find($userId))
+            ->postJson($url, ['first_name' => 'Marcelle', 'last_name' => 'Petersen', 'id_number' => $idNumber])
+            ->assertOk();
+
+        $response = $this->actingAs(User::find($userId))
+            ->get(route('corex.deeds-capture.index', ['scope' => 'all']))
+            ->assertOk();
+
+        $response->assertSee('Seller already linked to a property via another path', false);
+        $response->assertSee('0821234567', false);
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────
 
     /** @return array{0:int,1:int} */

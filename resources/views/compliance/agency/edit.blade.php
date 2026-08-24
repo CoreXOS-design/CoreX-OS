@@ -1,66 +1,76 @@
 @extends('layouts.corex-app')
 
 @section('corex-content')
-<div class="-m-4 lg:-m-6">
-    <x-page-header title="Edit: {{ $provision->documentType?->name ?? 'Document' }}" :back-route="route('compliance.agency-settings.index')" :flush="true">
-        <x-slot:actions>
-            <button type="submit" form="edit-provision-form" class="px-4 py-2 text-sm font-semibold text-white"
-                    style="background:var(--brand-icon); border-radius:6px;">Save Changes</button>
-        </x-slot:actions>
-    </x-page-header>
+<div class="space-y-6">
+    {{-- Page header (Pattern A) --}}
+    <div class="rounded-md px-6 py-5 corex-page-banner">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div class="min-w-0">
+                <h1 class="text-base font-bold leading-tight truncate" style="color: var(--text-primary);">Edit: {{ $provision->documentType?->name ?? 'Document' }}</h1>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+                <a href="{{ route('compliance.agency-settings.index') }}" class="corex-btn-outline text-xs">&larr; Back</a>
+                <button type="submit" form="edit-provision-form" class="corex-btn-primary text-xs">Save Changes</button>
+            </div>
+        </div>
+    </div>
 
-    <div class="p-4 lg:p-6">
+    <div>
 
         @if($errors->any())
-        <div class="px-4 py-3 text-sm mb-5" style="background:color-mix(in srgb, var(--ds-crimson) 8%, transparent); border:1px solid rgba(239,68,68,0.25); color:var(--ds-crimson); border-radius:6px;">
+        <div class="rounded-md px-4 py-3 text-sm mb-5"
+             style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent);
+                    border: 1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent);
+                    color: var(--text-primary);">
             <ul class="list-disc list-inside space-y-1">@foreach($errors->all() as $err)<li>{{ $err }}</li>@endforeach</ul>
         </div>
         @endif
 
         <form id="edit-provision-form" method="POST" action="{{ route('compliance.agency-settings.update', $provision) }}" enctype="multipart/form-data"
-              class="max-w-2xl p-6" style="background:var(--surface, #fff); border:1px solid var(--border, #e5e7eb); border-radius:6px;">
+              class="max-w-2xl p-6 rounded-md" style="background: var(--surface); border: 1px solid var(--border);">
             @csrf @method('PATCH')
 
             <div class="space-y-4">
                 <div>
-                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary, #6b7280);">Document Type</label>
-                    <div class="px-3 py-2 text-sm font-medium" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); color:var(--text-primary, var(--text-primary)); border-radius:6px;">
+                    <label class="block text-xs font-semibold mb-1" style="color: var(--text-secondary);">Document Type</label>
+                    <div class="px-3 py-2 text-sm font-medium rounded-md" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                         {{ $provision->documentType?->name ?? 'Unknown' }}
                     </div>
                 </div>
 
                 <div>
-                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary, #6b7280);">Policy / Reference</label>
+                    <label class="block text-xs font-semibold mb-1" style="color: var(--text-secondary);">Policy / Reference</label>
                     <input type="text" name="policy_reference" value="{{ old('policy_reference', $provision->policy_reference) }}" maxlength="200"
-                           class="w-full px-3 py-2 text-sm" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); color:var(--text-primary, var(--text-primary)); border-radius:6px;">
+                           class="w-full px-3 py-2 text-sm rounded-md" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                 </div>
 
                 <div>
-                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary, #6b7280);">Replace Document</label>
+                    <label class="block text-xs font-semibold mb-1" style="color: var(--text-secondary);">Replace Document</label>
                     @if($provision->document_path)
-                    <div class="text-[10px] mb-1" style="color:var(--text-secondary, #94a3b8);">Current: {{ $provision->document_original_name }}</div>
+                    <div class="text-[10px] mb-1" style="color: var(--text-muted);">Current: {{ $provision->document_original_name }}</div>
                     @endif
                     <input type="file" name="document" accept=".pdf,.jpg,.jpeg,.png"
-                           class="w-full text-sm" style="color:var(--text-secondary, #6b7280);">
+                           class="w-full text-sm" style="color: var(--text-secondary);">
                 </div>
 
                 <div class="grid grid-cols-2 gap-3">
                     <div>
-                        <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary, #6b7280);">Effective From <span class="text-red-500">*</span></label>
+                        <label class="block text-xs font-semibold mb-1" style="color: var(--text-secondary);">Effective From <span class="text-red-500">*</span></label>
                         <input type="date" name="effective_from" value="{{ old('effective_from', $provision->effective_from?->toDateString()) }}" required
-                               class="w-full px-3 py-2 text-sm" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); color:var(--text-primary, var(--text-primary)); border-radius:6px;">
+                               class="w-full px-3 py-2 text-sm rounded-md" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                     </div>
                     <div>
-                        <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary, #6b7280);">Effective Until</label>
+                        <label class="block text-xs font-semibold mb-1" style="color: var(--text-secondary);">Effective Until</label>
                         <input type="date" name="effective_until" value="{{ old('effective_until', $provision->effective_until?->toDateString()) }}"
-                               class="w-full px-3 py-2 text-sm" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); color:var(--text-primary, var(--text-primary)); border-radius:6px;">
+                               class="w-full px-3 py-2 text-sm rounded-md" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                     </div>
                 </div>
 
                 <div>
-                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary, #6b7280);">Notes</label>
+                    <label class="block text-xs font-semibold mb-1" style="color: var(--text-secondary);">Notes</label>
                     <textarea name="notes" rows="2" maxlength="2000"
-                              class="w-full px-3 py-2 text-sm" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); color:var(--text-primary, var(--text-primary)); border-radius:6px;">{{ old('notes', $provision->notes) }}</textarea>
+                              class="w-full px-3 py-2 text-sm rounded-md" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">{{ old('notes', $provision->notes) }}</textarea>
                 </div>
             </div>
         </form>

@@ -80,7 +80,52 @@ class BranchAssignmentController extends Controller
 
         Branch::create($data);
 
+        // This route is shared by THREE callers: the standalone Branch
+        // Assignments admin page (no agency_id posted — its own hash-free
+        // page, so a bare back() is fine), the Agency edit page's "branches"
+        // tab (agency_id posted, no from_company_settings), and Company
+        // Settings' own Branches tab (posts BOTH agency_id, so the branch
+        // lands under the correct agency for an owner managing a different
+        // one, AND from_company_settings for the redirect target — check
+        // this FIRST, or it would fall through to the agency_id branch below
+        // and redirect to the wrong page). The latter two's tab state lives
+        // only in the URL fragment, which back() would silently drop,
+        // bouncing the admin to the Company/Company-Settings-default tab.
+        if ($request->filled('from_company_settings')) {
+            return redirect()->route('admin.company-settings', ['agency' => $request->input('from_company_settings')])
+                ->withFragment('branches');
+        }
+        if (!empty($data['agency_id'])) {
+            return redirect()->route('agencies.edit', $data['agency_id'])->withFragment('branches');
+        }
+
         return redirect()->back();
+    }
+
+    /**
+     * Redirect back to wherever this branch action was submitted from.
+     *
+     * These branch-mutation routes are shared by THREE callers: the standalone
+     * Branch Assignments admin page, the Company Settings page's own Branches
+     * tab (resources/views/admin/company-settings/index.blade.php), and the
+     * Agency edit page's "branches" tab. The latter two's tab state lives only
+     * in a URL fragment that a plain back() would silently drop — so each
+     * flags itself with a hidden field (from_agency_edit / from_company_settings).
+     * The standalone page sends neither and keeps the original back()
+     * behaviour, which is correct for it since it simply returns to wherever
+     * the request came from.
+     */
+    private function branchContextRedirect(Request $request, Branch $branch)
+    {
+        if ($request->boolean('from_agency_edit')) {
+            return redirect()->route('agencies.edit', $branch->agency_id)->withFragment('branches');
+        }
+        if ($request->filled('from_company_settings')) {
+            return redirect()->route('admin.company-settings', ['agency' => $request->input('from_company_settings')])
+                ->withFragment('branches');
+        }
+
+        return back();
     }
 
     public function deleteBranch(Request $request, Branch $branch)
@@ -99,7 +144,7 @@ class BranchAssignmentController extends Controller
             $reassignments = $request->input('reassignments', []);
 
             if (empty($reassignments) || !is_array($reassignments)) {
-                return back()->withErrors([
+                return $this->branchContextRedirect($request, $branch)->withErrors([
                     'branch' => 'This branch has ' . count($allAttachedUserIds) . ' user(s) assigned. Reassign them before archiving.',
                 ])->withInput(['reassign_for_branch' => $branch->id]);
             }
@@ -113,17 +158,17 @@ class BranchAssignmentController extends Controller
 
             foreach ($reassignments as $userId => $targetBranchId) {
                 if (!in_array((int) $userId, $allAttachedUserIds, true)) {
-                    return back()->withErrors(['branch' => "User {$userId} is not assigned to this branch."]);
+                    return $this->branchContextRedirect($request, $branch)->withErrors(['branch' => "User {$userId} is not assigned to this branch."]);
                 }
                 if (!$validTargetIds->has((int) $targetBranchId)) {
-                    return back()->withErrors(['branch' => "Invalid target branch for user {$userId}."]);
+                    return $this->branchContextRedirect($request, $branch)->withErrors(['branch' => "Invalid target branch for user {$userId}."]);
                 }
             }
 
             // All or nothing — every attached user must have a target
             $unaddressed = array_diff($allAttachedUserIds, array_keys($reassignments));
             if (!empty($unaddressed)) {
-                return back()->withErrors(['branch' => 'All attached users must be reassigned before archiving.']);
+                return $this->branchContextRedirect($request, $branch)->withErrors(['branch' => 'All attached users must be reassigned before archiving.']);
             }
 
             DB::transaction(function () use ($reassignments, $branch) {
@@ -136,11 +181,11 @@ class BranchAssignmentController extends Controller
                 $branch->delete();
             });
 
-            return redirect()->route('admin.branch-assignments')->with('success', "Reassigned " . count($reassignments) . " user(s) and archived {$branch->name}.");
+            return $this->branchContextRedirect($request, $branch)->with('success', "Reassigned " . count($reassignments) . " user(s) and archived {$branch->name}.");
         }
 
         $branch->delete();
-        return redirect()->route('admin.branch-assignments')->with('success', "Archived branch {$branch->name}.");
+        return $this->branchContextRedirect($request, $branch)->with('success', "Archived branch {$branch->name}.");
     }
 
     private function authorizeAdmin()
@@ -224,16 +269,16 @@ class BranchAssignmentController extends Controller
 
         $branch->update($data);
 
-        return redirect()->back()->with('success', 'Branch contact details updated.');
+        return $this->branchContextRedirect($request, $branch)->with('success', 'Branch contact details updated.');
     }
 
     // ── Restore soft-deleted branch ──
 
-    public function restoreBranch($id)
+    public function restoreBranch(Request $request, $id)
     {
         abort_unless(auth()->user()->hasPermission('manage_system'), 403);
         $record = Branch::onlyTrashed()->findOrFail($id);
         $record->restore();
-        return redirect()->back()->with('success', 'Record restored.');
+        return $this->branchContextRedirect($request, $record)->with('success', 'Record restored.');
     }
 }

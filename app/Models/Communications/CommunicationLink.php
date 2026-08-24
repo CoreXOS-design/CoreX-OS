@@ -20,10 +20,19 @@ class CommunicationLink extends Model
     const METHOD_ATTORNEY_REF    = 'attorney_ref';
     const METHOD_ELLIE_SUGGESTED = 'ellie_suggested';
     const METHOD_MANUAL          = 'manual';
+    /**
+     * comm -> Document provenance for an attachment DR2 filed into the deal's
+     * document library (CX-114, 2026-08-22). Mirrors Comms Suspense's own
+     * comm->document link (CorrespondenceFilingService, method attorney_ref) —
+     * a distinct method value so the two provenance trails stay separable, and
+     * so a move/unlink only ever withdraws documents attributable to attachment
+     * filing, never a document linked here for some other reason.
+     */
+    const METHOD_ATTACHMENT      = 'attachment';
 
     protected $fillable = [
         'agency_id', 'communication_id', 'linkable_type', 'linkable_id',
-        'link_method', 'confidence', 'confirmed_by', 'confirmed_at',
+        'source_attachment_id', 'link_method', 'confidence', 'confirmed_by', 'confirmed_at',
     ];
 
     protected $casts = [

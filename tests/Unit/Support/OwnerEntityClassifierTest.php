@@ -52,6 +52,13 @@ final class OwnerEntityClassifierTest extends TestCase
             'afrikaans beleggings, no id'    => ['SONOP BELEGGINGS BK', null, null, true],
             'municipality, no id'            => ['Ray Nkonyeni Municipality', null, null, true],
             'holdings, no id'                => ['Ntuli Holdings', null, null, true],
+
+            // ── trust registration numbers (.ai/specs/deeds-capture.md §7.7) ──
+            'trust_reg flag + IT-shape id'        => ['Steve du Toit Trust-Trustees', 'trust_reg', 'IT 1203/91', true],
+            'IT-shape id, no flag (name marker also present)' => ['Steve du Toit Trust-Trustees', null, 'IT 1203/91', true],
+            'IT-shape id, no flag, NO trust word in name'     => ['ABC Family Beleggings', null, 'IT 1203/91', true],
+            'trust_reg flag alone, no IT-shape id' => ['Some Trustees', 'trust_reg', null, true],
+            'bare digits are NOT an IT number'    => ['Thabo Nkosi', null, '120391', false], // no "IT" prefix — still a bare-digit person ID
         ];
     }
 

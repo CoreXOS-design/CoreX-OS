@@ -460,8 +460,18 @@ class PropertyMatchScoringService
      * Recompute property_buyer_matches for a single buyer across all the
      * agency's published properties. Best score across the buyer's active
      * wishlists wins per property (UNIQUE(property_id, contact_id) constraint).
+     *
+     * $candidatePool: optional pre-fetched agency-wide property pool (from
+     * MatchingService::matchableCandidatePool()). When RegenerateBuyerMatchesJob
+     * processes an entire agency's buyers, it fetches this ONCE and passes it
+     * to every contact instead of each contact re-running propertiesForMatch()
+     * (388 contacts on agency 1 — one propertiesForMatch() SQL round-trip per
+     * wishlist per contact was this method's own share of the job's N+1).
+     * Omitted (null): falls back to the original per-call propertiesForMatch()
+     * path, unchanged — this is what RecomputePropertyMatches (the manual
+     * single/all-buyer console command) and any other caller still get.
      */
-    public function recomputeForBuyer(int $contactId): int
+    public function recomputeForBuyer(int $contactId, ?Collection $candidatePool = null): int
     {
         $contact = Contact::withoutGlobalScopes()->find($contactId);
         if (!$contact) {
@@ -488,16 +498,21 @@ class PropertyMatchScoringService
             ->values();
 
         $matcher = $this->matcher();
-        $best = []; // property_id => ['score' => int, 'tier' => ?string]
-        foreach ($matches as $m) {
-            // agent_id => null = agency-wide stock; include_hidden => false = visible only.
-            foreach ($matcher->propertiesForMatch($m, ['agent_id' => null, 'include_hidden' => false]) as $p) {
-                $score = (int) ($p->match_score ?? 0);
-                if ($score < MatchingService::MIN_SCORE_TO_DISPLAY) {
-                    continue; // belt-and-braces; propertiesForMatch already floors here
-                }
-                if (!isset($best[$p->id]) || $score > $best[$p->id]['score']) {
-                    $best[$p->id] = ['score' => $score, 'tier' => MatchingService::tierFor($score)];
+
+        if ($candidatePool !== null) {
+            $best = $matcher->bestScoreAcrossMatches($matches, $candidatePool);
+        } else {
+            $best = []; // property_id => ['score' => int, 'tier' => ?string]
+            foreach ($matches as $m) {
+                // agent_id => null = agency-wide stock; include_hidden => false = visible only.
+                foreach ($matcher->propertiesForMatch($m, ['agent_id' => null, 'include_hidden' => false]) as $p) {
+                    $score = (int) ($p->match_score ?? 0);
+                    if ($score < MatchingService::MIN_SCORE_TO_DISPLAY) {
+                        continue; // belt-and-braces; propertiesForMatch already floors here
+                    }
+                    if (!isset($best[$p->id]) || $score > $best[$p->id]['score']) {
+                        $best[$p->id] = ['score' => $score, 'tier' => MatchingService::tierFor($score)];
+                    }
                 }
             }
         }
@@ -633,8 +648,18 @@ class PropertyMatchScoringService
      * Recompute prospecting_buyer_matches for a single buyer against every
      * active prospecting listing in the agency. Best score across the buyer's
      * wishlists wins per (listing, contact).
+     *
+     * $listingsPool: optional pre-fetched agency-wide active-listing pool.
+     * This method's own listings query does not depend on $contactId at all —
+     * only on the contact's agency_id — so when RegenerateBuyerMatchesJob
+     * processes 388 contacts in the same agency, it was re-running this EXACT
+     * same 32,972-row query 388 times (agency 1, live and staging both).
+     * Passing it in once from the job avoids that; omitted (null) falls back
+     * to the original per-call fetch, unchanged, for
+     * RecomputeProspectingMatches (the manual console command) and any other
+     * caller.
      */
-    public function recomputeProspectingMatchesForBuyer(int $contactId): int
+    public function recomputeProspectingMatchesForBuyer(int $contactId, ?Collection $listingsPool = null): int
     {
         $contact = Contact::withoutGlobalScopes()->find($contactId);
         if (!$contact) {
@@ -648,13 +673,17 @@ class PropertyMatchScoringService
             ->with('contact')
             ->get();
 
-        $listings = $matches->isEmpty()
-            ? collect()
-            : ProspectingListing::withoutGlobalScopes()
+        if ($matches->isEmpty()) {
+            $listings = collect();
+        } elseif ($listingsPool !== null) {
+            $listings = $listingsPool;
+        } else {
+            $listings = ProspectingListing::withoutGlobalScopes()
                 ->where('agency_id', $contact->agency_id)
                 ->where('is_active', 1)
                 ->whereNull('deleted_at')
                 ->get();
+        }
 
         $bandPct = AgencyContactSettings::forAgency((int) $contact->agency_id)->micPriceBandFraction();
 

@@ -51,29 +51,38 @@
         </div>
     @endif
 
-    <nav style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 12px;">
-        <a href="{{ route('market-intelligence.reports.index') }}" style="color: var(--brand-button); text-decoration: none;">← All reports</a>
-    </nav>
+    {{-- Page header — flat neutral bar (AT-336). Back link sits in the right
+         action cluster rather than stacked above the title. --}}
+    <div style="margin-bottom: 16px; padding: 0 0 14px 0; border-bottom: 1px solid var(--border);">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">
+                    {{ $report->file_name }}
+                </h1>
+                <p class="text-xs" style="margin: 2px 0 0 0; color: var(--text-muted);">Market report — parse status, spot-check audit, and extracted data points.</p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+                <a href="{{ route('market-intelligence.reports.index') }}" class="corex-btn-outline text-xs">← All reports</a>
+            </div>
+        </div>
+    </div>
 
     @php
         $parseColor = match ($report->parse_status) {
             'parsed'  => '#10b981',
             'failed'  => '#dc2626',
-            'parsing' => '#0ea5e9',
+            'parsing' => 'var(--brand-icon, #0ea5e9)',
             default   => 'var(--text-muted)',
         };
         $spotColor = match ($report->spot_check_status) {
             'passed'  => '#10b981',
             'flagged' => '#d97706',
-            'running' => '#0ea5e9',
+            'running' => 'var(--brand-icon, #0ea5e9)',
             default   => 'var(--text-muted)',
         };
     @endphp
 
     <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 16px; margin-bottom: 16px;">
-        <h1 style="font-size: 1.0625rem; font-weight: 600; color: var(--text-primary); margin: 0 0 4px 0;">
-            {{ $report->file_name }}
-        </h1>
         <div style="display: flex; flex-wrap: wrap; gap: 14px; font-size: 0.8125rem; color: var(--text-secondary); margin-bottom: 14px;">
             <span><strong style="color: var(--text-primary);">Type:</strong> {{ $report->reportType?->display_name ?? '—' }}</span>
             <span><strong style="color: var(--text-primary);">Uploaded:</strong> {{ $report->created_at->format('j M Y H:i') }} by {{ $report->uploader?->name ?? '—' }}</span>

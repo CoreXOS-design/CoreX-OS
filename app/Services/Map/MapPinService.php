@@ -286,7 +286,7 @@ final class MapPinService
         $this->applyRangeFilter($q, $req->bathroomsMin, $req->bathroomsMax, 'baths');
         $this->applyRangeFilter($q, $req->standMin,     $req->standMax,     'erf_size_m2');
         $this->applyRangeFilter($q, $req->buildingMin,  $req->buildingMax,  'size_m2');
-        $this->applySearchFilter($q, $req, ['address', 'title', 'complex_name', 'suburb']);
+        $this->applySearchFilter($q, $req, ['address', 'title', 'complex_name', 'suburb'], 'agent_id');
         // Map fixes — specific-agent + area/suburb narrowing.
         $this->applyAgentFilter($q, $req, 'agent_id');
         $this->applySuburbFilter($q, $req, 'p24_suburb_id');
@@ -726,7 +726,7 @@ final class MapPinService
         $this->applyRangeFilter($dealsQ, $req->bathroomsMin, $req->bathroomsMax, 'p.baths');
         $this->applyRangeFilter($dealsQ, $req->standMin,     $req->standMax,     'p.erf_size_m2');
         $this->applyRangeFilter($dealsQ, $req->buildingMin,  $req->buildingMax,  'p.size_m2');
-        $this->applySearchFilter($dealsQ, $req, ['p.address', 'p.title', 'p.complex_name', 'p.suburb', 'd.property_address']);
+        $this->applySearchFilter($dealsQ, $req, ['p.address', 'p.title', 'p.complex_name', 'p.suburb', 'd.property_address'], 'p.agent_id');
 
         foreach ($dealsQ->limit($limit)->get() as $r) {
             $key = $this->dedupeKey($r->prop_address ?? $r->property_address ?? '', $r->sale_date ?? '');
@@ -845,7 +845,9 @@ final class MapPinService
         $this->applyRangeFilter($q, $req->bathroomsMin, $req->bathroomsMax, 'pl.bathrooms');
         $this->applyRangeFilter($q, $req->standMin,     $req->standMax,     'pl.erf_size_m2');
         $this->applyRangeFilter($q, $req->buildingMin,  $req->buildingMax,  'pl.property_size_m2');
-        $this->applySearchFilter($q, $req, ['pl.address', 'pl.suburb']);
+        // prospecting_listings has no agent_id FK; captured_by_user_id is the HFC
+        // agent who captured the prospect — the equivalent "owning agent" linkage.
+        $this->applySearchFilter($q, $req, ['pl.address', 'pl.suburb'], 'pl.captured_by_user_id');
 
         if ($isWideZoom) {
             // ── Wide-zoom: aggregate path ────────────────────────────
@@ -1202,13 +1204,24 @@ final class MapPinService
      * Columns that look numeric (agent_id) are skipped — search is meant
      * for human text. Callers pass display columns only.
      */
-    private function applySearchFilter($q, MapBoundsRequest $req, array $columns): void
+    private function applySearchFilter($q, MapBoundsRequest $req, array $columns, ?string $agentColumn = null): void
     {
         if ($req->search === null || trim($req->search) === '') return;
         $needle = '%' . mb_strtolower(trim($req->search)) . '%';
-        $q->where(function ($sub) use ($needle, $columns) {
+        $q->where(function ($sub) use ($needle, $columns, $agentColumn) {
             foreach ($columns as $col) {
                 $sub->orWhereRaw('LOWER(' . $col . ') LIKE ?', [$needle]);
+            }
+            // Map fixes — the search box invites "…/ agent"; match the pin's owning
+            // agent by user name so typing an agent surfaces that agent's pins. Only
+            // the agent-owned layers pass an $agentColumn (a users.id FK on the pin);
+            // OR-combined with the text columns so it never narrows address/suburb search.
+            if ($agentColumn !== null) {
+                $sub->orWhereIn($agentColumn, function ($u) use ($needle) {
+                    $u->from('users')->select('id')
+                      ->whereNull('deleted_at')
+                      ->whereRaw('LOWER(name) LIKE ?', [$needle]);
+                });
             }
         });
     }

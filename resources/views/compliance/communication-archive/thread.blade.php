@@ -33,32 +33,32 @@
          above), so nothing overlaps it. Inline z-index (critical layering — a
          Tailwind arbitrary z class wouldn't compile on a blade-only deploy). --}}
     <div class="px-4 lg:px-6 py-2 sticky flex flex-wrap items-center gap-2"
-         style="top:0; z-index:20; background:var(--surface-1,var(--surface,#fff)); border-bottom:1px solid var(--border,#e5e7eb);">
+         style="top:0; z-index:20; background:var(--surface); border-bottom:1px solid var(--border);">
         <div class="flex items-center gap-1">
             <input type="search" placeholder="Search this conversation…" x-model.debounce.300ms="term" @keydown.enter.prevent="runSearch()" @input="if(term.length<2) clearSearch()"
-                   class="text-sm rounded px-3 py-1.5" style="background:var(--surface-2,#f0f2f8); color:var(--text-primary,#111827); border:1px solid var(--border,#e5e7eb); min-width:200px;">
+                   class="text-sm rounded-md px-3 py-1.5" style="background:var(--surface-2); color:var(--text-primary); border:1px solid var(--border); min-width:200px;">
             <template x-if="matches.length">
-                <div class="flex items-center gap-1 text-xs" style="color:var(--text-secondary,#4b5563);">
-                    <button @click="prevMatch()" class="px-2 py-1 rounded" style="border:1px solid var(--border,#e5e7eb);">↑</button>
+                <div class="flex items-center gap-1 text-xs" style="color:var(--text-secondary);">
+                    <button @click="prevMatch()" class="corex-btn-outline corex-btn-xs">↑</button>
                     <span x-text="(matchIndex+1)+' / '+matches.length"></span>
-                    <button @click="nextMatch()" class="px-2 py-1 rounded" style="border:1px solid var(--border,#e5e7eb);">↓</button>
+                    <button @click="nextMatch()" class="corex-btn-outline corex-btn-xs">↓</button>
                 </div>
             </template>
             <template x-if="searched && !matches.length">
-                <span class="text-xs" style="color:var(--text-muted,#9ca3af);">No matches</span>
+                <span class="text-xs" style="color:var(--text-muted);">No matches</span>
             </template>
         </div>
 
         <div class="flex items-center gap-2 ml-auto text-xs">
-            <span style="color:var(--text-muted,#9ca3af);" x-text="loadedCount()+' of '+total"></span>
+            <span style="color:var(--text-muted);" x-text="loadedCount()+' of '+total"></span>
             <input type="date" x-model="jumpDate" @change="jumpToDate()"
-                   class="text-xs rounded px-2 py-1" style="background:var(--surface-2,#f0f2f8); color:var(--text-primary,#111827); border:1px solid var(--border,#e5e7eb);">
-            <button @click="jumpOldest()" class="px-2 py-1 rounded font-semibold" style="border:1px solid var(--border,#e5e7eb); color:var(--text-secondary,#4b5563);" x-bind:disabled="loading">Oldest</button>
-            <button @click="jumpNewest()" class="px-2 py-1 rounded font-semibold" style="border:1px solid var(--border,#e5e7eb); color:var(--text-secondary,#4b5563);">Newest</button>
+                   class="text-xs rounded-md px-2 py-1" style="background:var(--surface-2); color:var(--text-primary); border:1px solid var(--border);">
+            <button @click="jumpOldest()" class="corex-btn-outline corex-btn-xs font-semibold" x-bind:disabled="loading">Oldest</button>
+            <button @click="jumpNewest()" class="corex-btn-outline corex-btn-xs font-semibold">Newest</button>
             {{-- AT-182 — open the matched contact's communications tab (new tab). --}}
             @if(!empty($contactId))
             <a href="{{ route('corex.contacts.show', $contactId) }}?tab=communications" target="_blank" rel="noopener"
-               class="px-2 py-1 rounded font-semibold" style="border:1px solid var(--border,#e5e7eb); color:var(--brand-icon,#0ea5e9);">Contact</a>
+               class="corex-btn-outline corex-btn-xs font-semibold" style="color:var(--brand-icon);">Contact</a>
             @endif
         </div>
     </div>

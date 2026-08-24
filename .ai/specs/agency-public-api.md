@@ -271,8 +271,24 @@ Retries are driven by `next_retry_at` + a scheduled sweep, NOT queue-native back
   No per-website keys live in CoreX's `.env`.
 - Scheduler cron: `* * * * * cd /corex && php artisan schedule:run >> /dev/null 2>&1`
   (drives `webhooks:retry-due` + all other CoreX schedules).
-- A queue worker (systemd/supervisor): `php artisan queue:work --queue=default --tries=1`
-  (delivers the webhooks).
+- A dedicated queue worker (supervisor `corex-worker-live-webhooks`):
+  `php artisan queue:work --queue=webhooks --tries=1` (delivers the webhooks).
+  `DeliverAgencyWebhook` declares `$queue = 'webhooks'` — it must NEVER share a
+  lane with long-running jobs (see incident note below).
+
+> **2026-08-05 incident — queue starvation.** `DeliverAgencyWebhook` originally
+> had no `->onQueue()` override and landed on the generic `default` queue
+> (2 workers, `corex-worker.conf`), sharing it with `RegenerateBuyerMatchesJob`
+> (buyer-match recompute — 10–15 min runtime per run, undersized/failing, see
+> `.ai/specs/unified-buyer-wishlist-spec.md` §9). A burst of property edits
+> monopolized both `default` workers back-to-back, delaying `listing.updated`
+> webhooks for a live listing by ~18.5 minutes (agent reported "Refresh takes
+> 20 min to appear on the website"); 45 deliveries agency-wide were found
+> stuck, some dating back to 2026-06-17. Fix: `DeliverAgencyWebhook` moved to
+> its own `webhooks` queue/worker so delivery latency is never coupled to
+> unrelated background job load. **Any future `ShouldQueue` job added to this
+> delivery path must explicitly declare its queue — never rely on the
+> `default` fallback.**
 
 **Each website you build (per site):** the key + webhook secret go in THAT site's
 env (`COREX_API_BASE`, `COREX_API_KEY`, `COREX_WEBHOOK_SECRET`) — surfaced in the

@@ -5,17 +5,17 @@
 <div class="w-full space-y-5">
 
     {{-- Page header (Pattern A) --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Soft Deletes</h1>
-                <p class="text-sm text-white/60">
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Soft Deletes</h1>
+                <p class="text-xs" style="color: var(--text-muted);">
                     Everything in CoreX is archived, never hard-deleted. Anything that has been deleted shows here so you can restore it.
                 </p>
             </div>
-            <div class="flex items-center gap-2">
-                <span class="inline-flex items-center gap-2 rounded-md px-3 py-1.5 text-sm font-semibold text-white"
-                      style="background: color-mix(in srgb, white 15%, transparent);"
+            <div class="flex flex-wrap items-center gap-2">
+                <span class="inline-flex items-center gap-2 rounded-md px-3 py-1.5 text-xs font-semibold"
+                      style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-secondary);"
                       title="Total archived records you can restore">
                     {{ number_format($totalArchived) }} archived
                 </span>

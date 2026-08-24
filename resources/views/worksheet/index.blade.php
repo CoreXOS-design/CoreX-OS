@@ -25,15 +25,15 @@
 <div class="w-full space-y-6">
 
     {{-- Page Header (Pattern A) --}}
-    <div class="rounded-md px-6 py-5" data-tour="at-worksheet-header" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="at-worksheet-header">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Worksheet &mdash; {{ $user->name }}</h1>
-                <p class="text-sm text-white/60">Income &rarr; Sales &rarr; Stock</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Worksheet &mdash; {{ $user->name }}</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Income &rarr; Sales &rarr; Stock</p>
             </div>
-            <div class="flex items-center gap-3">
-                @include('layouts.partials.tour-header-launcher')
-                <div class="text-sm font-medium text-white/80">
+            <div class="flex items-center gap-2">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+                <div class="text-xs font-medium" style="color: var(--text-muted);">
                     {{ $w->period ?? now()->format('Y-m') }}
                 </div>
             </div>
@@ -62,7 +62,7 @@
         $rentalsCommExcl = (float)($calc['rentals_commission_excl_total'] ?? 0);
     @endphp
 
-    <div class="ds-status-card" style="border-left-color: var(--brand-default, #0b2a4a);">
+    <div class="ds-status-card" style="border-left-color: var(--border);">
         <div class="flex items-center justify-between mb-3">
             <h3 class="ds-section-header" style="margin-bottom:0;">Rentals (This Period)</h3>
             <span class="ds-badge ds-badge-default">Ex VAT</span>
@@ -160,7 +160,7 @@
         @csrf
 
         {{-- Section: Period + Inputs --}}
-        <div class="ds-status-card" data-tour="at-worksheet-inputs" style="border-left-color: var(--brand-default, #0b2a4a);">
+        <div class="ds-status-card" data-tour="at-worksheet-inputs" style="border-left-color: var(--border);">
             <h3 class="ds-section-header" style="margin-bottom:0.5rem;">Planning Inputs</h3>
             <p class="text-sm mb-4" style="color: var(--text-muted);">Fill in your numbers for the month. Save. Your required sales and stock levels will calculate automatically.</p>
 
@@ -169,7 +169,7 @@
                     <label for="wks-period" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Period (YYYY-MM)</label>
                     <input id="wks-period" type="month" name="period" value="{{ old('period', $w->period ?? now()->format('Y-m')) }}"
                            class="w-full rounded-md px-3 py-2 text-sm"
-                           style="background: var(--surface); color: var(--text-primary); border: 1px solid var(--border);" />
+                           style="background: var(--surface-2); color: var(--text-primary); border: 1px solid var(--border);" />
                     @error('period') <div class="text-xs mt-1" style="color: var(--ds-crimson);">{{ $message }}</div> @enderror
                 </div>
 
@@ -196,7 +196,7 @@
                     @else
                         <input id="wks-correctly-priced" type="number" step="0.01" name="correctly_priced_percent" value="{{ old('correctly_priced_percent', $w->correctly_priced_percent ?? 40) }}"
                                class="w-full rounded-md px-3 py-2 text-sm"
-                               style="background: var(--surface); color: var(--text-primary); border: 1px solid var(--border);" />
+                               style="background: var(--surface-2); color: var(--text-primary); border: 1px solid var(--border);" />
                         @error('correctly_priced_percent') <div class="text-xs mt-1" style="color: var(--ds-crimson);">{{ $message }}</div> @enderror
                     @endif
 
@@ -206,7 +206,7 @@
         </div>
 
         {{-- Section: Net Monthly Targets --}}
-        <div class="ds-status-card" data-tour="at-worksheet-net-targets" style="border-left-color: var(--brand-default, #0b2a4a);">
+        <div class="ds-status-card" data-tour="at-worksheet-net-targets" style="border-left-color: var(--border);">
             <h3 class="ds-section-header" style="margin-bottom:0.75rem;">Net Monthly Targets</h3>
 
             @if(!empty($companyRequirement))
@@ -248,21 +248,21 @@
                     <label for="wks-personal" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Personal (Take-home)</label>
                     <input id="wks-personal" type="number" step="0.01" name="personal_net_target" value="{{ old('personal_net_target', $w->personal_net_target ?? 0) }}"
                            class="w-full rounded-md px-3 py-2 text-sm"
-                           style="background: var(--surface); color: var(--text-primary); border: 1px solid var(--border);" />
+                           style="background: var(--surface-2); color: var(--text-primary); border: 1px solid var(--border);" />
                     @error('personal_net_target') <div class="text-xs mt-1" style="color: var(--ds-crimson);">{{ $message }}</div> @enderror
                 </div>
                 <div>
                     <label for="wks-business" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Business (Fuel/Marketing/etc.)</label>
                     <input id="wks-business" type="number" step="0.01" name="business_net_target" value="{{ old('business_net_target', $w->business_net_target ?? 0) }}"
                            class="w-full rounded-md px-3 py-2 text-sm"
-                           style="background: var(--surface); color: var(--text-primary); border: 1px solid var(--border);" />
+                           style="background: var(--surface-2); color: var(--text-primary); border: 1px solid var(--border);" />
                     @error('business_net_target') <div class="text-xs mt-1" style="color: var(--ds-crimson);">{{ $message }}</div> @enderror
                 </div>
                 <div>
                     <label for="wks-want" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Want (Savings/Holiday/Buffer)</label>
                     <input id="wks-want" type="number" step="0.01" name="want_net_target" value="{{ old('want_net_target', $w->want_net_target ?? 0) }}"
                            class="w-full rounded-md px-3 py-2 text-sm"
-                           style="background: var(--surface); color: var(--text-primary); border: 1px solid var(--border);" />
+                           style="background: var(--surface-2); color: var(--text-primary); border: 1px solid var(--border);" />
                     @error('want_net_target') <div class="text-xs mt-1" style="color: var(--ds-crimson);">{{ $message }}</div> @enderror
                 </div>
             </div>
@@ -271,7 +271,7 @@
         {{-- ============================================================ --}}
         {{-- DEAL REGISTER SUMMARY --}}
         {{-- ============================================================ --}}
-        <div class="ds-status-card" data-tour="at-worksheet-deal-summary" style="border-left-color: var(--brand-default, #0b2a4a);">
+        <div class="ds-status-card" data-tour="at-worksheet-deal-summary" style="border-left-color: var(--border);">
             <h3 class="ds-section-header" style="margin-bottom:0.25rem;">Deal Register Summary (What's Happening)</h3>
             <div class="ds-section-sub mb-4">
                 This section reports your captured Deal Register performance for the selected period (sales, commission, stages, and pipeline).
@@ -297,8 +297,8 @@
                  boxed column beneath it. --}}
             <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
                 <div></div>
-                <div class="text-xs font-bold uppercase tracking-wide text-white rounded-md px-3 py-2" style="background: var(--brand-default, #0b2a4a);">Plan Inputs (BM / Worksheet)</div>
-                <div class="text-xs font-bold uppercase tracking-wide text-white rounded-md px-3 py-2" style="background: var(--brand-default, #0b2a4a);">Deal Register (Actuals)</div>
+                <div class="text-xs font-bold uppercase tracking-wide rounded-md px-3 py-2" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-muted);">Plan Inputs (BM / Worksheet)</div>
+                <div class="text-xs font-bold uppercase tracking-wide rounded-md px-3 py-2" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-muted);">Deal Register (Actuals)</div>
             </div>
 
             {{-- ROW: Avg Sale Price --}}
@@ -341,7 +341,7 @@
                     <input id="wks-commission" type="number" step="0.01" name="commission_percent"
                            value="{{ old('commission_percent', $w->commission_percent ?? 7.5) }}"
                            class="w-full rounded-md px-3 py-2 text-sm"
-                           style="background: var(--surface); color: var(--text-primary); border: 1px solid var(--border);" />
+                           style="background: var(--surface-2); color: var(--text-primary); border: 1px solid var(--border);" />
                     @error('commission_percent') <div class="text-xs mt-1" style="color: var(--ds-crimson);">{{ $message }}</div> @enderror
                     <div class="text-xs mt-1" style="color: var(--text-muted);">Planning % (default 7.5%).</div>
                 </div>
@@ -494,7 +494,7 @@
         </div>
 
         {{-- Section: Admin Controls --}}
-        <div class="ds-status-card" style="border-left-color: var(--brand-default, #0b2a4a);">
+        <div class="ds-status-card" style="border-left-color: var(--border);">
             <h3 class="ds-section-header" style="margin-bottom:0.75rem;">Admin Controls</h3>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
@@ -530,14 +530,14 @@
     {{-- ============================================================ --}}
     {{-- TARGET REQUIREMENTS (Plan vs Market Reality) --}}
     {{-- ============================================================ --}}
-    <div class="ds-status-card" data-tour="at-worksheet-requirements" style="border-left-color: var(--brand-default, #0b2a4a);">
+    <div class="ds-status-card" data-tour="at-worksheet-requirements" style="border-left-color: var(--border);">
         <h3 class="ds-section-header" style="margin-bottom:0.25rem;">Target Requirements (Plan vs Market Reality)</h3>
         <div class="ds-section-sub mb-4">
             This section recalculates what you need to do (sales/listings/gap) based on (1) your plan inputs vs (2) market reality from Deal Register averages.
         </div>
 
         @if(!isset($w) || !$w)
-            <div class="rounded-md py-12 px-6 text-center" style="background: var(--surface); border: 1px solid var(--border);">
+            <div class="rounded-md py-12 px-6 text-center" style="background: var(--surface-2); border: 1px solid var(--border);">
                 <div class="w-12 h-12 rounded-full mx-auto mb-4 flex items-center justify-center"
                      style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent); color: var(--brand-icon);">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6">
@@ -643,15 +643,15 @@
 
             {{-- Three Column Headers --}}
             <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-1">
-                <div class="text-xs font-bold uppercase tracking-wide text-white rounded-t-md px-3 py-2" style="background: var(--brand-default, #0b2a4a);">Plan (Worksheet Inputs)</div>
-                <div class="text-xs font-bold uppercase tracking-wide text-white rounded-t-md px-3 py-2" style="background: var(--brand-default, #0b2a4a);">Market-Based (Deal Register Averages)</div>
-                <div class="text-xs font-bold uppercase tracking-wide text-white rounded-t-md px-3 py-2" style="background: var(--brand-default, #0b2a4a);">Difference (Market - Plan)</div>
+                <div class="text-xs font-bold uppercase tracking-wide rounded-t-md px-3 py-2" style="background: var(--surface-2); border: 1px solid var(--border); border-bottom: none; color: var(--text-muted);">Plan (Worksheet Inputs)</div>
+                <div class="text-xs font-bold uppercase tracking-wide rounded-t-md px-3 py-2" style="background: var(--surface-2); border: 1px solid var(--border); border-bottom: none; color: var(--text-muted);">Market-Based (Deal Register Averages)</div>
+                <div class="text-xs font-bold uppercase tracking-wide rounded-t-md px-3 py-2" style="background: var(--surface-2); border: 1px solid var(--border); border-bottom: none; color: var(--text-muted);">Difference (Market - Plan)</div>
             </div>
 
             <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
 
                 {{-- PLANNED --}}
-                <div class="rounded-b-md p-4" style="background: var(--surface); border: 1px solid var(--border); border-top: 3px solid var(--brand-default, #0b2a4a);">
+                <div class="rounded-b-md p-4" style="background: var(--surface); border: 1px solid var(--border); border-top: 3px solid var(--border);">
                     <div class="space-y-2 text-sm" style="color: var(--text-primary);">
                         <div><span class="ds-label">Period:</span> <span class="ds-value">{{ $w->period }}</span></div>
 
@@ -682,7 +682,7 @@
                 </div>
 
                 {{-- ACTUAL / MARKET --}}
-                <div class="rounded-b-md p-4" style="background: var(--surface); border: 1px solid var(--border); border-top: 3px solid var(--brand-default, #0b2a4a);">
+                <div class="rounded-b-md p-4" style="background: var(--surface); border: 1px solid var(--border); border-top: 3px solid var(--border);">
                     <div class="space-y-2 text-sm" style="color: var(--text-primary);">
                         <div><span class="ds-label">Period:</span> <span class="ds-value">{{ $dealStats['period'] ?? $w->period }}</span></div>
 
@@ -725,7 +725,7 @@
                     $delta_net_need = (float)($actualNetNeed ?? 0) - (float)($plannedNetNeed ?? 0);
                 @endphp
 
-                <div class="rounded-b-md p-4" style="background: var(--surface); border: 1px solid var(--border); border-top: 3px solid var(--brand-default, #0b2a4a);">
+                <div class="rounded-b-md p-4" style="background: var(--surface); border: 1px solid var(--border); border-top: 3px solid var(--border);">
                     <div class="space-y-2 text-sm" style="color: var(--text-primary);">
                         <div><span class="ds-label">Period:</span> <span class="ds-value">{{ $dealStats['period'] ?? $w->period }}</span></div>
                         <div><span class="ds-label">Nett Take-home at Company Budget:</span> <span class="ds-value">R {{ number_format($deltaBudgetUsed, 2) }}</span></div>
@@ -750,7 +750,7 @@
     {{-- ============================================================ --}}
     {{-- SAVED MONTHS --}}
     {{-- ============================================================ --}}
-    <div class="ds-status-card" style="border-left-color: var(--brand-default, #0b2a4a);">
+    <div class="ds-status-card" style="border-left-color: var(--border);">
         <h3 class="ds-section-header" style="margin-bottom:0.75rem;">Your Saved Months</h3>
 
         <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">

@@ -386,6 +386,53 @@ final class CmaInfoPropertyValuationParser extends AbstractCmaInfoParser
             ];
         }
 
+        // ── Freehold (Erf-based) comp rows ──────────────────────────────────
+        // Live incident 2026-08-20 (presentation 137/138 Torquay Avenue,
+        // Leisure Bay): the pattern above is sectional-title only (Section +
+        // SS number + SS year + "Residence"). A FREEHOLD subject's own CMA
+        // table has no scheme/section/SS at all — its row shape is
+        // "<idx> <dist>m <erf> <STREET>, <SUBURB> <usage> <extent>m²
+        // <date> R<price> R<est> R<ppm>", e.g. "1  87 m  157  WALTON AVENUE,
+        // THREE HILLS  Residential  1 090 m²  2016/10/17  R 120 000
+        // R 172 000  R 158" (confirmed against the live source PDF via
+        // `pdftotext -layout`). The old pattern cannot match this shape at
+        // all — not a wording mismatch, a structurally different table — so
+        // every freehold subject's real comparables parsed to zero. "Usage"
+        // here is also "Residential", not "Residence" (same CMA Info
+        // vocabulary split already seen in the vicinity-sale report type),
+        // so both spellings are accepted.
+        $freeholdPattern = '/(?<idx>\d{1,3})\s+(?<dist>\d{1,5})\s*m\s+(?<erf>\d{1,6})\s+'
+            .'(?<street>[A-Z][A-Z0-9 \'&\.]{2,50}?),\s*(?<fsuburb>[A-Z][A-Z \'&\.]{2,40}?)\s+'
+            .'(?:Residential|Residence|Commercial|Vacant\s+Land)\s+'
+            .'(?<ext>\d{1,3}(?:\s\d{3})?)\s*m\S?\s+'
+            .'(?<date>\d{4}[\/\-]\d{2}[\/\-]\d{2})\s+R\s*(?<sp>\d{1,3}(?:[\s,]\d{3}){0,3})'
+            .'(?:\s+R\s*(?<est>\d{1,3}(?:[\s,]\d{3}){0,3}))?'
+            .'(?:\s+R\s*(?<ppm>\d{1,3}(?:[\s,]\d{3}){0,2}))?/u';
+
+        preg_match_all($freeholdPattern, $body, $freeholdMatches, PREG_SET_ORDER);
+
+        foreach ($freeholdMatches as $m) {
+            $rows[] = [
+                'scheme_name'           => null,
+                'section_number'        => null,
+                'ss_number'             => null,
+                'ss_year'               => null,
+                'property_type'         => 'Residential',
+                'extent_m2'             => (int) str_replace(' ', '', $m['ext']),
+                'sale_date'             => $this->parseDate($m['date']),
+                // Historical freehold sales in this table legitimately go well
+                // below the 50k default floor (1990s R13-14k sales seen on the
+                // live incident PDF) — widen the floor for this path only.
+                'sale_price'            => $this->parsePriceBounded($m['sp'], 'cma.freehold.sale_price', $m[0], 1_000),
+                'estimated_value'       => !empty($m['est']) ? $this->parsePriceBounded($m['est'], 'cma.freehold.estimated_value', $m[0], 1_000) : null,
+                'r_per_m2'              => !empty($m['ppm']) ? $this->parsePriceBounded($m['ppm'], 'cma.freehold.r_per_m2', $m[0], 100, 500000) : null,
+                'address'               => trim($m['street']),
+                'suburb_normalised'     => $this->normaliseSuburb(trim($m['fsuburb'])),
+                'distance_to_subject_m' => (int) $m['dist'],
+                'erf_number'            => $m['erf'],
+            ];
+        }
+
         // ── Stacked multi-section comps ─────────────────────────────────────
         // A combined-unit sale wraps its sections + extents to the lines above
         // and below the anchor, so the single-line pass above drops it entirely.

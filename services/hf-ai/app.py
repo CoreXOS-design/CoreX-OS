@@ -18,11 +18,22 @@ Ellie chat runs on Anthropic Claude (the CoreX standard — latest/cheapest Clau
 matching the original working setup. Transcription stays on self-hosted Whisper
 (POPIA: audio never leaves the box; Anthropic has no speech-to-text).
 
+Embeddings (/embed) are ALSO self-hosted, for the same reason plus one more:
+Anthropic has no embeddings endpoint either. CoreX previously used OpenAI
+`text-embedding-3-small`, which meant a second vendor account purely for this —
+and when that account quietly ran out of quota, every knowledge-base search
+silently fell back to keyword matching and Ellie started telling agents she
+"didn't have" documents she was holding. Self-hosting removes the second
+account, the second bill, and that entire class of silent outage. Runs on
+onnxruntime + tokenizers, both of which faster-whisper already pulled in, so
+there is no torch and no new heavy dependency.
+
 Environment (systemd EnvironmentFile=/etc/hf-ai/openai.env + unit Environment=):
   ANTHROPIC_API_KEY    required for /chat (same key the prod/staging Laravel uses)
   ANTHROPIC_MODEL      chat model (default: claude-haiku-4-5 — cheapest Claude)
   WHISPER_MODEL        faster-whisper model (default: small.en)
   WHISPER_MAX_SECONDS  reject clips longer than this (default: 30)
+  EMBED_MODEL          embedding model repo (default: BAAI/bge-small-en-v1.5)
 """
 
 import os
@@ -32,6 +43,7 @@ import time
 import tempfile
 
 import anthropic
+import numpy as np
 from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.responses import JSONResponse
 
@@ -41,6 +53,20 @@ ANTHROPIC_API_KEY   = os.environ.get("ANTHROPIC_API_KEY", "").strip()
 ANTHROPIC_MODEL     = os.environ.get("ANTHROPIC_MODEL", "claude-haiku-4-5").strip() or "claude-haiku-4-5"
 WHISPER_MODEL_NAME  = os.environ.get("WHISPER_MODEL", "small.en").strip() or "small.en"
 WHISPER_MAX_SECONDS = float(os.environ.get("WHISPER_MAX_SECONDS", "30") or 30)
+
+# Embeddings. bge-small-en-v1.5: 384 dims, ~130MB, strong retrieval quality for
+# its size and fast on CPU. Changing this model changes the vector dimension,
+# which invalidates every stored embedding — see EmbeddingService::dimensions()
+# on the Laravel side, which refuses to compare vectors of differing length
+# rather than silently scoring garbage. Re-embed after any change here.
+EMBED_MODEL_REPO    = os.environ.get("EMBED_MODEL", "BAAI/bge-small-en-v1.5").strip() or "BAAI/bge-small-en-v1.5"
+EMBED_MAX_TOKENS    = 512
+EMBED_MAX_BATCH     = 64
+
+# BGE models are trained asymmetrically: the QUERY gets an instruction prefix,
+# the passage does not. Omitting it measurably degrades retrieval, so the
+# caller tells us which side it is embedding via `kind`.
+EMBED_QUERY_PREFIX  = "Represent this sentence for searching relevant passages: "
 
 # Ellie persona. Reconstructed to match the CoreX "Ellie advises, humans decide"
 # principle (.ai/specs/ellie.md). Tune freely — it only shapes /chat replies.
@@ -96,13 +122,88 @@ def get_whisper():
     return _whisper_model
 
 
+# --- Embeddings (lazy-loaded ONNX, kept warm) --------------------------------
+
+_embed_session = None
+_embed_tokenizer = None
+_embed_dim = None
+_embed_error = None
+
+
+def get_embedder():
+    """
+    Load the ONNX embedding model once and keep it resident.
+
+    Deliberately onnxruntime + tokenizers rather than sentence-transformers:
+    both are already installed as faster-whisper dependencies, so this adds a
+    ~130MB model file and no new Python packages (sentence-transformers would
+    drag in torch, ~2GB, on a box with under 10GB free).
+    """
+    global _embed_session, _embed_tokenizer, _embed_dim, _embed_error
+    if _embed_session is not None or _embed_error is not None:
+        return _embed_session, _embed_tokenizer
+
+    try:
+        from huggingface_hub import hf_hub_download
+        from tokenizers import Tokenizer
+        import onnxruntime as ort
+
+        onnx_path = hf_hub_download(EMBED_MODEL_REPO, "onnx/model.onnx")
+        tok_path = hf_hub_download(EMBED_MODEL_REPO, "tokenizer.json")
+
+        tokenizer = Tokenizer.from_file(tok_path)
+        tokenizer.enable_truncation(max_length=EMBED_MAX_TOKENS)
+        tokenizer.enable_padding()
+
+        session = ort.InferenceSession(onnx_path, providers=["CPUExecutionProvider"])
+
+        _embed_session = session
+        _embed_tokenizer = tokenizer
+        _embed_dim = session.get_outputs()[0].shape[-1]
+        print(f"[hf-ai] Embedder '{EMBED_MODEL_REPO}' loaded (onnx/cpu)", file=sys.stderr, flush=True)
+    except Exception as e:  # noqa: BLE001
+        _embed_error = str(e)
+        print(f"[hf-ai] Embedder load FAILED: {e}", file=sys.stderr, flush=True)
+
+    return _embed_session, _embed_tokenizer
+
+
+def _encode(texts, is_query: bool):
+    """Tokenize → ONNX → CLS-pool → L2-normalize. Returns a list of lists."""
+    session, tokenizer = get_embedder()
+    if session is None:
+        raise RuntimeError("Embedder not loaded: " + (_embed_error or "unknown"))
+
+    if is_query:
+        texts = [EMBED_QUERY_PREFIX + t for t in texts]
+
+    encodings = tokenizer.encode_batch(texts)
+    ids = np.array([e.ids for e in encodings], dtype=np.int64)
+    mask = np.array([e.attention_mask for e in encodings], dtype=np.int64)
+
+    feed = {"input_ids": ids, "attention_mask": mask}
+    if "token_type_ids" in {i.name for i in session.get_inputs()}:
+        feed["token_type_ids"] = np.zeros_like(ids)
+
+    hidden = session.run(None, feed)[0]
+
+    # BGE pools the CLS token, not the mean. Then L2-normalise so a plain dot
+    # product IS cosine similarity on the consuming side.
+    cls = hidden[:, 0]
+    norms = np.linalg.norm(cls, axis=1, keepdims=True)
+    norms[norms == 0] = 1.0
+
+    return (cls / norms).astype(float).tolist()
+
+
 app = FastAPI(title="HF AI service", version="2026-06-18")
 
 
 @app.on_event("startup")
 def _warm():
-    # Warm the model at boot so the first agent doesn't eat the load latency.
+    # Warm both models at boot so the first agent doesn't eat the load latency.
     get_whisper()
+    get_embedder()
 
 
 # --- Health -----------------------------------------------------------------
@@ -110,13 +211,63 @@ def _warm():
 @app.get("/health")
 def health():
     model = get_whisper()
+    session, _ = get_embedder()
     return {
         "whisper": "ready" if model is not None else ("error: " + (_whisper_error or "loading")),
         "kb": "ready",  # KB/RAG runs in Laravel (KnowledgeSearchService); kept for contract compatibility.
         "chat_provider": "anthropic" if ANTHROPIC_API_KEY else "unconfigured",
         "chat_model": ANTHROPIC_MODEL,
         "whisper_model": WHISPER_MODEL_NAME,
+        "embed": "ready" if session is not None else ("error: " + (_embed_error or "loading")),
+        "embed_model": EMBED_MODEL_REPO,
+        "embed_dim": _embed_dim,
     }
+
+
+# --- Embed (self-hosted, replaces OpenAI text-embedding-3-small) -------------
+
+@app.post("/embed")
+def embed(payload: dict):
+    """
+    Embed a batch of texts.
+
+    Request:  {"texts": ["…"], "kind": "query"|"passage"}
+    Response: {"embeddings": [[…]], "model": "…", "dim": 384}
+
+    `kind` matters: BGE is trained asymmetrically and the query side needs an
+    instruction prefix that the passage side must NOT get. Defaults to
+    "passage" because that is the bulk case (ingest), so a caller that forgets
+    to pass it degrades one search rather than corrupting a whole re-index.
+    """
+    texts = (payload or {}).get("texts")
+    if not isinstance(texts, list) or not texts:
+        return JSONResponse({"error": "texts must be a non-empty array"}, status_code=422)
+
+    if len(texts) > EMBED_MAX_BATCH:
+        return JSONResponse(
+            {"error": f"batch too large: {len(texts)} > {EMBED_MAX_BATCH}"},
+            status_code=422,
+        )
+
+    cleaned = [str(t) if t is not None else "" for t in texts]
+    if not any(t.strip() for t in cleaned):
+        return JSONResponse({"error": "texts are all empty"}, status_code=422)
+
+    is_query = str((payload or {}).get("kind", "passage")).strip().lower() == "query"
+
+    try:
+        t0 = time.time()
+        vectors = _encode(cleaned, is_query)
+        return {
+            "embeddings": vectors,
+            "model": EMBED_MODEL_REPO,
+            "dim": len(vectors[0]) if vectors else 0,
+            "kind": "query" if is_query else "passage",
+            "elapsed_ms": int((time.time() - t0) * 1000),
+        }
+    except Exception as e:  # noqa: BLE001
+        print(f"[hf-ai] /embed exception: {e}", file=sys.stderr, flush=True)
+        return JSONResponse({"error": f"Embedding failed: {e}"}, status_code=503)
 
 
 # --- Helpers ----------------------------------------------------------------

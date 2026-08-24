@@ -40,7 +40,7 @@
 
     @if($documents->isEmpty())
         <div class="ds-status-card p-6 text-center mt-4">
-            <div class="text-sm text-slate-500">
+            <div class="text-sm" style="color:var(--text-muted)">
                 @if(request('search'))
                     No documents match your search.
                 @else
@@ -52,13 +52,13 @@
         @if(!empty($packInstance))
         <div class="flex justify-end mt-4">
             <button type="button" id="dpCombinedPdfBtn"
-                    class="corex-btn-primary text-sm px-4 py-2" style="background:#0b2a4a;"
+                    class="corex-btn-primary text-sm px-4 py-2" style="background:var(--brand-button);"
                     onclick="downloadCombinedPdf()" data-tour="dp-documents-combined-pdf">
                 <i class="fas fa-file-pdf mr-1"></i> Download as Single PDF
             </button>
         </div>
         @endif
-        <div class="rounded-2xl border border-slate-200 bg-white overflow-x-auto mt-4" data-tour="dp-documents-table">
+        <div class="rounded-2xl border border-[color:var(--border)] bg-[color:var(--surface)] overflow-x-auto mt-4" data-tour="dp-documents-table">
             <table class="w-full text-sm ds-table">
                 <thead>
                     <tr>
@@ -77,42 +77,42 @@
                 <tbody>
                     @foreach($documents as $doc)
                     <tr x-data="{ renaming: false }">
-                        <td class="px-4 py-3 font-medium text-slate-900">
+                        <td class="px-4 py-3 font-medium text-[color:var(--text-primary)]">
                             <div x-show="!renaming" class="flex items-center gap-1.5">
                                 <span>{{ $doc->name }}</span>
-                                <button @click="renaming = true" class="text-slate-300 hover:text-slate-500" title="Rename">
+                                <button @click="renaming = true" class="text-[color:var(--text-faint)] hover:text-[color:var(--text-muted)]" title="Rename">
                                     <i class="fas fa-pencil-alt text-[10px]"></i>
                                 </button>
                             </div>
                             <form x-show="renaming" x-cloak method="POST" action="{{ route('docuperfect.documents.rename', $doc->id) }}" class="flex items-center gap-1.5">
                                 @csrf
                                 <input type="text" name="name" value="{{ $doc->name }}"
-                                       class="rounded border border-slate-300 text-sm px-2 py-0.5 w-full max-w-xs focus:ring-1 focus:ring-blue-400"
+                                       class="rounded border border-[color:var(--border)] text-sm px-2 py-0.5 w-full max-w-xs focus:ring-1 focus:ring-[color:var(--brand-icon)]"
                                        required maxlength="255"
                                        x-ref="renameInput"
                                        x-init="$watch('renaming', v => { if(v) $nextTick(() => $refs.renameInput.select()) })">
                                 <button type="submit" class="text-green-600 hover:text-green-800 text-xs font-medium">Save</button>
-                                <button type="button" @click="renaming = false" class="text-slate-400 hover:text-slate-600 text-xs">Cancel</button>
+                                <button type="button" @click="renaming = false" class="text-[color:var(--text-faint)] hover:text-[color:var(--text-muted)] text-xs">Cancel</button>
                             </form>
                         </td>
-                        <td class="px-4 py-3 text-slate-600">{{ $doc->template->name ?? '—' }}</td>
-                        <td class="px-4 py-3 text-slate-500">{{ $doc->updated_at->format('d M Y H:i') }}</td>
+                        <td class="px-4 py-3 text-[color:var(--text-secondary)]">{{ $doc->template->name ?? '—' }}</td>
+                        <td class="px-4 py-3 text-[color:var(--text-muted)]">{{ $doc->updated_at->format('d M Y H:i') }}</td>
                         @if($user->hasPermission('documents.edit'))
-                        <td class="px-4 py-3 text-slate-600">{{ $doc->owner->name ?? '—' }}</td>
+                        <td class="px-4 py-3 text-[color:var(--text-secondary)]">{{ $doc->owner->name ?? '—' }}</td>
                         @endif
                         @if($user->hasPermission('manage_system'))
-                        <td class="px-4 py-3 text-slate-600">{{ $doc->branch->name ?? '—' }}</td>
+                        <td class="px-4 py-3 text-[color:var(--text-secondary)]">{{ $doc->branch->name ?? '—' }}</td>
                         @endif
                         <td class="px-4 py-3 text-right space-x-2">
                             @if(($filter ?? 'active') === 'archived')
                                 <form method="POST" action="{{ route('docuperfect.documents.restore', $doc->id) }}" class="inline">
                                     @csrf
-                                    <button class="text-sm text-blue-600 hover:text-blue-800">Restore</button>
+                                    <button class="text-sm text-[color:var(--brand-icon)] hover:opacity-80">Restore</button>
                                 </form>
                                 <form method="POST" action="{{ route('docuperfect.documents.destroy', $doc->id) }}" class="inline" onsubmit="return confirm('Permanently delete this document? This cannot be undone.');">
                                     @csrf
                                     @method('DELETE')
-                                    <button class="text-sm text-slate-400 hover:text-red-600">Delete</button>
+                                    <button class="text-sm text-[color:var(--text-faint)] hover:text-red-600">Delete</button>
                                 </form>
                             @else
                                 <a href="{{ route('docuperfect.documents.edit', $doc->id) }}" class="ds-link text-sm">Edit</a>
@@ -128,14 +128,14 @@
                                 @else
                                     <form method="POST" action="{{ route('docuperfect.documents.archive', $doc->id) }}" class="inline" onsubmit="return confirm('Archive this document? It will be moved to the Archived tab.');">
                                         @csrf
-                                        <button class="text-sm text-slate-400 hover:text-amber-600">Archive</button>
+                                        <button class="text-sm text-[color:var(--text-faint)] hover:text-amber-600">Archive</button>
                                     </form>
                                 @endif
                                 @if(!$isInActiveWorkflow)
                                 <form method="POST" action="{{ route('docuperfect.documents.destroy', $doc->id) }}" class="inline" onsubmit="return confirm('Permanently delete this document? This cannot be undone.');">
                                     @csrf
                                     @method('DELETE')
-                                    <button class="text-sm text-slate-400 hover:text-red-600">Delete</button>
+                                    <button class="text-sm text-[color:var(--text-faint)] hover:text-red-600">Delete</button>
                                 </form>
                                 @endif
                             @endif
@@ -155,7 +155,7 @@
     @if(!empty($packInstance) && isset($attachments) && $attachments->isNotEmpty())
     <div class="mt-6">
         <h3 class="ds-section-header">Attachments</h3>
-        <div class="rounded-2xl border border-slate-200 bg-white overflow-x-auto">
+        <div class="rounded-2xl border border-[color:var(--border)] bg-[color:var(--surface)] overflow-x-auto">
             <table class="w-full text-sm ds-table">
                 <thead>
                     <tr>
@@ -168,12 +168,12 @@
                 <tbody>
                     @foreach($attachments as $att)
                     <tr>
-                        <td class="px-4 py-3 font-medium text-slate-900">
-                            <i class="fas fa-paperclip text-blue-400 mr-1"></i>
+                        <td class="px-4 py-3 font-medium text-[color:var(--text-primary)]">
+                            <i class="fas fa-paperclip text-[color:var(--brand-icon)] mr-1"></i>
                             {{ $att->knowledgeDocument->title ?? 'Unknown' }}
                         </td>
-                        <td class="px-4 py-3 text-slate-600">{{ $att->knowledgeDocument->category->name ?? '—' }}</td>
-                        <td class="px-4 py-3 text-slate-500">{{ $att->slot_label }}</td>
+                        <td class="px-4 py-3 text-[color:var(--text-secondary)]">{{ $att->knowledgeDocument->category->name ?? '—' }}</td>
+                        <td class="px-4 py-3 text-[color:var(--text-muted)]">{{ $att->slot_label }}</td>
                         <td class="px-4 py-3 text-right">
                             <a href="{{ route('docuperfect.attachments.download', $att->id) }}" class="ds-link text-sm">
                                 <i class="fas fa-download mr-1"></i>Download

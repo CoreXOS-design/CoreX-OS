@@ -77,6 +77,9 @@ class MarketAnalyticsService
             subjectLongitude: $input->subjectLongitude,
             // Phase 3h Step 9 — propagate demo isolation flag.
             subjectIsDemo:    $input->subjectIsDemo,
+            // SECURITY — propagate the requesting agency so MarketCompRowsSoldAdapter
+            // can scope its market_report_comp_rows read.
+            agencyId:         $input->agencyId,
         );
 
         $threshold     = (int) config('market_analytics.min_comps_threshold', 6);
@@ -146,6 +149,9 @@ class MarketAnalyticsService
             subjectLongitude: $input->subjectLongitude,
             // Phase 3h Step 9 — propagate demo isolation flag.
             subjectIsDemo:    $input->subjectIsDemo,
+            // SECURITY — propagate the requesting agency so MarketCompRowsActiveAdapter
+            // can scope its market_report_comp_rows read.
+            agencyId:         $input->agencyId,
         );
 
         $importedListings = $this->listingsSource->getRecords($listingsFilter);

@@ -66,15 +66,27 @@ class DailyActivitySummaryController extends Controller
 
         $defIds = $defs->pluck('id')->map(fn($v)=>(int)$v)->all();
 
+        // daily_activity_entries has agency_id but no automatic tenant scope on
+        // this raw query-builder path. user_id is self-scoped here, but the
+        // agency_id filter is added as defense in depth, matching every other
+        // daily_activity_entries call site fixed in this pass.
+        $agencyId = $u->effectiveAgencyId();
+
         // M6.5 — achievement total: confirmed/overridden + manual/auto_calendar/
         // auto_instant only. Provisional + revoked + auto_other excluded.
+        // Source breakdown (manual vs auto) alongside the total — the achievement-
+        // total filter above already restricts 'e.source' to manual/auto_calendar/
+        // auto_instant, so anything not 'manual' within that set is auto.
         $rows = DB::table('daily_activity_entries as e')
-            ->selectRaw('e.activity_definition_id as def_id, SUM(e.value) as total_count')
+            ->selectRaw("e.activity_definition_id as def_id, SUM(e.value) as total_count, SUM(CASE WHEN e.source = 'manual' THEN e.value ELSE 0 END) as manual_count, SUM(CASE WHEN e.source != 'manual' THEN e.value ELSE 0 END) as auto_count")
             ->where('e.user_id', $u->id)
             ->whereBetween('e.activity_date', [$start->toDateString(), $end->toDateString()])
             ->whereIn('e.activity_definition_id', $defIds)
             ->whereIn('e.point_state', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_STATES)
             ->whereIn('e.source', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_SOURCES)
+            ->when($agencyId, function ($q) use ($agencyId) {
+                $q->where('e.agency_id', $agencyId);
+            })
             ->groupBy('e.activity_definition_id')
             ->get()
             ->keyBy('def_id');
@@ -92,6 +104,8 @@ class DailyActivitySummaryController extends Controller
                 'count' => $count,
                 'weight' => (float)$d->weight,
                 'points' => $points,
+                'manual_count' => (int)($rows[$d->id]->manual_count ?? 0),
+                'auto_count' => (int)($rows[$d->id]->auto_count ?? 0),
             ];
             $grandCount += $count;
             $grandPoints += $points;
@@ -141,11 +155,17 @@ class DailyActivitySummaryController extends Controller
 
         abort_unless($def, 404);
 
+        // M6.5 — achievement-total filter (confirmed/overridden + manual/auto_*).
+        // Was missing here, so the drill-down total could exceed the summary-
+        // level total (which does apply this filter) whenever provisional,
+        // revoked, or auto_other entries existed for the activity.
         $entries = DB::table('daily_activity_entries as e')
             ->select(['e.activity_date','e.value'])
             ->where('e.user_id', $u->id)
             ->where('e.activity_definition_id', (int)$def->id)
             ->whereBetween('e.activity_date', [$start->toDateString(), $end->toDateString()])
+            ->whereIn('e.point_state', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_STATES)
+            ->whereIn('e.source', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_SOURCES)
             ->orderBy('e.activity_date', 'desc')
             ->get();
 

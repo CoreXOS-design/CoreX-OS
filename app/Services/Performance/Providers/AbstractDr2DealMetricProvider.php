@@ -19,6 +19,9 @@ abstract class AbstractDr2DealMetricProvider implements MetricProvider
 {
     abstract protected function dateColumn(): string;
 
+    /** Deal counts — more is always better. */
+    public function direction(): string { return 'higher_is_better'; }
+
     public function forUsers(array $userIds, Period $period): array
     {
         $dealsByUser = array_fill_keys($userIds, []); // uid => [dealId => true]

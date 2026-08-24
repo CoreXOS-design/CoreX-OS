@@ -395,6 +395,7 @@
           <button type="button" class="dr2-tab" :class="tab==='wo'?'corex-tab-active':''" @click="set('wo')" role="tab" :aria-selected="tab==='wo'" style="{{ $woAtt ? 'color:#b91c1c;font-weight:700;' : '' }}" title="{{ $woAtt ? 'A work order is waiting for a supplier' : '' }}">Supplier Work Orders{!! $woAtt ? ' <span aria-hidden=&quot;true&quot; style=&quot;color:#dc2626&quot;>&#9679;</span>' : '' !!}</button>
           <button type="button" class="dr2-tab" :class="tab==='docs'?'corex-tab-active':''" @click="set('docs')" role="tab" :aria-selected="tab==='docs'">Documents</button>
           <button type="button" class="dr2-tab" :class="tab==='email'?'corex-tab-active':''" @click="set('email')" role="tab" :aria-selected="tab==='email'">Email Parties</button>
+          <button type="button" class="dr2-tab" :class="tab==='comms'?'corex-tab-active':''" @click="set('comms')" role="tab" :aria-selected="tab==='comms'">Linked Emails</button>
           <button type="button" class="dr2-tab" :class="tab==='pi'?'corex-tab-active':''" @click="set('pi')" role="tab" :aria-selected="tab==='pi'">Proforma Invoice</button>
           <button type="button" class="dr2-tab" :class="tab==='comments'?'corex-tab-active':''" @click="set('comments')" role="tab" :aria-selected="tab==='comments'">Comments{{ count($board['comments'] ?? []) ? ' ('.count($board['comments']).')' : '' }}</button>
         </div>
@@ -404,6 +405,7 @@
           <div class="rp" x-show="tab==='wo'" x-cloak role="tabpanel">@include('dr2._supplier-work-orders', ['deal' => $deal, 'steps' => $steps, 'locked' => $locked])</div>
           <div class="rp" x-show="tab==='docs'" x-cloak role="tabpanel">@include('dr2._deal-documents', ['deal' => $deal])</div>
           <div class="rp" x-show="tab==='email'" x-cloak role="tabpanel">@include('dr2._email-parties', ['deal' => $deal])</div>
+          <div class="rp" x-show="tab==='comms'" x-cloak role="tabpanel">@include('dr2._communications', ['deal' => $deal])</div>
           <div class="rp" x-show="tab==='pi'" x-cloak role="tabpanel">@include('proforma._deal-section', ['deal' => $deal])</div>
 
           {{-- Comments tab — per-step comments. Each comment is a HEADER line (step badge · date · who)
@@ -431,9 +433,23 @@
                            else if(s==='type') a.sort((x,y)=> (x.type||'').localeCompare(y.type||'') || d(x,y));
                            else a.sort(d);
                            return a; } }">
+            {{-- Show filter (Johan, 2026-08-20) — All / Comments / Emails. WhatsApp is deliberately
+                 NOT an option here — Johan's scope call: a WhatsApp thread spans many deals with no
+                 reliable per-message attribution, so it's excluded at the source
+                 (CommunicationEventSource), not merely left off this filter. Server-side (reloads with
+                 ?feed=) so it composes with the confirmed-only gate, not a client-side re-filter of
+                 data that was already narrowed at the source. --}}
             <div class="cbar">
               <span class="t">Comments</span>
               <span class="n">{{ count($board['comments'] ?? []) }} on this deal · shown against their step</span>
+              <label class="csort">Show
+                <select onchange="location.href=this.value">
+                  @foreach(['all' => 'All', 'comment' => 'Comments', 'email' => 'Emails'] as $val => $label)
+                    <option value="{{ route('deals-dr2.pipeline.list', array_merge(['deal' => $deal->id], request()->except('feed'), ['feed' => $val])) }}"
+                            @selected(($feed ?? 'all') === $val)>{{ $label }}</option>
+                  @endforeach
+                </select>
+              </label>
               <label class="csort">Sort
                 <select x-model="sort">
                   <option value="date">Date (newest)</option>
