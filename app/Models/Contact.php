@@ -640,12 +640,18 @@ class Contact extends Model
      * so the two clause composers never disagree about how a party's ID
      * prints — that is the reason this lives here rather than duplicated
      * in EsignRecipientPreset.php.
+     *
+     * Delegates to RecipientTemplate::withIdSuffix() (Johan, 2026-08-25) —
+     * that method already implements this exact rule (name + id in,
+     * formatted string out); calling it with $name = '' yields precisely
+     * this method's own suffix-only shape. One formatting rule, one place
+     * it lives, instead of two method bodies that happened to compute the
+     * same string. Byte-identical output, both branches, verified before
+     * this change shipped.
      */
     public function idNumberSuffix(): string
     {
-        $id = trim((string) ($this->id_number ?? ''));
-
-        return $id !== '' ? " (ID: {$id})" : '';
+        return \App\Models\RecipientTemplate::withIdSuffix('', $this->id_number);
     }
 
     /**

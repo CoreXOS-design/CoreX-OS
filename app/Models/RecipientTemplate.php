@@ -207,8 +207,15 @@ class RecipientTemplate extends Model
      * or in-progress recipient with no ID on file renders exactly as before
      * (matches substitute()'s own empty-"()" collapse), so this can never
      * introduce a dangling "()" or an empty ID label.
+     *
+     * Public (Johan, 2026-08-25) — Contact::idNumberSuffix() delegates here
+     * (call with $name = '') rather than carrying its own parallel copy of
+     * this exact rule. Two independent bodies that happened to compute the
+     * same string is agreement by convergence, not a shared rule — nothing
+     * stopped a future edit to one from silently drifting from the other.
+     * One formatting rule, one place it lives.
      */
-    private static function withIdSuffix(string $name, ?string $idNumber): string
+    public static function withIdSuffix(string $name, ?string $idNumber): string
     {
         $id = trim((string) $idNumber);
 
