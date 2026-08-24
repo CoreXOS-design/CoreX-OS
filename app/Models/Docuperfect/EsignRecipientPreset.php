@@ -166,17 +166,28 @@ class EsignRecipientPreset extends Model
      *
      * {capacity} now collapses to '' when unset (was 'Representative') — the
      * existing empty-"()" cleanup below removes it cleanly either way.
+     *
+     * {party_id_number} (Johan, 2026-08-25) — the PARTY's (not the
+     * representative's) own ID suffix, e.g. for a Power-of-Attorney
+     * grantor or a minor: "{entity_name}{party_id_number}, herein
+     * represented by …". Self-contained like {rep_name}'s ID suffix — bakes
+     * its own " (ID: x)" (leading space, parens, label) or resolves to ''
+     * when the party has none on file, so a template never has to wrap it
+     * in literal parens itself (that would leave a dangling "(ID: )" when
+     * empty — exactly the empty-bracket bug class Johan flagged). Both this
+     * and {rep_name}'s suffix now share ONE formatting rule —
+     * Contact::idNumberSuffix() — rather than each re-implementing it;
+     * see that method's docblock for why RoleBlockExpansionService's
+     * separate document-body clause composer should call the same method.
      */
     public static function substitute(string $template, Contact $entity, Contact $rep, ?string $capacity): string
     {
-        $repId = trim((string) ($rep->id_number ?? ''));
-        $repName = (string) $rep->full_name;
-
         $out = strtr($template, [
-            '{entity_name}'   => (string) ($entity->entity_name ?: $entity->full_name),
-            '{rep_name}'      => $repId !== '' ? "{$repName} (ID: {$repId})" : $repName,
-            '{capacity}'      => (string) ($capacity ?: ''),
-            '{entity_reg_no}' => (string) ($entity->entity_reg_no ?? ''),
+            '{entity_name}'      => (string) ($entity->entity_name ?: $entity->full_name),
+            '{rep_name}'         => (string) $rep->full_name . $rep->idNumberSuffix(),
+            '{capacity}'         => (string) ($capacity ?: ''),
+            '{entity_reg_no}'    => (string) ($entity->entity_reg_no ?? ''),
+            '{party_id_number}'  => $entity->idNumberSuffix(),
         ]);
 
         // Collapse an empty "()" left by a missing capacity/reg-no token, and tidy spaces.

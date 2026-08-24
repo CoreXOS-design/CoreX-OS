@@ -622,6 +622,33 @@ class Contact extends Model
     }
 
     /**
+     * " (ID: xxxxx)" — this Contact's own ID-number suffix, or '' when none
+     * is captured. The single formatting rule for a party's own identity
+     * suffix in a legal clause (Johan, 2026-08-25 — e-sign recipient
+     * presets): never a dangling "(ID: )" when the value is missing, the
+     * whole bracket (including the leading space) is either present in
+     * full or not there at all. Self-contained on purpose — a caller
+     * concatenates it directly onto a name with no extra parens of its
+     * own, exactly like {rep_name}'s existing ID suffix already works.
+     *
+     * Shared choke point: EsignRecipientPreset::substitute() uses this for
+     * BOTH {rep_name} (refactored onto it, was inline) and the new
+     * {party_id_number} token — a party's own ID, not the representative's.
+     * RoleBlockExpansionService::composeEntityPartyText() (the document-body
+     * clause composer, a separate file this change does not touch) should
+     * call this same method for a natural-person party once it renders one,
+     * so the two clause composers never disagree about how a party's ID
+     * prints — that is the reason this lives here rather than duplicated
+     * in EsignRecipientPreset.php.
+     */
+    public function idNumberSuffix(): string
+    {
+        $id = trim((string) ($this->id_number ?? ''));
+
+        return $id !== '' ? " (ID: {$id})" : '';
+    }
+
+    /**
      * The natural-person Contacts who represent THIS entity Contact (director/
      * trustee/partner/signatory). Many-to-many: a director can sit on multiple
      * entities. Spec: .ai/specs/contact-entity-type.md §4.2/§5.

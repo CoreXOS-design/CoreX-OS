@@ -25,28 +25,32 @@ use Illuminate\Database\Seeder;
  *
  * Token vocabulary (EsignRecipientPreset::substitute(), the only tokens any
  * template here may use):
- *   {entity_name}   — the party's name (entity_name, or full_name if unset —
- *                      so this also covers a NATURAL PERSON party, e.g. the
- *                      minor or the POA grantor).
- *   {rep_name}      — the representative/signer's name, with " (ID: …)"
- *                      auto-appended when they have an id_number on file.
- *   {capacity}      — free text (e.g. "Director"), collapses to '' when unset.
- *   {entity_reg_no} — the party's entity_reg_no field.
+ *   {entity_name}      — the party's name (entity_name, or full_name if
+ *                         unset — so this also covers a NATURAL PERSON
+ *                         party, e.g. the minor or the POA grantor).
+ *   {party_id_number}  — the PARTY's (not the representative's) own ID
+ *                         suffix, e.g. " (ID: 8811300456082)", or '' when
+ *                         none on file. Self-contained — never wrap it in
+ *                         literal parens in a template, it bakes its own.
+ *                         Added 2026-08-25 to close exactly the gap noted
+ *                         below; used by the POA and Minor presets.
+ *   {rep_name}         — the representative/signer's name, with the same
+ *                         " (ID: …)" suffix auto-appended when they have an
+ *                         id_number on file.
+ *   {capacity}         — free text (e.g. "Director"), collapses to '' when
+ *                         unset.
+ *   {entity_reg_no}    — the party's entity_reg_no field (registration /
+ *                         Master's reference / estate number — company/CC/
+ *                         trust/estate presets only, not a personal ID).
  *
- * KNOWN GAP, surfaced rather than papered over: there is no token for the
- * PARTY's (not the representative's) own ID number. {rep_name} auto-suffixes
- * the REPRESENTATIVE's ID; {entity_name} does not, and {entity_reg_no} is a
- * registration-number field, not an ID field. For company/CC/trust/estate
- * presets that is fine (entity_reg_no legitimately holds a real registration
- * or Master's reference number). For the two NATURAL-PERSON-as-party
- * scenarios (Power of Attorney grantor, minor) it means this layer cannot by
- * itself render "{minor's ID}" or "{grantor's ID}" next to {entity_name} —
- * whatever satisfies "every party displays in full, including ID"
- * (Johan's rule) for THAT specific gap must be the separate party-display
- * path (_party_clause_text / EsignRecipientPreset::composePartyClause(),
- * consumed by RoleBlockExpansionService — both outside this seeder's model
- * layer and outside ESignWizardController.php, which this task does not
- * touch). Flagging for Johan's sign-off, not guessing at a fix.
+ * {rep_name} and {party_id_number} both resolve through the SAME shared
+ * rule — Contact::idNumberSuffix() — rather than each formatting the
+ * bracket themselves, so the two never drift apart. That method's docblock
+ * is also where RoleBlockExpansionService::composeEntityPartyText() (the
+ * separate document-body clause composer, outside this seeder's model
+ * layer and outside ESignWizardController.php, neither touched here) should
+ * call the same helper once it renders a natural-person party — flagged to
+ * Johan, who is routing it to cc5 directly, not guessed at here.
  */
 class EsignRecipientPresetCoreXStandardSeeder extends Seeder
 {
@@ -86,7 +90,7 @@ class EsignRecipientPresetCoreXStandardSeeder extends Seeder
             $base + [
                 'name'                     => 'CoreX Standard — Company (Pty) Ltd, multiple directors signing',
                 'applies_to'               => 'entity',
-                'phrasing_template'        => '{entity_name} (Registration No. {entity_reg_no}), herein represented by {rep_name}, in the capacity of {capacity}, being one of the directors of the company duly authorised thereto',
+                'phrasing_template'        => '{entity_name} (Registration No. {entity_reg_no}), herein represented by {rep_name}, in the capacity of {capacity}, duly authorised thereto by resolution of the board of directors',
                 'signature_caption'        => 'on behalf of {entity_name} (Registration No. {entity_reg_no}) — {capacity}',
                 'proxy_phrasing_template'  => '{entity_name} (Registration No. {entity_reg_no}), herein represented by {rep_name}, duly authorised representative ({capacity})',
                 'proxy_signature_caption'  => 'as duly authorised representative of {entity_name} (Registration No. {entity_reg_no}) — {capacity}',
@@ -118,20 +122,27 @@ class EsignRecipientPresetCoreXStandardSeeder extends Seeder
             $base + [
                 'name'                     => 'CoreX Standard — Natural person, signing under Power of Attorney',
                 'applies_to'               => 'all',
+                // {party_id_number} — the GRANTOR's own ID (2026-08-25,
+                // closing the token-vocabulary gap: the party displays in
+                // full, name + ID, same as every other party, regardless of
+                // who signs). Bakes its own bracket; never a dangling "( )".
+                //
                 // Ordinary (non-proxy) fallback — unlikely to be hit for this
                 // preset's real use case (a natural person signing for
                 // themselves does not go through entity expansion at all),
                 // kept coherent and valid regardless.
-                'phrasing_template'        => '{entity_name}',
-                'signature_caption'        => '{entity_name}',
-                'proxy_phrasing_template'  => '{entity_name}, herein represented by {rep_name}, duly authorised representative acting under Power of Attorney ({capacity})',
-                'proxy_signature_caption'  => 'for and on behalf of {entity_name}, as duly authorised representative acting under Power of Attorney — {capacity}',
+                'phrasing_template'        => '{entity_name}{party_id_number}',
+                'signature_caption'        => '{entity_name}{party_id_number}',
+                'proxy_phrasing_template'  => '{entity_name}{party_id_number}, herein represented by {rep_name}, duly authorised representative acting under Power of Attorney ({capacity})',
+                'proxy_signature_caption'  => 'for and on behalf of {entity_name}{party_id_number}, as duly authorised representative acting under Power of Attorney — {capacity}',
             ],
             $base + [
                 'name'                     => 'CoreX Standard — Minor, assisted by parent/guardian',
                 'applies_to'               => 'all',
-                'phrasing_template'        => '{entity_name}, a minor, herein assisted by {rep_name}, in the capacity of {capacity}',
-                'signature_caption'        => 'for and on behalf of {entity_name}, a minor, assisted by {rep_name} — {capacity}',
+                // {party_id_number} — the MINOR's own ID, same reasoning as
+                // the POA preset above.
+                'phrasing_template'        => '{entity_name}{party_id_number}, a minor, herein assisted by {rep_name}, in the capacity of {capacity}',
+                'signature_caption'        => 'for and on behalf of {entity_name}{party_id_number}, a minor, assisted by {rep_name} — {capacity}',
                 // A minor's assistant is never a "duly authorised
                 // representative under POA" — proxy wording intentionally
                 // left null so it falls back to the ordinary phrasing above,
