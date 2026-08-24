@@ -90,7 +90,20 @@ class BuyerPortalController extends Controller
     public function respond(Request $request, string $token)
     {
         $link = DB::table('buyer_portal_links')->where('token', $token)->first();
-        if (!$link || $link->revoked_at) abort(403);
+        // 2026-08-24 (Johan) — public-link resilience audit item #6: GET
+        // already shows a friendly "link no longer active" page on a
+        // revoked/missing link (see show() above); this POST endpoint used
+        // to bare-403 the exact same condition instead — inconsistent
+        // between the two, and a form-submit replay on a since-revoked link
+        // landed the buyer on a dead Laravel error page. Copy show()'s own
+        // handling instead of inventing a second dialect: the buyer portal
+        // page renders these as plain HTML <form method="POST"> submits
+        // (resources/views/buyer-portal/_property-card.blade.php), so a
+        // full-page friendly response is the correct match for the request
+        // shape, not a JSON error.
+        if (!$link || $link->revoked_at) {
+            return response()->view('buyer-portal.revoked', [], 410);
+        }
 
         // agency_id is NOT NULL (no DB default) on buyer_property_responses. A raw
         // DB::table() insert gets NO BelongsToAgency auto-stamp, so omitting it
