@@ -31,8 +31,19 @@ class SecureDocumentController extends Controller
     public function show(Request $request, string $token)
     {
         $dist = $this->resolve($token);
+        // 2026-08-25 (Johan) — this used to render its own bare, unbranded
+        // 'deals-v2.secure-doc.unavailable' view directly, with no CTA and
+        // no way back to a human. Every one of these call sites (here and
+        // the 10 others below/in the pack flow) is reachable by BOTH a
+        // genuinely unknown token AND a revoked one — resolve()/resolvePack()
+        // deliberately conflate the two so a token-prober can't tell them
+        // apart (a defensible security choice, untouched by this fix). A
+        // plain abort(410) now routes through the same generic, honest
+        // "isn't valid any more" page every other unresolvable public link
+        // in the app uses (bootstrap/app.php's HttpException render()
+        // callback) — one shared page, not an 11th-and-counting bespoke one.
         if (! $dist) {
-            return response()->view('deals-v2.secure-doc.unavailable', [], 410);
+            abort(410);
         }
 
         // Record the open once; promote status to "opened".
@@ -61,7 +72,7 @@ class SecureDocumentController extends Controller
     {
         $dist = $this->resolve($token);
         if (! $dist) {
-            return response()->view('deals-v2.secure-doc.unavailable', [], 410);
+            abort(410);
         }
         if (! $dist->otp_required) {
             return redirect()->route('deals-v2.secure-doc.show', $token);
@@ -94,7 +105,7 @@ class SecureDocumentController extends Controller
     {
         $dist = $this->resolve($token);
         if (! $dist) {
-            return response()->view('deals-v2.secure-doc.unavailable', [], 410);
+            abort(410);
         }
 
         $data = $request->validate(['code' => ['required', 'string', 'max:12']]);
@@ -120,7 +131,7 @@ class SecureDocumentController extends Controller
     {
         $dist = $this->resolve($token);
         if (! $dist) {
-            return response()->view('deals-v2.secure-doc.unavailable', [], 410);
+            abort(410);
         }
 
         if (! $this->isVerified($request, $dist)) {
@@ -131,7 +142,7 @@ class SecureDocumentController extends Controller
         $document = $dist->document;
         $disk = Storage::disk($document->disk ?? 'local');
         if (! $document || ! $disk->exists($document->storage_path)) {
-            return response()->view('deals-v2.secure-doc.unavailable', [], 410);
+            abort(410);
         }
 
         DealDocumentAccessLog::record($dist, DealDocumentAccessLog::EVENT_DOWNLOADED, [], $request->ip(), $request->userAgent());
@@ -154,7 +165,7 @@ class SecureDocumentController extends Controller
     {
         $rows = $this->resolvePack($groupKey);
         if (! $rows) {
-            return response()->view('deals-v2.secure-doc.unavailable', [], 410);
+            abort(410);
         }
         $rep = $rows->first();
 
@@ -186,7 +197,7 @@ class SecureDocumentController extends Controller
     {
         $rows = $this->resolvePack($groupKey);
         if (! $rows) {
-            return response()->view('deals-v2.secure-doc.unavailable', [], 410);
+            abort(410);
         }
         $rep = $rows->first();
         if (! $rep->otp_required) {
@@ -218,7 +229,7 @@ class SecureDocumentController extends Controller
     {
         $rows = $this->resolvePack($groupKey);
         if (! $rows) {
-            return response()->view('deals-v2.secure-doc.unavailable', [], 410);
+            abort(410);
         }
         $rep = $rows->first();
         $data = $request->validate(['code' => ['required', 'string', 'max:12']]);
@@ -243,7 +254,7 @@ class SecureDocumentController extends Controller
     {
         $rows = $this->resolvePack($groupKey);
         if (! $rows) {
-            return response()->view('deals-v2.secure-doc.unavailable', [], 410);
+            abort(410);
         }
         $rep = $rows->first();
         if (! $this->isPackVerified($request, $groupKey, $rep)) {
@@ -255,11 +266,11 @@ class SecureDocumentController extends Controller
         $dist = $rows->firstWhere('id', (int) $distribution);
         $document = $dist?->document;
         if (! $dist || ! $document) {
-            return response()->view('deals-v2.secure-doc.unavailable', [], 410);
+            abort(410);
         }
         $disk = Storage::disk($document->disk ?? 'local');
         if (! $disk->exists($document->storage_path)) {
-            return response()->view('deals-v2.secure-doc.unavailable', [], 410);
+            abort(410);
         }
 
         DealDocumentAccessLog::record($dist, DealDocumentAccessLog::EVENT_DOWNLOADED,
