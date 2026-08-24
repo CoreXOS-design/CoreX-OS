@@ -5,8 +5,8 @@ namespace App\Http\Controllers;
 use App\Models\Agency;
 use App\Models\Property;
 use App\Models\PropertySellerLink;
-use App\Services\Leads\SharedLinkReengagementService;
 use App\Services\PropertyIntelligenceService;
+use App\Services\PublicLinks\PublicLinkUnavailableResponder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -199,28 +199,47 @@ class SellerLinkController extends Controller
      *
      * A sold property is, commercially, a live buyer lead standing on the
      * page — not just an error case — so the 'sold' reason gets its own
-     * "similar properties" call to action the 'deleted' reason doesn't
-     * (there's no agency-marketable property left to point at).
+     * "similar properties" call to action the 'deleted'/'revoked' reasons
+     * don't (there's no agency-marketable property left to point at, or no
+     * property context in the revoked case).
+     *
+     * 2026-08-25 (Johan) — delegates to the shared
+     * PublicLinkUnavailableResponder rather than rendering its own
+     * seller-link/unavailable.blade.php — this file's own reason-branching
+     * logic used to be near-identical to PublicAgencyPropertiesController's;
+     * both now feed the ONE shared view. See that service's docblock.
      */
     private function showUnavailable(PropertySellerLink $link, ?Property $property, string $reason)
     {
         $agencyId = $property?->agency_id ?? $link->agency_id;
-        $agency = $agencyId ? Agency::withoutGlobalScopes()->find($agencyId) : null;
-
         $contact = $link->contact;
-        $agentService = app(SharedLinkReengagementService::class);
         $currentAgent = $contact?->agent;
-        $showAgent = $currentAgent && $currentAgent->is_active && $currentAgent->deleted_at === null;
-        $fallbackContact = $agency ? $agentService->agencyFallbackContact($agency) : ['phone' => null, 'email' => null];
 
-        return response()->view('seller-link.unavailable', [
-            'reason'        => $reason,
-            'property'      => $property,
-            'agency'        => $agency,
-            'agent'         => $showAgent ? $currentAgent : null,
-            'fallbackPhone' => $fallbackContact['phone'],
-            'fallbackEmail' => $fallbackContact['email'],
-        ], 410);
+        $title = match ($reason) {
+            'sold'    => 'This property has sold',
+            'revoked' => 'This link is no longer active',
+            default   => 'This property is no longer available',
+        };
+        $body = match ($reason) {
+            'sold'    => 'The link you followed pointed to a listing that has since sold. It is no longer being marketed.',
+            'revoked' => 'This seller live link has been switched off. Your agent can send you an up-to-date one.',
+            default   => 'The link you followed pointed to a property listing that no longer exists.',
+        };
+        $primaryAction = null;
+        if ($reason === 'sold' && $agencyId && ($url = $this->agencyPropertiesUrl($agencyId))) {
+            $primaryAction = ['label' => 'Looking for something similar? View current listings', 'url' => $url];
+        }
+
+        return app(PublicLinkUnavailableResponder::class)->respond(
+            $agencyId, $title, $body, $currentAgent, $primaryAction,
+        );
+    }
+
+    /** Resolves the agency's public listings URL for the 'sold' CTA above, or null if the agency has no slug. */
+    private function agencyPropertiesUrl(int $agencyId): ?string
+    {
+        $slug = Agency::withoutGlobalScopes()->find($agencyId)?->slug;
+        return $slug ? route('public.agency.properties.index', ['agencySlug' => $slug]) : null;
     }
 
     /**

@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Agency;
 use App\Models\Property;
+use App\Services\PublicLinks\PublicLinkUnavailableResponder;
 use Illuminate\Http\Request;
 
 class PublicAgencyPropertiesController extends Controller
@@ -64,14 +65,23 @@ class PublicAgencyPropertiesController extends Controller
         return view('public.agency-properties.show', ['agency' => $agency, 'property' => $propertyModel]);
     }
 
+    /**
+     * 2026-08-25 (Johan) — delegates to the shared PublicLinkUnavailableResponder
+     * (same one SellerLinkController uses) rather than its own
+     * public.agency-properties.unavailable view — one shared page, not two
+     * near-identical ones. Status moved 404 → 410: the agency and its slug
+     * are genuinely real here (that's how we got an agency to brand with at
+     * all) — "gone" fits better than "not found" for a property that used to
+     * be listed and now isn't, matching the convention used everywhere else
+     * fixed today.
+     */
     private function showUnavailable(Agency $agency)
     {
-        $fallbackContact = app(\App\Services\Leads\SharedLinkReengagementService::class)->agencyFallbackContact($agency);
-
-        return response()->view('public.agency-properties.unavailable', [
-            'agency'        => $agency,
-            'fallbackPhone' => $fallbackContact['phone'],
-            'fallbackEmail' => $fallbackContact['email'],
-        ], 404);
+        return app(PublicLinkUnavailableResponder::class)->respond(
+            $agency->id,
+            'This listing is no longer available',
+            'It may have sold, been withdrawn, or is temporarily off the market.',
+            primaryAction: ['label' => 'View current listings', 'url' => route('public.agency.properties.index', ['agencySlug' => $agency->slug])],
+        );
     }
 }

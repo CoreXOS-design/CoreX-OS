@@ -220,7 +220,7 @@ return Application::configure(basePath: dirname(__DIR__))
         // default handling.
         $exceptions->render(function (\Symfony\Component\HttpKernel\Exception\HttpException $e, $request) {
             $status = $e->getStatusCode();
-            if ($status !== 404 && $status !== 403) {
+            if ($status !== 404 && $status !== 403 && $status !== 410) {
                 return null;
             }
             if ($request->expectsJson()) {
@@ -229,6 +229,21 @@ return Application::configure(basePath: dirname(__DIR__))
             $isAuthed = auth()->check();
             if ($status === 404) {
                 return response()->view($isAuthed ? 'errors.404-app' : 'errors.404-guest', [], 404);
+            }
+            if ($status === 410) {
+                // 2026-08-25 (Johan) — a plain abort(410) (e.g. deals-v2's secure-
+                // doc link, deliberately conflating unknown-vs-revoked at its own
+                // resolve() choke point so a prober can't tell the two apart —
+                // see SecureDocumentController::resolve()) used to fall through to
+                // Laravel's raw, unbranded 410. The 404-guest/404-app copy is
+                // ALREADY generic enough to cover "used to exist, doesn't any
+                // more" honestly (matches 410's actual meaning better than 404's,
+                // if anything) — reuse it rather than author a fourth dialect.
+                // A caller that needs to name a SPECIFIC reason (revoked/sold/
+                // deceased-etc.) still returns its own response()->view(...) 410
+                // directly, which never reaches this callback at all (only a
+                // THROWN abort(410) does) — that path is untouched by this.
+                return response()->view($isAuthed ? 'errors.404-app' : 'errors.404-guest', [], 410);
             }
             return response()->view($isAuthed ? 'errors.403-app' : 'errors.403-guest', [], 403);
         });
