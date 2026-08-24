@@ -784,6 +784,12 @@ return [
                 'access_client_portal', 'manage_clients',
                 'access_docuperfect', 'create_docuperfect_docs', 'manage_templates', 'manage_clauses',
                 'access_docuperfect_packs', 'access_clause_library',
+                // esign.settings (E-Sign -> Recipient Presets AND Recipient Templates) had
+                // never reached branch_manager's own include list — same admin-settings
+                // tier as manage_templates/manage_clauses right above, which branch_manager
+                // already has (2026-08-24, Johan: found the screen unreachable for admins
+                // too, traced to this never having been synced into role_permissions).
+                'esign.settings',
                 'documents.view', 'documents.create', 'documents.edit',
                 'templates.view', 'templates.create', 'templates.edit',
                 'clauses.view', 'clauses.create', 'clauses.edit',

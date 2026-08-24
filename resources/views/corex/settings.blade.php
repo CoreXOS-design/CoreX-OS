@@ -110,6 +110,12 @@
                     ['key'=>'doc-types',             'label'=>'Document Types',        'type'=>'link', 'href'=>route('admin.settings.document-types.index'), 'keywords'=>'splitter filing'],
                     ['key'=>'docuperfect-types',    'label'=>'DocuPerfect — Types',   'type'=>'link', 'href'=>route('docuperfect.settings.types'), 'keywords'=>'document templates'],
                     ['key'=>'docuperfect-fields',   'label'=>'DocuPerfect — Named Fields','type'=>'link', 'href'=>route('docuperfect.settings.namedFields'), 'keywords'=>'merge fields'],
+                    $can('esign.settings')
+                        ? ['key'=>'esign-recipient-presets', 'label'=>'Recipient Presets', 'type'=>'link', 'href'=>route('docuperfect.esign.recipient-presets.index'), 'keywords'=>'esign signing party phrasing entity representative deceased proxy']
+                        : null,
+                    $can('esign.settings')
+                        ? ['key'=>'esign-recipient-templates', 'label'=>'Recipient Templates', 'type'=>'link', 'href'=>route('docuperfect.recipient-templates.index'), 'keywords'=>'esign signing party replace deceased proxy executor slots clause']
+                        : null,
                 ])),
             ],
             [
