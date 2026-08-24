@@ -285,6 +285,13 @@ class BuyerDetailController extends Controller
             'price_max'                 => 'nullable|integer|min:0',
             'beds_min'                  => 'nullable|integer|min:0|max:20',
             'bedrooms_max'              => 'nullable|integer|min:0|max:20',
+            'baths_min'                 => 'nullable|integer|min:0|max:20',
+            'garages_min'               => 'nullable|integer|min:0|max:20',
+            'parking_min'               => 'nullable|integer|min:0|max:20',
+            'floor_size_min'            => 'nullable|integer|min:0',
+            'floor_size_max'            => 'nullable|integer|min:0',
+            'erf_size_min'              => 'nullable|integer|min:0',
+            'erf_size_max'              => 'nullable|integer|min:0',
             'must_have_features'        => 'nullable|array',
             'must_have_features.*'      => 'string|max:60',
             'nice_to_have_features'     => 'nullable|array',
@@ -351,6 +358,8 @@ class BuyerDetailController extends Controller
         return array_intersect_key($validated, array_flip([
             'listing_type', 'category', 'property_type', 'property_types',
             'p24_suburb_ids', 'price_min', 'price_max', 'beds_min', 'bedrooms_max',
+            'baths_min', 'garages_min', 'parking_min',
+            'floor_size_min', 'floor_size_max', 'erf_size_min', 'erf_size_max',
             'must_have_features', 'nice_to_have_features', 'deal_breakers',
             'notes', 'is_primary', 'name',
         ]));
