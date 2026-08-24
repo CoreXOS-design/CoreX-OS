@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use App\Exceptions\DanglingSlotBindingException;
+use App\Models\Docuperfect\SignatureRequest;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -120,5 +122,75 @@ class RecipientTemplate extends Model
         $out = preg_replace('/\(\s*\)/', '', $out);
 
         return trim(preg_replace('/\s{2,}/', ' ', $out));
+    }
+
+    /**
+     * Resolve this template's text against a concrete set of slot bindings —
+     * the ONE-TIME computation that becomes a recipient's frozen
+     * party_clause_text at generation time (mirrors
+     * RoleBlockExpansionService::composeEntityPartyText()'s "resolve once,
+     * caller snapshots it" contract exactly).
+     *
+     * $slotBindings shape, keyed by this template's own party_slots keys:
+     *   ['deceased' => ['type' => 'self']]                                    — the recipient IS this slot
+     *   ['entity'   => ['type' => 'contact', 'contact_id' => 91]]             — a named-only Contact (never a recipient, never signs)
+     *   ['executor' => ['type' => 'recipient', 'recipient_local_key' => '…']] — another recipient on this SAME document — a signing link in the chain
+     *
+     * $selfRecipient is the recipient this template is attached to (Piet) —
+     * resolves a 'self' binding without a redundant lookup.
+     *
+     * @throws DanglingSlotBindingException if a bound recipient/contact no
+     *   longer resolves — the recipient was removed or moved to a different
+     *   role after binding, before finalisation. Never silently renders a
+     *   blank or half-built sentence.
+     */
+    public function resolveBoundText(SignatureRequest $selfRecipient, array $slotBindings): string
+    {
+        $tokens = [];
+
+        foreach ($this->party_slots ?? [] as $slot) {
+            $key = $slot['key'];
+            $label = $slot['label'] ?? $key;
+            $binding = $slotBindings[$key] ?? null;
+
+            if ($binding === null) {
+                throw DanglingSlotBindingException::forSlot($key, $label);
+            }
+
+            $tokens['{' . $key . '}'] = $this->resolveSlotDisplayName($selfRecipient, $key, $label, $binding);
+        }
+
+        return self::substitute($this->text_template, $tokens);
+    }
+
+    private function resolveSlotDisplayName(SignatureRequest $selfRecipient, string $key, string $label, array $binding): string
+    {
+        $type = $binding['type'] ?? null;
+
+        if ($type === 'self') {
+            return (string) $selfRecipient->signer_name;
+        }
+
+        if ($type === 'contact') {
+            $contact = \App\Models\Contact::withoutGlobalScopes()->find($binding['contact_id'] ?? null);
+            if ($contact === null) {
+                throw DanglingSlotBindingException::forSlot($key, $label);
+            }
+
+            return (string) ($contact->entity_name ?: $contact->full_name);
+        }
+
+        if ($type === 'recipient') {
+            $recipient = SignatureRequest::where('signature_template_id', $selfRecipient->signature_template_id)
+                ->where('recipient_local_key', $binding['recipient_local_key'] ?? null)
+                ->first();
+            if ($recipient === null) {
+                throw DanglingSlotBindingException::forSlot($key, $label);
+            }
+
+            return (string) $recipient->signer_name;
+        }
+
+        throw DanglingSlotBindingException::forSlot($key, $label);
     }
 }

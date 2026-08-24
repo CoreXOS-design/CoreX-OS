@@ -23,6 +23,9 @@ class SignatureRequest extends Model
         'party_clause_text',
         'is_deceased',
         'is_proxy',
+        'recipient_local_key',
+        'recipient_template_id',
+        'slot_bindings',
         'signer_email',
         'signer_id_number',
         'token',
@@ -71,6 +74,7 @@ class SignatureRequest extends Model
         'fica_required' => 'boolean',
         'is_deceased' => 'boolean',
         'is_proxy' => 'boolean',
+        'slot_bindings' => 'array',
     ];
 
     // Status constants
