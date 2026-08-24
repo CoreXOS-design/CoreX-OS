@@ -205,6 +205,34 @@ return Application::configure(basePath: dirname(__DIR__))
                 ->with('warning', 'Your session expired — please sign in and continue.');
         });
 
+        // 2026-08-24 (Johan) — public-link resilience: "even on any 404 to a
+        // client it should go - Shucks, the x you are looking for is not
+        // longer valid - visit website / contact company." Two audiences,
+        // two views, chosen HERE in PHP rather than with a conditional
+        // @extends inside the Blade file — a conditional @auth/@extends/
+        // @else/@endauth was tried first and reproducibly leaked the
+        // authenticated app shell into every guest response: @extends
+        // compiles to a call Blade hoists to the END of the compiled
+        // output UNCONDITIONALLY, regardless of which textual branch it
+        // sits in (confirmed by inspecting the compiled PHP directly).
+        // Same match-on-HttpException-then-check-status-code shape as the
+        // 419 handler above, so 500 and any other status keep the
+        // default handling.
+        $exceptions->render(function (\Symfony\Component\HttpKernel\Exception\HttpException $e, $request) {
+            $status = $e->getStatusCode();
+            if ($status !== 404 && $status !== 403) {
+                return null;
+            }
+            if ($request->expectsJson()) {
+                return null; // JSON callers keep Laravel's normal JSON error shape
+            }
+            $isAuthed = auth()->check();
+            if ($status === 404) {
+                return response()->view($isAuthed ? 'errors.404-app' : 'errors.404-guest', [], 404);
+            }
+            return response()->view($isAuthed ? 'errors.403-app' : 'errors.403-guest', [], 403);
+        });
+
         $exceptions->reportable(function (\Throwable $e) {
             try {
                 // Skip exceptions that don't need fault tracking
