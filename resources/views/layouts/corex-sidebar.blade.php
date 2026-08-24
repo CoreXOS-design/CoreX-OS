@@ -1169,7 +1169,7 @@
                     <a href="{{ route('deals-dr2.unfiled-emails.index') }}"
                        class="corex-nav-subitem {{ request()->routeIs('deals-dr2.unfiled-emails.*') ? 'active' : '' }}"
                        style="display:flex;align-items:center;justify-content:space-between;gap:6px;">
-                        <span>Unfiled Emails</span>
+                        <span>Deal Register Unfiled Emails</span>
                         @if($unfiledEmailsCount > 0)
                             <span style="display:inline-block;min-width:18px;padding:1px 6px;background:#dc2626;color:#fff;border-radius:99px;font-size:0.625rem;font-weight:700;text-align:center;line-height:1.4;">{{ $unfiledEmailsCount > 99 ? '99+' : $unfiledEmailsCount }}</span>
                         @endif
