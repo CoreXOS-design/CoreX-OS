@@ -608,6 +608,18 @@ class FicaController extends Controller
         // File FICA documents to the contact's document drive
         $this->fileDocumentsToContact($submission);
 
+        // FREEZE RULE: generate the completion report NOW, at the moment of
+        // approval, and store the file. downloadPdf() serves this stored
+        // snapshot forever after — never a live re-render — so later edits
+        // to the contact or submission can never change what was downloaded
+        // for this approval. Failure is logged, never blocks the approval
+        // that already committed above.
+        $submission->refresh();
+        $reportPath = app(\App\Services\Compliance\FicaCompletionReportService::class)->generate($submission);
+        if ($reportPath) {
+            $submission->update(['pdf_path' => $reportPath]);
+        }
+
         Log::info('FICA compliance officer approved', [
             'submission_id' => $submission->id,
             'co_id'         => Auth::id(),
@@ -868,17 +880,31 @@ class FicaController extends Controller
     }
 
     /**
-     * Download PDF certificate for an approved submission.
+     * Download the FICA Completion Report for an approved submission.
+     *
+     * FREEZE RULE: serves the stored snapshot generated at the moment of
+     * approval (FicaController::complianceApprove()), never a live
+     * re-render — the download must not change if the contact or
+     * submission is edited afterwards. The generate-on-demand fallback
+     * exists only for submissions approved before this feature shipped
+     * (pdf_path was never populated for them); once generated it is
+     * persisted the same way, so this only ever fires once per submission.
      */
     public function downloadPdf(FicaSubmission $submission)
     {
         $this->authorizeAgency($submission);
-        abort_unless($submission->status === 'approved', 404, 'PDF only available for approved submissions.');
+        abort_unless($submission->status === 'approved', 404, 'The completion report is only available once the FICA is approved.');
 
-        $submission->load(['contact', 'agency', 'requestedBy', 'agentVerifiedBy', 'coVerifiedBy', 'documents', 'linkedDocuments.documentType']);
+        if (! $submission->pdf_path || ! Storage::disk('local')->exists($submission->pdf_path)) {
+            $path = app(\App\Services\Compliance\FicaCompletionReportService::class)->generate($submission);
+            abort_if(! $path, 500, 'Could not generate the completion report. Try again or contact support.');
+            $submission->update(['pdf_path' => $path]);
+        }
 
-        // Return the HTML template as a printable page (Puppeteer rendering is a server-side concern)
-        return view('compliance.fica.pdf', compact('submission'));
+        $contactName = $submission->contact?->full_name ?? 'client';
+        $filename = 'FICA-Completion-' . \Illuminate\Support\Str::slug($contactName) . '-' . $submission->id . '.pdf';
+
+        return Storage::disk('local')->download($submission->pdf_path, $filename);
     }
 
     /**
