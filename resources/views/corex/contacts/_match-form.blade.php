@@ -183,12 +183,29 @@
                         <label class="block text-xs font-semibold mb-2" style="color:var(--text-muted);">Price Range (R)</label>
                         <div class="grid grid-cols-2 gap-3">
                             <div>
-                                <input type="number" name="price_min" value="{{ $val('price_min') }}" placeholder="Min price" min="0" step="50000"
+                                {{-- 2026-08-24 (Johan) — step="50000" removed. HTML5 step validation
+                                     rejects ANY value not a multiple of the step relative to min, for
+                                     every field on the form, not just ones the agent touches — so a
+                                     wishlist with a system-derived, non-round price (see
+                                     BuyerLeadCascadeService::deriveCriteria() — a listing price times
+                                     an agency's configured band fraction is essentially never a round
+                                     50000) silently blocked the ENTIRE form's submission client-side,
+                                     with the browser's native validation bubble appearing at this
+                                     field while the Update button sits at the bottom of a long form —
+                                     nothing visibly wrong, nothing reaches the server, and the agent
+                                     has no idea why. Server-side validation (ContactMatchController::
+                                     validatePayload() / BuyerDetailController::validateWishlistPayload())
+                                     has never required roundness — just integer|min:0 — so this was a
+                                     client-only constraint the producer of the data didn't honour.
+                                     Removing rather than rounding the generated values: price is a
+                                     free amount, not a stepped quantity, and rounding a derived search
+                                     band changes what an agent is searching for without telling them. --}}
+                                <input type="number" name="price_min" value="{{ $val('price_min') }}" placeholder="Min price" min="0"
                                        class="w-full rounded-md px-3 py-2 text-sm"
                                        style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                             </div>
                             <div>
-                                <input type="number" name="price_max" value="{{ $val('price_max') }}" placeholder="Max price" min="0" step="50000"
+                                <input type="number" name="price_max" value="{{ $val('price_max') }}" placeholder="Max price" min="0"
                                        class="w-full rounded-md px-3 py-2 text-sm"
                                        style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                             </div>
