@@ -2033,6 +2033,25 @@ class ESignWizardController extends Controller
         // not be sendable unless someone else is bound to sign in their
         // place. "Certain problem = hard block, not a warning."
         $this->assertDeceasedRecipientsHaveSubstituteSigner($recipients);
+
+        // GENERATED-DOCUMENT BODY (Johan, 2026-08-25 — cc1's finding on
+        // 93a10b6a2): the document actually going out must read the SAME
+        // resolved clause the SignatureRequest rows carry — an entity's
+        // "Company (Reg: X), herein represented by Rep (ID, Capacity)" is
+        // ONLY ever computed by expandEntityRecipients() (above), which
+        // never wrote back into $stepData itself. Every WebTemplateDataService
+        // ::resolve() call below that builds document body HTML (not the
+        // agent-facing recipients FORM, which must stay exactly as-is —
+        // see prepareRecipientsForMerge()'s own "never expands" contract)
+        // is handed $bodyStepData: a narrow, local copy carrying the
+        // ALREADY-expanded, display-deduped $recipients — never a second
+        // expandEntityRecipients() call, never a second source of truth.
+        // $stepData itself is untouched — every other consumer in this
+        // function (partiesForSigning, property/details, etc.) still reads
+        // the original, unexpanded step_data exactly as before.
+        $bodyStepData = $stepData;
+        $bodyStepData['recipients']['recipients'] = $this->dedupeEntityRecipientsForDisplay($recipients);
+
         // Support both old format (array of entries) and new format ({delivery_mode, parties: [...]})
         $signingSetupRaw = $stepData['signing_setup'] ?? [];
         $signingSetup = isset($signingSetupRaw['parties']) ? $signingSetupRaw['parties'] : $signingSetupRaw;
@@ -2086,7 +2105,7 @@ class ESignWizardController extends Controller
                 $tpl = Template::find($tplId);
                 if (!$tpl || !$tpl->blade_view) continue;
 
-                $tplData = $webTemplateDataService->resolve($tplId, $stepData, $user);
+                $tplData = $webTemplateDataService->resolve($tplId, $bodyStepData, $user);
                 // AT-360 — same Fill & Review typed-value overlay as the single-doc path, scoped to
                 // this pack template's fields so a value only lands on the document it was typed for.
                 $tplData = $this->overlayFillReviewValues($tplData, $stepData, (int) $tplId);
@@ -2275,7 +2294,7 @@ class ESignWizardController extends Controller
                 '_fill_review_overlay' => $packFillReviewOverlay,
             ];
         } elseif ($template->render_type === 'web' && $template->blade_view) {
-            $webTemplateData = $webTemplateDataService->resolve($template->id, $stepData, $user);
+            $webTemplateData = $webTemplateDataService->resolve($template->id, $bodyStepData, $user);
 
             // AT-360 — overlay the agent's Fill & Review typed values (pillar-less fields the
             // agent hand-typed) so they reach the signed document, not just Document.fields_json.
@@ -3288,20 +3307,38 @@ class ESignWizardController extends Controller
     {
         $recipients = $stepData['recipients']['recipients'] ?? [];
         $expanded = $this->expandEntityRecipients($recipients, $user);
+        $deduped = $this->dedupeEntityRecipientsForDisplay($expanded);
 
-        // Fault 3, round 5 (Johan, 2026-08-24) — expandEntityRecipients()
-        // correctly produces one row per SIGNER (needed for the eventual
-        // signature-request loop: every non-proxied representative signs,
-        // so every one needs their own row there). But for MERGE/preview
-        // purposes the entity is ONE party in the document body — three
-        // signer rows for the same company, each now carrying the SAME
-        // (correctly all-reps-listed) _party_clause_text, still read as
-        // three separate "sellers" to resolveFieldGroupValue()'s "and"-join,
-        // tripling the identical clause. Collapse every row sharing the
-        // same _entity_contact_id down to its first occurrence — display
-        // (this array) shows the entity once; expandEntityRecipients()'s
-        // own un-collapsed output is what the real signing-request loop
-        // must still use.
+        if (!empty($deduped)) {
+            $stepData['recipients'] = ['recipients' => $deduped];
+        }
+
+        return $stepData;
+    }
+
+    /**
+     * Fault 3, round 5 (Johan, 2026-08-24) — expandEntityRecipients()
+     * correctly produces one row per SIGNER (needed for the signature-
+     * request loop: every non-proxied representative signs, so every one
+     * needs their own row there). But for DISPLAY purposes — the document
+     * body, the wizard preview — the entity is ONE party: three signer
+     * rows for the same company, each carrying the SAME (correctly
+     * all-reps-listed) _party_clause_text, still read as three separate
+     * "sellers" to resolveFieldGroupValue()'s "and"-join, tripling the
+     * identical clause. Collapse every row sharing the same
+     * _entity_contact_id down to its first occurrence.
+     *
+     * Extracted (Johan, 2026-08-25 — cc1's finding on 93a10b6a2) so
+     * prepareSigning()/prepareWetInk() can feed the document-generation
+     * body render the SAME expansion + dedup expandRecipientsForMerge()
+     * already computes for the wizard preview — never a second
+     * expandEntityRecipients() call for the same request, never two dedup
+     * implementations that could drift. The un-collapsed $expanded array
+     * itself is what the real signing-request loop must still use — this
+     * only ever narrows a DISPLAY copy.
+     */
+    private function dedupeEntityRecipientsForDisplay(array $expanded): array
+    {
         $seenEntities = [];
         $deduped = [];
         foreach ($expanded as $r) {
@@ -3315,11 +3352,7 @@ class ESignWizardController extends Controller
             $deduped[] = $r;
         }
 
-        if (!empty($deduped)) {
-            $stepData['recipients'] = ['recipients' => $deduped];
-        }
-
-        return $stepData;
+        return $deduped;
     }
 
     /**
@@ -5480,6 +5513,15 @@ class ESignWizardController extends Controller
         }
 
         $recipients = $stepData['recipients']['recipients'] ?? [];
+        // Entity/company expansion (Johan, 2026-08-25 — cc1's finding on
+        // 93a10b6a2, and the same "an entity never signs" rule prepareSigning()
+        // already applies at ESignWizardController.php:2028). Missing here
+        // meant a company/CC/trust seller in a wet-ink send never got a real
+        // representative signer — createSigningRequest() would have been
+        // called with the ENTITY's own raw contact row, not the natural
+        // person who actually signs. Same call, same place in the pipeline,
+        // as the e-sign path.
+        $recipients = $this->expandEntityRecipients($recipients, $user);
         $recipients = $this->sortRecipientsBySigningOrder($recipients);
         // HARD BLOCK (Johan, 2026-08-25) — the MORE dangerous of the two send
         // paths: wet-ink puts a physical document in someone's hand to sign
@@ -5487,6 +5529,15 @@ class ESignWizardController extends Controller
         // party with no substitute must never reach print. Same predicate as
         // the e-sign path — see assertDeceasedRecipientsHaveSubstituteSigner().
         $this->assertDeceasedRecipientsHaveSubstituteSigner($recipients);
+
+        // GENERATED-DOCUMENT BODY — same reasoning as prepareSigning()
+        // (ESignWizardController.php ~2035-2050): the printed document must
+        // read the SAME resolved clause the SignatureRequest rows carry.
+        // $stepData itself is untouched; every other consumer below still
+        // reads the original, unexpanded step_data.
+        $bodyStepData = $stepData;
+        $bodyStepData['recipients']['recipients'] = $this->dedupeEntityRecipientsForDisplay($recipients);
+
         $signingSetupRaw = $stepData['signing_setup'] ?? [];
         $signingSetup = isset($signingSetupRaw['parties']) ? $signingSetupRaw['parties'] : $signingSetupRaw;
         $propertyAddress = $stepData['property']['address'] ?? $stepData['property']['title'] ?? '';
@@ -5511,7 +5562,7 @@ class ESignWizardController extends Controller
         $webTemplateData = null;
         if ($renderType === 'web' && $template->blade_view) {
             $webTemplateDataService = app(WebTemplateDataService::class);
-            $webTemplateData = $webTemplateDataService->resolve($template->id, $stepData, $user);
+            $webTemplateData = $webTemplateDataService->resolve($template->id, $bodyStepData, $user);
 
             $viewData = $webTemplateData;
             if (!empty($template->signing_parties)) {
