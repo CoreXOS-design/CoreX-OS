@@ -185,39 +185,90 @@ final class TemplateCreationDefaultsTest extends TestCase
     }
 
     // ── Edit-screen footgun guard (TemplateController::saveFields()) ──
+    // Note: is_global can no longer be toggled through this endpoint at all (see the
+    // "no request-input path" tests below) -- these two exercise the guard purely on
+    // clearing branches to empty, independent of is_global.
 
-    public function test_toggling_global_off_with_no_branches_is_refused_when_it_would_strand_the_template(): void
+    public function test_clearing_branches_to_empty_is_refused_when_it_would_strand_the_template(): void
     {
-        ['manager' => $user] = $this->seedAgencyWithManager('NoFallback');
+        ['agency' => $agency, 'branch' => $branch, 'manager' => $user] = $this->seedAgencyWithManager('NoFallback');
         $template = Template::create([
             'name' => 'No-agency template', 'template_type' => 'sales', 'page_count' => 1,
-            'fields_json' => [], 'is_global' => true, 'agency_id' => null, 'owner_id' => $user->id,
+            'fields_json' => [], 'is_global' => false, 'agency_id' => null, 'owner_id' => $user->id,
         ]);
+        // Currently reachable via its one branch -- agency_id is null, so clearing that
+        // branch to zero would strand it. If it started unreachable, assertAccessibleBy()
+        // would 404 before the guard is ever exercised.
+        $template->branches()->attach($branch->id);
 
         $this->actingAs($user)->postJson(route('docuperfect.templates.saveFields', ['id' => $template->id]), [
-            'is_global' => false,
             'allowed_branches' => [],
         ])->assertStatus(422);
 
-        $this->assertTrue((bool) $template->fresh()->is_global, 'the template must be left untouched, not silently stranded');
+        $this->assertSame(1, $template->fresh()->branches()->count(), 'the template must be left untouched, not silently stranded');
     }
 
-    public function test_toggling_global_off_with_no_branches_succeeds_when_agency_id_provides_a_fallback(): void
+    public function test_clearing_branches_to_empty_succeeds_when_agency_id_provides_a_fallback(): void
     {
         ['agency' => $agency, 'manager' => $user] = $this->seedAgencyWithManager('HasFallback');
         $template = Template::create([
             'name' => 'Has-agency template', 'template_type' => 'sales', 'page_count' => 1,
-            'fields_json' => [], 'is_global' => true, 'agency_id' => $agency->id, 'owner_id' => $user->id,
+            'fields_json' => [], 'is_global' => false, 'agency_id' => $agency->id, 'owner_id' => $user->id,
         ]);
+        $branch = Branch::create(['agency_id' => $agency->id, 'name' => 'HasFallback HQ2']);
+        $template->branches()->attach($branch->id);
 
         $this->actingAs($user)->postJson(route('docuperfect.templates.saveFields', ['id' => $template->id]), [
-            'is_global' => false,
             'allowed_branches' => [],
         ])->assertOk();
 
         $fresh = $template->fresh();
-        $this->assertFalse((bool) $fresh->is_global);
+        $this->assertSame(0, $fresh->branches()->count());
         $fresh->assertAccessibleBy($user); // agency_id fallback keeps it reachable
         $this->assertTrue(true);
+    }
+
+    // ── 2026-08-24 — is_global has NO request-input path any more, anywhere ──
+    // Removing the UI checkbox alone would have been cosmetic: this endpoint accepted
+    // a raw is_global key from any POST regardless of what the visible form sent. These
+    // prove the server itself refuses it, not just that the control is hidden.
+
+    public function test_saveFields_ignores_a_raw_is_global_true_in_the_request_body(): void
+    {
+        ['agency' => $agency, 'manager' => $user] = $this->seedAgencyWithManager('RawIsGlobalAttempt');
+        $template = Template::create([
+            'name' => 'Raw is_global attempt', 'template_type' => 'sales', 'page_count' => 1,
+            'fields_json' => [], 'is_global' => false, 'agency_id' => $agency->id, 'owner_id' => $user->id,
+        ]);
+
+        $this->actingAs($user)->postJson(route('docuperfect.templates.saveFields', ['id' => $template->id]), [
+            'name' => 'Raw is_global attempt', // exercise the normal, legitimate save path
+            'is_global' => true,               // no UI sends this any more -- simulate one that still tries
+        ])->assertOk();
+
+        $this->assertFalse((bool) $template->fresh()->is_global, 'is_global must never be settable from request input, even without a UI control');
+    }
+
+    public function test_saveFields_does_not_detach_branches_on_a_raw_is_global_true(): void
+    {
+        // The old branch-sync logic branched on request is_global too (detach vs
+        // sync) -- confirm that side channel is closed as well, not just the direct
+        // column write.
+        ['agency' => $agency, 'manager' => $user] = $this->seedAgencyWithManager('RawIsGlobalBranches');
+        $template = Template::create([
+            'name' => 'Raw is_global branches attempt', 'template_type' => 'sales', 'page_count' => 1,
+            'fields_json' => [], 'is_global' => false, 'agency_id' => $agency->id, 'owner_id' => $user->id,
+        ]);
+        $branch = Branch::create(['agency_id' => $agency->id, 'name' => 'RawIsGlobalBranches HQ2']);
+        $template->branches()->attach($branch->id);
+
+        $this->actingAs($user)->postJson(route('docuperfect.templates.saveFields', ['id' => $template->id]), [
+            'is_global' => true,
+            'allowed_branches' => [$branch->id], // submitted branches must still be respected
+        ])->assertOk();
+
+        $fresh = $template->fresh();
+        $this->assertFalse((bool) $fresh->is_global);
+        $this->assertSame(1, $fresh->branches()->count(), 'branches must be synced from allowed_branches, not detached because of a stray is_global key');
     }
 }
