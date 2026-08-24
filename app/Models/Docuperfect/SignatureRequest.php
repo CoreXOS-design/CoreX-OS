@@ -226,10 +226,19 @@ class SignatureRequest extends Model
      * LEGAL deadline (`template->isLapsed()`). A mark blocked by either is worthless, so the signing
      * pipeline gates on this, not on `isExpired()` alone. `isExpired()` is left as pure link-TTL —
      * its other callers (reminders, sales-doc flow) must not start treating a lapse as a dead link.
+     *
+     * cc6's public-link audit, escalated by Johan 2026-08-24 — a cancelled ceremony was NOT one of
+     * the two clocks above, so it fell through every one of this method's ~26 callers (every write
+     * action in SigningController — verify, consent, capture, saveFields, completeWeb, complete,
+     * ...) with nothing blocking it: a recipient could be walked through ID verification and
+     * consent, and actually sign a document the agency had already withdrawn. One check here closes
+     * every one of those call sites at once — this is deliberately NOT re-checked per-method.
      */
     public function isSigningBlocked(): bool
     {
-        return $this->isExpired() || (bool) $this->template?->isLapsed();
+        return $this->isExpired()
+            || (bool) $this->template?->isLapsed()
+            || $this->template?->status === SignatureTemplate::STATUS_CANCELLED;
     }
 
     public function isComplete(): bool

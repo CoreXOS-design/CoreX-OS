@@ -4494,7 +4494,14 @@ Route::post('/sales-documents/return/{token}', [\App\Http\Controllers\Docuperfec
 
 // ===== EXTERNAL SIGNING (no auth, token-based) =====
 Route::prefix('sign')->group(function () {
-    Route::get('/{token}', [\App\Http\Controllers\Docuperfect\SigningController::class, 'show'])->name('signatures.external');
+    // cc6's public-link audit, escalated by Johan 2026-08-24 — the public
+    // dead-token entry point, throttled to the same 60req/min/IP the rest
+    // of the product's public token routes use (presentation.public.show,
+    // public.privacy-policy, ...), so it can't be used to probe/enumerate
+    // tokens at volume.
+    Route::get('/{token}', [\App\Http\Controllers\Docuperfect\SigningController::class, 'show'])
+        ->middleware('throttle:60,1')
+        ->name('signatures.external');
     // Task 1 — session keep-alive: the signing page pings this so a long,
     // in-progress sign never lapses the session/CSRF token (no forced refresh).
     Route::get('/{token}/heartbeat', [\App\Http\Controllers\Docuperfect\SigningController::class, 'heartbeat'])->name('signatures.external.heartbeat');
