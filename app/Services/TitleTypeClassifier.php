@@ -111,6 +111,59 @@ final class TitleTypeClassifier
     }
 
     /**
+     * 2026-08-24 — code-gate hardening, round 4. Lifted verbatim from
+     * CompPoolBuilder::category(), which duplicated this exact "trust the
+     * passed value, or re-derive from property_type" decision as its own
+     * private copy. This is the ONE place that decision now lives — both
+     * of CompPoolBuilder::category()'s call sites (subject and candidate)
+     * delegate here instead of keeping their own logic in sync by hand.
+     *
+     * Two real, DIFFERENT trust postures share this one function via
+     * $trustPassedValue, because the correct answer depends on what kind
+     * of value the caller is passing in, not on which caller it is:
+     *
+     *   $trustPassedValue = true  — the passed $titleType was computed
+     *     THIS REQUEST from strong per-row signal (categoryForComp()'s
+     *     scheme_name/section_number check, run upstream by
+     *     MicSnapshotHydrator::deriveCompTitleType() before the candidate
+     *     ever reaches here) — trust it unconditionally over a re-read of
+     *     generic property_type text. This is the CANDIDATE/comp posture:
+     *     CompPoolBuilder::select()'s per-candidate category() call.
+     *
+     *   $trustPassedValue = false (default) — the passed $titleType may be
+     *     a STALE CACHED column (properties.title_type, which only
+     *     self-heals on save and can silently drift from the live
+     *     property_type) — re-derive from property_type first, falling
+     *     back to the cached value only when property_type itself is
+     *     unclassifiable. This is the SUBJECT posture:
+     *     CompPoolBuilder::select()'s one subject category() call.
+     *
+     * Bug history this exists to stop recurring a 4th time: 2026-06-18
+     * (a55a4c617, gather stage), 2026-08-03 (0271614f8, flipped this
+     * exact priority for the subject caller — correctly — but the fix
+     * lived only in CompPoolBuilder::category(), so nothing stopped a
+     * later change to that one function from silently applying the wrong
+     * posture to the OTHER caller too), 2026-08-24 (1a3939047, exactly
+     * that: the subject-side stale-cache fix had been applied unscoped to
+     * the candidate caller as well, re-breaking sectional CMA-Info comps
+     * stamped property_type='Residence'). Each fix landed in the same
+     * single function; what was missing was making the two postures
+     * impossible to conflate rather than merely documenting the
+     * difference in a comment next to the boolean.
+     */
+    public function resolveCategory(?string $titleType, ?string $propertyType, bool $trustPassedValue = false): ?string
+    {
+        if ($trustPassedValue && $titleType !== null && $titleType !== '') {
+            return $titleType;
+        }
+        $fresh = $this->fromPropertyType($propertyType);
+        if ($fresh !== null) {
+            return $fresh;
+        }
+        return ($titleType !== null && $titleType !== '') ? $titleType : null;
+    }
+
+    /**
      * Category fallback — read title_type from the agency's
      * property_setting_items category row. Falls back to system defaults
      * (null agency_id) when the agency hasn't customised its category

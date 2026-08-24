@@ -506,44 +506,21 @@ final class CompPoolBuilder
      * Title category (freehold/sectional/vacant/other) via the keystone
      * classifier.
      *
-     * Code-gate hardening (Uvonique bug) — FLIPPED priority: a fresh
-     * classification from $propertyType now wins over the passed-in
-     * $titleType. $titleType is typically sourced from a caller's cached
-     * column (e.g. properties.title_type), which self-heals only on save
-     * and can silently go stale — that staleness is exactly how this Level-1
-     * gate mismatched an apartment against houses. Re-deriving is a cheap
-     * string match, never a query, so there's no cost to always doing it.
-     * $titleType is now only a fallback for candidates that carry a
-     * resolved category but no raw property_type text at all.
-     */
-    /**
-     * 2026-08-24 — $trustTitleType (default false = today's behaviour,
-     * unchanged for the subject call and any other caller). Reintroduced,
-     * one stage later, the exact bug 2026-06-18's a55a4c617 already fixed
-     * in MicSnapshotHydrator::collectMatchedRows(): CMA-Info comp rows carry
-     * property_type='Residence' (the PDF's generic usage word), which
-     * fromPropertyType() buckets as full_title regardless of the row's own
-     * scheme_name/section_number. The gather stage already derives the
-     * correct category per-row via deriveCompTitleType() (signal-first,
-     * property_type only as its own fallback) BEFORE candidates ever reach
-     * this class — that value is not a stale cache, it was computed fresh
-     * this request, from stronger evidence than property_type alone. Only
-     * the candidate call site (below) passes trustTitleType: true, so a
-     * signal-derived category is never re-clobbered by the weaker raw-text
-     * reread. The subject call is untouched — it still passes the
-     * caller's title_type through the original cached-column-distrust path,
-     * exactly as the Uvonique fix intended.
+     * 2026-08-24 — code-gate hardening, round 4. This used to be a private
+     * copy of the trust-or-rederive decision, kept in sync with
+     * MicSnapshotHydrator's own gate by hand — which is exactly how the
+     * 2026-08-03 fix (correct for the subject caller) ended up applied
+     * unscoped to the candidate caller too, breaking sectional CMA-Info
+     * comps a stage later (2026-08-24, 1a3939047). The decision itself now
+     * lives once on TitleTypeClassifier::resolveCategory() — see that
+     * method's doc for the two real trust postures and why they're a
+     * parameter, not two copies. This is a thin delegating wrapper only so
+     * the two call sites below don't change; both could call
+     * $classifier->resolveCategory(...) directly instead.
      */
     private function category(TitleTypeClassifier $classifier, ?string $titleType, ?string $propertyType, bool $trustTitleType = false): ?string
     {
-        if ($trustTitleType && $titleType !== null && $titleType !== '') {
-            return $titleType;
-        }
-        $fresh = $classifier->fromPropertyType($propertyType);
-        if ($fresh !== null) {
-            return $fresh;
-        }
-        return ($titleType !== null && $titleType !== '') ? $titleType : null;
+        return $classifier->resolveCategory($titleType, $propertyType, $trustTitleType);
     }
 
     /**
