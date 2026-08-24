@@ -404,16 +404,33 @@
     <div class="review-card">
         <div class="review-section-header">
             <div class="review-section-tag"></div>
-            {{-- AT-214 — presentation-scoped: N = comps used in THIS CMA, M = the
-                 CANONICAL count available for the property (CmaCoverageService, the
-                 same figure as the Intelligence panel + coverage badge). Not
-                 count($compRows) (this presentation's own set), which read "N of N"
-                 and implied every available comp was used. --}}
+            {{-- 2026-08-25 — the AT-214 "N of M" phrasing conflated two different
+                 systems' answers to two different questions under one label: N
+                 (comps actually used) was this presentation's own hydrated set,
+                 but M silently became CmaCoverageService's suburb-wide canonical
+                 estimate whenever it exceeded N — including when N was 0 because
+                 NOTHING had hydrated yet, producing "0 of 61" that read as "61
+                 comps were found and filtered out" when the true state was "zero
+                 comps are loaded into this presentation at all" (the Marina Glen
+                 incident — see .ai/audits/2026-08-24-*). M is now what's actually
+                 loaded into THIS presentation ($compsLoaded = count($compRows)),
+                 so the fraction never means something other than what it looks
+                 like. The canonical suburb-wide figure (AT-214's original
+                 concern — an agent not realising more comps may exist) is kept,
+                 but as its own separate, honestly-labelled line below, never
+                 blended into the "N of M" phrase again. --}}
             @php
-                $compsUsed      = collect($compRows)->where('is_included', true)->count();
-                $compsAvailable = max((int) ($canonicalCompCount ?? 0), $compsUsed);
+                $compsUsed        = collect($compRows)->where('is_included', true)->count();
+                $compsLoaded      = count($compRows);
+                $canonicalOnFile  = (int) ($canonicalCompCount ?? 0);
+                $moreOnFile       = max(0, $canonicalOnFile - $compsLoaded);
             @endphp
-            <h2 class="review-section-title">2 · Comparable Sales — {{ $compsUsed }} of {{ $compsAvailable }} comps used in this CMA</h2>
+            <h2 class="review-section-title">2 · Comparable Sales — {{ $compsUsed }} of {{ $compsLoaded }} comps used in this CMA</h2>
+            @if($moreOnFile > 0)
+            <div class="text-xs" style="color: var(--text-muted); margin-top: 2px;">
+                {{ $moreOnFile }} more comparable {{ Str::plural('sale', $moreOnFile) }} on file for this suburb, not yet pulled into this presentation.
+            </div>
+            @endif
         </div>
 
         <div class="review-comps-layout">
