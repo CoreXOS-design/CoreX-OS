@@ -49,6 +49,19 @@ final class AgentCardImageService
     private const DIR = 'outreach-cards';
 
     /**
+     * 2026-08-25 (Johan) — the agent-card image endpoint used to abort(404)
+     * for an unresolvable agent id, which (since bootstrap/app.php's
+     * exception handler now branded every 404) returned a full HTML page to
+     * a consumer that only ever expects image bytes — a broken-image icon
+     * in an email or a shared card, worse than a plain 404 would have been.
+     * One static, agency-NEUTRAL silhouette card, generated once and cached
+     * forever at this fixed path (no per-agent content hash needed — there
+     * is no agent data to hash) — same canvas size/format as a real card,
+     * same cache-control shape, never HTML.
+     */
+    private const FALLBACK_PATH = self::DIR . '/agent-card-fallback.jpg';
+
+    /**
      * Output is JPEG, not PNG. WhatsApp's link-preview crawler enforces a STRICT
      * 600KB og:image cap (≈300KB for reliable render) — PNG does not compress the
      * photographic agent portrait, so a JPEG keeps the card comfortably small AND
@@ -94,6 +107,85 @@ final class AgentCardImageService
         }
 
         return $disk->path($rel);
+    }
+
+    /**
+     * Absolute filesystem path to the cached, agency-neutral fallback card —
+     * generated once, on first miss, then reused forever (no per-agent
+     * content-hash busting applies, since there is no agent to draw). Same
+     * canvas size/format/JPEG quality as a real card, so a consumer that
+     * only ever expects og:image bytes (WhatsApp, an <img> tag) always gets
+     * a valid image, never a branded HTML error page.
+     */
+    public function resolveFallback(): string
+    {
+        $disk = Storage::disk('public');
+        if (!$disk->exists(self::FALLBACK_PATH)) {
+            $disk->put(self::FALLBACK_PATH, $this->renderFallback());
+        }
+        return $disk->path(self::FALLBACK_PATH);
+    }
+
+    /** Render the agency-neutral fallback card to JPEG binary. Never throws. */
+    private function renderFallback(): string
+    {
+        $canvas = imagecreatetruecolor(self::W, self::H);
+
+        $bg     = $this->color($canvas, self::NAVY);
+        $accent = $this->color($canvas, self::CYAN);
+        $white  = $this->color($canvas, self::WHITE);
+        $whiteSoft = imagecolorallocatealpha($canvas, 255, 255, 255, 38);
+
+        imagefilledrectangle($canvas, 0, 0, self::W, self::H, $bg);
+        imagefilledrectangle($canvas, 0, self::H - 14, self::W, self::H, $accent);
+
+        $d  = 400;
+        $px = 90;
+        $py = (int) ((self::H - $d) / 2) - 7;
+        $this->drawFallbackAvatar($canvas, $px, $py, $d, $white);
+
+        $tx   = $px + $d + 55;
+        $maxW = self::W - $tx - 80;
+
+        $base = 290;
+        $this->drawFittedLine($canvas, $this->fontBold, 48, 'Card unavailable', $tx, $base, $maxW, $white);
+        $base += 54;
+        $this->drawFittedLine($canvas, $this->fontRegular, 27, 'This agent card is no longer available.', $tx, $base, $maxW, $whiteSoft);
+
+        ob_start();
+        imagejpeg($canvas, null, self::JPEG_QUALITY);
+        $binary = (string) ob_get_clean();
+        imagedestroy($canvas);
+
+        return $binary;
+    }
+
+    /**
+     * A generic head-and-shoulders silhouette in the avatar circle — never
+     * initials (there is no name to initial). Drawn on its own d×d canvas
+     * then clipped into the circle via the SAME copyCircular() helper the
+     * real photo path already uses below, rather than a second clip
+     * implementation.
+     */
+    private function drawFallbackAvatar($canvas, int $x, int $y, int $d, int $white): void
+    {
+        $cx = $x + (int) ($d / 2);
+        $cy = $y + (int) ($d / 2);
+
+        imagefilledellipse($canvas, $cx, $cy, $d + 12, $d + 12, $white);
+
+        $tmp = imagecreatetruecolor($d, $d);
+        $tmpAccent = imagecolorallocate($tmp, self::CYAN[0], self::CYAN[1], self::CYAN[2]);
+        $tmpWhite  = imagecolorallocate($tmp, 255, 255, 255);
+        imagefilledrectangle($tmp, 0, 0, $d, $d, $tmpAccent);
+
+        $r = $d / 2;
+        $headR = (int) ($r * 0.30);
+        imagefilledellipse($tmp, (int) $r, (int) ($r * 0.72), $headR * 2, $headR * 2, $tmpWhite);
+        imagefilledellipse($tmp, (int) $r, (int) ($r * 1.55), (int) ($d * 0.9), (int) ($d * 0.9), $tmpWhite);
+
+        $this->copyCircular($canvas, $tmp, $x, $y, $d);
+        imagedestroy($tmp);
     }
 
     /**
