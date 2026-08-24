@@ -1155,16 +1155,6 @@ Route::middleware(['auth', 'permission:view_server_health'])->group(function () 
         ->name('admin.fault-reports');
 });
 
-// ===== LISTING IMPORT =====
-Route::middleware(['auth','permission:import_listings'])->group(function () {
-    Route::get('/admin/listings/import', [\App\Http\Controllers\Admin\ListingImportController::class, 'index'])
-        ->name('admin.listings.import');
-
-    Route::post('/admin/listings/import', [\App\Http\Controllers\Admin\ListingImportController::class, 'store'])
-        ->name('admin.listings.import.store');
-});
-
-
 // ===== LISTING STOCK ===== (Agency Tracker surface)
 Route::middleware(['auth','permission:view_listings','feature:agency-tracker'])->group(function () {
     Route::get('/admin/listings/agents', [\App\Http\Controllers\Admin\ListingStockController::class, 'agents'])
