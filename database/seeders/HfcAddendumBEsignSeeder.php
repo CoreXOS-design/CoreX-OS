@@ -37,12 +37,20 @@ class HfcAddendumBEsignSeeder extends Seeder
             'document_type_id'      => $documentTypeId,
             'page_count'            => 1,
             'allowed_delivery_modes' => 'esign,wet_ink,download',
+            // is_global=1 is DELIBERATE, not an oversight — same reasoning as
+            // SalesMandatoryDisclosureEsignSeeder (see its 2026-08-24 comment): this is a
+            // standard HFC-authored compliance addendum every agency using it should get
+            // identically, confirmed with cc6 as outside the scope of their 2026-08-24
+            // tenant-isolation fix (raw server-side writes were never in scope; only
+            // user-facing creation paths were). agency_id stamped for correct attribution
+            // even though is_global bypasses the agency_id check at query time.
             'is_global'             => 1,
             'is_esign'              => 1,
             'party_mode'            => 'shared',
             'header_display'        => 'first_page',
             'signing_parties'       => json_encode(['owner_party', 'acquiring_party', 'agent']),
             'field_mappings'        => json_encode([]),
+            'agency_id'             => \App\Models\Agency::where('name', 'Home Finders Coastal')->value('id'),
             'updated_at'            => now(),
         ];
 
