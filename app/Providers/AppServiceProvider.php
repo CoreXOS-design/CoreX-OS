@@ -869,5 +869,18 @@ class AppServiceProvider extends ServiceProvider
 
             return \Illuminate\Cache\RateLimiting\Limit::perMinute($perMinute)->by($by);
         });
+
+        // "Ask my agent to set up a new list for me" on the expired-share-link
+        // page (Johan, 2026-08-24) — public, unauthenticated. One request per
+        // TOKEN per window is the real requirement (whoever holds one dead
+        // link shouldn't be able to spam that one buyer's re-engagement lead);
+        // IP is a secondary bound so the same visitor can't just reload past
+        // the token limit from one machine.
+        \Illuminate\Support\Facades\RateLimiter::for('reengage-shared-link', function (\Illuminate\Http\Request $request) {
+            return [
+                \Illuminate\Cache\RateLimiting\Limit::perMinutes(10, 1)->by('token:' . $request->route('token')),
+                \Illuminate\Cache\RateLimiting\Limit::perMinute(5)->by('ip:' . $request->ip()),
+            ];
+        });
     }
 }

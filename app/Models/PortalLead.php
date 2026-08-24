@@ -14,9 +14,10 @@ class PortalLead extends Model
 {
     use HasFactory, SoftDeletes, BelongsToAgency;
 
-    public const PORTAL_P24     = 'p24';
-    public const PORTAL_PP      = 'pp';
-    public const PORTAL_WEBSITE = 'website';
+    public const PORTAL_P24         = 'p24';
+    public const PORTAL_PP          = 'pp';
+    public const PORTAL_WEBSITE     = 'website';
+    public const PORTAL_SHARED_LINK = 'shared_link';
 
     protected $fillable = [
         'agency_id',
@@ -68,9 +69,10 @@ class PortalLead extends Model
     public function portalLabel(): string
     {
         return match ($this->portal) {
-            self::PORTAL_P24     => 'Property24',
-            self::PORTAL_WEBSITE => 'Website',
-            default              => 'Private Property',
+            self::PORTAL_P24         => 'Property24',
+            self::PORTAL_WEBSITE     => 'Website',
+            self::PORTAL_SHARED_LINK => 'Expired share link',
+            default                  => 'Private Property',
         };
     }
 

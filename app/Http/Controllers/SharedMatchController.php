@@ -8,9 +8,12 @@ use App\Models\ContactMatch;
 use App\Models\ContactMatchFeedback;
 use App\Models\Property;
 use App\Models\Scopes\AgencyScope;
+use App\Services\Leads\SharedLinkReengagementService;
 use App\Services\Matching\MatchingService;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Collection;
 
 class SharedMatchController extends Controller
@@ -19,8 +22,33 @@ class SharedMatchController extends Controller
 
     public function show(Request $request, string $token)
     {
-        // Public page — no auth — bypass agency scope so the token resolves
-        $match = $this->resolveMatch($token, ['contact', 'createdBy']);
+        // Public page — no auth — bypass agency scope so the token resolves.
+        // A token whose OWN wishlist has since been archived (Johan,
+        // 2026-08-24 — a real buyer hit this: a link an agent already sent
+        // 404'd hard the moment that one wishlist was archived, even though
+        // resolveMatch() never checks whether the buyer has other active
+        // wishlists) now renders a courteous "no longer available" page
+        // instead of a blank 404. A token that never existed at all still
+        // 404s — nothing to be courteous about, and nothing to leak either
+        // way.
+        try {
+            $match = $this->resolveMatch($token, ['contact', 'createdBy']);
+        } catch (ModelNotFoundException $e) {
+            $archived = ContactMatch::withoutGlobalScope(AgencyScope::class)
+                ->withTrashed()
+                ->whereNotNull('deleted_at')
+                ->with(['contact', 'createdBy'])
+                ->where(function ($q) use ($token) {
+                    $q->where('share_slug', $token)->orWhere('share_token', $token);
+                })
+                ->first();
+
+            if (!$archived) {
+                throw $e; // genuinely unknown token — the normal 404
+            }
+
+            return $this->showExpired($archived);
+        }
 
         $contact = $match->contact;
 
@@ -54,6 +82,74 @@ class SharedMatchController extends Controller
             : null;
 
         return view('shared.match', compact('match', 'contact', 'matchGroups', 'token', 'agency'));
+    }
+
+    /**
+     * The archived wishlist this token pointed at still has other active
+     * siblings for the SAME buyer — if it does, this is exactly AT-266's
+     * multi-wishlist page and there is nothing to apologise for, so route
+     * straight there via one of the sibling's own tokens. Only a buyer with
+     * ZERO active wishlists left sees the "no longer available" page.
+     *
+     * PRIVACY (Johan, 2026-08-24, non-optional): this URL may have been
+     * forwarded to anyone. The expired page must not name the buyer, their
+     * criteria, price range, or any matched property — a visitor learns only
+     * that a list existed and is now closed.
+     */
+    private function showExpired(ContactMatch $archived)
+    {
+        // Default SoftDeletingScope already excludes archived rows here, so
+        // finding one at all means the buyer has a genuinely active sibling.
+        $sibling = ContactMatch::withoutGlobalScope(AgencyScope::class)
+            ->where('contact_id', $archived->contact_id)
+            ->where('agency_id', $archived->agency_id)
+            ->where('status', ContactMatch::STATUS_ACTIVE)
+            ->first();
+
+        if ($sibling) {
+            $liveToken = $sibling->share_slug ?: $sibling->share_token;
+            if ($liveToken) {
+                return redirect()->route('shared.match', ['token' => $liveToken]);
+            }
+        }
+
+        $contact = $archived->contact()->withoutGlobalScopes()->first();
+        $agency = $archived->agency_id
+            ? Agency::withoutGlobalScope(AgencyScope::class)->find($archived->agency_id)
+            : null;
+
+        $agentService = app(SharedLinkReengagementService::class);
+        $currentAgent = $contact?->agent;
+        $showAgent = $currentAgent && $currentAgent->is_active && $currentAgent->deleted_at === null;
+        $fallbackContact = $agency ? $agentService->agencyFallbackContact($agency) : ['phone' => null, 'email' => null];
+
+        return response()->view('shared.match-expired', [
+            'archived'        => $archived,
+            'agency'          => $agency,
+            'agent'           => $showAgent ? $currentAgent : null,
+            'fallbackPhone'   => $fallbackContact['phone'],
+            'fallbackEmail'   => $fallbackContact['email'],
+        ], 404);
+    }
+
+    /**
+     * "Ask my agent to set up a new list for me" — public, unauthenticated,
+     * rate-limited per token (routes/web.php: throttle:reengage-shared-link).
+     * Reachable only from the expired-link page itself.
+     */
+    public function reengage(Request $request, string $token, SharedLinkReengagementService $service): RedirectResponse
+    {
+        $match = ContactMatch::withoutGlobalScope(AgencyScope::class)
+            ->withTrashed()
+            ->where(function ($q) use ($token) {
+                $q->where('share_slug', $token)->orWhere('share_token', $token);
+            })
+            ->firstOrFail();
+
+        $service->capture($match);
+
+        return redirect()->route('shared.match', ['token' => $token])
+            ->with('reengage_sent', true);
     }
 
     /**
