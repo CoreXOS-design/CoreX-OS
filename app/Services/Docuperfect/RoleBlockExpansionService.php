@@ -1829,6 +1829,7 @@ final class RoleBlockExpansionService
         string $role,
         int $instanceIndex,
         ?Contact $contact,
+        ?SignatureRequest $recipient = null,
     ): void {
         $origName = $fieldNode->getAttribute('data-field');
         // Strip any pre-existing __r{n} suffix (cloned nodes carry the
@@ -1843,7 +1844,7 @@ final class RoleBlockExpansionService
         $fieldNode->setAttribute('data-recipient-identity', $role . '_' . $instanceIndex);
         $fieldNode->setAttribute('data-role-token', $role);
         if ($contact !== null && $parsed['sub_name'] !== null) {
-            $value = $this->resolveContactValue($contact, $parsed['sub_name']);
+            $value = $this->resolveContactValue($contact, $parsed['sub_name'], $recipient);
             if ($value !== null) {
                 $this->replaceTextContent($fieldNode, $value);
             }
@@ -2019,7 +2020,7 @@ final class RoleBlockExpansionService
             $f->setAttribute('data-role-token', $role);
             // Pre-fill from contact if mapping recognised.
             if ($contact !== null && $parsed['sub_name'] !== null) {
-                $value = $this->resolveContactValue($contact, $parsed['sub_name']);
+                $value = $this->resolveContactValue($contact, $parsed['sub_name'], $recipient);
                 // AT-292 — headline couple's-mandate fix. When the matched
                 // Contact has no id_number, fall back to the ID the signer
                 // typed in the wizard (persisted on the SignatureRequest) so
@@ -2182,7 +2183,7 @@ final class RoleBlockExpansionService
      * Map a field's sub-name to a contact column. Returns null when the
      * sub-name isn't recognised — caller leaves the original span text.
      */
-    private function resolveContactValue(Contact $contact, string $subName): ?string
+    private function resolveContactValue(Contact $contact, string $subName, ?SignatureRequest $recipient = null): ?string
     {
         $key = strtolower($subName);
         // AT-292 — return null (NOT '') whenever the Contact column is empty so
@@ -2204,12 +2205,12 @@ final class RoleBlockExpansionService
             // name blank — without this the seller's name simply never prefills.
             case 'first_name+last_name':
                 if ($contact->isEntity()) {
-                    return $this->blankToNull($this->renderEntityParty($contact, includeRegNo: false));
+                    return $this->blankToNull($this->renderEntityParty($contact, includeRegNo: false, recipient: $recipient));
                 }
                 return $this->blankToNull(($contact->first_name ?? '') . ' ' . ($contact->last_name ?? ''));
             case 'name_surname_id':
                 if ($contact->isEntity()) {
-                    return $this->blankToNull($this->renderEntityParty($contact, includeRegNo: true));
+                    return $this->blankToNull($this->renderEntityParty($contact, includeRegNo: true, recipient: $recipient));
                 }
                 $full = trim(($contact->first_name ?? '') . ' ' . ($contact->last_name ?? ''));
                 $id = trim((string) ($contact->id_number ?? ''));
@@ -2236,20 +2237,61 @@ final class RoleBlockExpansionService
     /**
      * Entity-rep body-text rendering (Johan, 2026-08-24 — the piece §6.2 of
      * .ai/specs/contact-entity-type.md flagged as pipeline-gated and never
-     * built when the rest of the entity-rep foundation shipped). Renders the
-     * ACTUAL document clause naming an entity/estate party, e.g.
-     * "Estate Late John Smith (Reg: 1234/2026), herein represented by Jane
-     * Smith (Executor)" — reuses the SAME agency-editable EsignRecipientPreset
-     * wording that already drives the recipient caption, so a single template
-     * governs both; only the reg-no segment is composed here (outside the
-     * token engine), mirroring how name_surname_id already appends "(ID: …)"
-     * for a natural person — done outside substitute() specifically so a
-     * blank entity_reg_no collapses cleanly instead of leaving a dangling
-     * "(Reg: )" (substitute()'s own collapse regex only strips a fully-empty
-     * "()", not one containing literal text).
+     * built when the rest of the entity-rep foundation shipped, THEN
+     * redesigned same day into a data-driven wording library once Elize's
+     * standard-wordings requirement landed — see composeEntityPartyText()).
+     *
+     * SNAPSHOT FIRST ("the part I care most about" — Johan, 2026-08-24): once
+     * a SignatureRequest exists and carries a resolved party_clause_text, it
+     * is returned VERBATIM, never recomputed. A wording template edited after
+     * a document has been generated must not retroactively change what that
+     * document says — same failure class as an unconditional signed-PDF
+     * overwrite, except silent and permanent if left undesigned. Live
+     * composition only happens pre-generation (no SignatureRequest yet, i.e.
+     * wizard preview) or as the ONE-TIME computation that becomes the
+     * snapshot (see SignatureService::createSigningRequest() caller in
+     * ESignWizardController::expandEntityRecipients()).
      */
-    private function renderEntityParty(Contact $entity, bool $includeRegNo): string
+    private function renderEntityParty(Contact $entity, bool $includeRegNo, ?SignatureRequest $recipient = null): string
     {
+        if ($recipient !== null && filled($recipient->party_clause_text)) {
+            return $recipient->party_clause_text;
+        }
+
+        return $this->composeEntityPartyText($entity, $includeRegNo);
+    }
+
+    /**
+     * Live composition — reads EsignRecipientPreset. Public because
+     * ESignWizardController calls this ONCE at generation time to compute
+     * the value that gets frozen into SignatureRequest::party_clause_text;
+     * nothing should ever call this a second time for an already-generated
+     * request.
+     *
+     * SUPERSEDED DESIGN NOTE (2026-08-24): an earlier same-day pass wired
+     * this to an entity_shape-keyed RepresentativeWordingTemplate lookup,
+     * on the assumption that a Contact's own shape determined the wording.
+     * Johan's clarified spec (party slots + recipient-screen binding,
+     * signer always a natural person, named-only vs signing slots declared
+     * per template) supersedes that: which wording applies is a per-DOCUMENT
+     * choice bound to a role field via RecipientTemplate + resolved slot
+     * bindings (deceased→Contact, executor→recipient row) — NOT something
+     * inferable from the Contact alone. That binding-storage layer
+     * (recipient template selection + slot bindings on the wizard's
+     * step_data, with dangling-reference validation at generation time) is
+     * not yet built. Until it is, this stays on the pre-existing
+     * EsignRecipientPreset-driven rendering below — "exactly what renders
+     * today" (Johan's own fallback rule), not a half-wired path that looks
+     * like it consumes the new library without actually being bound to
+     * anything. RecipientTemplate/party_slots (app/Models/RecipientTemplate.php,
+     * database/seeders/RecipientTemplateSeeder.php) are built and seeded,
+     * ready for that binding layer to call resolveFor()/substitute() —
+     * deliberately not wired into this method until the binding exists.
+     */
+    public function composeEntityPartyText(Contact $entity, bool $includeRegNo = true): string
+    {
+        $resolved = $this->resolveDocumentRepresentative($entity);
+
         $name = (string) ($entity->entity_name ?: $entity->full_name);
         if ($includeRegNo) {
             $reg = trim((string) ($entity->entity_reg_no ?? ''));
@@ -2257,8 +2299,6 @@ final class RoleBlockExpansionService
                 $name .= ' (Reg: ' . $reg . ')';
             }
         }
-
-        $resolved = $this->resolveDocumentRepresentative($entity);
         if ($resolved === null) {
             return $name;
         }

@@ -239,4 +239,79 @@ final class EntityRepresentativePartyRenderingTest extends TestCase
         $this->assertStringContainsString('Acme Properties (Pty) Ltd, herein represented by John Director (Director)', $out);
         $this->assertStringNotContainsString('Reg:', $out);
     }
+
+    // ── Snapshot immutability (Johan, 2026-08-24 — the audit requirement) ──
+
+    private function sellerWithSnapshot(Contact $contact, ?string $clauseText): SignatureRequest
+    {
+        $r = $this->seller($contact);
+        $r->party_clause_text = $clauseText;
+        return $r;
+    }
+
+    private function renderWithRecipient(string $subName, Contact $contact, SignatureRequest $recipient): string
+    {
+        $html = '<div data-role-block="seller"><span data-field="seller_' . $subName . '">placeholder</span></div>';
+
+        return app(RoleBlockExpansionService::class)->expandWithLooping(
+            null, $html, collect([$recipient]),
+        );
+    }
+
+    /**
+     * CRITICAL (Johan, 2026-08-24, "the part I care most about" / the audit
+     * requirement in his later message): once a SignatureRequest carries a
+     * resolved party_clause_text snapshot, it renders VERBATIM regardless of
+     * what would be computed live now. This is the mechanism the future
+     * recipient-template binding layer will also rely on — proven here
+     * against the current EsignRecipientPreset-driven composition, since
+     * the snapshot check in renderEntityParty() happens before any
+     * particular composition strategy runs.
+     */
+    public function test_snapshot_survives_downstream_state_changing_after_generation(): void
+    {
+        $company = $this->makeContact([
+            'contact_kind' => Contact::TYPE_ENTITY, 'entity_name' => 'Acme Ltd',
+            'first_name' => 'Acme Ltd', 'last_name' => '',
+        ]);
+        $director = $this->makeContact(['contact_kind' => Contact::TYPE_NATURAL_PERSON, 'first_name' => 'John', 'last_name' => 'Director']);
+        $this->link($company, $director, 'Director', primary: true);
+
+        // GENERATION TIME — resolve once, exactly as ESignWizardController::expandEntityRecipients() does.
+        $originalText = app(RoleBlockExpansionService::class)->composeEntityPartyText($company);
+        $this->assertStringContainsString('Acme Ltd, herein represented by John Director (Director)', $originalText);
+
+        $recipient = $this->sellerWithSnapshot($company, $originalText);
+
+        // Downstream state changes AFTER the snapshot was taken — the representative's
+        // capacity is edited, and a second representative is marked primary instead.
+        $company->representatives()->updateExistingPivot($director->id, ['capacity' => 'CEO', 'is_primary' => false]);
+        $newPrimary = $this->makeContact(['contact_kind' => Contact::TYPE_NATURAL_PERSON, 'first_name' => 'Jane', 'last_name' => 'Newcomer']);
+        $this->link($company, $newPrimary, 'Director', primary: true);
+
+        $out = $this->renderWithRecipient('name_surname_id', $company, $recipient);
+
+        $this->assertStringContainsString($originalText, $out, 'The frozen snapshot must render, not a re-resolution against current state.');
+        $this->assertStringNotContainsString('CEO', $out);
+        $this->assertStringNotContainsString('Jane Newcomer', $out, 'A representative added AFTER generation must never appear in an already-generated document.');
+    }
+
+    /** Before generation (no SignatureRequest / no snapshot yet), rendering IS live — that is correct, not a bug: nothing has been "generated" yet to freeze. */
+    public function test_pre_generation_preview_is_live_not_frozen(): void
+    {
+        $company = $this->makeContact([
+            'contact_kind' => Contact::TYPE_ENTITY, 'entity_name' => 'Acme Ltd',
+            'first_name' => 'Acme Ltd', 'last_name' => '',
+        ]);
+        $director = $this->makeContact(['contact_kind' => Contact::TYPE_NATURAL_PERSON, 'first_name' => 'John', 'last_name' => 'Director']);
+        $this->link($company, $director, 'Director', primary: true);
+
+        $before = $this->render('name_surname_id', $company); // no snapshot on this SignatureRequest
+        $this->assertStringContainsString('John Director', $before);
+
+        $company->representatives()->updateExistingPivot($director->id, ['capacity' => 'CEO']);
+
+        $after = $this->render('name_surname_id', $company); // still no SignatureRequest snapshot — still pre-generation
+        $this->assertStringContainsString('CEO', $after, 'Pre-generation preview should reflect current state — it is not frozen yet.');
+    }
 }

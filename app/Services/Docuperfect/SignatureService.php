@@ -860,6 +860,7 @@ class SignatureService
         ?int $ficaSubmissionId = null,
         ?int $roleIndex = null,
         ?string $signerCaption = null,
+        ?string $partyClauseText = null,
     ): SignatureRequest {
         $token = $this->generateToken();
 
@@ -894,6 +895,7 @@ class SignatureService
             'signing_group' => $template->groupFor($partyRole),
             'signer_name' => $signerName,
             'signer_caption' => $signerCaption,
+            'party_clause_text' => $partyClauseText,
             'signer_email' => $signerEmail,
             'signer_id_number' => $signerIdNumber,
             'token' => $token,

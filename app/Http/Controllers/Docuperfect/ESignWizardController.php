@@ -2807,6 +2807,7 @@ class ESignWizardController extends Controller
                     $contactId,
                     $ficaSubId,
                     signerCaption: $r['_signature_caption'] ?? null,
+                    partyClauseText: $r['_party_clause_text'] ?? null,
                 );
 
                 // Mark as deferred if "sign_later" was selected and party has no details
@@ -3179,6 +3180,14 @@ class ESignWizardController extends Controller
                         $contact, $rep, $capacity);
                 $caption  = $preset ? $preset->renderCaption($contact, $rep, $capacity, $isProxy) : '';
 
+                // SNAPSHOT (Johan, 2026-08-24) — the document-body wording is
+                // resolved ONCE, here, at generation time, and stored on the
+                // SignatureRequest (see the createSigningRequest() call
+                // below). A wording template edited after this point must
+                // never change what an already-sent document says.
+                $partyClauseText = app(\App\Services\Docuperfect\RoleBlockExpansionService::class)
+                    ->composeEntityPartyText($contact);
+
                 $out[] = [
                     'order'                 => ++$order,
                     'role'                  => $r['role'] ?? '',
@@ -3196,6 +3205,7 @@ class ESignWizardController extends Controller
                     '_is_proxy'             => $isProxy,
                     '_representation_label' => $label,
                     '_signature_caption'    => $caption,
+                    '_party_clause_text'    => $partyClauseText,
                     'bank_name'             => $rep->bank_name ?? '',
                     'bank_account_name'     => $rep->bank_account_name ?? '',
                     'bank_account_number'   => $rep->bank_account_number ?? '',
@@ -5362,6 +5372,7 @@ class ESignWizardController extends Controller
                     $sigTemplate, $partyKey, $r['name'] ?? '', $skipEmail ? '' : $email,
                     $r['id_number'] ?? null, null, $user,
                     signerCaption: $r['_signature_caption'] ?? null,
+                    partyClauseText: $r['_party_clause_text'] ?? null,
                 );
                 $sigReq->update(['signing_method' => 'wet_ink']);
             }

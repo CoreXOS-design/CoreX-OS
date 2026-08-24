@@ -20,6 +20,7 @@ class SignatureRequest extends Model
         'signing_group',
         'signer_name',
         'signer_caption',
+        'party_clause_text',
         'signer_email',
         'signer_id_number',
         'token',

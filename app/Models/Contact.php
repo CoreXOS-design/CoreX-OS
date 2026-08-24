@@ -49,7 +49,7 @@ class Contact extends Model
         // shadowed the pre-existing Contact::type() relationship
         // (belongsTo(ContactType::class)), see the incident-fix migration
         // 2026_08_21_000100_rename_type_to_contact_kind_on_contacts_table.
-        'contact_kind', 'entity_name', 'entity_reg_no',
+        'contact_kind', 'entity_name', 'entity_reg_no', 'entity_shape',
         // AT-60 — structured PROPERTY-address capture (independent of the
         // residential `address` above; never auto-composed into it).
         'unit_number', 'floor_number', 'unit_section_block', 'complex_name',
