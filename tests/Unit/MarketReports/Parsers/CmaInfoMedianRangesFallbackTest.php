@@ -25,9 +25,14 @@ final class CmaInfoMedianRangesFallbackTest extends TestCase
     {
         // Ranges table only — no Sales-Analysis change-% column, the exact
         // shape that produced 0 median/count rows for Uvongo (PRES 87).
+        // Includes the real chart price-axis label ("Median Selling Price") so this
+        // fixture stays realistic against the 2026-08-24 variant-detection fix —
+        // real median-variant reports carry that phrase; without it the parser now
+        // correctly refuses to write ANY price point rather than assuming median.
         $text = <<<TXT
         ST Residential Sales Analysis
         Year      UVONGO            RAY NKONYENI
+        Median Selling Price
         Residential Price Ranges
         Year Count Low Median High Maximum
         2026 7 R 1 295 000 R 1 300 000 R 1 325 000 R 1 700 000
