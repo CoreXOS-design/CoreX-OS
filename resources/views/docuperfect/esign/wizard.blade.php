@@ -569,10 +569,15 @@
                                      party always displays with full details; only a flagged proxy
                                      signs; a flagged deceased party never signs and is never
                                      emailed. Mutually exclusive in the UI — a deceased party can't
-                                     also be the one signing. --}}
+                                     also be the one signing.
+                                     Johan, 2026-08-24 (fault 2): ticking deceased was a dead end —
+                                     no path to choosing the clause or filling executor/estate
+                                     slots. Deceased now opens the Replace modal directly instead
+                                     of leaving him to find the button below on his own. --}}
                                 <div class="flex flex-wrap items-center gap-x-5 gap-y-1.5 -mt-1">
                                     <label class="flex items-center gap-1.5 text-xs cursor-pointer select-none" style="color: var(--text-secondary);">
-                                        <input type="checkbox" x-model="r._is_deceased" @change="if (r._is_deceased) r._is_proxy = false"
+                                        <input type="checkbox" x-model="r._is_deceased"
+                                               @change="if (r._is_deceased) { r._is_proxy = false; openReplaceModal(ri); }"
                                                class="rounded" style="accent-color: var(--ds-red, #dc2626); width: 14px; height: 14px;">
                                         Deceased — replace this party
                                     </label>
