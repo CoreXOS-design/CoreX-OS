@@ -3,6 +3,7 @@
 namespace Database\Seeders;
 
 use App\Services\DealV2\Dr2ConditionCatalog;
+use App\Contracts\SyncableReferenceSeeder;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
 
@@ -19,7 +20,7 @@ use Illuminate\Support\Facades\DB;
  * re-running only ever converges to the definition. Uses DB::table (no tenant hook / no
  * agency scope) and writes agency_id = NULL explicitly.
  */
-class Dr2PipelineCatalogSeeder extends Seeder
+class Dr2PipelineCatalogSeeder extends Seeder implements SyncableReferenceSeeder
 {
     public function run(): void
     {

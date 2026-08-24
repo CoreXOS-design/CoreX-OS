@@ -4,6 +4,7 @@ namespace Database\Seeders;
 
 use App\Models\Agency;
 use App\Models\Compliance\AgencyDocumentTypeConfig;
+use App\Contracts\SyncableReferenceSeeder;
 use Illuminate\Database\Seeder;
 
 /**
@@ -20,7 +21,7 @@ use Illuminate\Database\Seeder;
  * card an agency edited or de-activated stays as they left it; only genuinely
  * missing cards are (re)created. Runs for every agency (multi-tenant), not just HFC.
  */
-class AgencyDocumentTypeConfigSeeder extends Seeder
+class AgencyDocumentTypeConfigSeeder extends Seeder implements SyncableReferenceSeeder
 {
     /** The canonical default card set every agency starts with. */
     private function defaults(): array

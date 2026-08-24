@@ -2,6 +2,7 @@
 
 namespace Database\Seeders;
 
+use App\Contracts\SyncableReferenceSeeder;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
 
@@ -25,7 +26,7 @@ use Illuminate\Support\Facades\DB;
  * INCLUDING soft-deleted ones, so a toggle deliberately retired (e.g.
  * contact.fica_missing, killed during the 1.9M storm) stays retired.
  */
-class NotificationEventTypeSeeder extends Seeder
+class NotificationEventTypeSeeder extends Seeder implements SyncableReferenceSeeder
 {
     public function run(): void
     {
