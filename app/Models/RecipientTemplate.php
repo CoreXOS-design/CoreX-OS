@@ -196,12 +196,31 @@ class RecipientTemplate extends Model
         return self::substitute($this->text_template, $tokens);
     }
 
+    /**
+     * Fault 2 (Johan, 2026-08-24) — "Elize's rule, which is settled: every
+     * party displays with full details — name, surname, ID... regardless of
+     * who signs." A slot resolves to whoever is bound to it (self/recipient/
+     * contact), and every one of those is "a party" the rule applies to —
+     * this is the ONE place a slot's display name is built, for every slot
+     * type, so the rule is enforced uniformly rather than only where a bug
+     * report happened to point. Guarded on a non-empty ID: a bound Contact
+     * or in-progress recipient with no ID on file renders exactly as before
+     * (matches substitute()'s own empty-"()" collapse), so this can never
+     * introduce a dangling "()" or an empty ID label.
+     */
+    private static function withIdSuffix(string $name, ?string $idNumber): string
+    {
+        $id = trim((string) $idNumber);
+
+        return $id !== '' ? "{$name} (ID: {$id})" : $name;
+    }
+
     private function resolveSlotDisplayName(SignatureRequest $selfRecipient, string $key, string $label, array $binding): string
     {
         $type = $binding['type'] ?? null;
 
         if ($type === 'self') {
-            return (string) $selfRecipient->signer_name;
+            return self::withIdSuffix((string) $selfRecipient->signer_name, $selfRecipient->signer_id_number);
         }
 
         if ($type === 'contact') {
@@ -210,7 +229,14 @@ class RecipientTemplate extends Model
                 throw DanglingSlotBindingException::forSlot($key, $label);
             }
 
-            return (string) ($contact->entity_name ?: $contact->full_name);
+            // A company has no personal ID number — entity_reg_no is a
+            // separate concept, already handled by the composed-clause
+            // representation elsewhere; only a natural-person contact gets
+            // the ID suffix here.
+            return self::withIdSuffix(
+                (string) ($contact->entity_name ?: $contact->full_name),
+                $contact->isEntity() ? null : $contact->id_number
+            );
         }
 
         if ($type === 'recipient') {
@@ -221,7 +247,7 @@ class RecipientTemplate extends Model
                 throw DanglingSlotBindingException::forSlot($key, $label);
             }
 
-            return (string) $recipient->signer_name;
+            return self::withIdSuffix((string) $recipient->signer_name, $recipient->signer_id_number);
         }
 
         throw DanglingSlotBindingException::forSlot($key, $label);
@@ -230,8 +256,9 @@ class RecipientTemplate extends Model
     private static function displayNameFromRecipientArray(array $recipient): string
     {
         $full = trim(($recipient['first_name'] ?? '') . ' ' . ($recipient['last_name'] ?? ''));
+        $full = $full !== '' ? $full : (string) ($recipient['name'] ?? '');
 
-        return $full !== '' ? $full : (string) ($recipient['name'] ?? '');
+        return self::withIdSuffix($full, $recipient['id_number'] ?? null);
     }
 
     private function resolveSlotDisplayNameFromArray(array $selfRecipient, array $allRecipients, string $key, string $label, array $binding): string
@@ -248,7 +275,10 @@ class RecipientTemplate extends Model
                 throw DanglingSlotBindingException::forSlot($key, $label);
             }
 
-            return (string) ($contact->entity_name ?: $contact->full_name);
+            return self::withIdSuffix(
+                (string) ($contact->entity_name ?: $contact->full_name),
+                $contact->isEntity() ? null : $contact->id_number
+            );
         }
 
         if ($type === 'recipient') {
