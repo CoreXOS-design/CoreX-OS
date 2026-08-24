@@ -927,6 +927,29 @@ class SignatureService
      */
     public function sendSigningRequest(SignatureRequest $request): void
     {
+        // Elize's rule via Johan, 2026-08-24 — THE single guard: a party who
+        // doesn't sign (deceased, or collapsed out by a proxy elsewhere in
+        // their group) is never invited, regardless of which caller reached
+        // this method. This is the only choke point every invitation email
+        // flows through (sequential-chain advancement + resend both land
+        // here), so this is the only place this needs guarding. See
+        // SignatureRequest::isSigningParticipant().
+        if (! $request->isSigningParticipant()) {
+            $request->update(['status' => SignatureRequest::STATUS_NOT_REQUIRED]);
+            $template = $request->template;
+            if ($template) {
+                SignatureAuditLog::log(
+                    $template,
+                    'send_skipped_not_signing_participant',
+                    SignatureAuditLog::ACTOR_SYSTEM,
+                    'System',
+                    requestId: $request->id,
+                    metadata: ['party_role' => $request->party_role, 'reason' => $request->nonSigningReason()],
+                );
+            }
+            return;
+        }
+
         // AT-294 — ABSORB an email-less recipient instead of firing a doomed
         // Mail::to('') that throws and is swallowed (silently parking the
         // ceremony as a healthy-looking awaiting_* with no link and no

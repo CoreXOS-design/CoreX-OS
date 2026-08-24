@@ -20,10 +20,18 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * in {@see resolveFor()}, mirroring
  * App\Models\Docuperfect\DataDictionaryEntry.
  *
- * party_slots shape: [{"key": "executor", "label": "Executor",
- * "kind": "signing"}, ...]. kind is 'named' (rendered as text only — never
- * a recipient, never signs) or 'signing' (binds to a recipient-screen row,
- * signs exactly as any recipient does today).
+ * party_slots shape: [{"key": "deceased", "label": "Deceased"},
+ * {"key": "executor", "label": "Executor"}, ...] — just the names a
+ * template's sentence needs filled in, each bound to a Contact or a
+ * recipient-screen row at compose time. NO "kind" here (Elize's rule,
+ * 2026-08-24): whether a bound party displays-only or signs is never a
+ * template-authoring decision — it is computed uniformly, per recipient,
+ * from that recipient's own is_deceased/is_proxy flags (see SignatureRequest
+ * ::isSigningParticipant()). Every party always displays with full details;
+ * everyone signs unless deceased or collapsed by a proxy flag elsewhere in
+ * their group. A template just supplies the sentence and the slot names —
+ * the same two slots (say, "executor") work identically whether that
+ * particular executor ends up signing or not.
  */
 class RecipientTemplate extends Model
 {
@@ -44,9 +52,6 @@ class RecipientTemplate extends Model
         'is_default' => 'boolean',
     ];
 
-    public const KIND_NAMED = 'named';
-    public const KIND_SIGNING = 'signing';
-
     public function agency(): BelongsTo
     {
         return $this->belongsTo(Agency::class);
@@ -55,24 +60,6 @@ class RecipientTemplate extends Model
     public function scopeStandard(Builder $query): Builder
     {
         return $query->whereNull('agency_id');
-    }
-
-    /** The signing slots this template declares — the only ones that ever bind to a recipient row. */
-    public function signingSlots(): array
-    {
-        return array_values(array_filter(
-            $this->party_slots ?? [],
-            fn (array $slot) => ($slot['kind'] ?? null) === self::KIND_SIGNING,
-        ));
-    }
-
-    /** The named-only slots this template declares — rendered as text, never a recipient, never sign. */
-    public function namedSlots(): array
-    {
-        return array_values(array_filter(
-            $this->party_slots ?? [],
-            fn (array $slot) => ($slot['kind'] ?? null) === self::KIND_NAMED,
-        ));
     }
 
     /**

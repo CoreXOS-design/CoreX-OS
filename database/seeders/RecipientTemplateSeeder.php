@@ -17,11 +17,9 @@ use Illuminate\Database\Seeder;
  * mechanism. Deceased estate is closest to final (matches his own literal
  * example); company/close-corporation/trust are lower-confidence drafts.
  *
- * Every slot's "kind" is declared here, up front — never inferred, never
- * added later. The deceased/company/trust slot is "named": rendered as
- * text, never a recipient, never signs. The executor/director/trustee slot
- * is "signing": binds to an actual recipient row, signs exactly as any
- * recipient does today.
+ * Slots are just names for a template's sentence to fill in — no "kind"
+ * (Elize's rule, 2026-08-24: display-vs-signing is never a template
+ * decision, it's computed per recipient from is_deceased/is_proxy).
  *
  * Idempotent (updateOrCreate keyed on agency_id NULL + role_token + key) —
  * safe to re-run on every deploy, never a blind insert.
@@ -59,8 +57,8 @@ class RecipientTemplateSeeder extends Seeder implements SyncableReferenceSeeder
                 'name' => 'Deceased Estate — Executor',
                 'text_template' => 'The late estate of {deceased}, herein represented by {executor} in the capacity of Executor',
                 'party_slots' => [
-                    ['key' => 'deceased', 'label' => 'Deceased', 'kind' => RecipientTemplate::KIND_NAMED],
-                    ['key' => 'executor', 'label' => 'Executor', 'kind' => RecipientTemplate::KIND_SIGNING],
+                    ['key' => 'deceased', 'label' => 'Deceased'],
+                    ['key' => 'executor', 'label' => 'Executor'],
                 ],
             ],
             [
@@ -69,8 +67,8 @@ class RecipientTemplateSeeder extends Seeder implements SyncableReferenceSeeder
                 'name' => 'Company — Director(s)',
                 'text_template' => '{company}, herein represented by {director}',
                 'party_slots' => [
-                    ['key' => 'company', 'label' => 'Company', 'kind' => RecipientTemplate::KIND_NAMED],
-                    ['key' => 'director', 'label' => 'Director', 'kind' => RecipientTemplate::KIND_SIGNING],
+                    ['key' => 'company', 'label' => 'Company'],
+                    ['key' => 'director', 'label' => 'Director'],
                 ],
             ],
             [
@@ -79,8 +77,8 @@ class RecipientTemplateSeeder extends Seeder implements SyncableReferenceSeeder
                 'name' => 'Close Corporation — Member(s)',
                 'text_template' => '{cc}, herein represented by {member}',
                 'party_slots' => [
-                    ['key' => 'cc', 'label' => 'Close Corporation', 'kind' => RecipientTemplate::KIND_NAMED],
-                    ['key' => 'member', 'label' => 'Member', 'kind' => RecipientTemplate::KIND_SIGNING],
+                    ['key' => 'cc', 'label' => 'Close Corporation'],
+                    ['key' => 'member', 'label' => 'Member'],
                 ],
             ],
             [
@@ -89,8 +87,8 @@ class RecipientTemplateSeeder extends Seeder implements SyncableReferenceSeeder
                 'name' => 'Trust — Trustee(s)',
                 'text_template' => "The Trustees for the time being of {trust}, herein represented by {trustee}",
                 'party_slots' => [
-                    ['key' => 'trust', 'label' => 'Trust', 'kind' => RecipientTemplate::KIND_NAMED],
-                    ['key' => 'trustee', 'label' => 'Trustee', 'kind' => RecipientTemplate::KIND_SIGNING],
+                    ['key' => 'trust', 'label' => 'Trust'],
+                    ['key' => 'trustee', 'label' => 'Trustee'],
                 ],
             ],
         ];
