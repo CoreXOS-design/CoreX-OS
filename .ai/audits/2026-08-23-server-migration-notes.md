@@ -103,20 +103,63 @@ for whatever destination the new box uses.
   surfaces as "why didn't X run" rather than an obvious alarm. Worth deciding
   deliberately on the new box rather than copying a commented-out line and
   forgetting why.
-- **Root-owned files inside www-data-served checkouts**: found live's own
-  `storage/logs/*.log` with ~27 root-owned files (someone ran artisan/php
-  directly as root against a served checkout instead of `sudo -u www-data`),
-  and Staging's entire `vendor/` tree (3200+ files) root-owned from a
-  `composer install` run as root on the shared checkout. Neither breaks
-  anything today because permissions still happen to be readable, but it's
-  exactly the class of problem that has bitten this project before (see the
-  vendor/autoloader incidents already in `CLAUDE.md`). Start the new box with
-  every write to a served checkout going through the FPM user, never root.
 - **A `/video-boom` cron job** (`node cleanup-temp.js`, nightly at 02:00) is
   an entirely unrelated tenant on this box — not CoreX, don't carry it over
   by habit when copying root's crontab.
 
-## 7. MySQL: grant `SET_USER_ID` to every app-DB user on day one — the test suite silently can't bootstrap without it
+## 7. Root-owned files — this is structural, not a one-off mistake (update from a
+   full survey done later the same night; supersedes an earlier, thinner note here)
+
+The original framing here ("someone ran composer as root once") undersold it.
+A full survey found `/corex` 15,667 root-owned entries, `/corex-staging` 17,332,
+`/corex-qa1` 9,791 — dominated by `node_modules` (~12k each), `vendor` (3,242 on
+Staging/QA1, zero on live), source files, and 393-4,624 objects inside `.git`
+itself.
+
+**Actual root cause**: every Claude Code lane on this box runs as uid 0. Any
+`git pull/fetch/merge/checkout`, `composer install`, `npm install`, or artisan
+command a lane runs directly against a served checkout creates new files owned
+by root — that's how Unix ownership works, not a mistake. It's continuous and
+self-reinflicting: files touched minutes earlier by a live seeder fix showed up
+as the newest root-owned entries in the same survey. A one-time `chown` of the
+source tree is dirty again the moment anyone next runs `git`.
+
+**The masked failure mode**: `git config --global --get-all safe.directory`
+already lists `/corex`, `/corex-staging`, `/corex-qa1`, `/corex-qa2` — several
+duplicated (confirmed: 4×/corex-staging, 4×/corex, 3×/corex-qa1 in the current
+list), i.e. git's dubious-ownership guard has been hit and worked around
+repeatedly by whitelisting, not by fixing the mixed ownership. **A fresh box
+won't have that whitelist pre-populated** — day one on the new server will hit
+`fatal: detected dubious ownership in repository` the first time anyone runs
+git as a different effective user than whoever created the checkout.
+
+**What's actually worth fixing vs. not**: `storage/` and `bootstrap/cache/`
+MUST be `www-data` — that's the only place php-fpm (confirmed www-data-only via
+pool config) writes at runtime, and mixed ownership there is what causes real
+functional breakage (blocked unlink, can't overwrite a cache/log file). These
+were fixed on QA1 and Staging same night (0 root-owned entries left in either,
+confirmed `www-data:www-data`, `php artisan about` still boots). Verified
+independently: QA1's `storage/` is `2775` (setgid — a root-created file there
+self-corrects to group `www-data`); Staging's and live's `storage/` are only
+`775`, no setgid, so a root-created file there does **not** self-correct.
+Source tree / `vendor/` / `node_modules/` / `.git` internals are functionally
+harmless root-owned as long as permission bits stay world/group-readable (they
+do) — php-fpm never writes there, so a sweeping `chown` of those was
+deliberately skipped: it would just be re-dirtied by the next git op from any
+lane, isn't what's actually breaking anything, and staging/live had active
+concurrent lane work at the time that a mid-checkout chown could collide with.
+
+**For the new box**: (1) pre-seed `safe.directory` for whatever the new
+checkout paths will be on day one, not after the first failure; (2) `chown
+www-data:www-data` on `storage/` and `bootstrap/cache/`, **with `chmod g+s`
+(2775)** so it self-maintains, as a standing post-deploy step, not a one-time
+fix; (3) accept root ownership of the git-managed source tree as the normal
+state of this workflow (lanes deploy as root, always will) rather than
+fighting it — the fix is narrower than "chown everything," it's "keep the
+runtime-writable dirs consistently www-data and stop being surprised root owns
+the rest."
+
+## 8. MySQL: grant `SET_USER_ID` to every app-DB user on day one — the test suite silently can't bootstrap without it
 
 Found tonight (cc2) diagnosing "no lane can run the test suite": this box has
 `log_bin_trust_function_creators=OFF` with binlog `ON`. `database/schema/mysql-schema.sql`
