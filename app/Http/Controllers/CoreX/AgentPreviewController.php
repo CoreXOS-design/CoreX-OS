@@ -7,6 +7,7 @@ use App\Models\AgentArticle;
 use App\Models\ContactTestimonial;
 use App\Models\Property;
 use App\Models\User;
+use App\Services\PublicLinks\PublicLinkUnavailableResponder;
 use Illuminate\Http\Request;
 
 /**
@@ -53,7 +54,9 @@ class AgentPreviewController extends Controller
     public function publicShow(Request $request, string $nameSlug, string $tag)
     {
         $agent = User::resolveByQrSlug($tag);
-        abort_unless($agent, 404);
+        if (!$agent) {
+            return $this->businessCardUnavailable($tag);
+        }
 
         // Keep the pretty URL honest — redirect to the canonical name slug.
         if ($nameSlug !== $agent->nameSlug()) {
@@ -66,11 +69,46 @@ class AgentPreviewController extends Controller
         ));
     }
 
+    /**
+     * 2026-08-25 (Johan) — User::resolveByQrSlug() deliberately returns null
+     * both for a slug that never existed AND for a real card whose
+     * deactivation-reroute chain (fixed earlier today —
+     * SetQrRerouteOnDeactivation) dead-ends on nobody live — a stranger
+     * probing slugs must not learn which via wording (3-branch policy). A
+     * business card's own existence is not private the way a client's
+     * document/wishlist token is — agent names are public marketing by
+     * design — so distinguishing "this card was real" here, unlike those
+     * other links, isn't a privacy leak worth avoiding, and doing so lets a
+     * genuinely real-but-orphaned card (Johan's original complaint) get the
+     * agency-branded treatment instead of a bare 404 forever. A malformed or
+     * truly-never-existed slug still gets the plain generic 404.
+     */
+    private function businessCardUnavailable(string $tag)
+    {
+        if (!preg_match('/^[a-z0-9]{6,16}$/', $tag)) {
+            abort(404);
+        }
+
+        $historical = User::withoutGlobalScopes()->where('qr_code_slug', $tag)->first();
+        if (!$historical) {
+            abort(404);
+        }
+
+        return app(PublicLinkUnavailableResponder::class)->respond(
+            $historical->agency_id,
+            'This card is no longer active',
+            'This agent is no longer with the agency. Please contact us directly.',
+            status: 410,
+        );
+    }
+
     /** Public single-article view, reached from the public profile page. */
     public function publicArticle(Request $request, string $nameSlug, string $tag, AgentArticle $article)
     {
         $agent = User::resolveByQrSlug($tag);
-        abort_unless($agent, 404);
+        if (!$agent) {
+            return $this->businessCardUnavailable($tag);
+        }
         abort_unless((int) $article->user_id === (int) $agent->id && (bool) $article->is_published, 404);
 
         if ($nameSlug !== $agent->nameSlug()) {
