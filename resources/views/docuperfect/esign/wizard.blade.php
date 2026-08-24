@@ -564,6 +564,31 @@
                                            :style="r.readonly ? 'background: var(--surface); border: 1px solid var(--border); color: var(--text-muted);' : 'background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);'"
                                            placeholder="SA ID or Passport">
                                 </div>
+
+                                {{-- Elize's rule (2026-08-24) — per-recipient, per-document. Every
+                                     party always displays with full details; only a flagged proxy
+                                     signs; a flagged deceased party never signs and is never
+                                     emailed. Mutually exclusive in the UI — a deceased party can't
+                                     also be the one signing. --}}
+                                <div class="flex flex-wrap items-center gap-x-5 gap-y-1.5 -mt-1">
+                                    <label class="flex items-center gap-1.5 text-xs cursor-pointer select-none" style="color: var(--text-secondary);">
+                                        <input type="checkbox" x-model="r._is_deceased" @change="if (r._is_deceased) r._is_proxy = false"
+                                               class="rounded" style="accent-color: var(--ds-red, #dc2626); width: 14px; height: 14px;">
+                                        Deceased — replace this party
+                                    </label>
+                                    <label class="flex items-center gap-1.5 text-xs cursor-pointer select-none" style="color: var(--text-secondary);">
+                                        <input type="checkbox" x-model="r._is_proxy" @change="if (r._is_proxy) r._is_deceased = false"
+                                               class="rounded" style="accent-color: var(--ds-amber, #f59e0b); width: 14px; height: 14px;">
+                                        Proxy — signs on behalf of the others in this role
+                                    </label>
+                                </div>
+                                <div x-show="r._is_deceased" class="rounded-md px-3 py-2 text-xs" style="background: color-mix(in srgb, var(--ds-red,#dc2626) 8%, transparent); border: 1px solid color-mix(in srgb, var(--ds-red,#dc2626) 25%, transparent); color: var(--text-secondary);">
+                                    Still displays on the document with full details. Never receives a signing request.
+                                </div>
+                                <div x-show="r._is_proxy" class="rounded-md px-3 py-2 text-xs" style="background: color-mix(in srgb, var(--ds-amber,#f59e0b) 8%, transparent); border: 1px solid color-mix(in srgb, var(--ds-amber,#f59e0b) 25%, transparent); color: var(--text-secondary);">
+                                    Every other recipient in this role still displays with full details but will not receive a signing request — only this one signs.
+                                </div>
+
                                 <div class="grid grid-cols-2 gap-3">
                                     <div>
                                         <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Email</label>
@@ -2985,6 +3010,13 @@ function esignWizard() {
                         bank_account_name: r.bank_account_name || '',
                         bank_account_number: r.bank_account_number || '',
                         bank_branch_name: r.bank_branch_name || '',
+                        // Elize's rule (2026-08-24) — per-recipient, per-document. Every party
+                        // still displays with full details; only a flagged proxy signs, a
+                        // flagged deceased party never does. Read server-side by
+                        // SignatureRequest::isSigningParticipant()/nonSigningReason() — the
+                        // single predicate the notification guard checks.
+                        _is_deceased: !!r._is_deceased,
+                        _is_proxy: !!r._is_proxy,
                     })),
                 };
                 case 4: {
