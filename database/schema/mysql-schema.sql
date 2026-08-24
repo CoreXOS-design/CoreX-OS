@@ -1125,7 +1125,7 @@ CREATE TABLE `agent_overrides` (
   `agency_id` bigint unsigned NOT NULL,
   `presentation_version_id` bigint unsigned NOT NULL,
   `user_id` bigint unsigned NOT NULL,
-  `override_type` enum('comp_excluded','comp_included','category_added','category_removed','condition_changed','section_toggled','field_edited','review_takeover','comp_unavailable','comp_bulk_set','comp_added','size_lift_toggled') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `override_type` enum('comp_excluded','comp_included','category_added','category_removed','condition_changed','section_toggled','field_edited','review_takeover','comp_unavailable','comp_bulk_set','comp_added','size_lift_toggled') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `target_id` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `before_value` json DEFAULT NULL,
   `after_value` json NOT NULL,
@@ -2817,12 +2817,12 @@ CREATE TABLE `commission_setting_audit_log` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `agency_id` bigint unsigned NOT NULL,
   `commission_setting_id` bigint unsigned DEFAULT NULL,
-  `action` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `action` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `old_values` json DEFAULT NULL,
   `new_values` json DEFAULT NULL,
   `performed_by_user_id` bigint unsigned DEFAULT NULL,
   `performed_at` timestamp NOT NULL,
-  `notes` text COLLATE utf8mb4_unicode_ci,
+  `notes` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
@@ -3001,8 +3001,8 @@ CREATE TABLE `communication_dr2_dismissals` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `agency_id` bigint unsigned NOT NULL,
   `communication_id` bigint unsigned NOT NULL,
-  `reason` varchar(40) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `reason_other` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `reason` varchar(40) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `reason_other` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `dismissed_by_user_id` bigint unsigned NOT NULL,
   `dismissed_at` timestamp NOT NULL,
   `restored_by_user_id` bigint unsigned DEFAULT NULL,
@@ -3143,7 +3143,7 @@ CREATE TABLE `communication_links` (
   `linkable_type` varchar(191) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `linkable_id` bigint unsigned NOT NULL,
   `source_attachment_id` bigint unsigned DEFAULT NULL,
-  `link_method` enum('deterministic','attorney_ref','ellie_suggested','manual','attachment') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `link_method` enum('deterministic','attorney_ref','ellie_suggested','manual','attachment') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `confidence` decimal(5,2) DEFAULT NULL,
   `confirmed_by` bigint unsigned DEFAULT NULL,
   `confirmed_at` timestamp NULL DEFAULT NULL,
@@ -3900,12 +3900,15 @@ CREATE TABLE `contact_representatives` (
   `entity_contact_id` bigint unsigned NOT NULL,
   `representative_contact_id` bigint unsigned NOT NULL,
   `is_primary` tinyint(1) NOT NULL DEFAULT '0',
+  `capacity` varchar(40) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `signs_as_proxy` tinyint(1) NOT NULL DEFAULT '0',
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   `deleted_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `contact_representatives_unique` (`entity_contact_id`,`representative_contact_id`),
   KEY `contact_representatives_representative_contact_id_foreign` (`representative_contact_id`),
+  KEY `contact_reps_entity_proxy_idx` (`entity_contact_id`,`signs_as_proxy`),
   CONSTRAINT `contact_representatives_entity_contact_id_foreign` FOREIGN KEY (`entity_contact_id`) REFERENCES `contacts` (`id`) ON DELETE CASCADE,
   CONSTRAINT `contact_representatives_representative_contact_id_foreign` FOREIGN KEY (`representative_contact_id`) REFERENCES `contacts` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -4095,6 +4098,7 @@ CREATE TABLE `contacts` (
   `contact_kind` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'natural_person',
   `entity_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `entity_reg_no` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `buyer_matches_last_regenerated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `contacts_contact_type_id_foreign` (`contact_type_id`),
   KEY `contacts_created_by_user_id_foreign` (`created_by_user_id`),
@@ -6391,6 +6395,27 @@ CREATE TABLE `esign_consent_log` (
   CONSTRAINT `esign_consent_log_flow_id_foreign` FOREIGN KEY (`flow_id`) REFERENCES `flows` (`id`),
   CONSTRAINT `esign_consent_log_signature_request_id_foreign` FOREIGN KEY (`signature_request_id`) REFERENCES `signature_requests` (`id`) ON DELETE SET NULL,
   CONSTRAINT `esign_consent_log_signing_party_id_foreign` FOREIGN KEY (`signing_party_id`) REFERENCES `esign_signing_parties` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `esign_recipient_presets`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `esign_recipient_presets` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `name` varchar(120) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `applies_to` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'entity',
+  `phrasing_template` text COLLATE utf8mb4_unicode_ci NOT NULL,
+  `signature_caption` text COLLATE utf8mb4_unicode_ci,
+  `proxy_phrasing_template` text COLLATE utf8mb4_unicode_ci,
+  `proxy_signature_caption` text COLLATE utf8mb4_unicode_ci,
+  `is_default` tinyint(1) NOT NULL DEFAULT '0',
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `esign_recipient_presets_agency_id_is_default_index` (`agency_id`,`is_default`),
+  CONSTRAINT `esign_recipient_presets_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `esign_signing_parties`;
@@ -10275,6 +10300,7 @@ CREATE TABLE `properties` (
   `p24_last_error` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
   `p24_images_last_synced_at` timestamp NULL DEFAULT NULL,
   `p24_listing_last_synced_at` timestamp NULL DEFAULT NULL,
+  `p24_activation_last_checked_at` timestamp NULL DEFAULT NULL,
   `pp_suburb_id` int unsigned DEFAULT NULL,
   `latitude` decimal(10,7) DEFAULT NULL,
   `longitude` decimal(10,7) DEFAULT NULL,
@@ -10642,10 +10668,10 @@ CREATE TABLE `property_match_decisions` (
   `rejected_at` timestamp NULL DEFAULT NULL,
   `rejected_by_user_id` bigint unsigned DEFAULT NULL,
   `rejected_reason` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `reject_reason_code` varchar(60) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `reject_reason_code` varchar(60) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `resolved_matched_type` varchar(30) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `resolved_matched_id` bigint unsigned DEFAULT NULL,
-  `outcome` varchar(40) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `outcome` varchar(40) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   `deleted_at` timestamp NULL DEFAULT NULL,
@@ -10945,14 +10971,14 @@ CREATE TABLE `property_take_requests` (
   `tracked_property_id` bigint unsigned NOT NULL,
   `property_id` bigint unsigned NOT NULL,
   `requested_by_user_id` bigint unsigned NOT NULL,
-  `status` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'pending',
+  `status` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'pending',
   `age_days` int unsigned NOT NULL,
-  `date_field_used` varchar(40) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `date_field_used` varchar(40) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `date_is_fallback` tinyint(1) NOT NULL DEFAULT '0',
-  `matched_property_status` varchar(40) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `matched_property_status` varchar(40) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `decided_by_user_id` bigint unsigned DEFAULT NULL,
   `decided_at` timestamp NULL DEFAULT NULL,
-  `decision_note` text COLLATE utf8mb4_unicode_ci,
+  `decision_note` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
@@ -11077,6 +11103,9 @@ CREATE TABLE `prospecting_buyer_matches` (
   KEY `pbm_agency_listing_idx` (`agency_id`,`prospecting_listing_id`),
   KEY `pbm_listing_source_score` (`prospecting_listing_id`,`source`,`score`),
   KEY `prospecting_buyer_matches_branch_id_foreign` (`branch_id`),
+  KEY `pbm_agency_dismissed_score_listing_idx` (`agency_id`,`dismissed_at`,`score`,`prospecting_listing_id`),
+  KEY `pbm_agency_dismissed_contact_idx` (`agency_id`,`dismissed_at`,`contact_id`),
+  KEY `pbm_listing_dismissed_idx` (`prospecting_listing_id`,`dismissed_at`),
   CONSTRAINT `prospecting_buyer_matches_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
   CONSTRAINT `prospecting_buyer_matches_branch_id_foreign` FOREIGN KEY (`branch_id`) REFERENCES `branches` (`id`) ON DELETE SET NULL,
   CONSTRAINT `prospecting_buyer_matches_contact_id_foreign` FOREIGN KEY (`contact_id`) REFERENCES `contacts` (`id`) ON DELETE CASCADE,
@@ -11188,6 +11217,8 @@ CREATE TABLE `prospecting_listings` (
   KEY `prospecting_listings_last_search_id_index` (`last_search_id`),
   KEY `prosp_listings_linked_deed_idx` (`linked_deed_tracked_property_id`),
   KEY `prosp_listings_pitched_idx` (`pitched_at`),
+  KEY `prospecting_listings_agency_deleted_last_seen_idx` (`agency_id`,`deleted_at`,`last_seen_at`),
+  KEY `prospecting_listings_agency_deleted_first_seen_idx` (`agency_id`,`deleted_at`,`first_seen_at`),
   CONSTRAINT `prospecting_listings_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
   CONSTRAINT `prospecting_listings_branch_id_foreign` FOREIGN KEY (`branch_id`) REFERENCES `branches` (`id`) ON DELETE SET NULL,
   CONSTRAINT `prospecting_listings_captured_by_user_id_foreign` FOREIGN KEY (`captured_by_user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
@@ -12511,6 +12542,7 @@ CREATE TABLE `signature_requests` (
   `signing_order` int NOT NULL DEFAULT '1',
   `signing_group` tinyint unsigned DEFAULT NULL COMMENT 'HD-5: parties sharing a group sign with no agent checkpoint between them. NULL = a group of one (today behaviour).',
   `signer_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `signer_caption` text COLLATE utf8mb4_unicode_ci,
   `signer_email` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `signer_id_number` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `token` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
@@ -15352,3 +15384,13 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1181,'2026_08_22_0
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1182,'2026_08_22_000001_add_attachment_to_communication_links_link_method_enum',234);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1183,'2026_08_21_210000_create_commission_setting_audit_log_table',235);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1184,'2026_08_22_000002_add_source_attachment_id_to_communication_links',236);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1185,'2026_08_22_120000_add_recency_sort_indexes_to_prospecting_listings',237);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1186,'2026_08_22_140000_add_dismissed_at_indexes_to_prospecting_buyer_matches',237);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1187,'2026_08_22_140100_add_dedup_identity_to_prospecting_listings',237);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1188,'2026_08_22_150000_revert_dedup_identity_option2',237);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1189,'2026_08_23_200000_add_p24_activation_last_checked_at_to_properties',237);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1190,'2026_08_23_210000_add_buyer_matches_last_regenerated_at_to_contacts',237);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1191,'2026_08_26_000001_add_capacity_and_proxy_to_contact_representatives',237);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1192,'2026_08_26_000002_create_esign_recipient_presets_table',237);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1193,'2026_08_26_000003_add_signer_caption_to_signature_requests',237);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1194,'2026_08_27_000001_add_proxy_wording_to_esign_recipient_presets',237);
