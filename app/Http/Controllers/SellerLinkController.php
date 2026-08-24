@@ -4,7 +4,6 @@ namespace App\Http\Controllers;
 
 use App\Models\Agency;
 use App\Models\Property;
-use App\Models\PropertyMarketingActivity;
 use App\Models\PropertySellerLink;
 use App\Services\Leads\SharedLinkReengagementService;
 use App\Services\PropertyIntelligenceService;
@@ -20,8 +19,21 @@ class SellerLinkController extends Controller
     {
         $link = PropertySellerLink::where('token', $token)->first();
 
-        if (!$link || $link->revoked_at) {
-            return response()->view('seller-link.revoked', [], 410);
+        // 2026-08-24 (Johan) — an UNKNOWN token (never existed) has nothing to
+        // resolve an agency from, so it stays a plain generic 404 per the
+        // 3-branch policy (routes through errors.404-guest, built earlier
+        // today). A REVOKED token is different: the link WAS real, so it's a
+        // valid-but-dead case and gets the same agency-branded, agent-contact,
+        // route-back treatment as 'deleted'/'sold' below — not the old bare
+        // seller-link.revoked view (hardcoded dark background, no branding,
+        // no agent, no way back), which was left untouched by that earlier
+        // fix and reported back as a real dead end a seller actually landed
+        // on. Fixed to the same standard as everything else, not a special case.
+        if (!$link) {
+            abort(404);
+        }
+        if ($link->revoked_at) {
+            return $this->showUnavailable($link, $link->property, 'revoked');
         }
 
         $property = $link->property;
@@ -70,12 +82,11 @@ class SellerLinkController extends Controller
         $agency = Agency::withoutGlobalScopes()->find($property->agency_id);
         $intel = app(PropertyIntelligenceService::class);
 
-        // Anonymise buyer names (stable hash per property)
         $feedbackRollup = $intel->getFeedbackRollup($property->id, excludeInternalOnly: true);
         $compliance = $intel->getComplianceStatus($property->id);
-        $presentations = $intel->getPresentations($property->id, sellerView: true);
         $marketPosition = $intel->getLatestMarketPosition($property->id);
         $comparables = $intel->getComparableListings($property->id);
+        $portalPerformance = $intel->getPortalPerformance($property->id, rangeDays: 30);
         $recommendations = DB::table('property_recommendations')
             ->where('property_id', $property->id)
             ->where('seller_visible', true)
@@ -84,25 +95,96 @@ class SellerLinkController extends Controller
             ->whereNotNull('seller_facing_title')
             ->orderByDesc('generated_at')
             ->get();
-        $marketing = PropertyMarketingActivity::where('property_id', $property->id)
-            ->sellerVisible()
-            ->orderByDesc('occurred_at')
-            ->limit(20)
-            ->get();
 
         return view('seller-link.live', [
             'property' => $property,
             'seller' => $contact,
             'agency' => $agency,
             'feedbackRollup' => $feedbackRollup,
+            'viewingFeedback' => $this->buildSellerSafeFeedback($property->id),
+            'buyerDemand' => $this->buildBuyerDemand($property->id, $intel),
+            'priceHistory' => $this->buildPriceHistory($property->id),
+            'portalPerformance' => $portalPerformance,
             'compliance' => $compliance,
-            'presentations' => $presentations,
             'marketPosition' => $marketPosition,
             'comparables' => $comparables,
             'recommendations' => $recommendations,
-            'marketing' => $marketing,
             'link' => $link,
         ]);
+    }
+
+    /**
+     * 2026-08-24 (Johan) — seller live page rebuild. Buyer demand, seller-
+     * facing, per .ai/audits/2026-08-24-seller-live-link-data-availability.md
+     * Part 2: MatchingService::matchesForProperty is the SAME canonical
+     * engine the internal Core Matches tab and cc4's suburb report use — real
+     * demand, not a fabricated count. PropertyIntelligenceService::
+     * getBuyerInterestSignals() already wraps it, but returns real buyer
+     * names/ids for internal (agent-authenticated) use — never safe to hand
+     * to a public, forwardable-token page. Collapsed here into counts by
+     * tier only; no name, no id, no contact path ever leaves this method.
+     */
+    private function buildBuyerDemand(int $propertyId, PropertyIntelligenceService $intel): array
+    {
+        $signals = $intel->getBuyerInterestSignals($propertyId);
+
+        return [
+            'total'  => $signals->count(),
+            'strong' => $signals->where('tier', 'strong')->count(),
+            'good'   => $signals->where('tier', 'good')->count(),
+            'fair'   => $signals->where('tier', 'fair')->count(),
+        ];
+    }
+
+    /**
+     * 2026-08-24 (Johan) — seller-safe viewing feedback. Same privacy
+     * boundary as buildBuyerDemand(): PropertyIntelligenceService::
+     * getRecentViewings() returns buyer names (built for the internal
+     * property page) — this strips every identifying field before it ever
+     * reaches the view, keeping only what the seller is entitled to: that a
+     * viewing happened, what the outcome was, and the seller-visible note
+     * (never internal_notes — that split already exists at the data layer,
+     * used here as the gate, not re-derived).
+     */
+    private function buildSellerSafeFeedback(int $propertyId): array
+    {
+        $intel = app(PropertyIntelligenceService::class);
+        $viewings = $intel->getRecentViewings($propertyId, limit: 8, excludeInternalOnly: true);
+
+        $items = $viewings->flatMap(function ($v) {
+            return collect($v['feedback'])->map(fn ($fb) => [
+                'outcome_label' => $fb['outcome_label'],
+                'notes'         => $fb['seller_notes'],
+                'date'          => $fb['captured_at'],
+            ]);
+        })
+        ->filter(fn ($row) => !empty($row['outcome_label']) || !empty($row['notes']))
+        ->sortByDesc('date')
+        ->take(5)
+        ->values()
+        ->all();
+
+        return $items;
+    }
+
+    /**
+     * 2026-08-24 (Johan) — price-change history, single-line-per-event, from
+     * property_audit_log (event_type='price_changed') — no dedicated price-
+     * history table exists (properties.price is a single current value).
+     * Low fill rate (11.7% of active properties, per the availability audit)
+     * — folded in as a small strip that's simply absent when there's nothing
+     * to show, per Johan's instruction not to build a section that renders
+     * empty for most sellers. human_summary is already agency/seller-safe
+     * (just a price figure and a date, no PII).
+     */
+    private function buildPriceHistory(int $propertyId): \Illuminate\Support\Collection
+    {
+        return DB::table('property_audit_log')
+            ->where('property_id', $propertyId)
+            ->where('event_type', 'price_changed')
+            ->orderByDesc('created_at')
+            ->limit(5)
+            ->get(['human_summary', 'created_at']);
     }
 
     /**

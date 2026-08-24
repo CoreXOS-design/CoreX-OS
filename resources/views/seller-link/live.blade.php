@@ -1,8 +1,14 @@
 {{--
     Seller Live Link — "Live Marketing Update" (public, token-gated)
-    Styled to match the Core Match client page / buyer portal: agency-branded tokens,
-    Figtree, surface-card / ds-badge styling, branded gradient hero + shared agent
-    card and company footer. All data sections preserved.
+    2026-08-24 rebuild (Johan): "more visual, carry everything a seller needs
+    to see — feedback, demand, activity." Ordered around the seller's own
+    question order: is anyone looking → what are they saying → what's my
+    agent doing → where does it sit in the market. Privacy boundary per
+    .ai/audits/2026-08-24-seller-live-link-data-availability.md Part 2:
+    buyer/enquirer identity never appears in any form on this page — the
+    controller strips it before the view ever sees it, not the other way
+    round. "Market presentation" and "Marketing activity" sections dropped
+    per the same audit (0% real fill rate on live data — see Part 1).
 --}}
 @php
     // Agency brand colours (Company Settings → Design). Fall back to CoreX defaults.
@@ -16,14 +22,7 @@
     $published  = $compliance['published'] ?? false;
     $mandateExp = $compliance['mandate_expired'] ?? true;
 
-    $stats = collect([
-        ['v' => $feedbackRollup['total_viewings'] ?? 0,        'l' => 'Viewings'],
-        ['v' => $daysListed !== null ? $daysListed : '—',      'l' => 'Days listed'],
-    ]);
-    if (!empty($marketPosition)) {
-        $stats->push(['v' => 'R ' . number_format($marketPosition['recommended_price'] ?? 0), 'l' => 'Market value']);
-        $stats->push(['v' => 'R ' . number_format($marketPosition['area_avg_price'] ?? 0),    'l' => 'Area average']);
-    }
+    $hasPortalData = $portalPerformance['has_data'] ?? false;
 @endphp
 <!DOCTYPE html>
 <html lang="en">
@@ -31,6 +30,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="robots" content="noindex,nofollow">
+    <meta name="color-scheme" content="light">
     <title>{{ $property->title ?? 'Property' }} — Live Marketing Update{{ !empty($agency) && $agency->name ? ' · ' . $agency->name : '' }}</title>
     <link rel="preconnect" href="https://fonts.bunny.net">
     <link href="https://fonts.bunny.net/css?family=figtree:400,500,600,700,800&display=swap" rel="stylesheet">
@@ -65,6 +65,10 @@
         }
         .ds-badge-success { background: color-mix(in srgb, var(--ds-green) 12%, transparent); color: var(--ds-green); border-color: color-mix(in srgb, var(--ds-green) 28%, transparent); }
         .ds-badge-warning { background: color-mix(in srgb, var(--ds-amber) 12%, transparent); color: var(--ds-amber); border-color: color-mix(in srgb, var(--ds-amber) 28%, transparent); }
+        .tier-chip {
+            display: inline-flex; align-items: center; gap: .35rem;
+            border-radius: 9999px; padding: 0.3rem 0.75rem; font-size: 0.75rem; font-weight: 600;
+        }
     </style>
 </head>
 <body class="min-h-screen">
@@ -111,20 +115,97 @@
             </div>
         </section>
 
-        {{-- Performance stats --}}
-        <section class="grid grid-cols-2 md:grid-cols-4 gap-3">
-            @foreach($stats as $s)
-            <div class="surface-card p-4 text-center">
-                <div class="text-xl font-extrabold" style="color: var(--brand-default);">{{ $s['v'] }}</div>
-                <div class="text-[0.625rem] font-semibold uppercase tracking-wider mt-1" style="color: var(--text-muted);">{{ $s['l'] }}</div>
+        {{-- SECTION 1 — Is anyone looking at your home? (buyer demand, first, per Johan) --}}
+        <section class="surface-card p-5">
+            <h2 class="text-base font-bold mb-1" style="color: var(--text-primary);">Is anyone looking at your home?</h2>
+            <p class="text-xs mb-4" style="color: var(--text-muted);">Buyers currently registered with us whose search matches your property.</p>
+
+            <div class="flex flex-col sm:flex-row sm:items-center gap-4 sm:gap-6 mb-4">
+                <div class="flex items-baseline gap-2 flex-shrink-0">
+                    <span class="text-4xl font-extrabold" style="color: var(--brand-default);">{{ $buyerDemand['total'] }}</span>
+                    <span class="text-sm font-medium" style="color: var(--text-secondary);">{{ \Illuminate\Support\Str::plural('buyer', $buyerDemand['total']) }} matching right now</span>
+                </div>
+                @if($buyerDemand['total'] > 0)
+                <div class="flex flex-wrap gap-2">
+                    @if($buyerDemand['strong'] > 0)
+                        <span class="tier-chip" style="background: color-mix(in srgb, var(--ds-green) 14%, transparent); color: var(--ds-green);">{{ $buyerDemand['strong'] }} strong match{{ $buyerDemand['strong'] === 1 ? '' : 'es' }}</span>
+                    @endif
+                    @if($buyerDemand['good'] > 0)
+                        <span class="tier-chip" style="background: color-mix(in srgb, var(--brand-icon) 14%, transparent); color: var(--brand-default);">{{ $buyerDemand['good'] }} good match{{ $buyerDemand['good'] === 1 ? '' : 'es' }}</span>
+                    @endif
+                    @if($buyerDemand['fair'] > 0)
+                        <span class="tier-chip" style="background: color-mix(in srgb, var(--ds-amber) 14%, transparent); color: var(--ds-amber);">{{ $buyerDemand['fair'] }} fair match{{ $buyerDemand['fair'] === 1 ? '' : 'es' }}</span>
+                    @endif
+                </div>
+                @endif
             </div>
-            @endforeach
+
+            @if($buyerDemand['total'] === 0)
+                <p class="text-sm mb-4" style="color: var(--text-secondary);">No buyers in our system currently match your home's price and criteria — this moves as new buyers register and as your listing is refreshed.</p>
+            @endif
+
+            <div class="grid grid-cols-2 sm:grid-cols-3 gap-3 pt-4" style="border-top: 1px solid var(--border);">
+                <div class="text-center sm:text-left">
+                    <div class="text-lg font-bold" style="color: var(--text-primary);">{{ $daysListed !== null ? $daysListed : '—' }}</div>
+                    <div class="text-[0.625rem] font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Days listed</div>
+                </div>
+                <div class="text-center sm:text-left">
+                    @if($hasPortalData)
+                        <div class="text-lg font-bold" style="color: var(--text-primary);">{{ number_format($portalPerformance['views']) }}</div>
+                        <div class="text-[0.625rem] font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Property24 views (30d)</div>
+                    @else
+                        <div class="text-lg font-bold" style="color: var(--text-muted);">—</div>
+                        <div class="text-[0.625rem] font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Not yet reporting</div>
+                    @endif
+                </div>
+                <div class="text-center sm:text-left">
+                    @if($hasPortalData)
+                        <div class="text-lg font-bold" style="color: var(--text-primary);">{{ number_format($portalPerformance['enquiries']) }}</div>
+                        <div class="text-[0.625rem] font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Enquiries (30d)</div>
+                    @else
+                        <div class="text-lg font-bold" style="color: var(--text-muted);">—</div>
+                        <div class="text-[0.625rem] font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Not yet reporting</div>
+                    @endif
+                </div>
+            </div>
         </section>
 
-        {{-- Agent Insights (seller-facing recommendations) --}}
+        {{-- SECTION 2 — What are they saying? (viewing feedback, always visible, honest at zero) --}}
+        <section class="surface-card p-5">
+            <h2 class="text-base font-bold mb-1" style="color: var(--text-primary);">What are viewers saying?</h2>
+            <p class="text-xs mb-4" style="color: var(--text-muted);">{{ $feedbackRollup['total_viewings'] ?? 0 }} viewing{{ ($feedbackRollup['total_viewings'] ?? 0) === 1 ? '' : 's' }} recorded so far.</p>
+
+            @if(count($viewingFeedback) > 0)
+                <div class="space-y-3">
+                    @foreach($viewingFeedback as $fb)
+                        <div class="p-3 rounded-lg" style="background: var(--surface-2);">
+                            <div class="flex items-center justify-between gap-2 mb-1">
+                                @if($fb['outcome_label'])
+                                    <span class="text-xs font-semibold" style="color: var(--brand-default);">{{ $fb['outcome_label'] }}</span>
+                                @else
+                                    <span></span>
+                                @endif
+                                @if($fb['date'])
+                                    <span class="text-[0.6875rem]" style="color: var(--text-muted);">{{ \Carbon\Carbon::parse($fb['date'])->format('d M') }}</span>
+                                @endif
+                            </div>
+                            @if($fb['notes'])
+                                <p class="text-sm" style="color: var(--text-secondary);">{{ $fb['notes'] }}</p>
+                            @endif
+                        </div>
+                    @endforeach
+                </div>
+            @else
+                <p class="text-sm" style="color: var(--text-secondary);">
+                    No viewing feedback yet. As soon as a viewing is held, your agent's notes and the buyer's feedback will appear here.
+                </p>
+            @endif
+        </section>
+
+        {{-- SECTION 3 — What's your agent doing? (insights only when present — hidden, not empty) --}}
         @if($recommendations->isNotEmpty())
         <section class="surface-card p-5">
-            <h2 class="text-base font-bold mb-3" style="color: var(--text-primary);">Agent insights</h2>
+            <h2 class="text-base font-bold mb-3" style="color: var(--text-primary);">What's your agent doing</h2>
             <div class="space-y-3">
                 @foreach($recommendations as $rec)
                     <div class="flex items-start gap-3">
@@ -141,34 +222,34 @@
         </section>
         @endif
 
-        {{-- Viewing feedback summary --}}
+        {{-- SECTION 4 — Market position (price/value, with price-change strip folded in when present) --}}
+        @if(!empty($marketPosition) || $priceHistory->isNotEmpty())
         <section class="surface-card p-5">
-            <h2 class="text-base font-bold mb-3" style="color: var(--text-primary);">Viewing feedback</h2>
-            <div class="grid grid-cols-2 gap-4 text-sm">
-                <div class="flex items-baseline justify-between gap-2">
-                    <span style="color: var(--text-muted);">Total viewings</span>
-                    <span class="font-semibold" style="color: var(--text-primary);">{{ $feedbackRollup['total_viewings'] ?? 0 }}</span>
+            <h2 class="text-base font-bold mb-3" style="color: var(--text-primary);">Where your price sits</h2>
+
+            @if(!empty($marketPosition))
+            <div class="grid grid-cols-2 gap-4 mb-3">
+                <div>
+                    <div class="text-lg font-bold" style="color: var(--brand-default);">R {{ number_format($marketPosition['recommended_price'] ?? 0) }}</div>
+                    <div class="text-[0.625rem] font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Estimated market value</div>
                 </div>
-                <div class="flex items-baseline justify-between gap-2">
-                    <span style="color: var(--text-muted);">Feedback captured</span>
-                    <span class="font-semibold" style="color: var(--text-primary);">{{ $feedbackRollup['total_feedback_rows'] ?? 0 }}</span>
+                <div>
+                    <div class="text-lg font-bold" style="color: var(--text-primary);">R {{ number_format($marketPosition['area_avg_price'] ?? 0) }}</div>
+                    <div class="text-[0.625rem] font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Area average</div>
                 </div>
             </div>
-        </section>
+            @endif
 
-        {{-- Marketing activity --}}
-        @if($marketing->isNotEmpty())
-        <section class="surface-card p-5">
-            <h2 class="text-base font-bold mb-3" style="color: var(--text-primary);">Marketing activity</h2>
-            <div class="space-y-2.5">
-                @foreach($marketing as $ma)
-                    <div class="flex items-center gap-3 text-sm">
-                        <span class="text-xs w-16 flex-shrink-0 font-medium" style="color: var(--text-muted);">{{ $ma->occurred_at->format('d M') }}</span>
-                        <span class="w-1.5 h-1.5 rounded-full flex-shrink-0" style="background: var(--brand-icon);"></span>
-                        <span style="color: var(--text-secondary);">{{ str_replace('_', ' ', ucfirst($ma->activity_type)) }}</span>
+            @if($priceHistory->isNotEmpty())
+            <div class="pt-3 space-y-1.5" style="{{ !empty($marketPosition) ? 'border-top: 1px solid var(--border);' : '' }}">
+                @foreach($priceHistory as $ph)
+                    <div class="flex items-center justify-between gap-2 text-xs">
+                        <span style="color: var(--text-secondary);">{{ $ph->human_summary }}</span>
+                        <span style="color: var(--text-muted);">{{ \Carbon\Carbon::parse($ph->created_at)->format('d M Y') }}</span>
                     </div>
                 @endforeach
             </div>
+            @endif
         </section>
         @endif
 
@@ -184,16 +265,6 @@
                     </div>
                 @endforeach
             </div>
-        </section>
-        @endif
-
-        {{-- Presentation --}}
-        @if($presentations->isNotEmpty())
-        @php $latest = $presentations->first(); @endphp
-        <section class="surface-card p-5">
-            <h2 class="text-base font-bold mb-1" style="color: var(--text-primary);">Market presentation</h2>
-            <p class="text-sm" style="color: var(--text-secondary);">{{ $latest->title }}</p>
-            <p class="text-xs mt-1" style="color: var(--text-muted);">Generated {{ \Carbon\Carbon::parse($latest->created_at)->format('d M Y') }}</p>
         </section>
         @endif
 
