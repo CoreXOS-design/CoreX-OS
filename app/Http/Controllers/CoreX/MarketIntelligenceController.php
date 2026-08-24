@@ -3536,17 +3536,20 @@ class MarketIntelligenceController extends Controller
 
     public function thumbnail(ProspectingListing $listing)
     {
-        // AT-22 item 2 — never serve a thumbnail the content gate blocked
-        // (competitor brand card / non-photo graphic). Defence in depth: the
-        // seller-surface render gate already withholds the URL for blocked
-        // rows, but a direct hit on this route must 404 too so a leaked link
-        // can never resurface the branded asset.
-        if ($listing->thumbnail_blocked_reason !== null) {
-            abort(404);
-        }
-
-        if (!$listing->thumbnail_path || !Storage::disk('local')->exists($listing->thumbnail_path)) {
-            abort(404);
+        // Single source of truth for "we don't have a real photo to show" —
+        // a blocked (AT-22 item 2 — competitor brand card / non-photo
+        // graphic; a direct hit on this route must never resurface it) or
+        // missing (never downloaded, or the local file is gone) thumbnail
+        // both render the same clean placeholder, never a broken-image icon.
+        // 2026-08-24 — was abort(404), which every <img> caller (row grid,
+        // slideover header) rendered as a broken icon instead of "no photo".
+        if ($listing->thumbnail_blocked_reason !== null
+            || !$listing->thumbnail_path
+            || !Storage::disk('local')->exists($listing->thumbnail_path)) {
+            return response()->file(public_path('images/mic-thumbnail-placeholder.svg'), [
+                'Content-Type' => 'image/svg+xml',
+                'Cache-Control' => 'public, max-age=3600',
+            ]);
         }
 
         return response()->file(Storage::disk('local')->path($listing->thumbnail_path));
