@@ -861,6 +861,9 @@ class SignatureService
         ?int $roleIndex = null,
         ?string $signerCaption = null,
         ?string $partyClauseText = null,
+        bool $isDeceased = false,
+        bool $isProxy = false,
+        ?string $recipientLocalKey = null,
     ): SignatureRequest {
         $token = $this->generateToken();
 
@@ -896,6 +899,15 @@ class SignatureService
             'signer_name' => $signerName,
             'signer_caption' => $signerCaption,
             'party_clause_text' => $partyClauseText,
+            'is_deceased' => $isDeceased,
+            'is_proxy' => $isProxy,
+            // Every recipient gets a stable key on creation, whether or not
+            // anything binds to it — cheap, and it's what a LATER-added
+            // recipient's chain would need to point at. The wizard passes its
+            // own (assigned when the recipient was first added to the
+            // screen) once that UI exists; auto-generated here is the safe
+            // default for every recipient today.
+            'recipient_local_key' => $recipientLocalKey ?? (string) \Illuminate\Support\Str::uuid(),
             'signer_email' => $signerEmail,
             'signer_id_number' => $signerIdNumber,
             'token' => $token,

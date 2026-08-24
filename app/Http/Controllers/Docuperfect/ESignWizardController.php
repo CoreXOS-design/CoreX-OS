@@ -2710,6 +2710,8 @@ class ESignWizardController extends Controller
                 );
             }
 
+            $chainBindings = [];
+
             foreach ($orderedRecipients as $i => $r) {
                 $baseRole = $roleAliases[$r['role'] ?? 'other'] ?? ($r['role'] ?? 'other');
                 if ($baseRole === 'agent') continue;
@@ -2808,12 +2810,63 @@ class ESignWizardController extends Controller
                     $ficaSubId,
                     signerCaption: $r['_signature_caption'] ?? null,
                     partyClauseText: $r['_party_clause_text'] ?? null,
+                    isDeceased: (bool) ($r['_is_deceased'] ?? false),
+                    isProxy: (bool) ($r['_is_proxy'] ?? false),
+                    recipientLocalKey: $r['_recipient_local_key'] ?? null,
                 );
+
+                // "Replace this party" (Johan, 2026-08-24) — a recipient whose party is
+                // being replaced (e.g. deceased, represented by a chain) carries a
+                // recipient template + slot bindings from the wizard. Resolved in a
+                // SEPARATE pass, after every recipient in this send has been created,
+                // because a chain can bind to ANOTHER recipient in this same batch
+                // (Piet's executor slot binds to Koos's recipient_local_key) — that
+                // key only exists once Koos's own createSigningRequest() call above
+                // has run, which may be later in this same loop.
+                if (! empty($r['_recipient_template_id']) && ! empty($r['_slot_bindings'])) {
+                    $chainBindings[] = [
+                        'signature_request_id' => $sigReq->id,
+                        'recipient_template_id' => (int) $r['_recipient_template_id'],
+                        'slot_bindings' => $r['_slot_bindings'],
+                    ];
+                }
 
                 // Mark as deferred if "sign_later" was selected and party has no details
                 if ($signingAction === 'sign_later' && (empty($r['name']) || empty($email) || $skipEmail)) {
                     $sigReq->update(['status' => \App\Models\Docuperfect\SignatureRequest::STATUS_DEFERRED]);
                 }
+            }
+
+            // "Replace this party" — resolve every chain binding now that every
+            // recipient in this send has a recipient_local_key (including ones a
+            // chain might point AT, which may have been created later in the loop
+            // above than the recipient whose party is being replaced). GENERATION
+            // TIME: resolved once, frozen onto party_clause_text, never
+            // recomputed — same snapshot-once rule as everything else here. A
+            // dangling binding (a slot's recipient/contact no longer resolves)
+            // blocks the send entirely rather than freezing a half-built clause.
+            foreach ($chainBindings as $binding) {
+                $sigReq = \App\Models\Docuperfect\SignatureRequest::find($binding['signature_request_id']);
+                $recipientTemplate = \App\Models\RecipientTemplate::find($binding['recipient_template_id']);
+                if (! $sigReq || ! $recipientTemplate) {
+                    continue;
+                }
+
+                try {
+                    $resolvedText = $recipientTemplate->resolveBoundText($sigReq, $binding['slot_bindings']);
+                } catch (\App\Exceptions\DanglingSlotBindingException $e) {
+                    // Block the send with a message naming the specific slot — never a
+                    // half-built clause on a document that goes on to be signed.
+                    throw \Illuminate\Validation\ValidationException::withMessages([
+                        'recipients' => $e->getMessage(),
+                    ]);
+                }
+
+                $sigReq->update([
+                    'recipient_template_id' => $recipientTemplate->id,
+                    'slot_bindings' => $binding['slot_bindings'],
+                    'party_clause_text' => $resolvedText,
+                ]);
             }
 
             // No supervisor_final request (confirmed model, 2026-08-03) — the authoriser co-signs ONCE
