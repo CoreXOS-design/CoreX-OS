@@ -23,6 +23,30 @@
     $mandateExp = $compliance['mandate_expired'] ?? true;
 
     $hasPortalData = $portalPerformance['has_data'] ?? false;
+
+    // 2026-08-25 (Johan/cc1) — "made more visual" meant an actual photo of
+    // the house, not just stats. Same choke point every other property-
+    // image surface uses (PropertyThumbnailService::displayUrl(), via the
+    // Property model's thumbFor() wrapper) — it returns null when neither
+    // the thumbnail nor the original exists on disk, so the @if/@else below
+    // is a REAL gate, never a broken-icon or bare-alt-text fallback. Same
+    // first-image resolution order as buyer-portal/_property-card.blade.php
+    // — copied, not reinvented.
+    $heroImage = $property->thumbFor(
+        ($property->gallery_images_json[0] ?? null)
+        ?? ($property->dawn_images_json[0] ?? null)
+        ?? ($property->noon_images_json[0] ?? null)
+        ?? ($property->dusk_images_json[0] ?? null)
+        ?? ($property->images_json[0] ?? null)
+    );
+    $heroImage = \App\Models\Property::publicImageUrl($heroImage);
+
+    // Bed/bath/garage/erf — the seller's own property detail, never a buyer
+    // signal, so no privacy boundary applies here (unlike buyerDemand below).
+    $propFacts = collect([
+        [$property->beds, 'bed'], [$property->baths, 'bath'], [$property->garages, 'garage'],
+    ])->filter(fn ($f) => !empty($f[0]));
+    $erfSize = $property->erf_size_m2 ?? null;
 @endphp
 <!DOCTYPE html>
 <html lang="en">
@@ -112,6 +136,42 @@
                     </div>
                 </div>
                 @endif
+            </div>
+        </section>
+
+        {{-- Property photo + the facts a seller recognises their own home by --}}
+        <section class="surface-card overflow-hidden">
+            <div class="relative w-full overflow-hidden" style="background: var(--surface-2); aspect-ratio: 16/9;">
+                @if($heroImage)
+                    <img src="{{ $heroImage }}" alt="{{ $property->title ?? 'Your property' }}" loading="lazy"
+                         class="absolute inset-0 w-full h-full object-cover">
+                @else
+                    <div class="absolute inset-0 flex items-center justify-center" style="color: var(--text-muted); opacity: 0.4;">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1" stroke="currentColor" class="w-14 h-14"><path stroke-linecap="round" stroke-linejoin="round" d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 0 0 1.5-1.5V6a1.5 1.5 0 0 0-1.5-1.5H3.75A1.5 1.5 0 0 0 2.25 6v12a1.5 1.5 0 0 0 1.5 1.5Z"/></svg>
+                    </div>
+                @endif
+            </div>
+            <div class="p-5">
+                <div class="flex items-start justify-between gap-3 flex-wrap">
+                    <div class="text-2xl font-extrabold" style="color: var(--brand-default);">{{ $property->formattedPrice() }}</div>
+                </div>
+                @if($property->suburb)
+                <div class="text-sm mt-0.5" style="color: var(--text-muted);">{{ $property->suburb }}{{ $property->city ? ', ' . $property->city : '' }}</div>
+                @endif
+                <div class="flex flex-wrap items-center gap-4 mt-3">
+                    @foreach($propFacts as [$v, $l])
+                        <div class="flex items-baseline gap-1.5">
+                            <span class="text-base font-semibold" style="color: var(--text-primary);">{{ $v }}</span>
+                            <span class="text-xs" style="color: var(--text-muted);">{{ $v == 1 ? $l : \Illuminate\Support\Str::plural($l) }}</span>
+                        </div>
+                    @endforeach
+                    @if($erfSize)
+                        <div class="flex items-baseline gap-1.5">
+                            <span class="text-base font-semibold" style="color: var(--text-primary);">{{ number_format($erfSize) }}</span>
+                            <span class="text-xs" style="color: var(--text-muted);">m&sup2; erf</span>
+                        </div>
+                    @endif
+                </div>
             </div>
         </section>
 
