@@ -30,6 +30,7 @@ class EsignRecipientPreset extends Model
         'agency_id',
         'name',
         'applies_to',
+        'is_system',
         'phrasing_template',
         'signature_caption',
         'proxy_phrasing_template',
@@ -39,6 +40,7 @@ class EsignRecipientPreset extends Model
 
     protected $casts = [
         'is_default' => 'boolean',
+        'is_system'  => 'boolean',
     ];
 
     public const APPLIES_TO = ['entity', 'all'];
@@ -106,6 +108,27 @@ class EsignRecipientPreset extends Model
 
         // 3. Fall back to (and seed) the agency default.
         return static::defaultFor($agencyId);
+    }
+
+    /**
+     * CoreX Standard presets — the shipped SA conveyancing phrasing library
+     * (Johan, 2026-08-25). agency_id IS NULL is the deliberate "global row"
+     * convention this codebase already uses (.ai/specs/multi-tenancy.md §2a,
+     * same pattern as automation_rules): AgencyScope structurally filters
+     * these OUT of every agency-scoped query, so an agency's own preset
+     * CRUD — always agency_id-scoped — can never match, edit, or delete one.
+     * is_system is the explicit label on top of that structural protection;
+     * bypasses the scope deliberately (mirrors queryWithoutAgencyScope()),
+     * since a NULL agency_id row is invisible to it by design, not a bug.
+     *
+     * Deliberately NOT wired into resolveFor()/defaultFor() — those resolve
+     * an AGENCY's own active preset for live document generation and are
+     * left untouched. This scope is for a setup screen (or any future
+     * consumer) to list/copy-from the standard library on demand.
+     */
+    public function scopeCoreXStandard($query)
+    {
+        return $query->withoutGlobalScopes()->whereNull('agency_id')->where('is_system', true);
     }
 
     /**
