@@ -1,5 +1,21 @@
 # E-sign failed go-live — forensic investigation (2026-08-24)
 
+> ## ⚠️ SUPERSEDED — DOES NOT DESCRIBE CURRENT BEHAVIOUR
+>
+> **Added 2026-08-24, same day as the rest of this document. E-sign has since been
+> completely redone (Johan's words: "esign was completely redone - so do not touch it").
+> Everything below describes the PRE-REBUILD implementation — the code this document
+> traces (`SignatureService::sendSigningRequestEmail()`, the `completeWeb` submit floor,
+> the identity-verification gate, the recipient-setup flow) no longer exists in its
+> investigated form.**
+>
+> Do not treat the "Fixed" / "Still present" determinations below as applying to
+> current code, do not open work against the "Pre-1-September list," and do not use
+> this document as a reference for how e-sign behaves today. It is a historical record
+> of why one agent's go-live attempt failed on the OLD implementation — nothing more.
+> If you're reading this because you're about to touch e-sign: read the current code,
+> not this file.
+
 **Read-only investigation.** Nothing restored, resent, or re-triggered. Grew out of the
 stranded-signed-document scoping (`perf-sweep-and-blank-pdf-findings-2026-08-23.md` §4,
 corrected `2026-08-24`), which itself grew out of a false alarm — but the false alarm
