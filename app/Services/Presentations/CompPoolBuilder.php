@@ -182,7 +182,12 @@ final class CompPoolBuilder
                 'key'        => $c['key'] ?? null,
                 'price'      => $price,
                 'size_m2'    => $this->intOrNull($c['size_m2'] ?? null),
-                'category'   => $this->category($classifier, $c['title_type'] ?? null, $c['property_type'] ?? null),
+                // trustTitleType: true — see category()'s 2026-08-24 doc note.
+                // Candidates' title_type is always freshly derived per-row by
+                // the hydrator's deriveCompTitleType() this same request, not
+                // a stale cached column, so it must win over a re-read of the
+                // generic property_type text.
+                'category'   => $this->category($classifier, $c['title_type'] ?? null, $c['property_type'] ?? null, trustTitleType: true),
                 'kind'       => $this->kind($c['property_type'] ?? null),
                 'distance_m' => $dist,
                 'exempt'     => (bool) ($c['exempt'] ?? false),
@@ -511,8 +516,29 @@ final class CompPoolBuilder
      * $titleType is now only a fallback for candidates that carry a
      * resolved category but no raw property_type text at all.
      */
-    private function category(TitleTypeClassifier $classifier, ?string $titleType, ?string $propertyType): ?string
+    /**
+     * 2026-08-24 — $trustTitleType (default false = today's behaviour,
+     * unchanged for the subject call and any other caller). Reintroduced,
+     * one stage later, the exact bug 2026-06-18's a55a4c617 already fixed
+     * in MicSnapshotHydrator::collectMatchedRows(): CMA-Info comp rows carry
+     * property_type='Residence' (the PDF's generic usage word), which
+     * fromPropertyType() buckets as full_title regardless of the row's own
+     * scheme_name/section_number. The gather stage already derives the
+     * correct category per-row via deriveCompTitleType() (signal-first,
+     * property_type only as its own fallback) BEFORE candidates ever reach
+     * this class — that value is not a stale cache, it was computed fresh
+     * this request, from stronger evidence than property_type alone. Only
+     * the candidate call site (below) passes trustTitleType: true, so a
+     * signal-derived category is never re-clobbered by the weaker raw-text
+     * reread. The subject call is untouched — it still passes the
+     * caller's title_type through the original cached-column-distrust path,
+     * exactly as the Uvonique fix intended.
+     */
+    private function category(TitleTypeClassifier $classifier, ?string $titleType, ?string $propertyType, bool $trustTitleType = false): ?string
     {
+        if ($trustTitleType && $titleType !== null && $titleType !== '') {
+            return $titleType;
+        }
         $fresh = $classifier->fromPropertyType($propertyType);
         if ($fresh !== null) {
             return $fresh;

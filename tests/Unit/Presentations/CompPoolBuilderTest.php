@@ -311,4 +311,97 @@ class CompPoolBuilderTest extends TestCase
         $this->assertSame(0, $res['diagnostics']['n_subject_self_excluded']);
         $this->assertContains('h1', $res['selected_keys']);
     }
+
+    /**
+     * 2026-08-24 — Marina Glen live incident (presentation 143). CMA-Info
+     * comp rows carry property_type='Residence' (the PDF's generic usage
+     * word) — fromPropertyType('Residence') buckets that as full_title. The
+     * gather stage (MicSnapshotHydrator::deriveCompTitleType) already knows
+     * better from the row's own scheme_name/section_number and passes a
+     * correct 'sectional_title' — but category() was re-deriving from the
+     * generic text and clobbering it, so a sectional subject's own
+     * same-subject-report comps failed the type gate against themselves.
+     * This is exactly the class of bug a55a4c617 (2026-06-18) already fixed
+     * at the gather stage; the 2026-08-03 Uvonique hardening (0271614f8)
+     * reintroduced it one stage later, here, without anyone connecting the
+     * two. Pins: a sectional subject with 'Residence'-labelled comps that
+     * DO carry a correct signal-derived title_type must retain them.
+     */
+    public function test_sectional_subject_retains_residence_labelled_comps_with_correct_signal_title_type(): void
+    {
+        $subject = [
+            'title_type' => 'sectional_title', 'property_type' => 'Townhouse',
+            'lat' => -30.9322787, 'lng' => 30.300329, 'erf_m2' => 56,
+            'anchor_price' => 650000, 'address' => 'Unit 20, Marina Glen Holiday Resort, Mars Road',
+        ];
+        $candidates = [
+            $this->cand(550000, 'Residence', titleType: 'sectional_title', exempt: true, key: 'section20'),
+            $this->cand(430000, 'Residence', titleType: 'sectional_title', exempt: true, key: 'section54'),
+            $this->cand(620000, 'Residence', titleType: 'sectional_title', exempt: true, key: 'section19'),
+        ];
+        $res = $this->builder()->select($subject, $candidates, $this->config());
+        $this->assertSame(3, $res['diagnostics']['n_after_type'], 'signal-derived sectional comps must survive the type gate against a sectional subject');
+        $this->assertContains('section20', $res['selected_keys']);
+        $this->assertContains('section54', $res['selected_keys']);
+        $this->assertContains('section19', $res['selected_keys']);
+    }
+
+    /**
+     * Bidirectional regression, both stated explicitly per the fix's own
+     * scope: a freehold subject must still pull freehold comps (the
+     * Uvonique-fix caller — subject side, untouched by this change) and
+     * must NOT start pulling sectional comps just because a sectional
+     * candidate also happens to carry a generic 'Residence' property_type
+     * and an (incorrectly, in this fixture) trusted signal title_type —
+     * trustTitleType only ever helps a candidate MATCH its own true
+     * category; it never widens what a freehold subject accepts.
+     */
+    public function test_freehold_subject_still_excludes_sectional_even_with_residence_label(): void
+    {
+        $subject = [
+            'title_type' => 'full_title', 'property_type' => 'House',
+            'lat' => -30.10, 'lng' => 30.50, 'erf_m2' => 800,
+        ];
+        $candidates = [
+            $this->cand(2_400_000, 'House', titleType: 'full_title', key: 'freehold1'),
+            $this->cand(2_500_000, 'House', titleType: 'full_title', key: 'freehold2'),
+            // A sectional comp, generically labelled 'Residence', with a
+            // correctly-derived sectional signal — must still be excluded
+            // from a freehold subject's pool.
+            $this->cand(2_450_000, 'Residence', titleType: 'sectional_title', key: 'sectional_leak'),
+        ];
+        $res = $this->builder()->select($subject, $candidates, $this->config());
+        $this->assertNotContains('sectional_leak', $res['selected_keys'], 'a sectional comp must never enter a freehold pool, regardless of its property_type label');
+        $this->assertContains('freehold1', $res['selected_keys']);
+    }
+
+    /**
+     * The other caller — subject side — the stale-cached-column path the
+     * 2026-08-03 Uvonique hardening exists to protect. Untouched by this
+     * fix: a subject whose cached title_type is stale/wrong (says
+     * 'sectional_title' from an old save) but whose CURRENT property_type
+     * reads unambiguously as a house must still classify fresh, from
+     * property_type — exactly as it did before this change, since the
+     * subject call never passes trustTitleType.
+     */
+    public function test_subject_stale_cached_title_type_still_overridden_by_fresh_property_type(): void
+    {
+        $subject = [
+            // Deliberately WRONG/stale — simulates a cached properties.title_type
+            // column that went stale after the property was edited.
+            'title_type' => 'sectional_title', 'property_type' => 'House',
+            'lat' => -30.10, 'lng' => 30.50, 'erf_m2' => 800,
+        ];
+        $candidates = [
+            $this->cand(2_400_000, 'House', key: 'h1'),
+            $this->cand(2_500_000, 'House', key: 'h2'),
+        ];
+        $res = $this->builder()->select($subject, $candidates, $this->config());
+        // If the stale 'sectional_title' had won, these freehold candidates
+        // (title_type null, property_type 'House' -> full_title) would have
+        // been excluded as a type mismatch. They must still be selected —
+        // proving the subject's fresh-property_type-wins behaviour is intact.
+        $this->assertContains('h1', $res['selected_keys'], 'subject classification must still self-heal from a stale cached title_type, unchanged by this fix');
+        $this->assertContains('h2', $res['selected_keys']);
+    }
 }
