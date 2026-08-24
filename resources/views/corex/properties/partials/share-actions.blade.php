@@ -37,16 +37,45 @@
         shareSubject: @js($property->title ?: 'Property listing'),
      })"
      class="relative">
-    <div x-data="{ open: false }" @click.outside="open = false; back()" @keydown.escape.window="open = false" class="relative">
-        <button type="button" @click="open = !open"
+    {{-- 2026-08-24 (Johan) — Buyers Pipeline wraps each wishlist's matches in an
+         overflow-y:auto / max-height:600px scroll container (detail.blade.php) so the
+         accordion doesn't grow unbounded. A plain position:absolute dropdown gets
+         visually clipped by that ancestor's overflow regardless of z-index — the menu
+         opened but only the first option was reachable ("cuts off... can only test
+         with my details"). The Core Matches results page has no such wrapper, which
+         is why the same partial looked fine there. Fixed with x-teleport="body" (the
+         same escape-the-clipping-ancestor pattern already used elsewhere in this
+         codebase — docuperfect esign wizard, dr2 pipeline tiles) plus a computed
+         position:fixed anchored to the button's own bounding rect, since a teleported
+         node loses its positioned ancestor and position:absolute would otherwise
+         anchor to the whole page instead of the button. The extra $refs.shareBtn
+         guard on @click.outside avoids the classic teleport gotcha: without it, a
+         click on the button itself fires the BUTTON's own toggle-open handler, then
+         bubbles to document where the now-separate (no longer a DOM descendant)
+         teleported menu's own @click.outside immediately closes what the button just
+         opened, in the same click. --}}
+    <div x-data="{ open: false, menuTop: 0, menuLeft: 0,
+            openMenu() {
+                if (!this.open) {
+                    const r = this.$refs.shareBtn.getBoundingClientRect();
+                    this.menuTop = r.bottom + 4;
+                    this.menuLeft = Math.min(r.right - 224, window.innerWidth - 232);
+                }
+                this.open = !this.open;
+            } }"
+         @keydown.escape.window="open = false" class="relative">
+        <button type="button" x-ref="shareBtn" @click="openMenu()"
                 class="prop-action-btn prop-action-btn-neutral"
                 title="Share a link to this listing">
             <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M7.217 10.907a2.25 2.25 0 1 0 0 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186 9.566-5.314m-9.566 7.5 9.566 5.314m0 0a2.25 2.25 0 1 0 3.935 2.186 2.25 2.25 0 0 0-3.935-2.186Zm0-12.814a2.25 2.25 0 1 0 3.933-2.185 2.25 2.25 0 0 0-3.933 2.185Z"/></svg>
             Share
         </button>
 
+    <template x-teleport="body">
         <div x-show="open" x-cloak x-transition.opacity
-             class="absolute right-0 mt-1 z-50 w-56 rounded-md py-1"
+             @click.outside="(!$refs.shareBtn || !$refs.shareBtn.contains($event.target)) && (open = false, back())"
+             :style="`position:fixed; top:${menuTop}px; left:${menuLeft}px;`"
+             class="z-50 w-56 rounded-md py-1"
              style="background:var(--surface);border:1px solid var(--border);box-shadow:0 8px 30px rgba(0,0,0,0.18);">
 
             {{-- Step 1: whose details — skipped entirely for an assistant (AT-267: an
@@ -110,6 +139,7 @@
                 </div>
             </template>
         </div>
+    </template>
     </div>
 </div>
 @endif
