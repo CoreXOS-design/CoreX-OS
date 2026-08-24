@@ -610,6 +610,22 @@
                                            :style="r.readonly ? 'background: var(--surface); border: 1px solid var(--border); color: var(--text-muted);' : 'background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);'"
                                            placeholder="Residential address">
                                 </div>
+
+                                {{-- "Replace this party" (Johan, 2026-08-24, stage 2) — universal, every
+                                     party, not only deceased ones. Picks a recipient template from the
+                                     agency's library and fills its slots. --}}
+                                <div class="pt-1">
+                                    <button type="button" @click="openReplaceModal(ri)"
+                                            class="text-xs font-medium px-3 py-1.5 rounded-md transition"
+                                            style="border: 1px solid var(--border); color: var(--text-secondary); background: var(--surface-2);">
+                                        <span x-text="r._recipient_template_id ? '↻ Change replacement clause' : '↻ Replace this party'"></span>
+                                    </button>
+                                    <div x-show="r._recipient_template_id" class="mt-2 rounded-md p-2.5 text-xs italic"
+                                         style="background: color-mix(in srgb, var(--brand-icon,#2563eb) 6%, transparent); border: 1px solid color-mix(in srgb, var(--brand-icon,#2563eb) 25%, var(--border)); color: var(--text-secondary);">
+                                        “<span x-text="r._replace_preview || '…'"></span>”
+                                        <button type="button" @click="clearReplacement(ri)" class="not-italic ml-2 font-semibold" style="color: var(--ds-red,#dc2626);">Remove</button>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </template>
@@ -627,6 +643,100 @@
                         style="border: 2px dashed var(--border); color: var(--text-secondary);">
                     + Add Recipient
                 </button>
+            </div>
+
+            {{-- "Replace this party" modal (Johan, 2026-08-24, stage 2) — universal,
+                 every recipient, not only deceased ones. --}}
+            <div x-show="replaceModal.open" x-cloak class="fixed inset-0 z-[9999] flex items-center justify-center p-4"
+                 style="background: rgba(0,0,0,.6);" @keydown.escape.window="closeReplaceModal()" @click="closeReplaceModal()">
+                <div class="rounded-2xl shadow-2xl w-full max-w-xl mx-4 overflow-hidden max-h-[85vh] flex flex-col" style="background: var(--surface);" @click.stop>
+                    <div class="px-6 py-4" style="background: var(--brand-default, #0b2a4a);">
+                        <h3 class="font-semibold text-lg" style="color: #fff;">Replace this party</h3>
+                        <p class="text-xs mt-0.5" style="color: rgba(255,255,255,0.7);" x-text="recipients[replaceModal.recipientIndex]?.name || 'This recipient'"></p>
+                    </div>
+
+                    <div class="p-6 overflow-y-auto" style="flex: 1;">
+                        <div x-show="replaceModal.loading" class="text-sm text-center py-6" style="color: var(--text-muted);">Loading templates…</div>
+
+                        {{-- Step A: pick a template --}}
+                        <div x-show="!replaceModal.loading && !replaceModal.selectedTemplate">
+                            <div x-show="replaceModal.templates.length === 0" class="text-sm text-center py-6" style="color: var(--text-muted);">
+                                No recipient templates for this role yet. Build one in Settings → Recipient Templates.
+                            </div>
+                            <div class="space-y-2">
+                                <template x-for="t in replaceModal.templates" :key="t.id">
+                                    <button type="button" @click="selectReplaceTemplate(t)"
+                                            class="w-full text-left rounded-md p-3 transition"
+                                            style="border: 1px solid var(--border); background: var(--surface-2);">
+                                        <div class="text-sm font-semibold" style="color: var(--text-primary);" x-text="t.name"></div>
+                                        <div class="text-xs italic mt-0.5" style="color: var(--text-muted);" x-text="t.text_template"></div>
+                                    </button>
+                                </template>
+                            </div>
+                        </div>
+
+                        {{-- Step B: fill the template's party slots --}}
+                        <div x-show="!replaceModal.loading && replaceModal.selectedTemplate" class="space-y-4">
+                            <button type="button" @click="replaceModal.selectedTemplate = null" class="text-xs font-medium" style="color: var(--brand-icon,#2563eb);">← Choose a different template</button>
+
+                            <div class="rounded-md p-3 text-xs italic" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-secondary);">
+                                “<span x-text="replacePreviewText()"></span>”
+                            </div>
+
+                            <template x-for="slot in (replaceModal.selectedTemplate?.party_slots || [])" :key="slot.key">
+                                <div class="rounded-md p-3" style="border: 1px solid var(--border);">
+                                    <label class="block text-xs font-semibold mb-2" style="color: var(--text-secondary);" x-text="slot.label"></label>
+
+                                    <div class="flex flex-wrap gap-1.5 mb-2">
+                                        <button type="button" @click="bindSlotToSelf(slot.key)"
+                                                class="text-xs px-2.5 py-1 rounded-full transition"
+                                                :style="replaceModal.bindings[slot.key]?.type === 'self' ? 'background: var(--brand-button); color: #fff;' : 'background: var(--surface-2); border: 1px solid var(--border); color: var(--text-secondary);'">
+                                            This party
+                                        </button>
+                                        <template x-for="rec in recipients.filter((rr, rri) => rri !== replaceModal.recipientIndex)" :key="rec._recipient_local_key">
+                                            <button type="button" @click="bindSlotToRecipient(slot.key, rec)"
+                                                    class="text-xs px-2.5 py-1 rounded-full transition"
+                                                    :style="replaceModal.bindings[slot.key]?.recipient_local_key === rec._recipient_local_key ? 'background: var(--brand-button); color: #fff;' : 'background: var(--surface-2); border: 1px solid var(--border); color: var(--text-secondary);'"
+                                                    x-text="rec.name || '(unnamed recipient)'">
+                                            </button>
+                                        </template>
+                                    </div>
+
+                                    <div class="relative">
+                                        <input type="text" placeholder="Or search a contact by name…"
+                                               class="w-full rounded-md px-2.5 py-1.5 text-xs"
+                                               style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);"
+                                               :value="replaceModal.slotSearch[slot.key]?.query || ''"
+                                               @input="searchSlotContact(slot.key, $event.target.value)">
+                                        <div x-show="replaceModal.slotSearch[slot.key]?.open && (replaceModal.slotSearch[slot.key]?.results || []).length > 0"
+                                             class="absolute z-30 w-full mt-1 rounded-md max-h-40 overflow-y-auto"
+                                             style="background: var(--surface); border: 1px solid var(--border); box-shadow: 0 8px 24px rgba(0,0,0,0.2);">
+                                            <template x-for="contact in (replaceModal.slotSearch[slot.key]?.results || [])" :key="contact.id">
+                                                <button type="button" @click="bindSlotToContact(slot.key, contact)"
+                                                        class="w-full text-left px-3 py-2 text-xs" style="border-top: 1px solid var(--border); color: var(--text-primary);"
+                                                        x-text="contact.full_name">
+                                                </button>
+                                            </template>
+                                        </div>
+                                    </div>
+
+                                    <div x-show="replaceModal.bindings[slot.key]" class="mt-2 text-xs" style="color: var(--ds-green,#16a34a);">
+                                        ✓ <span x-text="replaceModal.bindings[slot.key]?.label"></span>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+
+                    <div class="px-6 py-4 flex items-center justify-end gap-2" style="border-top: 1px solid var(--border);">
+                        <button type="button" @click="closeReplaceModal()" class="text-sm px-4 py-2 rounded-md" style="color: var(--text-secondary);">Cancel</button>
+                        <button type="button" @click="confirmReplace()" :disabled="!replaceModalCanConfirm()"
+                                class="text-sm font-semibold px-4 py-2 rounded-md transition"
+                                :style="replaceModalCanConfirm() ? 'background: var(--brand-button); color: #fff;' : 'background: var(--surface-2); color: var(--text-muted); cursor: not-allowed;'">
+                            Confirm
+                        </button>
+                    </div>
+                </div>
             </div>
 
             {{-- ======== STEP 4: Details ======== --}}
@@ -1812,9 +1922,15 @@ function esignWizard() {
         propSearchIdx: 0,
 
         // Step 3: Recipients
+        // _recipient_local_key: the stable id a "Replace this party" slot
+        // binding points at — assigned once here (or in addRecipient/
+        // addSecondOwner for a new row), never re-derived from name/email/
+        // position, so a binding survives an edit and only ever breaks (by
+        // design — see DanglingSlotBindingException) if the bound recipient
+        // is actually removed.
         recipients: serverRecipients.length > 0
-            ? serverRecipients.map((r, i) => ({ ...r, readonly: i === 0 && r.role === 'agent' }))
-            : [{ order: 1, role: 'agent', name: currentUser.name, id_number: '', email: currentUser.email || '', cell: '', address: '', readonly: true }],
+            ? serverRecipients.map((r, i) => ({ ...r, readonly: i === 0 && r.role === 'agent', _recipient_local_key: r._recipient_local_key || (crypto.randomUUID ? crypto.randomUUID() : ('r' + Date.now() + i)) }))
+            : [{ order: 1, role: 'agent', name: currentUser.name, id_number: '', email: currentUser.email || '', cell: '', address: '', readonly: true, _recipient_local_key: (crypto.randomUUID ? crypto.randomUUID() : ('r' + Date.now())) }],
 
         // Step 4: Details — supports both rental and sales fields
         details: (() => {
@@ -3017,6 +3133,12 @@ function esignWizard() {
                         // single predicate the notification guard checks.
                         _is_deceased: !!r._is_deceased,
                         _is_proxy: !!r._is_proxy,
+                        // "Replace this party" (stage 2) — the stable key other
+                        // recipients' slot bindings point at, plus this
+                        // recipient's own chosen template + resolved slots (if any).
+                        _recipient_local_key: r._recipient_local_key || null,
+                        _recipient_template_id: r._recipient_template_id || null,
+                        _slot_bindings: r._slot_bindings || null,
                     })),
                 };
                 case 4: {
@@ -3403,6 +3525,157 @@ function esignWizard() {
             r.bank_branch_name = '';
         },
 
+        // ---- "Replace this party" (Johan, 2026-08-24, stage 2) ----
+        // Universal on every recipient. Picks a RecipientTemplate from the
+        // agency's library, fills its party_slots by linking to recipients
+        // already on the screen (or a searched-up Contact for a named-only
+        // slot), previews the resolved sentence client-side. The actual
+        // frozen party_clause_text is resolved server-side, once, at send
+        // time (ESignWizardController's chain-binding pass) — this modal
+        // only sets _recipient_template_id / _slot_bindings on the recipient;
+        // it never writes the resolved text itself, so the preview here can
+        // never drift from what actually gets burned onto the document.
+        replaceModal: {
+            open: false,
+            recipientIndex: null,
+            loading: false,
+            templates: [],
+            selectedTemplate: null,
+            bindings: {},        // slotKey -> { type: 'self'|'recipient'|'contact', recipient_local_key?, contact_id?, label }
+            slotSearch: {},      // slotKey -> { query, results, open }
+        },
+
+        async openReplaceModal(ri) {
+            const r = this.recipients[ri];
+            this.replaceModal.open = true;
+            this.replaceModal.recipientIndex = ri;
+            this.replaceModal.loading = true;
+            this.replaceModal.templates = [];
+            this.replaceModal.selectedTemplate = null;
+            this.replaceModal.bindings = {};
+            this.replaceModal.slotSearch = {};
+
+            // Restore a prior selection so re-opening to edit doesn't lose it.
+            if (r._recipient_template_id) {
+                this.replaceModal.bindings = JSON.parse(JSON.stringify(r._slot_bindings || {}));
+            }
+
+            try {
+                const resp = await fetch('/docuperfect/esign/api/recipient-templates?role=' + encodeURIComponent(r.role || ''), {
+                    headers: { 'Accept': 'application/json' },
+                });
+                const data = await resp.json();
+                this.replaceModal.templates = Array.isArray(data) ? data : [];
+                if (r._recipient_template_id) {
+                    this.replaceModal.selectedTemplate = this.replaceModal.templates.find(t => t.id === r._recipient_template_id) || null;
+                }
+            } catch (e) {
+                console.error('Failed to load recipient templates', e);
+            } finally {
+                this.replaceModal.loading = false;
+            }
+        },
+
+        closeReplaceModal() {
+            this.replaceModal.open = false;
+            this.replaceModal.recipientIndex = null;
+        },
+
+        selectReplaceTemplate(t) {
+            this.replaceModal.selectedTemplate = t;
+            // Fresh bindings per template — a slot key from a different template
+            // has no meaning here. "self" is offered as a one-click default for
+            // the FIRST slot (matches the deceased/estate case: the party being
+            // replaced usually IS the first slot).
+            const bindings = {};
+            (t.party_slots || []).forEach((slot, i) => {
+                bindings[slot.key] = i === 0 ? { type: 'self', label: this.recipients[this.replaceModal.recipientIndex].name || 'This party' } : null;
+            });
+            this.replaceModal.bindings = bindings;
+        },
+
+        bindSlotToSelf(slotKey) {
+            const r = this.recipients[this.replaceModal.recipientIndex];
+            this.replaceModal.bindings[slotKey] = { type: 'self', label: r.name || 'This party' };
+        },
+
+        bindSlotToRecipient(slotKey, recipient) {
+            this.replaceModal.bindings[slotKey] = {
+                type: 'recipient',
+                recipient_local_key: recipient._recipient_local_key,
+                label: recipient.name || '(unnamed recipient)',
+            };
+        },
+
+        // "Named only" slots (e.g. the representing entity) search real Contacts —
+        // reuses the exact same search endpoint the ordinary recipient fields use.
+        async searchSlotContact(slotKey, query) {
+            this.replaceModal.slotSearch[slotKey] = this.replaceModal.slotSearch[slotKey] || { query: '', results: [], open: false };
+            this.replaceModal.slotSearch[slotKey].query = query;
+            if ((query || '').length < 2) {
+                this.replaceModal.slotSearch[slotKey].results = [];
+                return;
+            }
+            try {
+                const resp = await fetch('/docuperfect/esign/api/contacts?q=' + encodeURIComponent(query), {
+                    headers: { 'Accept': 'application/json' },
+                });
+                const data = await resp.json();
+                this.replaceModal.slotSearch[slotKey].results = Array.isArray(data) ? data : [];
+                this.replaceModal.slotSearch[slotKey].open = true;
+            } catch (e) {
+                console.error('Slot contact search failed', e);
+            }
+        },
+
+        bindSlotToContact(slotKey, contact) {
+            this.replaceModal.bindings[slotKey] = {
+                type: 'contact',
+                contact_id: contact.id,
+                label: contact.full_name || contact.name || '(unnamed contact)',
+            };
+            this.replaceModal.slotSearch[slotKey] = { query: contact.full_name || '', results: [], open: false };
+        },
+
+        // Client-side preview only — mirrors RecipientTemplate::substitute()'s
+        // token replacement so the agent sees the sentence before confirming.
+        // The server resolves the SAME template the same way at send time;
+        // this never becomes the stored text itself.
+        replacePreviewText() {
+            const t = this.replaceModal.selectedTemplate;
+            if (!t) return '';
+            let text = t.text_template;
+            (t.party_slots || []).forEach(slot => {
+                const b = this.replaceModal.bindings[slot.key];
+                const value = b ? b.label : ('{' + slot.key + '}');
+                text = text.split('{' + slot.key + '}').join(value);
+            });
+            return text;
+        },
+
+        replaceModalCanConfirm() {
+            const t = this.replaceModal.selectedTemplate;
+            if (!t) return false;
+            return (t.party_slots || []).every(slot => !!this.replaceModal.bindings[slot.key]);
+        },
+
+        confirmReplace() {
+            if (!this.replaceModalCanConfirm()) return;
+            const ri = this.replaceModal.recipientIndex;
+            const r = this.recipients[ri];
+            r._recipient_template_id = this.replaceModal.selectedTemplate.id;
+            r._slot_bindings = JSON.parse(JSON.stringify(this.replaceModal.bindings));
+            r._replace_preview = this.replacePreviewText();
+            this.closeReplaceModal();
+        },
+
+        clearReplacement(ri) {
+            const r = this.recipients[ri];
+            r._recipient_template_id = null;
+            r._slot_bindings = null;
+            r._replace_preview = null;
+        },
+
         // ---- Lease duration calculator ----
         calculateLeaseEnd() {
             const dur = this.details._duration;
@@ -3456,6 +3729,7 @@ function esignWizard() {
                 order: 0, role: role, name: '', id_number: '', email: '', cell: '', address: '', readonly: false,
                 _contact_id: null, _searchQuery: '', _searchResults: [], _searchOpen: false, _searching: false, _searchIdx: 0,
                 _includeEmail: false,
+                _recipient_local_key: (crypto.randomUUID ? crypto.randomUUID() : ('r' + Date.now())),
             };
             if (idx >= 0) {
                 this.recipients.splice(idx + 1, 0, newOwner);
@@ -3471,6 +3745,7 @@ function esignWizard() {
             this.recipients.push({
                 order: this.recipients.length + 1, role: defaultRole, name: '', id_number: '', email: '', cell: '', address: '', readonly: false,
                 _contact_id: null, _searchQuery: '', _searchResults: [], _searchOpen: false, _searching: false, _searchIdx: 0,
+                _recipient_local_key: (crypto.randomUUID ? crypto.randomUUID() : ('r' + Date.now())),
             });
         },
 

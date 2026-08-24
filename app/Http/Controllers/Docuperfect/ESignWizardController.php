@@ -1223,6 +1223,34 @@ class ESignWizardController extends Controller
     }
 
     /**
+     * API: the recipient templates available for the "Replace this party"
+     * modal (Johan, 2026-08-24 — stage 2). Agency-scoped: the agent's own
+     * agency's templates plus CoreX's NULL-agency defaults for the role, via
+     * RecipientTemplate::availableFor() — no interface path to see another
+     * agency's templates or write agency_id from the client.
+     */
+    public function listRecipientTemplates(Request $request)
+    {
+        $role = trim((string) $request->input('role', ''));
+        if ($role === '') {
+            return response()->json([]);
+        }
+
+        $agencyId = $request->user()->effectiveAgencyId();
+
+        $templates = \App\Models\RecipientTemplate::availableFor($agencyId, $role)
+            ->map(fn ($t) => [
+                'id' => $t->id,
+                'name' => $t->name,
+                'text_template' => $t->text_template,
+                'party_slots' => $t->party_slots,
+            ])
+            ->values();
+
+        return response()->json($templates);
+    }
+
+    /**
      * API: search contacts for autocomplete.
      *
      * Returns full contact data including bank details for auto-fill.
