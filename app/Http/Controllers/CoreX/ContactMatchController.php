@@ -386,6 +386,14 @@ class ContactMatchController extends Controller
             'deal_breakers'           => 'nullable|array',
             'deal_breakers.*'         => 'string|max:60',
             'notes'                   => 'nullable|string|max:500',
+            // AT-CM-clear-fix — marker the FULL criteria form always renders (see
+            // _match-form.blade.php). Distinguishes "the agent cleared every item in
+            // this group" (form present, group absent — unchecking a chip/checkbox
+            // group submits nothing at all, unlike a text input) from a genuine
+            // partial submit that never touched these fields, e.g. the "Make Primary"
+            // mini-form above which posts only is_primary. See the defaulting block
+            // below — only fires when this marker is present.
+            'criteria_groups_present' => 'sometimes',
         ]);
 
         // Cross-field: bedrooms_max must be >= beds_min when both are present (spec D4).
@@ -410,6 +418,22 @@ class ContactMatchController extends Controller
         });
 
         $data = $validator->validate();
+
+        // AT-CM-clear-fix — see the criteria_groups_present rule above. A browser
+        // submits NOTHING for a checkbox/chip group with every item unchecked, so
+        // $validator->validate() legitimately omits these keys — and $match->update()
+        // correctly leaves an omitted key untouched, which is exactly right for a
+        // genuine partial submit. It is wrong here: the full form always renders all
+        // five of these groups, so an absent one means the agent cleared it, not that
+        // they never saw it. Only default when the full-form marker is present, so a
+        // partial submit (Make Primary) is never affected — it never sends the marker.
+        if ($request->has('criteria_groups_present')) {
+            foreach (['property_types', 'p24_suburb_ids', 'must_have_features', 'nice_to_have_features', 'deal_breakers'] as $group) {
+                if (!isset($data[$group])) {
+                    $data[$group] = [];
+                }
+            }
+        }
 
         // Normalise P24 suburb id input — unique, integer, drop zeros.
         if (isset($data['p24_suburb_ids']) && is_array($data['p24_suburb_ids'])) {
