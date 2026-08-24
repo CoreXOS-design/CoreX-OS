@@ -101,12 +101,21 @@ class TemplateController extends Controller
         $file = $request->file('pdf');
         $name = $request->input('name') ?: pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME);
 
+        // 2026-08-24 — was is_global=false with no agency_id, which stranded the
+        // template the instant it was created (see Template::assertAccessibleBy()).
+        // Default to reachable WITHOUT going platform-wide: agency_id stamped,
+        // is_global stays false. Template::assertAccessibleBy()'s zero-branches ->
+        // agency-match fallback makes this visible to every branch of the creator's
+        // own agency, which is the actual requirement -- is_global bypasses agency
+        // scoping ENTIRELY (see CrossAgencyTemplateAccessTest), so it must never be a
+        // creation default.
         $template = Template::create([
             'name' => $name,
             'template_type' => 'sales',
             'page_count' => 0,
             'fields_json' => [],
             'is_global' => false,
+            'agency_id' => $user->effectiveAgencyId(),
             'owner_id' => $user->id,
         ]);
 
@@ -225,6 +234,24 @@ class TemplateController extends Controller
         $template = Template::findOrFail($id);
         $template->assertAccessibleBy($user);
 
+        // 2026-08-24 footgun guard — checked BEFORE any field is written, against the
+        // request's intended values, not the model's current (pre-update) state. Zero
+        // branches on a non-global template is NOT stranding by itself —
+        // Template::assertAccessibleBy() falls back to an agency_id match. It IS
+        // stranding, reachable by nobody but an owner-role user, when there's no
+        // agency_id to fall back to either. Refuse that specific combination outright
+        // rather than silently saving into it — this is exactly the shape (is_global
+        // toggled off, no branches picked) that stranded template #52 after it was
+        // created correctly.
+        if ($request->has('allowed_branches') && !$request->boolean('is_global')) {
+            $wouldHaveNoBranches = empty($request->input('allowed_branches', []));
+            if ($wouldHaveNoBranches && !$template->agency_id) {
+                return response()->json([
+                    'error' => 'This template has no agency assigned, so it must be either Global or have at least one branch selected — otherwise nobody but a system owner will be able to open it.',
+                ], 422);
+            }
+        }
+
         $data = [];
 
         if ($request->has('fields')) {
@@ -268,6 +295,8 @@ class TemplateController extends Controller
             if ($request->boolean('is_global')) {
                 $template->branches()->detach();
             } else {
+                // The stranding case (empty branches + no agency_id) was already
+                // refused above, before $data was written — safe to sync as-is here.
                 $template->branches()->sync($request->input('allowed_branches', []));
             }
         }
@@ -589,7 +618,15 @@ class TemplateController extends Controller
             'signing_parties' => $request->input('signing_parties') ? json_decode($request->input('signing_parties'), true) : null,
             'category' => in_array($request->input('category'), ['sales', 'rentals']) ? $request->input('category') : null,
             'document_type_id' => $request->input('document_type_id') ?: null,
-            'is_global' => true,
+            // 2026-08-24 — is_global and agency_id are deliberately NOT set here.
+            // This array used to hardcode is_global=>true unconditionally and was
+            // applied on BOTH create and update -- every re-save of an existing
+            // template forced it platform-wide again, even one an admin (or this
+            // same fix, earlier today) had correctly scoped to its own agency.
+            // is_global bypasses agency scoping ENTIRELY (any agency on the
+            // platform, not just this one) -- see CrossAgencyTemplateAccessTest --
+            // so it must never be silently reasserted on a routine content edit.
+            // Both are set explicitly below, ONLY on the create branch.
             'owner_id' => $user->id,
             'editor_state' => [
                 'tags' => $draft->tags,
@@ -602,6 +639,13 @@ class TemplateController extends Controller
             $template = Template::findOrFail($draft->source_template_id);
             $template->update($templateData);
         } else {
+            // New template: agency_id stamped to the creator's own agency,
+            // is_global stays false. Reachability comes from
+            // Template::assertAccessibleBy()'s zero-branches -> agency-match
+            // fallback (every branch of the creator's agency), never from the
+            // platform-wide flag.
+            $templateData['is_global'] = false;
+            $templateData['agency_id'] = $user->effectiveAgencyId();
             $template = Template::create($templateData);
         }
 

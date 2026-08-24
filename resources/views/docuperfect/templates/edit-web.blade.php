@@ -186,10 +186,14 @@
                     </select>
                 </div>
 
-                <div class="flex items-center gap-2">
-                    <input type="checkbox" x-model="isGlobal" class="rounded border-slate-300">
-                    <span class="text-sm text-slate-700">Global (all branches)</span>
-                </div>
+                {{-- 2026-08-24 — no UI path to set is_global. It bypasses agency
+                     scoping entirely (any agency on the platform, not just this
+                     one) -- there is no legitimate reason for an agency user to be
+                     able to set it, and the column stays in the schema for a future
+                     CoreX-supplied-template concept only. `isGlobal` below stays a
+                     read-only reflection of the template's current value (needed
+                     for the branch-picker x-show and the save payload) -- it is
+                     never mutated by this screen any more. --}}
 
                 <div x-show="!isGlobal" x-transition>
                     <label class="text-[10px] font-medium text-slate-500 block mb-1">Branch Access</label>

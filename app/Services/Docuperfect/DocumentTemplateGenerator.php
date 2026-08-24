@@ -22,9 +22,13 @@ class DocumentTemplateGenerator
      * @param ImportDraft $draft    The import draft with tagged data
      * @param string      $templateName  Human-readable template name
      * @param int         $ownerId       User ID of the creator
+     * @param int|null    $agencyId      Creator's effective agency (2026-08-24 —
+     *                                   stamped on new templates alongside is_global=true
+     *                                   per Johan's intent: "linked to the agency I'm
+     *                                   working in ... and they will all be marked global")
      * @return Template
      */
-    public function generate(ImportDraft $draft, string $templateName, int $ownerId): Template
+    public function generate(ImportDraft $draft, string $templateName, int $ownerId, ?int $agencyId = null): Template
     {
         $fieldsData = json_decode($draft->fields_json, true) ?? [];
         $tags = $fieldsData['tags'] ?? [];
@@ -234,7 +238,18 @@ class DocumentTemplateGenerator
                     'fields_json' => $fieldsJson,
                     'signing_parties' => $signingParties,
                     'editor_state' => $editorState,
+                    // 2026-08-24 — was an unconditional `false` with no agency_id set,
+                    // which left every imported template unreachable via
+                    // Template::assertAccessibleBy() the instant it was created (zero
+                    // branches, not global). Default to reachable WITHOUT going
+                    // platform-wide: agency_id stamped, is_global stays false --
+                    // is_global bypasses agency scoping ENTIRELY (any agency, not just
+                    // this one), so it must never be a creation default. The
+                    // zero-branches -> agency-match fallback in assertAccessibleBy()
+                    // makes this reachable by every branch of the creator's own agency,
+                    // which is the actual requirement.
                     'is_global' => false,
+                    'agency_id' => $agencyId,
                     // Was an unconditional `true` — for EVERY imported document, an Offer To
                     // Purchase included. The importer cannot know whether a document may
                     // lawfully be e-signed, so it must not assert that it can.

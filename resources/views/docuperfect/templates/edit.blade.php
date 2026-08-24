@@ -59,10 +59,11 @@
                 </div>
                 <div>
                     <label class="ds-label block mb-1">Visibility</label>
-                    <div class="flex items-center gap-2 mt-1">
-                        <input type="checkbox" id="dpGlobal" {{ $template->is_global ? 'checked' : '' }} class="rounded border-slate-300">
-                        <span class="text-sm text-slate-700">Global (all branches)</span>
-                    </div>
+                    {{-- 2026-08-24 — no UI path to set is_global. It bypasses agency
+                         scoping entirely (any agency on the platform, not just this
+                         one) -- there is no legitimate reason for an agency user to be
+                         able to set it, and the column stays in the schema for a
+                         future CoreX-supplied-template concept only. --}}
                     <div class="flex items-center gap-2 mt-2">
                         <input type="checkbox" id="dpEsign" {{ $template->is_esign ? 'checked' : '' }} class="rounded border-slate-300"
                                onchange="document.getElementById('dpPartyModeGroup').style.display = this.checked ? 'block' : 'none';">
@@ -115,7 +116,6 @@
         templateId: @json($template->id),
         pageImages: @json($pageImageUrls),
         fields: @json($template->fields_json ?? []),
-        isGlobal: @json($template->is_global),
         isEsign: @json($template->is_esign),
         partyMode: @json($template->party_mode ?? 'shared'),
         allowedBranches: @json($template->branches->pluck('id')),

@@ -47,6 +47,14 @@ final class CrossAgencyTemplateAccessTest extends TestCase
             ['role' => 'admin', 'permission_key' => 'manage_templates', 'agency_id' => $agency->id],
             []
         );
+        // Data-scope grant (distinct from the can-do grants above) -- without this,
+        // PermissionService::getDataScope('templates') resolves to NULL and
+        // Template::scopeVisibleTo() shows nothing at all, for anyone. 'all' matches
+        // the real product's admin-role default (agency-wide template visibility).
+        RolePermission::updateOrCreate(
+            ['role' => 'admin', 'permission_key' => 'templates.view', 'agency_id' => $agency->id],
+            ['scope' => 'all']
+        );
         PermissionService::clearCache();
 
         $admin = User::factory()->create([
@@ -58,9 +66,14 @@ final class CrossAgencyTemplateAccessTest extends TestCase
 
     private function makeBranchTemplate(Branch $branch, string $name): Template
     {
+        // agency_id stamped to match the branch, same as every real creation path
+        // does post-2026-08-24 -- an unset agency_id here was a stale fixture shape
+        // that happened to still pass under a NULL data-scope; it stopped matching
+        // once a real 'templates.view' scope grant ('all') was added to
+        // makeAgencyWithAdmin(), which resolves 'all'-scope visibility by agency_id.
         $template = Template::create([
             'name' => $name, 'template_type' => 'sales', 'page_count' => 1,
-            'fields_json' => [], 'is_global' => false,
+            'fields_json' => [], 'is_global' => false, 'agency_id' => $branch->agency_id,
         ]);
         $template->branches()->attach($branch->id);
 
@@ -113,6 +126,153 @@ final class CrossAgencyTemplateAccessTest extends TestCase
 
         $foreignTemplate->assertAccessibleBy($owner);
         $this->assertTrue(true);
+    }
+
+    // ── 2026-08-24 mismatch fix: zero branches falls back to agency_id match ──
+    // (scopeVisibleTo() already listed these; assertAccessibleBy() 404'd them —
+    // the exact shape that stranded #52/#53/#55 and every PDF-upload/.docx-import
+    // template, since neither creation path linked a branch.)
+
+    public function test_assert_accessible_by_allows_a_branchless_template_matching_the_callers_agency(): void
+    {
+        $own = $this->makeAgencyWithAdmin('Own');
+        $branchless = Template::create([
+            'name' => 'Branchless own-agency template', 'template_type' => 'sales', 'page_count' => 1,
+            'fields_json' => [], 'is_global' => false, 'agency_id' => $own['agency']->id,
+        ]);
+
+        $this->assertSame(0, $branchless->branches()->count());
+        $branchless->assertAccessibleBy($own['admin']);
+        $this->assertTrue(true);
+    }
+
+    public function test_assert_accessible_by_still_blocks_a_branchless_template_on_a_foreign_agency(): void
+    {
+        $own = $this->makeAgencyWithAdmin('Own');
+        $foreign = $this->makeAgencyWithAdmin('Foreign');
+        $branchless = Template::create([
+            'name' => 'Branchless foreign-agency template', 'template_type' => 'sales', 'page_count' => 1,
+            'fields_json' => [], 'is_global' => false, 'agency_id' => $foreign['agency']->id,
+        ]);
+
+        $this->expectException(\Symfony\Component\HttpKernel\Exception\NotFoundHttpException::class);
+        $branchless->assertAccessibleBy($own['admin']);
+    }
+
+    public function test_assert_accessible_by_still_blocks_an_orphan_template_with_no_agency_at_all(): void
+    {
+        $own = $this->makeAgencyWithAdmin('Own');
+        $orphan = Template::create([
+            'name' => 'Orphan template', 'template_type' => 'sales', 'page_count' => 1,
+            'fields_json' => [], 'is_global' => false, 'agency_id' => null,
+        ]);
+
+        $this->expectException(\Symfony\Component\HttpKernel\Exception\NotFoundHttpException::class);
+        $orphan->assertAccessibleBy($own['admin']);
+    }
+
+    public function test_assert_accessible_by_still_blocks_a_branch_scoped_template_even_with_a_matching_agency_id(): void
+    {
+        // The direction that must NOT break: once a template HAS branches
+        // assigned, that is an explicit narrowing -- the agency_id fallback only
+        // applies to the zero-branches case. A branch on a foreign agency still
+        // blocks even if agency_id happens to be set (mismatched, or stale).
+        $own = $this->makeAgencyWithAdmin('Own');
+        $foreign = $this->makeAgencyWithAdmin('Foreign');
+        $scoped = Template::create([
+            'name' => 'Foreign-branch, own-agency_id template', 'template_type' => 'sales', 'page_count' => 1,
+            'fields_json' => [], 'is_global' => false, 'agency_id' => $own['agency']->id,
+        ]);
+        $scoped->branches()->attach($foreign['branch']->id);
+
+        $this->expectException(\Symfony\Component\HttpKernel\Exception\NotFoundHttpException::class);
+        $scoped->assertAccessibleBy($own['admin']);
+    }
+
+    // ── 2026-08-24 THE WHOLE CONTRACT: agency-wide, never platform-wide ──
+    // An agency-wide (zero-branches) template must be completely invisible and
+    // unreachable to a foreign agency across every path -- list, open, archive,
+    // copy -- and completely reachable to every branch of its OWN agency across
+    // the same paths. Over-restricting (blocking a same-agency, different-branch
+    // user) would be its own bug -- agency-wide is the point.
+
+    public function test_agency_wide_template_is_fully_unreachable_to_a_foreign_agency(): void
+    {
+        PermissionService::forceProductionPosture();
+        $own = $this->makeAgencyWithAdmin('Own');
+        $foreign = $this->makeAgencyWithAdmin('Foreign');
+
+        $template = Template::create([
+            'name' => 'Foreign Agency-Wide Mandate', 'template_type' => 'sales', 'page_count' => 1,
+            'fields_json' => [], 'is_global' => false, 'agency_id' => $foreign['agency']->id,
+        ]);
+        $this->assertSame(0, $template->branches()->count(), 'agency-wide means zero branches, not is_global');
+
+        // LIST — must not appear at all.
+        $this->actingAs($own['admin'])
+            ->get(route('docuperfect.templates.index'))
+            ->assertOk()
+            ->assertDontSee('Foreign Agency-Wide Mandate');
+
+        // OPEN — must 404.
+        $this->actingAs($own['admin'])
+            ->get(route('docuperfect.templates.edit', ['id' => $template->id]))
+            ->assertNotFound();
+
+        // ARCHIVE — must 404, and must not archive it.
+        $this->actingAs($own['admin'])
+            ->postJson(route('docuperfect.templates.archive', ['id' => $template->id]))
+            ->assertNotFound();
+        $this->assertNull($template->fresh()->archived_at);
+
+        // COPY — must 404, and must not create a copy.
+        $this->actingAs($own['admin'])
+            ->postJson(route('docuperfect.templates.copy', ['id' => $template->id]))
+            ->assertNotFound();
+        $this->assertDatabaseMissing('docuperfect_templates', ['name' => 'Foreign Agency-Wide Mandate (Copy)']);
+    }
+
+    public function test_agency_wide_template_is_fully_reachable_to_a_different_branch_of_its_own_agency(): void
+    {
+        PermissionService::forceProductionPosture();
+        $own = $this->makeAgencyWithAdmin('Own');
+
+        // A second branch, and a second admin on THAT branch -- same agency, never
+        // linked to the template via any branch pivot row.
+        $otherBranch = Branch::create(['agency_id' => $own['agency']->id, 'name' => 'Own — Other Branch']);
+        $otherBranchAdmin = User::factory()->create([
+            'agency_id' => $own['agency']->id, 'branch_id' => $otherBranch->id, 'role' => 'admin', 'is_active' => true,
+        ]);
+
+        $template = Template::create([
+            'name' => 'Own Agency-Wide Mandate', 'template_type' => 'sales', 'page_count' => 1,
+            'fields_json' => [], 'is_global' => false, 'agency_id' => $own['agency']->id,
+        ]);
+        $this->assertSame(0, $template->branches()->count());
+
+        // LIST — must appear, even though this admin is on a different branch.
+        $this->actingAs($otherBranchAdmin)
+            ->get(route('docuperfect.templates.index'))
+            ->assertOk()
+            ->assertSee('Own Agency-Wide Mandate');
+
+        // OPEN — must succeed.
+        $this->actingAs($otherBranchAdmin)
+            ->get(route('docuperfect.templates.edit', ['id' => $template->id]))
+            ->assertOk();
+
+        // ARCHIVE — must succeed.
+        $this->actingAs($otherBranchAdmin)
+            ->postJson(route('docuperfect.templates.archive', ['id' => $template->id]))
+            ->assertRedirect();
+        $this->assertNotNull($template->fresh()->archived_at);
+        $template->update(['archived_at' => null]); // reset for the next assertion
+
+        // COPY — must succeed.
+        $this->actingAs($otherBranchAdmin)
+            ->postJson(route('docuperfect.templates.copy', ['id' => $template->id]))
+            ->assertRedirect();
+        $this->assertDatabaseHas('docuperfect_templates', ['name' => 'Own Agency-Wide Mandate (Copy)']);
     }
 
     // ── HTTP-level wiring — a representative sample of the fixed routes ──
@@ -194,15 +354,19 @@ final class CrossAgencyTemplateAccessTest extends TestCase
 
         $docType = \App\Models\Docuperfect\DocumentType::create(['slug' => 'test-doc-' . uniqid(), 'label' => 'Test Doc']);
 
+        // agency_id stamped to match, same as every real creation path does
+        // post-2026-08-24 -- see the note on makeBranchTemplate() above.
         $foreignTemplate = Template::create([
             'name' => 'Foreign matching template', 'template_type' => 'sales', 'page_count' => 1,
             'fields_json' => [], 'is_global' => false, 'document_type_id' => $docType->id,
+            'agency_id' => $foreign['agency']->id,
         ]);
         $foreignTemplate->branches()->attach($foreign['branch']->id);
 
         $ownTemplate = Template::create([
             'name' => 'Own matching template', 'template_type' => 'sales', 'page_count' => 1,
             'fields_json' => [], 'is_global' => false, 'document_type_id' => $docType->id,
+            'agency_id' => $own['agency']->id,
         ]);
         $ownTemplate->branches()->attach($own['branch']->id);
 
