@@ -57,6 +57,19 @@ final class TitleTypeClassifier
     public const VACANT_KEYWORDS    = ['vacant', 'plot', 'stand', 'erf'];
 
     /**
+     * Words confident enough to call freehold outright — 2026-08-25 fix.
+     * Deliberately narrow and evidence-based (checked against the real
+     * distinct property_type values in `properties` and
+     * `market_report_comp_rows`). "Residence"/"Residential" are NOT here:
+     * that is the exact ambiguous CMA-Info word (used for both freehold and
+     * sectional stock) that caused the misclassification bug this list
+     * fixes — see fromPropertyType() below. "Commercial"/"Industrial"/
+     * "Business" are NOT here either: those describe land USE, not title
+     * TENURE, and tell you nothing about freehold vs sectional.
+     */
+    public const FULL_KEYWORDS = ['house', 'farm', 'freehold'];
+
+    /**
      * Canonical heuristic — classify a free-text property_type string.
      *
      * Lifted verbatim from the duplicate bodies at
@@ -88,7 +101,19 @@ final class TitleTypeClassifier
             // other phrase that already matched above.
             return self::TITLE_VACANT;
         }
-        return self::TITLE_FULL;
+        foreach (self::FULL_KEYWORDS as $kw) {
+            if (str_contains($t, $kw)) {
+                return self::TITLE_FULL;
+            }
+        }
+        // 2026-08-25 fix: previously fell through to TITLE_FULL here for ANY
+        // unrecognized text — including "Residence"/"Residential", the exact
+        // ambiguous CMA-Info word used for both freehold and sectional stock,
+        // and "Commercial"/"Industrial"/"Business", which describe land use
+        // and say nothing about title tenure. Guessing freehold silently
+        // misclassified sectional-title properties. Every caller of this
+        // method has been audited to handle a genuine null correctly.
+        return null;
     }
 
     /**
