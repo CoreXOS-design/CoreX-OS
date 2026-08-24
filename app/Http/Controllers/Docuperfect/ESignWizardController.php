@@ -2028,6 +2028,11 @@ class ESignWizardController extends Controller
         $recipients = $this->expandEntityRecipients($recipients, $user);
         // Sort recipients by SA signing convention: Agent → Tenant/Buyer → Landlord/Seller → Witness
         $recipients = $this->sortRecipientsBySigningOrder($recipients);
+        // HARD BLOCK (Johan, 2026-08-25): a deceased party never signs
+        // (SignatureRequest::isSigningParticipant()) — the document must
+        // not be sendable unless someone else is bound to sign in their
+        // place. "Certain problem = hard block, not a warning."
+        $this->assertDeceasedRecipientsHaveSubstituteSigner($recipients);
         // Support both old format (array of entries) and new format ({delivery_mode, parties: [...]})
         $signingSetupRaw = $stepData['signing_setup'] ?? [];
         $signingSetup = isset($signingSetupRaw['parties']) ? $signingSetupRaw['parties'] : $signingSetupRaw;
@@ -3477,6 +3482,71 @@ class ESignWizardController extends Controller
         }
 
         return $out;
+    }
+
+    /**
+     * HARD BLOCK (Johan, 2026-08-25): "for every party added to a document
+     * there is a way to replace this party... the signer is ALWAYS a
+     * natural person." A recipient flagged deceased never signs
+     * (SignatureRequest::isSigningParticipant() — is_deceased is absolute),
+     * so the document must not be sendable unless a real substitute signer
+     * is bound in their place. This is the same "signing link in the
+     * chain" contract RecipientTemplate.php's own docblock describes for a
+     * type:'recipient' slot binding — the ONLY binding type that produces
+     * an actual SignatureRequest for the bound party (see
+     * RecipientTemplate::resolveSlotDisplayName()). A type:'contact'
+     * binding is display-only by design and never receives a signing
+     * request, so it does not satisfy this rule; nor does a type:'self'
+     * binding pointing back at the deceased row itself, nor a binding to
+     * another recipient who is themselves deceased.
+     *
+     * A certain problem is a hard block, not a warning — this throws
+     * before any DB writes, naming the specific party, rather than letting
+     * a document with an unsignable party go out.
+     */
+    private function assertDeceasedRecipientsHaveSubstituteSigner(array $recipients): void
+    {
+        $byLocalKey = [];
+        foreach ($recipients as $r) {
+            $key = $r['_recipient_local_key'] ?? null;
+            if ($key !== null) {
+                $byLocalKey[$key] = $r;
+            }
+        }
+
+        foreach ($recipients as $r) {
+            if (empty($r['_is_deceased'])) {
+                continue;
+            }
+
+            $ownKey = $r['_recipient_local_key'] ?? null;
+            $bindings = $r['_slot_bindings'] ?? [];
+            $hasSubstitute = false;
+
+            if (is_array($bindings)) {
+                foreach ($bindings as $binding) {
+                    if (! is_array($binding) || ($binding['type'] ?? null) !== 'recipient') {
+                        continue;
+                    }
+                    $boundKey = $binding['recipient_local_key'] ?? null;
+                    if ($boundKey === null || $boundKey === $ownKey) {
+                        continue;
+                    }
+                    $bound = $byLocalKey[$boundKey] ?? null;
+                    if ($bound !== null && empty($bound['_is_deceased'])) {
+                        $hasSubstitute = true;
+                        break;
+                    }
+                }
+            }
+
+            if (! $hasSubstitute) {
+                $name = trim((string) ($r['name'] ?? '')) ?: 'This party';
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'recipients' => "{$name} is marked deceased but no substitute signer has been chosen. Open \u{201c}Replace this party\u{201d} and choose who signs in their place before sending.",
+                ]);
+            }
+        }
     }
 
     private function resolveLinkedContactRole(Contact $contact, array $allowedEsignRoles, string $defaultOwnerRole): ?string

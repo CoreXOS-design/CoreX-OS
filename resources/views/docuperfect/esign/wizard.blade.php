@@ -3177,6 +3177,11 @@ function esignWizard() {
                         _recipient_local_key: r._recipient_local_key || null,
                         _recipient_template_id: r._recipient_template_id || null,
                         _slot_bindings: r._slot_bindings || null,
+                        // Deceased-substitute reconciliation marker (see
+                        // bindSlotToContact/closeReplaceModal) — persisted so
+                        // a later session re-opening the replace modal can
+                        // still clean up a stale auto-added recipient.
+                        _deceased_substitute_for: r._deceased_substitute_for || null,
                     })),
                 };
                 case 4: {
@@ -3615,6 +3620,31 @@ function esignWizard() {
         },
 
         closeReplaceModal() {
+            // Deceased-substitute reconciliation (Johan, 2026-08-25) — runs on
+            // BOTH cancel and confirm (confirmReplace() calls this after
+            // setting r._slot_bindings). A row auto-added by
+            // bindSlotToContact() for THIS recipient's replacement is removed
+            // again if it ended up unreferenced: cancelled entirely, or the
+            // agent rebound the slot to a different contact mid-session. A
+            // key is kept if ANY recipient's slot_bindings — not just this
+            // row's — still points at it as type:'recipient', since the same
+            // substitute can legitimately be shared across two different
+            // deceased rows' clauses.
+            const ri = this.replaceModal.recipientIndex;
+            if (ri !== null && this.recipients[ri]) {
+                const r = this.recipients[ri];
+                const stillReferenced = new Set();
+                this.recipients.forEach(rr => {
+                    Object.values(rr._slot_bindings || {}).forEach(b => {
+                        if (b && b.type === 'recipient' && b.recipient_local_key) stillReferenced.add(b.recipient_local_key);
+                    });
+                });
+                this.recipients = this.recipients.filter(rr =>
+                    rr._deceased_substitute_for !== r._recipient_local_key || stillReferenced.has(rr._recipient_local_key)
+                );
+                this.recipients.forEach((rr, i) => rr.order = i + 1);
+            }
+
             this.replaceModal.open = false;
             this.replaceModal.recipientIndex = null;
         },
@@ -3667,6 +3697,59 @@ function esignWizard() {
         },
 
         bindSlotToContact(slotKey, contact) {
+            const ri = this.replaceModal.recipientIndex;
+            const r = this.recipients[ri];
+
+            // Johan, 2026-08-25 (deceased-substitute fix) — a slot bound on a
+            // DECEASED party's replacement clause must produce a REAL signer,
+            // never a display-only clause token. type:'contact' (below, the
+            // general path every other template still uses) is deliberately
+            // named-only in RecipientTemplate.php and never becomes a
+            // SignatureRequest — that is exactly the gap cc1's audit found:
+            // the executor's name appeared in the clause but nobody ever got
+            // a signing link. For a deceased row, promote the searched
+            // contact to an ordinary recipient on this same document
+            // (reusing one already there if the contact already is a
+            // recipient) and bind as type:'recipient' — the same "signing
+            // link in the chain" the model already documents — instead.
+            if (r && r._is_deceased) {
+                let target = this.recipients.find((rr, rri) => rri !== ri && rr._contact_id === contact.id);
+                if (!target) {
+                    target = {
+                        order: this.recipients.length + 1,
+                        role: r.role,
+                        name: contact.full_name || ((contact.first_name || '') + ' ' + (contact.last_name || '')).trim(),
+                        first_name: contact.first_name || '',
+                        last_name: contact.last_name || '',
+                        id_number: contact.id_number || '',
+                        email: contact.email || '',
+                        cell: contact.phone || '',
+                        address: contact.address || '',
+                        readonly: false,
+                        _contact_id: contact.id,
+                        _searchQuery: contact.full_name || '', _searchResults: [], _searchOpen: false, _searching: false, _searchIdx: 0,
+                        _is_deceased: false,
+                        _is_proxy: false,
+                        bank_name: contact.bank_name || '',
+                        bank_account_name: contact.bank_account_name || '',
+                        bank_account_number: contact.bank_account_number || '',
+                        bank_branch_name: contact.bank_branch_name || '',
+                        _recipient_local_key: (crypto.randomUUID ? crypto.randomUUID() : ('r' + Date.now() + Math.random())),
+                        // Tags this row as auto-added by THIS deceased row's
+                        // replacement — reconciled away in closeReplaceModal()
+                        // if the binding is later cancelled or rebound to
+                        // someone else, so a rebind never leaves a stray
+                        // duplicate recipient behind.
+                        _deceased_substitute_for: r._recipient_local_key,
+                    };
+                    this.recipients.push(target);
+                    this.recipients.forEach((rr, i) => rr.order = i + 1);
+                }
+                this.bindSlotToRecipient(slotKey, target);
+                this.replaceModal.slotSearch[slotKey] = { query: target.name || '', results: [], open: false };
+                return;
+            }
+
             this.replaceModal.bindings[slotKey] = {
                 type: 'contact',
                 contact_id: contact.id,
