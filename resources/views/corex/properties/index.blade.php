@@ -724,7 +724,11 @@
         @foreach($properties as $property)
         @php
             $images = $property->allImages();
-            $thumb  = $images[0] ?? null;
+            // Resolved ONCE here (not re-called inside the <img>) so the @if
+            // gate below checks the SAME value the <img src> uses — a missing
+            // original now correctly falls through to the placeholder instead
+            // of an empty src (2026-08-25, same root cause as the MIC photo fix).
+            $thumb  = $property->thumbFor($images[0] ?? null);
             $listingTypeLabel = $property->isRental() ? 'For Rent' : 'For Sale';
             $statusKey   = strtolower((string) ($property->status ?: 'draft'));
             // AT-350 — ucwords() would render "Sold By 3rd Party" (capital "By").
@@ -763,7 +767,7 @@
             {{-- Thumbnail — full-bleed, touches top & sides (spec §9) --}}
             <a href="{{ route('corex.properties.show', $property) }}" target="_blank" rel="noopener" class="relative block h-40 flex-shrink-0 overflow-hidden" style="background:linear-gradient(135deg, var(--surface-2), var(--surface));">
                 @if($thumb)
-                    <img src="{{ $property->thumbFor($thumb) }}" alt="{{ $property->title }}" class="w-full h-full object-cover" loading="lazy" width="600" height="400">
+                    <img src="{{ $thumb }}" alt="{{ $property->title }}" class="w-full h-full object-cover" loading="lazy" width="600" height="400">
                 @else
                     <div class="absolute inset-0 flex items-center justify-center">
                         <svg xmlns="http://www.w3.org/2000/svg" class="w-12 h-12" style="color:var(--text-muted);opacity:0.4;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1">
@@ -947,7 +951,8 @@
                 @foreach($properties as $property)
                 @php
                     $rowImages = $property->allImages();
-                    $rowThumb  = $rowImages[0] ?? null;
+                    // Resolved once — see the grid-view $thumb comment above.
+                    $rowThumb  = $property->thumbFor($rowImages[0] ?? null);
                     $rowListingLabel = $property->isRental() ? 'For Rent' : 'For Sale';
                     $rowStatusKey   = strtolower((string) ($property->status ?: 'draft'));
                     // AT-350 — see the grid-view block above for why statusBadge().
@@ -968,7 +973,7 @@
                     <td class="px-3 py-2">
                         <a href="{{ route('corex.properties.show', $property) }}" target="_blank" rel="noopener" class="block w-16 h-16 rounded-md overflow-hidden flex-shrink-0" style="background:linear-gradient(135deg, var(--surface-2), var(--surface));">
                             @if($rowThumb)
-                                <img src="{{ $property->thumbFor($rowThumb) }}" alt="{{ $property->title }}" class="w-full h-full object-cover" loading="lazy" width="64" height="64">
+                                <img src="{{ $rowThumb }}" alt="{{ $property->title }}" class="w-full h-full object-cover" loading="lazy" width="64" height="64">
                             @else
                                 <span class="flex items-center justify-center w-full h-full">
                                     <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" style="color:var(--text-muted);opacity:0.5;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
