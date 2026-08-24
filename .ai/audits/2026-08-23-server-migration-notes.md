@@ -23,29 +23,27 @@ decision — move it too, stand it up somewhere else, or knowingly retire it —
 made before cutover, not discovered after. None of them were touched during
 tonight's cleanup for exactly this reason.
 
-## ⚠️ CHECKLIST ITEM — MUST BE DONE BEFORE THE OLD BOX IS DECOMMISSIONED
+## `/mnt/HC_Volume_103099143/corex-storage/` — optional housekeeping, NOT a one-way door
 
-*(Added 2026-08-24, following a read-only stranded-file investigation —
-`.ai/audits/perf-sweep-and-blank-pdf-findings-2026-08-23.md` §4 is the source
-for the Set A / Set B terminology below. This is a one-way door, not a
-"degrades gracefully" item — get it wrong and the recovery option disappears
-permanently, not partially.)*
+*(Added 2026-08-24, corrected the same day. An earlier version of this
+section called this volume a "sole recovery source" for 11 signed documents
+and said the migration was a one-way door that would permanently lose them
+if handled wrong. That was wrong, and stated with more certainty than it
+deserved — flagging it explicitly here so nobody who finds the old wording
+in git history trusts it. Corrected once the actual business fact came back:
+e-sign has never been live. The 11 `signature_templates` rows this pointed
+at (Set A, `.ai/audits/perf-sweep-and-blank-pdf-findings-2026-08-23.md` §4)
+are pre-live test artefacts, not client legal records — there is nothing to
+recover. Separately, Set B in that same section (42 `user_documents` rows —
+FFC certificates, ID copies, tax clearance certs) turned out to be
+fill-and-print artefacts: CoreX types text onto a document that's then
+printed, and these are disposable by design, not a data-loss event.)*
 
-- [ ] **`/mnt/HC_Volume_103099143/corex-storage/` must be carried over to the
-  new box's data volume IN FULL before the old box is decommissioned.** The
-  currently-served `storage/app` tree is NOT sufficient — it is missing files
-  that exist only on this old volume.
-- [ ] **Verify the copy landed correctly**: as of 2026-08-24 this volume
-  contains **19,405 files, 6,246,725,422 bytes (≈5.82 GiB)**. Whoever performs
-  the move should confirm the destination matches this file count and byte
-  total (`find <dest> -type f | wc -l` and `du -sb <dest>`) before treating
-  the old volume as safe to remove.
-- [ ] **Why this matters**: as of 2026-08-24 this volume is the SOLE recovery
-  source for 11 signed documents (Set A — docuperfect e-sign PDFs) and is
-  being checked as a possible source for 42 agent compliance documents
-  (Set B — FFC certificates, ID copies, tax clearance certs). If this volume
-  is not carried over, those recovery options disappear permanently rather
-  than degrade — there is no other copy anywhere else on this box.
+Carrying this volume (19,405 files, 6,246,725,422 bytes ≈ 5.82 GiB as of
+2026-08-24) over to the new box's data volume is fine to do as routine
+housekeeping if it's convenient during the move, but it is **not** required,
+not blocking, and not worth spending migration-night attention on. Nothing
+on it is a recovery source for anything currently live.
 
 ## 1. Put `storage/app` on the data volume from day one
 
