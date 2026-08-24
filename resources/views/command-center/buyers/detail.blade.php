@@ -418,6 +418,25 @@
                         </div>
                     </div>
 
+                    {{-- Parity — the same WhatsApp/Email/PDF/Client Page actions and stat
+                         chips Core Matches results has, via the identical shared partial
+                         (Johan, 2026-08-24). Overrides the partial's colour custom
+                         properties for this card's light --surface background instead of
+                         the dedicated page's dark banner — the partial's own defaults stay
+                         untouched, so match-results.blade.php is unaffected. --}}
+                    <div class="flex items-center justify-between gap-3 flex-wrap px-4 py-2.5"
+                         style="border-top: 1px solid var(--border);
+                                --match-action-bar-stat-color: var(--text-primary);
+                                --match-action-bar-stat-label-color: var(--text-muted);
+                                --match-action-bar-stat-color-muted: var(--text-muted);
+                                --match-action-bar-stat-label-color-muted: var(--text-muted);
+                                --match-action-bar-divider-color: var(--border);
+                                --match-action-bar-outline-bg: transparent;
+                                --match-action-bar-outline-color: var(--text-secondary);
+                                --match-action-bar-outline-border: var(--border);">
+                        @include('corex.contacts._match-action-bar', ['contact' => $buyer, 'match' => $wishlist, 'matchCount' => $wishlistCount])
+                    </div>
+
                     {{-- Inline accordion: this wishlist's matches, ALL of them, in
                          place — no cap, no navigate-away link (Johan's review). Rich
                          cards — the SAME <x-match-card> component Core Matches results
