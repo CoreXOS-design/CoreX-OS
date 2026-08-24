@@ -2834,34 +2834,9 @@ class ESignWizardController extends Controller
             // "Replace this party" — resolve every chain binding now that every
             // recipient in this send has a recipient_local_key (including ones a
             // chain might point AT, which may have been created later in the loop
-            // above than the recipient whose party is being replaced). GENERATION
-            // TIME: resolved once, frozen onto party_clause_text, never
-            // recomputed — same snapshot-once rule as everything else here. A
-            // dangling binding (a slot's recipient/contact no longer resolves)
-            // blocks the send entirely rather than freezing a half-built clause.
-            foreach ($chainBindings as $binding) {
-                $sigReq = \App\Models\Docuperfect\SignatureRequest::find($binding['signature_request_id']);
-                $recipientTemplate = \App\Models\RecipientTemplate::find($binding['recipient_template_id']);
-                if (! $sigReq || ! $recipientTemplate) {
-                    continue;
-                }
-
-                try {
-                    $resolvedText = $recipientTemplate->resolveBoundText($sigReq, $binding['slot_bindings']);
-                } catch (\App\Exceptions\DanglingSlotBindingException $e) {
-                    // Block the send with a message naming the specific slot — never a
-                    // half-built clause on a document that goes on to be signed.
-                    throw \Illuminate\Validation\ValidationException::withMessages([
-                        'recipients' => $e->getMessage(),
-                    ]);
-                }
-
-                $sigReq->update([
-                    'recipient_template_id' => $recipientTemplate->id,
-                    'slot_bindings' => $binding['slot_bindings'],
-                    'party_clause_text' => $resolvedText,
-                ]);
-            }
+            // above than the recipient whose party is being replaced). Shared with
+            // prepareWetInk() — see resolveChainBindings().
+            $this->resolveChainBindings($chainBindings);
 
             // No supervisor_final request (confirmed model, 2026-08-03) — the authoriser co-signs ONCE
             // at the initial 'supervisor' review; the candidate's final approval completes the doc.
@@ -3546,6 +3521,46 @@ class ESignWizardController extends Controller
                     'recipients' => "{$name} is marked deceased but no substitute signer has been chosen. Open \u{201c}Replace this party\u{201d} and choose who signs in their place before sending.",
                 ]);
             }
+        }
+    }
+
+    /**
+     * "Replace this party" — resolves every collected chain binding into its
+     * frozen party_clause_text, once, at generation time. Shared by BOTH send
+     * paths (prepareSigning() and prepareWetInk(), Johan 2026-08-25) so a
+     * deceased party's clause — "Late Estate of {deceased} herein represented
+     * by {executor}" — prints identically whether the document goes out for
+     * e-signature or to paper. One resolution, never a second implementation
+     * that could drift from it.
+     *
+     * $chainBindings shape: list of ['signature_request_id', 'recipient_template_id', 'slot_bindings'].
+     * A dangling binding (a slot's recipient/contact no longer resolves)
+     * blocks the send entirely rather than freezing a half-built clause.
+     */
+    private function resolveChainBindings(array $chainBindings): void
+    {
+        foreach ($chainBindings as $binding) {
+            $sigReq = \App\Models\Docuperfect\SignatureRequest::find($binding['signature_request_id']);
+            $recipientTemplate = \App\Models\RecipientTemplate::find($binding['recipient_template_id']);
+            if (! $sigReq || ! $recipientTemplate) {
+                continue;
+            }
+
+            try {
+                $resolvedText = $recipientTemplate->resolveBoundText($sigReq, $binding['slot_bindings']);
+            } catch (\App\Exceptions\DanglingSlotBindingException $e) {
+                // Block the send with a message naming the specific slot — never a
+                // half-built clause on a document that goes on to be signed or printed.
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'recipients' => $e->getMessage(),
+                ]);
+            }
+
+            $sigReq->update([
+                'recipient_template_id' => $recipientTemplate->id,
+                'slot_bindings' => $binding['slot_bindings'],
+                'party_clause_text' => $resolvedText,
+            ]);
         }
     }
 
@@ -5466,6 +5481,12 @@ class ESignWizardController extends Controller
 
         $recipients = $stepData['recipients']['recipients'] ?? [];
         $recipients = $this->sortRecipientsBySigningOrder($recipients);
+        // HARD BLOCK (Johan, 2026-08-25) — the MORE dangerous of the two send
+        // paths: wet-ink puts a physical document in someone's hand to sign
+        // on paper, with no server-side catch after this point. A deceased
+        // party with no substitute must never reach print. Same predicate as
+        // the e-sign path — see assertDeceasedRecipientsHaveSubstituteSigner().
+        $this->assertDeceasedRecipientsHaveSubstituteSigner($recipients);
         $signingSetupRaw = $stepData['signing_setup'] ?? [];
         $signingSetup = isset($signingSetupRaw['parties']) ? $signingSetupRaw['parties'] : $signingSetupRaw;
         $propertyAddress = $stepData['property']['address'] ?? $stepData['property']['title'] ?? '';
@@ -5683,6 +5704,13 @@ class ESignWizardController extends Controller
                 'sent_at' => now(),
             ]);
 
+            // "Replace this party" chain bindings (Johan, 2026-08-25) — same
+            // mechanism and same reason as prepareSigning(): a deceased
+            // party's clause chains to another recipient in this same batch,
+            // whose recipient_local_key only exists once THAT recipient's
+            // own createSigningRequest() call below has run.
+            $chainBindings = [];
+
             foreach ($orderedRecipients as $i => $r) {
                 $baseRole = $roleAliases[$r['role'] ?? 'other'] ?? ($r['role'] ?? 'other');
                 if ($baseRole === 'agent') continue;
@@ -5703,9 +5731,26 @@ class ESignWizardController extends Controller
                     $r['id_number'] ?? null, null, $user,
                     signerCaption: $r['_signature_caption'] ?? null,
                     partyClauseText: $r['_party_clause_text'] ?? null,
+                    isDeceased: (bool) ($r['_is_deceased'] ?? false),
+                    isProxy: (bool) ($r['_is_proxy'] ?? false),
+                    recipientLocalKey: $r['_recipient_local_key'] ?? null,
                 );
                 $sigReq->update(['signing_method' => 'wet_ink']);
+
+                if (! empty($r['_recipient_template_id']) && ! empty($r['_slot_bindings'])) {
+                    $chainBindings[] = [
+                        'signature_request_id' => $sigReq->id,
+                        'recipient_template_id' => (int) $r['_recipient_template_id'],
+                        'slot_bindings' => $r['_slot_bindings'],
+                    ];
+                }
             }
+
+            // Printed output names every party in full exactly as the e-sign
+            // body does (Johan, 2026-08-25) — resolves "Late Estate of {X}
+            // herein represented by {Y}" onto party_clause_text before this
+            // document is ever handed over to be signed on paper.
+            $this->resolveChainBindings($chainBindings);
 
             // No markers or zones needed — wet ink is signed on paper
 

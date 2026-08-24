@@ -17,16 +17,23 @@ use Tests\TestCase;
  * nothing blocked a send that skipped it. "Certain problem = hard block,
  * not a warning." This covers
  * ESignWizardController::assertDeceasedRecipientsHaveSubstituteSigner() —
- * the gate that runs in prepareSigning() right after $recipients is
- * finalised, before any SignatureRequest is created.
+ * the ONE gate, called from BOTH send paths right after $recipients is
+ * finalised, before any SignatureRequest is created:
+ *   - prepareSigning() — e-sign
+ *   - prepareWetInk()  — wet-ink (the more dangerous path: a physical
+ *     document printed for someone to sign on paper, with no server-side
+ *     catch after this point — Johan, 2026-08-25)
+ * One predicate, reused, never a second implementation that could drift
+ * from it — so these cases cover both callers identically.
  *
  * The private method takes a plain $recipients array (the exact shape
  * step_data['recipients']['recipients'] carries after expansion/sort) and
  * has no DB dependency of its own, so it is exercised directly via
  * reflection rather than standing up a full flow/template/property fixture
- * per case — the full end-to-end send path (real SignatureRequest rows,
- * rendered clause, mail forced to 'log', rolled back) is proven separately
- * against real QA1 data per Johan's verification protocol.
+ * per case — the full end-to-end send path for EACH caller (real
+ * SignatureRequest rows, rendered clause, mail forced to 'log', rolled
+ * back, plus the revert-and-fail run) is proven separately against real
+ * QA1 data per Johan's verification protocol.
  */
 final class DeceasedSubstituteSignerBlockTest extends TestCase
 {
