@@ -1412,6 +1412,7 @@
                 @endpermission
                 @permission('esign.settings')
                 <a href="{{ route('docuperfect.esign.recipient-presets.index') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.esign.recipient-presets.*') ? 'active' : '' }}">Recipient Presets</a>
+                <a href="{{ route('docuperfect.recipient-templates.index') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.recipient-templates.*') ? 'active' : '' }}">Recipient Templates</a>
                 @endpermission
                 @permission('manage_templates')
                 <a href="{{ route('docuperfect.templates.index') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.templates.*') ? 'active' : '' }}">Template Management</a>

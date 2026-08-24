@@ -4118,6 +4118,18 @@ Route::prefix('docuperfect')->middleware(['auth', 'permission:access_docuperfect
     Route::post('/clauses/{clause}/restore', [\App\Http\Controllers\Docuperfect\ClauseController::class, 'restore'])->name('docuperfect.clauses.restore')->withTrashed();
     Route::get('/api/clauses', [\App\Http\Controllers\Docuperfect\ClauseController::class, 'listJson'])->name('docuperfect.clauses.json');
 
+    // Recipient Templates (Johan, 2026-08-24, stage 3) — authored like the clause library
+    // above, gated the same way E-Sign → Recipient Presets already is.
+    Route::middleware(['permission:esign.settings', 'agency.required'])
+        ->prefix('recipient-templates')
+        ->name('docuperfect.recipient-templates.')
+        ->group(function () {
+            Route::get('/', [\App\Http\Controllers\Docuperfect\RecipientTemplateController::class, 'index'])->name('index');
+            Route::post('/', [\App\Http\Controllers\Docuperfect\RecipientTemplateController::class, 'store'])->name('store');
+            Route::put('/{recipientTemplate}', [\App\Http\Controllers\Docuperfect\RecipientTemplateController::class, 'update'])->name('update');
+            Route::delete('/{recipientTemplate}', [\App\Http\Controllers\Docuperfect\RecipientTemplateController::class, 'destroy'])->name('destroy');
+        });
+
     // Page images (authenticated)
     Route::get('/templates/{id}/page/{page}', [\App\Http\Controllers\Docuperfect\PageImageController::class, 'show'])->name('docuperfect.page.image');
 
