@@ -3438,7 +3438,20 @@ class ESignWizardController extends Controller
                 $out[] = [
                     'order'                 => ++$order,
                     'role'                  => $r['role'] ?? '',
-                    'name'                  => $label,
+                    // cc1's audit, escalated by Johan 2026-08-24 — this used
+                    // to be $label (the FULL document-body clause: entity +
+                    // every representative + IDs + capacity), and it fed
+                    // createSigningRequest()'s $signerName param DIRECTLY
+                    // below — meaning the real email greeting read "Hi 1502
+                    // BEAUMONT PROP CC, herein represented by Elize
+                    // Reichel..." instead of "Hi Elize." The clause belongs
+                    // in the document body (_party_clause_text, already
+                    // correct); the SIGNER RECORD needs the natural
+                    // person's own name and nothing else — resolved
+                    // directly from the representative Contact, the same
+                    // way a natural-person recipient's own 'name' always
+                    // has been (never the entity's, never the clause).
+                    'name'                  => (string) $rep->full_name,
                     'first_name'            => $rep->first_name ?? '',
                     'last_name'             => $rep->last_name ?? '',
                     'id_number'             => $rep->id_number ?? '',

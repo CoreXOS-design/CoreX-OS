@@ -128,7 +128,20 @@ class EsignEntityRecipientTest extends TestCase
         foreach ($out as $r) {
             $this->assertSame('seller', $r['role']);
             $this->assertSame($entity->id, $r['_entity_contact_id']);
-            $this->assertStringContainsString('herein represented by', $r['name']);
+            // cc1's audit, escalated by Johan 2026-08-24 — 'name' used to be
+            // the FULL document-body clause ($label), and this exact field
+            // feeds createSigningRequest()'s signerName param — the real
+            // email greeting ("Hi {name}") and every other consumer of
+            // signer_name (signing pages, audit log, the completed PDF's
+            // own attestation binding). It must be the representative's OWN
+            // bare name, nothing else — the same way a natural-person
+            // recipient's 'name' always has been. The full clause still
+            // lives on _representation_label (display-only, unread by any
+            // signer-identity path) and _party_clause_text (the document
+            // body, checked separately below).
+            $this->assertSame(trim($r['first_name'] . ' ' . $r['last_name']), $r['name']);
+            $this->assertStringNotContainsString('herein represented by', $r['name'], 'The signer-name field must never carry the legal clause.');
+            $this->assertStringContainsString('herein represented by', $r['_representation_label']);
             $this->assertNotSame('', $r['email']);        // rep email, not the entity's
             // caption for the signature-block "on behalf of" attribution
             $this->assertStringContainsString('on behalf of', $r['_signature_caption']);
@@ -169,6 +182,9 @@ class EsignEntityRecipientTest extends TestCase
         $this->assertCount(1, $out);
         $this->assertSame($reps[1]->id, $out[0]['_contact_id']);
         $this->assertSame('rep1@x.test', $out[0]['email']);
+        // cc1's audit — the signer-name field is the proxy's OWN bare name,
+        // never the clause (see the no-proxy test above for the full context).
+        $this->assertSame($reps[1]->fresh()->full_name, $out[0]['name']);
 
         // DISPLAY: the proxy's own row must still NAME EVERY representative,
         // not just the one who happens to be the sole signer — "all parties
@@ -305,7 +321,11 @@ class EsignEntityRecipientTest extends TestCase
         $this->assertCount(1, $merged['recipients']['recipients']);
         $this->assertSame($reps[0]->id, $merged['recipients']['recipients'][0]['_contact_id'],
             'The MERGE copy expands to the representative — this is the one that feeds the document body.');
-        $this->assertStringContainsString('herein represented by', $merged['recipients']['recipients'][0]['name']);
+        // cc1's audit — the document body reads _party_clause_text (checked
+        // here), never 'name': that field is the representative's own bare
+        // name now, the value that becomes the real signer_name.
+        $this->assertStringContainsString('herein represented by', $merged['recipients']['recipients'][0]['_party_clause_text']);
+        $this->assertStringNotContainsString('herein represented by', $merged['recipients']['recipients'][0]['name']);
 
         // The original $stepData passed in must be untouched — same variable, re-read.
         $this->assertSame($entity->id, $stepData['recipients']['recipients'][0]['_contact_id'],
