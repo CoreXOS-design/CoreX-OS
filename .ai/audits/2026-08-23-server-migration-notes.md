@@ -30,14 +30,22 @@ section called this volume a "sole recovery source" for 11 signed documents
 and said the migration was a one-way door that would permanently lose them
 if handled wrong. That was wrong, and stated with more certainty than it
 deserved — flagging it explicitly here so nobody who finds the old wording
-in git history trusts it. Corrected once the actual business fact came back:
-e-sign has never been live. The 11 `signature_templates` rows this pointed
-at (Set A, `.ai/audits/perf-sweep-and-blank-pdf-findings-2026-08-23.md` §4)
-are pre-live test artefacts, not client legal records — there is nothing to
-recover. Separately, Set B in that same section (42 `user_documents` rows —
-FFC certificates, ID copies, tax clearance certs) turned out to be
-fill-and-print artefacts: CoreX types text onto a document that's then
-printed, and these are disposable by design, not a data-loss event.)*
+in git history trusts it. The precise account, from Johan: agent Maggie
+Venter attempted a real go-live on e-sign in March–May 2026, sending real
+mandate/disclosure documents for real properties to real recipients. It
+failed — too many errors for the documents to land with recipients — and
+she abandoned e-sign for the manual/paper process. The 11
+`signature_templates` rows this pointed at (Set A,
+`.ai/audits/perf-sweep-and-blank-pdf-findings-2026-08-23.md` §4) are the
+wreckage of that failed attempt: nothing completed, nothing was ever relied
+on, no counterparty ever received or signed anything through them. Real
+attempt, real intent, but no live legal record and no recovery obligation
+— see the forensic follow-up investigating what actually failed,
+`.ai/audits/2026-08-24-esign-failed-golive-forensics.md`. Separately, Set B
+in that same section (42 `user_documents` rows — FFC certificates, ID
+copies, tax clearance certs) turned out to be fill-and-print artefacts:
+CoreX types text onto a document that's then printed, and these are
+disposable by design, not a data-loss event.)*
 
 Carrying this volume (19,405 files, 6,246,725,422 bytes ≈ 5.82 GiB as of
 2026-08-24) over to the new box's data volume is fine to do as routine
