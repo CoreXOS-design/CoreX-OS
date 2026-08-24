@@ -1203,7 +1203,10 @@
                     </a>
                 @endif
 
-                @if(auth()->user() && in_array((string) auth()->user()->role, ['admin', 'super_admin', 'branch_manager', 'principal'], true) && \Illuminate\Support\Facades\Route::has('corex.admin.deal-link-review.index'))
+                {{-- HIDDEN 2026-08-24 (Johan, quick wins) — menu-only hide, legacy/pre-CoreX
+                     screen; route left fully live (assertAdmin() in DealLinkReviewController
+                     already gates it, unchanged). Reversible: drop the leading "false && ". --}}
+                @if(false && auth()->user() && in_array((string) auth()->user()->role, ['admin', 'super_admin', 'branch_manager', 'principal'], true) && \Illuminate\Support\Facades\Route::has('corex.admin.deal-link-review.index'))
                     @php
                         // Phase 3i — pending deal-link review count.
                         $dealLinkPendingCount = 0;
