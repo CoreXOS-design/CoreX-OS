@@ -96,15 +96,17 @@ class WebTemplateDataService
         $hasSellerId = $this->hasField($templateId, 'seller_id_number');
         $hasBuyerId  = $this->hasField($templateId, 'buyer_id_number');
 
-        // Clean names — never append ID number to name fields
-        $lessorName  = trim(($lessor['first_name'] ?? '') . ' ' . ($lessor['last_name'] ?? '')) ?: ($lessor['name'] ?? '');
-        $lessor2Name = trim(($lessor2['first_name'] ?? '') . ' ' . ($lessor2['last_name'] ?? '')) ?: ($lessor2['name'] ?? '');
-        $lesseeName  = trim(($lessee['first_name'] ?? '') . ' ' . ($lessee['last_name'] ?? '')) ?: ($lessee['name'] ?? '');
-        $lessee2Name = trim(($lessee2['first_name'] ?? '') . ' ' . ($lessee2['last_name'] ?? '')) ?: ($lessee2['name'] ?? '');
-        $sellerName  = trim(($seller['first_name'] ?? '') . ' ' . ($seller['last_name'] ?? '')) ?: ($seller['name'] ?? '');
-        $seller2Name = trim(($seller2['first_name'] ?? '') . ' ' . ($seller2['last_name'] ?? '')) ?: ($seller2['name'] ?? '');
-        $buyerName   = trim(($buyer['first_name'] ?? '') . ' ' . ($buyer['last_name'] ?? '')) ?: ($buyer['name'] ?? '');
-        $buyer2Name  = trim(($buyer2['first_name'] ?? '') . ' ' . ($buyer2['last_name'] ?? '')) ?: ($buyer2['name'] ?? '');
+        // Clean names — never append ID number to name fields.
+        // resolvedPartyName() prefers a bound "Replace this party" clause
+        // over the raw name (fault B) — see its docblock.
+        $lessorName  = $this->resolvedPartyName($lessor, $recipients);
+        $lessor2Name = $this->resolvedPartyName($lessor2, $recipients);
+        $lesseeName  = $this->resolvedPartyName($lessee, $recipients);
+        $lessee2Name = $this->resolvedPartyName($lessee2, $recipients);
+        $sellerName  = $this->resolvedPartyName($seller, $recipients);
+        $seller2Name = $this->resolvedPartyName($seller2, $recipients);
+        $buyerName   = $this->resolvedPartyName($buyer, $recipients);
+        $buyer2Name  = $this->resolvedPartyName($buyer2, $recipients);
 
         // Property values
         $address    = $property['address'] ?? $property['title'] ?? '';
@@ -696,7 +698,7 @@ class WebTemplateDataService
             if ($norm(strtolower($r['role'] ?? '')) !== $role) {
                 continue;
             }
-            $val = trim((string) $this->resolveContactFromKey($column, $r));
+            $val = trim((string) $this->resolveContactFromKey($column, $r, $recipients));
             if ($val !== '') {
                 $parts[] = $val;
             }
@@ -743,6 +745,47 @@ class WebTemplateDataService
             'expiry_date'        => $details['expiry_date'] ?? $details['mandate_expiry'] ?? '',
             default              => $property[$attr] ?? '',
         };
+    }
+
+    /**
+     * Johan, 2026-08-24 (fault B) — "the resolved clause must appear
+     * EVERYWHERE the party appears, from the moment it's set... resolve
+     * once, render everywhere." This is that one resolution, called by
+     * every place in this service that would otherwise build a party's
+     * plain first+last name — the wizard preview (steps 3-5) and the final
+     * generated document body both merge through this same service, so
+     * fixing it here reaches both without either re-deriving it.
+     *
+     * Mirrors RoleBlockExpansionService::renderEntityParty()'s "snapshot
+     * first" contract but for the pre-generation case: no SignatureRequest
+     * exists yet at wizard time, so there is nothing frozen to read —
+     * RecipientTemplate::resolveBoundTextFromArray() resolves live against
+     * the wizard's own in-memory recipients array instead. A dangling slot
+     * (still mid-edit) falls back to the raw name rather than breaking the
+     * preview; only generation-time resolution (ESignWizardController) hard
+     * -fails on that.
+     */
+    private function resolvedPartyName(array $recipient, array $allRecipients): string
+    {
+        $rawName = trim(($recipient['first_name'] ?? '') . ' ' . ($recipient['last_name'] ?? ''));
+        $rawName = $rawName !== '' ? $rawName : (string) ($recipient['name'] ?? '');
+
+        $templateId = $recipient['_recipient_template_id'] ?? null;
+        $bindings   = $recipient['_slot_bindings'] ?? null;
+        if (!$templateId || !is_array($bindings) || empty($bindings)) {
+            return $rawName;
+        }
+
+        $template = \App\Models\RecipientTemplate::find($templateId);
+        if (!$template) {
+            return $rawName;
+        }
+
+        try {
+            return $template->resolveBoundTextFromArray($recipient, $allRecipients, $bindings);
+        } catch (\App\Exceptions\DanglingSlotBindingException $e) {
+            return $rawName;
+        }
     }
 
     /**
@@ -894,13 +937,13 @@ class WebTemplateDataService
         return $recipients;
     }
 
-    private function resolveContactFromKey(string $attr, array $contact)
+    private function resolveContactFromKey(string $attr, array $contact, array $allRecipients = [])
     {
         return match ($attr) {
             'surname', 'last_name'    => $contact['last_name'] ?? '',
             'first_name'              => $contact['first_name'] ?? '',
             'full_name', 'name', 'full_names', 'first_name+last_name'
-                => trim(($contact['first_name'] ?? '') . ' ' . ($contact['last_name'] ?? '')) ?: ($contact['name'] ?? ''),
+                => $this->resolvedPartyName($contact, $allRecipients),
             'id_number'               => $contact['id_number'] ?? '',
             'email'                   => $contact['email'] ?? '',
             'phone', 'cell', 'tel'    => $contact['cell'] ?? $contact['phone'] ?? '',
@@ -1111,12 +1154,23 @@ class WebTemplateDataService
 
         if (empty($contacts)) return '';
 
-        // Format each contact: "FirstName LastName (ID: xxx)"
+        // Format each contact: "FirstName LastName (ID: xxx)" — or, when a
+        // "Replace this party" clause is bound (fault B), the resolved
+        // clause text in place of the raw name. A field group's member
+        // columns are per-column (first_name, last_name, ...), so a plain
+        // concatenation would silently re-derive the raw name and skip the
+        // same resolution resolveContactFromKey() already applies; route
+        // any name-ish member column through resolvedPartyName() instead.
         $displayParts = [];
         foreach ($contacts as $contact) {
             $nameParts = [];
             $idNumber = '';
+            $hasNameColumn = false;
             foreach ($memberColumns as $col) {
+                if (in_array($col, ['first_name', 'last_name', 'full_name', 'name'], true)) {
+                    $hasNameColumn = true;
+                    continue;
+                }
                 $val = $contact[$col] ?? '';
                 if (empty($val)) continue;
                 if ($col === 'id_number') {
@@ -1125,7 +1179,7 @@ class WebTemplateDataService
                     $nameParts[] = $val;
                 }
             }
-            $line = implode(' ', $nameParts);
+            $line = $hasNameColumn ? $this->resolvedPartyName($contact, $recipients) : implode(' ', $nameParts);
             if (!empty($idNumber)) {
                 $line .= ' (ID: ' . $idNumber . ')';
             }
@@ -1173,13 +1227,13 @@ class WebTemplateDataService
         $seller2 = $secondContactByRole['seller'] ?? [];
         $buyer  = $contactsByRole['buyer'] ?? [];
 
-        $lessorName  = trim(($lessor['first_name'] ?? '') . ' ' . ($lessor['last_name'] ?? '')) ?: ($lessor['name'] ?? '');
-        $lessor2Name = trim(($lessor2['first_name'] ?? '') . ' ' . ($lessor2['last_name'] ?? '')) ?: ($lessor2['name'] ?? '');
-        $lesseeName  = trim(($lessee['first_name'] ?? '') . ' ' . ($lessee['last_name'] ?? '')) ?: ($lessee['name'] ?? '');
-        $lessee2Name = trim(($lessee2['first_name'] ?? '') . ' ' . ($lessee2['last_name'] ?? '')) ?: ($lessee2['name'] ?? '');
-        $sellerName  = trim(($seller['first_name'] ?? '') . ' ' . ($seller['last_name'] ?? '')) ?: ($seller['name'] ?? '');
-        $seller2Name = trim(($seller2['first_name'] ?? '') . ' ' . ($seller2['last_name'] ?? '')) ?: ($seller2['name'] ?? '');
-        $buyerName   = trim(($buyer['first_name'] ?? '') . ' ' . ($buyer['last_name'] ?? '')) ?: ($buyer['name'] ?? '');
+        $lessorName  = $this->resolvedPartyName($lessor, $recipients);
+        $lessor2Name = $this->resolvedPartyName($lessor2, $recipients);
+        $lesseeName  = $this->resolvedPartyName($lessee, $recipients);
+        $lessee2Name = $this->resolvedPartyName($lessee2, $recipients);
+        $sellerName  = $this->resolvedPartyName($seller, $recipients);
+        $seller2Name = $this->resolvedPartyName($seller2, $recipients);
+        $buyerName   = $this->resolvedPartyName($buyer, $recipients);
         $suburb     = $property['suburb'] ?? $property['town'] ?? $property['city'] ?? ''; // B1
         $address    = $property['address'] ?? $property['title'] ?? '';
         $suburb     = $property['suburb'] ?? '';

@@ -146,6 +146,39 @@ class RecipientTemplate extends Model
      */
     public function resolveBoundText(SignatureRequest $selfRecipient, array $slotBindings): string
     {
+        return $this->resolveBoundTextTokens(
+            $slotBindings,
+            fn (string $key, string $label, array $binding) => $this->resolveSlotDisplayName($selfRecipient, $key, $label, $binding)
+        );
+    }
+
+    /**
+     * Johan, 2026-08-24 (fault B) — the SAME resolution this class already
+     * did at generation time (resolveBoundText, frozen onto
+     * SignatureRequest::party_clause_text), run instead against the wizard's
+     * in-memory recipients array. Before generation there is no
+     * SignatureRequest row for anyone yet — the wizard preview, step 4, and
+     * fill & review all render from step_data — so this is what "resolve
+     * once, render everywhere" actually resolves against pre-generation.
+     * Same party_slots, same text_template, same substitute() — one
+     * algorithm, the only difference is which store a slot's display name
+     * comes from (this array vs a persisted SignatureRequest/Contact row).
+     *
+     * @throws DanglingSlotBindingException if a bound recipient/contact
+     *   doesn't resolve yet — callers rendering a LIVE preview should catch
+     *   this and fall back to the raw name (the agent may still be
+     *   mid-edit); only generation-time resolution should let it propagate.
+     */
+    public function resolveBoundTextFromArray(array $selfRecipient, array $allRecipients, array $slotBindings): string
+    {
+        return $this->resolveBoundTextTokens(
+            $slotBindings,
+            fn (string $key, string $label, array $binding) => $this->resolveSlotDisplayNameFromArray($selfRecipient, $allRecipients, $key, $label, $binding)
+        );
+    }
+
+    private function resolveBoundTextTokens(array $slotBindings, \Closure $resolveSlot): string
+    {
         $tokens = [];
 
         foreach ($this->party_slots ?? [] as $slot) {
@@ -157,7 +190,7 @@ class RecipientTemplate extends Model
                 throw DanglingSlotBindingException::forSlot($key, $label);
             }
 
-            $tokens['{' . $key . '}'] = $this->resolveSlotDisplayName($selfRecipient, $key, $label, $binding);
+            $tokens['{' . $key . '}'] = $resolveSlot($key, $label, $binding);
         }
 
         return self::substitute($this->text_template, $tokens);
@@ -189,6 +222,49 @@ class RecipientTemplate extends Model
             }
 
             return (string) $recipient->signer_name;
+        }
+
+        throw DanglingSlotBindingException::forSlot($key, $label);
+    }
+
+    private static function displayNameFromRecipientArray(array $recipient): string
+    {
+        $full = trim(($recipient['first_name'] ?? '') . ' ' . ($recipient['last_name'] ?? ''));
+
+        return $full !== '' ? $full : (string) ($recipient['name'] ?? '');
+    }
+
+    private function resolveSlotDisplayNameFromArray(array $selfRecipient, array $allRecipients, string $key, string $label, array $binding): string
+    {
+        $type = $binding['type'] ?? null;
+
+        if ($type === 'self') {
+            return self::displayNameFromRecipientArray($selfRecipient);
+        }
+
+        if ($type === 'contact') {
+            $contact = \App\Models\Contact::withoutGlobalScopes()->find($binding['contact_id'] ?? null);
+            if ($contact === null) {
+                throw DanglingSlotBindingException::forSlot($key, $label);
+            }
+
+            return (string) ($contact->entity_name ?: $contact->full_name);
+        }
+
+        if ($type === 'recipient') {
+            $localKey = $binding['recipient_local_key'] ?? null;
+            $match = null;
+            foreach ($allRecipients as $r) {
+                if (($r['_recipient_local_key'] ?? null) === $localKey) {
+                    $match = $r;
+                    break;
+                }
+            }
+            if ($match === null) {
+                throw DanglingSlotBindingException::forSlot($key, $label);
+            }
+
+            return self::displayNameFromRecipientArray($match);
         }
 
         throw DanglingSlotBindingException::forSlot($key, $label);
