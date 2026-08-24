@@ -119,7 +119,6 @@
         'admin.listings.*',
         'admin.deals*', 'admin.daily*', 'admin.targets*', 'admin.worksheet-market*',
         'admin.tv-messages*', 'admin.activity-mappings.*', 'admin.daily-activities.setup*',
-        'corex.admin.deal-link-review.*',
         // Both links live in the Agency Tracker panel, so their routes must open it.
         // 'corex.compliance.rcr.*' does NOT match the 'compliance.*' matcher below —
         // routeIs() globs the whole name, and this one is prefixed 'corex.'.

@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Services\Deals;
 
 use App\Models\Deal;
-use App\Models\DealLinkReviewQueue;
 use App\Models\Property;
 use App\Support\Geocoding\AddressNormaliser;
 use Illuminate\Support\Collection;
@@ -55,7 +54,13 @@ final class DealPropertyLinkService
      *   confidence?: string|null,
      *   source?: string|null,
      *   candidates?: array<int, array<string, mixed>>,
-     *   queued_for_review: bool,
+     *   queued_for_review: bool,  // always false since 2026-08-24 -- the Deal Link
+     *                             // Review admin screen it fed was removed (zero rows,
+     *                             // ever, in its whole lifetime). Kept in the return
+     *                             // shape rather than removed from every branch below,
+     *                             // to avoid a wider diff for a field nothing reads
+     *                             // anymore -- see backfillAll()'s candidates-based
+     *                             // check instead of this flag.
      *   already_linked?: bool,
      *   reason?: string,
      * }
@@ -110,32 +115,39 @@ final class DealPropertyLinkService
             }
             if ($confidence === 'medium') {
                 $this->applyLink($deal, (int) $top['property_id'], 'auto_address_match', $confidence);
-                $this->queueForReview($deal, $candidates);
                 return [
                     'linked' => true,
                     'property_id' => (int) $top['property_id'],
                     'confidence' => $confidence,
                     'source'    => 'auto_address_match',
                     'candidates' => [$top],
-                    'queued_for_review' => true,
+                    'queued_for_review' => false,
                 ];
             }
-            // low — review only, no link
-            $this->queueForReview($deal, $candidates);
+            // low confidence — not auto-linked. The review-queue this used to
+            // feed (Deal Link Review) was removed 2026-08-24: zero rows, ever,
+            // in its lifetime, and zero deals ever linked via the admin review
+            // action it existed to drive (link_reviewed_at null on all 154
+            // deals at removal time). No replacement human-review path exists
+            // — a low-confidence deal now simply stays unlinked, same
+            // observable outcome as before (nobody was resolving these via
+            // the queue either), just without pretending a review step will
+            // happen.
             return [
                 'linked' => false,
                 'confidence' => $confidence,
                 'candidates' => [$top],
-                'queued_for_review' => true,
+                'queued_for_review' => false,
             ];
         }
 
-        // Multi-candidate — always queue, never auto-link.
-        $this->queueForReview($deal, $candidates);
+        // Multi-candidate — never auto-link (ambiguous). Same reasoning as
+        // the low-confidence branch above: no review-queue destination
+        // exists anymore, so this stays unlinked rather than queued.
         return [
             'linked' => false,
             'candidates' => $candidates->all(),
-            'queued_for_review' => true,
+            'queued_for_review' => false,
         ];
     }
 
@@ -201,7 +213,14 @@ final class DealPropertyLinkService
                     elseif ($conf === 'high') $summary['linked_high']++;
                     elseif ($conf === 'medium') $summary['linked_with_review_flag']++;
                     else $summary['linked_high']++; // shouldn't happen — defensive
-                } elseif ($result['queued_for_review'] ?? false) {
+                } elseif (!empty($result['candidates'])) {
+                    // Had candidates but wasn't confident enough to auto-link (low
+                    // confidence or multi-candidate/ambiguous). Was distinguished via
+                    // the now-removed queued_for_review flag (Deal Link Review removed
+                    // 2026-08-24) -- checking for a non-empty candidate list instead
+                    // keeps this bucket honest rather than silently collapsing into
+                    // "no candidates found", which linkDeal() never actually returned
+                    // for these deals.
                     $summary['queued_for_review']++;
                 } else {
                     $summary['no_candidates']++;
@@ -398,26 +417,4 @@ final class DealPropertyLinkService
         });
     }
 
-    private function queueForReview(Deal $deal, Collection $candidates): void
-    {
-        // Only one open review row per deal — re-running shouldn't duplicate.
-        $existing = DealLinkReviewQueue::where('deal_id', $deal->id)
-            ->where('match_status', DealLinkReviewQueue::STATUS_PENDING)
-            ->first();
-        if ($existing) {
-            $existing->forceFill([
-                'matched_at'      => now(),
-                'candidates_json' => $candidates->all(),
-            ])->save();
-            return;
-        }
-
-        DealLinkReviewQueue::create([
-            'deal_id'         => $deal->id,
-            'agency_id'       => $deal->agency_id,
-            'matched_at'      => now(),
-            'match_status'    => DealLinkReviewQueue::STATUS_PENDING,
-            'candidates_json' => $candidates->all(),
-        ]);
-    }
 }
