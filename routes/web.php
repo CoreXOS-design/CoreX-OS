@@ -36,13 +36,23 @@ Route::post('/demo/tnc',         [\App\Http\Controllers\Demo\DemoGateController:
 Route::post('/demo/telemetry',   [\App\Http\Controllers\Demo\DemoTelemetryController::class, 'store'])->name('demo.telemetry');
 
 // ── Seller Live Link (public, no auth) ──
+// 2026-08-24 (Johan) — throttle:30,1 added per the resilience audit's rate-
+// limiting proposal: matches the convention already used elsewhere on public
+// token routes (opt-out/opt-in, presentations, privacy-policy), closing a
+// gap where this token-lookup route had no limit at all.
 Route::get('/property/live/demo', [\App\Http\Controllers\SellerLinkController::class, 'demo'])->name('seller-link.demo');
-Route::get('/property/live/{token}', [\App\Http\Controllers\SellerLinkController::class, 'show'])->name('seller-link.show');
+Route::get('/property/live/{token}', [\App\Http\Controllers\SellerLinkController::class, 'show'])
+    ->middleware('throttle:30,1')
+    ->name('seller-link.show');
 
 // ── Buyer Portal (public, no auth) ──
 Route::get('/buyer/portal/demo', [\App\Http\Controllers\BuyerPortalController::class, 'demo'])->name('buyer-portal.demo');
-Route::get('/buyer/portal/{token}', [\App\Http\Controllers\BuyerPortalController::class, 'show'])->name('buyer-portal.show');
-Route::post('/buyer/portal/{token}/respond', [\App\Http\Controllers\BuyerPortalController::class, 'respond'])->name('buyer-portal.respond');
+Route::get('/buyer/portal/{token}', [\App\Http\Controllers\BuyerPortalController::class, 'show'])
+    ->middleware('throttle:30,1')
+    ->name('buyer-portal.show');
+Route::post('/buyer/portal/{token}/respond', [\App\Http\Controllers\BuyerPortalController::class, 'respond'])
+    ->middleware('throttle:30,1')
+    ->name('buyer-portal.respond');
 
 // ── Seller-Outreach Public Landing (no auth) ──
 // Spec: .ai/specs/seller-outreach-spec.md S8, 6.4, 6.5.
@@ -173,19 +183,26 @@ Route::get('/', function () {
 });
 
 // Public shared pages (no auth required)
-Route::get('/shared/match/{token}', [\App\Http\Controllers\SharedMatchController::class, 'show'])->name('shared.match');
-Route::get('/shared/match/{token}/view/{property}', [\App\Http\Controllers\SharedMatchController::class, 'recordView'])->name('shared.match.view');
-Route::post('/shared/match/{token}/feedback/{property}', [\App\Http\Controllers\SharedMatchController::class, 'feedback'])->name('shared.match.feedback');
+// 2026-08-24 (Johan) — throttle:30,1 on the lookup/display endpoints, matching
+// the convention already used elsewhere on public token routes. Route-level
+// only, no change to SharedMatchController's own logic.
+Route::get('/shared/match/{token}', [\App\Http\Controllers\SharedMatchController::class, 'show'])->middleware('throttle:30,1')->name('shared.match');
+Route::get('/shared/match/{token}/view/{property}', [\App\Http\Controllers\SharedMatchController::class, 'recordView'])->middleware('throttle:30,1')->name('shared.match.view');
+Route::post('/shared/match/{token}/feedback/{property}', [\App\Http\Controllers\SharedMatchController::class, 'feedback'])->middleware('throttle:30,1')->name('shared.match.feedback');
 Route::post('/shared/match/{token}/reengage', [\App\Http\Controllers\SharedMatchController::class, 'reengage'])
     ->middleware('throttle:reengage-shared-link')
     ->name('shared.match.reengage');
 
 // Public agency property listings (no auth) — /{slug}/properties
+// 2026-08-24 (Johan) — throttle:30,1 per the resilience audit; this route was
+// previously unthrottled despite exposing a raw sequential property ID.
 Route::get('/{agencySlug}/properties', [\App\Http\Controllers\PublicAgencyPropertiesController::class, 'index'])
     ->where('agencySlug', '^(?!admin|shared|dashboard|login|register|corex|api|storage|livewire|_ignition|broadcasting|horizon|sanctum|agent|onboarding|compliance|docuperfect|presentation|presentations|settings|profile|nexus|tv|ellie|xgrid|invite|up)[a-z0-9-]+$')
+    ->middleware('throttle:30,1')
     ->name('public.agency.properties.index');
 Route::get('/{agencySlug}/properties/{property}', [\App\Http\Controllers\PublicAgencyPropertiesController::class, 'show'])
     ->where('agencySlug', '^(?!admin|shared|dashboard|login|register|corex|api|storage|livewire|_ignition|broadcasting|horizon|sanctum|agent|onboarding|compliance|docuperfect|presentation|presentations|settings|profile|nexus|tv|ellie|xgrid|invite|up)[a-z0-9-]+$')
+    ->middleware('throttle:30,1')
     ->name('public.agency.properties.show');
 
 // Public branding lookup by agency slug (no auth — used by mobile app login screen)
@@ -995,13 +1012,16 @@ Route::prefix('deals-v2/secure-doc')->group(function () {
     // BEFORE the /{token} routes (literal 'pack' prefix → zero ambiguity).
     Route::get('/pack/{groupKey}', [\App\Http\Controllers\DealV2\SecureDocumentController::class, 'packShow'])->name('deals-v2.secure-doc.pack');
     Route::post('/pack/{groupKey}/otp', [\App\Http\Controllers\DealV2\SecureDocumentController::class, 'packRequestOtp'])->name('deals-v2.secure-doc.pack.otp');
-    Route::post('/pack/{groupKey}/verify', [\App\Http\Controllers\DealV2\SecureDocumentController::class, 'packVerifyOtp'])->name('deals-v2.secure-doc.pack.verify');
+    // 2026-08-24 (Johan) — throttle:5,1: an OTP check, brute-forceable, not
+    // just enumerable. Previously unthrottled.
+    Route::post('/pack/{groupKey}/verify', [\App\Http\Controllers\DealV2\SecureDocumentController::class, 'packVerifyOtp'])->middleware('throttle:5,1')->name('deals-v2.secure-doc.pack.verify');
     Route::get('/pack/{groupKey}/download/{distribution}', [\App\Http\Controllers\DealV2\SecureDocumentController::class, 'packDownload'])->name('deals-v2.secure-doc.pack.download');
 
     // Per-document flow (unchanged — keeps already-sent links working).
     Route::get('/{token}', [\App\Http\Controllers\DealV2\SecureDocumentController::class, 'show'])->name('deals-v2.secure-doc.show');
     Route::post('/{token}/otp', [\App\Http\Controllers\DealV2\SecureDocumentController::class, 'requestOtp'])->name('deals-v2.secure-doc.otp');
-    Route::post('/{token}/verify', [\App\Http\Controllers\DealV2\SecureDocumentController::class, 'verifyOtp'])->name('deals-v2.secure-doc.verify');
+    // 2026-08-24 (Johan) — throttle:5,1, same reasoning as the pack variant above.
+    Route::post('/{token}/verify', [\App\Http\Controllers\DealV2\SecureDocumentController::class, 'verifyOtp'])->middleware('throttle:5,1')->name('deals-v2.secure-doc.verify');
     Route::get('/{token}/download', [\App\Http\Controllers\DealV2\SecureDocumentController::class, 'download'])->name('deals-v2.secure-doc.download');
 });
 
@@ -1110,21 +1130,25 @@ Route::prefix('admin/knowledge')->middleware(['auth', 'permission:access_knowled
 });
 
 // ===== PUBLIC PROPERTY PREVIEW (shareable, no auth required) =====
+// 2026-08-24 (Johan) — throttle:30,1 per the resilience audit; raw sequential
+// property ID, previously unthrottled.
 Route::get('/corex/properties/{property}/preview/{slug?}', [\App\Http\Controllers\CoreX\PropertyController::class, 'livePreview'])
+    ->middleware('throttle:30,1')
     ->name('corex.properties.preview');
 
 // ===== PUBLIC AGENT PROFILE (QR-code target, shareable, no auth required) =====
 // /corex/agents/{name-slug}/{qr_code_slug}. The 10-char slug constraint keeps
 // these from shadowing the auth-gated internal preview routes
 // (/corex/agents/{user}/preview/…) registered later. Spec: agent-qr-onboarding.
+// 2026-08-24 (Johan) — throttle:30,1 added, previously unthrottled.
 Route::get('/corex/agents/{nameSlug}/{tag}/articles/{article}', [\App\Http\Controllers\CoreX\AgentPreviewController::class, 'publicArticle'])
-    ->where('tag', '[a-z0-9]{10}')->name('corex.agents.public.article');
+    ->where('tag', '[a-z0-9]{10}')->middleware('throttle:30,1')->name('corex.agents.public.article');
 Route::get('/corex/agents/{nameSlug}/{tag}', [\App\Http\Controllers\CoreX\AgentPreviewController::class, 'publicShow'])
-    ->where('tag', '[a-z0-9]{10}')->name('corex.agents.public');
+    ->where('tag', '[a-z0-9]{10}')->middleware('throttle:30,1')->name('corex.agents.public');
 
 // Backwards-compat: original QR URL (/r/a/{slug}) printed on cards in the wild.
 Route::get('/r/a/{slug}', [\App\Http\Controllers\CoreX\AgentPreviewController::class, 'legacyQrRedirect'])
-    ->where('slug', '[a-z0-9]{6,16}')->name('agent.qr.legacy');
+    ->where('slug', '[a-z0-9]{6,16}')->middleware('throttle:30,1')->name('agent.qr.legacy');
 
 // ===== FAULT REPORTS =====
 // Internal stack traces / diagnostics — gated like the other System Developer
@@ -4472,19 +4496,24 @@ Route::prefix('rental')->middleware(['auth', 'permission:view_rentals', 'feature
 });
 
 // ===== SALES DOCUMENT RETURN (public, no auth, token-based) =====
-Route::get('/sales-documents/return/{token}', [\App\Http\Controllers\Docuperfect\SalesDocumentController::class, 'showUploadPage'])->name('sales-documents.upload');
-Route::post('/sales-documents/return/{token}/verify', [\App\Http\Controllers\Docuperfect\SalesDocumentController::class, 'verifySalesIdentity'])->name('sales-documents.verify');
-Route::get('/sales-documents/return/{token}/download', [\App\Http\Controllers\Docuperfect\SalesDocumentController::class, 'downloadForRecipient'])->name('sales-documents.download');
-Route::post('/sales-documents/return/{token}', [\App\Http\Controllers\Docuperfect\SalesDocumentController::class, 'handleUpload'])->name('sales-documents.upload.store');
+// 2026-08-24 (Johan) — throttle:30,1 lookup/download, throttle:5,1 on
+// /verify (identity check). Previously unthrottled.
+Route::get('/sales-documents/return/{token}', [\App\Http\Controllers\Docuperfect\SalesDocumentController::class, 'showUploadPage'])->middleware('throttle:30,1')->name('sales-documents.upload');
+Route::post('/sales-documents/return/{token}/verify', [\App\Http\Controllers\Docuperfect\SalesDocumentController::class, 'verifySalesIdentity'])->middleware('throttle:5,1')->name('sales-documents.verify');
+Route::get('/sales-documents/return/{token}/download', [\App\Http\Controllers\Docuperfect\SalesDocumentController::class, 'downloadForRecipient'])->middleware('throttle:30,1')->name('sales-documents.download');
+Route::post('/sales-documents/return/{token}', [\App\Http\Controllers\Docuperfect\SalesDocumentController::class, 'handleUpload'])->middleware('throttle:30,1')->name('sales-documents.upload.store');
 
 // ===== EXTERNAL SIGNING (no auth, token-based) =====
 Route::prefix('sign')->group(function () {
-    Route::get('/{token}', [\App\Http\Controllers\Docuperfect\SigningController::class, 'show'])->name('signatures.external');
+    // 2026-08-24 (Johan) — throttle:30,1 on the entry point (token-enumeration
+    // gap, previously unthrottled), throttle:5,1 on /verify specifically — an
+    // ID-number check, brute-forceable, not just enumerable.
+    Route::get('/{token}', [\App\Http\Controllers\Docuperfect\SigningController::class, 'show'])->middleware('throttle:30,1')->name('signatures.external');
     // Task 1 — session keep-alive: the signing page pings this so a long,
     // in-progress sign never lapses the session/CSRF token (no forced refresh).
     Route::get('/{token}/heartbeat', [\App\Http\Controllers\Docuperfect\SigningController::class, 'heartbeat'])->name('signatures.external.heartbeat');
     Route::get('/{token}/gateway', [\App\Http\Controllers\Docuperfect\SigningController::class, 'gateway'])->name('signatures.external.gateway');
-    Route::post('/{token}/verify', [\App\Http\Controllers\Docuperfect\SigningController::class, 'verify'])->name('signatures.external.verify');
+    Route::post('/{token}/verify', [\App\Http\Controllers\Docuperfect\SigningController::class, 'verify'])->middleware('throttle:5,1')->name('signatures.external.verify');
     Route::get('/{token}/consent', [\App\Http\Controllers\Docuperfect\SigningController::class, 'showConsent'])->name('signatures.external.showConsent');
     Route::post('/{token}/consent', [\App\Http\Controllers\Docuperfect\SigningController::class, 'captureConsent'])->name('signatures.external.consent');
     Route::get('/{token}/already-signed', [\App\Http\Controllers\Docuperfect\SigningController::class, 'alreadySigned'])->name('signatures.external.alreadySigned');
@@ -4547,9 +4576,11 @@ Route::prefix('sign')->group(function () {
 // retired with the recipient clause-flag mechanism. FlagRemovalController + its views were removed.
 
 // ===== SIGNED DOCUMENT DOWNLOAD (no auth, token-based) =====
-Route::get('/documents/download/{token}', [\App\Http\Controllers\Docuperfect\SigningController::class, 'downloadPage'])->name('signatures.download.page');
-Route::post('/documents/download/{token}/verify', [\App\Http\Controllers\Docuperfect\SigningController::class, 'downloadVerify'])->name('signatures.download.verify');
-Route::get('/documents/download/{token}/file', [\App\Http\Controllers\Docuperfect\SigningController::class, 'downloadSignedFile'])->name('signatures.download.file');
+// 2026-08-24 (Johan) — throttle:30,1 lookup/download, throttle:5,1 on
+// /verify (identity check). Previously unthrottled.
+Route::get('/documents/download/{token}', [\App\Http\Controllers\Docuperfect\SigningController::class, 'downloadPage'])->middleware('throttle:30,1')->name('signatures.download.page');
+Route::post('/documents/download/{token}/verify', [\App\Http\Controllers\Docuperfect\SigningController::class, 'downloadVerify'])->middleware('throttle:5,1')->name('signatures.download.verify');
+Route::get('/documents/download/{token}/file', [\App\Http\Controllers\Docuperfect\SigningController::class, 'downloadSignedFile'])->middleware('throttle:30,1')->name('signatures.download.file');
 
 // ===== DOCUMENT LIBRARY =====
 Route::middleware(['auth', 'permission:access_document_library', 'feature:document-library'])->prefix('documents')->name('documents.')->group(function () {
@@ -4928,10 +4959,12 @@ Route::get('/prospecting', function () {
 })->name('prospecting.index');
 
 // ===== SELLER INFO PUBLIC PAGE (no auth, token-based) =====
-Route::get('/info/{token}', [\App\Http\Controllers\Compliance\SellerInfoPublicController::class, 'show'])->name('seller-info.public');
+// 2026-08-24 (Johan) — throttle:30,1 per the resilience audit, previously unthrottled.
+Route::get('/info/{token}', [\App\Http\Controllers\Compliance\SellerInfoPublicController::class, 'show'])->middleware('throttle:30,1')->name('seller-info.public');
 
 // ===== FICA PUBLIC FORM (no auth, token-based) =====
-Route::prefix('fica')->group(function () {
+// 2026-08-24 (Johan) — throttle:30,1 across the group, previously unthrottled.
+Route::prefix('fica')->middleware('throttle:30,1')->group(function () {
     Route::get('/{token}', [\App\Http\Controllers\Compliance\FicaPublicController::class, 'form'])->name('fica.form');
     Route::post('/{token}', [\App\Http\Controllers\Compliance\FicaPublicController::class, 'submit'])->name('fica.submit');
     Route::post('/{token}/upload', [\App\Http\Controllers\Compliance\FicaPublicController::class, 'uploadDocument'])->name('fica.upload');
