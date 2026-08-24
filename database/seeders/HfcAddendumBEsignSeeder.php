@@ -2,6 +2,7 @@
 
 namespace Database\Seeders;
 
+use App\Contracts\SyncableReferenceSeeder;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
 
@@ -19,7 +20,7 @@ use Illuminate\Support\Facades\DB;
  * Idempotent: find-or-create the active row by name; document_type resolved by
  * stable slug (find-or-create) so the FK never breaks on a fresh DB.
  */
-class HfcAddendumBEsignSeeder extends Seeder
+class HfcAddendumBEsignSeeder extends Seeder implements SyncableReferenceSeeder
 {
     public const TEMPLATE_NAME = 'HFC Addendum B';
     private const BLADE = 'docuperfect.web-templates.cds.template-120';

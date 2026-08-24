@@ -3,9 +3,10 @@
 namespace Database\Seeders;
 
 use App\Models\Payroll\PayrollTaxRebate;
+use App\Contracts\SyncableReferenceSeeder;
 use Illuminate\Database\Seeder;
 
-class PayrollTaxRebateSeeder extends Seeder
+class PayrollTaxRebateSeeder extends Seeder implements SyncableReferenceSeeder
 {
     public function run(): void
     {

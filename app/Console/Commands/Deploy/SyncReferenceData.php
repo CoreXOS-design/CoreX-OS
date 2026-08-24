@@ -2,7 +2,9 @@
 
 namespace App\Console\Commands\Deploy;
 
+use App\Contracts\SyncableReferenceSeeder;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\File;
 
 /**
  * AT-162 — kills the "seeded reference data doesn't deploy" bug-class.
@@ -17,9 +19,23 @@ use Illuminate\Console\Command;
  * data. Registered provisioners must be idempotent and global-scope
  * (`agency_id IS NULL`) so re-running never disturbs per-agency customisations.
  *
+ * 2026-08-24 (cc2, Johan) — which seeders run is DISCOVERED, not listed. The
+ * MDF and Addendum B gap happened because two real, verified document-template
+ * seeders were never hand-added here. The fix for "someone forgot to list it"
+ * cannot be "list everything found nearby" — two OTHER seeders live in the
+ * exact same directory, share large parts of the same name, and are dead
+ * (superseded first attempts, never actually run anywhere); Staging proved
+ * running one of them after the real one silently swaps the row's content
+ * back to an untested template, same id, no error. So discovery is opt-in by
+ * marker interface (App\Contracts\SyncableReferenceSeeder), not by directory
+ * membership or naming convention — see that interface's own docblock for the
+ * full reasoning. A seeder is run because it implements the interface, never
+ * because of where it lives or what it's called.
+ *
  * RULE (see BUILD_STANDARD): any new seeder that is the source of truth for
- * must-travel GLOBAL reference rows is registered HERE. Prefer a migration
- * backfill where the value is fixed; register here when a seeder owns it.
+ * must-travel GLOBAL reference rows implements SyncableReferenceSeeder.
+ * Prefer a migration backfill where the value is fixed; mark a seeder when it
+ * owns the value instead.
  */
 class SyncReferenceData extends Command
 {
@@ -27,29 +43,48 @@ class SyncReferenceData extends Command
 
     protected $description = 'Provision/refresh idempotent GLOBAL reference data that deploys must carry (seeders do not run on git-pull deploys). Run after migrate on every deploy.';
 
-    /** Idempotent, global-scope reference seeders. */
-    private array $seeders = [
-        \Database\Seeders\NotificationEventTypeSeeder::class, // notification catalogue — had NO seeder; a fresh env got an EMPTY settings page (AT-235 R1 / AT-162)
-        \Database\Seeders\AgencyDocumentTypeConfigSeeder::class, // Compliance→Agency Documents card grid (FFC/Bank/BEE/CIPC/VAT) — fresh DB (June cutover) landed EMPTY; idempotent, preserves agency edits
-        \Database\Seeders\CalendarEventClassSeeder::class, // calendar event classes/types + natures/occupies_time/autofill (AT-162)
-        \Database\Seeders\DataDictionarySeeder::class,     // CoreX-standard SA e-sign data dictionary (AT-177 / WS0)
-        \Database\Seeders\ReferencePackDictionarySeeder::class, // 6 entries the 116 reference-proof surfaced (AT-177 / WS5)
-        \Database\Seeders\DemoTncVersionSeeder::class,      // demo T&C v1 — without it EVERY demo prospect is blocked at the clickwrap (AT-230)
-        \Database\Seeders\PayrollTaxTableSeeder::class,     // AT-237 C1 — SARS PAYE brackets (GLOBAL, seed-only) — without it PAYE silently R0
-        \Database\Seeders\PayrollTaxRebateSeeder::class,    // AT-237 C1 — SARS rebates/thresholds/UIF ceiling/SDL rate (GLOBAL, seed-only)
-        \Database\Seeders\AssistantRoleSeeder::class,       // AT-267 — the zero-grant `assistant` role. users.role is NOT NULL DEFAULT 'agent', so an env WITHOUT this row cannot create an assistant safely: the user would be saved as a full AGENT
-        \Database\Seeders\Dr2PipelineCatalogSeeder::class,   // AT-334 — GLOBAL master pipeline template the composable Deal Structure reads from; un-seeded env falls back to the code definition, but seed it so edits land in the DB
-        // 2026-08-24 (cc2/cc5, Johan) — document-template seeders were NEVER in this list at
-        // all, for any of them. Discovered chasing why the Mandatory Disclosure Form and
-        // Addendum B, both built and verified on QA1 weeks ago, never reached live: not a
-        // migration miss, this exact deploy-gap this file exists to close, just never wired
-        // up for docuperfect_templates. Registering only the two with confirmed real content
-        // (each superseded an earlier, never-actually-used attempt sharing all or part of its
-        // name/blade — see the seeder files' own docblocks); the others found in the same
-        // sweep are dead code, not registered on purpose.
-        \Database\Seeders\SalesMandatoryDisclosureEsignSeeder::class, // PPA 22/2019 s70 / Regs 2022 s36 Mandatory Disclosure — the "Sales Mandatory Disclosure" row Johan built + verified on QA1 (docuperfect_templates#71 there)
-        \Database\Seeders\HfcAddendumBEsignSeeder::class,             // "HFC Addendum B" — registered building plans + the 4 Certificates of Compliance, a separate standalone doc from the MDF (docuperfect_templates#72 on QA1)
-    ];
+    /**
+     * Discover every seeder under database/seeders/ that implements
+     * SyncableReferenceSeeder. The directory walk here is enumeration ONLY —
+     * it finds candidate class names to check, exactly the way Composer's own
+     * autoloader would resolve a PSR-4 path to a class name. It is never the
+     * selection criterion: a seeder in this same directory that does NOT
+     * implement the interface is skipped regardless of its name or location.
+     * Only the `instanceof` check below decides inclusion.
+     *
+     * Sorted alphabetically by FQCN for a stable, reproducible order — nothing
+     * here depends on declaration order.
+     */
+    private function discoverSeeders(): array
+    {
+        $base = database_path('seeders');
+        $found = [];
+
+        foreach (File::allFiles($base) as $file) {
+            if ($file->getExtension() !== 'php') {
+                continue;
+            }
+
+            $relative = $file->getRelativePathname();
+            $class = 'Database\\Seeders\\' . str_replace(['/', '\\', '.php'], ['\\', '\\', ''], $relative);
+
+            if (! class_exists($class)) {
+                continue; // not autoloadable at this FQCN — not a candidate, not an error
+            }
+
+            // The ONLY inclusion test. Nothing about the filename or directory above
+            // this line ever decides membership — only this line does.
+            if (! is_subclass_of($class, SyncableReferenceSeeder::class)) {
+                continue;
+            }
+
+            $found[] = $class;
+        }
+
+        sort($found);
+
+        return $found;
+    }
 
     /** Idempotent reference-provisioning commands [name, args]. */
     private array $commands = [
@@ -60,7 +95,7 @@ class SyncReferenceData extends Command
     {
         $dry = (bool) $this->option('dry-run');
 
-        foreach ($this->seeders as $seeder) {
+        foreach ($this->discoverSeeders() as $seeder) {
             $this->line(($dry ? '[dry-run] ' : '') . "seed: {$seeder}");
             if (! $dry) {
                 $this->call('db:seed', ['--class' => $seeder, '--force' => true]);

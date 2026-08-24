@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Database\Seeders;
 
 use App\Models\Docuperfect\DataDictionaryEntry;
+use App\Contracts\SyncableReferenceSeeder;
 use Illuminate\Database\Seeder;
 
 /**
@@ -22,7 +23,7 @@ use Illuminate\Database\Seeder;
  * Idempotent (updateOrCreate on agency_id NULL + key + version) and registered in
  * `deploy:sync-reference-data`, so the rows travel with a git-pull deploy (AT-162).
  */
-class ReferencePackDictionarySeeder extends Seeder
+class ReferencePackDictionarySeeder extends Seeder implements SyncableReferenceSeeder
 {
     public const DICTIONARY_VERSION = 1;
 

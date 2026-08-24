@@ -2,6 +2,7 @@
 
 namespace Database\Seeders;
 
+use App\Contracts\SyncableReferenceSeeder;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
 
@@ -33,7 +34,7 @@ use Illuminate\Support\Facades\DB;
  * NEVER give this role a permission grant. Its emptiness is a security invariant — see
  * config/corex-permissions.php `role_defaults.assistant` and AssistantRoleIsZeroGrantTest.
  */
-class AssistantRoleSeeder extends Seeder
+class AssistantRoleSeeder extends Seeder implements SyncableReferenceSeeder
 {
     private const ROLE = [
         'name'           => 'assistant',

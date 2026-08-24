@@ -3,9 +3,10 @@
 namespace Database\Seeders;
 
 use App\Models\CommandCenter\CalendarEventClassSetting;
+use App\Contracts\SyncableReferenceSeeder;
 use Illuminate\Database\Seeder;
 
-class CalendarEventClassSeeder extends Seeder
+class CalendarEventClassSeeder extends Seeder implements SyncableReferenceSeeder
 {
     /**
      * AT-197 — plain-language, agency-agnostic descriptions shown on the event-class
