@@ -1432,12 +1432,20 @@ class ESignWizardController extends Controller
         );
 
         return response()->json([
+            // Johan, 2026-08-26 — enriched with the same fields a picker
+            // search result carries (supplier_firm_id, id_number, address)
+            // so "use this one" in the quick-add screen can select the
+            // match through the exact same path as a picked search result,
+            // rather than a second, thinner shape.
             'matches' => $matches->map(fn ($m) => [
                 'supplier_contact_id' => $m['contact']->id,
+                'supplier_firm_id'    => $m['contact']->firm->id ?? null,
                 'name'                => $m['contact']->attorney_name ?: $m['contact']->contact_person,
                 'firm_name'           => $m['contact']->firm->name ?? '',
                 'email'               => $m['contact']->email,
                 'phone'               => $m['contact']->phone,
+                'address'             => $m['contact']->firm->address ?? '',
+                'id_number'           => $m['contact']->firm->registration_number ?? '',
                 'reasons'             => $m['reasons'],
             ])->values(),
         ]);
@@ -1456,18 +1464,24 @@ class ESignWizardController extends Controller
     public function addSupplier(Request $request, \App\Services\DealV2\AgencyServiceProviderService $service): \Illuminate\Http\JsonResponse
     {
         $validated = $request->validate([
-            'name'      => 'required|string|max:255',
-            'email'     => 'nullable|email|max:255',
-            'phone'     => 'nullable|string|max:50',
-            'firm_name' => 'required|string|max:255',
-            'specialty' => 'nullable|string|max:100',
+            'name'                 => 'required|string|max:255',
+            'email'                => 'nullable|email|max:255',
+            'phone'                => 'nullable|string|max:50',
+            'firm_name'            => 'required|string|max:255',
+            'specialty'            => 'nullable|string|max:100',
+            // Johan, 2026-08-26 — "Registration/ID number field present" in
+            // the quick-add screen. Reuses the SAME id_number field a
+            // picked recipient already has, so the agent isn't learning a
+            // second field name for the same thing.
+            'registration_number'  => 'nullable|string|max:100',
         ]);
 
         $agencyId = (int) ($request->user()?->agency_id ?? 0);
 
         $firm = $service->findOrCreate($agencyId, [
-            'name'      => $validated['firm_name'],
-            'specialty' => $validated['specialty'] ?? 'other',
+            'name'                 => $validated['firm_name'],
+            'specialty'            => $validated['specialty'] ?? 'other',
+            'registration_number'  => $validated['registration_number'] ?? null,
         ], $request->user()?->id);
 
         $contact = \App\Models\DealV2\AgencyServiceProviderContact::create([
@@ -1489,10 +1503,10 @@ class ESignWizardController extends Controller
             'email'               => $contact->email ?? '',
             'phone'               => $contact->phone ?: ($firm->phone ?? ''),
             'address'             => $firm->address ?? '',
-            // Quick-add doesn't collect a registration number (that belongs
-            // to the real Deal Register v2 supplier directory form); a
-            // brand-new firm has none yet, so this is legitimately blank
-            // until the agency captures it there.
+            // The registration/ID number just captured above, if any — a
+            // brand-new firm reusing an EXISTING match via findOrCreate()
+            // keeps whatever that firm already had on file (a match is
+            // never silently overwritten by this quick-add's own input).
             'id_number'           => $firm->registration_number ?? '',
             'contact_type'        => 'Supplier',
             'supplier_contact_id' => $contact->id,

@@ -536,6 +536,47 @@
                                              style="background: var(--surface); border: 1px solid var(--border); color: var(--text-muted); box-shadow: 0 8px 24px rgba(0,0,0,0.2);">
                                             No contacts found. Enter manually below.
                                         </div>
+
+                                        {{-- Add a new supplier without leaving the document (Johan,
+                                             2026-08-26) — "same shape as adding a new contact": reuses
+                                             the Full Name / ID Number / Email / Cell Phone / Address
+                                             fields below, just like a manually-entered contact. --}}
+                                        <div x-show="!r._contact_id && r._recipient_source !== 'supplier'" class="mt-1.5">
+                                            <button type="button" @click="toggleAddSupplier(ri)" class="text-xs font-medium" style="color: var(--brand-icon,#2563eb);">
+                                                <span x-text="r._addingSupplier ? '− Cancel new supplier' : '+ Add a new supplier (attorney, contractor, etc.)'"></span>
+                                            </button>
+                                        </div>
+
+                                        <div x-show="r._addingSupplier" class="mt-2 rounded-md p-3 text-xs space-y-2" style="background: var(--surface-2); border: 1px solid var(--border);">
+                                            <p style="color: var(--text-secondary);">New supplier — use the Full Name / ID Number / Email / Cell Phone / Address fields below for this person, plus the firm they work for. We'll check for an existing match before adding.</p>
+                                            <div>
+                                                <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Firm / Company name</label>
+                                                <input type="text" x-model="r._newSupplierFirmName" placeholder="e.g. Smith &amp; Associates Attorneys"
+                                                       class="w-full rounded-md px-2.5 py-1.5 text-xs" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                            </div>
+                                            <p style="color: var(--text-muted);">The ID Number field below is this supplier's registration or ID number — leave it blank if you don't have it yet.</p>
+                                            <button type="button" @click="checkNewSupplierDuplicate(ri)" :disabled="r._supplierDupChecking"
+                                                    class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background: var(--brand-button); color: #fff;">
+                                                <span x-text="r._supplierDupChecking ? 'Checking…' : 'Check &amp; add supplier'"></span>
+                                            </button>
+                                            <p x-show="r._supplierDupError" style="color: #dc2626;" x-text="r._supplierDupError"></p>
+
+                                            <div x-show="(r._supplierDupMatches || []).length > 0" class="space-y-1.5 pt-1">
+                                                <p style="color: var(--ds-amber,#b45309);">Possible match — is this the same supplier?</p>
+                                                <template x-for="m in (r._supplierDupMatches || [])" :key="m.supplier_contact_id">
+                                                    <div class="rounded-md p-2 flex items-center justify-between gap-2" style="background: var(--surface); border: 1px solid var(--border);">
+                                                        <div>
+                                                            <div class="font-medium" style="color: var(--text-primary);" x-text="m.name + ' — ' + m.firm_name"></div>
+                                                            <div style="color: var(--text-muted);" x-text="(m.reasons || []).join(', ')"></div>
+                                                        </div>
+                                                        <button type="button" @click="useExistingSupplierMatch(ri, m)" class="text-xs font-semibold px-2 py-1 rounded-md flex-shrink-0" style="background: var(--brand-button); color: #fff;">Use this one</button>
+                                                    </div>
+                                                </template>
+                                                <button type="button" @click="createNewSupplier(ri)" :disabled="r._supplierDupChecking" class="text-xs font-medium px-2.5 py-1 rounded-md" style="border:1px solid var(--border); color: var(--text-secondary);">
+                                                    <span x-text="r._supplierDupChecking ? 'Adding…' : 'None of these — add as new'"></span>
+                                                </button>
+                                            </div>
+                                        </div>
                                     </div>
                                 </template>
 
@@ -3620,6 +3661,111 @@ function esignWizard() {
             r.bank_account_name = '';
             r.bank_account_number = '';
             r.bank_branch_name = '';
+        },
+
+        // ---- Add a new supplier without leaving the document (Johan, 2026-08-26) ----
+        // "Same shape as adding a new contact from the same place" — reuses
+        // the recipient row's own Full Name / ID Number / Email / Cell /
+        // Address fields exactly as a contact would; the only NEW field is
+        // the firm/company name a supplier needs and a contact doesn't.
+        // Unlike a contact (which quietly matches-or-creates server-side at
+        // Send), a supplier is created explicitly here, through the same
+        // real duplicate-check + create endpoints already proven —
+        // "never a silent auto-merge, never a silent miss."
+        toggleAddSupplier(ri) {
+            const r = this.recipients[ri];
+            r._addingSupplier = !r._addingSupplier;
+            if (r._addingSupplier) {
+                r._searchOpen = false;
+                r._newSupplierFirmName = r._newSupplierFirmName || '';
+                r._supplierDupMatches = null;
+                r._supplierDupError = '';
+            }
+        },
+
+        async checkNewSupplierDuplicate(ri) {
+            const r = this.recipients[ri];
+            r._supplierDupError = '';
+            if (!(r.name || '').trim() || !(r._newSupplierFirmName || '').trim()) {
+                r._supplierDupError = 'Enter a name and a firm/company name first.';
+                return;
+            }
+            r._supplierDupChecking = true;
+            try {
+                const resp = await fetch('/docuperfect/esign/api/suppliers/check-duplicate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': csrfToken, 'Accept': 'application/json' },
+                    body: JSON.stringify({
+                        name: r.name.trim(),
+                        email: r.email || null,
+                        phone: r.cell || null,
+                        firm_name: r._newSupplierFirmName.trim(),
+                    }),
+                });
+                const data = await resp.json();
+                const matches = data.matches || [];
+                r._supplierDupMatches = matches;
+                if (matches.length === 0) {
+                    // Nothing to confirm — go straight to creating it.
+                    await this.createNewSupplier(ri);
+                } else {
+                    r._supplierDupChecking = false;
+                }
+            } catch (e) {
+                r._supplierDupError = 'Could not check for duplicates. Try again.';
+                r._supplierDupChecking = false;
+            }
+        },
+
+        useExistingSupplierMatch(ri, match) {
+            this.selectContact(ri, {
+                source: 'supplier',
+                full_name: match.name,
+                first_name: match.name,
+                last_name: '',
+                email: match.email || '',
+                phone: match.phone || '',
+                id_number: match.id_number || '',
+                address: match.address || '',
+                supplier_contact_id: match.supplier_contact_id,
+                supplier_firm_id: match.supplier_firm_id,
+                supplier_firm_name: match.firm_name || '',
+            });
+            const r = this.recipients[ri];
+            r._addingSupplier = false;
+            r._supplierDupMatches = null;
+            r._supplierDupError = '';
+        },
+
+        async createNewSupplier(ri) {
+            const r = this.recipients[ri];
+            r._supplierDupChecking = true;
+            r._supplierDupError = '';
+            try {
+                const resp = await fetch('/docuperfect/esign/api/suppliers', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': csrfToken, 'Accept': 'application/json' },
+                    body: JSON.stringify({
+                        name: r.name.trim(),
+                        email: r.email || null,
+                        phone: r.cell || null,
+                        firm_name: r._newSupplierFirmName.trim(),
+                        registration_number: r.id_number || null,
+                    }),
+                });
+                const data = await resp.json().catch(() => ({}));
+                if (!resp.ok) {
+                    r._supplierDupError = data.error || 'Could not add the supplier. Try again.';
+                    return;
+                }
+                this.selectContact(ri, data);
+                r._addingSupplier = false;
+                r._supplierDupMatches = null;
+            } catch (e) {
+                r._supplierDupError = 'Could not add the supplier. Try again.';
+            } finally {
+                r._supplierDupChecking = false;
+            }
         },
 
         // ---- "Replace this party" (Johan, 2026-08-24, stage 2) ----
