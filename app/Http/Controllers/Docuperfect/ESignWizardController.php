@@ -3792,6 +3792,25 @@ class ESignWizardController extends Controller
                 ]);
             }
 
+            // cc2, 2026-08-25 — Flow 409's other half: this rebind only ever
+            // freezes party_clause_text; it never touches the signer identity
+            // ($sigReq->signer_name was set once, back at createSigningRequest()
+            // time, and could be for a DIFFERENT party slot than the one this
+            // binding just resolved to). Re-deriving the terminal signer from a
+            // chain binding is a bigger change than this task covers tonight —
+            // the honest, safe move per Johan's own rule is to refuse the
+            // rebind outright rather than let it freeze a clause that no
+            // longer names the signer already on this row.
+            try {
+                \App\Models\Docuperfect\SignatureRequest::assertClauseNamesSigner($sigReq->signer_name, $resolvedText);
+            } catch (\App\Exceptions\PartyClauseSignerMismatchException $e) {
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'recipients' => 'This party replacement would freeze a clause that no longer names '
+                        . "the signer already bound to this document ({$sigReq->signer_name}). "
+                        . 'Replace the signer too, not just the clause, before sending.',
+                ]);
+            }
+
             $sigReq->update([
                 'recipient_template_id' => $recipientTemplate->id,
                 'slot_bindings' => $binding['slot_bindings'],
