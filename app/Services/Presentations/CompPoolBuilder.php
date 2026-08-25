@@ -168,7 +168,20 @@ final class CompPoolBuilder
             }
             $cLat = $this->floatOrNull($c['lat'] ?? null);
             $cLng = $this->floatOrNull($c['lng'] ?? null);
-            $dist = ($sLat !== null && $sLng !== null && $cLat !== null && $cLng !== null)
+            // cc2, 2026-08-25 — a stored (0.0, 0.0) location is never a real
+            // South African property (it's mid-ocean off West Africa); it
+            // reached here indistinguishable from a genuine GPS point, so
+            // every real, correctly-geocoded comparable computed as ~3,400km
+            // away and was silently dropped by the radius gate below — the
+            // one comp that ever survived was the one that happened to have
+            // NO coordinates at all. hasRealCoordinate() extends the
+            // existing "unknown location" posture (which already, correctly,
+            // skips the distance test) to also cover this exact sentinel.
+            // Deliberately narrow: only the literal (0,0) pair is affected,
+            // on either side. No other threshold, tolerance, or radius/price/
+            // type rule changes — a real, non-zero, merely-imprecise
+            // coordinate is untouched and still gates exactly as before.
+            $dist = ($this->hasRealCoordinate($sLat, $sLng) && $this->hasRealCoordinate($cLat, $cLng))
                 ? \App\Support\MarketAnalytics\HaversineDistance::distanceMetres($sLat, $sLng, $cLat, $cLng)
                 : null;
             // PRES-CMA-FIX — the subject can never be its own comparable.
@@ -624,5 +637,22 @@ final class CompPoolBuilder
             return null;
         }
         return (int) $v;
+    }
+
+    /**
+     * cc2, 2026-08-25 — true only for a genuinely usable coordinate. Both
+     * values must be present AND not the (0.0, 0.0) sentinel — a property
+     * that was never geocoded and defaulted to zero rather than staying
+     * null. Narrow on purpose: this is the ONLY location value ever treated
+     * as "unknown" beyond an actual null: not a tolerance band, not any
+     * other placeholder, just the one literal pair that can never be a real
+     * South African address.
+     */
+    private function hasRealCoordinate(?float $lat, ?float $lng): bool
+    {
+        if ($lat === null || $lng === null) {
+            return false;
+        }
+        return !($lat === 0.0 && $lng === 0.0);
     }
 }
