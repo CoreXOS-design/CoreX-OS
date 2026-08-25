@@ -8,10 +8,17 @@
     $brandButton  = optional($agency)->button_color  ?: '#00b4d8';
 
     $isSold = $reason === 'sold';
-    $title  = $isSold ? 'This property has sold' : 'This property is no longer available';
-    $body   = $isSold
-        ? 'The link you followed pointed to a listing that has since sold. It is no longer being marketed.'
-        : 'The link you followed pointed to a property listing that no longer exists.';
+    $isRevoked = $reason === 'revoked';
+    $title  = match (true) {
+        $isSold => 'This property has sold',
+        $isRevoked => 'This link is no longer active',
+        default => 'This property is no longer available',
+    };
+    $body   = match (true) {
+        $isSold => 'The link you followed pointed to a listing that has since sold. It is no longer being marketed.',
+        $isRevoked => 'This seller live link has been switched off. Your agent can send you an up-to-date one.',
+        default => 'The link you followed pointed to a property listing that no longer exists.',
+    };
 @endphp
 <head>
     <meta charset="UTF-8">
@@ -19,7 +26,7 @@
     <title>{{ $title }}{{ !empty($agency) ? ' — ' . $agency->name : '' }}</title>
     <link rel="preconnect" href="https://fonts.bunny.net">
     <link href="https://fonts.bunny.net/css?family=figtree:400,500,600,700,800&display=swap" rel="stylesheet">
-    <script src="https://cdn.tailwindcss.com"></script>
+    @vite(['resources/css/app.css', 'resources/js/app.js'])
     <style>
         :root {
             --bg: #f4f6fb;

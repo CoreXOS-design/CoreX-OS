@@ -2,15 +2,17 @@
 <html lang="en">
 @php
     // Agency brand colours (Company Settings → Design). Fall back to CoreX defaults.
+    // Same convention as seller-link/unavailable.blade.php and shared/match-expired.blade.php
+    // — this file supersedes duplicating that pattern per-controller (Johan, 2026-08-25).
     $brandDefault = optional($agency)->default_color ?: '#0b2a4a';
     $brandIcon    = optional($agency)->icon_color    ?: '#00b4d8';
     $brandButton  = optional($agency)->button_color  ?: '#00b4d8';
+    $primaryAction = $primaryAction ?? null;
 @endphp
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="csrf-token" content="{{ csrf_token() }}">
-    <title>List no longer available{{ !empty($agency) ? ' — ' . $agency->name : '' }}</title>
+    <title>{{ $title }}{{ !empty($agency) ? ' — ' . $agency->name : '' }}</title>
     <link rel="preconnect" href="https://fonts.bunny.net">
     <link href="https://fonts.bunny.net/css?family=figtree:400,500,600,700,800&display=swap" rel="stylesheet">
     @vite(['resources/css/app.css', 'resources/js/app.js'])
@@ -38,7 +40,6 @@
             box-shadow: 0 4px 12px color-mix(in srgb, var(--brand-button) 25%, transparent);
         }
         .btn-primary:hover { box-shadow: 0 6px 16px color-mix(in srgb, var(--brand-button) 35%, transparent); transform: translateY(-1px); }
-        .btn-primary:disabled { opacity: 0.6; cursor: default; transform: none; }
         .btn-outline {
             display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem;
             background: var(--surface); color: var(--text-secondary);
@@ -57,7 +58,7 @@
                 <img src="{{ asset('storage/' . $agency->logo_path) }}" alt="{{ $agency->name }}"
                      style="max-height: 38px; max-width: 190px; object-fit: contain;">
             @else
-                <div class="text-lg font-bold tracking-tight text-white">{{ $agency->name ?? 'Property Matches' }}</div>
+                <div class="text-lg font-bold tracking-tight text-white">{{ $agency->name ?? 'CoreX OS' }}</div>
             @endif
         </div>
     </header>
@@ -71,22 +72,13 @@
                 </svg>
             </div>
 
-            <h1 class="text-xl font-bold mb-2" style="color: var(--text-primary);">This list is no longer available</h1>
-            <p class="text-sm mb-8" style="color: var(--text-secondary);">
-                The link you followed pointed to a property list that has since been closed.
-            </p>
+            <h1 class="text-xl font-bold mb-2" style="color: var(--text-primary);">{{ $title }}</h1>
+            <p class="text-sm mb-8" style="color: var(--text-secondary);">{{ $body }}</p>
 
-            @if(session('reengage_sent'))
-                <div class="rounded-lg px-4 py-3 mb-2 text-sm font-medium" style="background: color-mix(in srgb, #059669 10%, transparent); color: #059669;">
-                    Thanks — we've let your agent know. They'll be in touch to set up a new list for you.
-                </div>
-            @else
-                <form method="POST" action="{{ route('shared.match.reengage', ['token' => $reengageToken]) }}">
-                    @csrf
-                    <button type="submit" class="btn-primary w-full sm:w-auto">
-                        Ask my agent to set up a new list for me
-                    </button>
-                </form>
+            @if($primaryAction)
+                <a href="{{ $primaryAction['url'] }}" class="btn-primary w-full sm:w-auto">
+                    {{ $primaryAction['label'] }}
+                </a>
             @endif
 
             <div class="mt-8 pt-8 flex flex-col sm:flex-row items-center justify-center gap-3" style="border-top: 1px solid var(--border);">
