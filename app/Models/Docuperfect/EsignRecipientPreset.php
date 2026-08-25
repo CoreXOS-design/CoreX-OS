@@ -2,6 +2,7 @@
 
 namespace App\Models\Docuperfect;
 
+use App\Exceptions\UnresolvableRepresentativeChainException;
 use App\Models\Concerns\BelongsToAgency;
 use App\Models\Contact;
 use Illuminate\Database\Eloquent\Model;
@@ -215,12 +216,24 @@ class EsignRecipientPreset extends Model
      * rather than replaced: a rep with no ID keeps showing "(Capacity)"
      * exactly as before; ID is additive, not a second bracket.
      *
-     * @param array<int, array{0: Contact, 1: ?string, 2: bool}> $reps [rep, capacity, isProxy] per rep
+     * Nested representatives (Johan, 2026-08-25 — "Piet herein represented
+     * by Estate Pty Ltd, herein represented by Koos, and Sannie"): $reps'
+     * 4th tuple slot carries a representative's OWN representatives
+     * (resolved and depth/cycle-guarded by RoleBlockExpansionService::
+     * resolveDocumentRepresentatives() — this method trusts that array is
+     * already finite and safe to walk, it does no bounding of its own).
+     * formatRepresentativeEntry() recurses back into THIS method for a
+     * nested entity representative, so a nested list gets the identical
+     * join rule and ID-suffix treatment as the top level — one join
+     * implementation (joinWithAnd(), below), never a second for "the
+     * nested case."
+     *
+     * @param array<int, array{0: Contact, 1: ?string, 2: bool, 3?: array}> $reps [rep, capacity, isProxy, nestedReps] per rep
      */
     public static function composePartyClause(string $entityName, array $reps): string
     {
         $entries = array_map(
-            fn (array $item) => self::formatRepresentativeEntry($item[0], $item[1], $item[2]),
+            fn (array $item) => self::formatRepresentativeEntry($item[0], $item[1], $item[2], $item[3] ?? []),
             $reps
         );
 
@@ -229,8 +242,35 @@ class EsignRecipientPreset extends Model
         return trim(preg_replace('/\s{2,}/', ' ', "{$entityName}, herein represented by {$repList}"));
     }
 
-    private static function formatRepresentativeEntry(Contact $rep, ?string $capacity, bool $isProxy): string
+    /**
+     * @param array<int, array{0: Contact, 1: ?string, 2: bool, 3?: array}> $nestedReps this rep's OWN representatives, if it is itself an entity
+     */
+    private static function formatRepresentativeEntry(Contact $rep, ?string $capacity, bool $isProxy, array $nestedReps = []): string
     {
+        if ($rep->isEntity()) {
+            // A representative that is itself an entity MUST have its own
+            // representative(s) by the time this runs — the producer
+            // (RoleBlockExpansionService::resolveDocumentRepresentatives())
+            // already refuses to hand back an entity leaf with none.
+            // Checked again here rather than trusted blindly: a caller
+            // that reaches this method some other way must not silently
+            // fall through to the bare-company-name bug this whole change
+            // exists to fix.
+            if (empty($nestedReps)) {
+                throw UnresolvableRepresentativeChainException::entityWithNoRepresentative($rep);
+            }
+
+            $repRegNo = trim((string) ($rep->entity_reg_no ?? ''));
+            $repName = (string) $rep->entity_name;
+            if ($repRegNo !== '') {
+                $repName .= ' (Reg: ' . $repRegNo . ')';
+            }
+
+            $entry = self::composePartyClause($repName, $nestedReps);
+
+            return $isProxy ? "{$entry}, duly authorised representative" : $entry;
+        }
+
         $id = trim((string) ($rep->id_number ?? ''));
         $cap = trim((string) ($capacity ?? ''));
         $name = (string) $rep->full_name;

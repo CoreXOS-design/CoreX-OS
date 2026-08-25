@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Docuperfect;
 
+use App\Exceptions\UnresolvableRepresentativeChainException;
 use App\Models\Contact;
 use App\Models\Docuperfect\EsignRecipientPreset;
 use App\Models\Docuperfect\SignatureRequest;
@@ -2297,17 +2298,41 @@ final class RoleBlockExpansionService
      * proxy if any, else primary, else first) — correct for "who signs,"
      * wrong for "who is named," and the two are different questions with
      * different answers whenever more than one representative exists.
+     *
+     * Nested representatives (Johan, 2026-08-25 — "Piet herein represented
+     * by Estate Pty Ltd, herein represented by Koos, and Sannie"): a
+     * representative can itself be an entity, recursed via
+     * resolveDocumentRepresentatives(). Depth-limited and cycle-guarded
+     * there; see that method's docblock for the exact bound and why.
+     *
+     * Party's own ID (Johan, 2026-08-25 — "every party displays in full,
+     * name, surname, ID, at every level"): building the Piet case surfaced
+     * that a NATURAL-PERSON party's own name never carried an ID here —
+     * only entity_reg_no was ever appended, which is empty for a natural
+     * person, so a party like Piet (or a plain natural-person party with
+     * no representatives at all) rendered bare. Same gap flagged for the
+     * POA/Minor presets two rounds ago (EsignRecipientPreset's
+     * {party_id_number} token), same fix — Contact::idNumberSuffix() — now
+     * applied here too, at the ONE place a party's own display name is
+     * built, so this clause and that token can never print a party
+     * differently. An ENTITY party is unaffected (uses entity_reg_no, as
+     * before); this only ever adds an ID to a NATURAL-PERSON party's own
+     * name, which was never possible before regardless of representation.
      */
     public function composeEntityPartyText(Contact $entity, bool $includeRegNo = true): string
     {
         $reps = $this->resolveDocumentRepresentatives($entity);
 
         $name = (string) ($entity->entity_name ?: $entity->full_name);
-        if ($includeRegNo) {
-            $reg = trim((string) ($entity->entity_reg_no ?? ''));
-            if ($reg !== '') {
-                $name .= ' (Reg: ' . $reg . ')';
+        if ($entity->isEntity()) {
+            if ($includeRegNo) {
+                $reg = trim((string) ($entity->entity_reg_no ?? ''));
+                if ($reg !== '') {
+                    $name .= ' (Reg: ' . $reg . ')';
+                }
             }
+        } else {
+            $name .= $entity->idNumberSuffix();
         }
         if (empty($reps)) {
             return $name;
@@ -2323,19 +2348,109 @@ final class RoleBlockExpansionService
     }
 
     /**
+     * Maximum representative-chain depth before resolution refuses rather
+     * than hangs. Johan's own proof case (natural person → entity →
+     * natural person) is depth 2; a genuinely deeper real SA conveyancing
+     * chain (e.g. trust → company → estate → executor) might reach 3-4.
+     * 5 gives comfortable headroom above any real document while still
+     * failing fast — the cycle guard below catches a true loop (A
+     * represents B represents A) immediately regardless of this limit;
+     * this is the backstop for a long-but-non-cyclic malformed chain (a
+     * representative linked to the wrong entity by mistake).
+     */
+    private const MAX_REPRESENTATIVE_DEPTH = 5;
+
+    /**
      * EVERY representative to NAME in the document body clause — no
      * filtering by proxy status, no picking "the one." Natural join order
      * (pivot creation order), matching how an agent added them.
      *
-     * @return array<int, array{0: Contact, 1: ?string, 2: bool}> [rep, capacity, isProxy] per rep
+     * Recursive (Johan, 2026-08-25): Contact::representatives() has no
+     * contact_kind filter, so a representative can itself be an entity
+     * (Piet, a natural person, represented by Estate Pty Ltd, itself
+     * represented by Koos). Previously gated on `! $entity->isEntity()` —
+     * WRONG, since that also blocked a natural-person PARTY (e.g. Piet
+     * himself, or a POA grantor, or a minor) from ever having their own
+     * representative resolved here at all; removed. Each representative
+     * that isEntity() recurses one level; a natural-person representative
+     * is always a leaf (they cannot themselves be represented for THIS
+     * clause's purposes — Johan's rule: the signer/named party at the
+     * bottom of any chain is always a natural person, and a natural
+     * person has nothing further to recurse into).
+     *
+     * $depth / $seenIds are internal recursion state — always called with
+     * their defaults from composeEntityPartyText(); a caller never needs
+     * to pass them.
+     *
+     * @throws UnresolvableRepresentativeChainException chain too deep, a
+     *   cycle (A represents B represents A), or a nested entity
+     *   representative with no representative of its own — Johan's rule
+     *   is refuse, never silently render a bare company name or truncate.
+     *
+     * @return array<int, array{0: Contact, 1: ?string, 2: bool, 3: array}> [rep, capacity, isProxy, nestedReps] per rep
      */
-    private function resolveDocumentRepresentatives(Contact $entity): array
+    private function resolveDocumentRepresentatives(Contact $entity, int $depth = 0, array $seenIds = []): array
     {
-        if (! $entity->isEntity()) {
+        if ($depth > self::MAX_REPRESENTATIVE_DEPTH) {
+            throw UnresolvableRepresentativeChainException::tooDeep($entity, self::MAX_REPRESENTATIVE_DEPTH);
+        }
+        if (in_array($entity->id, $seenIds, true)) {
+            throw UnresolvableRepresentativeChainException::cycleDetected($entity, $entity);
+        }
+        $seenIds[] = $entity->id;
+
+        $reps = $this->resolveDirectRepresentatives($entity);
+
+        if (empty($reps)) {
+            // A NESTED entity representative (depth > 0) with nobody
+            // representing IT is the state Johan's rule refuses — the
+            // chain has no natural person at its end. The TOP-LEVEL party
+            // (depth 0) having no representative yet is a normal,
+            // pre-existing, non-error state (the recipient screen already
+            // prompts an agent to link one; see expandEntityRecipients()'s
+            // _entity_needs_representative) — unchanged here.
+            if ($entity->isEntity() && $depth > 0) {
+                throw UnresolvableRepresentativeChainException::entityWithNoRepresentative($entity);
+            }
+
             return [];
         }
 
-        return $entity->representatives()->get()
+        return array_map(function (array $repTuple) use ($depth, $seenIds) {
+            [$r, $capacity, $isProxy] = $repTuple;
+            $nested = $r->isEntity()
+                ? $this->resolveDocumentRepresentatives($r, $depth + 1, $seenIds)
+                : [];
+
+            return [$r, $capacity, $isProxy, $nested];
+        }, $reps);
+    }
+
+    /**
+     * Pluggable seam (Johan, 2026-08-25): "who represents this party" —
+     * resolved through ONE named method, not $entity->representatives()
+     * called inline inside the recursion above. Today the only source is
+     * Contact's belongsToMany (with capacity/signs_as_proxy on its pivot);
+     * Johan is evaluating moving the MIDDLE of a chain (an executor's
+     * estate/company) onto the Supplier model Dr2 already uses, pending
+     * another lane confirming whether a supplier can even hold an ID
+     * number for its contact person. Until that lands, this stays
+     * Contact-only. Swapping or adding a source later means changing the
+     * BODY of THIS method (and this method alone) — the recursion, the
+     * depth/cycle guard above, and every render in EsignRecipientPreset.php
+     * never touch ->representatives() or ->pivot at all; they only see the
+     * plain [Contact, capacity, isProxy] tuples this method already
+     * produces. Not built as an injectable interface with a second
+     * implementation — that's real cost for a source (Supplier) whose
+     * shape isn't settled yet; a single well-named method is the amount of
+     * indirection that's actually earned right now, and promoting it to an
+     * interface later is a small, contained change to this one seam.
+     *
+     * @return array<int, array{0: Contact, 1: ?string, 2: bool}> [rep, capacity, isProxy] per rep
+     */
+    private function resolveDirectRepresentatives(Contact $party): array
+    {
+        return $party->representatives()->get()
             ->map(fn (Contact $r) => [$r, $r->pivot->capacity, (bool) ($r->pivot->signs_as_proxy ?? false)])
             ->all();
     }
