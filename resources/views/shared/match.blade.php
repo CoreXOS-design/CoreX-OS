@@ -155,20 +155,25 @@
                     </div>
                 </div>
 
-                @if($match->createdBy)
+                {{-- 2026-08-25 (Johan) — $agent (controller-resolved: an explicit
+                     ?agent=<id> override, same-agency guarded, else the wishlist's
+                     own creator unchanged) replaces the direct $match->createdBy
+                     read here, so a covering agent's shared link can show
+                     themselves instead — same mechanism property-share already had. --}}
+                @if($agent)
                 <div class="flex items-center gap-3 flex-shrink-0 rounded-lg px-3.5 py-2.5"
                      style="background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.14);">
                     <div class="w-10 h-10 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0"
                          style="background: var(--brand-icon);">
-                        {{ strtoupper(substr($match->createdBy->name, 0, 2)) }}
+                        {{ strtoupper(substr($agent->name, 0, 2)) }}
                     </div>
                     <div class="text-left">
                         <div class="text-[0.6875rem] font-semibold uppercase tracking-wider" style="color: rgba(255,255,255,0.55);">Your Agent</div>
-                        <div class="text-sm font-semibold text-white leading-tight">{{ $match->createdBy->name }}</div>
-                        @if($match->createdBy->cell || $match->createdBy->phone)
-                        <a href="tel:{{ $match->createdBy->cell ?? $match->createdBy->phone }}"
+                        <div class="text-sm font-semibold text-white leading-tight">{{ $agent->name }}</div>
+                        @if($agent->cell || $agent->phone)
+                        <a href="tel:{{ $agent->cell ?? $agent->phone }}"
                            class="text-xs font-medium" style="color: color-mix(in srgb, var(--brand-icon) 85%, #fff);">
-                            {{ $match->createdBy->cell ?? $match->createdBy->phone }}
+                            {{ $agent->cell ?? $agent->phone }}
                         </a>
                         @endif
                     </div>
@@ -232,7 +237,7 @@
         <div class="mt-0.5">Registered with the PPRA</div>
         <div class="mt-1">
             @if(!empty($agency) && $agency->city){{ $agency->city }}@endif
-            @if($match->createdBy) · {{ $match->createdBy->name }} @endif
+            @if($agent) · {{ $agent->name }} @endif
         </div>
     </footer>
 
