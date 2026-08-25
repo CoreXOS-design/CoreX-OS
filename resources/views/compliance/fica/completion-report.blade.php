@@ -152,13 +152,24 @@
     </div>
     @endif
 
-    {{-- Agent verification --}}
-    @if($submission->agent_verified_by)
+    {{-- Agent verification. 2026-08-25, Johan: "the FICA report ready for
+         all FICA, with agents" — the agent must show. $agentVerifiedByUser
+         is resolved outside the agency-tenancy scope (see
+         FicaCompletionReportService::resolveVerifyingUser()) specifically
+         so a super-admin platform account (agency_id NULL by design) still
+         renders on their own compliance document. Always render this
+         section — a genuine absence is stated honestly, never omitted
+         silently and never a bare dash. --}}
     <div class="section">
         <div class="section-title">Agent Verification</div>
+        @if(!$submission->agent_verified_by)
+        <div class="approval-box">
+            <p style="font-size: 10px; color: #475569; margin: 0;">No agent verification is recorded for this submission.</p>
+        </div>
+        @else
         <div class="approval-box">
             <div class="field-grid">
-                <div class="field"><div class="field-label">Agent</div><div class="field-value">{{ $submission->agentVerifiedBy->name ?? '—' }}</div></div>
+                <div class="field"><div class="field-label">Agent</div><div class="field-value">{{ $agentVerifiedByUser->name ?? 'Agent record unavailable' }}</div></div>
                 <div class="field"><div class="field-label">Date</div><div class="field-value">{{ $submission->agent_verified_at?->format('d M Y H:i') }}</div></div>
                 <div class="field"><div class="field-label">Risk Rating</div><div class="field-value {{ [1 => 'risk-low', 2 => 'risk-medium', 3 => 'risk-high'][$submission->risk_rating] ?? '' }}">{{ [1 => 'Low', 2 => 'Medium', 3 => 'High'][$submission->risk_rating] ?? '—' }}</div></div>
                 @if($submission->verification_method)
@@ -179,8 +190,8 @@
             @endif
             @if($submission->agent_notes)<p style="margin-top: 6px; font-size: 10px; color: #475569;">Notes: {{ $submission->agent_notes }}</p>@endif
         </div>
+        @endif
     </div>
-    @endif
 
     {{-- RO/CO approval --}}
     @if($submission->co_verified_by)

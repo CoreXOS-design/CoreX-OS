@@ -44,6 +44,7 @@ class FicaCompletionReportService
 
         $html = view('compliance.fica.completion-report', [
             'submission' => $submission,
+            'agentVerifiedByUser' => $this->resolveVerifyingUser($submission->agent_verified_by),
             'wetInkFormEmbed' => $this->wetInkFormEmbed($submission),
         ])->render();
 
@@ -94,6 +95,41 @@ class FicaCompletionReportService
         }
 
         return $storedPath;
+    }
+
+    /**
+     * Resolve the agent who verified this submission, bypassing the
+     * agency-tenancy scope for this display purpose only. 2026-08-25,
+     * Johan: "the FICA report ready for all FICA, with agents" — the
+     * agent must SHOW, never a silent dash and never gracefully omitted.
+     *
+     * Why this is needed: FicaSubmission::agentVerifiedBy() is a plain
+     * belongsTo(User::class), which goes through AgencyScope like any
+     * other User query. AgencyScope treats a NULL-agency user as an
+     * orphan and hides it — correct for its actual purpose (stopping
+     * cross-agency data leaks) but wrong here: a super-admin platform
+     * account (agency_id NULL BY DESIGN — e.g. Johan's own
+     * johan@corexos.co.za login, id 46) can legitimately be the agent who
+     * processed a real FICA, and the scope then hides that agent from
+     * their OWN compliance document. This is not a cross-agency listing —
+     * it's rendering one specific, already-known user id (the FK is
+     * valid and untouched) onto the one document about their own action.
+     * withTrashed() too: an agent who has since left the agency is a
+     * real agent, not "no agent recorded".
+     *
+     * Deliberately narrow: this bypasses the scope for exactly one
+     * lookup, by exact id, for display only. It does not touch the User
+     * model, does not weaken AgencyScope, and every other consumer of
+     * FicaSubmission::agentVerifiedBy() (or of AgencyScope generally)
+     * is completely unaffected.
+     */
+    private function resolveVerifyingUser(?int $userId): ?\App\Models\User
+    {
+        if ($userId === null) {
+            return null;
+        }
+
+        return \App\Models\User::withoutGlobalScopes()->withTrashed()->find($userId);
     }
 
     /**
