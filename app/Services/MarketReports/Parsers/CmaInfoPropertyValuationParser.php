@@ -426,8 +426,22 @@ final class CmaInfoPropertyValuationParser extends AbstractCmaInfoParser
         // here is also "Residential", not "Residence" (same CMA Info
         // vocabulary split already seen in the vicinity-sale report type),
         // so both spellings are accepted.
+        //
+        // 2026-08-25 fix — the street name was required to START with a
+        // letter (`[A-Z]...`), but a real freehold document (Retha's 30
+        // Jenkins Street, Margate) prints its own house number as part of
+        // every comparative address — "46 VALLEY ROAD", "16 JENKINS STREET"
+        // — not the number-less street-only form the original pattern was
+        // built against ("WALTON AVENUE"). That leading digit sat right
+        // where the pattern demanded a letter, so the street group never
+        // matched and every one of this document's 14 real comparables
+        // parsed to zero, on top of the earlier 0-comp incident this same
+        // block was written to fix. House number is now optional in the
+        // street capture, matching the same "(?:\d{1,4}\s+)?" convention
+        // already used for this exact ambiguity elsewhere in this parser
+        // family (CmaInfoSectionalTitleSalesParser's own lookback pattern).
         $freeholdPattern = '/(?<idx>\d{1,3})\s+(?<dist>\d{1,5})\s*m\s+(?<erf>\d{1,6})\s+'
-            .'(?<street>[A-Z][A-Z0-9 \'&\.]{2,50}?),\s*(?<fsuburb>[A-Z][A-Z \'&\.]{2,40}?)\s+'
+            .'(?<street>(?:\d{1,4}\s+)?[A-Z][A-Z0-9 \'&\.]{2,50}?),\s*(?<fsuburb>[A-Z][A-Z \'&\.]{2,40}?)\s+'
             .'(?:Residential|Residence|Commercial|Vacant\s+Land)\s+'
             .'(?<ext>\d{1,3}(?:\s\d{3})?)\s*m\S?\s+'
             .'(?<date>\d{4}[\/\-]\d{2}[\/\-]\d{2})\s+R\s*(?<sp>\d{1,3}(?:[\s,]\d{3}){0,3})'
