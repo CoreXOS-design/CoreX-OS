@@ -98,6 +98,102 @@ class AgencyServiceProviderService
         }
     }
 
+    /**
+     * Johan, 2026-08-25 — the real duplicate check for adding a supplier's
+     * working contact (attorney/conveyancer/executor) from inside the e-sign
+     * wizard. Explicitly NOT the existing quick-add-contact precedent found
+     * elsewhere in the codebase (an ID-number-only check) — the exact gap
+     * flagged as the reason to build this properly: a phone number one or
+     * two digits off a real match (a transposed-digit typo, not a genuine
+     * different person) is invisible to an exact-only comparison, and a
+     * supplier's working contact has no ID number to fall back on at all
+     * (confirmed: AgencyServiceProviderContact carries none).
+     *
+     * Three independent signals, any one of which surfaces a possible match
+     * for the agent to confirm — never a silent auto-merge, never a silent
+     * miss because only one field happened to be checked:
+     *   - email, exact (case/whitespace-insensitive) — the strongest signal
+     *     a supplier record actually has.
+     *   - phone, exact on the same normalised ZA-mobile form
+     *     ContactDuplicateService already uses everywhere else, OR a close
+     *     match (edit distance <= 2 on the normalised digits) — this is what
+     *     actually catches a transposed-digit typo; an exact-only check
+     *     would not.
+     *   - name, normalised, fuzzy-matched WITHIN the same firm (or same
+     *     firm name if adding under a new firm) — a same-named person at an
+     *     unrelated firm is not flagged; two similarly-spelled names at the
+     *     SAME firm are.
+     *
+     * Returns every AgencyServiceProviderContact that matched at least one
+     * signal, each tagged with which signal(s) fired, so the caller can show
+     * the agent WHY it thinks this might be the same person rather than a
+     * bare list.
+     *
+     * @return \Illuminate\Support\Collection<int, array{contact: \App\Models\DealV2\AgencyServiceProviderContact, reasons: array<int, string>}>
+     */
+    public function findPossibleDuplicateContacts(
+        int $agencyId,
+        string $name,
+        ?string $email = null,
+        ?string $phone = null,
+        ?string $firmName = null,
+    ): Collection {
+        $normalizedEmail = $email ? strtolower(trim($email)) : null;
+        $normalizedPhone = $phone ? app(\App\Services\ContactDuplicateService::class)->normalizePhone($phone) : null;
+        $normalizedName  = strtolower(trim(preg_replace('/\s+/', ' ', $name)));
+        $normalizedFirm  = $firmName ? strtolower(trim(preg_replace('/\s+/', ' ', $firmName))) : null;
+
+        $candidates = \App\Models\DealV2\AgencyServiceProviderContact::query()
+            ->withoutGlobalScopes()
+            ->where('agency_id', $agencyId)
+            ->where('is_active', true)
+            ->with('firm')
+            ->get();
+
+        $matches = collect();
+        foreach ($candidates as $candidate) {
+            $reasons = [];
+
+            if ($normalizedEmail && $candidate->email && strtolower(trim($candidate->email)) === $normalizedEmail) {
+                $reasons[] = 'same email on file';
+            }
+
+            if ($normalizedPhone && $candidate->phone) {
+                $candidatePhone = app(\App\Services\ContactDuplicateService::class)->normalizePhone($candidate->phone);
+                if ($candidatePhone) {
+                    if ($candidatePhone === $normalizedPhone) {
+                        $reasons[] = 'same phone number';
+                    } elseif (strlen($candidatePhone) === strlen($normalizedPhone)
+                        && levenshtein($candidatePhone, $normalizedPhone) <= 2) {
+                        // The exact case the ID-only precedent would have
+                        // missed: a phone number one or two digits off — a
+                        // likely transposed-digit typo, not a different
+                        // person's genuinely different number.
+                        $reasons[] = 'very similar phone number — possible typo';
+                    }
+                }
+            }
+
+            $candidateName = strtolower(trim(preg_replace('/\s+/', ' ', (string) ($candidate->attorney_name ?: $candidate->contact_person ?: ''))));
+            if ($candidateName !== '' && $normalizedName !== '') {
+                $candidateFirm = $candidate->firm ? strtolower(trim(preg_replace('/\s+/', ' ', $candidate->firm->name))) : null;
+                $sameFirm = $normalizedFirm !== null && $candidateFirm === $normalizedFirm;
+                if ($sameFirm && (
+                    $candidateName === $normalizedName
+                    || levenshtein($candidateName, $normalizedName) <= 2
+                )) {
+                    $reasons[] = 'similar name at the same firm';
+                }
+            }
+
+            if (! empty($reasons)) {
+                $matches->push(['contact' => $candidate, 'reasons' => $reasons]);
+            }
+        }
+
+        return $matches->values();
+    }
+
     /** Mark exactly one preferred provider per specialty within the agency. */
     public function markPreferred(AgencyServiceProvider $provider): void
     {

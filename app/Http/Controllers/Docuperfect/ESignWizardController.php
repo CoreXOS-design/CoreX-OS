@@ -1396,6 +1396,103 @@ class ESignWizardController extends Controller
     }
 
     /**
+     * Johan, 2026-08-25 — "adding a supplier from inside the wizard." Called
+     * before addSupplier() so the agent sees a possible match and can confirm
+     * or dismiss it, never a silent auto-merge and never a silent miss.
+     * Deliberately NOT the ID-number-only pattern used elsewhere in the
+     * codebase for a different quick-add flow — a supplier's working contact
+     * has no ID number at all; see AgencyServiceProviderService::
+     * findPossibleDuplicateContacts() for the real, multi-field check.
+     */
+    public function checkSupplierDuplicate(Request $request, \App\Services\DealV2\AgencyServiceProviderService $service): \Illuminate\Http\JsonResponse
+    {
+        $validated = $request->validate([
+            'name'      => 'required|string|max:255',
+            'email'     => 'nullable|email|max:255',
+            'phone'     => 'nullable|string|max:50',
+            'firm_name' => 'nullable|string|max:255',
+        ]);
+
+        $agencyId = (int) ($request->user()?->agency_id ?? 0);
+        if ($agencyId <= 0) {
+            return response()->json(['matches' => []]);
+        }
+
+        $matches = $service->findPossibleDuplicateContacts(
+            $agencyId,
+            $validated['name'],
+            $validated['email'] ?? null,
+            $validated['phone'] ?? null,
+            $validated['firm_name'] ?? null,
+        );
+
+        return response()->json([
+            'matches' => $matches->map(fn ($m) => [
+                'supplier_contact_id' => $m['contact']->id,
+                'name'                => $m['contact']->attorney_name ?: $m['contact']->contact_person,
+                'firm_name'           => $m['contact']->firm->name ?? '',
+                'email'               => $m['contact']->email,
+                'phone'               => $m['contact']->phone,
+                'reasons'             => $m['reasons'],
+            ])->values(),
+        ]);
+    }
+
+    /**
+     * Creates (or reuses, at the firm level) a supplier and adds a new
+     * working contact under it — Johan's design: one supplier book for the
+     * whole product, so a supplier captured here is the SAME record a deal
+     * can pick up later, not a parallel e-sign-only entry. The agent must
+     * have already seen checkSupplierDuplicate()'s result and either found
+     * nothing or explicitly confirmed to proceed anyway (confirmed=true) —
+     * this endpoint does not silently re-run the check and block on it,
+     * since that decision belongs to the human looking at the match.
+     */
+    public function addSupplier(Request $request, \App\Services\DealV2\AgencyServiceProviderService $service): \Illuminate\Http\JsonResponse
+    {
+        $validated = $request->validate([
+            'name'      => 'required|string|max:255',
+            'email'     => 'nullable|email|max:255',
+            'phone'     => 'nullable|string|max:50',
+            'firm_name' => 'required|string|max:255',
+            'specialty' => 'nullable|string|max:100',
+        ]);
+
+        $agencyId = (int) ($request->user()?->agency_id ?? 0);
+
+        $firm = $service->findOrCreate($agencyId, [
+            'name'      => $validated['firm_name'],
+            'specialty' => $validated['specialty'] ?? 'other',
+        ], $request->user()?->id);
+
+        $contact = \App\Models\DealV2\AgencyServiceProviderContact::create([
+            'agency_id'            => $agencyId,
+            'service_provider_id'  => $firm->id,
+            'attorney_name'        => $validated['name'],
+            'email'                => $validated['email'] ?? null,
+            'phone'                => $validated['phone'] ?? null,
+            'is_active'            => true,
+            'created_by_id'        => $request->user()?->id,
+        ]);
+
+        return response()->json([
+            'id'                  => $contact->id,
+            'source'              => 'supplier',
+            'full_name'           => $contact->attorney_name,
+            'first_name'          => $contact->attorney_name,
+            'last_name'           => '',
+            'email'               => $contact->email ?? '',
+            'phone'               => $contact->phone ?: ($firm->phone ?? ''),
+            'address'             => $firm->address ?? '',
+            'id_number'           => '',
+            'contact_type'        => 'Supplier',
+            'supplier_contact_id' => $contact->id,
+            'supplier_firm_id'    => $firm->id,
+            'supplier_firm_name'  => $firm->name,
+        ]);
+    }
+
+    /**
      * API: get template pages + fields for preview.
      */
     public function templatePages(Request $request, $templateId)
