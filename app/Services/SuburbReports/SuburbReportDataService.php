@@ -9,6 +9,7 @@ use App\Models\ContactMatch;
 use App\Models\P24Suburb;
 use App\Models\SuburbMunicipality;
 use App\Models\SuburbReport;
+use App\Support\Sales\SaleStageLabel;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
@@ -21,11 +22,13 @@ use Illuminate\Support\Facades\DB;
  * Layer A — parsed CMA suburb stats (market_data_points, scoped to the
  *   exact metric keys CmaInfoMedianSalesAnalysisParser produces).
  * Layer B — CoreX's own stock/market data — stock on market, price
- *   reductions, and sold-vs-asking sourced from Dr2 (deals_v2.purchase_price
- *   — NOT property_sold_records, which is the property's last ADVERTISED
- *   price, not an achieved sale price; confirmed wrong 2026-08-24 when every
- *   row showed sold_price === listing_price_at_sale, i.e. a value mirroring
- *   itself, not two independent figures).
+ *   reductions, and sale activity sourced from Dr1/Dr2 (deals.registration_date
+ *   / deals_v2.actual_registration / deals_v2.offer_date — NOT
+ *   property_sold_records, which is the property's last ADVERTISED price,
+ *   not an achieved sale price; confirmed wrong 2026-08-24 when every row
+ *   showed sold_price === listing_price_at_sale, i.e. a value mirroring
+ *   itself, not two independent figures). Sale activity is split sold vs
+ *   under offer, never blended — see salesActivityForSuburb().
  * Layer C — live buyer demand (Core Match wishlists) — the figure nothing
  *   else can print. Reports BOTH legitimate definitions side by side,
  *   exactly labelled (Johan, 2026-08-24: "a number a seller can challenge
@@ -231,7 +234,7 @@ class SuburbReportDataService
             ->orderByDesc('p24_price_changes.change_date')
             ->get(['p24_price_changes.old_price', 'p24_price_changes.new_price', 'p24_price_changes.change_date']);
 
-        $achievedSales = $this->achievedSalesFromDr2($agencyId, $suburbNorm);
+        $salesActivity = $this->salesActivityForSuburb($agencyId, $suburbNorm);
 
         return [
             'available' => true,
@@ -249,17 +252,46 @@ class SuburbReportDataService
                     'change_date' => $r->change_date,
                 ])->all(),
             ],
-            'achieved_sales' => [
-                'count'  => count($achievedSales),
-                'source' => 'deals_v2.purchase_price (Dr2)',
-                'sales'  => $achievedSales,
+            // 2026-08-25 fix — was 'achieved_sales' with a single blended
+            // 'count' that counted every deal regardless of stage. Split
+            // per Johan: "3 sold" and "7 under offer" as separate numbers,
+            // never collapsed into one. Wording lives in SaleStageLabel.
+            'sales_activity' => [
+                'sold_count'        => count($salesActivity['sold']),
+                'sold'              => $salesActivity['sold'],
+                'under_offer_count' => count($salesActivity['under_offer']),
+                'under_offer'       => $salesActivity['under_offer'],
+                'source'            => 'DR1 deals.registration_date OR DR2 deals_v2.actual_registration (sold); deals_v2.offer_date with neither (under offer)',
             ],
         ];
     }
 
-    private function achievedSalesFromDr2(int $agencyId, string $suburbNorm): array
+    /**
+     * Real sale activity for a suburb, split honestly by stage — never a
+     * single blended count. 2026-08-25 fix: the prior method
+     * (achievedSalesFromDr2) called EVERY deals_v2 row "achieved" regardless
+     * of status — an offer with no registration was presented as a sale —
+     * and never looked at DR1 at all, where genuinely registered sales
+     * actually live (30 on QA1, all with deal_v2_id NULL, i.e. never
+     * touched DR2). Registered = DR1 deals.registration_date OR DR2
+     * deals_v2.actual_registration populated — the exact signal
+     * DealsRegisteredProvider and InternalDealsAdapter already use
+     * correctly elsewhere in this codebase; reused here, not reinvented.
+     * Anything else with an offer_date is under offer, never sold. A row
+     * with neither is omitted from both buckets.
+     *
+     * Comparability: a registered sale with no beds/baths/property_type
+     * resolvable via a real properties.id link cannot be characterised and
+     * must never be presented as a comparable to a seller — flagged via
+     * 'comparable' rather than guessed at (no fuzzy address matching is
+     * attempted for this purpose; property_id_matched already covers the
+     * suburb-attribution fallback InternalDealsAdapter itself uses).
+     *
+     * Customer-facing wording lives in one place: App\Support\Sales\SaleStageLabel.
+     */
+    private function salesActivityForSuburb(int $agencyId, string $suburbNorm): array
     {
-        $rows = DB::table('deals_v2')
+        $dr2Rows = DB::table('deals_v2')
             ->join('deals', 'deals.id', '=', 'deals_v2.legacy_deal_id')
             ->leftJoin('properties', 'properties.id', '=', 'deals.property_id')
             ->where('deals_v2.agency_id', $agencyId)
@@ -271,28 +303,74 @@ class SuburbReportDataService
             ->select(
                 'deals_v2.id as deal_id',
                 'deals_v2.purchase_price',
-                'deals_v2.status as deal_status',
                 'deals_v2.offer_date',
                 'deals_v2.actual_registration',
+                'deals.registration_date as dr1_registration_date',
                 'deals.property_id',
                 'deals.property_address',
-                'properties.price as advertised_price',
-                'properties.address as property_address_resolved'
+                'properties.address as property_address_resolved',
+                'properties.beds', 'properties.baths', 'properties.property_type'
             )
             ->get();
 
-        return $rows->map(function ($r) {
-            return [
-                'deal_id'              => $r->deal_id,
-                'achieved_price'       => (int) $r->purchase_price,
-                'deal_status'          => $r->deal_status,
-                'offer_date'           => $r->offer_date,
-                'registration_date'    => $r->actual_registration,
-                'address'              => $r->property_address_resolved ?? $r->property_address,
-                'property_id_matched'  => $r->property_id !== null,
-                'advertised_price'     => $r->advertised_price !== null && (int) $r->advertised_price > 0 ? (int) $r->advertised_price : null,
+        // DR1-only rows: genuinely registered, deal_v2_id is NULL so they can
+        // never already be present in $dr2Rows above (that query is anchored
+        // on deals_v2 and reaches deals only via legacy_deal_id).
+        $dr1OnlyRows = DB::table('deals')
+            ->leftJoin('properties', 'properties.id', '=', 'deals.property_id')
+            ->where('deals.agency_id', $agencyId)
+            ->whereNull('deals.deleted_at')
+            ->whereNull('deals.deal_v2_id')
+            ->whereNotNull('deals.registration_date')
+            ->where(function ($q) {
+                $q->whereNull('deals.accepted_status')->orWhere('deals.accepted_status', '!=', 'D');
+            })
+            ->where(function ($q) use ($suburbNorm) {
+                $q->where('properties.suburb_normalised', $suburbNorm)
+                  ->orWhere('deals.property_address', 'like', '%' . $suburbNorm . '%');
+            })
+            ->select(
+                'deals.id as deal_id',
+                DB::raw('COALESCE(deals.sale_price, deals.property_value) as purchase_price'),
+                DB::raw('NULL as offer_date'),
+                DB::raw('NULL as actual_registration'),
+                'deals.registration_date as dr1_registration_date',
+                'deals.property_id',
+                'deals.property_address',
+                'properties.address as property_address_resolved',
+                'properties.beds', 'properties.baths', 'properties.property_type'
+            )
+            ->get();
+
+        $sold = [];
+        $underOffer = [];
+
+        foreach ($dr2Rows->concat($dr1OnlyRows) as $r) {
+            $isRegistered = $r->actual_registration !== null || $r->dr1_registration_date !== null;
+            $isUnderOffer = !$isRegistered && $r->offer_date !== null;
+            if (!$isRegistered && !$isUnderOffer) {
+                continue; // neither registered nor under offer — not a sale event
+            }
+
+            $record = [
+                'deal_id'       => $r->deal_id,
+                'price'         => (int) $r->purchase_price,
+                'address'       => $r->property_address_resolved ?? $r->property_address,
+                'beds'          => $r->beds,
+                'baths'         => $r->baths,
+                'property_type' => $r->property_type,
+                'comparable'    => $r->beds !== null && $r->baths !== null && $r->property_type !== null,
+                'stage'         => $isRegistered ? SaleStageLabel::SOLD : SaleStageLabel::UNDER_OFFER,
             ];
-        })->values()->all();
+
+            if ($isRegistered) {
+                $sold[] = $record;
+            } else {
+                $underOffer[] = $record;
+            }
+        }
+
+        return ['sold' => $sold, 'under_offer' => $underOffer];
     }
 
     /**
