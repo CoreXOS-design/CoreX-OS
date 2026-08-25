@@ -370,6 +370,54 @@
         </section>
         @endif
 
+        {{-- SECTION 4b — Enquiries by portal. 2026-08-25 (Johan): "Portal
+             leads — the enquiries coming in from Property24 and Private
+             Property" — its own standalone, provable piece, not buried in
+             the chart legend. Sourced from PropertyIntelligenceService::
+             getPortalPerformance() (rangeDays=30) — already computed for
+             this page, previously unused. Portal names always spelled out
+             in full. Absent entirely when neither portal has any tracked
+             activity in the window (mirrors the chart section's own
+             has_data gate) — a real "0 enquiries" still renders when the
+             portal IS actively tracked (real views prove that), since zero
+             is an honest count, not a placeholder. --}}
+        @if($portalPerformance['has_data'] ?? false)
+        <section class="surface-card p-5">
+            <h2 class="text-base font-bold mb-1" style="color: var(--text-primary);">Enquiries by portal</h2>
+            <p class="text-xs mb-4" style="color: var(--text-muted);">Where buyer enquiries have come from, last {{ $portalPerformance['range_days'] }} days.</p>
+            <div class="grid grid-cols-1 {{ $portalPerformance['pp_supported'] ? 'sm:grid-cols-2' : '' }} gap-3">
+                <div class="p-3 rounded-lg" style="background: var(--surface-2);">
+                    <div class="text-xs font-semibold uppercase tracking-wider mb-2" style="color: var(--text-muted);">Property24</div>
+                    <div class="flex items-baseline gap-4">
+                        <div>
+                            <span class="text-lg font-bold" style="color: var(--text-primary);">{{ $portalPerformance['enquiries'] }}</span>
+                            <span class="text-xs ml-1" style="color: var(--text-muted);">{{ \Illuminate\Support\Str::plural('enquiry', $portalPerformance['enquiries']) }}</span>
+                        </div>
+                        <div>
+                            <span class="text-sm font-semibold" style="color: var(--text-secondary);">{{ number_format($portalPerformance['p24_views']) }}</span>
+                            <span class="text-xs ml-1" style="color: var(--text-muted);">{{ \Illuminate\Support\Str::plural('view', $portalPerformance['p24_views']) }}</span>
+                        </div>
+                    </div>
+                </div>
+                @if($portalPerformance['pp_supported'])
+                <div class="p-3 rounded-lg" style="background: var(--surface-2);">
+                    <div class="text-xs font-semibold uppercase tracking-wider mb-2" style="color: var(--text-muted);">Private Property</div>
+                    <div class="flex items-baseline gap-4">
+                        <div>
+                            <span class="text-lg font-bold" style="color: var(--text-primary);">{{ $portalPerformance['pp_enquiries'] }}</span>
+                            <span class="text-xs ml-1" style="color: var(--text-muted);">{{ \Illuminate\Support\Str::plural('enquiry', $portalPerformance['pp_enquiries']) }}</span>
+                        </div>
+                        <div>
+                            <span class="text-sm font-semibold" style="color: var(--text-secondary);">{{ number_format($portalPerformance['pp_views']) }}</span>
+                            <span class="text-xs ml-1" style="color: var(--text-muted);">{{ \Illuminate\Support\Str::plural('view', $portalPerformance['pp_views']) }}</span>
+                        </div>
+                    </div>
+                </div>
+                @endif
+            </div>
+        </section>
+        @endif
+
         {{-- SECTION 5 — What buyers said. Themes line (structured concern
              data) first, then the actual seller-visible written notes.
              Absent entirely when there have been no viewings; "no feedback

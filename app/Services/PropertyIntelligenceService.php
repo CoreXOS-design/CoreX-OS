@@ -191,6 +191,13 @@ class PropertyIntelligenceService
                     'last_activity' => $contact?->last_activity_at,
                     'match_score'   => $score,
                     'tier'          => MatchingService::tierFor($score),
+                    // The wishlist's own listing_type (2026-08-25, Johan — seller-
+                    // live-link ruling: "someone who only ever asked about a rental
+                    // is not a buyer"). Additive field — existing consumers of this
+                    // array are unaffected; SellerLinkController::buildBuyerDemand()
+                    // uses it to exclude rental-only interest from a seller's own
+                    // buyer count.
+                    'listing_type'  => $m->listing_type,
                 ];
             })
             ->sortByDesc('match_score')
