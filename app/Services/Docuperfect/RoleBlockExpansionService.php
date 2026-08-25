@@ -2024,18 +2024,36 @@ final class RoleBlockExpansionService
                 $value = $this->resolveContactValue($contact, $parsed['sub_name'], $recipient);
                 // AT-292 — headline couple's-mandate fix. When the matched
                 // Contact has no id_number, fall back to the ID the signer
-                // typed in the wizard (persisted on the SignatureRequest) so
-                // the second seller still renders their ID even on historical
-                // data where the span was never baked with it.
+                // typed in the wizard (persisted on THIS recipient's own
+                // SignatureRequest.signer_id_number) so the second seller
+                // still renders their own ID rather than nothing.
                 if ($value === null
                     && $recipient !== null
                     && in_array($parsed['sub_name'], ['id', 'id_number'], true)
                 ) {
                     $value = $this->blankToNull($recipient->signer_id_number);
                 }
-                if ($value !== null) {
-                    $this->replaceTextContent($f, $value);
-                }
+                // Johan, 2026-08-26 — a null here used to SKIP
+                // replaceTextContent() entirely, silently leaving whatever
+                // this clone inherited from the node it was cloneNode()'d
+                // from (duplicateBlockForRecipients() / duplicateUnitGroupFor
+                // Recipients() / duplicateSubtreeForIndices() all clone from
+                // the SAME un-cloned source, never from a prior recipient's
+                // clone). For a multi-recipient role, that source's data-field
+                // span was populated ONCE, before any cloning, by
+                // WebTemplateDataService::resolveContactColumnAllRecipients() —
+                // which JOINS every recipient sharing the role into ONE flat
+                // value ("Anna's address and Ben's address"). "Leave it"
+                // therefore never preserved THIS recipient's own typed value
+                // (SignatureRequest has no address/phone/email column to type
+                // a value INTO) — it printed every OTHER recipient's address,
+                // phone and ID verbatim on a party who captured none of their
+                // own. A privacy and document-integrity defect, not a display
+                // nicety: one client's home address and mobile number on
+                // another client's signed legal document. Always write —
+                // blank is the correct empty state for this party; another
+                // party's data is not.
+                $this->replaceTextContent($f, $value ?? '');
             }
         }
         // Header gating — single-unit paths (duplicateBlockForRecipients,
