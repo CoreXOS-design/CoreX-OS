@@ -719,6 +719,29 @@
                                         </template>
                                     </div>
 
+                                    {{-- Johan, 2026-08-25 (cc4's finding) — caught here, not only at
+                                         Send: a supplier with no registration/ID number can't be bound
+                                         as a representative. Names the supplier and where to fix it,
+                                         and offers to save it right here without leaving the modal. --}}
+                                    <div x-show="replaceModal.blockedSupplier && replaceModal.blockedSupplier.slotKey === slot.key"
+                                         class="mb-2 rounded-md p-2.5 text-xs" style="background: rgba(245,158,11,0.08); border: 1px solid #f59e0b; color: var(--text-primary);">
+                                        <p class="mb-1.5" x-text="'“' + (replaceModal.blockedSupplier?.recipient?.name || 'This supplier') + '” has no registration or ID number on file. Add it in the supplier directory entry for “' + (replaceModal.blockedSupplier?.firmName || '') + '” (Deal Register → Suppliers), or enter it here to bind them now:'"></p>
+                                        <div class="flex gap-1.5">
+                                            <input type="text" x-model="replaceModal.blockedSupplier.value" placeholder="Registration or ID number"
+                                                   @keydown.enter="saveBlockedSupplierRegistrationNumber()"
+                                                   class="flex-1 rounded-md px-2 py-1 text-xs"
+                                                   style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                            <button type="button" @click="saveBlockedSupplierRegistrationNumber()"
+                                                    :disabled="replaceModal.blockedSupplier.saving || !replaceModal.blockedSupplier.value.trim()"
+                                                    class="text-xs font-semibold px-2.5 py-1 rounded-md whitespace-nowrap"
+                                                    style="background: var(--brand-button); color: #fff;">
+                                                <span x-text="replaceModal.blockedSupplier.saving ? 'Saving…' : 'Save &amp; bind'"></span>
+                                            </button>
+                                            <button type="button" @click="cancelBlockedSupplierRegistrationNumber()" class="text-xs px-2 py-1 whitespace-nowrap" style="color: var(--text-secondary);">Cancel</button>
+                                        </div>
+                                        <p x-show="replaceModal.blockedSupplier.error" class="mt-1" style="color: #dc2626;" x-text="replaceModal.blockedSupplier.error"></p>
+                                    </div>
+
                                     <div class="relative">
                                         <input type="text" placeholder="Or search a contact by name…"
                                                class="w-full rounded-md px-2.5 py-1.5 text-xs"
@@ -3617,6 +3640,14 @@ function esignWizard() {
             selectedTemplate: null,
             bindings: {},        // slotKey -> { type: 'self'|'recipient'|'contact', recipient_local_key?, contact_id?, label }
             slotSearch: {},      // slotKey -> { query, results, open }
+            // Johan, 2026-08-25 (cc4's finding) — catch a missing supplier
+            // registration number HERE, at bind time, not only at Send. Set
+            // by bindSlotToRecipient() when the chosen recipient is a
+            // supplier with a blank id_number; holds enough to save it
+            // right in this modal without a rebuild (see
+            // updateSupplierRegistrationNumber() — a single-purpose save,
+            // not the full supplier-directory form).
+            blockedSupplier: null, // { slotKey, recipient, firmId, firmName, value, saving, error }
         },
 
         async openReplaceModal(ri) {
@@ -3628,6 +3659,7 @@ function esignWizard() {
             this.replaceModal.selectedTemplate = null;
             this.replaceModal.bindings = {};
             this.replaceModal.slotSearch = {};
+            this.replaceModal.blockedSupplier = null;
 
             // Restore a prior selection so re-opening to edit doesn't lose it.
             if (r._recipient_template_id) {
@@ -3678,6 +3710,7 @@ function esignWizard() {
 
             this.replaceModal.open = false;
             this.replaceModal.recipientIndex = null;
+            this.replaceModal.blockedSupplier = null;
         },
 
         selectReplaceTemplate(t) {
@@ -3699,11 +3732,66 @@ function esignWizard() {
         },
 
         bindSlotToRecipient(slotKey, recipient) {
+            // Johan, 2026-08-25 (cc4's finding) — the SAME rule
+            // assertSupplierRepresentativesHaveRegistrationNumber() enforces
+            // server-side at Send, caught here instead: this is the moment
+            // the agent is already looking at this exact supplier, and where
+            // adding the number costs them nothing. Send-time keeps its own
+            // check too — this is the early catch, not a replacement for it
+            // (a supplier could still be bound before its number is removed
+            // again, or bound through a path other than this modal).
+            if (recipient._recipient_source === 'supplier' && !(recipient.id_number || '').trim()) {
+                this.replaceModal.blockedSupplier = {
+                    slotKey,
+                    recipient,
+                    firmId: recipient._supplier_firm_id,
+                    firmName: recipient._supplier_firm_name || recipient.name || 'this supplier',
+                    value: '',
+                    saving: false,
+                    error: '',
+                };
+                return;
+            }
+
             this.replaceModal.bindings[slotKey] = {
                 type: 'recipient',
                 recipient_local_key: recipient._recipient_local_key,
                 label: recipient.name || '(unnamed recipient)',
             };
+        },
+
+        async saveBlockedSupplierRegistrationNumber() {
+            const b = this.replaceModal.blockedSupplier;
+            if (!b || !b.value.trim() || b.saving) return;
+            b.saving = true;
+            b.error = '';
+            try {
+                const resp = await fetch(`/docuperfect/esign/api/suppliers/${b.firmId}/registration-number`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': csrfToken, 'Accept': 'application/json' },
+                    body: JSON.stringify({ registration_number: b.value.trim() }),
+                });
+                const data = await resp.json().catch(() => ({}));
+                if (!resp.ok || !data.ok) {
+                    b.error = data.error || 'Could not save the registration number. Try the supplier directory instead.';
+                    b.saving = false;
+                    return;
+                }
+                // Same object reference as the recipients array entry — this
+                // updates the row itself, not a copy, so the wording engine
+                // (and the send-time check) both see it immediately.
+                b.recipient.id_number = data.registration_number;
+                const slotKey = b.slotKey, recipient = b.recipient;
+                this.replaceModal.blockedSupplier = null;
+                this.bindSlotToRecipient(slotKey, recipient);
+            } catch (e) {
+                b.error = 'Could not save the registration number. Try the supplier directory instead.';
+                b.saving = false;
+            }
+        },
+
+        cancelBlockedSupplierRegistrationNumber() {
+            this.replaceModal.blockedSupplier = null;
         },
 
         // "Named only" slots (e.g. the representing entity) search real Contacts —

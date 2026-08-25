@@ -1502,6 +1502,39 @@ class ESignWizardController extends Controller
     }
 
     /**
+     * Johan, 2026-08-25 (cc4's finding — caught too late) — "Replace this
+     * party" is where the agent is already thinking about the exact person
+     * standing in for someone else; the missing-registration-number block
+     * moved there too (see the frontend's bindSlotToRecipient()). This is
+     * the single-purpose save that makes fixing it right there possible
+     * without a rebuild of the full supplier directory form: JUST the
+     * registration number, none of SupplierDirectoryController::update()'s
+     * other required fields (name/specialty), because the agent in this
+     * modal has neither on hand and re-fetching the whole firm record to
+     * satisfy them would be exactly the "something elaborate" Johan said
+     * not to build tonight.
+     */
+    public function updateSupplierRegistrationNumber(Request $request, \App\Models\DealV2\AgencyServiceProvider $firm): \Illuminate\Http\JsonResponse
+    {
+        $agencyId = (int) ($request->user()?->effectiveAgencyId() ?? 0);
+        if ($agencyId <= 0 || (int) $firm->agency_id !== $agencyId) {
+            abort(403);
+        }
+
+        $validated = $request->validate([
+            'registration_number' => 'required|string|max:100',
+        ]);
+
+        $firm->update(['registration_number' => $validated['registration_number']]);
+
+        return response()->json([
+            'ok' => true,
+            'supplier_firm_id' => $firm->id,
+            'registration_number' => $firm->registration_number,
+        ]);
+    }
+
+    /**
      * API: get template pages + fields for preview.
      */
     public function templatePages(Request $request, $templateId)

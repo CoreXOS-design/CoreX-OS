@@ -4212,6 +4212,7 @@ Route::prefix('docuperfect')->middleware(['auth', 'permission:access_docuperfect
     Route::get('/esign/api/contacts', [\App\Http\Controllers\Docuperfect\ESignWizardController::class, 'searchContacts'])->name('docuperfect.esign.api.contacts');
     Route::post('/esign/api/suppliers/check-duplicate', [\App\Http\Controllers\Docuperfect\ESignWizardController::class, 'checkSupplierDuplicate'])->name('docuperfect.esign.api.suppliers.checkDuplicate');
     Route::post('/esign/api/suppliers', [\App\Http\Controllers\Docuperfect\ESignWizardController::class, 'addSupplier'])->name('docuperfect.esign.api.suppliers.add');
+    Route::post('/esign/api/suppliers/{firm}/registration-number', [\App\Http\Controllers\Docuperfect\ESignWizardController::class, 'updateSupplierRegistrationNumber'])->name('docuperfect.esign.api.suppliers.registrationNumber');
     Route::get('/esign/api/recipient-templates', [\App\Http\Controllers\Docuperfect\ESignWizardController::class, 'listRecipientTemplates'])->name('docuperfect.esign.api.recipientTemplates');
     Route::get('/esign/api/template/{templateId}/pages', [\App\Http\Controllers\Docuperfect\ESignWizardController::class, 'templatePages'])->name('docuperfect.esign.api.templatePages');
 
