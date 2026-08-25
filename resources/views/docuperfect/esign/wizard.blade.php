@@ -618,6 +618,25 @@
                                                :style="r.readonly ? 'background: var(--surface); border: 1px solid var(--border); color: var(--text-muted);' : 'background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);'">
                                     </div>
                                 </div>
+
+                                {{-- Defect 2 (Johan, 2026-08-25) — a recipient with no email sailed
+                                     through with no warning, and Next stayed clickable, even though a
+                                     party with no email can never receive a signing link. Deceased and
+                                     proxy-collapsed recipients are exempt (never emailed by design,
+                                     already messaged above) — everyone else who is expected to
+                                     actually sign is hard-blocked here, matching the exact rule
+                                     canGoNext() enforces for step 3. --}}
+                                <template x-if="!r.readonly && recipientMustSignWithoutEmail(r)">
+                                    <div class="rounded-md px-3 py-2"
+                                         style="background: color-mix(in srgb, var(--ds-red,#dc2626) 10%, transparent); border: 1px solid color-mix(in srgb, var(--ds-red,#dc2626) 35%, transparent); color: var(--text-primary);">
+                                        <p class="text-xs">
+                                            <strong x-text="r.name || ('Recipient ' + (ri+1))"></strong>
+                                            has no email address and cannot receive a signing link.
+                                            Add an email, or tick Deceased / Proxy above if this party
+                                            isn't the one who actually needs to sign.
+                                        </p>
+                                    </div>
+                                </template>
                                 <div>
                                     <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Physical Address</label>
                                     <input type="text" x-model="r.address" :readonly="r.readonly"
@@ -3054,8 +3073,34 @@ function esignWizard() {
                 // Block if any non-agent recipient has no role
                 const hasEmptyRole = this.recipients.some(r => !r.readonly && !r.role);
                 if (hasEmptyRole) return false;
+                // Defect 2 (Johan, 2026-08-25) — a recipient expected to actually sign
+                // but with no email can never receive a signing link; block here rather
+                // than letting it surface as a silent no-op at Sign & Send.
+                if (this.recipients.some(r => this.recipientMustSignWithoutEmail(r))) return false;
             }
             return true;
+        },
+
+        // Defect 2 (Johan, 2026-08-25) — true only when this recipient is expected to
+        // actually sign (not deceased, not collapsed by a proxy elsewhere in the same
+        // role group) and has no email on file. Deceased is unambiguous here (its own
+        // flag, right on this row). Proxy-collapse is also cleanly derivable at this
+        // point — the checkbox literally reads "signs on behalf of the OTHERS in this
+        // role" — so a sibling recipient sharing this row's base role with _is_proxy
+        // set means THIS row is the one being represented, not the signer. Anything
+        // this can't cleanly resolve deliberately falls through to "must sign" (warn),
+        // never to silent pass — matching Johan's steer: hard-block signers, warn-only
+        // for display-only parties, never fake a distinction you can't actually make.
+        recipientMustSignWithoutEmail(r) {
+            if (!r || r.readonly) return false;
+            if (r._is_deceased) return false;
+            if (r.email && String(r.email).trim() !== '') return false;
+            const baseRole = String(r.role || '').replace(/_\d+$/, '');
+            const collapsedByProxy = this.recipients.some(other =>
+                other !== r && !other._is_deceased && other._is_proxy &&
+                String(other.role || '').replace(/_\d+$/, '') === baseRole
+            );
+            return !collapsedByProxy;
         },
 
         goBack() {
