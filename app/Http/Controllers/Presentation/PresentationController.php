@@ -393,10 +393,14 @@ class PresentationController extends Controller
         }
 
         // Compile extracted-data review (all computation in service, not Blade)
-        // AnalysisDataService reads asking_price directly from the presentation record
-        $analysisData = (new AnalysisDataService())->compile($presentation);
-
+        // AnalysisDataService reads asking_price directly from the presentation record.
+        // $latestVersion must be resolved BEFORE compile() — it carries the agent's
+        // saved Active Competition selection (included_competitor_ids_json). Passing
+        // no version here silently discarded every tick/untick decision made on
+        // Review (Johan, 2026-08-25 — Retha's case, presentation 144).
         $latestVersion = $presentation->versions()->latest('compiled_at')->first();
+        $analysisData  = (new AnalysisDataService())->compile($presentation, $latestVersion);
+
         $readiness     = (new PresentationReadinessService())->evaluate($presentation);
 
         // AT-27 Phase B.3 — the "What's in your presentation" section toggles
@@ -437,8 +441,11 @@ class PresentationController extends Controller
         ]);
         $presentation->refresh();
 
-        // Compile analysis data from all extracted sources
-        $analysisData = (new AnalysisDataService())->compile($presentation);
+        // Compile analysis data from all extracted sources. Same version
+        // pass-through fix as analysis() above — otherwise this re-run
+        // silently drops the agent's saved competitor selection too.
+        $latestVersion = $presentation->versions()->latest('compiled_at')->first();
+        $analysisData  = (new AnalysisDataService())->compile($presentation, $latestVersion);
 
         // Save snapshot with computed_json + timestamp
         PresentationSnapshot::create([
