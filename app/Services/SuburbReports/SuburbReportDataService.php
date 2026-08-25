@@ -201,7 +201,7 @@ class SuburbReportDataService
         $reportMeta = DB::table('market_reports')
             ->join('market_report_types', 'market_report_types.id', '=', 'market_reports.report_type_id')
             ->whereIn('market_reports.id', $reportIds)
-            ->get(['market_reports.id', 'market_reports.report_date', 'market_report_types.display_name'])
+            ->get(['market_reports.id', 'market_reports.report_date', 'market_report_types.display_name', 'market_reports.raw_extracted_json'])
             ->keyBy('id');
 
         $out = [];
@@ -226,11 +226,23 @@ class SuburbReportDataService
                 $years[] = array_merge(['year' => $year, 'is_partial_year' => $year === $currentYear], $metrics);
             }
 
+            // property_scope (sectional title vs full title) — captured by
+            // CmaInfoMedianSalesAnalysisParser::detectPropertyScope() into
+            // the report's own raw_extracted_json. Surfaced here, not
+            // guessed, and left absent when the parser never determined it
+            // (e.g. any report type other than the median/average parser).
+            $propertyScope = null;
+            if (isset($meta->raw_extracted_json) && is_string($meta->raw_extracted_json) && $meta->raw_extracted_json !== '') {
+                $decoded = json_decode($meta->raw_extracted_json, true);
+                $propertyScope = is_array($decoded) ? ($decoded['property_scope'] ?? null) : null;
+            }
+
             $out[] = [
-                'report_id'   => $reportId,
-                'report_type' => $meta->display_name ?? 'CMA report',
-                'report_date' => $meta->report_date ?? null,
-                'years'       => $years,
+                'report_id'      => $reportId,
+                'report_type'    => $meta->display_name ?? 'CMA report',
+                'report_date'    => $meta->report_date ?? null,
+                'property_scope' => $propertyScope,
+                'years'          => $years,
             ];
         }
 
@@ -315,11 +327,16 @@ class SuburbReportDataService
             // per Johan: "3 sold" and "7 under offer" as separate numbers,
             // never collapsed into one. Wording lives in SaleStageLabel.
             'sales_activity' => [
-                'sold_count'        => count($salesActivity['sold']),
-                'sold'              => $salesActivity['sold'],
-                'under_offer_count' => count($salesActivity['under_offer']),
-                'under_offer'       => $salesActivity['under_offer'],
-                'source'            => "status='granted' OR registered (DR1 deals.registration_date / DR2 deals_v2.actual_registration) = sold; offer_date with neither = under offer; declined = excluded",
+                'sold_count'          => count($salesActivity['sold']),
+                'sold'                => $salesActivity['sold'],
+                'under_offer_count'   => count($salesActivity['under_offer']),
+                'under_offer'         => $salesActivity['under_offer'],
+                // Median days-to-sell across SOLD records that carry both a
+                // real listed_date and a real sale date — never averaged
+                // over a partial/assumed set, and simply absent when no
+                // sold record qualifies (never shown as a fabricated 0).
+                'median_days_to_sell' => $this->median(array_values(array_filter(array_column($salesActivity['sold'], 'days_to_sell'), fn ($d) => $d !== null))),
+                'source'              => "status='granted' OR registered (DR1 deals.registration_date / DR2 deals_v2.actual_registration) = sold; offer_date with neither = under offer; declined = excluded",
             ],
         ];
     }
@@ -372,7 +389,8 @@ class SuburbReportDataService
                 'deals.property_id',
                 'deals.property_address',
                 'properties.address as property_address_resolved',
-                'properties.beds', 'properties.baths', 'properties.property_type'
+                'properties.beds', 'properties.baths', 'properties.property_type',
+                'properties.listed_date'
             )
             ->get();
 
@@ -406,7 +424,8 @@ class SuburbReportDataService
                 'deals.property_id',
                 'deals.property_address',
                 'properties.address as property_address_resolved',
-                'properties.beds', 'properties.baths', 'properties.property_type'
+                'properties.beds', 'properties.baths', 'properties.property_type',
+                'properties.listed_date'
             )
             ->get();
 
@@ -422,6 +441,23 @@ class SuburbReportDataService
                 continue; // no offer, no acceptance — not a sale event
             }
 
+            // "Days to sell" (2026-08-25, Johan — visuals pass): honestly
+            // derivable only where BOTH the listing's own listed_date and a
+            // real transaction date exist for the SAME property — never
+            // guessed, never backfilled with an assumed listing date. A
+            // sold deal's date is registration where we have it, else its
+            // acceptance date; an under-offer deal's date is its offer date.
+            $saleDate = $isSold
+                ? ($r->actual_registration ?? $r->dr1_registration_date)
+                : $r->offer_date;
+            $daysToSell = null;
+            if ($saleDate !== null && $r->listed_date !== null) {
+                $days = \Illuminate\Support\Carbon::parse($r->listed_date)->diffInDays(\Illuminate\Support\Carbon::parse($saleDate), false);
+                if ($days >= 0) {
+                    $daysToSell = (int) $days;
+                }
+            }
+
             $record = [
                 'deal_id'       => $r->deal_id,
                 'price'         => (int) $r->purchase_price,
@@ -431,6 +467,8 @@ class SuburbReportDataService
                 'property_type' => $r->property_type,
                 'comparable'    => $r->beds !== null && $r->baths !== null && $r->property_type !== null,
                 'stage'         => $isSold ? SaleStageLabel::SOLD : SaleStageLabel::UNDER_OFFER,
+                'sale_date'     => $saleDate,
+                'days_to_sell'  => $daysToSell,
             ];
 
             if ($isSold) {
@@ -511,5 +549,16 @@ class SuburbReportDataService
             'buyers_including_this_suburb'    => $inSuburb->pluck('contact_id')->unique()->count(),
             'price_bands' => $bands,
         ];
+    }
+
+    /** @param list<int> $values */
+    private function median(array $values): ?int
+    {
+        $n = count($values);
+        if ($n === 0) return null;
+        sort($values, SORT_NUMERIC);
+        $mid = (int) floor($n / 2);
+        if ($n % 2 === 1) return (int) $values[$mid];
+        return (int) round(($values[$mid - 1] + $values[$mid]) / 2);
     }
 }

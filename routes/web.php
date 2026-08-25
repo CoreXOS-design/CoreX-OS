@@ -4828,6 +4828,27 @@ Route::middleware(['auth', 'permission:access_prospecting', 'feature:prospecting
             [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'suburbReport'])
             ->whereNumber('suburb')
             ->name('suburb-report');
+        // Print/PDF (Johan, 2026-08-25 — "it's a report but there's no print
+        // / PDF buttons"). Same pattern as buyers-report: one print-optimised
+        // view drives both the browser Print button and the server-rendered
+        // PDF download, so they can never show different numbers.
+        Route::get('/suburb-report/{suburb}/print',
+            [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'suburbReportPrint'])
+            ->whereNumber('suburb')
+            ->name('suburb-report.print');
+        Route::get('/suburb-report/{suburb}/pdf',
+            [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'suburbReportPdf'])
+            ->whereNumber('suburb')
+            ->name('suburb-report.pdf');
+        // Upload a CMA for this suburb directly from the report screen
+        // (Johan, 2026-08-25 — "asking an agent to upload here, and draw a
+        // report there, is a problem"). Same permission the dedicated
+        // importer requires.
+        Route::post('/suburb-report/{suburb}/upload-cma',
+            [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'suburbReportUploadCma'])
+            ->whereNumber('suburb')
+            ->middleware('permission:mic.upload_reports')
+            ->name('suburb-report.upload-cma');
 
         // Phase E3 — per-listing "why this matches" tooltip (Sonnet 4.6).
         Route::get('/listing/{listing}/match-tooltip',
