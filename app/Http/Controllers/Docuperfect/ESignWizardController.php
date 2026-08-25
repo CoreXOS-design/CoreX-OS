@@ -97,10 +97,29 @@ class ESignWizardController extends Controller
             ->orderBy('updated_at', 'desc')
             ->get();
 
+        // Job 3 (Johan, 2026-08-25) — the recipient Role dropdown was pulling
+        // all ~40 contact_types rows, including ~30 already soft-deleted CRM
+        // lead-tag combos ("Owner, Seller, Lead", "Hot Buyer, Lead", etc. —
+        // AT-79's own cleanup retired these on 2026-07-20). This raw
+        // DB::table() query never applied whereNull('deleted_at'), so
+        // retired tags kept leaking back into a real signing-role picker.
+        // AT-79 collapsed contact types to exactly 4 canonical e-sign
+        // parents (Seller/Buyer/Lessor/Lessee, sort_order 1-4) plus Witness
+        // (sort_order 5 — a genuine signing capacity AT-79 deliberately
+        // never collapsed into a transaction parent); every CRM
+        // auto-generated tag — mapped or unmapped, deleted or still active
+        // for other (non-signing) purposes — sits at sort_order 0.
+        // sort_order > 0 is that exact curated set, already established by
+        // AT-79, not a new list invented here. Cross-checked against real
+        // signature_requests.party_role history: seller/buyer/
+        // lessor(landlord)/lessee(tenant) are the only transaction roles
+        // ever actually used; Witness has no history yet but is a genuine,
+        // distinct real-estate signing capacity, not a CRM lead tag.
         $contactTypes = DB::table('contact_types')
             ->where('is_active', true)
+            ->whereNull('deleted_at')
+            ->where('sort_order', '>', 0)
             ->orderBy('sort_order')
-            ->orderBy('name')
             ->get(['id', 'name']);
 
         return view('docuperfect.esign.wizard', [
@@ -607,10 +626,29 @@ class ESignWizardController extends Controller
         // these fields in, not the entity itself.
         $expandedWizardFields = $this->expandWizardFieldsPerRecipient($allWizardFields, $mergeStepData);
 
+        // Job 3 (Johan, 2026-08-25) — the recipient Role dropdown was pulling
+        // all ~40 contact_types rows, including ~30 already soft-deleted CRM
+        // lead-tag combos ("Owner, Seller, Lead", "Hot Buyer, Lead", etc. —
+        // AT-79's own cleanup retired these on 2026-07-20). This raw
+        // DB::table() query never applied whereNull('deleted_at'), so
+        // retired tags kept leaking back into a real signing-role picker.
+        // AT-79 collapsed contact types to exactly 4 canonical e-sign
+        // parents (Seller/Buyer/Lessor/Lessee, sort_order 1-4) plus Witness
+        // (sort_order 5 — a genuine signing capacity AT-79 deliberately
+        // never collapsed into a transaction parent); every CRM
+        // auto-generated tag — mapped or unmapped, deleted or still active
+        // for other (non-signing) purposes — sits at sort_order 0.
+        // sort_order > 0 is that exact curated set, already established by
+        // AT-79, not a new list invented here. Cross-checked against real
+        // signature_requests.party_role history: seller/buyer/
+        // lessor(landlord)/lessee(tenant) are the only transaction roles
+        // ever actually used; Witness has no history yet but is a genuine,
+        // distinct real-estate signing capacity, not a CRM lead tag.
         $contactTypes = DB::table('contact_types')
             ->where('is_active', true)
+            ->whereNull('deleted_at')
+            ->where('sort_order', '>', 0)
             ->orderBy('sort_order')
-            ->orderBy('name')
             ->get(['id', 'name']);
 
         // Fault 3, round 5 (Johan, 2026-08-24) — step 6's "Signing Order" list
