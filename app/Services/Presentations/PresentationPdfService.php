@@ -616,13 +616,17 @@ class PresentationPdfService
                 'version_id'      => $version->id,
                 'presentation_id' => $presentation->id,
             ]);
-            // Build 3 — pass the LATEST PUBLISHED version so the condition
-            // snapshot travels with the PDF; null falls back to property condition.
-            $latestPublished = $presentation->versions()
-                ->where('review_status', \App\Models\PresentationVersion::REVIEW_PUBLISHED)
-                ->orderByDesc('published_at')
-                ->first();
-            $data = (new AnalysisDataService())->compile($presentation, $latestPublished);
+            // 2026-08-25 fix (Johan — "respect what the agent selected") — this
+            // used to compile the LATEST PUBLISHED version instead of the one
+            // actually requested, so an unfrozen draft's PDF/preview could
+            // silently describe a different, earlier round of curation than
+            // what the agent is looking at right now. $version IS the correct
+            // source of truth here: it's the exact version buildHtml() was
+            // asked to build. Compiling it directly (instead of substituting
+            // a different row) is what makes the on-screen selection and the
+            // generated document agree — no broadening of anything else in
+            // this method, only which version this one fallback compiles.
+            $data = (new AnalysisDataService())->compile($presentation, $version);
         }
 
         // Build 4 — section toggles. Each PAGE block is wrapped with
