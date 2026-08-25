@@ -121,30 +121,12 @@
     <link rel="preconnect" href="https://fonts.bunny.net">
     <link href="https://fonts.bunny.net/css?family=inter:300,400,500,600,700|jetbrains-mono:400,500,600&display=swap" rel="stylesheet">
 
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-        // Custom colour tokens — the CDN equivalent of the requested Tailwind v4
-        // @theme block. Registering them here makes text-navy, bg-marine,
-        // text-brand-red, bg-ink/50 … resolve on this standalone page.
-        tailwind.config = {
-            theme: {
-                extend: {
-                    colors: {
-                        ink:                '#060a1c',
-                        'ink-soft':         '#0d1430',
-                        navy:               '#141a4d',
-                        marine:             '#3ba1e6',
-                        'brand-red':        '#df1f2c',
-                        'brand-red-bright': '#f5404d',
-                    },
-                    fontFamily: {
-                        sans: ['Inter', 'system-ui', 'sans-serif'],
-                        mono: ['JetBrains Mono', 'ui-monospace', 'monospace'],
-                    },
-                },
-            },
-        };
-    </script>
+    {{-- 2026-08-25 — the ink/navy/marine/brand-red colour tokens this page
+         uses used to be registered here via a runtime `tailwind.config = {}`
+         object, read by the Tailwind CDN's in-browser compiler. Now that
+         Tailwind compiles at build time (tailwind.config.js), those same
+         tokens are registered there instead — see that file's comment. --}}
+    @vite(['resources/css/app.css', 'resources/js/app.js'])
     <style>
         html { scroll-behavior: smooth; }
         body { font-family: 'Inter', system-ui, -apple-system, sans-serif; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
@@ -564,6 +546,5 @@
         };
     }
 </script>
-<script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
 </body>
 </html>

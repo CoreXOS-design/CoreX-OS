@@ -354,6 +354,173 @@ class PropertyIntelligenceService
     }
 
     /**
+     * 2026-08-25 (Johan) — "Your competition right now": comparable ACTIVE
+     * listings, seller-facing, for the seller live link's own competitive-
+     * position section. Same vetted engine as getComparableListings() above
+     * (CompetitorStockMatchService::findComparableStock — on-market, same
+     * family/band, scored) — not a second query — but with the extra fields
+     * (type/beds/baths/location) that section needs, and deliberately
+     * WITHOUT unit_number or any agency-identifying field on either side.
+     *
+     * Sourcing note (disclosed, not hidden): findComparableStock() is scoped
+     * to the SUBJECT property's own agency_id — these are the agency's own
+     * other active stock nearby, the same source the page's existing
+     * "Similar properties" section already trusted, NOT verified cross-
+     * agency market data. QA1 only has one seeded agency, so cross-agency
+     * behaviour cannot be tested here either way. Worded honestly in the
+     * view as "Similar homes on the market near you", not "competing
+     * agencies", because that is the honest claim this data supports.
+     */
+    public function getActiveComparables(int $propertyId, int $limit = 5): Collection
+    {
+        $property = Property::withoutGlobalScopes()->find($propertyId);
+        if (!$property) return collect();
+
+        return app(\App\Services\Presentations\CompetitorStockMatchService::class)
+            ->findComparableStock($property, $limit)
+            ->map(fn ($p) => [
+                'id'             => $p->id,
+                'location'       => $p->complex_name ?: $p->street_name,
+                'property_type'  => $p->property_type,
+                'beds'           => $this->sanePropertyCount($p->beds),
+                'baths'          => $this->sanePropertyCount($p->baths),
+                'price'          => $p->price,
+                'days_on_market' => ($dom = $p->listed_date ?? $p->p24_activated_at ?? $p->pp_activated_at ?? $p->published_at ?? $p->created_at)
+                    ? \App\Support\HumanDiff::daysBetween($dom) : null,
+            ])
+            ->filter(fn ($c) => $c['price'] && $c['days_on_market'] !== null)
+            ->values();
+    }
+
+    /**
+     * 2026-08-25 (Johan) — "What has actually sold near you": achieved sales
+     * in the subject's suburb, for the same 12-month window and same primary
+     * source (property_sold_records, the M9 canonical sold-records table)
+     * MarketDataSnapshotService::getComparableSales() already uses for the
+     * Estimated Market Value card — not a second data source, same table,
+     * reused for a different display. property_sold_records is NOT agency-
+     * scoped in its primary query path (suburb-only), unlike the active-
+     * comparables engine above — this genuinely is broader-than-one-agency
+     * sold intelligence, which is exactly what makes it usable evidence for
+     * "here's what actually sold nearby" rather than just "our own sales".
+     */
+    /**
+     * 2026-08-25 — found while proving this on real QA1 data: a real
+     * property row with baths=25 (a data-entry error, not a mansion) fed
+     * straight through to "sold ... 3 bed 25 bath" on a client-facing page.
+     * A seller seeing that stops trusting every other number on the page.
+     * Bounded to a generous residential ceiling — this rejects entry
+     * errors, not anything a real home could legitimately have — and drops
+     * the single field rather than the whole comparable, which is still a
+     * real match on type/price/location even without a trustworthy count.
+     */
+    private function sanePropertyCount($value): ?float
+    {
+        if ($value === null) return null;
+        $n = (float) $value;
+        return ($n > 0 && $n <= 10) ? $n : null;
+    }
+
+    public function getAchievedComparableSales(int $propertyId, int $months = 12, int $limit = 5): Collection
+    {
+        $property = Property::withoutGlobalScopes()->find($propertyId);
+        if (!$property || !$property->suburb) return collect();
+
+        // property_sold_records' OWN bedrooms/bathrooms/days_on_market
+        // columns are unpopulated system-wide on QA1 (0 of 225 rows) — but
+        // every row DOES carry property_id, and every one of those linked
+        // properties DOES have beds/baths and a listed_date (verified: 225
+        // of 225). Reading through that link gets real beds/baths and a
+        // real days-to-sell (sold_date - listed_date) instead of shipping
+        // blanks or a fictional number — same sold-records table
+        // getComparableSales()/calculateAreaAverages() already trust for
+        // the Estimated Market Value card, just joined one hop further.
+        return DB::table('property_sold_records')
+            ->join('properties', 'properties.id', '=', 'property_sold_records.property_id')
+            ->where('property_sold_records.suburb', $property->suburb)
+            ->where('property_sold_records.sold_date', '>=', now()->subMonths($months))
+            ->whereNotNull('property_sold_records.sold_price')
+            ->orderByDesc('property_sold_records.sold_date')
+            ->limit($limit)
+            ->get([
+                'property_sold_records.property_type',
+                'properties.beds',
+                'properties.baths',
+                'properties.listed_date',
+                'property_sold_records.sold_price',
+                'property_sold_records.sold_date',
+            ])
+            ->map(fn ($r) => [
+                'property_type'  => $r->property_type,
+                'beds'           => $this->sanePropertyCount($r->beds),
+                'baths'          => $this->sanePropertyCount($r->baths),
+                'sold_price'     => (float) $r->sold_price,
+                'sold_date'      => $r->sold_date,
+                'days_on_market' => $r->listed_date
+                    ? \App\Support\HumanDiff::daysBetween($r->listed_date, $r->sold_date)
+                    : null,
+            ]);
+    }
+
+    /**
+     * 2026-08-25 (Johan) — "themes line first" for seller-visible viewing
+     * feedback: N of M viewers raised the same concern, from the SAME
+     * structured concern_option_ids field getFeedbackRollup()'s
+     * top_concerns already counts (AgencyFeedbackOption, category=concern —
+     * a controlled vocabulary, not free-text keyword-matching / not AI-
+     * inferred). Computed off ALL seller-visible feedback rows (matches
+     * cc4's finding: a property can have 8 feedback rows and only 2 with
+     * written notes — the theme line and the notes list read different
+     * subsets of the same rows on purpose). Empty when no viewer has ever
+     * flagged a concern — no theme claim without a real vote behind it.
+     */
+    public function getFeedbackThemes(int $propertyId, bool $excludeInternalOnly = false): array
+    {
+        // Deliberately property_id-only, NOT the eventIds OR-join
+        // getFeedbackRollup()/getRecentViewings() use — a single viewing
+        // calendar event can be linked to more than one candidate property
+        // (a buyer shown two homes in one appointment), and that join
+        // pulls in the OTHER property's own feedback row too (verified on
+        // QA1: event 5739 is linked to both property 16 and 17, each with
+        // its own distinct feedback row — the eventIds join double-counts
+        // both under either property). A theme claim ("buyers said X") is
+        // exactly the kind of number that must not mix two properties'
+        // feedback, so this reads only rows actually recorded against this
+        // property. Flagged separately: the SAME leakage risk exists in
+        // getFeedbackRollup()/getRecentViewings() (unchanged, out of scope
+        // here) — worth a look on its own.
+        $feedback = CalendarEventFeedback::where('property_id', $propertyId)
+            ->whereNotNull('captured_at')
+            ->when($excludeInternalOnly, fn ($q) => $q->where('visibility', '!=', 'internal_only'))
+            ->get();
+
+        // "M viewers" = distinct VIEWINGS (calendar_event_id), matching
+        // getFeedbackRollup()'s own total_viewings definition elsewhere on
+        // this page — not raw feedback rows, so two co-buyers' separate
+        // feedback for the same single viewing count as one viewing, and a
+        // concern raised twice in that one viewing counts once, not twice.
+        $totalViewers = $feedback->pluck('calendar_event_id')->unique()->count();
+        if ($totalViewers === 0) return [];
+
+        $concernCounts = $feedback
+            ->groupBy('calendar_event_id')
+            ->map(fn ($rows) => $rows->pluck('concern_option_ids')->flatten()->filter()->unique())
+            ->flatten()
+            ->countBy();
+        if ($concernCounts->isEmpty()) return [];
+
+        $labels = \App\Models\CommandCenter\AgencyFeedbackOption::withoutGlobalScopes()
+            ->whereIn('id', $concernCounts->keys())
+            ->pluck('label', 'id');
+
+        return $concernCounts->sortDesc()->take(2)->map(fn ($count, $optionId) => [
+            'label' => $labels[$optionId] ?? null,
+            'count' => $count,
+            'total' => $totalViewers,
+        ])->filter(fn ($t) => $t['label'] !== null)->values()->all();
+    }
+
+    /**
      * Presentations linked to a property + their snapshots.
      */
     public function getPresentations(int $propertyId, bool $sellerView = false): Collection
@@ -743,7 +910,16 @@ class PropertyIntelligenceService
             'mandate_expired' => $mandateEvent && $mandateEvent->event_date->isPast(),
             'seller_fica_complete' => $ficaComplete,
             'seller_count' => $sellers->count(),
-            'published' => (bool) $property->published_at,
+            // 2026-08-25 (Johan, forward-ported from Staging b8a34a6f6+c6b3a2ebb) —
+            // was (bool) $property->published_at, which tracks whether the
+            // listing was EVER published, not whether it's live now. A
+            // seller could see "Listing: Unpublished" while the property is
+            // actually live on Property24/Private Property right now — the
+            // exact opposite of what this badge claims, on the one page
+            // whose entire purpose is reassuring the seller their agent is
+            // working. isLiveOnAnyPortal() is the same check the internal
+            // "Live" KPI tile uses.
+            'published' => $property->isLiveOnAnyPortal(),
             'days_on_market' => ($dom = $property->listed_date ?? $property->p24_activated_at ?? $property->pp_activated_at ?? $property->published_at ?? $property->created_at)
                 ? \App\Support\HumanDiff::daysBetween($dom) : null,
         ];
