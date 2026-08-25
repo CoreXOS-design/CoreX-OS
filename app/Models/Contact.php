@@ -815,7 +815,22 @@ class Contact extends Model
 
         $leaves = collect();
         foreach ($levelReps as $rep) {
-            if ($rep->isEntity()) {
+            // Job 1 fast-follow (Johan/cc1, 2026-08-26) — gating recursion on
+            // isEntity() alone made every NATURAL-PERSON representative an
+            // automatic leaf, even one who is themselves represented by
+            // someone else. Two silent failures resulted: a natural-person
+            // A-represented-by-B-represented-by-A cycle never reached the
+            // cycle check above (recursion stopped at B, so A's own
+            // representative link back to A was never walked), and a
+            // natural-person-only multi-hop chain (A→B→C) truncated at B
+            // instead of resolving through to C. Recursing whenever the rep
+            // has ANY representative of their own — not just when they're an
+            // entity — lets the SAME depth/cycle guards above cover every
+            // shape of chain. isEntity() is kept as an unconditional OR so an
+            // entity rep with NO representative of its own still hits
+            // entityWithNoRepresentative() below rather than being silently
+            // treated as a leaf.
+            if ($rep->isEntity() || $rep->representatives()->exists()) {
                 $leaves = $leaves->concat($rep->proxyAwareRepresentatives($depth + 1, $seenIds));
             } else {
                 $leaves->push($rep);

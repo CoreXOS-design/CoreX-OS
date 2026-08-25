@@ -2008,6 +2008,14 @@ class ESignWizardController extends Controller
         }
 
         $recipients = $stepData['recipients']['recipients'] ?? [];
+        // Support both old format (array of entries) and new format ({delivery_mode, parties: [...]}).
+        // Moved ahead of expandEntityRecipients() (Job 1, Johan/cc1, 2026-08-26)
+        // — attachSigningSetupMatch() needs signingSetup while $recipients
+        // still carries the ORIGINAL (pre-expansion) names, matching what
+        // the frontend actually built signing_setup from.
+        $signingSetupRaw = $stepData['signing_setup'] ?? [];
+        $signingSetup = isset($signingSetupRaw['parties']) ? $signingSetupRaw['parties'] : $signingSetupRaw;
+        $recipients = $this->attachSigningSetupMatch($recipients, $signingSetup);
         // Fault 3, round 5 (Johan, 2026-08-24) — the ACTUAL blocker: this raw
         // array is what the SignatureRequest-creation loop below reads
         // directly, and an entity recipient here is still the COMPANY
@@ -2052,9 +2060,6 @@ class ESignWizardController extends Controller
         $bodyStepData = $stepData;
         $bodyStepData['recipients']['recipients'] = $this->dedupeEntityRecipientsForDisplay($recipients);
 
-        // Support both old format (array of entries) and new format ({delivery_mode, parties: [...]})
-        $signingSetupRaw = $stepData['signing_setup'] ?? [];
-        $signingSetup = isset($signingSetupRaw['parties']) ? $signingSetupRaw['parties'] : $signingSetupRaw;
         $propertyAddress = $stepData['property']['address'] ?? $stepData['property']['title'] ?? '';
 
         // Build document name — use custom name from wizard if set, else auto-build
@@ -2585,23 +2590,50 @@ class ESignWizardController extends Controller
             ];
             $signingOrder = ['agent'];
 
-            // Use signing_setup order if available (respects drag-reorder from step 6)
+            // Use signing_setup order if available (respects drag-reorder from step 6).
+            // Job 1 (Johan/cc1, 2026-08-26) — this used to re-match each
+            // signing_setup entry to a recipient by role+NAME, which silently
+            // dropped any entry whose name changed under expansion (a
+            // represented party's row now carries the REPRESENTATIVE's name,
+            // never the original party's). attachSigningSetupMatch() already
+            // tagged every recipient (including expanded representative rows)
+            // with _matched_signing_setup_index BEFORE expansion, while names
+            // still agreed — so this reorder now matches on that stable index
+            // instead. A signing_setup entry that still finds nothing here
+            // means expansion itself dropped every representative for that
+            // party (should already be impossible — assertDeceasedRecipients
+            // HaveSubstituteSigner() and the _entity_needs_representative
+            // pass-through both run first) — loud failure, never a silently
+            // missing signer.
             $orderedRecipients = $recipients;
             if (!empty($signingSetup) && !empty($signingSetup[0]['signing_order'] ?? null)) {
-                // Rebuild recipient list from signing_setup order (skip agent entries)
                 $orderedRecipients = [];
-                foreach ($signingSetup as $ss) {
+                $usedRecipientKeys = [];
+                foreach ($signingSetup as $ssIndex => $ss) {
                     if (($ss['role'] ?? '') === 'agent') continue;
-                    // Match signing_setup entry to original recipient by role+name
-                    foreach ($recipients as $r) {
-                        if (($r['role'] ?? '') === ($ss['role'] ?? '') && ($r['name'] ?? '') === ($ss['name'] ?? '')) {
+                    $matchedAny = false;
+                    foreach ($recipients as $rKey => $r) {
+                        if (($r['_matched_signing_setup_index'] ?? null) === $ssIndex) {
                             $orderedRecipients[] = $r;
-                            break;
+                            $usedRecipientKeys[$rKey] = true;
+                            $matchedAny = true;
                         }
                     }
+                    if (! $matchedAny) {
+                        $name = trim((string) ($ss['name'] ?? '')) ?: 'This party';
+                        throw \Illuminate\Validation\ValidationException::withMessages([
+                            'recipients' => "The signing order lists {$name} but that party did not survive representative expansion. Check for a data-entry mismatch before re-sending.",
+                        ]);
+                    }
                 }
-                // Fallback: if matching failed, use original order
-                if (empty($orderedRecipients)) $orderedRecipients = $recipients;
+                // A recipient never tied to a signing_setup entry (e.g. added
+                // after step 6 was configured) is still sent — appended in
+                // original order, never silently dropped.
+                foreach ($recipients as $rKey => $r) {
+                    if (empty($usedRecipientKeys[$rKey])) {
+                        $orderedRecipients[] = $r;
+                    }
+                }
             }
 
             // Recipient Loop Engine B1 — each person is a SEPARATE signer in
@@ -2742,14 +2774,14 @@ class ESignWizardController extends Controller
                 if ($baseRole === 'agent') continue;
                 $partyKey = $recipientPartyKeys[$i] ?? $baseRole;
 
-                // Find matching signing_setup entry for this recipient
-                $matchedSetup = null;
-                foreach ($signingSetup as $ss) {
-                    if (($ss['role'] ?? '') === ($r['role'] ?? '') && ($ss['name'] ?? '') === ($r['name'] ?? '')) {
-                        $matchedSetup = $ss;
-                        break;
-                    }
-                }
+                // Job 1 (Johan/cc1, 2026-08-26) — read the index attachSigningSetupMatch()
+                // tagged pre-expansion, never re-match by role+name against the
+                // post-expansion array (silently loses skipEmail/email-override/
+                // FICA for any expanded representative row — same shape as the
+                // reorder bug above).
+                $matchedSetup = isset($r['_matched_signing_setup_index'])
+                    ? ($signingSetup[$r['_matched_signing_setup_index']] ?? null)
+                    : null;
                 $skipEmail = !empty($matchedSetup['skipEmail'] ?? false);
                 $email = $matchedSetup['email'] ?? $r['email'] ?? '';
                 $signingAction = $matchedSetup['action'] ?? 'send_after';
@@ -3498,6 +3530,66 @@ class ESignWizardController extends Controller
      * produced rows are unchanged in shape whether the original party was an
      * entity or a represented natural person.
      */
+    /**
+     * Job 1 (Johan/cc1, 2026-08-26) — signing_setup (step 6's drag-reorder,
+     * skip-email, FICA-required, custom-email overrides) is built by the
+     * FRONTEND against the ORIGINAL recipient names, before this controller
+     * ever runs expandEntityRecipients(). Re-matching a signing_setup entry
+     * to a recipient by role+name AFTER expansion silently fails for any
+     * entity/represented-party row, because expansion replaces that row's
+     * name with the REPRESENTATIVE's name — the frontend never sees the
+     * substitution. The failed match used to just drop the slot with no
+     * error: the represented party's signing request was never created,
+     * nobody was emailed, and the endpoint still returned 200 "ok":true.
+     *
+     * Matching happens HERE, before expansion, while names still agree with
+     * what the frontend built signing_setup from. The resulting index
+     * survives expansion because expandEntityRecipients() copies
+     * _matched_signing_setup_index onto every representative row it
+     * produces from a matched original recipient — so every downstream
+     * lookup (reorder, skip-email, FICA, email override) reads the index
+     * instead of re-matching a name expansion already changed.
+     *
+     * A signing_setup entry that cannot be matched to any recipient is a
+     * genuine data mismatch, not something to paper over — it throws
+     * instead of silently vanishing a party from the send. Same shape as
+     * flow 330's silent chain-advance stop: a legal signing chain must
+     * never drop a participant without telling anyone.
+     */
+    private function attachSigningSetupMatch(array $recipients, array $signingSetup): array
+    {
+        if (empty($signingSetup)) {
+            return $recipients;
+        }
+
+        $consumed = array_fill(0, count($recipients), false);
+
+        foreach ($signingSetup as $ssIndex => $ss) {
+            if (($ss['role'] ?? '') === 'agent') continue;
+
+            $matched = false;
+            foreach ($recipients as $i => &$r) {
+                if ($consumed[$i]) continue;
+                if (($r['role'] ?? '') === ($ss['role'] ?? '') && ($r['name'] ?? '') === ($ss['name'] ?? '')) {
+                    $r['_matched_signing_setup_index'] = $ssIndex;
+                    $consumed[$i] = true;
+                    $matched = true;
+                    break;
+                }
+            }
+            unset($r);
+
+            if (! $matched) {
+                $name = trim((string) ($ss['name'] ?? '')) ?: 'This party';
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'recipients' => "The signing order lists {$name} but no matching recipient was found on this document. Check for a data-entry mismatch between the recipient list and the signing order (step 6) before re-sending.",
+                ]);
+            }
+        }
+
+        return $recipients;
+    }
+
     private function expandEntityRecipients(array $recipients, $user): array
     {
         $contactIds = collect($recipients)->pluck('_contact_id')->filter()->unique()->values();
@@ -3589,6 +3681,7 @@ class ESignWizardController extends Controller
                     '_representation_label' => $label,
                     '_signature_caption'    => $caption,
                     '_party_clause_text'    => $partyClauseText,
+                    '_matched_signing_setup_index' => $r['_matched_signing_setup_index'] ?? null,
                     'bank_name'             => $rep->bank_name ?? '',
                     'bank_account_name'     => $rep->bank_account_name ?? '',
                     'bank_account_number'   => $rep->bank_account_number ?? '',
@@ -5632,6 +5725,13 @@ class ESignWizardController extends Controller
         }
 
         $recipients = $stepData['recipients']['recipients'] ?? [];
+        // Moved ahead of expandEntityRecipients() (Job 1, Johan/cc1, 2026-08-26)
+        // — see prepareSigning() for full rationale: attachSigningSetupMatch()
+        // needs signingSetup while $recipients still carries the ORIGINAL
+        // (pre-expansion) names.
+        $signingSetupRaw = $stepData['signing_setup'] ?? [];
+        $signingSetup = isset($signingSetupRaw['parties']) ? $signingSetupRaw['parties'] : $signingSetupRaw;
+        $recipients = $this->attachSigningSetupMatch($recipients, $signingSetup);
         // Entity/company expansion (Johan, 2026-08-25 — cc1's finding on
         // 93a10b6a2, and the same "an entity never signs" rule prepareSigning()
         // already applies at ESignWizardController.php:2028). Missing here
@@ -5657,8 +5757,6 @@ class ESignWizardController extends Controller
         $bodyStepData = $stepData;
         $bodyStepData['recipients']['recipients'] = $this->dedupeEntityRecipientsForDisplay($recipients);
 
-        $signingSetupRaw = $stepData['signing_setup'] ?? [];
-        $signingSetup = isset($signingSetupRaw['parties']) ? $signingSetupRaw['parties'] : $signingSetupRaw;
         $propertyAddress = $stepData['property']['address'] ?? $stepData['property']['title'] ?? '';
 
         $firstRecipientName = '';
@@ -5795,19 +5893,37 @@ class ESignWizardController extends Controller
             ];
             $signingOrder = ['agent'];
 
+            // Job 1 (Johan/cc1, 2026-08-26) — same fix as prepareSigning():
+            // match on _matched_signing_setup_index (set pre-expansion by
+            // attachSigningSetupMatch(), survives expansion), never role+name
+            // against the post-expansion array. See prepareSigning() for the
+            // full rationale.
             $orderedRecipients = $recipients;
             if (!empty($signingSetup) && !empty($signingSetup[0]['signing_order'] ?? null)) {
                 $orderedRecipients = [];
-                foreach ($signingSetup as $ss) {
+                $usedRecipientKeys = [];
+                foreach ($signingSetup as $ssIndex => $ss) {
                     if (($ss['role'] ?? '') === 'agent') continue;
-                    foreach ($recipients as $r) {
-                        if (($r['role'] ?? '') === ($ss['role'] ?? '') && ($r['name'] ?? '') === ($ss['name'] ?? '')) {
+                    $matchedAny = false;
+                    foreach ($recipients as $rKey => $r) {
+                        if (($r['_matched_signing_setup_index'] ?? null) === $ssIndex) {
                             $orderedRecipients[] = $r;
-                            break;
+                            $usedRecipientKeys[$rKey] = true;
+                            $matchedAny = true;
                         }
                     }
+                    if (! $matchedAny) {
+                        $name = trim((string) ($ss['name'] ?? '')) ?: 'This party';
+                        throw \Illuminate\Validation\ValidationException::withMessages([
+                            'recipients' => "The signing order lists {$name} but that party did not survive representative expansion. Check for a data-entry mismatch before re-sending.",
+                        ]);
+                    }
                 }
-                if (empty($orderedRecipients)) $orderedRecipients = $recipients;
+                foreach ($recipients as $rKey => $r) {
+                    if (empty($usedRecipientKeys[$rKey])) {
+                        $orderedRecipients[] = $r;
+                    }
+                }
             }
 
             $roleCounts = [];
@@ -5890,13 +6006,12 @@ class ESignWizardController extends Controller
                 if ($baseRole === 'agent') continue;
                 $partyKey = $recipientPartyKeys[$i] ?? $baseRole;
 
-                $matchedSetup = null;
-                foreach ($signingSetup as $ss) {
-                    if (($ss['role'] ?? '') === ($r['role'] ?? '') && ($ss['name'] ?? '') === ($r['name'] ?? '')) {
-                        $matchedSetup = $ss;
-                        break;
-                    }
-                }
+                // Job 1 (Johan/cc1, 2026-08-26) — see prepareSigning() for
+                // the full rationale: read the pre-expansion-matched index,
+                // never re-match by role+name post-expansion.
+                $matchedSetup = isset($r['_matched_signing_setup_index'])
+                    ? ($signingSetup[$r['_matched_signing_setup_index']] ?? null)
+                    : null;
                 $skipEmail = !empty($matchedSetup['skipEmail'] ?? false);
                 $email = $matchedSetup['email'] ?? $r['email'] ?? '';
                 // Johan, 2026-08-26 — the printed document's notices clause
