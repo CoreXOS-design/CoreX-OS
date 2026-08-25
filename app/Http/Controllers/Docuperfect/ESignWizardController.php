@@ -5890,10 +5890,22 @@ class ESignWizardController extends Controller
                 }
                 $skipEmail = !empty($matchedSetup['skipEmail'] ?? false);
                 $email = $matchedSetup['email'] ?? $r['email'] ?? '';
+                // Johan, 2026-08-26 — the printed document's notices clause
+                // (address, phone) only ever reaches the page through the
+                // linked Contact (RoleBlockExpansionService::resolveContact(),
+                // gated on SignatureRequest.contact_id — SignatureRequest
+                // itself has no address/phone columns of its own). This call
+                // never passed it, so every wet-ink signing row was created
+                // with contact_id NULL, for every recipient, and the notices
+                // clause rendered blank regardless of what was typed in the
+                // wizard. Same one-liner prepareSigning() already uses
+                // (~line 2757) — the reference implementation, unchanged.
+                $contactId = !empty($r['_contact_id']) ? (int) $r['_contact_id'] : null;
 
                 $sigReq = $signatureService->createSigningRequest(
                     $sigTemplate, $partyKey, $r['name'] ?? '', $skipEmail ? '' : $email,
                     $r['id_number'] ?? null, null, $user,
+                    contactId: $contactId,
                     signerCaption: $r['_signature_caption'] ?? null,
                     partyClauseText: $r['_party_clause_text'] ?? null,
                     isDeceased: (bool) ($r['_is_deceased'] ?? false),
