@@ -7,28 +7,53 @@ use App\Models\Property;
 use App\Models\PropertySellerLink;
 use App\Services\PropertyIntelligenceService;
 use App\Services\PublicLinks\PublicLinkUnavailableResponder;
+use App\Support\HumanDiff;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 class SellerLinkController extends Controller
 {
     /**
+     * 2026-08-25 (Johan) — CORRECTION, and revised a second time same day:
+     * every customer-facing word for the sold/under-offer distinction lives
+     * HERE and ONLY here — a rename is a one-line change to this array,
+     * never a hunt through the view.
+     *
+     * Johan's RULING (verbatim), current as of this edit: "pending = under
+     * offer, granted and registered = sold." A GRANTED deal counts as sold
+     * even without a registration date yet — his call, not the audit's
+     * assumption. cc4 is checking whether a granted deal can still
+     * collapse; if it can, this wording may change again — that is exactly
+     * why it is centralized here and nowhere else.
+     *
+     * "Sold" (getSoldComparables()) = granted OR registered, from EITHER
+     * deal table. "Under offer" (getUnderOfferComparables()) = pending/
+     * active/offer-only, not yet granted or registered. Declined deals are
+     * excluded entirely from both — never shown as either.
+     */
+    private const LABELS = [
+        'sold_heading'          => 'What has actually sold near you',
+        'sold_subtitle'         => 'Sales in your suburb, last 12 months.',
+        'sold_verb'             => 'sold',
+        'sold_days_suffix'      => 'to sale', // "N days {suffix}" — kept distinct from sold_verb: "N days to sold" is broken English
+        'under_offer_heading'   => 'What has recently gone under offer near you',
+        'under_offer_subtitle'  => 'Accepted offers in your suburb, last 6 months — not yet sold, so not final.',
+        'under_offer_verb'      => 'went under offer',
+        'under_offer_days_suffix' => 'to offer',
+    ];
+
+    /**
      * Public endpoint: render seller live page for a valid token.
+     *
+     * 2026-08-25 (Johan) — expanded per spec .ai/specs/seller-live-link.md:
+     * "a page that should prove to a seller that we are working, and the
+     * data we provide them should show this." Every section answers "is my
+     * agent actually doing anything" or collapses rather than guess.
      */
     public function show(string $token)
     {
         $link = PropertySellerLink::where('token', $token)->first();
 
-        // 2026-08-24 (Johan) — an UNKNOWN token (never existed) has nothing to
-        // resolve an agency from, so it stays a plain generic 404 per the
-        // 3-branch policy (routes through errors.404-guest, built earlier
-        // today). A REVOKED token is different: the link WAS real, so it's a
-        // valid-but-dead case and gets the same agency-branded, agent-contact,
-        // route-back treatment as 'deleted'/'sold' below — not the old bare
-        // seller-link.revoked view (hardcoded dark background, no branding,
-        // no agent, no way back), which was left untouched by that earlier
-        // fix and reported back as a real dead end a seller actually landed
-        // on. Fixed to the same standard as everything else, not a special case.
         if (!$link) {
             abort(404);
         }
@@ -38,18 +63,6 @@ class SellerLinkController extends Controller
 
         $property = $link->property;
 
-        // 2026-08-24 (Johan) — a soft-deleted property used to crash here:
-        // getFeedbackRollup(int $propertyId, ...) is strictly typed and
-        // $property->id on a null $property throws, uncaught, 500. And a
-        // CONCLUDED property (sold/transferred/rented/let_out — the single
-        // source of truth is Property::isConcluded(), never a raw status
-        // string compare) used to render as if still live: no error, but a
-        // wrong page — a seller or buyer holding the link sees a listing
-        // that looks current for a property that is gone. Worse than a
-        // crash, because nothing tells them. Both now get the same
-        // courteous treatment SharedMatchController::showExpired() and
-        // PublicPresentationController::renderUnavailable() already use —
-        // copy that pattern, not a third dialect of it.
         if (!$property) {
             return $this->showUnavailable($link, null, 'deleted');
         }
@@ -84,17 +97,23 @@ class SellerLinkController extends Controller
 
         $feedbackRollup = $intel->getFeedbackRollup($property->id, excludeInternalOnly: true);
         $compliance = $intel->getComplianceStatus($property->id);
-        $marketPosition = $intel->getLatestMarketPosition($property->id);
-        $comparables = $intel->getComparableListings($property->id);
+        $activeComparables = $intel->getActiveComparables($property->id);
+        // 2026-08-25 CORRECTION — was getAchievedComparableSales() reading
+        // property_sold_records, whose sold_price mirrors the property's
+        // own advertised price (confirmed fake by SuburbReportDataService's
+        // own 2026-08-24 finding). Two real, separately-labelled sources
+        // now, per Johan's ruling ("pending = under offer, granted and
+        // registered = sold"): getSoldComparables() (granted/registered,
+        // either deal table) and getUnderOfferComparables() (pending/
+        // active only). See self::LABELS.
+        $soldComparables = $intel->getSoldComparables($property->id);
+        $underOfferSales = $intel->getUnderOfferComparables($property->id);
+        $feedbackThemes = $intel->getFeedbackThemes($property->id, excludeInternalOnly: true);
         $portalPerformance = $intel->getPortalPerformance($property->id, rangeDays: 30);
-        // 2026-08-25 (Johan) — "port the graph": SAME data source the
-        // internal Intelligence tab's Portal Engagement chart uses
-        // (corex/properties/intelligence/_portal-engagement-chart.blade.php),
-        // no second query. 180 days fetched once; the page's own 30D/90D/6M
-        // toggle slices it client-side, same convention as that partial's
-        // Alpine store (not reused here — this is a standalone public page
-        // with no Alpine/Vite app shell, so the toggle is plain JS instead;
-        // see the view for why).
+        // Portal Engagement chart — SAME data source the internal Intelligence
+        // tab's chart uses (getPortalEngagementSeries()), no second query. 180
+        // days fetched once; the page's own 30D/90D/6M toggle slices it
+        // client-side in plain JS.
         $portalEngagement = $intel->getPortalEngagementSeries($property->id, 180);
         $recommendations = DB::table('property_recommendations')
             ->where('property_id', $property->id)
@@ -105,34 +124,44 @@ class SellerLinkController extends Controller
             ->orderByDesc('generated_at')
             ->get();
 
+        $priceChangeEvents = $this->buildPriceChangeEvents($property->id);
+        $daysOnMarket = $property->listed_date ? HumanDiff::daysBetween($property->listed_date) : null;
+        $priceChangeNarrative = $this->buildPriceChangeNarrative($priceChangeEvents, $portalEngagement['series'] ?? []);
+        $soldComparison = $this->buildBestComparison($property, $daysOnMarket, $soldComparables);
+        $underOfferComparison = $this->buildBestComparison($property, $daysOnMarket, $underOfferSales);
+
         return view('seller-link.live', [
             'property' => $property,
             'seller' => $contact,
             'agency' => $agency,
+            'labels' => self::LABELS,
             'feedbackRollup' => $feedbackRollup,
+            'feedbackThemes' => $feedbackThemes,
             'viewingFeedback' => $this->buildSellerSafeFeedback($property->id),
             'buyerDemand' => $this->buildBuyerDemand($property->id, $intel),
-            'priceHistory' => $this->buildPriceHistory($property->id),
+            'priceChangeEvents' => $priceChangeEvents,
+            'priceChangeNarrative' => $priceChangeNarrative,
             'portalPerformance' => $portalPerformance,
             'portalEngagement' => $portalEngagement,
             'compliance' => $compliance,
-            'marketPosition' => $marketPosition,
-            'comparables' => $comparables,
+            'daysOnMarket' => $daysOnMarket,
+            'activeComparables' => $activeComparables,
+            'soldComparables' => $soldComparables,
+            'soldComparison' => $soldComparison,
+            'underOfferSales' => $underOfferSales,
+            'underOfferComparison' => $underOfferComparison,
             'recommendations' => $recommendations,
+            'portalsLive' => $this->buildPortalsLive($property),
             'link' => $link,
         ]);
     }
 
     /**
-     * 2026-08-24 (Johan) — seller live page rebuild. Buyer demand, seller-
-     * facing, per .ai/audits/2026-08-24-seller-live-link-data-availability.md
-     * Part 2: MatchingService::matchesForProperty is the SAME canonical
-     * engine the internal Core Matches tab and cc4's suburb report use — real
-     * demand, not a fabricated count. PropertyIntelligenceService::
-     * getBuyerInterestSignals() already wraps it, but returns real buyer
-     * names/ids for internal (agent-authenticated) use — never safe to hand
-     * to a public, forwardable-token page. Collapsed here into counts by
-     * tier only; no name, no id, no contact path ever leaves this method.
+     * Seller-facing buyer demand. MatchingService::matchesForProperty (via
+     * getBuyerInterestSignals()) is the SAME canonical engine the internal
+     * Core Matches tab uses — real demand, not a fabricated count. Collapsed
+     * here into counts by tier only; no buyer name, id, or contact path ever
+     * leaves this method — that data is agent-authenticated-only.
      */
     private function buildBuyerDemand(int $propertyId, PropertyIntelligenceService $intel): array
     {
@@ -147,14 +176,11 @@ class SellerLinkController extends Controller
     }
 
     /**
-     * 2026-08-24 (Johan) — seller-safe viewing feedback. Same privacy
-     * boundary as buildBuyerDemand(): PropertyIntelligenceService::
-     * getRecentViewings() returns buyer names (built for the internal
-     * property page) — this strips every identifying field before it ever
-     * reaches the view, keeping only what the seller is entitled to: that a
-     * viewing happened, what the outcome was, and the seller-visible note
-     * (never internal_notes — that split already exists at the data layer,
-     * used here as the gate, not re-derived).
+     * Seller-safe viewing feedback. getRecentViewings() returns buyer names
+     * (built for the internal property page) — this strips every
+     * identifying field before it ever reaches the view, keeping only what
+     * the seller is entitled to: that a viewing happened, what the outcome
+     * was, and the seller-visible note (never internal_notes).
      */
     private function buildSellerSafeFeedback(int $propertyId): array
     {
@@ -178,46 +204,133 @@ class SellerLinkController extends Controller
     }
 
     /**
-     * 2026-08-24 (Johan) — price-change history, single-line-per-event, from
-     * property_audit_log (event_type='price_changed') — no dedicated price-
-     * history table exists (properties.price is a single current value).
-     * Low fill rate (11.7% of active properties, per the availability audit)
-     * — folded in as a small strip that's simply absent when there's nothing
-     * to show, per Johan's instruction not to build a section that renders
-     * empty for most sellers. human_summary is already agency/seller-safe
-     * (just a price figure and a date, no PII).
+     * 2026-08-25 (Johan) — "Activity over time, WITH PRICE CHANGES MARKED ON
+     * IT... did the reduction move anything." Structured (numeric price +
+     * date), not the human_summary string buildPriceHistory() returns —
+     * this feeds both the chart's markers and the before/after narrative
+     * sentence below. Same source table as buildPriceHistory() (no second
+     * query family, just structured fields instead of a pre-formatted
+     * string) — old_values/new_values are JSON {"price": N}.
      */
-    private function buildPriceHistory(int $propertyId): \Illuminate\Support\Collection
+    private function buildPriceChangeEvents(int $propertyId): array
     {
         return DB::table('property_audit_log')
             ->where('property_id', $propertyId)
             ->where('event_type', 'price_changed')
-            ->orderByDesc('created_at')
-            ->limit(5)
-            ->get(['human_summary', 'created_at']);
+            ->orderBy('created_at')
+            ->get(['old_values', 'new_values', 'created_at'])
+            ->map(function ($row) {
+                $old = json_decode($row->old_values ?? '{}', true)['price'] ?? null;
+                $new = json_decode($row->new_values ?? '{}', true)['price'] ?? null;
+                return [
+                    'date' => \Carbon\Carbon::parse($row->created_at)->format('Y-m-d'),
+                    'old_price' => $old !== null ? (float) $old : null,
+                    'new_price' => $new !== null ? (float) $new : null,
+                ];
+            })
+            ->filter(fn ($e) => $e['old_price'] !== null && $e['new_price'] !== null && $e['old_price'] != $e['new_price'])
+            ->values()
+            ->all();
+    }
+
+    /**
+     * "did the reduction move anything" — the honest, re-derivable version:
+     * 7-day average daily views in the 7 days strictly before the most
+     * recent price change, vs the 7-day average starting on the change date
+     * (fewer days if the change is too recent to have 7 yet — never fewer
+     * than 1, and never fabricated for a change with zero days elapsed).
+     * Deliberately an AVERAGE both sides, not a single "the day after" spot
+     * figure — a single day is a defensible-sounding number that is
+     * actually a cherry-pick; an average of the same window length on both
+     * sides is the same claim any second reader can re-derive identically.
+     * Null when there's no price change, or the series doesn't cover it.
+     */
+    private function buildPriceChangeNarrative(array $priceChangeEvents, array $engagementSeries): ?array
+    {
+        if (empty($priceChangeEvents)) return null;
+
+        $latest = end($priceChangeEvents);
+        $changeDate = \Carbon\Carbon::parse($latest['date']);
+        $byDate = collect($engagementSeries)->keyBy('date');
+
+        $before = collect(range(1, 7))
+            ->map(fn ($d) => $changeDate->copy()->subDays($d)->format('Y-m-d'))
+            ->map(fn ($d) => $byDate[$d]['views'] ?? 0);
+
+        $daysSinceChange = min(7, (int) $changeDate->diffInDays(now()) + 1);
+        if ($daysSinceChange < 1) return null;
+
+        $after = collect(range(0, $daysSinceChange - 1))
+            ->map(fn ($d) => $changeDate->copy()->addDays($d)->format('Y-m-d'))
+            ->map(fn ($d) => $byDate[$d]['views'] ?? 0);
+
+        return [
+            'date' => $changeDate,
+            'new_price' => $latest['new_price'],
+            'direction' => $latest['new_price'] < $latest['old_price'] ? 'reduced' : 'increased',
+            'before_avg' => round($before->avg(), 1),
+            'after_avg' => round($after->avg(), 1),
+            'after_days' => $daysSinceChange,
+        ];
+    }
+
+    /**
+     * "your 2 bed 2 bath ... is on the market 90 days; a comparable ...
+     * {verb} in 40 days" — picks the best beds-matching comparable from an
+     * ALREADY family-filtered collection (getUnderOfferComparables()/
+     * getSoldComparables() both family-gate via TitleTypeClassifier before
+     * this ever sees them, so all three comparable sections — active,
+     * under-offer, sold — agree on what counts as "the same kind of
+     * property"), and only when the subject itself has a real days-on-market
+     * figure to compare. Deliberately verb-free — this returns STRUCTURE
+     * only; "sold" vs "went under offer" is templated in the view from
+     * self::LABELS, the one place those words live. Null when there's no
+     * usable match.
+     */
+    private function buildBestComparison(Property $property, ?int $daysOnMarket, \Illuminate\Support\Collection $comparables): ?array
+    {
+        if ($daysOnMarket === null || $comparables->isEmpty()) return null;
+
+        $best = $comparables
+            ->sortBy(function ($s) use ($property) {
+                // Prefer a beds-match; among those, keep the collection's
+                // own order (both source methods already sort most-recent-first).
+                return ($property->beds && $s['beds'] === $property->beds) ? 0 : 1;
+            })
+            ->first();
+
+        if (!$best) return null;
+
+        $days = $best['days'] ?? null;
+        if ($days === null) return null;
+
+        return [
+            'subject_days' => $daysOnMarket,
+            'comp_beds' => $best['beds'],
+            'comp_baths' => $best['baths'],
+            'comp_type' => $best['property_type'],
+            'comp_days' => $days,
+            'comp_price' => $best['price'],
+        ];
+    }
+
+    /** Live portal labels only (Property24 / Private Property / Company Website), no jargon, no URLs. */
+    private function buildPortalsLive(Property $property): array
+    {
+        return collect($property->portalLinks())
+            ->where('status', 'live')
+            ->pluck('label')
+            ->values()
+            ->all();
     }
 
     /**
      * VALID token, resource dead — either the property was soft-deleted
-     * ($property is null) or it's CONCLUDED (sold/transferred/rented/let_out).
-     * Same shape as SharedMatchController::showExpired(): resolve the agency
-     * from whatever's still resolvable, show the seller's current agent only
-     * if they're actually still live (is_active + not deleted), otherwise
-     * fall through to the agency's own contact details via the SAME shared
-     * fallback service every other public link in this codebase already
-     * uses — not a new resolver.
-     *
-     * A sold property is, commercially, a live buyer lead standing on the
-     * page — not just an error case — so the 'sold' reason gets its own
-     * "similar properties" call to action the 'deleted'/'revoked' reasons
-     * don't (there's no agency-marketable property left to point at, or no
-     * property context in the revoked case).
-     *
-     * 2026-08-25 (Johan) — delegates to the shared
-     * PublicLinkUnavailableResponder rather than rendering its own
-     * seller-link/unavailable.blade.php — this file's own reason-branching
-     * logic used to be near-identical to PublicAgencyPropertiesController's;
-     * both now feed the ONE shared view. See that service's docblock.
+     * ($property is null) or it's CONCLUDED (sold/transferred/rented/let_out),
+     * or the link itself was revoked. Resolve the agency from whatever's
+     * still resolvable, show the seller's current agent only if they're
+     * actually still live (is_active + not deleted), otherwise fall through
+     * to the agency's own contact details via PublicLinkUnavailableResponder.
      */
     private function showUnavailable(PropertySellerLink $link, ?Property $property, string $reason)
     {
