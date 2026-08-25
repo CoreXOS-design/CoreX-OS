@@ -24,14 +24,22 @@
 
     $hasPortalData = $portalPerformance['has_data'] ?? false;
 
-    // 2026-08-25 (Johan/cc1) — "made more visual" meant an actual photo of
-    // the house, not just stats. Same choke point every other property-
+    // 2026-08-25 (Johan) — "the seller knows their property." A full-width
+    // 16:9 hero (~500px tall) meant the entire first screen was one image —
+    // worse still when (as on this listing) the file lives on live's disk,
+    // not staging's, and PropertyThumbnailService::displayUrl() correctly
+    // returns null: a giant grey placeholder. Capped to a fixed, modest
+    // height below (a proportion, not the whole first screen) and — per the
+    // same visit's "if nothing to display, remove the block" rule — the
+    // WHOLE image area (not a placeholder) is now absent when there's no
+    // photo at all; the price/facts panel underneath it never depended on
+    // the image and stays. Still the same choke point every other property-
     // image surface uses (PropertyThumbnailService::displayUrl(), via the
     // Property model's thumbFor() wrapper) — it returns null when neither
-    // the thumbnail nor the original exists on disk, so the @if/@else below
-    // is a REAL gate, never a broken-icon or bare-alt-text fallback. Same
-    // first-image resolution order as buyer-portal/_property-card.blade.php
-    // — copied, not reinvented.
+    // the thumbnail nor the original exists on disk, so this is a REAL
+    // gate, never a broken-icon or bare-alt-text fallback. Same first-image
+    // resolution order as buyer-portal/_property-card.blade.php — copied,
+    // not reinvented.
     $heroImage = $property->thumbFor(
         ($property->gallery_images_json[0] ?? null)
         ?? ($property->dawn_images_json[0] ?? null)
@@ -47,6 +55,19 @@
         [$property->beds, 'bed'], [$property->baths, 'bath'], [$property->garages, 'garage'],
     ])->filter(fn ($f) => !empty($f[0]));
     $erfSize = $property->erf_size_m2 ?? null;
+
+    // 2026-08-25 (Johan) — "Stats should work on the basis: if nothing to
+    // display, remove." Applied here to the individual Property24 views /
+    // enquiries tiles (previously a "—" / "Not yet reporting" placeholder
+    // pair when portal data hasn't landed yet) — a tile only exists in this
+    // list when it has a real value. Days listed is always derivable (the
+    // fallback chain in getComplianceStatus() never returns null in
+    // practice), so it's always present.
+    $demandStats = collect([
+        ['value' => $daysListed !== null ? $daysListed : null, 'label' => 'Days listed'],
+        ['value' => $hasPortalData ? number_format($portalPerformance['views']) : null, 'label' => 'Property24 views (30d)'],
+        ['value' => $hasPortalData ? number_format($portalPerformance['enquiries']) : null, 'label' => 'Enquiries (30d)'],
+    ])->filter(fn ($s) => $s['value'] !== null);
 @endphp
 <!DOCTYPE html>
 <html lang="en">
@@ -139,18 +160,16 @@
             </div>
         </section>
 
-        {{-- Property photo + the facts a seller recognises their own home by --}}
+        {{-- Property photo (proportionate, present only when a real photo exists)
+             + the facts a seller recognises their own home by (always shown —
+             price/suburb/bed/bath never depended on the image being there). --}}
         <section class="surface-card overflow-hidden">
-            <div class="relative w-full overflow-hidden" style="background: var(--surface-2); aspect-ratio: 16/9;">
-                @if($heroImage)
+            @if($heroImage)
+                <div class="relative w-full overflow-hidden" style="background: var(--surface-2); height: 200px;">
                     <img src="{{ $heroImage }}" alt="{{ $property->title ?? 'Your property' }}" loading="lazy"
                          class="absolute inset-0 w-full h-full object-cover">
-                @else
-                    <div class="absolute inset-0 flex items-center justify-center" style="color: var(--text-muted); opacity: 0.4;">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1" stroke="currentColor" class="w-14 h-14"><path stroke-linecap="round" stroke-linejoin="round" d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 0 0 1.5-1.5V6a1.5 1.5 0 0 0-1.5-1.5H3.75A1.5 1.5 0 0 0 2.25 6v12a1.5 1.5 0 0 0 1.5 1.5Z"/></svg>
-                    </div>
-                @endif
-            </div>
+                </div>
+            @endif
             <div class="p-5">
                 <div class="flex items-start justify-between gap-3 flex-wrap">
                     <div class="text-2xl font-extrabold" style="color: var(--brand-default);">{{ $property->formattedPrice() }}</div>
@@ -158,6 +177,7 @@
                 @if($property->suburb)
                 <div class="text-sm mt-0.5" style="color: var(--text-muted);">{{ $property->suburb }}{{ $property->city ? ', ' . $property->city : '' }}</div>
                 @endif
+                @if($propFacts->isNotEmpty() || $erfSize)
                 <div class="flex flex-wrap items-center gap-4 mt-3">
                     @foreach($propFacts as [$v, $l])
                         <div class="flex items-baseline gap-1.5">
@@ -172,6 +192,7 @@
                         </div>
                     @endif
                 </div>
+                @endif
             </div>
         </section>
 
@@ -204,36 +225,33 @@
                 <p class="text-sm mb-4" style="color: var(--text-secondary);">No buyers in our system currently match your home's price and criteria — this moves as new buyers register and as your listing is refreshed.</p>
             @endif
 
+            @if($demandStats->isNotEmpty())
             <div class="grid grid-cols-2 sm:grid-cols-3 gap-3 pt-4" style="border-top: 1px solid var(--border);">
+                @foreach($demandStats as $stat)
                 <div class="text-center sm:text-left">
-                    <div class="text-lg font-bold" style="color: var(--text-primary);">{{ $daysListed !== null ? $daysListed : '—' }}</div>
-                    <div class="text-[0.625rem] font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Days listed</div>
+                    <div class="text-lg font-bold" style="color: var(--text-primary);">{{ $stat['value'] }}</div>
+                    <div class="text-[0.625rem] font-semibold uppercase tracking-wider" style="color: var(--text-muted);">{{ $stat['label'] }}</div>
                 </div>
-                <div class="text-center sm:text-left">
-                    @if($hasPortalData)
-                        <div class="text-lg font-bold" style="color: var(--text-primary);">{{ number_format($portalPerformance['views']) }}</div>
-                        <div class="text-[0.625rem] font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Property24 views (30d)</div>
-                    @else
-                        <div class="text-lg font-bold" style="color: var(--text-muted);">—</div>
-                        <div class="text-[0.625rem] font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Not yet reporting</div>
-                    @endif
-                </div>
-                <div class="text-center sm:text-left">
-                    @if($hasPortalData)
-                        <div class="text-lg font-bold" style="color: var(--text-primary);">{{ number_format($portalPerformance['enquiries']) }}</div>
-                        <div class="text-[0.625rem] font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Enquiries (30d)</div>
-                    @else
-                        <div class="text-lg font-bold" style="color: var(--text-muted);">—</div>
-                        <div class="text-[0.625rem] font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Not yet reporting</div>
-                    @endif
-                </div>
+                @endforeach
             </div>
+            @endif
         </section>
 
-        {{-- SECTION 2 — What are they saying? (viewing feedback, always visible, honest at zero) --}}
+        {{-- SECTION 2 — What are they saying? (viewing feedback)
+             2026-08-25 (Johan) — "Stats should work on the basis: if nothing
+             to display, remove." At zero viewings this used to say "0
+             viewings recorded so far" immediately followed by "No viewing
+             feedback yet... will appear here" — the same nothing stated
+             twice. The whole card (heading included) is now absent when
+             there have been no viewings at all. When there HAVE been
+             viewings but none carry feedback notes yet, the section stays —
+             "N viewings recorded" is real information on its own, and "no
+             feedback yet" is a genuinely different fact next to it, not a
+             repeat. --}}
+        @if(($feedbackRollup['total_viewings'] ?? 0) > 0)
         <section class="surface-card p-5">
             <h2 class="text-base font-bold mb-1" style="color: var(--text-primary);">What are viewers saying?</h2>
-            <p class="text-xs mb-4" style="color: var(--text-muted);">{{ $feedbackRollup['total_viewings'] ?? 0 }} viewing{{ ($feedbackRollup['total_viewings'] ?? 0) === 1 ? '' : 's' }} recorded so far.</p>
+            <p class="text-xs mb-4" style="color: var(--text-muted);">{{ $feedbackRollup['total_viewings'] }} viewing{{ $feedbackRollup['total_viewings'] === 1 ? '' : 's' }} recorded so far.</p>
 
             @if(count($viewingFeedback) > 0)
                 <div class="space-y-3">
@@ -257,10 +275,11 @@
                 </div>
             @else
                 <p class="text-sm" style="color: var(--text-secondary);">
-                    No viewing feedback yet. As soon as a viewing is held, your agent's notes and the buyer's feedback will appear here.
+                    No viewing feedback yet. As soon as your agent adds notes, they'll appear here.
                 </p>
             @endif
         </section>
+        @endif
 
         {{-- SECTION 3 — What's your agent doing? (insights only when present — hidden, not empty) --}}
         @if($recommendations->isNotEmpty())
@@ -282,20 +301,32 @@
         </section>
         @endif
 
-        {{-- SECTION 4 — Market position (price/value, with price-change strip folded in when present) --}}
-        @if(!empty($marketPosition) || $priceHistory->isNotEmpty())
+        {{-- SECTION 4 — Market position (price/value, with price-change strip folded in when present)
+             2026-08-25 (Johan) — AREA AVERAGE REMOVED. His words: "many
+             buyers, property is R250k below market avg yet its not sold.
+             that look bad for what the agency is doing." An area average
+             spans every property type in the area — comparing it to one
+             2-bed apartment was never an honest comparison, and next to a
+             high buyer-demand number it reads as "your agent isn't doing
+             their job." Estimated Market Value stays — paired with the
+             property's OWN asking price, which is the real, useful,
+             explainable comparison (over/under the estimate) an agent can
+             actually have a conversation about. Section gate updated to key
+             off recommended_price specifically, since that's the only half
+             of $marketPosition this section still reads. --}}
+        @if(($marketPosition['recommended_price'] ?? null) || $priceHistory->isNotEmpty())
         <section class="surface-card p-5">
             <h2 class="text-base font-bold mb-3" style="color: var(--text-primary);">Where your price sits</h2>
 
-            @if(!empty($marketPosition))
+            @if($marketPosition['recommended_price'] ?? null)
             <div class="grid grid-cols-2 gap-4 mb-3">
                 <div>
-                    <div class="text-lg font-bold" style="color: var(--brand-default);">R {{ number_format($marketPosition['recommended_price'] ?? 0) }}</div>
+                    <div class="text-lg font-bold" style="color: var(--brand-default);">R {{ number_format($marketPosition['recommended_price']) }}</div>
                     <div class="text-[0.625rem] font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Estimated market value</div>
                 </div>
                 <div>
-                    <div class="text-lg font-bold" style="color: var(--text-primary);">R {{ number_format($marketPosition['area_avg_price'] ?? 0) }}</div>
-                    <div class="text-[0.625rem] font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Area average</div>
+                    <div class="text-lg font-bold" style="color: var(--text-primary);">{{ $property->formattedPrice() }}</div>
+                    <div class="text-[0.625rem] font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Your asking price</div>
                 </div>
             </div>
             @endif
