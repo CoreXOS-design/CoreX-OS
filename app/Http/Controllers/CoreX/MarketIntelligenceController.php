@@ -930,6 +930,23 @@ class MarketIntelligenceController extends Controller
         $prospectingSetupUnmappedSuburbs   = $setupSvc->unmappedSuburbsFor($agencyId);
         } // end !$isFragment (setup-wizard data)
 
+        // MIC SPEED FIX (Johan, 2026-08-22) — $snapshot/$resolvedListings/
+        // $segmentLabels (and the $filters built only to feed them) used to be
+        // computed here on every full page load: snapshot() ~6.3s + paginate()
+        // ~4.1s = ~10.3s, BOTH independently resolving the same 39k-row
+        // ProspectingListingResolver::all() set that the real render path
+        // below (built from its own $query->get() at the top of this method)
+        // never touches. Confirmed by exhaustive search: work.blade.php and
+        // every partial it includes never reference $snapshot, $resolvedListings,
+        // $segmentLabels, or $filters — the values were computed, boxed into
+        // compact() for the view, and never read. This was the "double
+        // resolution" flagged as known technical debt; removing it changes
+        // no rendered output because nothing downstream ever consumed it.
+        // If a future feature on this screen genuinely needs an intelligence
+        // snapshot or a segment-label map, call $intelligence->snapshot()
+        // fresh at that call site — do not resurrect this block "just in
+        // case" the way it silently outlived whatever originally read it.
+
         $listingStates = app(\App\Services\Prospecting\ProspectingListingStateEnricher::class)
             ->enrich($listings->items(), $agencyId);
 

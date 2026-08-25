@@ -119,3 +119,70 @@ under time pressure on the screen everyone uses. Scope it as its own spec
 (`.ai/specs/`) with Johan's sign-off on the UX/behavioural tradeoffs (e.g.
 whether "50 items per page" can stay exact once grouping happens purely
 per-page) before any code is written.
+
+## Sketch of Option A, for whoever picks this up (Andre or otherwise)
+
+Not a commitment to this exact shape — a starting point so the next person
+isn't deriving the approach from zero.
+
+**Step 1 — resolve this page's group keys in SQL**, not PHP:
+
+```sql
+SELECT COALESCE(property_group_id, CONCAT('single_', id)) AS group_key,
+       MAX(<active sort column>) AS sort_val   -- representative value per group
+FROM prospecting_listings
+WHERE agency_id = ? AND <same filters as today>
+GROUP BY group_key
+ORDER BY sort_val <dir>
+LIMIT 50 OFFSET ?
+```
+
+This needs a supporting composite index — `(agency_id, property_group_id,
+<sort_col>)` at minimum; likely one such index per allowed sort column
+(`last_seen_at`, `first_seen_at`, `price`, `suburb` — same set round 1 already
+indexed on the ungrouped table), since `GROUP BY` + `ORDER BY` on a derived
+column rarely uses a single index cleanly. Needs its own `EXPLAIN` pass
+before trusting it at 39k+ rows, not assumed.
+
+**Step 2 — hydrate only those groups' rows**:
+
+```sql
+SELECT * FROM prospecting_listings
+WHERE agency_id = ? AND COALESCE(property_group_id, CONCAT('single_', id)) IN (<50 keys from step 1>)
+```
+
+Then run the EXISTING in-memory `groupBy`/`map`/portals-attachment logic on
+this ~50-150 row result instead of the full 39,665 — unchanged code, just a
+pre-filtered input. This is deliberately the smallest possible change to the
+grouping logic itself, to keep the "what breaks if rushed" surface small.
+
+**Step 3 — stock-row injection becomes page-scoped**: resolve which of
+*this page's* resolved groups are company stock (existing `OnMarketStockService`
+identity check, called against ~50 rows instead of the full set — likely fast
+enough with no further work), inject/float only within that already-small set.
+The one open UX question this surfaces: today, stock rows float to the top of
+whichever page they land on. Per-page resolution means a stock row's floated
+position is now relative to ITS page, not the whole list — worth confirming
+with Johan whether that's the same behaviour agents expect, or whether stock
+rows should always be forced onto page 1 regardless of natural sort order
+(a deliberate product decision, not an implementation detail to guess at).
+
+**Acceptance criteria** (in addition to the reconciliation/row-shape checks
+already listed above):
+- [ ] Every allowed sort (`last_seen_at`, `first_seen_at`, `price`, `suburb`)
+      produces the IDENTICAL page-by-page row sequence as today's full-set
+      approach, for at least 3 real agencies of varying size (small/medium/
+      the largest), verified programmatically (not eyeballed), not just page 1.
+- [ ] Total page count (`LengthAwarePaginator`'s reported total) matches
+      today's grouped total exactly — the group-collapsing count, not the
+      raw row count.
+- [ ] Stock-row float behaviour explicitly signed off by Johan (see the open
+      question above) before merge, not discovered as a surprise after.
+- [ ] Controller time for the full page (agency 1, admin/all scope, no
+      filters) measured under 2s on live — the actual target, not "faster
+      than before."
+- [ ] Every downstream consumer of `$listings->items()` (buyer tiers,
+      suggested-action resolution, state enrichment, the `_fragments=1`
+      JSON payload) verified unchanged in shape and content for a fixed
+      filter/page, before/after diffed to zero — same discipline as round
+      2's Option 2 reconciliation proof.
