@@ -87,6 +87,15 @@ class SellerLinkController extends Controller
         $marketPosition = $intel->getLatestMarketPosition($property->id);
         $comparables = $intel->getComparableListings($property->id);
         $portalPerformance = $intel->getPortalPerformance($property->id, rangeDays: 30);
+        // 2026-08-25 (Johan) — "port the graph": SAME data source the
+        // internal Intelligence tab's Portal Engagement chart uses
+        // (corex/properties/intelligence/_portal-engagement-chart.blade.php),
+        // no second query. 180 days fetched once; the page's own 30D/90D/6M
+        // toggle slices it client-side, same convention as that partial's
+        // Alpine store (not reused here — this is a standalone public page
+        // with no Alpine/Vite app shell, so the toggle is plain JS instead;
+        // see the view for why).
+        $portalEngagement = $intel->getPortalEngagementSeries($property->id, 180);
         $recommendations = DB::table('property_recommendations')
             ->where('property_id', $property->id)
             ->where('seller_visible', true)
@@ -105,6 +114,7 @@ class SellerLinkController extends Controller
             'buyerDemand' => $this->buildBuyerDemand($property->id, $intel),
             'priceHistory' => $this->buildPriceHistory($property->id),
             'portalPerformance' => $portalPerformance,
+            'portalEngagement' => $portalEngagement,
             'compliance' => $compliance,
             'marketPosition' => $marketPosition,
             'comparables' => $comparables,

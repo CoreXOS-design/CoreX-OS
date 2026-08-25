@@ -68,6 +68,21 @@
         ['value' => $hasPortalData ? number_format($portalPerformance['views']) : null, 'label' => 'Property24 views (30d)'],
         ['value' => $hasPortalData ? number_format($portalPerformance['enquiries']) : null, 'label' => 'Enquiries (30d)'],
     ])->filter(fn ($s) => $s['value'] !== null);
+
+    // 2026-08-25 (Johan) — "port the graph" from the internal Intelligence
+    // tab's Portal Engagement chart. Same data (getPortalEngagementSeries(),
+    // called once in the controller, no second query) and the same chart
+    // CONFIG (colours/axes/tooltip copied verbatim from resources/js/
+    // nexus-charts.js's NexusCharts.portalEngagement() below) — this page
+    // never loads the authenticated app's Vite bundle (no public page in
+    // this codebase does; @vite() assumes the logged-in shell), so the
+    // config is inlined rather than imported. See the report for the exact
+    // line this was copied from.
+    $engagementSeries = $portalEngagement['series'] ?? [];
+    $hasEngagementData = ($portalEngagement['has_data'] ?? false) || ($portalEngagement['pp_has_data'] ?? false);
+    $hasPpEngagement = $portalEngagement['pp_has_data'] ?? false;
+    $ppEngagementViews = array_sum(array_column($engagementSeries, 'pp_views'));
+    $ppEngagementLeads = array_sum(array_column($engagementSeries, 'pp_leads'));
 @endphp
 <!DOCTYPE html>
 <html lang="en">
@@ -80,6 +95,12 @@
     <link rel="preconnect" href="https://fonts.bunny.net">
     <link href="https://fonts.bunny.net/css?family=figtree:400,500,600,700,800&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
+    @if($hasEngagementData)
+        {{-- Loaded only when there's a chart to draw — same CDN-script
+             convention this whole page already uses for Tailwind, not a
+             new pattern. --}}
+        <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+    @endif
     <style>
         :root {
             --bg: #f4f6fb;
@@ -110,6 +131,8 @@
         }
         .ds-badge-success { background: color-mix(in srgb, var(--ds-green) 12%, transparent); color: var(--ds-green); border-color: color-mix(in srgb, var(--ds-green) 28%, transparent); }
         .ds-badge-warning { background: color-mix(in srgb, var(--ds-amber) 12%, transparent); color: var(--ds-amber); border-color: color-mix(in srgb, var(--ds-amber) 28%, transparent); }
+        .engagement-range-btn { background: var(--surface); border-color: var(--border); color: var(--text-secondary); cursor: pointer; }
+        .engagement-range-btn.active { background: var(--brand-default); border-color: var(--brand-default); color: #fff; }
         .tier-chip {
             display: inline-flex; align-items: center; gap: .35rem;
             border-radius: 9999px; padding: 0.3rem 0.75rem; font-size: 0.75rem; font-weight: 600;
@@ -301,6 +324,57 @@
         </section>
         @endif
 
+        {{-- SECTION 3b — Views & enquiries over time. Ported from the
+             internal Intelligence tab's Portal Engagement chart (Johan,
+             2026-08-25) — "answers 'what is my agent actually doing' with
+             evidence instead of adjectives." Seller framing: no "P24"/"PP"
+             jargon (spelled out), "leads" (agent language) becomes
+             "enquiries" (what a seller calls the same thing) everywhere,
+             including inside the reused chart's own dataset label. Same
+             honest backfill distinction the internal page's subtitle
+             already makes. Rule 2: absent entirely, not an empty chart,
+             when there's no engagement data on either portal at all. --}}
+        @if($hasEngagementData)
+        <section class="surface-card p-5" id="engagement-section" data-engagement-series='@json($engagementSeries)'>
+            <div class="flex items-center justify-between mb-1 flex-wrap gap-2">
+                <div>
+                    <h2 class="text-base font-bold" style="color: var(--text-primary);">Views &amp; enquiries over time</h2>
+                    <p class="text-xs mt-0.5" style="color: var(--text-muted);">
+                        Property24 daily views &amp; enquiries, backfilled to ~6 months. Private Property views &amp; enquiries are only collected from when tracking was switched on for your listing — there's no history before that date.
+                    </p>
+                </div>
+                <div class="flex items-center gap-1 flex-shrink-0" id="engagement-range-toggle">
+                    <button type="button" data-range="30" class="engagement-range-btn text-[0.6875rem] font-semibold px-2 py-1 rounded-md border">30D</button>
+                    <button type="button" data-range="90" class="engagement-range-btn text-[0.6875rem] font-semibold px-2 py-1 rounded-md border">90D</button>
+                    <button type="button" data-range="all" class="engagement-range-btn text-[0.6875rem] font-semibold px-2 py-1 rounded-md border">6M</button>
+                </div>
+            </div>
+
+            <div class="flex items-center gap-4 mt-3 mb-2 text-xs flex-wrap" style="color: var(--text-secondary);">
+                <span class="inline-flex items-center gap-1">
+                    <span class="inline-block w-2 h-2 rounded-full" style="background:#00d4aa;"></span>
+                    Views <span class="font-semibold" id="engagement-total-views"></span>
+                </span>
+                <span class="inline-flex items-center gap-1">
+                    <span class="inline-block w-2 h-2 rounded-full" style="background:#ef4444;"></span>
+                    Enquiries <span class="font-semibold" id="engagement-total-leads"></span>
+                </span>
+                @if($hasPpEngagement)
+                    <span class="inline-flex items-center gap-1" title="Private Property engagement since tracking was switched on for this listing — no history before that date.">
+                        <span class="inline-block w-2 h-2 rounded-full" style="background:#8b5cf6;"></span>
+                        Private Property views {{ number_format($ppEngagementViews) }}
+                        <span style="color: var(--text-muted);">· enquiries {{ number_format($ppEngagementLeads) }}</span>
+                    </span>
+                @endif
+                <span style="color: var(--text-muted);" class="text-[0.6875rem]" id="engagement-day-label"></span>
+            </div>
+
+            <div style="position: relative; height: 220px;">
+                <canvas id="engagement-canvas"></canvas>
+            </div>
+        </section>
+        @endif
+
         {{-- SECTION 4 — Market position (price/value, with price-change strip folded in when present)
              2026-08-25 (Johan) — AREA AVERAGE REMOVED. His words: "many
              buyers, property is R250k below market avg yet its not sold.
@@ -388,5 +462,158 @@
             setTimeout(function () { window.location.reload(); }, 500);
         }, 60000);
     </script>
+
+    @if($hasEngagementData)
+    <script>
+        // Views & enquiries chart — plain JS, no Alpine/Vite (this page, like
+        // every other public link page, never loads the authenticated app
+        // shell). Chart.js config below is copied VERBATIM from
+        // resources/js/nexus-charts.js's window.NexusCharts.portalEngagement()
+        // (only the "Leads"/"P24 Leads" labels are renamed to "Enquiries" for
+        // seller framing) — same data, same visual design, not re-invented.
+        (function () {
+            var section = document.getElementById('engagement-section');
+            if (!section) return;
+            var series = JSON.parse(section.getAttribute('data-engagement-series') || '[]');
+            var canvas = document.getElementById('engagement-canvas');
+            var totalViewsEl = document.getElementById('engagement-total-views');
+            var totalLeadsEl = document.getElementById('engagement-total-leads');
+            var dayLabelEl = document.getElementById('engagement-day-label');
+            var chart = null;
+            var range = '30';
+
+            function filtered() {
+                if (range === 'all') return series;
+                var n = parseInt(range, 10);
+                return series.slice(-n);
+            }
+
+            function fmt(d) {
+                var dt = new Date(d + 'T00:00:00');
+                return dt.toLocaleDateString('en-ZA', { day: 'numeric', month: 'short' });
+            }
+
+            function sum(rows, key) {
+                return rows.reduce(function (a, r) { return a + (r[key] || 0); }, 0);
+            }
+
+            function buildChart(labels, viewsData, leadsData) {
+                return new Chart(canvas, {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [
+                            {
+                                type: 'line',
+                                label: 'Views',
+                                data: viewsData,
+                                borderColor: '#00d4aa',
+                                backgroundColor: 'rgba(0, 212, 170, 0.12)',
+                                borderWidth: 2,
+                                pointRadius: 0,
+                                pointHoverRadius: 4,
+                                tension: 0.3,
+                                fill: true,
+                                yAxisID: 'y',
+                                order: 2,
+                            },
+                            {
+                                type: 'bar',
+                                label: 'Enquiries',
+                                data: leadsData,
+                                backgroundColor: 'rgba(239, 68, 68, 0.55)',
+                                borderColor: '#ef4444',
+                                borderWidth: 0,
+                                borderRadius: 2,
+                                barPercentage: 0.9,
+                                categoryPercentage: 0.9,
+                                maxBarThickness: 14,
+                                yAxisID: 'yLeads',
+                                order: 1,
+                            },
+                        ],
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        interaction: { mode: 'index', intersect: false },
+                        plugins: {
+                            legend: {
+                                display: true,
+                                position: 'top',
+                                align: 'end',
+                                labels: { boxWidth: 10, boxHeight: 10, font: { size: 11 }, color: '#9ca3af', usePointStyle: true },
+                            },
+                            tooltip: {
+                                backgroundColor: '#1f2937',
+                                titleFont: { size: 12 },
+                                bodyFont: { size: 12 },
+                                padding: 10,
+                                cornerRadius: 6,
+                            },
+                        },
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                position: 'left',
+                                title: { display: true, text: 'Views', font: { size: 10 }, color: '#00d4aa' },
+                                grid: { color: 'rgba(148, 163, 184, 0.15)' },
+                                ticks: { font: { size: 11 }, color: '#9ca3af', precision: 0 },
+                                border: { display: false },
+                            },
+                            yLeads: {
+                                beginAtZero: true,
+                                position: 'right',
+                                suggestedMax: 4,
+                                title: { display: true, text: 'Enquiries', font: { size: 10 }, color: '#ef4444' },
+                                grid: { drawOnChartArea: false },
+                                ticks: { font: { size: 11 }, color: '#9ca3af', precision: 0, stepSize: 1 },
+                                border: { display: false },
+                            },
+                            x: {
+                                grid: { display: false },
+                                ticks: { font: { size: 10 }, color: '#9ca3af', maxRotation: 0, autoSkip: true, maxTicksLimit: 8 },
+                                border: { display: false },
+                            },
+                        },
+                    },
+                });
+            }
+
+            function apply() {
+                var f = filtered();
+                var labels = f.map(function (r) { return fmt(r.date); });
+                var views = f.map(function (r) { return r.views; });
+                var leads = f.map(function (r) { return r.leads; });
+
+                if (!chart) {
+                    chart = buildChart(labels, views, leads);
+                } else {
+                    chart.data.labels = labels;
+                    chart.data.datasets[0].data = views;
+                    chart.data.datasets[1].data = leads;
+                    chart.update();
+                }
+
+                if (totalViewsEl) totalViewsEl.textContent = sum(f, 'views');
+                if (totalLeadsEl) totalLeadsEl.textContent = sum(f, 'leads');
+                if (dayLabelEl) dayLabelEl.textContent = f.length ? '· ' + f.length + ' days' : '';
+
+                document.querySelectorAll('.engagement-range-btn').forEach(function (btn) {
+                    btn.classList.toggle('active', btn.getAttribute('data-range') === range);
+                });
+            }
+
+            document.querySelectorAll('.engagement-range-btn').forEach(function (btn) {
+                btn.addEventListener('click', function () {
+                    range = btn.getAttribute('data-range');
+                    apply();
+                });
+            });
+
+            apply();
+        })();
+    </script>
+    @endif
 </body>
 </html>
