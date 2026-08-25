@@ -338,6 +338,69 @@ class SuburbReportDataService
                 'median_days_to_sell' => $this->median(array_values(array_filter(array_column($salesActivity['sold'], 'days_to_sell'), fn ($d) => $d !== null))),
                 'source'              => "status='granted' OR registered (DR1 deals.registration_date / DR2 deals_v2.actual_registration) = sold; offer_date with neither = under offer; declined = excluded",
             ],
+            // Market (portal) picture — Johan, 2026-08-25: "the report now
+            // shows 14 stock on market — that's clearly an agency picture.
+            // So from MIC we can show the portal picture." Sourced from
+            // prospecting_listings — MIC's own capture of every P24/PP
+            // listing it has seen for this suburb, agency AND competitor
+            // stock alike, NOT p24_listings (confirmed: every p24_listings
+            // row already carries this agency's own agency_id — that table
+            // IS the agency picture, already used above; it is not a
+            // market-wide table). See marketPicture() for what is and is
+            // not honestly available.
+            'market' => $this->marketPicture($agencyId, $suburbNorm),
+        ];
+    }
+
+    /**
+     * The market (portal) side of stock/sold/under-offer/price-reduction
+     * activity — MIC's own capture of P24 + Private Property listings for
+     * this suburb (prospecting_listings), split by portal where the data
+     * supports it. Honestly incomplete in one respect, documented rather
+     * than papered over: prospecting_listings records WHEN a price changed
+     * (price_changed_at) but not the old/new amounts, so the market side of
+     * price-reduction activity is a real count only, no rand figures — see
+     * 'price_reductions.amounts_available' => false below.
+     */
+    private function marketPicture(int $agencyId, string $suburbNorm): array
+    {
+        $rows = DB::table('prospecting_listings')
+            ->whereNull('deleted_at')
+            ->where('agency_id', $agencyId)
+            ->whereRaw('LOWER(suburb) = ?', [$suburbNorm])
+            ->get(['portal_source', 'portal_status', 'is_active', 'price', 'price_changed_at', 'off_market_at', 'first_seen_at']);
+
+        // "active" per portal_status where present, else the boolean flag —
+        // a handful of rows carry is_active with no portal_status at all.
+        $isActive = fn ($r) => $r->portal_status === 'active' || ($r->portal_status === null && (bool) $r->is_active);
+        $isSold      = fn ($r) => $r->portal_status === 'sold';
+        $isUnderOffer = fn ($r) => $r->portal_status === 'under_offer';
+
+        $bySource = fn (\Illuminate\Support\Collection $set) => [
+            'p24'   => $set->where('portal_source', 'p24')->count(),
+            'pp'    => $set->where('portal_source', 'pp')->count(),
+            'total' => $set->count(),
+        ];
+
+        $stock       = $rows->filter($isActive);
+        $sold        = $rows->filter($isSold);
+        $underOffer  = $rows->filter($isUnderOffer);
+
+        // Reductions — real, but count-only (no old/new amount captured at
+        // market level). Bounded to the last 12 months so this reads as
+        // "recent activity", matching the agency-side chart's own window.
+        $twelveMonthsAgo = now()->subMonths(12)->toDateString();
+        $reduced = $rows->filter(fn ($r) => $r->price_changed_at !== null && $r->price_changed_at >= $twelveMonthsAgo);
+
+        return [
+            'available'  => $rows->isNotEmpty(),
+            'stock'      => $bySource($stock),
+            'sold'       => $bySource($sold),
+            'under_offer' => $bySource($underOffer),
+            'price_reductions' => [
+                'counts'            => $bySource($reduced),
+                'amounts_available' => false, // honestly: MIC records THAT a price changed, not the old/new figures
+            ],
         ];
     }
 
@@ -497,6 +560,15 @@ class SuburbReportDataService
             ->join('contacts', 'contacts.id', '=', 'contact_matches.contact_id')
             ->where('contact_matches.agency_id', $agencyId)
             ->where('contact_matches.status', ContactMatch::STATUS_ACTIVE)
+            // 2026-08-25 fix — Johan, on the buyers pipeline: "we did pick up
+            // that rentals were included" in buyer counts. Same leak here:
+            // this query never filtered listing_type, so a rental-search
+            // wishlist counted as a "buyer watching this suburb" exactly
+            // like a real purchase-intent one. Confirmed on real data: 163
+            // of 521 active contact_matches (31%) are listing_type='rental'.
+            // Buyer demand on a seller-facing suburb report is a to-BUY
+            // signal — a renter is not a prospective purchaser of a home.
+            ->where('contact_matches.listing_type', 'sale')
             ->where(function ($q) use ($today) {
                 $q->whereNull('contact_matches.auto_archive_at')->orWhere('contact_matches.auto_archive_at', '>', $today);
             })
