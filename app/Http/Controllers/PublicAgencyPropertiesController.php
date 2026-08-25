@@ -48,16 +48,23 @@ class PublicAgencyPropertiesController extends Controller
         // as a link that never existed. Fetch unscoped so we control the
         // not-found/wrong-agency/deleted case ourselves instead of letting
         // implicit route-model-binding throw before this method runs.
-        $propertyModel = Property::withoutGlobalScopes()->withTrashed()->find($property);
+        $propertyModel = Property::withoutGlobalScopes()->withTrashed()->with('agent')->find($property);
 
         if (!$propertyModel || $propertyModel->deleted_at !== null || (int) $propertyModel->agency_id !== (int) $agency->id) {
+            // Unknown/wrong-agency property id — nothing to derive an agent
+            // from, agency-only branding (matches the "what we actually
+            // know" rule: never promise a personal contact the data can't
+            // support).
             return $this->showUnavailable($agency);
         }
 
         // Public listing — must be compliance-ready
         $svc = app(\App\Services\Compliance\MarketingReadinessService::class);
         if (!$svc->isMarketable($propertyModel)) {
-            return $this->showUnavailable($agency);
+            // A real (if now dead) property IS resolvable here — offer its
+            // own listing agent, same as the seller-live-link page does for
+            // the same "sold/withdrawn" reason.
+            return $this->showUnavailable($agency, $propertyModel->agent);
         }
 
         $propertyModel->load('agent');
@@ -75,13 +82,15 @@ class PublicAgencyPropertiesController extends Controller
      * be listed and now isn't, matching the convention used everywhere else
      * fixed today.
      */
-    private function showUnavailable(Agency $agency)
+    private function showUnavailable(Agency $agency, $agent = null)
     {
         return app(PublicLinkUnavailableResponder::class)->respond(
             $agency->id,
-            'This listing is no longer available',
-            'It may have sold, been withdrawn, or is temporarily off the market.',
-            primaryAction: ['label' => 'View current listings', 'url' => route('public.agency.properties.index', ['agencySlug' => $agency->slug])],
+            "Shucks — this property isn't available any more",
+            'It may have sold, been withdrawn, or come off the market — but there\'s new stock every week.',
+            $agent,
+            primaryAction: ['label' => 'See current stock', 'url' => route('public.agency.properties.index', ['agencySlug' => $agency->slug])],
+            eyebrow: 'This listing',
         );
     }
 }

@@ -9,6 +9,7 @@ use App\Models\Contact;
 use App\Models\Property;
 use App\Models\User;
 use App\Services\PropertyMatchScoringService;
+use App\Services\PublicLinks\PublicLinkUnavailableResponder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
@@ -18,8 +19,13 @@ class BuyerPortalController extends Controller
     public function show(Request $request, string $token)
     {
         $link = DB::table('buyer_portal_links')->where('token', $token)->first();
-        if (!$link || $link->revoked_at) {
-            return response()->view('buyer-portal.revoked', [], 410);
+        // Genuinely unknown token — nothing to brand with, stays the
+        // wording-generic platform 404 per the 3-branch policy.
+        if (!$link) {
+            abort(404);
+        }
+        if ($link->revoked_at) {
+            return $this->portalUnavailable($link);
         }
 
         // Record access
@@ -31,7 +37,7 @@ class BuyerPortalController extends Controller
         $contact = Contact::withoutGlobalScopes()->find($link->contact_id);
         // A link whose contact was hard-purged should never 500 the public page.
         if (!$contact) {
-            return response()->view('buyer-portal.revoked', [], 410);
+            return $this->portalUnavailable($link);
         }
         // AT-253 Rule 17 — derive from the CONTACT, then the LINK. No hardcoded tenant tail:
         // publicBrandingFor() already degrades to CoreX defaults for an unknown agency, so an
@@ -116,8 +122,11 @@ class BuyerPortalController extends Controller
         // (resources/views/buyer-portal/_property-card.blade.php), so a
         // full-page friendly response is the correct match for the request
         // shape, not a JSON error.
-        if (!$link || $link->revoked_at) {
-            return response()->view('buyer-portal.revoked', [], 410);
+        if (!$link) {
+            abort(404);
+        }
+        if ($link->revoked_at) {
+            return $this->portalUnavailable($link);
         }
 
         // agency_id is NOT NULL (no DB default) on buyer_property_responses. A raw
@@ -185,5 +194,30 @@ class BuyerPortalController extends Controller
     public function demo()
     {
         return view('buyer-portal.demo');
+    }
+
+    /**
+     * 2026-08-25 (Johan) — a revoked link or a hard-purged contact used to
+     * render the same bare, unbranded buyer-portal.revoked view with no
+     * agency name, no contact, no way back to a human — the weakest of the
+     * dead-link pages found in the resilience audit. Shared with the shared
+     * responder every other public-link controller uses; agent resolved the
+     * same way show()/respond() already resolve WHO to call (link's own
+     * generated_by_user_id, since the contact may itself be gone).
+     */
+    private function portalUnavailable($link)
+    {
+        $agencyId = (int) ($link->agency_id ?: 0);
+        $agent = $link->generated_by_user_id
+            ? User::withoutGlobalScopes()->find($link->generated_by_user_id)
+            : null;
+
+        return app(PublicLinkUnavailableResponder::class)->respond(
+            $agencyId ?: null,
+            "Shucks — this link isn't active any more",
+            "Your matches list has moved on since this link went out — reach out and we'll get you sorted with something current.",
+            $agent,
+            eyebrow: 'Your matches',
+        );
     }
 }

@@ -91,17 +91,23 @@ final class PublicOptInController extends Controller
             ->first();
     }
 
+    /**
+     * 2026-08-25 (Johan) — same shared rich page as PublicOptOutController's
+     * own archived case now uses, not a second bare implementation.
+     */
     private function renderArchived(SellerOutreachSend $send)
     {
-        $agencyName = (string) (DB::table('agencies')->where('id', $send->agency_id)->value('name') ?: 'our agency');
+        $agent = $send->agent_id
+            ? \App\Models\User::withoutGlobalScopes()->find($send->agent_id)
+            : null;
 
-        return response()
-            ->view('seller-outreach.archived', [
-                'agencyName'    => $agencyName,
-                'agencyLogoUrl' => null,
-                'brand'         => [],
-            ], 410)
-            ->header('X-Robots-Tag', 'noindex, nofollow');
+        return app(\App\Services\PublicLinks\PublicLinkUnavailableResponder::class)->respond(
+            (int) $send->agency_id ?: null,
+            'Shucks — this link has expired',
+            "There's nothing to update here any more — but we're still around. Chat to one of our friendly agents for any property-related services.",
+            $agent,
+            eyebrow: 'Your preferences',
+        )->header('X-Robots-Tag', 'noindex, nofollow');
     }
 
     private function render(SellerOutreachSend $send, bool $alreadyOptedIn, bool $done)

@@ -96,9 +96,10 @@ class AgentPreviewController extends Controller
 
         return app(PublicLinkUnavailableResponder::class)->respond(
             $historical->agency_id,
-            'This card is no longer active',
-            'This agent is no longer with the agency. Please contact us directly.',
+            "Shucks — this card isn't active any more",
+            "This practitioner is no longer with the agency, but we're still here to help with any property needs.",
             status: 410,
+            eyebrow: 'Business card',
         );
     }
 
@@ -134,7 +135,17 @@ class AgentPreviewController extends Controller
     public function legacyQrRedirect(string $slug)
     {
         $agent = User::resolveByQrSlug($slug);
-        abort_unless($agent, 404);
+        // 2026-08-25 (Johan) — this is the URL literally printed on physical
+        // QR cards "in the wild" (see its own route comment). It used to
+        // bare-404 a deactivated agent with no reroute set, while the
+        // canonical /corex/agents/{nameSlug}/{tag} URL for the exact same
+        // agent showed the branded "card no longer active" page — same
+        // condition, worse experience on the URL people actually scan.
+        // Reuse the same resolver the canonical route uses rather than a
+        // second implementation.
+        if (!$agent) {
+            return $this->businessCardUnavailable($slug);
+        }
 
         return redirect()->route('corex.agents.public', [$agent->nameSlug(), $slug], 301);
     }
