@@ -1948,6 +1948,53 @@ class MarketIntelligenceController extends Controller
     }
 
     /**
+     * Per-section agency/market/show toggles. Johan, 2026-08-25: "the tick
+     * should not be global, it should be per section... company stock is
+     * low so that could hurt if presenting a report, so just hide agency
+     * side on that section." And: "the choices must carry through to Print
+     * and the PDF — what he ticks is what prints." So this is resolved ONCE
+     * here, shared by buildSuburbReportData() (used by the screen, print,
+     * AND pdf routes), and the resolved (never the raw request) state is
+     * what gets turned back into a query string for the Print/PDF links —
+     * a control that only affects the screen would be useless to him.
+     *
+     * Checkbox groups never send their unchecked members, so absence alone
+     * can't distinguish "never touched, default everything on" from
+     * "explicitly unticked everything". $request->has('sections') is the
+     * signal: no 'sections' key at all in the request = first load, default
+     * every toggle true; a 'sections' key present = a real submission, and
+     * any sub-key genuinely missing from it means that box was unticked.
+     */
+    private const SECTION_KEYS_SPLIT = ['stock', 'sales', 'sold_under_offer', 'price_reductions'];
+    private const SECTION_KEYS_SHOW_ONLY = ['cma_reports', 'buyer_demand'];
+
+    private function parseSectionToggles(Request $request): array
+    {
+        $submitted = $request->has('sections');
+        $raw       = $submitted ? (array) $request->input('sections', []) : [];
+
+        $bool = fn (string $key, array $entry, bool $default) => $submitted
+            ? filter_var($entry[$key] ?? false, FILTER_VALIDATE_BOOLEAN)
+            : $default;
+
+        $sections = [];
+        foreach (self::SECTION_KEYS_SPLIT as $key) {
+            $entry = (array) ($raw[$key] ?? []);
+            $sections[$key] = [
+                'show'   => $bool('show', $entry, true),
+                'agency' => $bool('agency', $entry, true),
+                'market' => $bool('market', $entry, true),
+            ];
+        }
+        foreach (self::SECTION_KEYS_SHOW_ONLY as $key) {
+            $entry = (array) ($raw[$key] ?? []);
+            $sections[$key] = ['show' => $bool('show', $entry, true)];
+        }
+
+        return $sections;
+    }
+
+    /**
      * Shared data assembly for the interactive screen and the print/PDF
      * view — one place, so the numbers a seller is shown on screen and the
      * numbers on the page handed to them can never disagree.
@@ -1974,13 +2021,20 @@ class MarketIntelligenceController extends Controller
             ->limit(50)
             ->get(['id', 'address', 'street_name', 'price', 'listed_date']);
 
+        $sections = $this->parseSectionToggles($request);
+
         return [
-            'suburb'        => $suburb,
-            'data'          => $data,
-            'stockListings' => $stockListings,
-            'branding'      => \App\Models\Agency::publicBrandingFor((int) $agencyId),
-            'logoData'      => $this->agencyLogoDataUri((int) $agencyId),
-            'generatedAt'   => now(),
+            'suburb'          => $suburb,
+            'data'            => $data,
+            'stockListings'   => $stockListings,
+            'branding'        => \App\Models\Agency::publicBrandingFor((int) $agencyId),
+            'logoData'        => $this->agencyLogoDataUri((int) $agencyId),
+            'generatedAt'     => now(),
+            'sections'        => $sections,
+            // Always built from the RESOLVED state, never the raw request —
+            // so Print/PDF carry an explicit, unambiguous toggle state even
+            // on a first visit where nothing was ever ticked by hand.
+            'sectionsQuery'   => http_build_query(['sections' => $sections]),
         ];
     }
 
