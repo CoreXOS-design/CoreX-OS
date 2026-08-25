@@ -743,7 +743,15 @@ class PropertyIntelligenceService
             'mandate_expired' => $mandateEvent && $mandateEvent->event_date->isPast(),
             'seller_fica_complete' => $ficaComplete,
             'seller_count' => $sellers->count(),
-            'published' => (bool) $property->published_at,
+            // 2026-08-25 (Johan) — was (bool) $property->published_at, which
+            // tracks whether the listing was EVER published, not whether
+            // it's live now. A seller could see "Listing: Unpublished" while
+            // the property is actually live on Property24/Private Property
+            // right now — the exact opposite of what this badge claims, on
+            // the one page whose entire purpose is reassuring the seller
+            // their agent is working. isLiveOnAnyPortal() is the same check
+            // the internal "Live" KPI tile uses.
+            'published' => $property->isLiveOnAnyPortal(),
             'days_on_market' => ($dom = $property->listed_date ?? $property->p24_activated_at ?? $property->pp_activated_at ?? $property->published_at ?? $property->created_at)
                 ? \App\Support\HumanDiff::daysBetween($dom) : null,
         ];

@@ -94,13 +94,20 @@
     <title>{{ $property->title ?? 'Property' }} — Live Marketing Update{{ !empty($agency) && $agency->name ? ' · ' . $agency->name : '' }}</title>
     <link rel="preconnect" href="https://fonts.bunny.net">
     <link href="https://fonts.bunny.net/css?family=figtree:400,500,600,700,800&display=swap" rel="stylesheet">
-    <script src="https://cdn.tailwindcss.com"></script>
-    @if($hasEngagementData)
-        {{-- Loaded only when there's a chart to draw — same CDN-script
-             convention this whole page already uses for Tailwind, not a
-             new pattern. --}}
-        <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
-    @endif
+    {{-- 2026-08-25 (Johan) — Tailwind's CDN JIT-compiler script (a dev tool,
+         not a production one — it compiles every class in the browser on
+         every load) sat render-blocking in front of first paint on every
+         public page in this family. When that CDN misbehaves, the client
+         gets a blank page with nothing in our own code to explain it —
+         worse than a bare 404. Same fix as public/agency-properties/show
+         and welcome.blade.php already use in production: our own built
+         CSS/JS, no third party in the critical path. app.js also bundles
+         Chart.js (via nexus-charts.js) and Alpine synchronously, so the
+         Chart.js CDN <script> this page used to load conditionally is gone
+         too — see the engagement-chart script below, which now calls
+         window.NexusCharts.portalEngagement() directly instead of
+         embedding its own copy of that config. --}}
+    @vite(['resources/css/app.css', 'resources/js/app.js'])
     <style>
         :root {
             --bg: #f4f6fb;
@@ -465,13 +472,25 @@
 
     @if($hasEngagementData)
     <script>
-        // Views & enquiries chart — plain JS, no Alpine/Vite (this page, like
-        // every other public link page, never loads the authenticated app
-        // shell). Chart.js config below is copied VERBATIM from
-        // resources/js/nexus-charts.js's window.NexusCharts.portalEngagement()
-        // (only the "Leads"/"P24 Leads" labels are renamed to "Enquiries" for
-        // seller framing) — same data, same visual design, not re-invented.
-        (function () {
+        // Views & enquiries chart. 2026-08-25 — was previously its own
+        // verbatim copy of the Chart.js config because this page loaded no
+        // JS bundle at all; now that the Vite tags above load the real app.js
+        // (which imports nexus-charts.js), this calls the SAME
+        // window.NexusCharts.portalEngagement() the internal Intelligence
+        // tab calls — genuine reuse, not a parallel copy. Only the label
+        // wording differs (opts.leadsLabel/leadsAxisLabel), for the seller
+        // framing Johan asked for; the chart config itself is untouched.
+        // Toggle stays plain JS (not Alpine) — no second widget on this
+        // page needs to stay in sync with the range, unlike the internal
+        // tab's Alpine store.
+        //
+        // The Vite tags above are type="module" and deferred — they only run
+        // after the document has finished parsing, which is AFTER this
+        // classic inline script would otherwise run. Wrapping in
+        // DOMContentLoaded (which itself only fires after every deferred/
+        // module script has already executed) guarantees window.NexusCharts
+        // exists before this reads it, instead of racing it.
+        document.addEventListener('DOMContentLoaded', function () {
             var section = document.getElementById('engagement-section');
             if (!section) return;
             var series = JSON.parse(section.getAttribute('data-engagement-series') || '[]');
@@ -497,97 +516,18 @@
                 return rows.reduce(function (a, r) { return a + (r[key] || 0); }, 0);
             }
 
-            function buildChart(labels, viewsData, leadsData) {
-                return new Chart(canvas, {
-                    type: 'line',
-                    data: {
-                        labels: labels,
-                        datasets: [
-                            {
-                                type: 'line',
-                                label: 'Views',
-                                data: viewsData,
-                                borderColor: '#00d4aa',
-                                backgroundColor: 'rgba(0, 212, 170, 0.12)',
-                                borderWidth: 2,
-                                pointRadius: 0,
-                                pointHoverRadius: 4,
-                                tension: 0.3,
-                                fill: true,
-                                yAxisID: 'y',
-                                order: 2,
-                            },
-                            {
-                                type: 'bar',
-                                label: 'Enquiries',
-                                data: leadsData,
-                                backgroundColor: 'rgba(239, 68, 68, 0.55)',
-                                borderColor: '#ef4444',
-                                borderWidth: 0,
-                                borderRadius: 2,
-                                barPercentage: 0.9,
-                                categoryPercentage: 0.9,
-                                maxBarThickness: 14,
-                                yAxisID: 'yLeads',
-                                order: 1,
-                            },
-                        ],
-                    },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        interaction: { mode: 'index', intersect: false },
-                        plugins: {
-                            legend: {
-                                display: true,
-                                position: 'top',
-                                align: 'end',
-                                labels: { boxWidth: 10, boxHeight: 10, font: { size: 11 }, color: '#9ca3af', usePointStyle: true },
-                            },
-                            tooltip: {
-                                backgroundColor: '#1f2937',
-                                titleFont: { size: 12 },
-                                bodyFont: { size: 12 },
-                                padding: 10,
-                                cornerRadius: 6,
-                            },
-                        },
-                        scales: {
-                            y: {
-                                beginAtZero: true,
-                                position: 'left',
-                                title: { display: true, text: 'Views', font: { size: 10 }, color: '#00d4aa' },
-                                grid: { color: 'rgba(148, 163, 184, 0.15)' },
-                                ticks: { font: { size: 11 }, color: '#9ca3af', precision: 0 },
-                                border: { display: false },
-                            },
-                            yLeads: {
-                                beginAtZero: true,
-                                position: 'right',
-                                suggestedMax: 4,
-                                title: { display: true, text: 'Enquiries', font: { size: 10 }, color: '#ef4444' },
-                                grid: { drawOnChartArea: false },
-                                ticks: { font: { size: 11 }, color: '#9ca3af', precision: 0, stepSize: 1 },
-                                border: { display: false },
-                            },
-                            x: {
-                                grid: { display: false },
-                                ticks: { font: { size: 10 }, color: '#9ca3af', maxRotation: 0, autoSkip: true, maxTicksLimit: 8 },
-                                border: { display: false },
-                            },
-                        },
-                    },
-                });
-            }
-
             function apply() {
+                if (!window.NexusCharts) return;
                 var f = filtered();
                 var labels = f.map(function (r) { return fmt(r.date); });
                 var views = f.map(function (r) { return r.views; });
                 var leads = f.map(function (r) { return r.leads; });
 
                 if (!chart) {
-                    chart = buildChart(labels, views, leads);
+                    chart = window.NexusCharts.portalEngagement(canvas, labels, views, leads, {
+                        leadsLabel: 'Enquiries',
+                        leadsAxisLabel: 'Enquiries',
+                    });
                 } else {
                     chart.data.labels = labels;
                     chart.data.datasets[0].data = views;
@@ -612,7 +552,7 @@
             });
 
             apply();
-        })();
+        });
     </script>
     @endif
 </body>

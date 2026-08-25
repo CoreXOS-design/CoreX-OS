@@ -6,9 +6,16 @@ window.NexusCharts = {
      * Portal engagement line chart (Views + P24 lead counts over time). Returns
      * the Chart instance; the caller mutates chart.data + calls chart.update()
      * when the range filter changes. Colours work on light and dark surfaces.
+     *
+     * opts.leadsLabel (default 'P24 Leads') — 2026-08-25: the seller-facing
+     * live link reuses this exact function (no second chart/config) but
+     * calls "leads" "enquiries" for a seller audience; the internal
+     * Intelligence tab keeps the default agent-facing wording.
      */
-    portalEngagement(ctxEl, labels, viewsData, leadsData) {
+    portalEngagement(ctxEl, labels, viewsData, leadsData, opts) {
         if (!ctxEl) return null;
+        const leadsLabel = (opts && opts.leadsLabel) || 'P24 Leads';
+        const leadsAxisLabel = (opts && opts.leadsAxisLabel) || 'Leads';
         return new Chart(ctxEl, {
             type: 'line',
             data: {
@@ -33,7 +40,7 @@ window.NexusCharts = {
                         // magnitude is tiny next to views, so a shared axis would
                         // flat-line them. Bars make single-day leads visible.
                         type: 'bar',
-                        label: 'P24 Leads',
+                        label: leadsLabel,
                         data: leadsData,
                         backgroundColor: 'rgba(239, 68, 68, 0.55)',
                         borderColor: '#ef4444',
@@ -81,7 +88,7 @@ window.NexusCharts = {
                         // Keep the lead axis to whole numbers and give a little
                         // headroom so a lone lead doesn't become a full-height bar.
                         suggestedMax: 4,
-                        title: { display: true, text: 'Leads', font: { size: 10 }, color: '#ef4444' },
+                        title: { display: true, text: leadsAxisLabel, font: { size: 10 }, color: '#ef4444' },
                         grid: { drawOnChartArea: false },
                         ticks: { font: { size: 11 }, color: '#9ca3af', precision: 0, stepSize: 1 },
                         border: { display: false },
