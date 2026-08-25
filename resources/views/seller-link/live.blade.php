@@ -90,7 +90,7 @@
     // agent's name on it." property_sold_records-sourced "sold" comparisons
     // were confirmed to mirror the property's own advertised price, not a
     // real transaction. Replaced with two genuinely separate sources
-    // (registeredSales / underOfferSales, from the controller) and this
+    // (soldComparables / underOfferSales, from the controller) and this
     // ONE shared sentence-builder — the verb ("sold" / "went under offer")
     // is the ONLY thing that differs between them, and it comes from
     // $labels (SellerLinkController::LABELS) so a rename is one line there,
@@ -103,7 +103,7 @@
             . '; a comparable ' . ($compFacts ?: strtolower($comparison['comp_type'] ?? 'property')) . ' nearby ' . $verb . ' in ' . $comparison['comp_days'] . ' ' . \Illuminate\Support\Str::plural('day', $comparison['comp_days'])
             . ' at R' . number_format($comparison['comp_price']) . '.';
     };
-    $registeredSentence = $buildComparisonSentence($registeredComparison, $labels['sold_verb']);
+    $soldSentence = $buildComparisonSentence($soldComparison, $labels['sold_verb']);
     $underOfferSentence = $buildComparisonSentence($underOfferComparison, $labels['under_offer_verb']);
 @endphp
 <!DOCTYPE html>
@@ -435,53 +435,57 @@
         </section>
         @endif
 
-        {{-- SECTION 6 — Your competition right now. DECISION FLAG (see
-             report): findComparableStock() is scoped to the subject's own
-             agency — this is the agency's own comparable active stock
-             nearby, the same source "Similar properties" already used, NOT
-             verified cross-agency market data. Worded honestly below.
-             Complex/street name only — no unit number, no agency name.
-             Absent below 2 genuine comparables ("one lonely comparable is
-             not a market" — Johan). --}}
+        {{-- SECTION 6 — Your competition right now. 2026-08-25 CORRECTION
+             (Johan's ruling, verbatim reasoning): "a seller needs to see
+             the shape of their competition, not a directory of rival
+             listings on their own agent's page." LESS identifiable than
+             the first build — no address at all, not street, not complex,
+             not unit. Each competitor renders as characteristics only:
+             type, beds, baths, asking price, days on market, suburb (the
+             seller's OWN suburb, already shown elsewhere on this page, not
+             anything from the comparable's own record). No id, no
+             location, no agency name, no photo — and getActiveComparables()
+             does not even FETCH those fields any more, so there is nothing
+             in the HTML source or any JSON payload to leak (checked: this
+             data is never @json()-dumped anywhere on the page). Absent
+             below 2 genuine comparables ("one lonely comparable is not a
+             market" — Johan). --}}
         @if($activeComparables->count() >= 2)
         <section class="surface-card p-5">
-            <h2 class="text-base font-bold mb-1" style="color: var(--text-primary);">Similar homes on the market near you</h2>
-            <p class="text-xs mb-4" style="color: var(--text-muted);">Other active listings nearby, matched on type, price band and beds.</p>
-            <div class="divide-y" style="border-color: var(--border);">
+            <h2 class="text-base font-bold mb-1" style="color: var(--text-primary);">Your competition right now</h2>
+            <p class="text-xs mb-4" style="color: var(--text-muted);">The shape of what else is on the market near you — not which listings, just what they look like.</p>
+            <div class="space-y-2">
                 @foreach($activeComparables as $c)
-                    <div class="flex items-center justify-between gap-3 py-2.5 text-sm">
-                        <span style="color: var(--text-secondary);">
-                            {{ collect([$c['location'], $c['property_type'], $c['beds'] ? $c['beds'] . ' bed' : null, $c['baths'] ? $c['baths'] . ' bath' : null])->filter()->implode(' · ') }}
-                        </span>
-                        <span class="text-right flex-shrink-0">
-                            <span class="font-semibold" style="color: var(--brand-default);">R {{ number_format($c['price']) }}</span>
-                            <span class="text-xs block" style="color: var(--text-muted);">{{ $c['days_on_market'] }} {{ \Illuminate\Support\Str::plural('day', $c['days_on_market']) }} on market</span>
-                        </span>
-                    </div>
+                    <p class="text-sm" style="color: var(--text-secondary);">
+                        A {{ collect([$c['beds'] ? $c['beds'] . '-bed' : null, $c['baths'] ? $c['baths'] . '-bath' : null])->filter()->implode(', ') }}
+                        {{ strtolower($c['property_type'] ?: 'property') }} in {{ $property->suburb ?: 'your suburb' }},
+                        asking R{{ number_format($c['price']) }}, {{ $c['days_on_market'] }} {{ \Illuminate\Support\Str::plural('day', $c['days_on_market']) }} on market.
+                    </p>
                 @endforeach
             </div>
         </section>
         @endif
 
         {{-- SECTION 7 — What has actually sold near you. 2026-08-25
-             CORRECTION: this used to read property_sold_records, whose
-             "sold_price" was confirmed to mirror the property's own
-             advertised price — not a real transaction. Never use that
-             table for a "sold" claim again. Source now: the legacy `deals`
-             table (Dr1), registration_date IS NOT NULL — the only source on
-             this system a "sold" word may come from. Absent when there are
-             no genuinely registered comparable sales. --}}
-        @if($registeredSales->isNotEmpty())
+             CORRECTION x2: property_sold_records banned from any "sold"
+             claim (its sold_price mirrors the advertised price, not a real
+             transaction). Johan's ruling, verbatim: "pending = under
+             offer, granted and registered = sold." getSoldComparables()
+             unions granted-or-registered rows from BOTH deal tables
+             (deals_v2 + legacy deals), deduplicated so a migrated deal is
+             never counted twice. Absent when there are no genuine sold
+             comparables. --}}
+        @if($soldComparables->isNotEmpty())
         <section class="surface-card p-5">
             <h2 class="text-base font-bold mb-1" style="color: var(--text-primary);">{{ $labels['sold_heading'] }}</h2>
             <p class="text-xs mb-4" style="color: var(--text-muted);">{{ $labels['sold_subtitle'] }}</p>
 
-            @if($registeredSentence)
-                <p class="text-sm mb-4 p-3 rounded-lg" style="background: var(--surface-2); color: var(--text-secondary);">{{ $registeredSentence }}</p>
+            @if($soldSentence)
+                <p class="text-sm mb-4 p-3 rounded-lg" style="background: var(--surface-2); color: var(--text-secondary);">{{ $soldSentence }}</p>
             @endif
 
             <div class="divide-y" style="border-color: var(--border);">
-                @foreach($registeredSales as $s)
+                @foreach($soldComparables as $s)
                     <div class="flex items-center justify-between gap-3 py-2.5 text-sm">
                         <span style="color: var(--text-secondary);">
                             {{ collect([$s['property_type'], $s['beds'] ? $s['beds'] . ' bed' : null, $s['baths'] ? $s['baths'] . ' bath' : null])->filter()->implode(' · ') }}
@@ -489,7 +493,7 @@
                         <span class="text-right flex-shrink-0">
                             <span class="font-semibold" style="color: var(--brand-default);">R {{ number_format($s['price']) }}</span>
                             <span class="text-xs block" style="color: var(--text-muted);">
-                                {{ \Carbon\Carbon::parse($s['registration_date'])->format('M Y') }}{{ $s['days_to_sell'] !== null ? ' · ' . $s['days_to_sell'] . ' ' . \Illuminate\Support\Str::plural('day', $s['days_to_sell']) . ' to ' . $labels['sold_verb'] : '' }}
+                                {{ \Carbon\Carbon::parse($s['event_date'])->format('M Y') }}{{ $s['days'] !== null ? ' · ' . $s['days'] . ' ' . \Illuminate\Support\Str::plural('day', $s['days']) . ' ' . $labels['sold_days_suffix'] : '' }}
                             </span>
                         </span>
                     </div>
@@ -500,8 +504,9 @@
 
         {{-- SECTION 7b — What has recently gone under offer near you. NEVER
              say "sold"/"achieved" here — an accepted offer can still fall
-             through. Source: deals_v2 (Dr2), actual_registration IS NULL.
-             Absent when there are no genuine under-offer comparables. --}}
+             through. Source: pending/active deals only, either table, not
+             yet granted or registered. Absent when there are no genuine
+             under-offer comparables. --}}
         @if($underOfferSales->isNotEmpty())
         <section class="surface-card p-5">
             <h2 class="text-base font-bold mb-1" style="color: var(--text-primary);">{{ $labels['under_offer_heading'] }}</h2>
@@ -520,7 +525,7 @@
                         <span class="text-right flex-shrink-0">
                             <span class="font-semibold" style="color: var(--brand-default);">R {{ number_format($s['price']) }}</span>
                             <span class="text-xs block" style="color: var(--text-muted);">
-                                {{ \Carbon\Carbon::parse($s['offer_date'])->format('M Y') }}{{ $s['days_to_offer'] !== null ? ' · ' . $s['days_to_offer'] . ' ' . \Illuminate\Support\Str::plural('day', $s['days_to_offer']) . ' to offer' : '' }}
+                                {{ \Carbon\Carbon::parse($s['event_date'])->format('M Y') }}{{ $s['days'] !== null ? ' · ' . $s['days'] . ' ' . \Illuminate\Support\Str::plural('day', $s['days']) . ' ' . $labels['under_offer_days_suffix'] : '' }}
                             </span>
                         </span>
                     </div>
