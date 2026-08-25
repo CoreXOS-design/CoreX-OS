@@ -5,27 +5,29 @@ namespace App\Exceptions;
 use Exception;
 
 /**
- * The document body clause and the actual signer being bound to a
- * SignatureRequest disagree about who represents this party — Flow 409's
- * real shape: the clause named "Ben", the party was actually going to be
- * signed and emailed by "Chris", and nothing stopped that from freezing.
+ * The signer being bound to a SignatureRequest is not, by identity, a
+ * current representative of the party they're supposed to be signing for.
  *
- * "Who represents this party" has ONE stored answer (see
- * RoleBlockExpansionService::resolvePartyRepresentation()); a clause and a
- * signer that disagree means two different things fed the document instead
- * of the one call this exception guards. Refusing loudly here — instead of
- * silently freezing a document naming one person and emailing another — is
- * the door this class closes.
+ * Flow 409's real shape: signer Chris, but Anna's real representative on
+ * record was Ben — refused. cc4's real reproduction (row 1506) same night:
+ * signer "Chris" (contact #17220), clause named "Christopher TestBentley"
+ * (a different, real contact) — the FIRST version of this guard compared
+ * name TEXT and let it through, because "Chris" is a literal substring of
+ * "Christopher". That is not a representation match, it's a coincidence of
+ * spelling. This guard compares Contact ids against the live
+ * contact_representatives relationship — never name strings — so a name
+ * that merely LOOKS related can never satisfy it; only the actual same
+ * record can.
  */
 class PartyClauseSignerMismatchException extends Exception
 {
-    public static function forParty(string $signerName, string $partyClauseText): self
+    public static function forParty(string $signerName, string $partyName): self
     {
         return new self(
-            "The document clause (\"{$partyClauseText}\") does not name the signer "
-            . "(\"{$signerName}\") — refusing to send. Re-resolve who represents this "
-            . 'party (via the recipient template screen) before sending; the clause '
-            . 'and the signer must come from the same answer.',
+            "\"{$signerName}\" is not currently linked as a representative of "
+            . "\"{$partyName}\" — refusing to send. Re-link the correct representative "
+            . '(via the recipient screen) before sending; the clause and the signer '
+            . 'must come from the same record, not just a similar-looking name.',
             0,
             null,
         );

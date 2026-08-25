@@ -2893,6 +2893,12 @@ class ESignWizardController extends Controller
                     isDeceased: (bool) ($r['_is_deceased'] ?? false),
                     isProxy: (bool) ($r['_is_proxy'] ?? false),
                     recipientLocalKey: $r['_recipient_local_key'] ?? null,
+                    // cc2, 2026-08-25 (cc4's row 1506) — the identity the
+                    // guard checks against (Contact ids via
+                    // contact_representatives), never the clause text.
+                    // Only set for a row that actually represents someone;
+                    // null for the ordinary plain party.
+                    representedContactId: isset($r['_entity_contact_id']) ? (int) $r['_entity_contact_id'] : null,
                 );
 
                 // "Replace this party" (Johan, 2026-08-24) — a recipient whose party is
@@ -3878,11 +3884,17 @@ class ESignWizardController extends Controller
             // the honest, safe move per Johan's own rule is to refuse the
             // rebind outright rather than let it freeze a clause that no
             // longer names the signer already on this row.
-            try {
-                \App\Models\Docuperfect\SignatureRequest::assertClauseNamesSigner($sigReq->signer_name, $resolvedText);
-            } catch (\App\Exceptions\PartyClauseSignerMismatchException $e) {
+            //
+            // Corrected same night (cc4, row 1506) — the first version of
+            // this check compared $resolvedText against $sigReq->signer_name
+            // as TEXT, which a name that merely LOOKS related ("Chris" inside
+            // "Christopher") can satisfy without being the same person. This
+            // checks IDENTITY instead: at least one bound slot must resolve,
+            // by Contact id / recipient_local_key — never by name — to
+            // $sigReq itself. See slotBindingResolvesToSigner()'s docblock.
+            if (! $this->slotBindingResolvesToSigner($sigReq, $binding['slot_bindings'])) {
                 throw \Illuminate\Validation\ValidationException::withMessages([
-                    'recipients' => 'This party replacement would freeze a clause that no longer names '
+                    'recipients' => 'This party replacement does not resolve, by identity, to '
                         . "the signer already bound to this document ({$sigReq->signer_name}). "
                         . 'Replace the signer too, not just the clause, before sending.',
                 ]);
@@ -3894,6 +3906,36 @@ class ESignWizardController extends Controller
                 'party_clause_text' => $resolvedText,
             ]);
         }
+    }
+
+    /**
+     * cc2, 2026-08-25 (cc4's row 1506) — is $sigReq, BY IDENTITY, one of the
+     * parties this chain binding actually resolved to? A binding's own
+     * $type/$contact_id/$recipient_local_key are the SAME primary keys
+     * RecipientTemplate::resolveSlotDisplayName() resolves display text
+     * from — reused here directly rather than re-deriving from the text
+     * that method produces. 'self' means the binding points at $sigReq by
+     * construction; 'contact'/'recipient' are checked against $sigReq's own
+     * contact_id / recipient_local_key — never against signer_name.
+     */
+    private function slotBindingResolvesToSigner(\App\Models\Docuperfect\SignatureRequest $sigReq, array $slotBindings): bool
+    {
+        foreach ($slotBindings as $binding) {
+            $type = $binding['type'] ?? null;
+
+            if ($type === 'self') {
+                return true;
+            }
+            if ($type === 'contact' && $sigReq->contact_id !== null
+                && (int) ($binding['contact_id'] ?? 0) === (int) $sigReq->contact_id) {
+                return true;
+            }
+            if ($type === 'recipient' && ($binding['recipient_local_key'] ?? null) === $sigReq->recipient_local_key) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function resolveLinkedContactRole(Contact $contact, array $allowedEsignRoles, string $defaultOwnerRole): ?string
@@ -6131,6 +6173,7 @@ class ESignWizardController extends Controller
                     isDeceased: (bool) ($r['_is_deceased'] ?? false),
                     isProxy: (bool) ($r['_is_proxy'] ?? false),
                     recipientLocalKey: $r['_recipient_local_key'] ?? null,
+                    representedContactId: isset($r['_entity_contact_id']) ? (int) $r['_entity_contact_id'] : null,
                 );
                 $sigReq->update(['signing_method' => 'wet_ink']);
 

@@ -864,6 +864,7 @@ class SignatureService
         bool $isDeceased = false,
         bool $isProxy = false,
         ?string $recipientLocalKey = null,
+        ?int $representedContactId = null,
     ): SignatureRequest {
         $token = $this->generateToken();
 
@@ -887,11 +888,18 @@ class SignatureService
             ->max('signing_order') ?? 0;
         $signingOrder = $maxOrder + 1;
 
-        // cc2, 2026-08-25 — Flow 409: refuse to freeze a clause and a signer
-        // that don't agree, at the one place every SignatureRequest is
-        // created regardless of caller. See SignatureRequest::
-        // assertClauseNamesSigner() for why this is the correct check.
-        SignatureRequest::assertClauseNamesSigner($signerName, $partyClauseText);
+        // cc2, 2026-08-25 — Flow 409, corrected same night after cc4's real
+        // reproduction (row 1506) broke the first version by name-substring
+        // ("Chris" reads as present inside "Christopher"). Refuse by
+        // CONTACT IDENTITY, not text, at the one place every
+        // SignatureRequest is created regardless of caller. See
+        // SignatureRequest::assertSignerIsCurrentRepresentative().
+        if ($representedContactId !== null) {
+            SignatureRequest::assertSignerIsCurrentRepresentative(
+                $contactId ?? -1, // no real contact id can ever legitimately be -1; forces a refusal rather than a silent skip
+                $representedContactId,
+            );
+        }
 
         $request = SignatureRequest::create([
             'signature_template_id' => $template->id,

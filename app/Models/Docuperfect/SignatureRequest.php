@@ -147,34 +147,43 @@ class SignatureRequest extends Model
     }
 
     /**
-     * THE single guard (cc2, 2026-08-25 — Flow 409): "who represents this
-     * party" must be ONE answer read twice, not two independently-supplied
-     * strings that happen to agree by convention. A document clause is
-     * always composed by naming a signer's full_name verbatim inside it
-     * (EsignRecipientPreset::formatRepresentativeEntry() — every real
-     * clause-composer in this codebase does this; there is only one), so a
-     * clause that is genuinely resolved FROM the same representation the
-     * signer came from will always contain that signer's name somewhere in
-     * it. A clause that doesn't is proof the two were sourced independently
-     * — exactly Flow 409's shape (clause named "Ben", signer was "Chris").
+     * THE single guard (cc2, 2026-08-25 — Flow 409, corrected same night by
+     * cc4's real reproduction, row 1506): "who represents this party" must
+     * be ONE answer read twice — and an answer is a Contact's id, never a
+     * name string. The original version of this guard checked whether the
+     * signer's NAME appeared inside the clause text. cc4 broke it in one
+     * try: a clause naming "Christopher TestBentley" and a signer literally
+     * named "Chris" passes a substring check ("Chris" IS a substring of
+     * "Christopher") while being exactly Flow 409's defect wearing a name
+     * that happens to overlap the right one. Two records are the same
+     * party because they ARE the same record — checked here by primary key
+     * against the live `contact_representatives` relationship — never
+     * because one person's name happens to appear inside another's.
      *
-     * No-ops when there's no clause at all (a plain party with no
-     * representative — the overwhelming majority of rows) — nothing here
-     * changes for that case.
+     * No-ops when $representedContactId is null — a plain party with no
+     * representative (the overwhelming majority of rows) never reaches
+     * this at all.
      *
      * @throws \App\Exceptions\PartyClauseSignerMismatchException
      */
-    public static function assertClauseNamesSigner(string $signerName, ?string $partyClauseText): void
+    public static function assertSignerIsCurrentRepresentative(int $signerContactId, ?int $representedContactId): void
     {
-        $clause = trim((string) $partyClauseText);
-        $name   = trim($signerName);
-
-        if ($clause === '' || $name === '') {
+        if ($representedContactId === null) {
             return;
         }
 
-        if (mb_stripos($clause, $name) === false) {
-            throw \App\Exceptions\PartyClauseSignerMismatchException::forParty($name, $clause);
+        $party = \App\Models\Contact::withoutGlobalScopes()->find($representedContactId);
+        if (! $party) {
+            return; // dangling reference — nothing to check identity against.
+        }
+
+        $currentRepIds = $party->representatives()->pluck('contacts.id');
+        if (! $currentRepIds->contains($signerContactId)) {
+            $signer = \App\Models\Contact::withoutGlobalScopes()->find($signerContactId);
+            throw \App\Exceptions\PartyClauseSignerMismatchException::forParty(
+                $signer?->full_name ?? "contact #{$signerContactId}",
+                ($party->entity_name ?: $party->full_name) ?: "contact #{$representedContactId}",
+            );
         }
     }
 
