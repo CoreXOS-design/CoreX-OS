@@ -146,6 +146,38 @@ class SignatureRequest extends Model
         return $groupHasProxy ? self::NON_SIGNING_REASON_PROXY_COLLAPSED : null;
     }
 
+    /**
+     * THE single guard (cc2, 2026-08-25 — Flow 409): "who represents this
+     * party" must be ONE answer read twice, not two independently-supplied
+     * strings that happen to agree by convention. A document clause is
+     * always composed by naming a signer's full_name verbatim inside it
+     * (EsignRecipientPreset::formatRepresentativeEntry() — every real
+     * clause-composer in this codebase does this; there is only one), so a
+     * clause that is genuinely resolved FROM the same representation the
+     * signer came from will always contain that signer's name somewhere in
+     * it. A clause that doesn't is proof the two were sourced independently
+     * — exactly Flow 409's shape (clause named "Ben", signer was "Chris").
+     *
+     * No-ops when there's no clause at all (a plain party with no
+     * representative — the overwhelming majority of rows) — nothing here
+     * changes for that case.
+     *
+     * @throws \App\Exceptions\PartyClauseSignerMismatchException
+     */
+    public static function assertClauseNamesSigner(string $signerName, ?string $partyClauseText): void
+    {
+        $clause = trim((string) $partyClauseText);
+        $name   = trim($signerName);
+
+        if ($clause === '' || $name === '') {
+            return;
+        }
+
+        if (mb_stripos($clause, $name) === false) {
+            throw \App\Exceptions\PartyClauseSignerMismatchException::forParty($name, $clause);
+        }
+    }
+
     // --- Relationships ---
 
     public function template()

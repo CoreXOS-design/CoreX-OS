@@ -887,6 +887,12 @@ class SignatureService
             ->max('signing_order') ?? 0;
         $signingOrder = $maxOrder + 1;
 
+        // cc2, 2026-08-25 — Flow 409: refuse to freeze a clause and a signer
+        // that don't agree, at the one place every SignatureRequest is
+        // created regardless of caller. See SignatureRequest::
+        // assertClauseNamesSigner() for why this is the correct check.
+        SignatureRequest::assertClauseNamesSigner($signerName, $partyClauseText);
+
         $request = SignatureRequest::create([
             'signature_template_id' => $template->id,
             'party_role' => $partyRole,
