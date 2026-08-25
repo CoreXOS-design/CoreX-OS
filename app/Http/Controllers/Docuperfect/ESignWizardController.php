@@ -5479,9 +5479,18 @@ class ESignWizardController extends Controller
                 $viewData['document_context'] = $template->isSalesDocument($propSrc) ? 'sales' : 'rental';
             }
 
+            // Signature-block inputs — SIGNING participants only (Johan,
+            // 2026-08-26, flow 330 Finding A) — same rule as prepareSigning()
+            // and prepareWetInk(). This was the 4th of the four build sites
+            // and was missed in the original fix: Download Only rendered
+            // straight off $recipients with no filter, so a deceased/
+            // proxy-collapsed party still got a blank, unexecutable
+            // signature block on the printed PDF.
+            $signingParticipantRecipients = $this->filterToSigningParticipants($recipients);
+
             // Build party_names for signature-block component
             $partyNames = [];
-            foreach ($recipients as $r) {
+            foreach ($signingParticipantRecipients as $r) {
                 if (($r['role'] ?? '') === 'agent') continue;
                 $partyNames[] = $r['name'] ?? '';
             }
@@ -5490,7 +5499,7 @@ class ESignWizardController extends Controller
 
             // Build recipients_by_role
             $recipientsByRole = [];
-            foreach ($recipients as $r) {
+            foreach ($signingParticipantRecipients as $r) {
                 $role = $r['role'] ?? '';
                 $baseRole = preg_replace('/_\d+$/', '', $role);
                 $recipientsByRole[$baseRole][] = $r;
