@@ -3448,6 +3448,34 @@ class ESignWizardController extends Controller
      * lead, or they hold no role this template signs.
      */
     /**
+     * True when a recipient's own Contact needs representative expansion
+     * before it can be treated as a plain pass-through party.
+     *
+     * Flow 330 (Johan, 2026-08-26) — cc2's finding: expandEntityRecipients()
+     * gated purely on isEntity(), so a NATURAL-PERSON party who is
+     * represented (Piet: a natural person represented by an entity, itself
+     * represented by a natural person — Koos) never reached expansion at
+     * all. WHO ACTUALLY RECEIVED THE SIGNING REQUEST stayed wrong even
+     * after the document-body text was fixed on the display side
+     * (RoleBlockExpansionService::resolveDocumentRepresentatives(),
+     * 2026-08-25) — Piet's OWN (possibly absent/wrong) contact details
+     * would have been used to create the SignatureRequest, never Koos's.
+     *
+     * isEntity() is kept, not replaced — an entity with ZERO representatives
+     * linked must still enter expansion so the existing
+     * _entity_needs_representative prompt still fires (unchanged, pre-
+     * existing behaviour). representatives()->exists() is ADDED alongside
+     * it so a natural person who genuinely has a representative link also
+     * enters expansion; an ordinary natural-person recipient with no
+     * representative link (the overwhelming majority of every document)
+     * still takes the simple pass-through, exactly as before.
+     */
+    private function partyNeedsRepresentativeExpansion(Contact $contact): bool
+    {
+        return $contact->isEntity() || $contact->representatives()->exists();
+    }
+
+    /**
      * ESIGN RECIPIENT BUILDER (Johan 2026-08-15) — expand any ENTITY/company
      * recipient into its proxy-aware signing representative(s). Consumes the
      * shared foundation Contact::signingRepresentatives() (proxy → 1 signer;
@@ -3462,7 +3490,13 @@ class ESignWizardController extends Controller
      *    for downstream render.
      * A rep-less entity is kept as-is with _entity_needs_representative=true so the
      * recipient screen can prompt "link a representative first" — it cannot sign.
-     * Non-entity recipients pass through unchanged (order renumbered).
+     * A recipient with no representative link at all (the ordinary case) passes
+     * through unchanged (order renumbered) — see partyNeedsRepresentativeExpansion().
+     * A represented NATURAL PERSON (Johan, 2026-08-26 — the "Piet" case) now takes
+     * this SAME branch: Contact::signingRepresentatives() recurses through any
+     * entity intermediary down to the real natural-person signer(s), so the
+     * produced rows are unchanged in shape whether the original party was an
+     * entity or a represented natural person.
      */
     private function expandEntityRecipients(array $recipients, $user): array
     {
@@ -3472,8 +3506,8 @@ class ESignWizardController extends Controller
         }
 
         $contacts = Contact::withoutGlobalScopes()->whereIn('id', $contactIds)->get()->keyBy('id');
-        if (! $contacts->contains(fn (Contact $c) => $c->isEntity())) {
-            return $recipients; // no entities → nothing to expand
+        if (! $contacts->contains(fn (Contact $c) => $this->partyNeedsRepresentativeExpansion($c))) {
+            return $recipients; // no entities, and nothing else has a representative linked → nothing to expand
         }
 
         $agencyId = $user->agency_id ?? optional($contacts->first())->agency_id;
@@ -3487,7 +3521,7 @@ class ESignWizardController extends Controller
             $cid     = $r['_contact_id'] ?? null;
             $contact = $cid ? ($contacts[$cid] ?? null) : null;
 
-            if (! $contact || ! $contact->isEntity()) {
+            if (! $contact || ! $this->partyNeedsRepresentativeExpansion($contact)) {
                 $r['order'] = ++$order;
                 $out[] = $r;
                 continue;

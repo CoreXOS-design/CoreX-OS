@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Exceptions\UnresolvableRepresentativeChainException;
 use App\Models\CommandCenter\CalendarEvent;
 use App\Models\CommandCenter\CalendarEventLink;
 use App\Models\Concerns\BelongsToAgency;
@@ -732,24 +733,96 @@ class Contact extends Model
     }
 
     /**
+     * Same bound as RoleBlockExpansionService::MAX_REPRESENTATIVE_DEPTH (the
+     * document-BODY recursion) — kept as a separate constant because the two
+     * are different methods resolving different questions (who signs vs who
+     * is named), but the same value for the same reason: Johan's own proof
+     * case (natural person -> entity -> natural person) is depth 2; this
+     * gives headroom above any real SA conveyancing chain while still
+     * failing fast. If one bound changes, check whether the other should.
+     */
+    private const MAX_REPRESENTATIVE_DEPTH = 5;
+
+    /**
      * Shared proxy resolution for signingRepresentatives()/emailRepresentatives().
      * Defensive against dirty data: if more than one rep is somehow flagged
      * proxy, the FIRST (lowest pivot id) is taken rather than throwing —
      * single-proxy is enforced at the write paths, this is the read-side floor.
      *
+     * Recursive (Johan, 2026-08-26 — flow 330's own "Piet" case: a natural
+     * person represented by an entity, itself represented by a natural
+     * person). Contact::representatives() has no contact_kind filter, so a
+     * direct representative can itself be an entity needing its own
+     * representative before there is anyone to actually sign or email.
+     * Previously gated on `! $this->isEntity()`, which — same mistake
+     * RoleBlockExpansionService::resolveDocumentRepresentatives() made on
+     * the document-body side, fixed there 2026-08-25 — also blocked a
+     * NATURAL-PERSON party (Piet himself) from ever having a representative
+     * resolved here at all, so WHO ACTUALLY RECEIVED THE SIGNING REQUEST was
+     * still wrong even after the document text was fixed.
+     *
+     * Proxy is applied AT EACH LEVEL independently (unlike the document-body
+     * recursion, which names every representative regardless of proxy) —
+     * signing is exactly the question proxy answers: if one direct rep at
+     * this level is flagged proxy, only that one continues into the
+     * chain; otherwise every direct rep at this level does. A representative
+     * who is themselves an entity recurses one level; a natural-person
+     * representative is always a leaf — Johan's rule: the signer at the
+     * bottom of any chain is always a natural person, and a natural person
+     * has nothing further to recurse into.
+     *
+     * $depth / $seenIds are internal recursion state — always called with
+     * their defaults from signingRepresentatives()/emailRepresentatives();
+     * a caller never needs to pass them.
+     *
+     * @throws UnresolvableRepresentativeChainException chain too deep, a
+     *   cycle (A represents B represents A), or a nested entity
+     *   representative with no representative of its own — same three
+     *   named refusals RoleBlockExpansionService's recursion already
+     *   throws, reused rather than re-defined: "the signer is always a
+     *   natural person... refuse, never render/dispatch to a bare entity."
      * @return \Illuminate\Support\Collection<int, \App\Models\Contact>
      */
-    private function proxyAwareRepresentatives(): \Illuminate\Support\Collection
+    private function proxyAwareRepresentatives(int $depth = 0, array $seenIds = []): \Illuminate\Support\Collection
     {
-        if (! $this->isEntity()) {
-            return collect();
+        if ($depth > self::MAX_REPRESENTATIVE_DEPTH) {
+            throw UnresolvableRepresentativeChainException::tooDeep($this, self::MAX_REPRESENTATIVE_DEPTH);
         }
+        if (in_array($this->id, $seenIds, true)) {
+            throw UnresolvableRepresentativeChainException::cycleDetected($this, $this);
+        }
+        $seenIds[] = $this->id;
 
         $reps = $this->representatives()->get();
 
-        $proxy = $reps->first(fn (Contact $rep) => (bool) ($rep->pivot->signs_as_proxy ?? false));
+        if ($reps->isEmpty()) {
+            // A NESTED entity representative (depth > 0) with nobody
+            // representing IT is the state Johan's rule refuses. The
+            // TOP-LEVEL party (depth 0) having no representative yet is the
+            // normal, pre-existing, non-error state (the recipient screen
+            // already prompts an agent to link one — see
+            // ESignWizardController::expandEntityRecipients()'s
+            // _entity_needs_representative) — unchanged here.
+            if ($this->isEntity() && $depth > 0) {
+                throw UnresolvableRepresentativeChainException::entityWithNoRepresentative($this);
+            }
 
-        return $proxy ? collect([$proxy]) : $reps;
+            return collect();
+        }
+
+        $proxy = $reps->first(fn (Contact $rep) => (bool) ($rep->pivot->signs_as_proxy ?? false));
+        $levelReps = $proxy ? collect([$proxy]) : $reps;
+
+        $leaves = collect();
+        foreach ($levelReps as $rep) {
+            if ($rep->isEntity()) {
+                $leaves = $leaves->concat($rep->proxyAwareRepresentatives($depth + 1, $seenIds));
+            } else {
+                $leaves->push($rep);
+            }
+        }
+
+        return $leaves;
     }
 
     /**
