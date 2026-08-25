@@ -85,15 +85,26 @@
         $t['count'] . ' of ' . $t['total'] . ' ' . \Illuminate\Support\Str::plural('viewer', $t['total']) . ' mentioned ' . $t['label']
     );
 
-    // Sold-comparison sentence (Section: What has actually sold near you).
-    $soldSentence = null;
-    if ($soldComparison) {
+    // 2026-08-25 CORRECTION (Johan) — "a seller prices their own home
+    // against a number we told them was final, in writing, with their
+    // agent's name on it." property_sold_records-sourced "sold" comparisons
+    // were confirmed to mirror the property's own advertised price, not a
+    // real transaction. Replaced with two genuinely separate sources
+    // (registeredSales / underOfferSales, from the controller) and this
+    // ONE shared sentence-builder — the verb ("sold" / "went under offer")
+    // is the ONLY thing that differs between them, and it comes from
+    // $labels (SellerLinkController::LABELS) so a rename is one line there,
+    // never a hunt through this file.
+    $buildComparisonSentence = function ($comparison, string $verb) use ($property) {
+        if (!$comparison) return null;
         $subjFacts = trim(($property->beds ? $property->beds . ' bed' : '') . ($property->baths ? ' ' . rtrim(rtrim(number_format($property->baths, 1), '0'), '.') . ' bath' : ''));
-        $compFacts = trim(($soldComparison['comp_beds'] ? $soldComparison['comp_beds'] . ' bed' : '') . ($soldComparison['comp_baths'] ? ' ' . rtrim(rtrim(number_format($soldComparison['comp_baths'], 1), '0'), '.') . ' bath' : ''));
-        $soldSentence = 'Your ' . ($subjFacts ?: strtolower($property->property_type ?? 'property')) . ' has been on the market ' . $soldComparison['subject_days'] . ' ' . \Illuminate\Support\Str::plural('day', $soldComparison['subject_days'])
-            . '; a comparable ' . ($compFacts ?: strtolower($soldComparison['comp_type'] ?? 'property')) . ' nearby sold in ' . $soldComparison['comp_days'] . ' ' . \Illuminate\Support\Str::plural('day', $soldComparison['comp_days'])
-            . ' at R' . number_format($soldComparison['comp_price']) . '.';
-    }
+        $compFacts = trim(($comparison['comp_beds'] ? $comparison['comp_beds'] . ' bed' : '') . ($comparison['comp_baths'] ? ' ' . rtrim(rtrim(number_format($comparison['comp_baths'], 1), '0'), '.') . ' bath' : ''));
+        return 'Your ' . ($subjFacts ?: strtolower($property->property_type ?? 'property')) . ' has been on the market ' . $comparison['subject_days'] . ' ' . \Illuminate\Support\Str::plural('day', $comparison['subject_days'])
+            . '; a comparable ' . ($compFacts ?: strtolower($comparison['comp_type'] ?? 'property')) . ' nearby ' . $verb . ' in ' . $comparison['comp_days'] . ' ' . \Illuminate\Support\Str::plural('day', $comparison['comp_days'])
+            . ' at R' . number_format($comparison['comp_price']) . '.';
+    };
+    $registeredSentence = $buildComparisonSentence($registeredComparison, $labels['sold_verb']);
+    $underOfferSentence = $buildComparisonSentence($underOfferComparison, $labels['under_offer_verb']);
 @endphp
 <!DOCTYPE html>
 <html lang="en">
@@ -452,30 +463,64 @@
         </section>
         @endif
 
-        {{-- SECTION 7 — What has actually sold near you. property_sold_records
-             (M9 canonical, suburb-scoped, not agency-scoped) joined through
-             to the linked property for real beds/baths and days-to-sell
-             (the table's own columns are unpopulated). Absent when there
-             are no achieved sales. --}}
-        @if($achievedSales->isNotEmpty())
+        {{-- SECTION 7 — What has actually sold near you. 2026-08-25
+             CORRECTION: this used to read property_sold_records, whose
+             "sold_price" was confirmed to mirror the property's own
+             advertised price — not a real transaction. Never use that
+             table for a "sold" claim again. Source now: the legacy `deals`
+             table (Dr1), registration_date IS NOT NULL — the only source on
+             this system a "sold" word may come from. Absent when there are
+             no genuinely registered comparable sales. --}}
+        @if($registeredSales->isNotEmpty())
         <section class="surface-card p-5">
-            <h2 class="text-base font-bold mb-1" style="color: var(--text-primary);">What has actually sold near you</h2>
-            <p class="text-xs mb-4" style="color: var(--text-muted);">Achieved sales in your suburb, last 12 months.</p>
+            <h2 class="text-base font-bold mb-1" style="color: var(--text-primary);">{{ $labels['sold_heading'] }}</h2>
+            <p class="text-xs mb-4" style="color: var(--text-muted);">{{ $labels['sold_subtitle'] }}</p>
 
-            @if($soldSentence)
-                <p class="text-sm mb-4 p-3 rounded-lg" style="background: var(--surface-2); color: var(--text-secondary);">{{ $soldSentence }}</p>
+            @if($registeredSentence)
+                <p class="text-sm mb-4 p-3 rounded-lg" style="background: var(--surface-2); color: var(--text-secondary);">{{ $registeredSentence }}</p>
             @endif
 
             <div class="divide-y" style="border-color: var(--border);">
-                @foreach($achievedSales as $s)
+                @foreach($registeredSales as $s)
                     <div class="flex items-center justify-between gap-3 py-2.5 text-sm">
                         <span style="color: var(--text-secondary);">
                             {{ collect([$s['property_type'], $s['beds'] ? $s['beds'] . ' bed' : null, $s['baths'] ? $s['baths'] . ' bath' : null])->filter()->implode(' · ') }}
                         </span>
                         <span class="text-right flex-shrink-0">
-                            <span class="font-semibold" style="color: var(--brand-default);">R {{ number_format($s['sold_price']) }}</span>
+                            <span class="font-semibold" style="color: var(--brand-default);">R {{ number_format($s['price']) }}</span>
                             <span class="text-xs block" style="color: var(--text-muted);">
-                                {{ \Carbon\Carbon::parse($s['sold_date'])->format('M Y') }}{{ $s['days_on_market'] !== null ? ' · ' . $s['days_on_market'] . ' ' . \Illuminate\Support\Str::plural('day', $s['days_on_market']) . ' to sell' : '' }}
+                                {{ \Carbon\Carbon::parse($s['registration_date'])->format('M Y') }}{{ $s['days_to_sell'] !== null ? ' · ' . $s['days_to_sell'] . ' ' . \Illuminate\Support\Str::plural('day', $s['days_to_sell']) . ' to ' . $labels['sold_verb'] : '' }}
+                            </span>
+                        </span>
+                    </div>
+                @endforeach
+            </div>
+        </section>
+        @endif
+
+        {{-- SECTION 7b — What has recently gone under offer near you. NEVER
+             say "sold"/"achieved" here — an accepted offer can still fall
+             through. Source: deals_v2 (Dr2), actual_registration IS NULL.
+             Absent when there are no genuine under-offer comparables. --}}
+        @if($underOfferSales->isNotEmpty())
+        <section class="surface-card p-5">
+            <h2 class="text-base font-bold mb-1" style="color: var(--text-primary);">{{ $labels['under_offer_heading'] }}</h2>
+            <p class="text-xs mb-4" style="color: var(--text-muted);">{{ $labels['under_offer_subtitle'] }}</p>
+
+            @if($underOfferSentence)
+                <p class="text-sm mb-4 p-3 rounded-lg" style="background: var(--surface-2); color: var(--text-secondary);">{{ $underOfferSentence }}</p>
+            @endif
+
+            <div class="divide-y" style="border-color: var(--border);">
+                @foreach($underOfferSales as $s)
+                    <div class="flex items-center justify-between gap-3 py-2.5 text-sm">
+                        <span style="color: var(--text-secondary);">
+                            {{ collect([$s['property_type'], $s['beds'] ? $s['beds'] . ' bed' : null, $s['baths'] ? $s['baths'] . ' bath' : null])->filter()->implode(' · ') }}
+                        </span>
+                        <span class="text-right flex-shrink-0">
+                            <span class="font-semibold" style="color: var(--brand-default);">R {{ number_format($s['price']) }}</span>
+                            <span class="text-xs block" style="color: var(--text-muted);">
+                                {{ \Carbon\Carbon::parse($s['offer_date'])->format('M Y') }}{{ $s['days_to_offer'] !== null ? ' · ' . $s['days_to_offer'] . ' ' . \Illuminate\Support\Str::plural('day', $s['days_to_offer']) . ' to offer' : '' }}
                             </span>
                         </span>
                     </div>

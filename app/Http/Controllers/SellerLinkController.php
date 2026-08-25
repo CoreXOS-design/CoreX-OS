@@ -14,6 +14,26 @@ use Illuminate\Support\Facades\DB;
 class SellerLinkController extends Controller
 {
     /**
+     * 2026-08-25 (Johan) — CORRECTION: CoreX had been calling accepted
+     * offers "achieved sales" on a page a seller reads to price their own
+     * home. Every customer-facing word for this distinction lives HERE and
+     * ONLY here — a rename is a one-line change to this array, never a
+     * hunt through the view. "Sold" may ONLY ever be used for the
+     * registered-sale branch (getRegisteredSaleComparables(), the legacy
+     * `deals` table, registration_date IS NOT NULL). The under-offer
+     * branch (getUnderOfferComparables(), deals_v2, NOT yet registered)
+     * must never say "sold" or "achieved" anywhere.
+     */
+    private const LABELS = [
+        'sold_heading'          => 'What has actually sold near you',
+        'sold_subtitle'         => 'Registered sales in your suburb, last 12 months.',
+        'sold_verb'             => 'sold',
+        'under_offer_heading'   => 'What has recently gone under offer near you',
+        'under_offer_subtitle'  => 'Accepted offers in your suburb, last 6 months — not yet registered, so not final.',
+        'under_offer_verb'      => 'went under offer',
+    ];
+
+    /**
      * Public endpoint: render seller live page for a valid token.
      *
      * 2026-08-25 (Johan) — expanded per spec .ai/specs/seller-live-link.md:
@@ -69,7 +89,14 @@ class SellerLinkController extends Controller
         $feedbackRollup = $intel->getFeedbackRollup($property->id, excludeInternalOnly: true);
         $compliance = $intel->getComplianceStatus($property->id);
         $activeComparables = $intel->getActiveComparables($property->id);
-        $achievedSales = $intel->getAchievedComparableSales($property->id);
+        // 2026-08-25 CORRECTION — was getAchievedComparableSales() reading
+        // property_sold_records, whose sold_price mirrors the property's
+        // own advertised price (confirmed fake by SuburbReportDataService's
+        // own 2026-08-24 finding). Two real, separately-labelled sources
+        // now: registered sales (may say "sold") and accepted offers not
+        // yet registered (may NEVER say "sold"). See self::LABELS.
+        $registeredSales = $intel->getRegisteredSaleComparables($property->id);
+        $underOfferSales = $intel->getUnderOfferComparables($property->id);
         $feedbackThemes = $intel->getFeedbackThemes($property->id, excludeInternalOnly: true);
         $portalPerformance = $intel->getPortalPerformance($property->id, rangeDays: 30);
         // Portal Engagement chart — SAME data source the internal Intelligence
@@ -89,12 +116,14 @@ class SellerLinkController extends Controller
         $priceChangeEvents = $this->buildPriceChangeEvents($property->id);
         $daysOnMarket = $property->listed_date ? HumanDiff::daysBetween($property->listed_date) : null;
         $priceChangeNarrative = $this->buildPriceChangeNarrative($priceChangeEvents, $portalEngagement['series'] ?? []);
-        $soldComparison = $this->buildSoldComparisonSentence($property, $daysOnMarket, $achievedSales);
+        $registeredComparison = $this->buildBestComparison($property, $daysOnMarket, $registeredSales);
+        $underOfferComparison = $this->buildBestComparison($property, $daysOnMarket, $underOfferSales);
 
         return view('seller-link.live', [
             'property' => $property,
             'seller' => $contact,
             'agency' => $agency,
+            'labels' => self::LABELS,
             'feedbackRollup' => $feedbackRollup,
             'feedbackThemes' => $feedbackThemes,
             'viewingFeedback' => $this->buildSellerSafeFeedback($property->id),
@@ -106,8 +135,10 @@ class SellerLinkController extends Controller
             'compliance' => $compliance,
             'daysOnMarket' => $daysOnMarket,
             'activeComparables' => $activeComparables,
-            'achievedSales' => $achievedSales,
-            'soldComparison' => $soldComparison,
+            'registeredSales' => $registeredSales,
+            'registeredComparison' => $registeredComparison,
+            'underOfferSales' => $underOfferSales,
+            'underOfferComparison' => $underOfferComparison,
             'recommendations' => $recommendations,
             'portalsLive' => $this->buildPortalsLive($property),
             'link' => $link,
@@ -233,46 +264,42 @@ class SellerLinkController extends Controller
     }
 
     /**
-     * "your 2 bed 2 bath ... is on the market 90 days; a comparable ... sold
-     * in 40 days" — matches the achieved sale closest in property_type (and
-     * beds, when both sides have it) to the subject, and only when the
-     * subject itself has a real days-on-market figure to compare (gated the
-     * same way Section 2's own days-on-market figure is — no listed_date,
-     * no comparison, full stop). Null when there's no usable match.
+     * "your 2 bed 2 bath ... is on the market 90 days; a comparable ...
+     * {verb} in 40 days" — picks the best beds-matching comparable from an
+     * ALREADY family-filtered collection (getUnderOfferComparables()/
+     * getRegisteredSaleComparables() both family-gate via TitleTypeClassifier
+     * before this ever sees them, so both comparable sections — active,
+     * under-offer, registered — agree on what counts as "the same kind of
+     * property"), and only when the subject itself has a real days-on-market
+     * figure to compare. Deliberately verb-free — this returns STRUCTURE
+     * only; "sold" vs "went under offer" is templated in the view from
+     * self::LABELS, the one place those words live. Null when there's no
+     * usable match.
      */
-    private function buildSoldComparisonSentence(Property $property, ?int $daysOnMarket, \Illuminate\Support\Collection $achievedSales): ?array
+    private function buildBestComparison(Property $property, ?int $daysOnMarket, \Illuminate\Support\Collection $comparables): ?array
     {
-        if ($daysOnMarket === null || $achievedSales->isEmpty()) return null;
+        if ($daysOnMarket === null || $comparables->isEmpty()) return null;
 
-        // "Apartment" (sold-records vocabulary) vs "Apartment / Flat"
-        // (properties vocabulary) never match on ===, despite meaning the
-        // same thing — a raw string match would have silently dropped
-        // every real comparable a subject property has. TitleTypeClassifier
-        // is the SAME sectional/freehold classifier CompetitorStockMatchService
-        // already uses to family-gate active comparables — reused here, not
-        // reinvented, so both comparable sections agree on what counts as
-        // "the same kind of property".
-        $classifier = app(\App\Services\TitleTypeClassifier::class);
-        $subjectFamily = $classifier->fromPropertyType((string) $property->property_type);
-
-        $best = $achievedSales
-            ->filter(fn ($s) => $s['days_on_market'] !== null && $classifier->fromPropertyType((string) $s['property_type']) === $subjectFamily)
+        $best = $comparables
             ->sortBy(function ($s) use ($property) {
-                // Prefer a beds-match; among those, the most recent sale.
-                $bedsMatch = ($property->beds && $s['beds'] === $property->beds) ? 0 : 1;
-                return $bedsMatch;
+                // Prefer a beds-match; among those, keep the collection's
+                // own order (both source methods already sort most-recent-first).
+                return ($property->beds && $s['beds'] === $property->beds) ? 0 : 1;
             })
             ->first();
 
         if (!$best) return null;
+
+        $days = $best['days_to_offer'] ?? $best['days_to_sell'] ?? null;
+        if ($days === null) return null;
 
         return [
             'subject_days' => $daysOnMarket,
             'comp_beds' => $best['beds'],
             'comp_baths' => $best['baths'],
             'comp_type' => $best['property_type'],
-            'comp_days' => $best['days_on_market'],
-            'comp_price' => $best['sold_price'],
+            'comp_days' => $days,
+            'comp_price' => $best['price'],
         ];
     }
 
