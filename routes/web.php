@@ -4816,6 +4816,19 @@ Route::middleware(['auth', 'permission:access_prospecting', 'feature:prospecting
             ->where('suburb', '[A-Za-z0-9 \-\&\']+')
             ->name('suburb-deep-dive');
 
+        // Suburb Report — combined CMA-vs-CoreX picture (Johan, 2026-08-25).
+        // Index is the picker landing page (menu link points here); the JSON
+        // search endpoint sits on its own path so it never collides with the
+        // numeric {suburb} show route.
+        Route::get('/suburb-report', [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'suburbReportIndex'])
+            ->name('suburb-report.index');
+        Route::get('/suburb-report-search', [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'suburbReportSuburbs'])
+            ->name('suburb-report.suburbs');
+        Route::get('/suburb-report/{suburb}',
+            [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'suburbReport'])
+            ->whereNumber('suburb')
+            ->name('suburb-report');
+
         // Phase E3 — per-listing "why this matches" tooltip (Sonnet 4.6).
         Route::get('/listing/{listing}/match-tooltip',
             [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'matchTooltip'])
