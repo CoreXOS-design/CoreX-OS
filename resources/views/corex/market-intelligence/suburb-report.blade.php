@@ -13,14 +13,77 @@
         title="{{ $data['suburb']['name'] ?? ('#' . $suburb->id) }}"
         subtitle="{{ $data['suburb']['municipality_confirmed'] ? $data['suburb']['municipality'] . ' — ' : '' }}Suburb Report — as at {{ \Illuminate\Support\Carbon::parse($data['layer_b']['as_at'] ?? now())->format('d M Y, H:i') }}">
         <x-slot:actions>
-            <a href="{{ route('market-intelligence.suburb-report.print', $suburb) }}" target="_blank" class="corex-btn-outline">Print</a>
-            <a href="{{ route('market-intelligence.suburb-report.pdf', $suburb) }}" class="corex-btn-primary">Download PDF</a>
+            <a href="{{ route('market-intelligence.suburb-report.print', $suburb) }}?{{ $sectionsQuery }}" target="_blank" class="corex-btn-outline">Print</a>
+            <a href="{{ route('market-intelligence.suburb-report.pdf', $suburb) }}?{{ $sectionsQuery }}" class="corex-btn-primary">Download PDF</a>
         </x-slot:actions>
     </x-mic-page-header>
 
     <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
         @include('corex.market-intelligence._suburb-report-picker', ['currentSuburbName' => $data['suburb']['name'] ?? null])
     </div>
+
+    {{-- Per-section controls — Johan, 2026-08-25: "the tick should be per
+         section... an agent putting a report in front of a seller must be
+         able to leave out the agency's own thin stock while still showing
+         the market picture." A global convenience pair sets every section
+         at once; the per-section row is what actually matters and is what
+         gets submitted (GET form, so it's a normal shareable/printable URL
+         — no JS round-trip needed for it to take effect). --}}
+    <details class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);" open>
+        <summary class="text-sm font-semibold cursor-pointer" style="color: var(--text-primary);">What to include in this report</summary>
+        <form method="GET" action="{{ route('market-intelligence.suburb-report', $suburb) }}" class="mt-3 space-y-3" x-data="{
+            all(field, val) {
+                this.$el.querySelectorAll('input[data-field=' + field + ']').forEach(el => el.checked = val);
+            }
+        }">
+            <div class="flex flex-wrap gap-2 text-xs">
+                <span class="self-center" style="color: var(--text-secondary);">Set all sections:</span>
+                <button type="button" class="corex-btn-outline" style="padding:0.25rem 0.6rem;" @click="all('agency', true)">Show all agency sides</button>
+                <button type="button" class="corex-btn-outline" style="padding:0.25rem 0.6rem;" @click="all('agency', false)">Hide all agency sides</button>
+                <button type="button" class="corex-btn-outline" style="padding:0.25rem 0.6rem;" @click="all('market', true)">Show all market sides</button>
+                <button type="button" class="corex-btn-outline" style="padding:0.25rem 0.6rem;" @click="all('market', false)">Hide all market sides</button>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="text-sm" style="width:100%; border-collapse: collapse;">
+                    <thead>
+                        <tr style="color: var(--text-secondary); text-align:left;">
+                            <th class="py-1 pr-3">Section</th>
+                            <th class="py-1 px-3">Show section</th>
+                            <th class="py-1 px-3">Agency side</th>
+                            <th class="py-1 px-3">Market side</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach([
+                            'stock' => 'Stock on market',
+                            'sales' => 'Sales',
+                            'sold_under_offer' => 'Sold & under offer',
+                            'price_reductions' => 'Price reduction activity',
+                        ] as $key => $label)
+                        <tr style="border-top: 1px solid var(--border);">
+                            <td class="py-2 pr-3" style="color: var(--text-primary);">{{ $label }}</td>
+                            <td class="py-2 px-3"><input type="checkbox" name="sections[{{ $key }}][show]" value="1" data-field="show" {{ $sections[$key]['show'] ? 'checked' : '' }}></td>
+                            <td class="py-2 px-3"><input type="checkbox" name="sections[{{ $key }}][agency]" value="1" data-field="agency" {{ $sections[$key]['agency'] ? 'checked' : '' }}></td>
+                            <td class="py-2 px-3"><input type="checkbox" name="sections[{{ $key }}][market]" value="1" data-field="market" {{ $sections[$key]['market'] ? 'checked' : '' }}></td>
+                        </tr>
+                        @endforeach
+                        @foreach([
+                            'cma_reports' => 'CMA reports on file',
+                            'buyer_demand' => 'Buyer demand vs stock',
+                        ] as $key => $label)
+                        <tr style="border-top: 1px solid var(--border);">
+                            <td class="py-2 pr-3" style="color: var(--text-primary);">{{ $label }}</td>
+                            <td class="py-2 px-3"><input type="checkbox" name="sections[{{ $key }}][show]" value="1" {{ $sections[$key]['show'] ? 'checked' : '' }}></td>
+                            <td class="py-2 px-3" style="color: var(--text-secondary);">—</td>
+                            <td class="py-2 px-3" style="color: var(--text-secondary);">—</td>
+                        </tr>
+                        @endforeach
+                    </tbody>
+                </table>
+            </div>
+            <button type="submit" class="corex-btn-primary" style="padding:0.4rem 1rem;">Apply</button>
+        </form>
+    </details>
 
     {{-- Upload a CMA for THIS suburb — ALWAYS here, whether a CMA already
          exists or not (Johan, 2026-08-25: "he wants to be able to add a CMA
