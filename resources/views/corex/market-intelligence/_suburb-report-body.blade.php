@@ -49,10 +49,15 @@
         return 'R ' . number_format($v, 0);
     };
     // AGENCY / MARKET label chip — the one thing that must never be
-    // ambiguous on this report.
+    // ambiguous on this report. Spelled out in full, always — warmer pass,
+    // 2026-08-25 (Johan, via the conductor): "no P24, no PP, no MIC — not
+    // even with a footnote. A seller must never have to remember what an
+    // abbreviation meant three screens ago."
+    $agencyName = $data['agency']['name'] ?? 'the agency';
     $sideChip = fn (string $kind) => $kind === 'agency'
-        ? '<span style="font-family:monospace; font-size:0.62rem; font-weight:700; letter-spacing:0.03em; padding:0.15rem 0.5rem; border-radius:99px; background:#e6ede9; color:#2f6b45;">AGENCY</span>'
-        : '<span style="font-family:monospace; font-size:0.62rem; font-weight:700; letter-spacing:0.03em; padding:0.15rem 0.5rem; border-radius:99px; background:#f3ead2; color:#96660a;">MARKET — P24 &amp; PP</span>';
+        ? '<span style="font-family:monospace; font-size:0.62rem; font-weight:700; letter-spacing:0.03em; padding:0.15rem 0.5rem; border-radius:99px; background:#e6ede9; color:#2f6b45;">' . strtoupper(e($agencyName)) . '</span>'
+        : '<span style="font-family:monospace; font-size:0.62rem; font-weight:700; letter-spacing:0.03em; padding:0.15rem 0.5rem; border-radius:99px; background:#f3ead2; color:#96660a;">PROPERTY24 &amp; PRIVATE PROPERTY</span>';
+    $suburbName = $data['suburb']['name'] ?? 'this suburb';
 @endphp
 
 {{-- ================= KPI headline ================= --}}
@@ -68,8 +73,8 @@
 {{-- ================= LAYER A — CMA imports, with visuals ================= --}}
 @if($sections['cma_reports']['show'] && $layerA['available'])
 <div style="background:#ffffff; border:1px solid #e3ddc9; border-radius:10px; padding:1.1rem 1.3rem; margin-bottom:1rem; break-inside:avoid;">
-    <div style="font-size:1.05rem; font-weight:700; color:#1b2a2c; margin-bottom:0.2rem;">Market data on file (CMA reports)</div>
-    <p style="font-size:0.8rem; color:#5c6c6d; margin:0 0 1rem;">Each report imported for this suburb kept as its own figures — never merged with another report's numbers, even where they cover the same year.</p>
+    <div style="font-size:1.05rem; font-weight:700; color:#1b2a2c; margin-bottom:0.2rem;">Market reports for {{ $suburbName }}</div>
+    <p style="font-size:0.8rem; color:#5c6c6d; margin:0 0 1rem;">Each report on file is kept as its own figures, never mixed with another report's numbers, even where they cover the same year.</p>
 
     @foreach($layerA['reports'] as $report)
     @php
@@ -166,11 +171,11 @@
 @php $stockHasAny = $stockListings->isNotEmpty() || $marketHasStock; @endphp
 @if($sections['stock']['show'] && $stockHasAny)
 <div style="background:#ffffff; border:1px solid #e3ddc9; border-radius:10px; padding:1.1rem 1.3rem; margin-bottom:1rem; break-inside:avoid;">
-    <div style="font-size:1.05rem; font-weight:700; color:#1b2a2c; margin-bottom:0.2rem;">Stock on market</div>
-    <p style="font-size:0.8rem; color:#5c6c6d; margin:0 0 0.9rem;">What the agency has listed here, next to what MIC has captured across Property24 and Private Property for this suburb — competitor stock included.</p>
+    <div style="font-size:1.05rem; font-weight:700; color:#1b2a2c; margin-bottom:0.7rem;">What's for sale in {{ $suburbName }}</div>
 
     @if($sections['stock']['agency'] && $stockListings->isNotEmpty())
     <div style="margin-bottom:1rem;">
+        <p style="font-size:0.95rem; color:#1b2a2c; margin:0 0 0.6rem; line-height:1.5;">{{ $agencyName }} currently has <strong>{{ number_format($stockListings->count()) }}</strong> {{ $stockListings->count() === 1 ? 'home' : 'homes' }} for sale in {{ $suburbName }}.</p>
         <div style="margin-bottom:0.5rem;">{!! $sideChip('agency') !!}</div>
         <div style="overflow-x:auto;">
             <table style="width:100%; border-collapse:collapse; font-size:0.82rem;">
@@ -200,15 +205,17 @@
 
     @if($sections['stock']['market'])
     <div>
-        <div style="margin-bottom:0.5rem;">{!! $sideChip('market') !!}</div>
         @if($marketHasStock)
+        <p style="font-size:0.95rem; color:#1b2a2c; margin:0 0 0.6rem; line-height:1.5;">Across Property24 and Private Property, there are <strong>{{ number_format($market['stock']['total']) }}</strong> homes for sale in {{ $suburbName }} right now.</p>
+        <div style="margin-bottom:0.5rem;">{!! $sideChip('market') !!}</div>
         @include('corex.market-intelligence._suburb-report-stat-row', ['stats' => [
-            ['label' => 'Active on Property24', 'value' => number_format($market['stock']['p24']), 'color' => '#96660a'],
-            ['label' => 'Active on Private Property', 'value' => number_format($market['stock']['pp']), 'color' => '#96660a'],
-            ['label' => 'Total captured', 'value' => number_format($market['stock']['total']), 'sub' => 'agency + competitor stock'],
+            ['label' => 'On Property24', 'value' => number_format($market['stock']['p24']), 'color' => '#96660a'],
+            ['label' => 'On Private Property', 'value' => number_format($market['stock']['pp']), 'color' => '#96660a'],
         ]])
+        <p style="font-size:0.72rem; color:#8a9697; margin:0.5rem 0 0;">Includes every agency's stock, not just {{ $agencyName }}'s.</p>
         @else
-        <p style="font-size:0.8rem; color:#8a9697; margin:0;">No portal stock captured for this suburb yet — MIC has not tracked any P24/PP listings here.</p>
+        <div style="margin-bottom:0.5rem;">{!! $sideChip('market') !!}</div>
+        <p style="font-size:0.8rem; color:#8a9697; margin:0;">Nothing tracked yet on Property24 or Private Property for {{ $suburbName }}.</p>
         @endif
     </div>
     @endif
@@ -233,29 +240,31 @@
 @endphp
 @if($sections['sales']['show'] && $salesHasAny)
 <div style="background:#ffffff; border:1px solid #e3ddc9; border-radius:10px; padding:1.1rem 1.3rem; margin-bottom:1rem; break-inside:avoid;">
-    <div style="font-size:1.05rem; font-weight:700; color:#1b2a2c; margin-bottom:0.2rem;">Sales</div>
-    <p style="font-size:0.8rem; color:#5c6c6d; margin:0 0 0.9rem;">Completed sales by the agency, next to the area's total sales as reported in each CMA on file — kept separate per report, never blended.</p>
+    <div style="font-size:1.05rem; font-weight:700; color:#1b2a2c; margin-bottom:0.7rem;">Homes sold in {{ $suburbName }}</div>
 
     @if($sections['sales']['agency'])
     <div style="margin-bottom:{{ $sections['sales']['market'] ? '1rem' : '0' }};">
+        <p style="font-size:0.95rem; color:#1b2a2c; margin:0 0 0.6rem; line-height:1.5;">{{ $agencyName }} has sold <strong>{{ number_format(count($sold)) }}</strong> {{ count($sold) === 1 ? 'home' : 'homes' }} in {{ $suburbName }}.</p>
         <div style="margin-bottom:0.5rem;">{!! $sideChip('agency') !!}</div>
         @include('corex.market-intelligence._suburb-report-stat-row', ['stats' => [
-            ['label' => 'Sold by the agency', 'value' => number_format(count($sold)), 'color' => '#2f6b45'],
+            ['label' => 'Sold', 'value' => number_format(count($sold)), 'color' => '#2f6b45'],
         ]])
     </div>
     @endif
 
     @if($sections['sales']['market'])
     <div>
-        <div style="margin-bottom:0.5rem;">{!! $sideChip('market') !!}</div>
         @if(!empty($cmaSalesRows))
+        <p style="font-size:0.95rem; color:#1b2a2c; margin:0 0 0.6rem; line-height:1.5;"><strong>{{ number_format($cmaSalesRows[0]['count']) }}</strong> homes sold across {{ $suburbName }} in {{ $cmaSalesRows[0]['year'] }}, based on a market report on file.</p>
+        <div style="margin-bottom:0.5rem;">{!! $sideChip('market') !!}</div>
         @foreach($cmaSalesRows as $row)
         <div style="font-size:0.85rem; color:#1b2a2c; padding:0.3rem 0;">
             <strong>{{ number_format($row['count']) }}</strong> area sales in {{ $row['year'] }} — <span style="color:#5c6c6d;">{{ $row['report_type'] }}</span>
         </div>
         @endforeach
         @else
-        <p style="font-size:0.8rem; color:#8a9697; margin:0;">No CMA report on file carries an area sales count for this suburb.</p>
+        <div style="margin-bottom:0.5rem;">{!! $sideChip('market') !!}</div>
+        <p style="font-size:0.8rem; color:#8a9697; margin:0;">No area-wide sales figure is available for {{ $suburbName }} yet.</p>
         @endif
     </div>
     @endif
@@ -279,17 +288,22 @@
 @endphp
 @if($sections['sold_under_offer']['show'] && $soHasAny)
 <div style="background:#ffffff; border:1px solid #e3ddc9; border-radius:10px; padding:1.1rem 1.3rem; margin-bottom:1rem; break-inside:avoid;">
-    <div style="font-size:1.05rem; font-weight:700; color:#1b2a2c; margin-bottom:0.2rem;">Sold &amp; under offer</div>
-    <p style="font-size:0.8rem; color:#5c6c6d; margin:0 0 0.9rem;">"Sold" means granted and registered; "under offer" means an offer is in progress but not yet granted or registered.</p>
+    <div style="font-size:1.05rem; font-weight:700; color:#1b2a2c; margin-bottom:0.7rem;">How fast homes are selling in {{ $suburbName }}</div>
 
     @if($sections['sold_under_offer']['agency'] && (count($sold) > 0 || count($underOffer) > 0))
     <div style="margin-bottom:1rem;">
+        @if($daysToSell !== null)
+        <p style="font-size:0.95rem; color:#1b2a2c; margin:0 0 0.6rem; line-height:1.5;">Homes like this one in {{ $suburbName }} are selling in about <strong>{{ number_format($daysToSell) }} days</strong>.</p>
+        @else
+        <p style="font-size:0.95rem; color:#1b2a2c; margin:0 0 0.6rem; line-height:1.5;">{{ $agencyName }} has <strong>{{ number_format(count($sold)) }}</strong> sold and <strong>{{ number_format(count($underOffer)) }}</strong> under offer in {{ $suburbName }}.</p>
+        @endif
         <div style="margin-bottom:0.5rem;">{!! $sideChip('agency') !!}</div>
+        <p style="font-size:0.72rem; color:#8a9697; margin:0 0 0.5rem;">"Sold" means the deal is registered; "under offer" means an offer has been accepted but not yet registered.</p>
 
         @if($daysToSell !== null)
         <div style="margin-bottom:0.9rem;">
             @include('corex.market-intelligence._suburb-report-stat-row', ['stats' => [
-                ['label' => 'Median days to sell', 'value' => number_format($daysToSell), 'sub' => 'from listing to registration/acceptance, sold deals with a real listing date on file'],
+                ['label' => 'Days to sell (typical)', 'value' => number_format($daysToSell), 'sub' => 'from listing to registration'],
             ]])
         </div>
         @endif
@@ -337,17 +351,20 @@
     @endif
 
     @if($sections['sold_under_offer']['market'])
+    @php $marketSoldTotal = ($market['sold']['total'] ?? 0) + ($market['under_offer']['total'] ?? 0); @endphp
     <div>
-        <div style="margin-bottom:0.5rem;">{!! $sideChip('market') !!}</div>
         @if($marketHasSoldUnderOffer)
+        <p style="font-size:0.95rem; color:#1b2a2c; margin:0 0 0.6rem; line-height:1.5;">Across Property24 and Private Property, <strong>{{ number_format($marketSoldTotal) }}</strong> homes are marked sold or under offer in {{ $suburbName }}.</p>
+        <div style="margin-bottom:0.5rem;">{!! $sideChip('market') !!}</div>
         @include('corex.market-intelligence._suburb-report-stat-row', ['stats' => [
-            ['label' => 'Sold (P24)', 'value' => number_format($market['sold']['p24']), 'color' => '#96660a'],
-            ['label' => 'Sold (PP)', 'value' => number_format($market['sold']['pp']), 'color' => '#96660a'],
-            ['label' => 'Under offer (P24)', 'value' => number_format($market['under_offer']['p24']), 'color' => '#96660a'],
-            ['label' => 'Under offer (PP)', 'value' => number_format($market['under_offer']['pp']), 'color' => '#96660a'],
+            ['label' => 'Sold, Property24', 'value' => number_format($market['sold']['p24']), 'color' => '#96660a'],
+            ['label' => 'Sold, Private Property', 'value' => number_format($market['sold']['pp']), 'color' => '#96660a'],
+            ['label' => 'Under offer, Property24', 'value' => number_format($market['under_offer']['p24']), 'color' => '#96660a'],
+            ['label' => 'Under offer, Private Property', 'value' => number_format($market['under_offer']['pp']), 'color' => '#96660a'],
         ]])
         @else
-        <p style="font-size:0.8rem; color:#8a9697; margin:0;">No portal sold/under-offer activity captured for this suburb yet.</p>
+        <div style="margin-bottom:0.5rem;">{!! $sideChip('market') !!}</div>
+        <p style="font-size:0.8rem; color:#8a9697; margin:0;">Nothing marked sold or under offer yet on Property24 or Private Property for {{ $suburbName }}.</p>
         @endif
     </div>
     @endif
@@ -375,15 +392,14 @@
 @endphp
 @if($sections['price_reductions']['show'] && $prHasAny)
 <div style="background:#ffffff; border:1px solid #e3ddc9; border-radius:10px; padding:1.1rem 1.3rem; margin-bottom:1rem; break-inside:avoid;">
-    <div style="font-size:1.05rem; font-weight:700; color:#1b2a2c; margin-bottom:0.2rem;">Price reduction activity</div>
-    <p style="font-size:0.8rem; color:#5c6c6d; margin:0 0 0.9rem;">Reductions on the agency's own listings, next to what MIC has captured across the portals for this suburb.</p>
+    <div style="font-size:1.05rem; font-weight:700; color:#1b2a2c; margin-bottom:0.7rem;">Price changes in {{ $suburbName }}</div>
 
     @if($sections['price_reductions']['agency'] && count($priceReductions) > 0)
     <div style="margin-bottom:{{ $sections['price_reductions']['market'] ? '1rem' : '0' }};">
+        <p style="font-size:0.95rem; color:#1b2a2c; margin:0 0 0.6rem; line-height:1.5;"><strong>{{ number_format(count($priceReductions)) }}</strong> of {{ $agencyName }}'s own {{ count($priceReductions) === 1 ? 'listing has' : 'listings have' }} had a price cut in {{ $suburbName }}{{ $avgReductionPct !== null ? ', averaging ' . number_format(abs($avgReductionPct), 1) . '% down' : '' }}.</p>
         <div style="margin-bottom:0.5rem;">{!! $sideChip('agency') !!}</div>
-        <p style="font-size:0.8rem; color:#5c6c6d; margin:0 0 0.6rem;">{{ number_format(count($priceReductions)) }} price change{{ count($priceReductions) === 1 ? '' : 's' }} on the agency's own listings{{ $avgReductionPct !== null ? ', averaging ' . number_format(abs($avgReductionPct), 1) . '% down' : '' }}.</p>
         @if(!empty($reductionCols))
-        <div style="font-size:0.7rem; font-weight:600; text-transform:uppercase; letter-spacing:0.04em; color:#8a9697; margin-bottom:0.3rem;">Reductions per month, last 12 months</div>
+        <div style="font-size:0.7rem; font-weight:600; text-transform:uppercase; letter-spacing:0.04em; color:#8a9697; margin-bottom:0.3rem;">Price cuts per month, last 12 months</div>
         @include('corex.market-intelligence._suburb-report-vbars', ['cols' => $reductionCols, 'color' => '#9c3a30'])
         @endif
     </div>
@@ -391,15 +407,18 @@
 
     @if($sections['price_reductions']['market'])
     <div>
-        <div style="margin-bottom:0.5rem;">{!! $sideChip('market') !!}</div>
         @if($marketHasPriceReductions)
+        @php $marketReductionTotal = $market['price_reductions']['counts']['total'] ?? 0; @endphp
+        <p style="font-size:0.95rem; color:#1b2a2c; margin:0 0 0.6rem; line-height:1.5;"><strong>{{ number_format($marketReductionTotal) }}</strong> {{ $marketReductionTotal === 1 ? 'home has' : 'homes have' }} had a price cut on Property24 or Private Property in {{ $suburbName }} in the last 12 months.</p>
+        <div style="margin-bottom:0.5rem;">{!! $sideChip('market') !!}</div>
         @include('corex.market-intelligence._suburb-report-stat-row', ['stats' => [
-            ['label' => 'Reduced on P24 (last 12mo)', 'value' => number_format($market['price_reductions']['counts']['p24']), 'color' => '#9c3a30'],
-            ['label' => 'Reduced on PP (last 12mo)', 'value' => number_format($market['price_reductions']['counts']['pp']), 'color' => '#9c3a30'],
+            ['label' => 'On Property24', 'value' => number_format($market['price_reductions']['counts']['p24']), 'color' => '#9c3a30'],
+            ['label' => 'On Private Property', 'value' => number_format($market['price_reductions']['counts']['pp']), 'color' => '#9c3a30'],
         ]])
-        <p style="font-size:0.72rem; color:#8a9697; margin:0.5rem 0 0;">Count only — the portals only ever show the current price, never the previous one, so the amount of a market-wide reduction can only be captured going forward, from the moment MIC sees a change, and cannot be recovered for past changes.</p>
+        <p style="font-size:0.72rem; color:#8a9697; margin:0.5rem 0 0;">This is a count of price cuts only — Property24 and Private Property only ever show the current price, never the previous one, so the size of each cut can't be shown here.</p>
         @else
-        <p style="font-size:0.8rem; color:#8a9697; margin:0;">No portal price-reduction activity captured for this suburb yet.</p>
+        <div style="margin-bottom:0.5rem;">{!! $sideChip('market') !!}</div>
+        <p style="font-size:0.8rem; color:#8a9697; margin:0;">No price cuts tracked yet on Property24 or Private Property for {{ $suburbName }}.</p>
         @endif
     </div>
     @endif
@@ -409,8 +428,9 @@
 {{-- ================= Buyer demand vs available stock ================= --}}
 @if($sections['buyer_demand']['show'] && $buyersWatching > 0)
 <div style="background:#ffffff; border:1px solid #e3ddc9; border-radius:10px; padding:1.1rem 1.3rem; margin-bottom:1rem; break-inside:avoid;">
-    <div style="font-size:1.05rem; font-weight:700; color:#1b2a2c; margin-bottom:0.2rem;">Buyer demand vs available stock</div>
-    <p style="font-size:0.8rem; color:#5c6c6d; margin:0 0 0.9rem;">Active buyers currently watching this suburb, from live Core Match wishlists (buy intent only — rental searches excluded), against what's actually on the market.</p>
+    <div style="font-size:1.05rem; font-weight:700; color:#1b2a2c; margin-bottom:0.7rem;">Buyers watching {{ $suburbName }}</div>
+    <p style="font-size:0.95rem; color:#1b2a2c; margin:0 0 0.6rem; line-height:1.5;"><strong>{{ number_format($buyersWatching) }}</strong> {{ $buyersWatching === 1 ? 'buyer is' : 'buyers are' }} actively looking to buy in {{ $suburbName }} right now, against {{ number_format($stockCount) }} {{ $stockCount === 1 ? 'home' : 'homes' }} {{ $agencyName }} has on the market here.</p>
+    <p style="font-size:0.72rem; color:#8a9697; margin:0 0 0.9rem;">Buy-intent only — people searching for a rental are not counted here.</p>
     <div style="margin-bottom:0.9rem;">
         @include('corex.market-intelligence._suburb-report-stat-row', ['stats' => [
             ['label' => 'Buyers watching', 'value' => number_format($buyersWatching), 'color' => '#0d6e68', 'sub' => number_format($layerC['buyers_specifically_this_suburb']) . ' watching this suburb only'],

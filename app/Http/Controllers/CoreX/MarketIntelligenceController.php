@@ -1964,9 +1964,21 @@ class MarketIntelligenceController extends Controller
      * signal: no 'sections' key at all in the request = first load, default
      * every toggle true; a 'sections' key present = a real submission, and
      * any sub-key genuinely missing from it means that box was unticked.
+     *
+     * 2026-08-25, warmer pass (Johan, via the conductor) — "default to three
+     * or four sections, not six or seven... Price Reductions and the raw
+     * CMA cards default OFF — the agent turns them on where their own story
+     * is strong." Stock, Sales, and Sold & Under Offer carry the story and
+     * default on; Buyer Demand isn't one of the four agency/market metrics
+     * he named (Stock, Sales, Sold & Under Offer, Price Reductions) so it
+     * defaults off with the same two, keeping the FIRST view a seller sees
+     * to three sections. Nothing is deleted — every section is still one
+     * tick away.
      */
     private const SECTION_KEYS_SPLIT = ['stock', 'sales', 'sold_under_offer', 'price_reductions'];
     private const SECTION_KEYS_SHOW_ONLY = ['cma_reports', 'buyer_demand'];
+    private const DEFAULT_SHOW_ON = ['stock' => true, 'sales' => true, 'sold_under_offer' => true, 'price_reductions' => false];
+    private const DEFAULT_SHOW_ONLY_ON = ['cma_reports' => false, 'buyer_demand' => false];
 
     private function parseSectionToggles(Request $request): array
     {
@@ -1981,14 +1993,14 @@ class MarketIntelligenceController extends Controller
         foreach (self::SECTION_KEYS_SPLIT as $key) {
             $entry = (array) ($raw[$key] ?? []);
             $sections[$key] = [
-                'show'   => $bool('show', $entry, true),
+                'show'   => $bool('show', $entry, self::DEFAULT_SHOW_ON[$key]),
                 'agency' => $bool('agency', $entry, true),
                 'market' => $bool('market', $entry, true),
             ];
         }
         foreach (self::SECTION_KEYS_SHOW_ONLY as $key) {
             $entry = (array) ($raw[$key] ?? []);
-            $sections[$key] = ['show' => $bool('show', $entry, true)];
+            $sections[$key] = ['show' => $bool('show', $entry, self::DEFAULT_SHOW_ONLY_ON[$key])];
         }
 
         return $sections;
