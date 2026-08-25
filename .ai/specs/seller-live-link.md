@@ -37,7 +37,8 @@ It is not a marketing presentation and not a CMA. It is a "what's actually happe
 |---|---|
 | `routes/web.php` (`property/live/{token}` → `seller-link.show`) | Route, throttled 30/min |
 | `app/Http/Controllers/SellerLinkController.php` — `show()` | Resolves the token, assembles every data array, calls `view('seller-link.live', ...)` |
-| `app/Http/Controllers/SellerLinkController.php` — private helpers | `buildBuyerDemand()`, `buildSellerSafeFeedback()`, `buildPriceChangeEvents()`, `buildPriceChangeNarrative()`, `buildSoldComparisonSentence()`, `buildPortalsLive()`, `showUnavailable()` |
+| `app/Http/Controllers/SellerLinkController.php` — private helpers | `buildBuyerDemand()`, `buildSellerSafeFeedback()`, `buildPriceChangeEvents()`, `buildPriceChangeNarrative()`, `buildBestComparison()`, `buildPortalsLive()`, `showUnavailable()` |
+| `app/Http/Controllers/SellerLinkController.php` — `LABELS` (private const) | **The one place every sold/under-offer customer-facing word lives** — see §7 below before touching either |
 | `app/Services/PropertyIntelligenceService.php` | Data layer — see per-section sourcing below |
 | `resources/views/seller-link/live.blade.php` | The page |
 | `resources/views/public/shared/_agent-card.blade.php`, `_company-footer.blade.php` | Shared partials, reused unmodified |
@@ -97,16 +98,28 @@ Agent-authored, seller-visible recommendations (`property_recommendations`, `sel
 
 **Whole section absent below 2 genuine comparables** — "one lonely comparable is not a market."
 
-### 7. What has actually sold near you
-`PropertyIntelligenceService::getAchievedComparableSales()` — `property_sold_records` (the M9 canonical sold-records table, the SAME source `MarketDataSnapshotService::getComparableSales()`/`calculateAreaAverages()` already use), suburb-scoped, 12-month window. **This table is NOT agency-scoped in its query path (suburb only)** — genuinely broader-than-one-agency sold intelligence, unlike section 6.
+### 7. What has actually sold near you / What has recently gone under offer near you
 
-**Data-completeness finding (real, verified on QA1):** `property_sold_records`' OWN `bedrooms`/`bathrooms`/`days_on_market` columns are unpopulated system-wide (0 of 225 rows). Every row DOES carry `property_id`, and every one of those 225 linked properties DOES have `beds`/`baths` and a `listed_date` — so this method joins through to the linked `properties` row for real beds/baths, and computes days-to-sell as `HumanDiff::daysBetween(listed_date, sold_date)`, instead of shipping blanks or a fictional figure.
+**⚠ SOLD-VS-UNDER-OFFER RULE — READ BEFORE TOUCHING THIS SECTION (Johan, 2026-08-25 CORRECTION):**
+This page originally sourced "sold" comparables from `property_sold_records`. That table's `sold_price` is confirmed **not an achieved sale price** — `SuburbReportDataService`'s own docblock (2026-08-24) records that every row's `sold_price` mirrors `listing_price_at_sale`, i.e. the property's own last advertised price copied into itself, not an independently captured transaction figure. **`property_sold_records` must never be used for a "sold" claim on this page again — full stop.**
 
-**Data-quality guard:** a real seed-data row had `baths = 25` (an entry error, not a mansion) — `sanePropertyCount()` bounds beds/baths to `0 < n ≤ 10`, dropping just that field (not the whole comparable — it's still a real match on type/price/location) when the value is outside a residentially-plausible range.
+There are exactly two real sources for this section, and they are NOT interchangeable:
+- **Registered sale** (may say "sold"): the legacy `deals` table (internally "Dr1"), `registration_date IS NOT NULL`, price `sale_price ?? property_value`. `PropertyIntelligenceService::getRegisteredSaleComparables()`.
+- **Accepted offer, not yet registered** (must NEVER say "sold" or "achieved" — it can still fall through): `deals_v2` (internally "Dr2"), `actual_registration IS NULL` with `offer_date IS NOT NULL`, price `purchase_price`. `PropertyIntelligenceService::getUnderOfferComparables()`.
 
-**Comparison sentence** (`buildSoldComparisonSentence()`): "Your {beds} bed {baths} bath {type} has been on the market {N} days; a comparable {beds} bed {baths} bath {type} nearby sold in {M} days at R{price}." Only produced when the subject has a real days-on-market figure (section 2's own gate) and a same-family sold comparable exists. **Property-type matching uses `App\Services\TitleTypeClassifier::fromPropertyType()`** (the same sectional/freehold classifier `CompetitorStockMatchService` already uses to family-gate active comparables) — a raw string match (`"Apartment"` vs `"Apartment / Flat"`) was verified to silently drop every real comparable on the first test property, because the two tables use different property-type vocabularies.
+Both require the deal's `property_id` to resolve to a real `Property` row — comparability (type/beds/baths) cannot be confirmed otherwise. Verified against a real case: the legacy `deals` table's own genuine Ramsgate registration (R770,000, `registration_date` 2026-03-30) has no `property_id` link, so it is correctly EXCLUDED here even though the sale itself is real — an unconfirmed comparable is not a comparable, whatever else it is. On current QA1 data, ZERO rows in `deals` resolve `property_id` at all — the registered-sale section will legitimately not render until that changes; this is correct, not a bug.
 
-**Whole section absent** when there are no achieved sales in the window.
+**Every customer-facing word for this distinction lives in `SellerLinkController::LABELS`** (`sold_heading`, `sold_subtitle`, `sold_verb`, `under_offer_heading`, `under_offer_subtitle`, `under_offer_verb`) and ONLY there — a rename is a one-line edit to that array, never a hunt through the view. The view templates both sentences through one shared closure (`$buildComparisonSentence`) parameterized by verb, so the two sections can never drift into different sentence structures.
+
+**Data-quality guard (unchanged):** `sanePropertyCount()` bounds beds/baths to `0 < n ≤ 10` — a real seed-data row had `baths = 25` (an entry error), and this drops just that field, not the whole comparable.
+
+**Property-type matching** uses `App\Services\TitleTypeClassifier::fromPropertyType()` (the same sectional/freehold classifier `CompetitorStockMatchService` already uses to family-gate active comparables) — applied inside both new query methods before the comparable ever reaches `buildBestComparison()`.
+
+**Verified against cc4's exact demo figures**, independently, against real QA1 data: `getUnderOfferComparables()` on a real Ramsgate subject returns `House, 4 bed, 2 bath, R1,650,000, days_to_offer=13` (`listed_date` 2026-07-15 → `offer_date` 2026-07-28) — producing the sentence "...a comparable 4 bed 2 bath nearby went under offer in 13 days at R1,650,000." exactly.
+
+**Whole (sub)section absent** when its own collection is empty — the two halves collapse fully independently of each other.
+
+**Consumes `SuburbReportDataService`'s data model, not its output directly:** cc4 is separately correcting that service to split `achieved_sales` into registered-vs-under-offer buckets at the suburb-aggregate level. This page's two new `PropertyIntelligenceService` methods mirror the same `deals_v2`/`deals` join pattern and the same registered/under-offer distinction at PER-PROPERTY comparable granularity (not suburb-aggregate) — when `SuburbReportDataService` lands its fix, the two should describe the same underlying reality the same way; if they ever disagree, that is a bug worth chasing, not two independent opinions.
 
 ### 8. Agent card + footer
 Unchanged shared partials.
