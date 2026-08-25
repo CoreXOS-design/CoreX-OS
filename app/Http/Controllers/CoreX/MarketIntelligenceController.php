@@ -1989,6 +1989,100 @@ class MarketIntelligenceController extends Controller
     }
 
     /**
+     * Suburb report screen — renders App\Services\SuburbReports\
+     * SuburbReportDataService::build() for one suburb. Only figures with a
+     * defensible source render; a section with nothing behind it (no CMA
+     * report on file, zero achieved sales, zero buyer demand) is omitted
+     * entirely rather than shown as an empty state.
+     *
+     * Days-on-market: reuses the EXACT formula the property header already
+     * uses (show.blade.php's Overview tab: `$property->listed_date->
+     * diffInDays(now())`) — not a second calculation. 2026-08-25: confirmed
+     * sound for agent-captured stock (listed_date is a real, separate,
+     * agent-entered field — verified against property #6111's own Lifecycle
+     * panel). For P24-onboarded stock, listed_date defaults to the load date
+     * because the portal feed carries no original-listing-date column and
+     * ConfirmP24PropertyRowJob never sets one — confirmed via a live spot
+     * check (10/10 imported properties: listed_date == loaded). That's a
+     * real, separate bug (own ticket), not a reason to withhold the figure
+     * for stock that DOES have an honest listed_date.
+     *
+     * Price reductions: SuburbReportDataService::build() already returns the
+     * DISTINCT count (fixed 2026-08-25 — re-syncing the same portal event
+     * was inflating the raw count with exact-duplicate rows).
+     */
+    public function suburbReport(Request $request, string $suburb)
+    {
+        $user = $request->user();
+        $agencyId = $user->effectiveAgencyId() ?? $user->agency_id;
+        if ($agencyId === null) abort(403);
+
+        $suburb = trim($suburb);
+        if ($suburb === '') abort(404);
+
+        $p24Suburb = \App\Models\P24Suburb::withoutGlobalScopes()
+            ->whereRaw('LOWER(name) = ?', [mb_strtolower($suburb)])
+            ->first();
+        if (!$p24Suburb) abort(404);
+
+        $data = app(\App\Services\SuburbReports\SuburbReportDataService::class)
+            ->build((int) $agencyId, (int) $p24Suburb->id);
+
+        // Same active-stock filter SuburbReportDataService::layerB() uses
+        // (agency_id + suburb_normalised + status=active), fetched directly
+        // here because the screen needs address/expiry_date, which the data
+        // layer's stock_on_market array doesn't carry.
+        $suburbNorm = mb_strtolower(trim($p24Suburb->name));
+        $activeStock = \App\Models\Property::withoutGlobalScopes()
+            ->whereNull('deleted_at')
+            ->where('agency_id', $agencyId)
+            ->where('suburb_normalised', $suburbNorm)
+            ->where('status', 'active')
+            ->get(['id', 'address', 'street_name', 'price', 'listed_date', 'expiry_date']);
+
+        $today = now();
+        $stockListings = $activeStock->map(function ($p) use ($today) {
+            return [
+                'label'          => $p->address ?: $p->street_name ?: ('Property #' . $p->id),
+                'price'          => $p->price,
+                'days_on_market' => $p->listed_date ? (int) $p->listed_date->diffInDays($today) : null,
+            ];
+        })->values();
+
+        $expiringCounts = ['30' => 0, '60' => 0, '90' => 0];
+        foreach ($activeStock as $p) {
+            if (!$p->expiry_date) continue;
+            $daysToExpiry = (int) $today->diffInDays($p->expiry_date, false);
+            if ($daysToExpiry < 0) continue; // already expired — not "expiring soon"
+            if ($daysToExpiry <= 30) $expiringCounts['30']++;
+            if ($daysToExpiry <= 60) $expiringCounts['60']++;
+            if ($daysToExpiry <= 90) $expiringCounts['90']++;
+        }
+
+        // price_reductions/achieved_sales live under layer_b, not top-level.
+        $priceReductionCount = $data['layer_b']['price_reductions']['count'] ?? 0;
+        $achievedSalesCount  = $data['layer_b']['achieved_sales']['count'] ?? 0;
+        $layerC = $data['layer_c'] ?? ['available' => false];
+
+        return view('corex.market-intelligence.suburb-report', [
+            'suburbName'          => $p24Suburb->name,
+            'municipality'        => $data['suburb']['municipality'] ?? null,
+            'municipalityConfirmed' => $data['suburb']['municipality_confirmed'] ?? false,
+            'asAt'                => $data['layer_b']['as_at'] ?? now()->toIso8601String(),
+            'layerAAvailable'     => $data['layer_a']['available'] ?? false,
+            'layerA'              => $data['layer_a'] ?? null,
+            'stockCount'          => $activeStock->count(),
+            'stockListings'       => $stockListings,
+            'expiringCounts'      => $expiringCounts,
+            'priceReductionCount' => $priceReductionCount,
+            'achievedSalesCount'  => $achievedSalesCount,
+            'buyersSpecific'      => $layerC['buyers_specifically_this_suburb'] ?? 0,
+            'buyersIncluding'     => $layerC['buyers_including_this_suburb'] ?? 0,
+            'priceBands'          => $layerC['price_bands'] ?? [],
+        ]);
+    }
+
+    /**
      * Phase E3 — per-listing "why this matches your buyers" tooltip.
      * Sonnet 4.6 (quality matters for client-facing copy). Anonymised buyer
      * summaries — no names, no exact prices, no contact details. 7-day cache

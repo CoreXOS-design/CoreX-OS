@@ -2363,6 +2363,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::get('/{submission}', [\App\Http\Controllers\Compliance\FicaController::class, 'show'])->name('show');
         Route::get('/{submission}/pdf', [\App\Http\Controllers\Compliance\FicaController::class, 'downloadPdf'])->name('pdf');
         Route::get('/{submission}/completion-report', [\App\Http\Controllers\Compliance\FicaController::class, 'completionReport'])->name('completion-report');
+        Route::get('/{submission}/completion-report/pdf', [\App\Http\Controllers\Compliance\FicaController::class, 'downloadCompletionReportPdf'])->name('completion-report.pdf');
         Route::post('/{submission}/agent-approve', [\App\Http\Controllers\Compliance\FicaController::class, 'agentApprove'])->name('agent-approve');
         Route::post('/{submission}/tfs-screen', [\App\Http\Controllers\Compliance\FicaController::class, 'screenTfs'])->name('tfs-screen');
         Route::post('/{submission}/tfs-force-download', [\App\Http\Controllers\Compliance\FicaController::class, 'tfsForceDownload'])->name('tfs-force-download');
@@ -4815,6 +4816,14 @@ Route::middleware(['auth', 'permission:access_prospecting', 'feature:prospecting
             [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'suburbDeepDive'])
             ->where('suburb', '[A-Za-z0-9 \-\&\']+')
             ->name('suburb-deep-dive');
+
+        // Suburb report screen — renders SuburbReportDataService's output.
+        // Only figures with a defensible source render; a section with
+        // nothing behind it is omitted entirely rather than shown empty.
+        Route::get('/suburb-report/{suburb}',
+            [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'suburbReport'])
+            ->where('suburb', '[A-Za-z0-9 \-\&\']+')
+            ->name('suburb-report');
 
         // Phase E3 — per-listing "why this matches" tooltip (Sonnet 4.6).
         Route::get('/listing/{listing}/match-tooltip',

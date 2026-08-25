@@ -219,10 +219,15 @@ class SuburbReportDataService
             'days_on_market' => (int) Carbon::parse($p->listed_date)->diffInDays($domToday),
         ])->values();
 
+        // DISTINCT on the exact tuple the report publishes — re-syncing the
+        // same portal event more than once (p24_price_changes has no unique
+        // constraint) was inflating the count with exact-duplicate rows.
+        // 2026-08-25, Shelly Beach: 128 raw rows collapsed to 91 distinct.
         $priceReductions = DB::table('p24_price_changes')
             ->join('p24_listings', 'p24_listings.id', '=', 'p24_price_changes.listing_id')
             ->where('p24_listings.agency_id', $agencyId)
             ->whereRaw('LOWER(p24_listings.suburb) = ?', [$suburbNorm])
+            ->distinct()
             ->orderByDesc('p24_price_changes.change_date')
             ->get(['p24_price_changes.old_price', 'p24_price_changes.new_price', 'p24_price_changes.change_date']);
 
