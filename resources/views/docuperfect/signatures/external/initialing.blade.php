@@ -12,7 +12,7 @@
     <title>Initial the amendments — {{ $document?->name ?? 'Document' }}</title>
     <link rel="preconnect" href="https://fonts.bunny.net">
     <link href="https://fonts.bunny.net/css?family=figtree:400,500,600,700,800&display=swap" rel="stylesheet">
-    @vite(['resources/css/app.css'])
+    @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>
 <body style="font-family: 'Figtree', Arial, sans-serif; background: #f4f6fb; margin: 0; padding: 2rem 1rem; color: #1f2937;">
 
@@ -127,7 +127,6 @@
     </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
 <script>
 function initialingForm() {
     return {
