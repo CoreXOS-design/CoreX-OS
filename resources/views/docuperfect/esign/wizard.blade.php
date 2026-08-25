@@ -517,11 +517,13 @@
                                                     <div class="text-sm font-medium flex items-center gap-2" style="color: var(--text-primary);">
                                                         <span x-text="contact.full_name"></span>
                                                         <span x-show="contact.is_entity" class="ds-badge" style="background: color-mix(in srgb, var(--brand-icon,#0ea5e9) 15%, transparent); color: var(--brand-icon,#0ea5e9);">Company</span>
+                                                        <span x-show="contact.source === 'supplier'" class="ds-badge" style="background: color-mix(in srgb, var(--ds-amber,#f59e0b) 15%, transparent); color: var(--ds-amber,#f59e0b);">Supplier</span>
                                                     </div>
                                                     <div class="text-xs flex items-center gap-2" style="color: var(--text-muted);">
                                                         <span x-show="contact.email" x-text="contact.email"></span>
                                                         <span x-show="contact.phone" x-text="contact.phone"></span>
-                                                        <span x-show="contact.contact_type" style="color: var(--brand-icon, #0ea5e9);" x-text="contact.contact_type"></span>
+                                                        <span x-show="contact.source === 'supplier' && contact.supplier_firm_name" x-text="contact.supplier_firm_name"></span>
+                                                        <span x-show="contact.contact_type && contact.source !== 'supplier'" style="color: var(--brand-icon, #0ea5e9);" x-text="contact.contact_type"></span>
                                                         <span x-show="contact.is_entity" style="color: var(--text-muted);">— signs via its representative(s)</span>
                                                     </div>
                                                 </button>
@@ -3503,7 +3505,6 @@ function esignWizard() {
             r.cell = contact.phone || '';
             r.id_number = contact.id_number || '';
             r.address = contact.address || '';
-            r._contact_id = contact.id;
             r._searchOpen = false;
             r._searchQuery = contact.full_name;
             // Entity recipient: remember it's a company + how it expands (rep(s) /
@@ -3512,11 +3513,37 @@ function esignWizard() {
             r._is_entity = !!contact.is_entity;
             r._representation = contact.representation || null;
 
-            // Set role from esign_role (maps type to signing role) or contact_type name as fallback
-            if (contact.esign_role) {
-                r.role = contact.esign_role.toLowerCase();
-            } else if (contact.contact_type) {
-                r.role = contact.contact_type.toLowerCase();
+            // Johan, 2026-08-25 — supplier vs contact recipient. A picked
+            // supplier's own id lives in a DIFFERENT book (agency_service_
+            // provider_contacts), never in contacts — _contact_id must stay
+            // null for a supplier row so nothing downstream mistakes the
+            // supplier-contact id for a Contact id. _recipient_source is the
+            // single flag everything downstream reads to tell which book this
+            // recipient came from.
+            if (contact.source === 'supplier') {
+                r._contact_id = null;
+                r._recipient_source = 'supplier';
+                r._supplier_contact_id = contact.supplier_contact_id;
+                r._supplier_firm_id = contact.supplier_firm_id || null;
+                r._supplier_firm_name = contact.supplier_firm_name || '';
+                // A supplier's specialty (e.g. "Supplier") is not a
+                // transaction role — never overwrite the slot's actual role
+                // (seller/buyer/witness/etc.) the way a Contact's esign_role
+                // legitimately does below. The agent picked a supplier FOR
+                // this role slot; the slot's role is untouched.
+            } else {
+                r._contact_id = contact.id;
+                r._recipient_source = 'contact';
+                r._supplier_contact_id = null;
+                r._supplier_firm_id = null;
+                r._supplier_firm_name = '';
+
+                // Set role from esign_role (maps type to signing role) or contact_type name as fallback
+                if (contact.esign_role) {
+                    r.role = contact.esign_role.toLowerCase();
+                } else if (contact.contact_type) {
+                    r.role = contact.contact_type.toLowerCase();
+                }
             }
 
             // Store bank details for WebTemplateDataService
@@ -3556,6 +3583,10 @@ function esignWizard() {
         clearContactSelection(recipientIndex) {
             const r = this.recipients[recipientIndex];
             r._contact_id = null;
+            r._recipient_source = null;
+            r._supplier_contact_id = null;
+            r._supplier_firm_id = null;
+            r._supplier_firm_name = '';
             r._searchQuery = '';
             r.name = '';
             r.email = '';
