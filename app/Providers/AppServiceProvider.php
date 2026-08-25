@@ -483,6 +483,22 @@ class AppServiceProvider extends ServiceProvider
             Event::listen($micActivityEvent, \App\Listeners\Activity\LogAgentActivity::class);
         }
 
+        // 2026-08-25 — NotifyOnMarketReportParseFailure was written assuming
+        // Laravel's automatic listener discovery (its own docblock says so),
+        // but AT-261 above disabled discovery app-wide. It was never added to
+        // this explicit catalogue, so it has never actually run — a CMA
+        // report flagged spot_check_status='flagged' (zero-comp-with-summary,
+        // and as of this date also the unrecognised-document / recognised-
+        // zero-data-points guards) updated its own row correctly but never
+        // notified anyone. Found while wiring the two new guards; fixed here
+        // rather than filed separately since Johan's explicit ask — "the
+        // person who uploaded it must be told clearly" — depends on this
+        // actually firing.
+        Event::listen(
+            \App\Events\MarketReports\MarketReportSpotCheckFlagged::class,
+            \App\Listeners\MarketReports\NotifyOnMarketReportParseFailure::class,
+        );
+
         // ─────────────────────────────────────────────────────────────────
         // SPINE-2 — Activity Points instant-credit listener. Wires the
         // Phase-1 high-value existing-dispatch domain events into
