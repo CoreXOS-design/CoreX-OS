@@ -14,32 +14,23 @@ use Illuminate\Support\Facades\DB;
 class SellerLinkController extends Controller
 {
     /**
-     * 2026-08-25 (Johan) — CORRECTION, and revised a second time same day:
-     * every customer-facing word for the sold/under-offer distinction lives
-     * HERE and ONLY here — a rename is a one-line change to this array,
-     * never a hunt through the view.
-     *
-     * Johan's RULING (verbatim), current as of this edit: "pending = under
-     * offer, granted and registered = sold." A GRANTED deal counts as sold
-     * even without a registration date yet — his call, not the audit's
-     * assumption. cc4 is checking whether a granted deal can still
-     * collapse; if it can, this wording may change again — that is exactly
-     * why it is centralized here and nowhere else.
-     *
-     * "Sold" (getSoldComparables()) = granted OR registered, from EITHER
-     * deal table. "Under offer" (getUnderOfferComparables()) = pending/
-     * active/offer-only, not yet granted or registered. Declined deals are
-     * excluded entirely from both — never shown as either.
+     * 2026-08-25 (Johan) — CORRECTION: CoreX had been calling accepted
+     * offers "achieved sales" on a page a seller reads to price their own
+     * home. Every customer-facing word for this distinction lives HERE and
+     * ONLY here — a rename is a one-line change to this array, never a
+     * hunt through the view. "Sold" may ONLY ever be used for the
+     * registered-sale branch (getRegisteredSaleComparables(), the legacy
+     * `deals` table, registration_date IS NOT NULL). The under-offer
+     * branch (getUnderOfferComparables(), deals_v2, NOT yet registered)
+     * must never say "sold" or "achieved" anywhere.
      */
     private const LABELS = [
         'sold_heading'          => 'What has actually sold near you',
-        'sold_subtitle'         => 'Sales in your suburb, last 12 months.',
+        'sold_subtitle'         => 'Registered sales in your suburb, last 12 months.',
         'sold_verb'             => 'sold',
-        'sold_days_suffix'      => 'to sale', // "N days {suffix}" — kept distinct from sold_verb: "N days to sold" is broken English
         'under_offer_heading'   => 'What has recently gone under offer near you',
-        'under_offer_subtitle'  => 'Accepted offers in your suburb, last 6 months — not yet sold, so not final.',
+        'under_offer_subtitle'  => 'Accepted offers in your suburb, last 6 months — not yet registered, so not final.',
         'under_offer_verb'      => 'went under offer',
-        'under_offer_days_suffix' => 'to offer',
     ];
 
     /**
@@ -102,11 +93,9 @@ class SellerLinkController extends Controller
         // property_sold_records, whose sold_price mirrors the property's
         // own advertised price (confirmed fake by SuburbReportDataService's
         // own 2026-08-24 finding). Two real, separately-labelled sources
-        // now, per Johan's ruling ("pending = under offer, granted and
-        // registered = sold"): getSoldComparables() (granted/registered,
-        // either deal table) and getUnderOfferComparables() (pending/
-        // active only). See self::LABELS.
-        $soldComparables = $intel->getSoldComparables($property->id);
+        // now: registered sales (may say "sold") and accepted offers not
+        // yet registered (may NEVER say "sold"). See self::LABELS.
+        $registeredSales = $intel->getRegisteredSaleComparables($property->id);
         $underOfferSales = $intel->getUnderOfferComparables($property->id);
         $feedbackThemes = $intel->getFeedbackThemes($property->id, excludeInternalOnly: true);
         $portalPerformance = $intel->getPortalPerformance($property->id, rangeDays: 30);
@@ -127,7 +116,7 @@ class SellerLinkController extends Controller
         $priceChangeEvents = $this->buildPriceChangeEvents($property->id);
         $daysOnMarket = $property->listed_date ? HumanDiff::daysBetween($property->listed_date) : null;
         $priceChangeNarrative = $this->buildPriceChangeNarrative($priceChangeEvents, $portalEngagement['series'] ?? []);
-        $soldComparison = $this->buildBestComparison($property, $daysOnMarket, $soldComparables);
+        $registeredComparison = $this->buildBestComparison($property, $daysOnMarket, $registeredSales);
         $underOfferComparison = $this->buildBestComparison($property, $daysOnMarket, $underOfferSales);
 
         return view('seller-link.live', [
@@ -146,8 +135,8 @@ class SellerLinkController extends Controller
             'compliance' => $compliance,
             'daysOnMarket' => $daysOnMarket,
             'activeComparables' => $activeComparables,
-            'soldComparables' => $soldComparables,
-            'soldComparison' => $soldComparison,
+            'registeredSales' => $registeredSales,
+            'registeredComparison' => $registeredComparison,
             'underOfferSales' => $underOfferSales,
             'underOfferComparison' => $underOfferComparison,
             'recommendations' => $recommendations,
@@ -278,9 +267,9 @@ class SellerLinkController extends Controller
      * "your 2 bed 2 bath ... is on the market 90 days; a comparable ...
      * {verb} in 40 days" — picks the best beds-matching comparable from an
      * ALREADY family-filtered collection (getUnderOfferComparables()/
-     * getSoldComparables() both family-gate via TitleTypeClassifier before
-     * this ever sees them, so all three comparable sections — active,
-     * under-offer, sold — agree on what counts as "the same kind of
+     * getRegisteredSaleComparables() both family-gate via TitleTypeClassifier
+     * before this ever sees them, so both comparable sections — active,
+     * under-offer, registered — agree on what counts as "the same kind of
      * property"), and only when the subject itself has a real days-on-market
      * figure to compare. Deliberately verb-free — this returns STRUCTURE
      * only; "sold" vs "went under offer" is templated in the view from
@@ -301,7 +290,7 @@ class SellerLinkController extends Controller
 
         if (!$best) return null;
 
-        $days = $best['days'] ?? null;
+        $days = $best['days_to_offer'] ?? $best['days_to_sell'] ?? null;
         if ($days === null) return null;
 
         return [

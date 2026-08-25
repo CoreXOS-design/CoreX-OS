@@ -354,6 +354,236 @@ class PropertyIntelligenceService
     }
 
     /**
+     * 2026-08-25 (Johan) — "Your competition right now": comparable ACTIVE
+     * listings, seller-facing, for the seller live link's own competitive-
+     * position section. Same vetted engine as getComparableListings() above
+     * (CompetitorStockMatchService::findComparableStock — on-market, same
+     * family/band, scored) — not a second query — but with the extra fields
+     * (type/beds/baths/location) that section needs, and deliberately
+     * WITHOUT unit_number or any agency-identifying field on either side.
+     *
+     * Sourcing note (disclosed, not hidden): findComparableStock() is scoped
+     * to the SUBJECT property's own agency_id — these are the agency's own
+     * other active stock nearby, the same source the page's existing
+     * "Similar properties" section already trusted, NOT verified cross-
+     * agency market data. QA1 only has one seeded agency, so cross-agency
+     * behaviour cannot be tested here either way. Worded honestly in the
+     * view as "Similar homes on the market near you", not "competing
+     * agencies", because that is the honest claim this data supports.
+     */
+    public function getActiveComparables(int $propertyId, int $limit = 5): Collection
+    {
+        $property = Property::withoutGlobalScopes()->find($propertyId);
+        if (!$property) return collect();
+
+        return app(\App\Services\Presentations\CompetitorStockMatchService::class)
+            ->findComparableStock($property, $limit)
+            ->map(fn ($p) => [
+                'id'             => $p->id,
+                'location'       => $p->complex_name ?: $p->street_name,
+                'property_type'  => $p->property_type,
+                'beds'           => $this->sanePropertyCount($p->beds),
+                'baths'          => $this->sanePropertyCount($p->baths),
+                'price'          => $p->price,
+                'days_on_market' => ($dom = $p->listed_date ?? $p->p24_activated_at ?? $p->pp_activated_at ?? $p->published_at ?? $p->created_at)
+                    ? \App\Support\HumanDiff::daysBetween($dom) : null,
+            ])
+            ->filter(fn ($c) => $c['price'] && $c['days_on_market'] !== null)
+            ->values();
+    }
+
+    /**
+     * 2026-08-25 (Johan, CORRECTION — supersedes the same-day comment this
+     * replaced) — the original version of this section read
+     * property_sold_records, which SuburbReportDataService's own docblock
+     * (2026-08-24) confirms is NOT an achieved sale price: every row's
+     * sold_price mirrors listing_price_at_sale — the property's own last
+     * ADVERTISED price copied into itself, not an independently captured
+     * transaction figure. Worse than a wording problem: a seller pricing
+     * their home against that number is pricing against a number we
+     * invented, with their agent's name on it. property_sold_records must
+     * never be used for a "sold" claim anywhere on this page again.
+     *
+     * Replaced with the two real, verifiable sources SuburbReportDataService
+     * (Layer B) already established and this reuses, not reinvents:
+     *   - getUnderOfferComparables() — deals_v2 (Dr2), an ACCEPTED OFFER
+     *     that has not yet registered. Never call this "sold".
+     *   - getRegisteredSaleComparables() — the legacy `deals` table (Dr1),
+     *     registration_date IS NOT NULL — a genuinely completed,
+     *     registered transaction. This is the only source this page may
+     *     ever call "sold".
+     * Both require the deal's property_id to resolve to a real Property
+     * row — comparability (type/beds/baths) cannot be confirmed otherwise,
+     * and an unconfirmed comparable must not be shown as one (verified
+     * against a real case: the Dr1 table's own Ramsgate registration has
+     * no property_id link, so it is correctly excluded here even though
+     * the sale is real).
+     */
+    private function sanePropertyCount($value): ?float
+    {
+        if ($value === null) return null;
+        $n = (float) $value;
+        return ($n > 0 && $n <= 10) ? $n : null;
+    }
+
+    /**
+     * Comparable ACCEPTED OFFERS (not yet registered) in the subject's
+     * suburb + agency — same deals_v2->deals->properties join
+     * SuburbReportDataService::achievedSalesFromDr2() already uses (agency-
+     * scoped, since a deal always belongs to one agency), narrowed here to
+     * a single property's genuine comparables rather than a suburb-wide
+     * list, and gated to actual_registration IS NULL (still under offer)
+     * with offer_date IS NOT NULL (an offer actually exists to measure).
+     * days_to_offer is listed_date -> offer_date: "how fast did this
+     * property attract an accepted offer", the honest seller-relevant
+     * figure — not offer_date -> now, which measures nothing about the
+     * property's own market performance.
+     */
+    public function getUnderOfferComparables(int $propertyId, int $months = 6, int $limit = 5): Collection
+    {
+        $property = Property::withoutGlobalScopes()->find($propertyId);
+        if (!$property || !$property->suburb_normalised) return collect();
+
+        $classifier = app(\App\Services\TitleTypeClassifier::class);
+        $subjectFamily = $classifier->fromPropertyType((string) $property->property_type);
+
+        return DB::table('deals_v2')
+            ->join('deals', 'deals.id', '=', 'deals_v2.legacy_deal_id')
+            ->join('properties', 'properties.id', '=', 'deals.property_id')
+            ->where('deals_v2.agency_id', $property->agency_id)
+            ->where('properties.suburb_normalised', $property->suburb_normalised)
+            ->where('properties.id', '!=', $propertyId)
+            ->whereNull('deals_v2.deleted_at')
+            ->whereNull('deals_v2.actual_registration')
+            ->whereNotNull('deals_v2.offer_date')
+            ->where('deals_v2.offer_date', '>=', now()->subMonths($months))
+            ->whereNotNull('deals_v2.purchase_price')
+            ->orderByDesc('deals_v2.offer_date')
+            ->limit($limit * 3) // over-fetch; family-gated in PHP below, same pattern as findComparableStock()
+            ->get([
+                'properties.property_type', 'properties.beds', 'properties.baths', 'properties.listed_date',
+                'deals_v2.purchase_price', 'deals_v2.offer_date',
+            ])
+            ->filter(fn ($r) => $classifier->fromPropertyType((string) $r->property_type) === $subjectFamily)
+            ->take($limit)
+            ->map(fn ($r) => [
+                'property_type' => $r->property_type,
+                'beds'          => $this->sanePropertyCount($r->beds),
+                'baths'         => $this->sanePropertyCount($r->baths),
+                'price'         => (float) $r->purchase_price,
+                'offer_date'    => $r->offer_date,
+                'days_to_offer' => $r->listed_date ? \App\Support\HumanDiff::daysBetween($r->listed_date, $r->offer_date) : null,
+            ])
+            ->values();
+    }
+
+    /**
+     * Comparable REGISTERED sales — the legacy `deals` table (Dr1), the
+     * only table on this system a "sold" claim may be sourced from.
+     * property_value is used ahead of sale_price (the real Ramsgate
+     * registration this was proven against has sale_price NULL,
+     * property_value populated) — coalesced, never both summed.
+     * property_id frequently doesn't resolve on this legacy table (~90%
+     * per SuburbReportDataService's own finding); when it doesn't, beds/
+     * baths/type can't be confirmed, so the row is correctly EXCLUDED, not
+     * shown without them — a real sale with unconfirmed comparability is
+     * not a comparable, whatever else it is.
+     */
+    public function getRegisteredSaleComparables(int $propertyId, int $months = 12, int $limit = 5): Collection
+    {
+        $property = Property::withoutGlobalScopes()->find($propertyId);
+        if (!$property || !$property->suburb_normalised) return collect();
+
+        $classifier = app(\App\Services\TitleTypeClassifier::class);
+        $subjectFamily = $classifier->fromPropertyType((string) $property->property_type);
+
+        return DB::table('deals')
+            ->join('properties', 'properties.id', '=', 'deals.property_id')
+            ->where('deals.agency_id', $property->agency_id)
+            ->where('properties.suburb_normalised', $property->suburb_normalised)
+            ->where('properties.id', '!=', $propertyId)
+            ->whereNull('deals.deleted_at')
+            ->whereNotNull('deals.registration_date')
+            ->where('deals.registration_date', '>=', now()->subMonths($months))
+            ->where(fn ($q) => $q->whereNotNull('deals.sale_price')->orWhereNotNull('deals.property_value'))
+            ->orderByDesc('deals.registration_date')
+            ->limit($limit * 3)
+            ->get([
+                'properties.property_type', 'properties.beds', 'properties.baths', 'properties.listed_date',
+                'deals.sale_price', 'deals.property_value', 'deals.registration_date',
+            ])
+            ->filter(fn ($r) => $classifier->fromPropertyType((string) $r->property_type) === $subjectFamily)
+            ->take($limit)
+            ->map(fn ($r) => [
+                'property_type'     => $r->property_type,
+                'beds'              => $this->sanePropertyCount($r->beds),
+                'baths'             => $this->sanePropertyCount($r->baths),
+                'price'             => (float) ($r->sale_price ?: $r->property_value),
+                'registration_date' => $r->registration_date,
+                'days_to_sell'      => $r->listed_date ? \App\Support\HumanDiff::daysBetween($r->listed_date, $r->registration_date) : null,
+            ])
+            ->values();
+    }
+
+    /**
+     * 2026-08-25 (Johan) — "themes line first" for seller-visible viewing
+     * feedback: N of M viewers raised the same concern, from the SAME
+     * structured concern_option_ids field getFeedbackRollup()'s
+     * top_concerns already counts (AgencyFeedbackOption, category=concern —
+     * a controlled vocabulary, not free-text keyword-matching / not AI-
+     * inferred). Computed off ALL seller-visible feedback rows (matches
+     * cc4's finding: a property can have 8 feedback rows and only 2 with
+     * written notes — the theme line and the notes list read different
+     * subsets of the same rows on purpose). Empty when no viewer has ever
+     * flagged a concern — no theme claim without a real vote behind it.
+     */
+    public function getFeedbackThemes(int $propertyId, bool $excludeInternalOnly = false): array
+    {
+        // Deliberately property_id-only, NOT the eventIds OR-join
+        // getFeedbackRollup()/getRecentViewings() use — a single viewing
+        // calendar event can be linked to more than one candidate property
+        // (a buyer shown two homes in one appointment), and that join
+        // pulls in the OTHER property's own feedback row too (verified on
+        // QA1: event 5739 is linked to both property 16 and 17, each with
+        // its own distinct feedback row — the eventIds join double-counts
+        // both under either property). A theme claim ("buyers said X") is
+        // exactly the kind of number that must not mix two properties'
+        // feedback, so this reads only rows actually recorded against this
+        // property. Flagged separately: the SAME leakage risk exists in
+        // getFeedbackRollup()/getRecentViewings() (unchanged, out of scope
+        // here) — worth a look on its own.
+        $feedback = CalendarEventFeedback::where('property_id', $propertyId)
+            ->whereNotNull('captured_at')
+            ->when($excludeInternalOnly, fn ($q) => $q->where('visibility', '!=', 'internal_only'))
+            ->get();
+
+        // "M viewers" = distinct VIEWINGS (calendar_event_id), matching
+        // getFeedbackRollup()'s own total_viewings definition elsewhere on
+        // this page — not raw feedback rows, so two co-buyers' separate
+        // feedback for the same single viewing count as one viewing, and a
+        // concern raised twice in that one viewing counts once, not twice.
+        $totalViewers = $feedback->pluck('calendar_event_id')->unique()->count();
+        if ($totalViewers === 0) return [];
+
+        $concernCounts = $feedback
+            ->groupBy('calendar_event_id')
+            ->map(fn ($rows) => $rows->pluck('concern_option_ids')->flatten()->filter()->unique())
+            ->flatten()
+            ->countBy();
+        if ($concernCounts->isEmpty()) return [];
+
+        $labels = \App\Models\CommandCenter\AgencyFeedbackOption::withoutGlobalScopes()
+            ->whereIn('id', $concernCounts->keys())
+            ->pluck('label', 'id');
+
+        return $concernCounts->sortDesc()->take(2)->map(fn ($count, $optionId) => [
+            'label' => $labels[$optionId] ?? null,
+            'count' => $count,
+            'total' => $totalViewers,
+        ])->filter(fn ($t) => $t['label'] !== null)->values()->all();
+    }
+
+    /**
      * Presentations linked to a property + their snapshots.
      */
     public function getPresentations(int $propertyId, bool $sellerView = false): Collection
