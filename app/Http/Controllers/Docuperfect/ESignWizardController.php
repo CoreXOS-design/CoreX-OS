@@ -2788,6 +2788,22 @@ class ESignWizardController extends Controller
                 $ficaRequired = !empty($matchedSetup['fica_required'] ?? false);
                 $contactId = !empty($r['_contact_id']) ? (int) $r['_contact_id'] : null;
 
+                // cc2, 2026-08-25 (Flow 409, part 2 — "make the right document
+                // easy") — expandEntityRecipients() froze _party_clause_text
+                // onto $r back when the recipient array was FIRST built. Time
+                // passes between then and here (FICA lookups, signing_setup
+                // matching, reordering) during which the represented party's
+                // real representative can change on the underlying record —
+                // exactly the gap Flow 409 fell through. See
+                // resolveFreshPartyClauseText()'s own docblock.
+                if (!empty($r['_entity_contact_id'])) {
+                    $r['_party_clause_text'] = $this->resolveFreshPartyClauseText(
+                        (int) $r['_entity_contact_id'],
+                        $contactId,
+                        (string) ($r['name'] ?? ''),
+                    );
+                }
+
                 // Auto-create FICA submission if required and contact has none approved
                 $ficaSubId = null;
                 if ($ficaRequired && $contactId) {
@@ -3505,6 +3521,60 @@ class ESignWizardController extends Controller
     private function partyNeedsRepresentativeExpansion(Contact $contact): bool
     {
         return $contact->isEntity() || $contact->representatives()->exists();
+    }
+
+    /**
+     * cc2, 2026-08-25 (Flow 409, part 2 — "make the right document easy,
+     * not just refuse the wrong one") — expandEntityRecipients() freezes
+     * _party_clause_text early, once, when the recipient array is first
+     * built. A represented party's real representative can genuinely
+     * change on the underlying record between that moment and the moment
+     * this row is actually turned into a SignatureRequest (real minutes
+     * apart on a real document — Anna's own POA link moved between two
+     * wizard steps on Flow 409). Recomposing here, live, right before the
+     * value is frozen for good, closes that window: same entity + same
+     * pivot state always produces the same clause, so an agent who hasn't
+     * touched anything gets back the identical string (a true no-op) —
+     * only a genuine change since expansion produces a different, CORRECT
+     * result. This is why the free-text path can now compose correctly
+     * instead of merely being refused: a legitimate late correction to who
+     * represents someone is picked up automatically, not rejected.
+     *
+     * $contactId not currently among the entity's representatives at all
+     * is a different case — there is no clause this can legitimately
+     * compose (naming someone who was never actually linked as a
+     * representative), so it refuses with the specific names involved
+     * rather than silently keeping the stale text SignatureRequest::
+     * assertClauseNamesSigner() would go on to reject anyway.
+     *
+     * @throws \Illuminate\Validation\ValidationException
+     */
+    private function resolveFreshPartyClauseText(int $entityContactId, ?int $contactId, string $recipientName): ?string
+    {
+        $entityContact = Contact::withoutGlobalScopes()->find($entityContactId);
+        if (! $entityContact) {
+            return null; // dangling entity reference — nothing to compose from; unchanged behaviour.
+        }
+
+        if ($contactId === null) {
+            return null; // no signer resolved yet (e.g. deferred) — nothing to verify against.
+        }
+
+        $currentRepIds = $entityContact->representatives()->pluck('contacts.id');
+        if (! $currentRepIds->contains($contactId)) {
+            // entity_name is only populated for an actual entity — a
+            // represented NATURAL PERSON (Anna's own case) has none, so
+            // fall back to full_name the same way composeEntityPartyText()
+            // itself already does.
+            $partyName = (string) ($entityContact->entity_name ?: $entityContact->full_name);
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'recipients' => "\"{$recipientName}\" is no longer linked as a representative of "
+                    . "\"{$partyName}\" — re-link them (or pick the correct "
+                    . 'representative) on the recipient screen before sending.',
+            ]);
+        }
+
+        return app(\App\Services\Docuperfect\RoleBlockExpansionService::class)->composeEntityPartyText($entityContact);
     }
 
     /**
