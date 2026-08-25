@@ -139,7 +139,15 @@ TXT;
         $competitorStock  = $snapshot['analytics']['competitor_stock'] ?? null;
         $visibleScored    = is_array($competitorStock) ? ($competitorStock['visible'] ?? []) : [];
 
-        if (!empty($visibleScored)) {
+        // 2026-08-25 fix — this used to check !empty($visibleScored), which
+        // fell back to the legacy pipeline whenever the agent had unticked
+        // every competitor, not just when competitor_stock was genuinely
+        // never computed (pre-Build-8). An agent's deliberate "none of
+        // these" is the honest zero, not a signal to go count a different,
+        // selection-blind dataset instead (Johan — "respect what the agent
+        // selected"). is_array($competitorStock) is true whenever the block
+        // was computed at all, empty visible list included.
+        if (is_array($competitorStock)) {
             $scoredPrices = array_values(array_filter(
                 array_map(static fn (array $row) => isset($row['price']) ? (int) $row['price'] : 0, $visibleScored),
                 static fn (int $p) => $p > 0,
