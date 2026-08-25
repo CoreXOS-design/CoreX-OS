@@ -25,6 +25,17 @@
     $layerB = $data['layer_b'];
     $layerC = $data['layer_c'];
     $market = $layerB['available'] ? ($layerB['market'] ?? ['available' => false]) : ['available' => false];
+    // 2026-08-25 fix (cc4 caught it on Mtwalume) — $market['available'] means
+    // "this suburb has SOME portal capture" (stock OR sold OR under_offer OR
+    // price reductions), never "this specific metric has data". Using it to
+    // gate an individual section rendered a full Sold & Under Offer box with
+    // every figure reading zero, purely because the suburb had unrelated
+    // stock data. Each section's market sub-block now checks its OWN slice
+    // of $market, never the suburb-wide flag — a section's own data decides
+    // whether it renders, never a neighbouring section's.
+    $marketHasStock          = ($market['available'] ?? false) && (($market['stock']['total'] ?? 0) > 0);
+    $marketHasSoldUnderOffer = ($market['available'] ?? false) && ((($market['sold']['total'] ?? 0) + ($market['under_offer']['total'] ?? 0)) > 0);
+    $marketHasPriceReductions = ($market['available'] ?? false) && (($market['price_reductions']['counts']['total'] ?? 0) > 0);
     $sold = $layerB['available'] ? $layerB['sales_activity']['sold'] : [];
     $underOffer = $layerB['available'] ? $layerB['sales_activity']['under_offer'] : [];
     $priceReductions = $layerB['available'] ? $layerB['price_reductions']['changes'] : [];
@@ -152,7 +163,7 @@
 @endif
 
 {{-- ================= Stock on market — AGENCY / MARKET ================= --}}
-@php $stockHasAny = $stockListings->isNotEmpty() || ($market['available'] ?? false); @endphp
+@php $stockHasAny = $stockListings->isNotEmpty() || $marketHasStock; @endphp
 @if($sections['stock']['show'] && $stockHasAny)
 <div style="background:#ffffff; border:1px solid #e3ddc9; border-radius:10px; padding:1.1rem 1.3rem; margin-bottom:1rem; break-inside:avoid;">
     <div style="font-size:1.05rem; font-weight:700; color:#1b2a2c; margin-bottom:0.2rem;">Stock on market</div>
@@ -190,7 +201,7 @@
     @if($sections['stock']['market'])
     <div>
         <div style="margin-bottom:0.5rem;">{!! $sideChip('market') !!}</div>
-        @if($market['available'] ?? false)
+        @if($marketHasStock)
         @include('corex.market-intelligence._suburb-report-stat-row', ['stats' => [
             ['label' => 'Active on Property24', 'value' => number_format($market['stock']['p24']), 'color' => '#96660a'],
             ['label' => 'Active on Private Property', 'value' => number_format($market['stock']['pp']), 'color' => '#96660a'],
@@ -264,7 +275,7 @@
         }
     }
     $daysToSell = $layerB['sales_activity']['median_days_to_sell'] ?? null;
-    $soHasAny = count($sold) > 0 || count($underOffer) > 0 || ($market['available'] ?? false);
+    $soHasAny = count($sold) > 0 || count($underOffer) > 0 || $marketHasSoldUnderOffer;
 @endphp
 @if($sections['sold_under_offer']['show'] && $soHasAny)
 <div style="background:#ffffff; border:1px solid #e3ddc9; border-radius:10px; padding:1.1rem 1.3rem; margin-bottom:1rem; break-inside:avoid;">
@@ -328,7 +339,7 @@
     @if($sections['sold_under_offer']['market'])
     <div>
         <div style="margin-bottom:0.5rem;">{!! $sideChip('market') !!}</div>
-        @if($market['available'] ?? false)
+        @if($marketHasSoldUnderOffer)
         @include('corex.market-intelligence._suburb-report-stat-row', ['stats' => [
             ['label' => 'Sold (P24)', 'value' => number_format($market['sold']['p24']), 'color' => '#96660a'],
             ['label' => 'Sold (PP)', 'value' => number_format($market['sold']['pp']), 'color' => '#96660a'],
@@ -360,7 +371,7 @@
     $avgReductionPct = collect($priceReductions)->filter(fn ($c) => $c['old_price'] > 0)
         ->map(fn ($c) => (($c['old_price'] - $c['new_price']) / $c['old_price']) * 100)
         ->avg();
-    $prHasAny = count($priceReductions) > 0 || ($market['available'] ?? false);
+    $prHasAny = count($priceReductions) > 0 || $marketHasPriceReductions;
 @endphp
 @if($sections['price_reductions']['show'] && $prHasAny)
 <div style="background:#ffffff; border:1px solid #e3ddc9; border-radius:10px; padding:1.1rem 1.3rem; margin-bottom:1rem; break-inside:avoid;">
@@ -381,7 +392,7 @@
     @if($sections['price_reductions']['market'])
     <div>
         <div style="margin-bottom:0.5rem;">{!! $sideChip('market') !!}</div>
-        @if($market['available'] ?? false)
+        @if($marketHasPriceReductions)
         @include('corex.market-intelligence._suburb-report-stat-row', ['stats' => [
             ['label' => 'Reduced on P24 (last 12mo)', 'value' => number_format($market['price_reductions']['counts']['p24']), 'color' => '#9c3a30'],
             ['label' => 'Reduced on PP (last 12mo)', 'value' => number_format($market['price_reductions']['counts']['pp']), 'color' => '#9c3a30'],
