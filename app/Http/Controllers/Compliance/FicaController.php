@@ -882,6 +882,44 @@ class FicaController extends Controller
     }
 
     /**
+     * The Completion Report — Johan, 2026-08-25: what the recipient actually
+     * selected and answered, their signature, the agent with their ticks,
+     * and the RO/CO approver with their approval. Deliberately separate
+     * from downloadPdf()'s certificate (a compliance-proof summary) and
+     * from FicaStatusHistory (the audit trail) — this is the completed form
+     * as a human artefact, not an event log.
+     */
+    public function completionReport(FicaSubmission $submission, \App\Services\Compliance\FicaCompletionReportService $reportService)
+    {
+        $this->authorizeAgency($submission);
+        abort_unless($submission->status === 'approved', 404, 'Completion report only available for approved submissions.');
+
+        return view('compliance.fica.completion-report', $reportService->build($submission));
+    }
+
+    /**
+     * Completion Report as a real, downloadable PDF — Johan, 2026-08-25:
+     * "how do and agent download this?" A browser print dialog is not a
+     * deliverable (background/section rules can drop, page breaks can split
+     * a signature image with nobody noticing). Same authorisation and
+     * approved-status gate as completionReport()/downloadPdf() — this must
+     * never be reachable by anyone who can't reach the certificate it
+     * accompanies. Generated on demand, not stored.
+     */
+    public function downloadCompletionReportPdf(
+        FicaSubmission $submission,
+        \App\Services\Compliance\FicaCompletionReportPdfService $pdfService,
+    ) {
+        $this->authorizeAgency($submission);
+        abort_unless($submission->status === 'approved', 404, 'Completion report only available for approved submissions.');
+
+        $pdfPath = $pdfService->generate($submission);
+        $filename = $pdfService->filenameFor($submission);
+
+        return response()->download($pdfPath, $filename)->deleteFileAfterSend(true);
+    }
+
+    /**
      * Save compliance officers (from settings).
      */
     public function saveComplianceOfficers(Request $request)
