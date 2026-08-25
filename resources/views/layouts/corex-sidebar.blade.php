@@ -748,6 +748,12 @@
                           style="background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 15%, transparent); color:var(--brand-icon, #0ea5e9);">{{ number_format($miCount) }}</span>
                     @endif
                 </a>
+                {{-- Suburb Report — combined CMA-vs-CoreX picture (Johan, 2026-08-25). --}}
+                @if(\Illuminate\Support\Facades\Route::has('market-intelligence.suburb-report.index'))
+                <a href="{{ route('market-intelligence.suburb-report.index') }}" class="corex-nav-subitem {{ request()->routeIs('market-intelligence.suburb-report*') ? 'active' : '' }}">
+                    <span>Suburb Report</span>
+                </a>
+                @endif
                 {{-- MIC funnel phase 2 — BM/admin stale-claim review (anti-poaching reassignment). --}}
                 @if(\Illuminate\Support\Facades\Route::has('market-intelligence.stale-review') && auth()->user()->hasPermission('prospecting_setup.manage'))
                 <a href="{{ route('market-intelligence.stale-review') }}" class="corex-nav-subitem {{ request()->routeIs('market-intelligence.stale-review') ? 'active' : '' }}">

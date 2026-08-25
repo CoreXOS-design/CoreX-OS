@@ -7,10 +7,12 @@ use App\Models\Contact;
 use App\Models\P24ImportLog;
 use App\Models\P24Listing;
 use App\Models\P24PriceChange;
+use App\Models\P24Suburb;
 use App\Models\Prospecting\TrackedProperty;
 use App\Models\ProspectingClaim;
 use App\Models\AgencyContactSettings;
 use App\Models\ProspectingListing;
+use App\Models\SuburbMunicipality;
 use App\Models\User;
 use App\Services\AI\AnthropicGateway;
 use App\Services\AI\DTOs\NarrativeRequest;
@@ -19,6 +21,7 @@ use App\Services\MarketIntelligence\StrategicBriefService;
 use App\Services\Prospecting\ProspectingConfigurationService;
 use App\Services\Prospecting\ProspectingIntelligenceService;
 use App\Services\Prospecting\ProspectingListingResolver;
+use App\Services\SuburbReports\SuburbReportDataService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -1834,6 +1837,87 @@ class MarketIntelligenceController extends Controller
                 'facts'         => $facts,
             ]);
         }
+    }
+
+    /**
+     * Suburb Report landing page — just the picker. The report itself only
+     * renders once a suburb is chosen (suburbReport() below); this page is
+     * what the sidebar menu link opens.
+     */
+    public function suburbReportIndex(Request $request)
+    {
+        return view('corex.market-intelligence.suburb-report-index');
+    }
+
+    /**
+     * The suburb picker's typeahead source — active-stock and CMA-covered
+     * suburbs only (a name nobody has any data for is not worth listing).
+     * Returns {id, name, municipality} so the picker can navigate straight
+     * to suburb-report.show without a second name→id lookup.
+     */
+    public function suburbReportSuburbs(Request $request): JsonResponse
+    {
+        $user = $request->user();
+        $agencyId = $user->effectiveAgencyId() ?? $user->agency_id;
+        if ($agencyId === null) abort(403);
+
+        $q = trim((string) $request->query('q', ''));
+
+        $query = P24Suburb::withoutGlobalScopes()
+            ->select('id', 'name')
+            ->orderBy('name');
+
+        if ($q !== '') {
+            $query->where('name', 'like', '%' . $q . '%');
+        }
+
+        $suburbs = $query->limit(25)->get();
+        $municipalitiesById = SuburbMunicipality::whereIn('p24_suburb_id', $suburbs->pluck('id'))
+            ->pluck('municipality', 'p24_suburb_id');
+
+        return response()->json($suburbs->map(fn ($s) => [
+            'id'           => $s->id,
+            'name'         => $s->name,
+            'municipality' => $municipalitiesById[$s->id] ?? null,
+        ])->values());
+    }
+
+    /**
+     * Suburb Report — the combined-picture screen Johan asked for
+     * (2026-08-25): his own CoreX stock/sold/under-offer/buyer-demand
+     * figures alongside any imported CMA figures for the same suburb,
+     * clearly labelled as to which is which. Built fresh for Staging —
+     * NOT a port of the QA1 controller, which read a dead
+     * 'achieved_sales.count' key removed by SuburbReportDataService's own
+     * 2026-08-25 fix and never surfaced the under-offer count at all.
+     */
+    public function suburbReport(Request $request, P24Suburb $suburb)
+    {
+        $user = $request->user();
+        $agencyId = $user->effectiveAgencyId() ?? $user->agency_id;
+        if ($agencyId === null) abort(403);
+
+        $data = app(SuburbReportDataService::class)->build((int) $agencyId, $suburb->id);
+
+        // Real active-stock listings with address, for display only — Layer
+        // B's own stock_on_market.listings (SuburbReportDataService) carries
+        // no address, it was never asked to. Separate, direct, real query;
+        // not a change to the data service's contract.
+        $suburbNorm = mb_strtolower(trim($suburb->name));
+        $stockListings = DB::table('properties')
+            ->whereNull('deleted_at')
+            ->where('agency_id', $agencyId)
+            ->where('suburb_normalised', $suburbNorm)
+            ->where('status', 'active')
+            ->orderByDesc('listed_date')
+            ->limit(50)
+            ->get(['id', 'address', 'street_name', 'price', 'listed_date']);
+
+        return view('corex.market-intelligence.suburb-report', [
+            'suburb'        => $suburb,
+            'data'          => $data,
+            'stockListings' => $stockListings,
+        ]);
     }
 
     /**
