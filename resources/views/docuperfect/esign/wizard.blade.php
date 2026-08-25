@@ -3942,6 +3942,21 @@ function esignWizard() {
 
         // "Named only" slots (e.g. the representing entity) search real Contacts —
         // reuses the exact same search endpoint the ordinary recipient fields use.
+        //
+        // Johan, 2026-08-26 — that shared endpoint also returns suppliers
+        // now, but bindSlotToContact() below only knows how to bind a
+        // Contact (contact_id, or a deceased-row promotion keyed off
+        // contact_id). A supplier result's id is really an
+        // AgencyServiceProviderContact id — a completely different ID
+        // space — so binding one through this box would silently attach
+        // the WRONG record. Ruling: a box that can't bind suppliers
+        // correctly must not offer them. An already-added supplier
+        // recipient still binds correctly here via the recipient chips
+        // above (bindSlotToRecipient, fixed 2026-08-25/26); this box is
+        // Contacts-only until someone teaches bindSlotToContact() a real
+        // supplier binding path — which is a RecipientTemplate
+        // binding-type decision that belongs with the representative-chain
+        // consolidation, not a search-box filter tweak.
         async searchSlotContact(slotKey, query) {
             this.replaceModal.slotSearch[slotKey] = this.replaceModal.slotSearch[slotKey] || { query: '', results: [], open: false };
             this.replaceModal.slotSearch[slotKey].query = query;
@@ -3954,7 +3969,7 @@ function esignWizard() {
                     headers: { 'Accept': 'application/json' },
                 });
                 const data = await resp.json();
-                this.replaceModal.slotSearch[slotKey].results = Array.isArray(data) ? data : [];
+                this.replaceModal.slotSearch[slotKey].results = Array.isArray(data) ? data.filter(c => c.source !== 'supplier') : [];
                 this.replaceModal.slotSearch[slotKey].open = true;
             } catch (e) {
                 console.error('Slot contact search failed', e);
