@@ -1264,7 +1264,35 @@ class ESignWizardController extends Controller
             ? \App\Models\Docuperfect\EsignRecipientPreset::resolveFor($actingAgencyId, 'entity')
             : null;
 
-        return response()->json($contacts->map(function ($c) use ($q, $entityPreset) {
+        // Johan, 2026-08-25 — "supplier to be added, not just adding contacts."
+        // One supplier book for the whole product: the SAME Deal Register v2
+        // directory (agency_service_providers / agency_service_provider_contacts),
+        // never a parallel e-sign-only supplier list. A recipient is either a
+        // Contact or a supplier's own working contact person (the actual
+        // natural person who signs — a firm itself never signs), discriminated
+        // by 'source' in the response the same way the frontend already reads
+        // is_entity. Not role-filtered: a supplier (attorney, conveyancer,
+        // executor) can fill any recipient slot, unlike the Contact esign_role
+        // mapping above which is specific to buyer/seller/landlord/tenant typing.
+        $suppliers = $actingAgencyId
+            ? \App\Models\DealV2\AgencyServiceProviderContact::query()
+                ->withoutGlobalScopes()
+                ->where('agency_service_provider_contacts.agency_id', $actingAgencyId)
+                ->where('is_active', true)
+                ->whereHas('firm', fn ($fq) => $fq->where('is_active', true))
+                ->with('firm')
+                ->where(function ($w) use ($q) {
+                    $t = '%' . $q . '%';
+                    $w->where('attorney_name', 'like', $t)
+                      ->orWhere('contact_person', 'like', $t)
+                      ->orWhere('email', 'like', $t)
+                      ->orWhereHas('firm', fn ($fq) => $fq->where('name', 'like', $t)->orWhere('company', 'like', $t));
+                })
+                ->limit(5)
+                ->get()
+            : collect();
+
+        $contactResults = $contacts->map(function ($c) use ($q, $entityPreset) {
             $representation = null;
             if ($c->isEntity()) {
                 $signers = $c->signingRepresentatives();
@@ -1286,6 +1314,7 @@ class ESignWizardController extends Controller
             }
             return [
                 'id'                  => $c->id,
+                'source'              => 'contact',
                 'first_name'          => $c->first_name,
                 'last_name'           => $c->last_name,
                 // full_name via the accessor so ENTITY/company contacts show their
@@ -1314,7 +1343,56 @@ class ESignWizardController extends Controller
                 // "herein represented by …" phrasing this company expands into.
                 'representation'      => $representation,
             ];
-        }));
+        });
+
+        // Same response shape as a contact result, wherever the fields map
+        // cleanly — id_number/bank fields stay '' (suppliers do not carry
+        // them; the recipient row already treats a blank id_number as
+        // "not printed" rather than an error, same as a Contact with none
+        // on file). Address/phone fall back to the FIRM's when the specific
+        // working contact has none of their own — AgencyServiceProviderContact
+        // has no address field at all, only the firm does.
+        $supplierResults = $suppliers->map(function (\App\Models\DealV2\AgencyServiceProviderContact $sc) {
+            $firm = $sc->firm;
+            $name = trim((string) ($sc->attorney_name ?: $sc->contact_person ?: ($firm->name ?? '')));
+            $parts = preg_split('/\s+/', $name, 2);
+
+            return [
+                'id'                  => $sc->id,
+                'source'              => 'supplier',
+                'first_name'          => $parts[0] ?? '',
+                'last_name'           => $parts[1] ?? '',
+                'full_name'           => $name,
+                'is_entity'           => false,
+                'entity_name'         => null,
+                'entity_reg_no'       => null,
+                'identifier'          => $sc->email ?: $sc->phone ?: '',
+                'agent'               => null,
+                'email'               => $sc->email ?: '',
+                'phone'               => $sc->phone ?: ($firm->phone ?? ''),
+                'id_number'           => '',
+                'address'             => $firm->address ?? '',
+                'contact_type'        => 'Supplier',
+                'esign_role'          => null,
+                'bank_name'           => '',
+                'bank_account_name'   => '',
+                'bank_account_number' => '',
+                'bank_branch_name'    => '',
+                'bank_branch_code'    => '',
+                'bank_account_type'   => '',
+                'representation'      => null,
+                // Supplier-only fields the recipient row/picker need to keep
+                // this reusable back on a deal later (Johan's design: one
+                // supplier book, the e-sign-captured supplier lives where a
+                // deal can pick it up too).
+                'supplier_contact_id' => $sc->id,
+                'supplier_firm_id'    => $firm->id ?? null,
+                'supplier_firm_name'  => $firm->name ?? '',
+                'supplier_role'       => $sc->role ?? '',
+            ];
+        });
+
+        return response()->json($contactResults->concat($supplierResults)->values());
     }
 
     /**
