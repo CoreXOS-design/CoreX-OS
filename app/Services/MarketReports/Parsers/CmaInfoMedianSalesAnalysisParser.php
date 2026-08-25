@@ -18,11 +18,42 @@ use App\Services\MarketReports\DTOs\ParserConfidence;
  *   - no comp rows (the report is purely aggregate metrics — no per-row data)
  *   - parser version bumped to v2 for audit
  *
+ * Median vs Average variant (2026-08-24 fix): the PDF's own title/header
+ * ("ST Residential Sales Analysis") is IDENTICAL for both variants — checked
+ * directly against 11 real uploaded reports, all 11 carry that exact header,
+ * none carry "Median Sales Analysis" literally. The header is therefore NOT
+ * a variant signal, despite canParse()'s reasons list historically implying
+ * it was. The only reliable in-document signal, confirmed against real PDFs,
+ * is the chart's own price-axis label: "Median Selling Price" vs "Average
+ * Selling Price" — see detectPriceVariant(). Sending an average-variant
+ * report through the OLD code silently stored its average prices under
+ * suburb_median_price_year; there was no bug in detection, there was no
+ * detection at all. Fixed by: (1) a real variant check before any price
+ * write, (2) a distinct metric key per variant so they can never collide,
+ * (3) refusing to write ANY price point when the variant can't be
+ * determined, rather than defaulting to median — a wrong number stored
+ * confidently is worse than a report that doesn't import.
+ *
+ * The two variants also differ structurally, not just by label: the
+ * "Residential Price Ranges" table is a single year/count/low/median/high/max
+ * row in the median variant, but three paired (count, average-price) bands
+ * plus a maximum in the average variant — a genuinely different column
+ * layout, confirmed against real PDFs of both kinds. The existing ranges
+ * regex only matches the median shape, so it is gated to the median variant
+ * only; the average variant's price-band table is not parsed by this
+ * version (noted in rawJson, not silently dropped).
+ *
  * Spec: .ai/specs/mic-complete-spec.md §8.3 + Phase 3a build prompt.
  */
 final class CmaInfoMedianSalesAnalysisParser extends AbstractCmaInfoParser
 {
-    public const PARSER_VERSION = 'cma_info_median_sales_analysis_v2';
+    public const PARSER_VERSION = 'cma_info_median_sales_analysis_v3';
+
+    /** Metric key for a year's headline price when the report's own chart labels it "Median Selling Price". */
+    private const METRIC_MEDIAN = 'suburb_median_price_year';
+
+    /** Metric key for a year's headline price when the report's own chart labels it "Average Selling Price" — distinct from METRIC_MEDIAN so the two can never be confused or overwritten. */
+    private const METRIC_AVERAGE = 'suburb_average_price_year';
 
     public function getReportTypeKey(): string
     {
@@ -59,7 +90,34 @@ final class CmaInfoMedianSalesAnalysisParser extends AbstractCmaInfoParser
             $reasons[] = 'year×sales×median row';
         }
 
+        // Informational only — does not affect acceptance. Both the median
+        // and average variants are valid documents for this parser; which
+        // one this is only changes which metric key parse() writes under
+        // (or whether it refuses to write price data at all).
+        $variant = $this->detectPriceVariant($text);
+        $reasons[] = 'price variant: ' . ($variant ?? 'UNDETERMINED');
+
         return ParserConfidence::high($score, $reasons);
+    }
+
+    /**
+     * The report's own title/header ("ST Residential Sales Analysis") is
+     * identical for both variants — confirmed against 11 real uploaded
+     * reports, all 11 carry that exact header. The chart's own price-axis
+     * label is the only reliable signal, confirmed against real PDFs of
+     * both kinds: "Median Selling Price" vs "Average Selling Price".
+     * Returns null (undetermined) if neither phrase is found, or both are
+     * (an ambiguous/unrecognised layout) — callers must refuse to write a
+     * price value in that case rather than guessing.
+     */
+    private function detectPriceVariant(string $text): ?string
+    {
+        $hasMedian  = stripos($text, 'Median Selling Price') !== false;
+        $hasAverage = stripos($text, 'Average Selling Price') !== false;
+
+        if ($hasMedian && !$hasAverage) return 'median';
+        if ($hasAverage && !$hasMedian) return 'average';
+        return null;
     }
 
     public function parse(string $filePath, MarketReport $report): MarketReportParseResult
@@ -68,6 +126,24 @@ final class CmaInfoMedianSalesAnalysisParser extends AbstractCmaInfoParser
         if ($text === '') {
             return new MarketReportParseResult(rawJson: ['note' => 'No text extracted.']);
         }
+
+        // REFUSE, don't guess (2026-08-24 fix). If we can't tell whether this
+        // report's headline price is a median or an average, we do not write
+        // ANY price data point under either key — a wrong number stored
+        // confidently is worse than a report that doesn't import. The rest
+        // of this parser (suburb/municipality names, sales counts) is not
+        // price-labelled and would still be safe to extract, but a partial
+        // parse that silently omits every price figure the agent actually
+        // came for is its own kind of confusing failure, so we refuse
+        // outright and let the upload be re-checked.
+        $variant = $this->detectPriceVariant($text);
+        if ($variant === null) {
+            return new MarketReportParseResult(rawJson: [
+                'note' => 'Could not determine whether this report\'s headline price is a Median or an Average (looked for "Median Selling Price" / "Average Selling Price" in the extracted text — found both, neither, or an unrecognised layout). No price data extracted to avoid mislabelling one as the other.',
+                'variant' => null,
+            ]);
+        }
+        $priceMetricKey = $variant === 'median' ? self::METRIC_MEDIAN : self::METRIC_AVERAGE;
 
         $points = [];
         $today  = now()->toDateString();
@@ -143,7 +219,7 @@ final class CmaInfoMedianSalesAnalysisParser extends AbstractCmaInfoParser
                 // First triplet = subject column
                 $t1 = $triplets[0];
                 $medianYears[$year] = true; // covered — ranges fallback skips it
-                $points[] = ['metric_key' => 'suburb_median_price_year', 'metric_value_numeric' => $this->parsePrice($t1['m']), 'metric_date' => $metricDate, 'confidence' => 'high', 'suburb_normalised' => $suburbNorm, 'town' => $town];
+                $points[] = ['metric_key' => $priceMetricKey, 'metric_value_numeric' => $this->parsePrice($t1['m']), 'metric_date' => $metricDate, 'confidence' => 'high', 'suburb_normalised' => $suburbNorm, 'town' => $town];
                 $points[] = ['metric_key' => 'suburb_sales_count_year', 'metric_value_numeric' => (float) $t1['c'], 'metric_date' => $metricDate, 'confidence' => 'high', 'suburb_normalised' => $suburbNorm, 'town' => $town];
                 $points[] = ['metric_key' => 'suburb_annual_change_pct', 'metric_value_numeric' => (float) $t1['chg'], 'metric_date' => $metricDate, 'confidence' => 'medium', 'suburb_normalised' => $suburbNorm, 'town' => $town];
 
@@ -151,7 +227,7 @@ final class CmaInfoMedianSalesAnalysisParser extends AbstractCmaInfoParser
                 if (isset($triplets[1])) {
                     $t2 = $triplets[1];
                     $secondNorm = $secondAreaName !== null ? $this->normaliseSuburb($secondAreaName) : null;
-                    $points[] = ['metric_key' => 'suburb_median_price_year', 'metric_value_numeric' => $this->parsePrice($t2['m']), 'metric_date' => $metricDate, 'confidence' => 'high', 'suburb_normalised' => $secondNorm, 'town' => $secondAreaName];
+                    $points[] = ['metric_key' => $priceMetricKey, 'metric_value_numeric' => $this->parsePrice($t2['m']), 'metric_date' => $metricDate, 'confidence' => 'high', 'suburb_normalised' => $secondNorm, 'town' => $secondAreaName];
                     $points[] = ['metric_key' => 'suburb_sales_count_year', 'metric_value_numeric' => (float) $t2['c'], 'metric_date' => $metricDate, 'confidence' => 'high', 'suburb_normalised' => $secondNorm, 'town' => $secondAreaName];
                     $points[] = ['metric_key' => 'suburb_annual_change_pct', 'metric_value_numeric' => (float) $t2['chg'], 'metric_date' => $metricDate, 'confidence' => 'medium', 'suburb_normalised' => $secondNorm, 'town' => $secondAreaName];
                 }
@@ -163,10 +239,23 @@ final class CmaInfoMedianSalesAnalysisParser extends AbstractCmaInfoParser
         //   "<year> <count> R <low> R <median> R <high> R <max>"
         // The columns share a year with the Sales Analysis triplet block above
         // — we don't override the median there; we just add low/high/max.
+        //
+        // 2026-08-24 — this exact 6-field pattern is the MEDIAN variant's
+        // table shape only. Confirmed against a real average-variant PDF:
+        // its "Residential Price Ranges" table is structurally different —
+        // three paired (count, average-price) bands (Low/Middle/High) plus a
+        // separate Maximum, not one row of year/count/low/median/high/max.
+        // The regex below does not match that shape (verified — it simply
+        // produces no matches), so gating on variant is a correctness fix,
+        // not just a label fix: attempting this extraction against an
+        // average-variant report would silently find nothing rather than
+        // silently mislabel something, but gating makes that explicit and
+        // documents the average variant's price-band table as not yet
+        // implemented, rather than "tried and happened to find zero."
         $priceTok    = 'R\s*(\d{1,3}(?:[\s,]\d{3}){0,3})';
         $rangePattern = '/\b(?<year>20\d{2})\s+(?<count>\d{1,4})\s+' . $priceTok
                       . '\s+' . $priceTok . '\s+' . $priceTok . '\s+' . $priceTok . '/u';
-        if (preg_match_all($rangePattern, $text, $rangeMatches, PREG_SET_ORDER)) {
+        if ($variant === 'median' && preg_match_all($rangePattern, $text, $rangeMatches, PREG_SET_ORDER)) {
             foreach ($rangeMatches as $rm) {
                 $year = (int) $rm['year'];
                 if ($year < 2000 || $year > 2099) continue;
@@ -192,7 +281,7 @@ final class CmaInfoMedianSalesAnalysisParser extends AbstractCmaInfoParser
                 ];
                 if (!isset($medianYears[$year])) {
                     if ($median !== null) {
-                        $rangeFallback['suburb_median_price_year'] = $median;
+                        $rangeFallback[$priceMetricKey] = $median;
                     }
                     $rangeCount = isset($rm['count']) ? (int) $rm['count'] : 0;
                     if ($rangeCount > 0) {
@@ -224,12 +313,17 @@ final class CmaInfoMedianSalesAnalysisParser extends AbstractCmaInfoParser
 
         return new MarketReportParseResult(
             dataPoints: $points,
-            rawJson: [
+            rawJson: array_filter([
                 'parser_version'   => self::PARSER_VERSION,
                 'pages'            => $this->pageCount($text),
                 'second_area_name' => $secondAreaName,
                 'first_area_name'  => $firstAreaName,
-            ],
+                'variant'          => $variant,
+                'price_metric_key' => $priceMetricKey,
+                'note'             => $variant === 'average'
+                    ? 'Average variant: price-band ("Residential Price Ranges") table not parsed — its column layout differs from the median variant and is not yet implemented. Sales count / headline price / annual change / index were still extracted.'
+                    : null,
+            ], fn ($v) => $v !== null),
             subjectMeta: $subjectMeta,
         );
     }
