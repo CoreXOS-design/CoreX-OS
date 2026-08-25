@@ -2132,8 +2132,12 @@ class ESignWizardController extends Controller
                 // resolve residual Blade tokens / signed-at inputs. Without
                 // these the pack segments rendered inconsistently with the
                 // standalone template (root of the missing-signable bug).
+                // Signature-block inputs — SIGNING participants only, same
+                // reason as the single-doc path below (flow 330 Finding A).
+                $segSigningParticipantRecipients = $this->filterToSigningParticipants($recipients);
+
                 $segPartyNames = [];
-                foreach ($recipients as $r) {
+                foreach ($segSigningParticipantRecipients as $r) {
                     if (($r['role'] ?? '') === 'agent') continue;
                     $segPartyNames[] = $r['name'] ?? '';
                 }
@@ -2154,7 +2158,7 @@ class ESignWizardController extends Controller
                 $segAcqTerms   = ['acquiring_party', 'lessee', 'tenant', 'buyer', 'purchaser'];
                 $segAgentTerms = ['agent', 'property_practitioner'];
                 $segRecipientsByRole = [];
-                foreach ($recipients as $r) {
+                foreach ($segSigningParticipantRecipients as $r) {
                     $rb = strtolower(preg_replace('/_\d+$/', '', $r['role'] ?? ''));
                     if (in_array($rb, $segOwnerTerms, true)) {
                         $rk = $segOwnerCanon;
@@ -2334,9 +2338,17 @@ class ESignWizardController extends Controller
                 $viewData['document_context'] = $template->isSalesDocument($propSrc) ? 'sales' : 'rental';
             }
 
+            // Signature-block inputs — SIGNING participants only (Johan,
+            // 2026-08-26, flow 330 Finding A). filterToSigningParticipants()
+            // excludes a deceased/proxy-collapsed row here specifically —
+            // they still name in full elsewhere (the "I/We ..." clause,
+            // the domicilium block), just never get a blank, unexecutable
+            // signature line of their own.
+            $signingParticipantRecipients = $this->filterToSigningParticipants($recipients);
+
             // Build party_names for signature-block component (non-agent recipients first, agent last)
             $partyNames = [];
-            foreach ($recipients as $r) {
+            foreach ($signingParticipantRecipients as $r) {
                 if (($r['role'] ?? '') === 'agent') continue;
                 $partyNames[] = $r['name'] ?? '';
             }
@@ -2360,7 +2372,7 @@ class ESignWizardController extends Controller
             $acqTerms   = ['acquiring_party', 'lessee', 'tenant', 'buyer', 'purchaser'];
             $agentTerms = ['agent', 'property_practitioner'];
             $recipientsByRole = [];
-            foreach ($recipients as $r) {
+            foreach ($signingParticipantRecipients as $r) {
                 $base = strtolower(preg_replace('/_\d+$/', '', $r['role'] ?? ''));
                 if (in_array($base, $ownerTerms, true)) {
                     $key = $ownerCanon;
@@ -3372,6 +3384,51 @@ class ESignWizardController extends Controller
         }
 
         return $deduped;
+    }
+
+    /**
+     * Flow 330, Finding A (Johan, 2026-08-26) — a signature block is a
+     * place TO SIGN, not a display of the party (that's the "I/We ..."
+     * clause and the domicilium block, which correctly keep naming a
+     * deceased/proxy-collapsed party in full — untouched here). This array
+     * feeds party_names/recipients_by_role, which the signature-block
+     * component (signature-block.blade.php) reads directly to decide how
+     * many "Thus done and signed by the Seller..." lines to render. Left
+     * unfiltered, a deceased party who is correctly NOT_REQUIRED got her
+     * own blank, unexecutable signature block anyway — a mandate that
+     * looks incomplete to a conveyancer, and an open invitation to fill it
+     * in by hand on the wet-ink path.
+     *
+     * Mirrors SignatureRequest::isSigningParticipant()/nonSigningReason()'s
+     * exact two rules — deceased is absolute; a proxy elsewhere in the SAME
+     * role group collapses everyone else in it — against the WIZARD ARRAY's
+     * own _is_deceased/_is_proxy flags rather than calling that method
+     * directly: this runs BEFORE the SignatureRequest rows exist (it builds
+     * the very HTML those rows are later created from), so there is nothing
+     * to call it ON yet. If that rule ever changes, this must change with
+     * it — same two rules, same order, just read from array data instead of
+     * DB columns because of when in the pipeline this runs.
+     */
+    private function filterToSigningParticipants(array $recipients): array
+    {
+        $proxyRoles = [];
+        foreach ($recipients as $r) {
+            if (!empty($r['_is_proxy'])) {
+                $proxyRoles[strtolower($r['role'] ?? '')] = true;
+            }
+        }
+
+        return array_values(array_filter($recipients, function (array $r) use ($proxyRoles) {
+            if (!empty($r['_is_deceased'])) {
+                return false;
+            }
+            $role = strtolower($r['role'] ?? '');
+            if (!empty($proxyRoles[$role]) && empty($r['_is_proxy'])) {
+                return false; // collapsed by a proxy elsewhere in this same role group
+            }
+
+            return true;
+        }));
     }
 
     /**
@@ -5590,8 +5647,12 @@ class ESignWizardController extends Controller
                 $viewData['document_context'] = $template->isSalesDocument($propSrc) ? 'sales' : 'rental';
             }
 
+            // Signature-block inputs — SIGNING participants only (Johan,
+            // 2026-08-26, flow 330 Finding A) — same rule, print path.
+            $signingParticipantRecipients = $this->filterToSigningParticipants($recipients);
+
             $partyNames = [];
-            foreach ($recipients as $r) {
+            foreach ($signingParticipantRecipients as $r) {
                 if (($r['role'] ?? '') === 'agent') continue;
                 $partyNames[] = $r['name'] ?? '';
             }
@@ -5599,7 +5660,7 @@ class ESignWizardController extends Controller
             $viewData['party_names'] = $partyNames;
 
             $recipientsByRole = [];
-            foreach ($recipients as $r) {
+            foreach ($signingParticipantRecipients as $r) {
                 $role = $r['role'] ?? '';
                 $baseRole = preg_replace('/_\d+$/', '', $role);
                 $recipientsByRole[$baseRole][] = $r;
