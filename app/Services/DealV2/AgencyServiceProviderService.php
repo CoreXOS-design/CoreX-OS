@@ -76,6 +76,7 @@ class AgencyServiceProviderService
             'is_transfer_attorney' => $specialty === 'transfer_attorney',
             'is_bond_attorney' => $specialty === 'bond_attorney',
             'company' => $data['company'] ?? null,
+            'registration_number' => $data['registration_number'] ?? null,
             'email' => $data['email'] ?? null,
             'phone' => $data['phone'] ?? null,
             'notes' => $data['notes'] ?? null,

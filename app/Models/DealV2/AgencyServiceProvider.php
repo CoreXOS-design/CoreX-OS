@@ -29,6 +29,7 @@ class AgencyServiceProvider extends Model
         'is_transfer_attorney',
         'is_bond_attorney',
         'company',
+        'registration_number',
         'email',
         'phone',
         'address',

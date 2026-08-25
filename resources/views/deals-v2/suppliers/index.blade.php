@@ -73,6 +73,18 @@
                        style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
             </div>
             <div>
+                {{-- Johan, 2026-08-25 — company reg no. for a firm, or an ID
+                     number if this "supplier" is really a sole practitioner
+                     or executor acting personally. Never required here —
+                     required only where it actually matters: putting this
+                     supplier on a document as a representative. --}}
+                <label for="sp-registration-number" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Registration / ID Number</label>
+                <input id="sp-registration-number" name="registration_number" maxlength="100"
+                       placeholder="Company reg. no., or ID number if a sole practitioner"
+                       class="w-full rounded-md px-3 py-2 text-sm"
+                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+            </div>
+            <div>
                 <label for="sp-email" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Email</label>
                 <input id="sp-email" name="email" type="email" maxlength="191"
                        class="w-full rounded-md px-3 py-2 text-sm"

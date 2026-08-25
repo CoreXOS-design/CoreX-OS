@@ -1346,12 +1346,17 @@ class ESignWizardController extends Controller
         });
 
         // Same response shape as a contact result, wherever the fields map
-        // cleanly — id_number/bank fields stay '' (suppliers do not carry
-        // them; the recipient row already treats a blank id_number as
-        // "not printed" rather than an error, same as a Contact with none
-        // on file). Address/phone fall back to the FIRM's when the specific
-        // working contact has none of their own — AgencyServiceProviderContact
-        // has no address field at all, only the firm does.
+        // cleanly — bank fields stay '' (suppliers do not carry them; the
+        // recipient row already treats a blank id_number as "not printed"
+        // rather than an error, same as a Contact with none on file).
+        // Address/phone fall back to the FIRM's when the specific working
+        // contact has none of their own — AgencyServiceProviderContact has
+        // no address field at all, only the firm does. id_number likewise
+        // borrows the FIRM's registration_number (2026-08-25, Johan: "so
+        // add a registration field on suppliers") — this is what makes the
+        // existing "herein represented by X, ID/registration NNN" wording
+        // engine print a supplier's number with no wording-engine changes;
+        // it reads this same generic id_number field for a Contact.
         $supplierResults = $suppliers->map(function (\App\Models\DealV2\AgencyServiceProviderContact $sc) {
             $firm = $sc->firm;
             $name = trim((string) ($sc->attorney_name ?: $sc->contact_person ?: ($firm->name ?? '')));
@@ -1370,7 +1375,7 @@ class ESignWizardController extends Controller
                 'agent'               => null,
                 'email'               => $sc->email ?: '',
                 'phone'               => $sc->phone ?: ($firm->phone ?? ''),
-                'id_number'           => '',
+                'id_number'           => $firm->registration_number ?? '',
                 'address'             => $firm->address ?? '',
                 'contact_type'        => 'Supplier',
                 'esign_role'          => null,
@@ -1484,7 +1489,11 @@ class ESignWizardController extends Controller
             'email'               => $contact->email ?? '',
             'phone'               => $contact->phone ?: ($firm->phone ?? ''),
             'address'             => $firm->address ?? '',
-            'id_number'           => '',
+            // Quick-add doesn't collect a registration number (that belongs
+            // to the real Deal Register v2 supplier directory form); a
+            // brand-new firm has none yet, so this is legitimately blank
+            // until the agency captures it there.
+            'id_number'           => $firm->registration_number ?? '',
             'contact_type'        => 'Supplier',
             'supplier_contact_id' => $contact->id,
             'supplier_firm_id'    => $firm->id,
@@ -2216,6 +2225,7 @@ class ESignWizardController extends Controller
         // not be sendable unless someone else is bound to sign in their
         // place. "Certain problem = hard block, not a warning."
         $this->assertDeceasedRecipientsHaveSubstituteSigner($recipients);
+        $this->assertSupplierRepresentativesHaveRegistrationNumber($recipients);
 
         // GENERATED-DOCUMENT BODY (Johan, 2026-08-25 — cc1's finding on
         // 93a10b6a2): the document actually going out must read the SAME
@@ -4021,6 +4031,66 @@ class ESignWizardController extends Controller
                 $name = trim((string) ($r['name'] ?? '')) ?: 'This party';
                 throw \Illuminate\Validation\ValidationException::withMessages([
                     'recipients' => "{$name} is marked deceased but no substitute signer has been chosen. Open \u{201c}Replace this party\u{201d} and choose who signs in their place before sending.",
+                ]);
+            }
+        }
+    }
+
+    /**
+     * HARD BLOCK (Johan, 2026-08-25 — "so add a registration field on
+     * suppliers"): a supplier bound as someone's representative via a
+     * type:'recipient' slot binding (the same "Replace this party" chain
+     * assertDeceasedRecipientsHaveSubstituteSigner() above checks) must
+     * carry a registration/ID number, because that number is what prints
+     * in the "herein represented by X, registration NNN" clause. Johan's
+     * words: "it must not silently print a representative with no
+     * identifying number — that was the whole reason Johan asked for
+     * this." An ordinary supplier recipient who is NOT standing in as
+     * anyone's representative is untouched — existing suppliers with no
+     * number on file are fine right up until the moment one is actually
+     * used this way, per Johan's explicit "not required retrospectively"
+     * instruction.
+     *
+     * The message names the specific supplier and tells the agent exactly
+     * what to add and where, per Johan's "if you block, say so" steer.
+     */
+    private function assertSupplierRepresentativesHaveRegistrationNumber(array $recipients): void
+    {
+        $byLocalKey = [];
+        foreach ($recipients as $r) {
+            $key = $r['_recipient_local_key'] ?? null;
+            if ($key !== null) {
+                $byLocalKey[$key] = $r;
+            }
+        }
+
+        foreach ($recipients as $r) {
+            $bindings = $r['_slot_bindings'] ?? [];
+            if (! is_array($bindings)) {
+                continue;
+            }
+
+            foreach ($bindings as $binding) {
+                if (! is_array($binding) || ($binding['type'] ?? null) !== 'recipient') {
+                    continue;
+                }
+                $boundKey = $binding['recipient_local_key'] ?? null;
+                if ($boundKey === null) {
+                    continue;
+                }
+                $bound = $byLocalKey[$boundKey] ?? null;
+                if ($bound === null || ($bound['_recipient_source'] ?? null) !== 'supplier') {
+                    continue;
+                }
+                if (trim((string) ($bound['id_number'] ?? '')) !== '') {
+                    continue;
+                }
+
+                $supplierName = trim((string) ($bound['name'] ?? '')) ?: 'This supplier';
+                $firmName = trim((string) ($bound['_supplier_firm_name'] ?? ''));
+                $where = $firmName !== '' ? "the supplier directory entry for {$firmName}" : 'the supplier directory';
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'recipients' => "{$supplierName} is standing in as a representative on this document but has no registration or ID number on file. Add it in {$where} (Deal Register \u{2192} Suppliers) before sending.",
                 ]);
             }
         }
@@ -6102,6 +6172,7 @@ class ESignWizardController extends Controller
         // party with no substitute must never reach print. Same predicate as
         // the e-sign path — see assertDeceasedRecipientsHaveSubstituteSigner().
         $this->assertDeceasedRecipientsHaveSubstituteSigner($recipients);
+        $this->assertSupplierRepresentativesHaveRegistrationNumber($recipients);
 
         // GENERATED-DOCUMENT BODY — same reasoning as prepareSigning()
         // (ESignWizardController.php ~2035-2050): the printed document must

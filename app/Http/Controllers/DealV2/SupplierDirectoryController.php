@@ -207,6 +207,7 @@ class SupplierDirectoryController extends Controller
             'name' => 'required|string|max:191',
             'specialty' => 'required|string|in:' . implode(',', self::SPECIALTIES),
             'company' => 'nullable|string|max:191',
+            'registration_number' => 'nullable|string|max:100',
             'email' => 'nullable|email|max:191',
             'phone' => 'nullable|string|max:50',
             'notes' => 'nullable|string',
