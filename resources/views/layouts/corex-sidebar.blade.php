@@ -748,12 +748,6 @@
                           style="background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 15%, transparent); color:var(--brand-icon, #0ea5e9);">{{ number_format($miCount) }}</span>
                     @endif
                 </a>
-                {{-- Suburb Report — combined CMA-vs-CoreX picture (Johan, 2026-08-25). --}}
-                @if(\Illuminate\Support\Facades\Route::has('market-intelligence.suburb-report.index'))
-                <a href="{{ route('market-intelligence.suburb-report.index') }}" class="corex-nav-subitem {{ request()->routeIs('market-intelligence.suburb-report*') ? 'active' : '' }}">
-                    <span>Suburb Report</span>
-                </a>
-                @endif
                 {{-- MIC funnel phase 2 — BM/admin stale-claim review (anti-poaching reassignment). --}}
                 @if(\Illuminate\Support\Facades\Route::has('market-intelligence.stale-review') && auth()->user()->hasPermission('prospecting_setup.manage'))
                 <a href="{{ route('market-intelligence.stale-review') }}" class="corex-nav-subitem {{ request()->routeIs('market-intelligence.stale-review') ? 'active' : '' }}">
@@ -1691,8 +1685,13 @@
              report's EXISTING permission — no new permission key. The whole group
              renders only if the user can reach at least one; each link only if the
              user can reach that one. Same corex-nav-group-toggle / push() pattern
-             as every other nested group in this file (see "Hidden" above). --}}
-        @if($user && $user->hasAnyPermission(['view_performance', 'view_buyers_report']))
+             as every other nested group in this file (see "Hidden" above).
+             2026-08-25 — Suburb Report joined this group (Johan: "we built a
+             reports section — the report should sit there," not a standalone
+             link off Market Intelligence). Gated by its own existing permission
+             (access_prospecting + prospecting feature — same as the route
+             itself), not a new key. --}}
+        @if($user && ($user->hasAnyPermission(['view_performance', 'view_buyers_report']) || $user->hasPermission('access_prospecting')))
         <div>
             <button type="button" @click="push('reports')"
                     class="corex-nav-item corex-nav-group-toggle {{ $groupOpen('reports') ? 'active' : '' }}">
@@ -1717,6 +1716,12 @@
                 @permission('view_buyers_report')
                 @if(\Illuminate\Support\Facades\Route::has('buyers-report.index'))
                 <a href="{{ route('buyers-report.index') }}" class="corex-nav-subitem {{ request()->routeIs('buyers-report.*') ? 'active' : '' }}">Buyers Report</a>
+                @endif
+                @endpermission
+
+                @permission('access_prospecting')
+                @if(\Illuminate\Support\Facades\Route::has('market-intelligence.suburb-report.index'))
+                <a href="{{ route('market-intelligence.suburb-report.index') }}" class="corex-nav-subitem {{ request()->routeIs('market-intelligence.suburb-report*') ? 'active' : '' }}">Suburb Report</a>
                 @endif
                 @endpermission
             </div>

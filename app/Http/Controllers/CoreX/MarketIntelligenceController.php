@@ -1893,6 +1893,67 @@ class MarketIntelligenceController extends Controller
      */
     public function suburbReport(Request $request, P24Suburb $suburb)
     {
+        return view('corex.market-intelligence.suburb-report', $this->buildSuburbReportData($request, $suburb));
+    }
+
+    /**
+     * Print view — same data, same visual partials as the interactive
+     * screen, rendered through a print-optimised wrapper. suburbReportPdf()
+     * renders this IDENTICAL view through dompdf so the two can never drift
+     * apart, matching the pattern already established by
+     * BuyersReportController::print()/pdf().
+     */
+    public function suburbReportPrint(Request $request, P24Suburb $suburb)
+    {
+        return view('corex.market-intelligence.suburb-report-print', $this->buildSuburbReportData($request, $suburb));
+    }
+
+    public function suburbReportPdf(Request $request, P24Suburb $suburb)
+    {
+        $data = $this->buildSuburbReportData($request, $suburb);
+        $filename = 'suburb-report-' . \Illuminate\Support\Str::slug($suburb->name) . '-' . now()->format('Y-m-d') . '.pdf';
+
+        $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('corex.market-intelligence.suburb-report-print', $data)
+            ->setPaper('a4', 'portrait');
+        $pdf->setOption('isRemoteEnabled', true);
+
+        return $pdf->download($filename);
+    }
+
+    /**
+     * Upload a CMA for THIS suburb, from the suburb report screen itself.
+     * Johan, 2026-08-25: "asking an agent to upload here, and draw a report
+     * there, is a problem." Reuses the real import pipeline
+     * (MarketReportController::store()) rather than a second one — same
+     * validation, same parser detection, same guardrails — with
+     * source_suburb pre-filled to this suburb so the import attributes
+     * correctly even if the document's own text/filename gives the parser
+     * no clue, since the agent is standing on the answer right now. Lands
+     * back on this same suburb, not on the generic report list.
+     */
+    public function suburbReportUploadCma(Request $request, P24Suburb $suburb, \App\Http\Controllers\CoreX\MarketReportController $reportController)
+    {
+        $request->validate(['file' => ['required', 'file', 'mimes:pdf', 'max:20480']]);
+        $request->merge(['source_suburb' => $suburb->name]);
+
+        // The real store() flow flashes its own 'status'/'error' session
+        // message and dispatches the real parse job synchronously — that
+        // happens here regardless of which redirect we return, so the
+        // uploader sees the same "uploaded and parsed" (or guardrail-flagged)
+        // message they'd get from the dedicated importer.
+        $reportController->store($request);
+
+        return redirect()
+            ->route('market-intelligence.suburb-report', $suburb);
+    }
+
+    /**
+     * Shared data assembly for the interactive screen and the print/PDF
+     * view — one place, so the numbers a seller is shown on screen and the
+     * numbers on the page handed to them can never disagree.
+     */
+    private function buildSuburbReportData(Request $request, P24Suburb $suburb): array
+    {
         $user = $request->user();
         $agencyId = $user->effectiveAgencyId() ?? $user->agency_id;
         if ($agencyId === null) abort(403);
@@ -1913,11 +1974,39 @@ class MarketIntelligenceController extends Controller
             ->limit(50)
             ->get(['id', 'address', 'street_name', 'price', 'listed_date']);
 
-        return view('corex.market-intelligence.suburb-report', [
+        return [
             'suburb'        => $suburb,
             'data'          => $data,
             'stockListings' => $stockListings,
-        ]);
+            'branding'      => \App\Models\Agency::publicBrandingFor((int) $agencyId),
+            'logoData'      => $this->agencyLogoDataUri((int) $agencyId),
+            'generatedAt'   => now(),
+        ];
+    }
+
+    /**
+     * Same pattern as BuyersReportController::agencyLogoDataUri() — a data
+     * URI so dompdf (which cannot fetch our own authenticated storage URLs)
+     * can still render the agency logo in the PDF.
+     */
+    private function agencyLogoDataUri(int $agencyId): ?string
+    {
+        try {
+            $agency = \App\Models\Agency::withoutGlobalScopes()->find($agencyId);
+            $logoPath = $agency?->logo_path ?? $agency?->logo ?? null;
+            if (!$logoPath || !\Illuminate\Support\Facades\Storage::exists($logoPath)) {
+                return null;
+            }
+            $raw = \Illuminate\Support\Facades\Storage::get($logoPath);
+            $mime = \Illuminate\Support\Facades\Storage::mimeType($logoPath) ?: 'image/png';
+            if (!str_starts_with((string) $mime, 'image/') || $mime === 'image/svg+xml') {
+                return null;
+            }
+
+            return 'data:' . $mime . ';base64,' . base64_encode($raw);
+        } catch (\Throwable $e) {
+            return null;
+        }
     }
 
     /**
