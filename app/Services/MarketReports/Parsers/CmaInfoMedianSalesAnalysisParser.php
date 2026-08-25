@@ -150,13 +150,30 @@ final class CmaInfoMedianSalesAnalysisParser extends AbstractCmaInfoParser
 
         // Phase 3e A2 — derive subject suburb + municipality from the PDF
         // column header instead of relying on $report->source_suburb (the
-        // bulk-import path doesn't set it). Header layout:
-        //     "Year      UVONGO            RAY NKONYENI"
+        // bulk-import path doesn't set it). Two known header layouts:
+        //     "Year      UVONGO            RAY NKONYENI"        (year-first, one line)
+        //     "SHELLY BEACH            RAY NKONYENI\n  Year"    (suburb-first, Year on the next line)
         // The first all-caps token is the subject suburb; the second is the
         // municipality (when the report has parallel columns).
+        //
+        // 2026-08-25 — added the suburb-first pattern. Real cause of BOTH of
+        // Johan's Shelly Beach uploads carrying no suburb attribution at all
+        // (suburb_normalised written as blank on every data point, meaning
+        // they could never surface on any suburb's report even once actual
+        // price data started parsing): the only pattern this parser knew
+        // about assumed "Year" appears BEFORE the suburb/municipality names
+        // on the same line. Both real PDFs print it the other way round —
+        // "SHELLY BEACH ... RAY NKONYENI" on its own line, then "Year" alone
+        // on the NEXT line — which the old single pattern never matched.
+        // Filename fallback (below) doesn't rescue it either: both real
+        // filenames ("shelly avg ss.pdf", "Shelly median.pdf") are
+        // lower/mixed-case, and that fallback only accepts an ALL-CAPS token.
         $firstAreaName  = null;
         $secondAreaName = null;
         if (preg_match('/Year\s+(?<sub>[A-Z][A-Z \']{2,30}?)\s{2,}(?<muni>[A-Z][A-Z \']{3,30})/u', $text, $hm)) {
+            $firstAreaName  = trim($hm['sub']);
+            $secondAreaName = trim($hm['muni']);
+        } elseif (preg_match('/\n[ \t]*(?<sub>[A-Z][A-Z \']{2,30}?)[ \t]{2,}(?<muni>[A-Z][A-Z \']{3,30})[ \t]*\n[ \t]*Year\b/u', $text, $hm)) {
             $firstAreaName  = trim($hm['sub']);
             $secondAreaName = trim($hm['muni']);
         } elseif (preg_match('/Year\s+(?<sub>[A-Z][A-Z \']{2,30})/u', $text, $hm)) {
@@ -166,15 +183,19 @@ final class CmaInfoMedianSalesAnalysisParser extends AbstractCmaInfoParser
         // Fallback — derive suburb from filename (e.g.
         // "Median.Sales.Analysis.UVONGO.pdf" → "UVONGO"). The bulk-import
         // path stores the original filename on $report->file_name, so this
-        // is a reliable secondary source.
+        // is a reliable secondary source. Case-insensitive (2026-08-25 —
+        // both of Johan's real filenames are lower/mixed-case, not the
+        // ALL-CAPS the original pattern required).
         if ($firstAreaName === null && !empty($report->file_name)) {
             $stem = pathinfo((string) $report->file_name, PATHINFO_FILENAME);
-            // Split on common separators; pick the last all-caps token of
-            // length 4-30 — that's almost always the suburb in CMA Info filenames.
+            // Split on common separators; pick the last alphabetic token of
+            // length 4-30 that isn't a generic report-name word — that's
+            // almost always the suburb in CMA Info filenames.
             $tokens = preg_split('/[\.\-_\s]+/', $stem) ?: [];
+            $stopWords = ['sales', 'analysis', 'median', 'average', 'report', 'cma', 'ss', 'st', 'residential'];
             foreach (array_reverse($tokens) as $tok) {
-                if (preg_match('/^[A-Z][A-Z \']{3,29}$/', $tok)) {
-                    $firstAreaName = $tok;
+                if (preg_match('/^[A-Za-z][A-Za-z \']{3,29}$/', $tok) && !in_array(mb_strtolower($tok), $stopWords, true)) {
+                    $firstAreaName = mb_strtoupper($tok);
                     break;
                 }
             }
@@ -189,25 +210,55 @@ final class CmaInfoMedianSalesAnalysisParser extends AbstractCmaInfoParser
         $suburbNorm = $this->normaliseSuburb($subjectSuburb);
         $town       = $report->source_town ?? $secondAreaName;
 
-        // Split text into per-year blocks: each block begins at `^20YY` and
-        // extends to (but not including) the next `^20YY`. Within each block
-        // we look for one or two (count, R<median>, change%) triplets — first
-        // is the subject suburb column, second (when present) is the
+        // Split text into per-year blocks: each block begins at a line-start
+        // `20YY` and extends to (but not including) the next one. Within each
+        // block we look for one or two (count, R<median>, change%) triplets —
+        // first is the subject suburb column, second (when present) is the
         // municipality column. Indices are optional. This is far more tolerant
         // than the previous "all on one line" pattern.
+        //
+        // 2026-08-25 fix — real cause of BOTH of Johan's Shelly Beach uploads
+        // (median AND average variant alike) producing zero data points despite
+        // being routed to this parser correctly. pdftotext -layout indents real
+        // table rows with leading spaces (e.g. "   2017          25    R 1 350
+        // 000..."), so the OLD `(?:^|\n)(?<year>20\d{2})` — which requires the
+        // year immediately at column 0 — never matched a single real data row.
+        // It matched the page-FOOTER date stamp instead ("2026/08/25" printed
+        // flush-left at the bottom of every page), which happens to also start
+        // with "20\d{2}". Every "block" was therefore just the gap between two
+        // footers — pure boilerplate, containing no triplet pattern — hence
+        // preg_match_all succeeded (4 blocks, one per page) while silently
+        // extracting nothing. Fixed two ways: (1) allow leading horizontal
+        // whitespace before the year, so real indented rows match; (2) require
+        // the year to be followed by whitespace-then-digit (the row's count
+        // column) via a lookahead, so a footer date ("2026/08/25" — year
+        // followed by "/") or a bare chart axis label ("2017" followed only by
+        // a newline) still cannot match. Verified against both real files: the
+        // year-boundary count changes from 4 (one per page footer) to 10 (one
+        // per real data row), and the "Please note" trailer, present in both
+        // real PDFs, still correctly closes the final block.
+        //
         // AT-22 R3 — track which years the Sales-Analysis triplet already
         // produced a median for, so the Residential Price Ranges fallback
         // below only fills the GAPS (no double-write).
         $medianYears = [];
-        if (preg_match_all('/(?:^|\n)(?<year>20\d{2})(?<body>.*?)(?=(?:\n20\d{2})|\nPlease|\Z)/su', $text, $blocks, PREG_SET_ORDER)) {
+        if (preg_match_all('/(?:^|\n)[ \t]*(?<year>20\d{2})(?=[ \t]+\d)(?<body>.*?)(?=(?:\n[ \t]*20\d{2}(?=[ \t]+\d))|\nPlease|\Z)/su', $text, $blocks, PREG_SET_ORDER)) {
             foreach ($blocks as $block) {
                 $year = (int) $block['year'];
                 if ($year < 2000 || $year > 2099) continue;
                 $body = (string) $block['body'];
 
                 // Bounded "thousands group" pattern so the median price
-                // can't bleed into the change% column.
-                if (!preg_match_all('/(?<c>\d{1,5})\s+R\s*(?<m>\d{1,3}(?:[\s,]\d{3}){0,3})\s+(?<chg>-?\d{1,3}\.\d{1,2})\s*%/u', $body, $triplets, PREG_SET_ORDER)) {
+                // can't bleed into the change% column. The change% decimal
+                // is OPTIONAL (2026-08-25 fix): Shelly Beach's real median
+                // report prints "0%" for 2021's subject-suburb column (an
+                // exact-zero change, no decimal shown) — the old pattern
+                // required a decimal point, so that single triplet failed
+                // to match, silently dropping the whole subject-column row
+                // for that year (price, count, AND change all lost, not
+                // just the change figure) while the municipality's own
+                // 2021 row (which did carry a decimal) still matched.
+                if (!preg_match_all('/(?<c>\d{1,5})\s+R\s*(?<m>\d{1,3}(?:[\s,]\d{3}){0,3})\s+(?<chg>-?\d{1,3}(?:\.\d{1,2})?)\s*%/u', $body, $triplets, PREG_SET_ORDER)) {
                     continue;
                 }
 
