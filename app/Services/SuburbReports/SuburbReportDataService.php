@@ -261,7 +261,7 @@ class SuburbReportDataService
                 'sold'              => $salesActivity['sold'],
                 'under_offer_count' => count($salesActivity['under_offer']),
                 'under_offer'       => $salesActivity['under_offer'],
-                'source'            => 'DR1 deals.registration_date OR DR2 deals_v2.actual_registration (sold); deals_v2.offer_date with neither (under offer)',
+                'source'            => "status='granted' OR registered (DR1 deals.registration_date / DR2 deals_v2.actual_registration) = sold; offer_date with neither = under offer; declined = excluded",
             ],
         ];
     }
@@ -273,19 +273,35 @@ class SuburbReportDataService
      * of status — an offer with no registration was presented as a sale —
      * and never looked at DR1 at all, where genuinely registered sales
      * actually live (30 on QA1, all with deal_v2_id NULL, i.e. never
-     * touched DR2). Registered = DR1 deals.registration_date OR DR2
-     * deals_v2.actual_registration populated — the exact signal
-     * DealsRegisteredProvider and InternalDealsAdapter already use
-     * correctly elsewhere in this codebase; reused here, not reinvented.
-     * Anything else with an offer_date is under offer, never sold. A row
-     * with neither is omitted from both buckets.
+     * touched DR2).
      *
-     * Comparability: a registered sale with no beds/baths/property_type
+     * Johan's ruling, 2026-08-25, verbatim: "pending = under offer, granted
+     * and registered = sold." "Granted" means every suspensive condition
+     * on the deal (bond approval, sale of an existing property, etc.) has
+     * been fulfilled — the offer is unconditional
+     * (DealPipelineService::allSuspensiveComplete(), AND-gated across all
+     * suspensive steps). RISK FLAGGED TO JOHAN, not resolved here: a
+     * granted deal can still collapse — DealPipelineService's own
+     * applyNegativeStageEffect() allows a 'cancelled' outcome on any
+     * non-suspensive step AFTER granted, right up to registration (deeds
+     * office / attorney / closing-process failure). Calling a granted deal
+     * "sold" is his call to make with that risk in view, not a data error.
+     *
+     * SOLD  = DR2 deals_v2.status === 'granted', OR DR1 deals.accepted_status
+     *         === 'G', OR DR1 deals.registration_date populated, OR DR2
+     *         deals_v2.actual_registration populated.
+     * UNDER OFFER = has an offer_date (DR2) and is none of the above.
+     * EXCLUDED = declined (DR2 status === 'declined' / DR1 accepted_status
+     *         === 'D') — not a sale, not an offer in progress, nothing to
+     *         report.
+     *
+     * Comparability: a sold record with no beds/baths/property_type
      * resolvable via a real properties.id link cannot be characterised and
      * must never be presented as a comparable to a seller — flagged via
      * 'comparable' rather than guessed at (no fuzzy address matching is
-     * attempted for this purpose; property_id_matched already covers the
-     * suburb-attribution fallback InternalDealsAdapter itself uses).
+     * attempted for this purpose; the address-LIKE fallback below is only
+     * ever used for suburb attribution, the same bar InternalDealsAdapter
+     * itself uses).
      *
      * Customer-facing wording lives in one place: App\Support\Sales\SaleStageLabel.
      */
@@ -296,6 +312,7 @@ class SuburbReportDataService
             ->leftJoin('properties', 'properties.id', '=', 'deals.property_id')
             ->where('deals_v2.agency_id', $agencyId)
             ->whereNull('deals_v2.deleted_at')
+            ->where('deals_v2.status', '!=', 'declined')
             ->where(function ($q) use ($suburbNorm) {
                 $q->where('properties.suburb_normalised', $suburbNorm)
                   ->orWhere('deals.property_address', 'like', '%' . $suburbNorm . '%');
@@ -303,6 +320,7 @@ class SuburbReportDataService
             ->select(
                 'deals_v2.id as deal_id',
                 'deals_v2.purchase_price',
+                'deals_v2.status',
                 'deals_v2.offer_date',
                 'deals_v2.actual_registration',
                 'deals.registration_date as dr1_registration_date',
@@ -313,15 +331,19 @@ class SuburbReportDataService
             )
             ->get();
 
-        // DR1-only rows: genuinely registered, deal_v2_id is NULL so they can
-        // never already be present in $dr2Rows above (that query is anchored
-        // on deals_v2 and reaches deals only via legacy_deal_id).
+        // DR1-only rows: deal_v2_id is NULL so they can never already be
+        // present in $dr2Rows above (that query is anchored on deals_v2 and
+        // reaches deals only via legacy_deal_id). Only the granted/registered
+        // (sold) side is sourced from DR1 — its own pending/blank stages are
+        // out of scope here, same as before this change.
         $dr1OnlyRows = DB::table('deals')
             ->leftJoin('properties', 'properties.id', '=', 'deals.property_id')
             ->where('deals.agency_id', $agencyId)
             ->whereNull('deals.deleted_at')
             ->whereNull('deals.deal_v2_id')
-            ->whereNotNull('deals.registration_date')
+            ->where(function ($q) {
+                $q->where('deals.accepted_status', 'G')->orWhereNotNull('deals.registration_date');
+            })
             ->where(function ($q) {
                 $q->whereNull('deals.accepted_status')->orWhere('deals.accepted_status', '!=', 'D');
             })
@@ -332,6 +354,7 @@ class SuburbReportDataService
             ->select(
                 'deals.id as deal_id',
                 DB::raw('COALESCE(deals.sale_price, deals.property_value) as purchase_price'),
+                DB::raw("'granted' as status"),
                 DB::raw('NULL as offer_date'),
                 DB::raw('NULL as actual_registration'),
                 'deals.registration_date as dr1_registration_date',
@@ -346,10 +369,12 @@ class SuburbReportDataService
         $underOffer = [];
 
         foreach ($dr2Rows->concat($dr1OnlyRows) as $r) {
-            $isRegistered = $r->actual_registration !== null || $r->dr1_registration_date !== null;
-            $isUnderOffer = !$isRegistered && $r->offer_date !== null;
-            if (!$isRegistered && !$isUnderOffer) {
-                continue; // neither registered nor under offer — not a sale event
+            $isSold = $r->status === 'granted'
+                || $r->actual_registration !== null
+                || $r->dr1_registration_date !== null;
+            $isUnderOffer = !$isSold && $r->offer_date !== null;
+            if (!$isSold && !$isUnderOffer) {
+                continue; // no offer, no acceptance — not a sale event
             }
 
             $record = [
@@ -360,10 +385,10 @@ class SuburbReportDataService
                 'baths'         => $r->baths,
                 'property_type' => $r->property_type,
                 'comparable'    => $r->beds !== null && $r->baths !== null && $r->property_type !== null,
-                'stage'         => $isRegistered ? SaleStageLabel::SOLD : SaleStageLabel::UNDER_OFFER,
+                'stage'         => $isSold ? SaleStageLabel::SOLD : SaleStageLabel::UNDER_OFFER,
             ];
 
-            if ($isRegistered) {
+            if ($isSold) {
                 $sold[] = $record;
             } else {
                 $underOffer[] = $record;
