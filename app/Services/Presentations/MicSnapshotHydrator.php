@@ -804,10 +804,37 @@ final class MicSnapshotHydrator
      * when no asking is set, in which case CompPoolBuilder falls back to the
      * cleaned-pool median.
      */
+    /**
+     * 2026-08-25 fix — this had NO fallback: when a presentation's own
+     * asking_price_inc was unset (routine for a CMA/valuation presentation,
+     * which exists precisely to decide what asking price should BE),
+     * resolveSubjectAnchorPrice() returned null, and CompPoolBuilder's own
+     * fallback then anchored the price band on the type-gated MEDIAN OF
+     * THE CANDIDATE POOL ITSELF — untethered from the subject's actual
+     * value. A 144m² Margate sectional flat (last sold R750,000) with no
+     * asking_price_inc set pulled a comp-pool median dragged up by pricier
+     * unrelated stock, and the price band centred on THAT instead —
+     * producing R1.6M+ "comparables" for an ~R850,000 subject.
+     *
+     * Fallback chain, in order of authority — each one is still
+     * SUBJECT-derived, never comp-pool-derived:
+     *   1. asking_price_inc — the presentation's own finalised figure.
+     *   2. properties.price — the subject's own current listed/asking
+     *      price, already loaded for this same subject profile a few
+     *      lines above (property_type).
+     * If neither exists, this still returns null and CompPoolBuilder
+     * falls back to the comp-pool median exactly as before — that
+     * residual case is unchanged, just far rarer now.
+     */
     private function resolveSubjectAnchorPrice(Presentation $presentation): ?int
     {
         $asking = (int) ($presentation->asking_price_inc ?? 0);
-        return $asking > 0 ? $asking : null;
+        if ($asking > 0) {
+            return $asking;
+        }
+
+        $listed = (int) ($presentation->property?->price ?? 0);
+        return $listed > 0 ? $listed : null;
     }
 
     private function fingerprint(object $row, bool $isSold): string
