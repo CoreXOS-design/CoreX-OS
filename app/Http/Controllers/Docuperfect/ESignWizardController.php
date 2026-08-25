@@ -3079,14 +3079,33 @@ class ESignWizardController extends Controller
         $document = $documentId ? Document::find($documentId) : null;
         $sigTemplate = $document ? $document->signatureTemplate : null;
 
-        $recipients = $stepData['recipients']['recipients'] ?? [];
-        $nextRecipient = null;
-        foreach ($recipients as $r) {
-            if (($r['role'] ?? '') !== 'agent' && !empty($r['email'])) {
-                $nextRecipient = $r;
-                break;
-            }
-        }
+        // Flow 330 (Johan, 2026-08-26) — this used to walk the RAW wizard
+        // recipients array and guess "the first non-agent one with an
+        // email" as who got notified. That is a completely disconnected
+        // read from what actually happened — a deceased party still has an
+        // email on file and was still first in the array, so the page told
+        // the agent "Sent to <the deceased party>" while nobody was ever
+        // emailed. Query the ACTUAL SignatureRequest that transitioned to
+        // PENDING — the status sendSigningRequest() sets ONLY on a genuine
+        // dispatch (SignatureService.php ~995-998) — so this line can never
+        // name someone who wasn't actually sent something. Null when
+        // nobody currently is (fully complete, held for agent review, or
+        // every remaining recipient turned out non-required) — the blade's
+        // existing @if($nextRecipient) guard correctly shows nothing rather
+        // than a false claim.
+        $nextRecipientRequest = $sigTemplate
+            ? $sigTemplate->requests()
+                ->where('status', SignatureRequest::STATUS_PENDING)
+                ->whereNotIn('party_role', ['agent', 'supervisor', 'supervisor_final'])
+                ->orderBy('signing_order', 'asc')
+                ->first()
+            : null;
+
+        $nextRecipient = $nextRecipientRequest ? [
+            'name'  => $nextRecipientRequest->signer_name,
+            'role'  => $nextRecipientRequest->party_role,
+            'email' => $nextRecipientRequest->signer_email,
+        ] : null;
 
         // Mark flow as completed
         $flow->status = 'completed';

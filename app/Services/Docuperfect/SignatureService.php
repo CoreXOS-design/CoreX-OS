@@ -1538,12 +1538,11 @@ class SignatureService
     public function approveAndAdvance(SignatureTemplate $template): array
     {
         return DB::transaction(function () use ($template) {
-            // Find next waiting request by signing_order (not by role name)
-            // This correctly handles co-owners who share the same party_role
-            $nextRequest = $template->requests()
-                ->where('status', SignatureRequest::STATUS_WAITING)
-                ->orderBy('signing_order', 'asc')
-                ->first();
+            // Flow 330 — same walker as advanceToNextParty(): try the next
+            // WAITING request, skip forward past any non-participant
+            // (isSigningParticipant(), via sendSigningRequest()) rather than
+            // stopping the chain on the first one tried.
+            $nextRequest = $this->advanceToNextSigningParticipant($template, null);
 
             if ($nextRequest) {
                 // Recalculate hash before sending to next external party
@@ -1563,7 +1562,9 @@ class SignatureService
                 $newStatus = $statusMap[$nextRequest->party_role] ?? SignatureTemplate::STATUS_SIGNING;
                 $template->update(['status' => $newStatus]);
 
-                // Authoriser steps: notify all eligible authorisers (shared queue)
+                // Authoriser steps: notify all eligible authorisers (shared queue).
+                // A non-authoriser recipient was ALREADY dispatched (or skipped
+                // and walked past) inside advanceToNextSigningParticipant() above.
                 if ($this->isAuthoriserRole($nextRequest->party_role)) {
                     $nextRequest->update([
                         'status'  => SignatureRequest::STATUS_PENDING,
@@ -1571,8 +1572,6 @@ class SignatureService
                     ]);
                     $notifyType = $nextRequest->party_role === 'supervisor_final' ? 'final_signoff' : 'initial_review';
                     $this->notifyEligibleAuthorisers($template, $notifyType);
-                } else {
-                    $this->sendSigningRequest($nextRequest);
                 }
 
                 SignatureAuditLog::log(
@@ -1744,6 +1743,69 @@ class SignatureService
     }
 
     /**
+     * Flow 330 (Johan, 2026-08-26) — isSigningParticipant() correctly stops a
+     * non-participant (deceased, or collapsed out by a proxy in their group)
+     * from ever being emailed: sendSigningRequest() already checks it and
+     * transitions such a row straight to NOT_REQUIRED, no send attempted.
+     * But every caller that WALKS the recipient list to find "the next party
+     * to hand the pen to" only ever tried ONE candidate. If that one turned
+     * out to be a non-participant, the chain died silently right there —
+     * nobody after them was ever tried, let alone notified, even though
+     * their own SignatureRequest rows sat at WAITING with real, unused
+     * signing links. The agent saw a confident "Sent to <deceased party>"
+     * and nothing was actually sent to anyone.
+     *
+     * ONE walk, shared by advanceToNextParty() and approveAndAdvance() — the
+     * two chain-advancement callers — so there is exactly one place that
+     * decides "who's actually next," reusing isSigningParticipant() via
+     * sendSigningRequest() rather than a second definition of who signs.
+     * Tries $only first if given (HD-5 group handoff), then keeps trying the
+     * next WAITING request by signing_order until sendSigningRequest()
+     * actually dispatches to someone (status becomes PENDING or DEFERRED) or
+     * there is nobody left to try. Supervisor/authoriser roles are never
+     * non-participants — that concept only applies to recipient rows — so
+     * they always terminate the loop on the first try and the caller handles
+     * their own authoriser-notify branch.
+     *
+     * @param  SignatureRequest|null  $only  HD-5 — try THIS request first (the next member of the
+     *                                       completing party's group). If it turns out to be a
+     *                                       non-participant, falls through to the general
+     *                                       signing_order walk exactly like any other skip.
+     * @return SignatureRequest|null the request actually notified (or the authoriser request for
+     *                                the caller to notify), or null once the chain is exhausted.
+     */
+    private function advanceToNextSigningParticipant(SignatureTemplate $template, ?SignatureRequest $only): ?SignatureRequest
+    {
+        $candidate = $only;
+
+        while (true) {
+            $candidate ??= $template->requests()
+                ->where('status', SignatureRequest::STATUS_WAITING)
+                ->orderBy('signing_order', 'asc')
+                ->first();
+
+            if (! $candidate) {
+                return null;
+            }
+
+            if ($this->isAuthoriserRole($candidate->party_role)) {
+                return $candidate;
+            }
+
+            $this->sendSigningRequest($candidate);
+
+            if ($candidate->fresh()->status === SignatureRequest::STATUS_NOT_REQUIRED) {
+                // Not a signing participant — sendSigningRequest() already
+                // skipped emailing them. Try the next one in signing_order.
+                $candidate = null;
+                continue;
+            }
+
+            return $candidate; // a real dispatch happened (PENDING or DEFERRED)
+        }
+    }
+
+    /**
      * @param  SignatureRequest|null  $only  HD-5 — release THIS request specifically (the next member of
      *                                       the completing party's group). Without it the method takes
      *                                       the next waiting request globally, which is right at a group
@@ -1753,12 +1815,7 @@ class SignatureService
      */
     private function advanceToNextParty(SignatureTemplate $template, string $completedParty, ?SignatureRequest $only = null, bool $gateFinalizeForAgentReview = false): void
     {
-        // Find the next WAITING request by signing_order — not by role name
-        // This correctly handles co-owners who share the same party_role string
-        $nextRequest = $only ?: $template->requests()
-            ->where('status', SignatureRequest::STATUS_WAITING)
-            ->orderBy('signing_order', 'asc')
-            ->first();
+        $nextRequest = $this->advanceToNextSigningParticipant($template, $only);
 
         // If no waiting request, check for deferred requests (sign later)
         if (!$nextRequest) {
@@ -1817,16 +1874,18 @@ class SignatureService
             'document_hash' => $this->generateDocumentHash($template->document),
         ]);
 
-        // Supervisor steps: notify all eligible authorisers (shared queue)
-        if (in_array($nextRequest->party_role, ['supervisor', 'supervisor_final'])) {
+        // Supervisor steps: notify all eligible authorisers (shared queue).
+        // A non-authoriser recipient was ALREADY dispatched (or skipped and
+        // walked past, per isSigningParticipant()) inside
+        // advanceToNextSigningParticipant() above — never call
+        // sendSigningRequest() a second time for the same request here.
+        if ($this->isAuthoriserRole($nextRequest->party_role)) {
             $nextRequest->update([
                 'status'  => SignatureRequest::STATUS_PENDING,
                 'sent_at' => now(),
             ]);
             $notifyType = $nextRequest->party_role === 'supervisor_final' ? 'final_signoff' : 'initial_review';
             $this->notifyEligibleAuthorisers($template, $notifyType);
-        } else {
-            $this->sendSigningRequest($nextRequest);
         }
     }
 
