@@ -397,7 +397,7 @@
             ['label' => 'Reduced on P24 (last 12mo)', 'value' => number_format($market['price_reductions']['counts']['p24']), 'color' => '#9c3a30'],
             ['label' => 'Reduced on PP (last 12mo)', 'value' => number_format($market['price_reductions']['counts']['pp']), 'color' => '#9c3a30'],
         ]])
-        <p style="font-size:0.72rem; color:#8a9697; margin:0.5rem 0 0;">Count only — the portals do not give MIC the old/new amount for a market-wide reduction, only that one happened.</p>
+        <p style="font-size:0.72rem; color:#8a9697; margin:0.5rem 0 0;">Count only — the portals only ever show the current price, never the previous one, so the amount of a market-wide reduction can only be captured going forward, from the moment MIC sees a change, and cannot be recovered for past changes.</p>
         @else
         <p style="font-size:0.8rem; color:#8a9697; margin:0;">No portal price-reduction activity captured for this suburb yet.</p>
         @endif
