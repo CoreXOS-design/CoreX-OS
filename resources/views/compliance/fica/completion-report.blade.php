@@ -199,17 +199,17 @@
             @endphp
             <div style="margin-top: 8px;">
                 <div class="field-label">Checklist</div>
-                <ul style="margin: 4px 0 0 16px; font-size: 10px; list-style: none; padding-left: 0;">
+                <ul style="margin: 4px 0 0 0; font-size: 10px; list-style: none; padding-left: 0;">
                     @foreach($agentChecklistLabels as $item => $label)
                         @if(array_key_exists($item, $submission->agent_verification_data) && $submission->agent_verification_data[$item] !== null && $submission->agent_verification_data[$item] !== '')
-                        <li style="display:flex; justify-content:space-between; gap:8px; padding:2px 0;">
+                        <li style="display:flex; justify-content:space-between; gap:8px; padding:2px 0 2px 16px;">
                             <span>{{ $label }}</span>
                             <strong>{{ $yna($submission->agent_verification_data[$item]) }}</strong>
                         </li>
                         @endif
                     @endforeach
                     @if(($submission->agent_verification_data['suspicious'] ?? null) === 'yes' && !empty($submission->agent_verification_data['suspicious_details']))
-                    <li style="padding:2px 0;">Suspicious activity — details: {{ $submission->agent_verification_data['suspicious_details'] }}</li>
+                    <li style="padding:2px 0 2px 16px;">Suspicious activity — details: {{ $submission->agent_verification_data['suspicious_details'] }}</li>
                     @endif
                 </ul>
             </div>
@@ -259,17 +259,17 @@
             @endphp
             <div style="margin-top: 8px;">
                 <div class="field-label">Checklist</div>
-                <ul style="margin: 4px 0 0 16px; font-size: 10px; list-style: none; padding-left: 0;">
+                <ul style="margin: 4px 0 0 0; font-size: 10px; list-style: none; padding-left: 0;">
                     @foreach($coChecklistLabels as $item => $label)
                         @if(array_key_exists($item, $submission->co_verification_data) && $submission->co_verification_data[$item] !== null && $submission->co_verification_data[$item] !== '')
-                        <li style="display:flex; justify-content:space-between; gap:8px; padding:2px 0;">
+                        <li style="display:flex; justify-content:space-between; gap:8px; padding:2px 0 2px 16px;">
                             <span>{{ $label }}</span>
                             <strong>{{ $coYna($submission->co_verification_data[$item]) }}</strong>
                         </li>
                         @endif
                     @endforeach
                     @if(($submission->co_verification_data['suspicious'] ?? null) === 'yes' && !empty($submission->co_verification_data['suspicious_details']))
-                    <li style="padding:2px 0;">Suspicious activity — details: {{ $submission->co_verification_data['suspicious_details'] }}</li>
+                    <li style="padding:2px 0 2px 16px;">Suspicious activity — details: {{ $submission->co_verification_data['suspicious_details'] }}</li>
                     @endif
                 </ul>
             </div>
