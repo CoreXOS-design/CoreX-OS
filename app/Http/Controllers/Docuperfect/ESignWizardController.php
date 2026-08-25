@@ -2796,7 +2796,14 @@ class ESignWizardController extends Controller
                 // real representative can change on the underlying record —
                 // exactly the gap Flow 409 fell through. See
                 // resolveFreshPartyClauseText()'s own docblock.
-                if (!empty($r['_entity_contact_id'])) {
+                //
+                // Gated on _party_clause_text already being set, not just
+                // _entity_contact_id — a rep-less entity carries
+                // _entity_contact_id too (_entity_needs_representative=true,
+                // no clause, handled by its own existing prompt) and must
+                // NOT be pulled into this recompute; there is nothing to
+                // recompute FROM when nobody represents them yet.
+                if (!empty($r['_entity_contact_id']) && !empty($r['_party_clause_text'])) {
                     $r['_party_clause_text'] = $this->resolveFreshPartyClauseText(
                         (int) $r['_entity_contact_id'],
                         $contactId,
