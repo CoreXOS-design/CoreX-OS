@@ -77,9 +77,13 @@ final class CmaInfoMedianSalesAnalysisParser extends AbstractCmaInfoParser
         $pages = $this->pageCount($text);
         if ($pages >= 2 && $pages <= 6) { $score += 0.3; $reasons[] = "page count {$pages}"; }
 
-        if ($this->findHeader($text, 'Median Sales Analysis') || $this->findHeader($text, 'ST Residential Sales Analysis')) {
+        // 2026-08-25 — widened to the bare "Residential Sales Analysis" phrase
+        // (see AbstractCmaInfoParser::looksLikeCmaInfo() docblock). The
+        // full-title variant of this report never carries the "ST " prefix or
+        // the literal "Median Sales Analysis" wording anywhere in its text.
+        if ($this->findHeader($text, 'Residential Sales Analysis')) {
             $score += 0.5;
-            $reasons[] = 'Median Sales Analysis header';
+            $reasons[] = 'Residential Sales Analysis header';
         }
         if ($this->findHeader($text, 'Annual Change') || $this->findHeader($text, 'YoY')) {
             $score += 0.1;
@@ -101,14 +105,24 @@ final class CmaInfoMedianSalesAnalysisParser extends AbstractCmaInfoParser
     }
 
     /**
-     * The report's own title/header ("ST Residential Sales Analysis") is
-     * identical for both variants — confirmed against 11 real uploaded
-     * reports, all 11 carry that exact header. The chart's own price-axis
-     * label is the only reliable signal, confirmed against real PDFs of
-     * both kinds: "Median Selling Price" vs "Average Selling Price".
-     * Returns null (undetermined) if neither phrase is found, or both are
-     * (an ambiguous/unrecognised layout) — callers must refuse to write a
-     * price value in that case rather than guessing.
+     * 2026-08-25 correction: the claim this docblock used to make — that the
+     * report's own title/header ("ST Residential Sales Analysis") is
+     * identical for both variants, "confirmed against 11 real uploaded
+     * reports" — does not hold against Johan's own two real Shelly Beach
+     * uploads. Those 11 reports were all pre-fix-era and later retired as
+     * untrustworthy (median/average metric-key confusion); they are not
+     * reliable evidence. Directly tested against real files instead: the
+     * AVERAGE-variant PDF's header carries the "ST " prefix (sectional
+     * title); the MEDIAN-variant PDF's header does not (full title). The "ST"
+     * prefix therefore is NOT purely cosmetic — it tracks property scope
+     * (sectional title vs full title), a genuinely different figure from the
+     * median/average price-statistic distinction. See detectPropertyScope().
+     * The chart's own price-axis label remains the only reliable signal for
+     * median vs average, confirmed against real PDFs of both kinds: "Median
+     * Selling Price" vs "Average Selling Price". Returns null (undetermined)
+     * if neither phrase is found, or both are (an ambiguous/unrecognised
+     * layout) — callers must refuse to write a price value in that case
+     * rather than guessing.
      */
     private function detectPriceVariant(string $text): ?string
     {
@@ -117,6 +131,23 @@ final class CmaInfoMedianSalesAnalysisParser extends AbstractCmaInfoParser
 
         if ($hasMedian && !$hasAverage) return 'median';
         if ($hasAverage && !$hasMedian) return 'average';
+        return null;
+    }
+
+    /**
+     * 2026-08-25 — property scope (sectional title vs full title), a
+     * separate axis from the median/average price-statistic variant. Johan,
+     * on his two real Shelly Beach uploads: "they differ in property scope
+     * as well as statistic — one is sectional title, one is not." The report
+     * header carries "ST Residential Sales Analysis" for sectional-title
+     * stock, or plain "Residential Sales Analysis" for full-title stock.
+     * Returns null when neither phrase is found (unrecognised layout) —
+     * never guessed.
+     */
+    private function detectPropertyScope(string $text): ?string
+    {
+        if (stripos($text, 'ST Residential Sales Analysis') !== false) return 'sectional_title';
+        if (stripos($text, 'Residential Sales Analysis') !== false) return 'full_title';
         return null;
     }
 
@@ -137,10 +168,12 @@ final class CmaInfoMedianSalesAnalysisParser extends AbstractCmaInfoParser
         // came for is its own kind of confusing failure, so we refuse
         // outright and let the upload be re-checked.
         $variant = $this->detectPriceVariant($text);
+        $propertyScope = $this->detectPropertyScope($text);
         if ($variant === null) {
             return new MarketReportParseResult(rawJson: [
                 'note' => 'Could not determine whether this report\'s headline price is a Median or an Average (looked for "Median Selling Price" / "Average Selling Price" in the extracted text — found both, neither, or an unrecognised layout). No price data extracted to avoid mislabelling one as the other.',
                 'variant' => null,
+                'property_scope' => $propertyScope,
             ]);
         }
         $priceMetricKey = $variant === 'median' ? self::METRIC_MEDIAN : self::METRIC_AVERAGE;
@@ -370,6 +403,7 @@ final class CmaInfoMedianSalesAnalysisParser extends AbstractCmaInfoParser
                 'second_area_name' => $secondAreaName,
                 'first_area_name'  => $firstAreaName,
                 'variant'          => $variant,
+                'property_scope'   => $propertyScope,
                 'price_metric_key' => $priceMetricKey,
                 'note'             => $variant === 'average'
                     ? 'Average variant: price-band ("Residential Price Ranges") table not parsed — its column layout differs from the median variant and is not yet implemented. Sales count / headline price / annual change / index were still extracted.'
