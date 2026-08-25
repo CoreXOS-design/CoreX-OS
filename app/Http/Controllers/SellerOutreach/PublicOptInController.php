@@ -34,6 +34,9 @@ final class PublicOptInController extends Controller
     {
         $send = $this->resolveSend($token);
         $contact = $this->resolveContact($send);
+        if (!$contact) {
+            return $this->renderArchived($send);
+        }
 
         return $this->render($send, alreadyOptedIn: $contact->messaging_opted_in_at !== null && $contact->messaging_opt_out_at === null, done: false);
     }
@@ -43,6 +46,9 @@ final class PublicOptInController extends Controller
     {
         $send = $this->resolveSend($token);
         $contact = $this->resolveContact($send);
+        if (!$contact) {
+            return $this->renderArchived($send);
+        }
 
         $this->consent->optInContact(
             contact:     $contact,
@@ -69,17 +75,37 @@ final class PublicOptInController extends Controller
         }
     }
 
-    private function resolveContact(SellerOutreachSend $send): Contact
+    /**
+     * 2026-08-25 (Johan) — nullable, not firstOrFail()+abort(404): an
+     * archived contact now gets the shared rich "link expired" page (see
+     * renderArchived() below), matching PublicOptOutController's own fix.
+     */
+    private function resolveContact(SellerOutreachSend $send): ?Contact
     {
-        try {
-            return Contact::withoutGlobalScopes()
-                ->whereNull('deleted_at')
-                ->where('id', $send->contact_id)
-                ->where('agency_id', $send->agency_id)
-                ->firstOrFail();
-        } catch (ModelNotFoundException) {
-            abort(404);
-        }
+        return Contact::withoutGlobalScopes()
+            ->whereNull('deleted_at')
+            ->where('id', $send->contact_id)
+            ->where('agency_id', $send->agency_id)
+            ->first();
+    }
+
+    /**
+     * 2026-08-25 (Johan) — same shared rich page as PublicOptOutController's
+     * own archived case now uses, not a second bare implementation.
+     */
+    private function renderArchived(SellerOutreachSend $send)
+    {
+        $agent = $send->agent_id
+            ? \App\Models\User::withoutGlobalScopes()->find($send->agent_id)
+            : null;
+
+        return app(\App\Services\PublicLinks\PublicLinkUnavailableResponder::class)->respond(
+            (int) $send->agency_id ?: null,
+            'Shucks — this link has expired',
+            "There's nothing to update here any more — but we're still around. Chat to one of our friendly agents for any property-related services.",
+            $agent,
+            eyebrow: 'Your preferences',
+        )->header('X-Robots-Tag', 'noindex, nofollow');
     }
 
     private function render(SellerOutreachSend $send, bool $alreadyOptedIn, bool $done)

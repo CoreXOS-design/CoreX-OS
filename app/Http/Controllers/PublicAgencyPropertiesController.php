@@ -70,6 +70,7 @@ class PublicAgencyPropertiesController extends Controller
             'It may have sold, been withdrawn, or come off the market — but there\'s new stock every week.',
             $agent,
             primaryAction: ['label' => 'See current stock', 'url' => route('public.agency.properties.index', ['agencySlug' => $agency->slug])],
+            eyebrow: 'This listing',
         );
     }
 }
