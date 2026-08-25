@@ -1,14 +1,15 @@
 {{--
     Seller Live Link — "Live Marketing Update" (public, token-gated)
-    2026-08-24 rebuild (Johan): "more visual, carry everything a seller needs
-    to see — feedback, demand, activity." Ordered around the seller's own
-    question order: is anyone looking → what are they saying → what's my
-    agent doing → where does it sit in the market. Privacy boundary per
-    .ai/audits/2026-08-24-seller-live-link-data-availability.md Part 2:
-    buyer/enquirer identity never appears in any form on this page — the
-    controller strips it before the view ever sees it, not the other way
-    round. "Market presentation" and "Marketing activity" sections dropped
-    per the same audit (0% real fill rate on live data — see Part 1).
+    2026-08-25 (Johan): "a page that should prove to a seller that we are
+    working, and the data we provide them should show this." Every section
+    answers "is my agent actually doing anything" or collapses rather than
+    guess. Full spec: .ai/specs/seller-live-link.md — read that before
+    changing this file; it documents WHY each figure is computed the way it
+    is, not just what it shows.
+
+    Privacy boundary unchanged: buyer/enquirer identity never appears in any
+    form on this page — the controller strips it before the view ever sees
+    it, not the other way round.
 --}}
 @php
     // Agency brand colours (Company Settings → Design). Fall back to CoreX defaults.
@@ -18,28 +19,18 @@
 
     $agent = $link->generatedBy ?? null;
 
-    $daysListed = $compliance['days_on_market'] ?? null;
     $published  = $compliance['published'] ?? false;
     $mandateExp = $compliance['mandate_expired'] ?? true;
 
-    $hasPortalData = $portalPerformance['has_data'] ?? false;
+    // "Mandate: Active" alone tells a seller nothing (cc4) — say the date.
+    $mandateExpiryWords = null;
+    if (!empty($compliance['mandate_expiry'])) {
+        $expiryDate = \Carbon\Carbon::parse($compliance['mandate_expiry']);
+        $mandateExpiryWords = $mandateExp
+            ? 'Your mandate expired on ' . $expiryDate->format('j F Y') . '.'
+            : 'Your mandate runs until ' . $expiryDate->format('j F Y') . '.';
+    }
 
-    // 2026-08-25 (Johan) — "the seller knows their property." A full-width
-    // 16:9 hero (~500px tall) meant the entire first screen was one image —
-    // worse still when (as on this listing) the file lives on live's disk,
-    // not staging's, and PropertyThumbnailService::displayUrl() correctly
-    // returns null: a giant grey placeholder. Capped to a fixed, modest
-    // height below (a proportion, not the whole first screen) and — per the
-    // same visit's "if nothing to display, remove the block" rule — the
-    // WHOLE image area (not a placeholder) is now absent when there's no
-    // photo at all; the price/facts panel underneath it never depended on
-    // the image and stays. Still the same choke point every other property-
-    // image surface uses (PropertyThumbnailService::displayUrl(), via the
-    // Property model's thumbFor() wrapper) — it returns null when neither
-    // the thumbnail nor the original exists on disk, so this is a REAL
-    // gate, never a broken-icon or bare-alt-text fallback. Same first-image
-    // resolution order as buyer-portal/_property-card.blade.php — copied,
-    // not reinvented.
     $heroImage = $property->thumbFor(
         ($property->gallery_images_json[0] ?? null)
         ?? ($property->dawn_images_json[0] ?? null)
@@ -50,39 +41,70 @@
     $heroImage = \App\Models\Property::publicImageUrl($heroImage);
 
     // Bed/bath/garage/erf — the seller's own property detail, never a buyer
-    // signal, so no privacy boundary applies here (unlike buyerDemand below).
+    // signal, so no privacy boundary applies here.
     $propFacts = collect([
         [$property->beds, 'bed'], [$property->baths, 'bath'], [$property->garages, 'garage'],
     ])->filter(fn ($f) => !empty($f[0]));
     $erfSize = $property->erf_size_m2 ?? null;
 
-    // 2026-08-25 (Johan) — "Stats should work on the basis: if nothing to
-    // display, remove." Applied here to the individual Property24 views /
-    // enquiries tiles (previously a "—" / "Not yet reporting" placeholder
-    // pair when portal data hasn't landed yet) — a tile only exists in this
-    // list when it has a real value. Days listed is always derivable (the
-    // fallback chain in getComplianceStatus() never returns null in
-    // practice), so it's always present.
-    $demandStats = collect([
-        ['value' => $daysListed !== null ? $daysListed : null, 'label' => 'Days listed'],
-        ['value' => $hasPortalData ? number_format($portalPerformance['views']) : null, 'label' => 'Property24 views (30d)'],
-        ['value' => $hasPortalData ? number_format($portalPerformance['enquiries']) : null, 'label' => 'Enquiries (30d)'],
-    ])->filter(fn ($s) => $s['value'] !== null);
+    // SECTION: What we have done — real counts only, one narrative sentence
+    // built from the SAME numbers shown as tiles (not a separate figure).
+    $enquiriesReceived = collect($portalEngagement['series'] ?? [])->sum('leads')
+        + collect($portalEngagement['series'] ?? [])->sum('pp_leads');
+    $whatWeveDoneParts = [];
+    if ($buyerDemand['total'] > 0) {
+        $whatWeveDoneParts[] = $buyerDemand['total'] . ' ' . \Illuminate\Support\Str::plural('buyer', $buyerDemand['total']) . ' currently ' . ($buyerDemand['total'] === 1 ? 'matches' : 'match') . ' your home';
+    }
+    if (($feedbackRollup['total_viewings'] ?? 0) > 0) {
+        $n = $feedbackRollup['total_viewings'];
+        $whatWeveDoneParts[] = $n . ' ' . \Illuminate\Support\Str::plural('viewing', $n) . ' ' . ($n === 1 ? 'has' : 'have') . ' been held';
+    }
+    if ($enquiriesReceived > 0) {
+        $whatWeveDoneParts[] = $enquiriesReceived . ' ' . ($enquiriesReceived === 1 ? 'enquiry has' : 'enquiries have') . ' come in';
+    }
+    if (!empty($portalsLive)) {
+        $whatWeveDoneParts[] = 'your listing is live on ' . (count($portalsLive) > 1
+            ? implode(', ', array_slice($portalsLive, 0, -1)) . ' and ' . end($portalsLive)
+            : $portalsLive[0]);
+    }
+    $whatWeveDoneSentence = count($whatWeveDoneParts)
+        ? ucfirst(implode('; ', $whatWeveDoneParts)) . '.'
+        : null;
 
-    // 2026-08-25 (Johan) — "port the graph" from the internal Intelligence
-    // tab's Portal Engagement chart. Same data (getPortalEngagementSeries(),
-    // called once in the controller, no second query) and the same chart
-    // CONFIG (colours/axes/tooltip copied verbatim from resources/js/
-    // nexus-charts.js's NexusCharts.portalEngagement() below) — this page
-    // never loads the authenticated app's Vite bundle (no public page in
-    // this codebase does; @vite() assumes the logged-in shell), so the
-    // config is inlined rather than imported. See the report for the exact
-    // line this was copied from.
+    // SECTION: Activity over time — same series the chart plots, no second query.
     $engagementSeries = $portalEngagement['series'] ?? [];
     $hasEngagementData = ($portalEngagement['has_data'] ?? false) || ($portalEngagement['pp_has_data'] ?? false);
     $hasPpEngagement = $portalEngagement['pp_has_data'] ?? false;
     $ppEngagementViews = array_sum(array_column($engagementSeries, 'pp_views'));
     $ppEngagementLeads = array_sum(array_column($engagementSeries, 'pp_leads'));
+
+    // What buyers said — top theme(s) rendered as a short lead-in line
+    // ("2 of 2 viewers mentioned Location"), from getFeedbackThemes()'s
+    // structured concern_option_ids — never free-text keyword guessing.
+    $feedbackThemesLines = collect($feedbackThemes)->map(fn ($t) =>
+        $t['count'] . ' of ' . $t['total'] . ' ' . \Illuminate\Support\Str::plural('viewer', $t['total']) . ' mentioned ' . $t['label']
+    );
+
+    // 2026-08-25 CORRECTION (Johan) — "a seller prices their own home
+    // against a number we told them was final, in writing, with their
+    // agent's name on it." property_sold_records-sourced "sold" comparisons
+    // were confirmed to mirror the property's own advertised price, not a
+    // real transaction. Replaced with two genuinely separate sources
+    // (soldComparables / underOfferSales, from the controller) and this
+    // ONE shared sentence-builder — the verb ("sold" / "went under offer")
+    // is the ONLY thing that differs between them, and it comes from
+    // $labels (SellerLinkController::LABELS) so a rename is one line there,
+    // never a hunt through this file.
+    $buildComparisonSentence = function ($comparison, string $verb) use ($property) {
+        if (!$comparison) return null;
+        $subjFacts = trim(($property->beds ? $property->beds . ' bed' : '') . ($property->baths ? ' ' . rtrim(rtrim(number_format($property->baths, 1), '0'), '.') . ' bath' : ''));
+        $compFacts = trim(($comparison['comp_beds'] ? $comparison['comp_beds'] . ' bed' : '') . ($comparison['comp_baths'] ? ' ' . rtrim(rtrim(number_format($comparison['comp_baths'], 1), '0'), '.') . ' bath' : ''));
+        return 'Your ' . ($subjFacts ?: strtolower($property->property_type ?? 'property')) . ' has been on the market ' . $comparison['subject_days'] . ' ' . \Illuminate\Support\Str::plural('day', $comparison['subject_days'])
+            . '; a comparable ' . ($compFacts ?: strtolower($comparison['comp_type'] ?? 'property')) . ' nearby ' . $verb . ' in ' . $comparison['comp_days'] . ' ' . \Illuminate\Support\Str::plural('day', $comparison['comp_days'])
+            . ' at R' . number_format($comparison['comp_price']) . '.';
+    };
+    $soldSentence = $buildComparisonSentence($soldComparison, $labels['sold_verb']);
+    $underOfferSentence = $buildComparisonSentence($underOfferComparison, $labels['under_offer_verb']);
 @endphp
 <!DOCTYPE html>
 <html lang="en">
@@ -94,19 +116,8 @@
     <title>{{ $property->title ?? 'Property' }} — Live Marketing Update{{ !empty($agency) && $agency->name ? ' · ' . $agency->name : '' }}</title>
     <link rel="preconnect" href="https://fonts.bunny.net">
     <link href="https://fonts.bunny.net/css?family=figtree:400,500,600,700,800&display=swap" rel="stylesheet">
-    {{-- 2026-08-25 (Johan) — Tailwind's CDN JIT-compiler script (a dev tool,
-         not a production one — it compiles every class in the browser on
-         every load) sat render-blocking in front of first paint on every
-         public page in this family. When that CDN misbehaves, the client
-         gets a blank page with nothing in our own code to explain it —
-         worse than a bare 404. Same fix as public/agency-properties/show
-         and welcome.blade.php already use in production: our own built
-         CSS/JS, no third party in the critical path. app.js also bundles
-         Chart.js (via nexus-charts.js) and Alpine synchronously, so the
-         Chart.js CDN <script> this page used to load conditionally is gone
-         too — see the engagement-chart script below, which now calls
-         window.NexusCharts.portalEngagement() directly instead of
-         embedding its own copy of that config. --}}
+    {{-- Self-contained assets, no third party in the critical path — the
+         Tailwind CDN fix applies here too (already ported to QA1). --}}
     @vite(['resources/css/app.css', 'resources/js/app.js'])
     <style>
         :root {
@@ -162,7 +173,7 @@
 
     <main class="max-w-4xl mx-auto px-4 lg:px-6 py-6 space-y-6">
 
-        {{-- Hero --}}
+        {{-- Hero — unchanged --}}
         <section class="rounded-xl px-6 py-6 relative overflow-hidden"
                  style="background: linear-gradient(135deg, var(--brand-default) 0%, color-mix(in srgb, var(--brand-default) 82%, #000) 100%);">
             <div class="absolute -top-16 -right-16 w-56 h-56 rounded-full opacity-20"
@@ -190,9 +201,7 @@
             </div>
         </section>
 
-        {{-- Property photo (proportionate, present only when a real photo exists)
-             + the facts a seller recognises their own home by (always shown —
-             price/suburb/bed/bath never depended on the image being there). --}}
+        {{-- Property photo + facts — unchanged --}}
         <section class="surface-card overflow-hidden">
             @if($heroImage)
                 <div class="relative w-full overflow-hidden" style="background: var(--surface-2); height: 200px;">
@@ -226,128 +235,99 @@
             </div>
         </section>
 
-        {{-- SECTION 1 — Is anyone looking at your home? (buyer demand, first, per Johan) --}}
+        {{-- SECTION 2 — Where your property stands. Always renders (asking
+             price + status badges always exist); days-on-market only when
+             listed_date is real (no fallback-chain proxy — the seller-live
+             page burned that once already on "published"). --}}
         <section class="surface-card p-5">
-            <h2 class="text-base font-bold mb-1" style="color: var(--text-primary);">Is anyone looking at your home?</h2>
-            <p class="text-xs mb-4" style="color: var(--text-muted);">Buyers currently registered with us whose search matches your property.</p>
-
-            <div class="flex flex-col sm:flex-row sm:items-center gap-4 sm:gap-6 mb-4">
-                <div class="flex items-baseline gap-2 flex-shrink-0">
-                    <span class="text-4xl font-extrabold" style="color: var(--brand-default);">{{ $buyerDemand['total'] }}</span>
-                    <span class="text-sm font-medium" style="color: var(--text-secondary);">{{ \Illuminate\Support\Str::plural('buyer', $buyerDemand['total']) }} matching right now</span>
+            <h2 class="text-base font-bold mb-3" style="color: var(--text-primary);">Where your property stands</h2>
+            <div class="grid grid-cols-2 {{ $daysOnMarket !== null ? 'sm:grid-cols-2' : '' }} gap-4 mb-4">
+                <div>
+                    <div class="text-lg font-bold" style="color: var(--brand-default);">{{ $property->formattedPrice() }}</div>
+                    <div class="text-[0.625rem] font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Asking price</div>
                 </div>
-                @if($buyerDemand['total'] > 0)
-                <div class="flex flex-wrap gap-2">
-                    @if($buyerDemand['strong'] > 0)
-                        <span class="tier-chip" style="background: color-mix(in srgb, var(--ds-green) 14%, transparent); color: var(--ds-green);">{{ $buyerDemand['strong'] }} strong match{{ $buyerDemand['strong'] === 1 ? '' : 'es' }}</span>
-                    @endif
-                    @if($buyerDemand['good'] > 0)
-                        <span class="tier-chip" style="background: color-mix(in srgb, var(--brand-icon) 14%, transparent); color: var(--brand-default);">{{ $buyerDemand['good'] }} good match{{ $buyerDemand['good'] === 1 ? '' : 'es' }}</span>
-                    @endif
-                    @if($buyerDemand['fair'] > 0)
-                        <span class="tier-chip" style="background: color-mix(in srgb, var(--ds-amber) 14%, transparent); color: var(--ds-amber);">{{ $buyerDemand['fair'] }} fair match{{ $buyerDemand['fair'] === 1 ? '' : 'es' }}</span>
-                    @endif
+                @if($daysOnMarket !== null)
+                <div>
+                    <div class="text-lg font-bold" style="color: var(--text-primary);">{{ $daysOnMarket }}</div>
+                    <div class="text-[0.625rem] font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Days on market</div>
                 </div>
                 @endif
             </div>
-
-            @if($buyerDemand['total'] === 0)
-                <p class="text-sm mb-4" style="color: var(--text-secondary);">No buyers in our system currently match your home's price and criteria — this moves as new buyers register and as your listing is refreshed.</p>
-            @endif
-
-            @if($demandStats->isNotEmpty())
-            <div class="grid grid-cols-2 sm:grid-cols-3 gap-3 pt-4" style="border-top: 1px solid var(--border);">
-                @foreach($demandStats as $stat)
-                <div class="text-center sm:text-left">
-                    <div class="text-lg font-bold" style="color: var(--text-primary);">{{ $stat['value'] }}</div>
-                    <div class="text-[0.625rem] font-semibold uppercase tracking-wider" style="color: var(--text-muted);">{{ $stat['label'] }}</div>
-                </div>
-                @endforeach
+            <div class="flex flex-wrap gap-2 pt-3" style="border-top: 1px solid var(--border);">
+                <span class="ds-badge {{ $published ? 'ds-badge-success' : 'ds-badge-warning' }}">
+                    Listing: {{ $published ? 'Active' : 'Unpublished' }}
+                </span>
+                <span class="ds-badge {{ $mandateExp ? 'ds-badge-warning' : 'ds-badge-success' }}">
+                    Mandate: {{ $mandateExp ? 'Review needed' : 'Active' }}
+                </span>
             </div>
+            @if($mandateExpiryWords)
+                <p class="text-xs mt-2" style="color: var(--text-muted);">{{ $mandateExpiryWords }}</p>
             @endif
         </section>
 
-        {{-- SECTION 2 — What are they saying? (viewing feedback)
-             2026-08-25 (Johan) — "Stats should work on the basis: if nothing
-             to display, remove." At zero viewings this used to say "0
-             viewings recorded so far" immediately followed by "No viewing
-             feedback yet... will appear here" — the same nothing stated
-             twice. The whole card (heading included) is now absent when
-             there have been no viewings at all. When there HAVE been
-             viewings but none carry feedback notes yet, the section stays —
-             "N viewings recorded" is real information on its own, and "no
-             feedback yet" is a genuinely different fact next to it, not a
-             repeat. --}}
-        @if(($feedbackRollup['total_viewings'] ?? 0) > 0)
+        {{-- SECTION 3 — What we have done. The heart of the page: real
+             counts, then one sentence built from those SAME numbers, not a
+             chart the seller has to interpret alone. Whole section absent
+             when every count is genuinely zero — a row of four zeroes is
+             not "proof we're working", it's a worse version of no section. --}}
+        @if($whatWeveDoneSentence)
         <section class="surface-card p-5">
-            <h2 class="text-base font-bold mb-1" style="color: var(--text-primary);">What are viewers saying?</h2>
-            <p class="text-xs mb-4" style="color: var(--text-muted);">{{ $feedbackRollup['total_viewings'] }} viewing{{ $feedbackRollup['total_viewings'] === 1 ? '' : 's' }} recorded so far.</p>
+            <h2 class="text-base font-bold mb-1" style="color: var(--text-primary);">What we have done</h2>
+            <p class="text-xs mb-4" style="color: var(--text-muted);">Real activity on your listing, updated live.</p>
 
-            @if(count($viewingFeedback) > 0)
-                <div class="space-y-3">
-                    @foreach($viewingFeedback as $fb)
-                        <div class="p-3 rounded-lg" style="background: var(--surface-2);">
-                            <div class="flex items-center justify-between gap-2 mb-1">
-                                @if($fb['outcome_label'])
-                                    <span class="text-xs font-semibold" style="color: var(--brand-default);">{{ $fb['outcome_label'] }}</span>
-                                @else
-                                    <span></span>
-                                @endif
-                                @if($fb['date'])
-                                    <span class="text-[0.6875rem]" style="color: var(--text-muted);">{{ \Carbon\Carbon::parse($fb['date'])->format('d M') }}</span>
-                                @endif
-                            </div>
-                            @if($fb['notes'])
-                                <p class="text-sm" style="color: var(--text-secondary);">{{ $fb['notes'] }}</p>
-                            @endif
-                        </div>
-                    @endforeach
-                </div>
-            @else
-                <p class="text-sm" style="color: var(--text-secondary);">
-                    No viewing feedback yet. As soon as your agent adds notes, they'll appear here.
-                </p>
-            @endif
-        </section>
-        @endif
-
-        {{-- SECTION 3 — What's your agent doing? (insights only when present — hidden, not empty) --}}
-        @if($recommendations->isNotEmpty())
-        <section class="surface-card p-5">
-            <h2 class="text-base font-bold mb-3" style="color: var(--text-primary);">What's your agent doing</h2>
-            <div class="space-y-3">
-                @foreach($recommendations as $rec)
-                    <div class="flex items-start gap-3">
-                        <span class="w-2 h-2 rounded-full mt-1.5 flex-shrink-0" style="background: var(--brand-icon);"></span>
-                        <div>
-                            <div class="text-sm font-medium" style="color: var(--text-primary);">{{ $rec->seller_facing_title }}</div>
-                            @if($rec->seller_facing_reasoning)
-                                <div class="text-xs mt-0.5" style="color: var(--text-secondary);">{{ $rec->seller_facing_reasoning }}</div>
-                            @endif
-                        </div>
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+                <div>
+                    <div class="text-lg font-bold" style="color: var(--text-primary);">{{ $buyerDemand['total'] }}</div>
+                    <div class="text-[0.625rem] font-semibold uppercase tracking-wider" style="color: var(--text-muted);">
+                        {{ \Illuminate\Support\Str::plural('buyer', $buyerDemand['total']) }} matched
                     </div>
-                @endforeach
+                    @if($buyerDemand['strong'] > 0 || $buyerDemand['good'] > 0)
+                        <div class="text-[0.625rem] mt-0.5" style="color: var(--ds-green);">
+                            {{ collect([$buyerDemand['strong'] ? $buyerDemand['strong'] . ' strong' : null, $buyerDemand['good'] ? $buyerDemand['good'] . ' good' : null])->filter()->implode(', ') }}
+                        </div>
+                    @endif
+                </div>
+                <div>
+                    <div class="text-lg font-bold" style="color: var(--text-primary);">{{ $feedbackRollup['total_viewings'] ?? 0 }}</div>
+                    <div class="text-[0.625rem] font-semibold uppercase tracking-wider" style="color: var(--text-muted);">
+                        {{ \Illuminate\Support\Str::plural('viewing', $feedbackRollup['total_viewings'] ?? 0) }} held
+                    </div>
+                </div>
+                <div>
+                    <div class="text-lg font-bold" style="color: var(--text-primary);">{{ $enquiriesReceived }}</div>
+                    <div class="text-[0.625rem] font-semibold uppercase tracking-wider" style="color: var(--text-muted);">
+                        {{ $enquiriesReceived === 1 ? 'Enquiry' : 'Enquiries' }} received
+                    </div>
+                </div>
+                <div>
+                    <div class="text-lg font-bold" style="color: var(--text-primary);">{{ count($portalsLive) }}</div>
+                    <div class="text-[0.625rem] font-semibold uppercase tracking-wider" style="color: var(--text-muted);">
+                        {{ \Illuminate\Support\Str::plural('portal', count($portalsLive)) }} live
+                    </div>
+                </div>
             </div>
+
+            <p class="text-sm pt-3" style="color: var(--text-secondary); border-top: 1px solid var(--border);">{{ $whatWeveDoneSentence }}</p>
         </section>
         @endif
 
-        {{-- SECTION 3b — Views & enquiries over time. Ported from the
-             internal Intelligence tab's Portal Engagement chart (Johan,
-             2026-08-25) — "answers 'what is my agent actually doing' with
-             evidence instead of adjectives." Seller framing: no "P24"/"PP"
-             jargon (spelled out), "leads" (agent language) becomes
-             "enquiries" (what a seller calls the same thing) everywhere,
-             including inside the reused chart's own dataset label. Same
-             honest backfill distinction the internal page's subtitle
-             already makes. Rule 2: absent entirely, not an empty chart,
-             when there's no engagement data on either portal at all. --}}
+        {{-- SECTION 4 — Activity over time, with price changes marked on
+             it. Same series the chart totals sum to (verified: they agree).
+             Rule 2: absent entirely when there's no engagement data on
+             either portal. --}}
         @if($hasEngagementData)
-        <section class="surface-card p-5" id="engagement-section" data-engagement-series='@json($engagementSeries)'>
+        <section class="surface-card p-5" id="engagement-section"
+                 data-engagement-series='@json($engagementSeries)'
+                 data-price-changes='@json($priceChangeEvents)'>
             <div class="flex items-center justify-between mb-1 flex-wrap gap-2">
                 <div>
                     <h2 class="text-base font-bold" style="color: var(--text-primary);">Views &amp; enquiries over time</h2>
                     <p class="text-xs mt-0.5" style="color: var(--text-muted);">
                         Property24 daily views &amp; enquiries, backfilled to ~6 months. Private Property views &amp; enquiries are only collected from when tracking was switched on for your listing — there's no history before that date.
+                        @if(!empty($priceChangeEvents))
+                            <span style="color: #8b5cf6;">&bull; dashed lines mark price changes.</span>
+                        @endif
                     </p>
                 </div>
                 <div class="flex items-center gap-1 flex-shrink-0" id="engagement-range-toggle">
@@ -379,79 +359,180 @@
             <div style="position: relative; height: 220px;">
                 <canvas id="engagement-canvas"></canvas>
             </div>
+
+            @if($priceChangeNarrative)
+                <p class="text-sm mt-3 pt-3" style="color: var(--text-secondary); border-top: 1px solid var(--border);">
+                    Price {{ $priceChangeNarrative['direction'] }} to R{{ number_format($priceChangeNarrative['new_price']) }} on {{ $priceChangeNarrative['date']->format('j F') }}
+                    — daily views went from an average of {{ $priceChangeNarrative['before_avg'] }} the week before to {{ $priceChangeNarrative['after_avg'] }}
+                    {{ $priceChangeNarrative['after_days'] >= 7 ? 'the week after' : 'in the ' . $priceChangeNarrative['after_days'] . ' ' . \Illuminate\Support\Str::plural('day', $priceChangeNarrative['after_days']) . ' since' }}.
+                </p>
+            @endif
         </section>
         @endif
 
-        {{-- SECTION 4 — Market position (price/value, with price-change strip folded in when present)
-             2026-08-25 (Johan) — AREA AVERAGE REMOVED. His words: "many
-             buyers, property is R250k below market avg yet its not sold.
-             that look bad for what the agency is doing." An area average
-             spans every property type in the area — comparing it to one
-             2-bed apartment was never an honest comparison, and next to a
-             high buyer-demand number it reads as "your agent isn't doing
-             their job." Estimated Market Value stays — paired with the
-             property's OWN asking price, which is the real, useful,
-             explainable comparison (over/under the estimate) an agent can
-             actually have a conversation about. Section gate updated to key
-             off recommended_price specifically, since that's the only half
-             of $marketPosition this section still reads. --}}
-        @if(($marketPosition['recommended_price'] ?? null) || $priceHistory->isNotEmpty())
+        {{-- SECTION 5 — What buyers said. Themes line (structured concern
+             data) first, then the actual seller-visible written notes.
+             Absent entirely when there have been no viewings; "no feedback
+             yet" stays honest when there have been viewings but no notes. --}}
+        @if(($feedbackRollup['total_viewings'] ?? 0) > 0)
         <section class="surface-card p-5">
-            <h2 class="text-base font-bold mb-3" style="color: var(--text-primary);">Where your price sits</h2>
+            <h2 class="text-base font-bold mb-1" style="color: var(--text-primary);">What buyers said</h2>
+            <p class="text-xs mb-4" style="color: var(--text-muted);">{{ $feedbackRollup['total_viewings'] }} viewing{{ $feedbackRollup['total_viewings'] === 1 ? '' : 's' }} recorded so far.</p>
 
-            @if($marketPosition['recommended_price'] ?? null)
-            <div class="grid grid-cols-2 gap-4 mb-3">
-                <div>
-                    <div class="text-lg font-bold" style="color: var(--brand-default);">R {{ number_format($marketPosition['recommended_price']) }}</div>
-                    <div class="text-[0.625rem] font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Estimated market value</div>
+            @if($feedbackThemesLines->isNotEmpty())
+                <div class="flex flex-wrap gap-2 mb-4">
+                    @foreach($feedbackThemesLines as $line)
+                        <span class="tier-chip" style="background: color-mix(in srgb, var(--brand-icon) 14%, transparent); color: var(--brand-default);">{{ $line }}</span>
+                    @endforeach
                 </div>
-                <div>
-                    <div class="text-lg font-bold" style="color: var(--text-primary);">{{ $property->formattedPrice() }}</div>
-                    <div class="text-[0.625rem] font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Your asking price</div>
-                </div>
-            </div>
             @endif
 
-            @if($priceHistory->isNotEmpty())
-            <div class="pt-3 space-y-1.5" style="{{ !empty($marketPosition) ? 'border-top: 1px solid var(--border);' : '' }}">
-                @foreach($priceHistory as $ph)
-                    <div class="flex items-center justify-between gap-2 text-xs">
-                        <span style="color: var(--text-secondary);">{{ $ph->human_summary }}</span>
-                        <span style="color: var(--text-muted);">{{ \Carbon\Carbon::parse($ph->created_at)->format('d M Y') }}</span>
+            @if(count($viewingFeedback) > 0)
+                <div class="space-y-3">
+                    @foreach($viewingFeedback as $fb)
+                        <div class="p-3 rounded-lg" style="background: var(--surface-2);">
+                            <div class="flex items-center justify-between gap-2 mb-1">
+                                @if($fb['outcome_label'])
+                                    <span class="text-xs font-semibold" style="color: var(--brand-default);">{{ $fb['outcome_label'] }}</span>
+                                @else
+                                    <span></span>
+                                @endif
+                                @if($fb['date'])
+                                    <span class="text-[0.6875rem]" style="color: var(--text-muted);">{{ \Carbon\Carbon::parse($fb['date'])->format('d M') }}</span>
+                                @endif
+                            </div>
+                            @if($fb['notes'])
+                                <p class="text-sm" style="color: var(--text-secondary);">{{ $fb['notes'] }}</p>
+                            @endif
+                        </div>
+                    @endforeach
+                </div>
+            @else
+                <p class="text-sm" style="color: var(--text-secondary);">
+                    No viewing feedback yet. As soon as your agent adds notes, they'll appear here.
+                </p>
+            @endif
+        </section>
+        @endif
+
+        {{-- SECTION 3 (agent recommendations) — insights only when present. --}}
+        @if($recommendations->isNotEmpty())
+        <section class="surface-card p-5">
+            <h2 class="text-base font-bold mb-3" style="color: var(--text-primary);">What's your agent doing</h2>
+            <div class="space-y-3">
+                @foreach($recommendations as $rec)
+                    <div class="flex items-start gap-3">
+                        <span class="w-2 h-2 rounded-full mt-1.5 flex-shrink-0" style="background: var(--brand-icon);"></span>
+                        <div>
+                            <div class="text-sm font-medium" style="color: var(--text-primary);">{{ $rec->seller_facing_title }}</div>
+                            @if($rec->seller_facing_reasoning)
+                                <div class="text-xs mt-0.5" style="color: var(--text-secondary);">{{ $rec->seller_facing_reasoning }}</div>
+                            @endif
+                        </div>
                     </div>
                 @endforeach
             </div>
-            @endif
         </section>
         @endif
 
-        {{-- Comparable listings --}}
-        @if($comparables->isNotEmpty())
+        {{-- SECTION 6 — Your competition right now. 2026-08-25 CORRECTION
+             (Johan's ruling, verbatim reasoning): "a seller needs to see
+             the shape of their competition, not a directory of rival
+             listings on their own agent's page." LESS identifiable than
+             the first build — no address at all, not street, not complex,
+             not unit. Each competitor renders as characteristics only:
+             type, beds, baths, asking price, days on market, suburb (the
+             seller's OWN suburb, already shown elsewhere on this page, not
+             anything from the comparable's own record). No id, no
+             location, no agency name, no photo — and getActiveComparables()
+             does not even FETCH those fields any more, so there is nothing
+             in the HTML source or any JSON payload to leak (checked: this
+             data is never @json()-dumped anywhere on the page). Absent
+             below 2 genuine comparables ("one lonely comparable is not a
+             market" — Johan). --}}
+        @if($activeComparables->count() >= 2)
         <section class="surface-card p-5">
-            <h2 class="text-base font-bold mb-3" style="color: var(--text-primary);">Similar properties in your area</h2>
+            <h2 class="text-base font-bold mb-1" style="color: var(--text-primary);">Your competition right now</h2>
+            <p class="text-xs mb-4" style="color: var(--text-muted);">The shape of what else is on the market near you — not which listings, just what they look like.</p>
+            <div class="space-y-2">
+                @foreach($activeComparables as $c)
+                    <p class="text-sm" style="color: var(--text-secondary);">
+                        A {{ collect([$c['beds'] ? $c['beds'] . '-bed' : null, $c['baths'] ? $c['baths'] . '-bath' : null])->filter()->implode(', ') }}
+                        {{ strtolower($c['property_type'] ?: 'property') }} in {{ $property->suburb ?: 'your suburb' }},
+                        asking R{{ number_format($c['price']) }}, {{ $c['days_on_market'] }} {{ \Illuminate\Support\Str::plural('day', $c['days_on_market']) }} on market.
+                    </p>
+                @endforeach
+            </div>
+        </section>
+        @endif
+
+        {{-- SECTION 7 — What has actually sold near you. 2026-08-25
+             CORRECTION x2: property_sold_records banned from any "sold"
+             claim (its sold_price mirrors the advertised price, not a real
+             transaction). Johan's ruling, verbatim: "pending = under
+             offer, granted and registered = sold." getSoldComparables()
+             unions granted-or-registered rows from BOTH deal tables
+             (deals_v2 + legacy deals), deduplicated so a migrated deal is
+             never counted twice. Absent when there are no genuine sold
+             comparables. --}}
+        @if($soldComparables->isNotEmpty())
+        <section class="surface-card p-5">
+            <h2 class="text-base font-bold mb-1" style="color: var(--text-primary);">{{ $labels['sold_heading'] }}</h2>
+            <p class="text-xs mb-4" style="color: var(--text-muted);">{{ $labels['sold_subtitle'] }}</p>
+
+            @if($soldSentence)
+                <p class="text-sm mb-4 p-3 rounded-lg" style="background: var(--surface-2); color: var(--text-secondary);">{{ $soldSentence }}</p>
+            @endif
+
             <div class="divide-y" style="border-color: var(--border);">
-                @foreach($comparables as $comp)
+                @foreach($soldComparables as $s)
                     <div class="flex items-center justify-between gap-3 py-2.5 text-sm">
-                        <span style="color: var(--text-secondary);">{{ $comp['title'] }} <span class="text-xs" style="color: var(--text-muted);">{{ $comp['suburb'] }}</span></span>
-                        <span class="font-semibold flex-shrink-0" style="color: var(--brand-default);">R {{ number_format($comp['price'] ?? 0) }}</span>
+                        <span style="color: var(--text-secondary);">
+                            {{ collect([$s['property_type'], $s['beds'] ? $s['beds'] . ' bed' : null, $s['baths'] ? $s['baths'] . ' bath' : null])->filter()->implode(' · ') }}
+                        </span>
+                        <span class="text-right flex-shrink-0">
+                            <span class="font-semibold" style="color: var(--brand-default);">R {{ number_format($s['price']) }}</span>
+                            <span class="text-xs block" style="color: var(--text-muted);">
+                                {{ \Carbon\Carbon::parse($s['event_date'])->format('M Y') }}{{ $s['days'] !== null ? ' · ' . $s['days'] . ' ' . \Illuminate\Support\Str::plural('day', $s['days']) . ' ' . $labels['sold_days_suffix'] : '' }}
+                            </span>
+                        </span>
                     </div>
                 @endforeach
             </div>
         </section>
         @endif
 
-        {{-- Listing status --}}
+        {{-- SECTION 7b — What has recently gone under offer near you. NEVER
+             say "sold"/"achieved" here — an accepted offer can still fall
+             through. Source: pending/active deals only, either table, not
+             yet granted or registered. Absent when there are no genuine
+             under-offer comparables. --}}
+        @if($underOfferSales->isNotEmpty())
         <section class="surface-card p-5">
-            <h2 class="text-base font-bold mb-3" style="color: var(--text-primary);">Listing status</h2>
-            <div class="flex flex-wrap gap-2">
-                <span class="ds-badge {{ $published ? 'ds-badge-success' : 'ds-badge-warning' }}">
-                    Listing: {{ $published ? 'Active' : 'Unpublished' }}
-                </span>
-                <span class="ds-badge {{ $mandateExp ? 'ds-badge-warning' : 'ds-badge-success' }}">
-                    Mandate: {{ $mandateExp ? 'Review needed' : 'Active' }}
-                </span>
+            <h2 class="text-base font-bold mb-1" style="color: var(--text-primary);">{{ $labels['under_offer_heading'] }}</h2>
+            <p class="text-xs mb-4" style="color: var(--text-muted);">{{ $labels['under_offer_subtitle'] }}</p>
+
+            @if($underOfferSentence)
+                <p class="text-sm mb-4 p-3 rounded-lg" style="background: var(--surface-2); color: var(--text-secondary);">{{ $underOfferSentence }}</p>
+            @endif
+
+            <div class="divide-y" style="border-color: var(--border);">
+                @foreach($underOfferSales as $s)
+                    <div class="flex items-center justify-between gap-3 py-2.5 text-sm">
+                        <span style="color: var(--text-secondary);">
+                            {{ collect([$s['property_type'], $s['beds'] ? $s['beds'] . ' bed' : null, $s['baths'] ? $s['baths'] . ' bath' : null])->filter()->implode(' · ') }}
+                        </span>
+                        <span class="text-right flex-shrink-0">
+                            <span class="font-semibold" style="color: var(--brand-default);">R {{ number_format($s['price']) }}</span>
+                            <span class="text-xs block" style="color: var(--text-muted);">
+                                {{ \Carbon\Carbon::parse($s['event_date'])->format('M Y') }}{{ $s['days'] !== null ? ' · ' . $s['days'] . ' ' . \Illuminate\Support\Str::plural('day', $s['days']) . ' ' . $labels['under_offer_days_suffix'] : '' }}
+                            </span>
+                        </span>
+                    </div>
+                @endforeach
             </div>
         </section>
+        @endif
 
         {{-- Agent card — who to call (shared public-page component) --}}
         @include('public.shared._agent-card', ['agent' => $agent, 'agency' => $agency, 'heading' => 'Your agent'])
@@ -472,20 +553,15 @@
 
     @if($hasEngagementData)
     <script>
-        // Views & enquiries chart. 2026-08-25 — was previously its own
-        // verbatim copy of the Chart.js config because this page loaded no
-        // JS bundle at all; now that the Vite tags above load the real app.js
-        // (which imports nexus-charts.js), this calls the SAME
-        // window.NexusCharts.portalEngagement() the internal Intelligence
-        // tab calls — genuine reuse, not a parallel copy. Only the label
-        // wording differs (opts.leadsLabel/leadsAxisLabel), for the seller
-        // framing Johan asked for; the chart config itself is untouched.
-        // Toggle stays plain JS (not Alpine) — no second widget on this
-        // page needs to stay in sync with the range, unlike the internal
-        // tab's Alpine store.
+        // Views & enquiries chart. Calls the SAME window.NexusCharts.
+        // portalEngagement() the internal Intelligence tab calls — genuine
+        // reuse, not a parallel copy. Price-change markers are drawn by
+        // that same shared function's inline plugin (opts.priceMarkers),
+        // recomputed here on every range change since the marker's INDEX
+        // into the displayed range shifts as the window shifts.
         //
-        // The Vite tags above are type="module" and deferred — they only run
-        // after the document has finished parsing, which is AFTER this
+        // The Vite tags above are type="module" and deferred — they only
+        // run after the document has finished parsing, which is AFTER a
         // classic inline script would otherwise run. Wrapping in
         // DOMContentLoaded (which itself only fires after every deferred/
         // module script has already executed) guarantees window.NexusCharts
@@ -494,6 +570,7 @@
             var section = document.getElementById('engagement-section');
             if (!section) return;
             var series = JSON.parse(section.getAttribute('data-engagement-series') || '[]');
+            var priceChanges = JSON.parse(section.getAttribute('data-price-changes') || '[]');
             var canvas = document.getElementById('engagement-canvas');
             var totalViewsEl = document.getElementById('engagement-total-views');
             var totalLeadsEl = document.getElementById('engagement-total-leads');
@@ -516,22 +593,37 @@
                 return rows.reduce(function (a, r) { return a + (r[key] || 0); }, 0);
             }
 
+            // Map each price-change date to its INDEX in the currently
+            // displayed (filtered) series — the marker plugin draws at a
+            // pixel position derived from that index, so it has to be
+            // recomputed every time the displayed window changes.
+            function markersFor(f) {
+                var dateIndex = {};
+                f.forEach(function (r, i) { dateIndex[r.date] = i; });
+                return priceChanges
+                    .filter(function (pc) { return dateIndex.hasOwnProperty(pc.date); })
+                    .map(function (pc) { return { index: dateIndex[pc.date], price: pc.new_price }; });
+            }
+
             function apply() {
                 if (!window.NexusCharts) return;
                 var f = filtered();
                 var labels = f.map(function (r) { return fmt(r.date); });
                 var views = f.map(function (r) { return r.views; });
                 var leads = f.map(function (r) { return r.leads; });
+                var markers = markersFor(f);
 
                 if (!chart) {
                     chart = window.NexusCharts.portalEngagement(canvas, labels, views, leads, {
                         leadsLabel: 'Enquiries',
                         leadsAxisLabel: 'Enquiries',
+                        priceMarkers: markers,
                     });
                 } else {
                     chart.data.labels = labels;
                     chart.data.datasets[0].data = views;
                     chart.data.datasets[1].data = leads;
+                    chart.options.plugins.priceMarkerPlugin.markers = markers;
                     chart.update();
                 }
 
