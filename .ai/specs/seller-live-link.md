@@ -58,6 +58,8 @@ Hero photo — absent entirely (not a placeholder) when `PropertyThumbnailServic
 ### 2. Where your property stands
 - **Asking price** — `$property->formattedPrice()`. Always shown.
 - **Days on market** — `HumanDiff::daysBetween($property->listed_date)`. **Only rendered when `listed_date` is a real value** — no fallback to `p24_activated_at`/`published_at`/`created_at`. This is deliberately stricter than `PropertyIntelligenceService::getComplianceStatus()`'s own `days_on_market` (which does fall back) — that field stays as-is for its other consumers (the internal property page, comparable-listings days-on-market); this page computes its own, narrower figure so it never shows a number built on a proxy date.
+
+  **DECISION (Johan, 2026-08-25) — SHIPS FOR EVERYTHING, no gating.** 85 of 117 active listings on QA1 carried a distorted `listed_date` (off by up to 168 days, all Property24-onboarded stock) — Johan considered hiding the figure on onboarded stock until fixed, and ruled against it: he approved a one-time backfill instead, correcting `listed_date` from the portal history already on file. **cc4 ran that backfill on QA1 on 2026-08-25.** Do not build an "onboarded stock" gate — it was explicitly rejected as unnecessary once the backfill lands. **The numbers on any already-tested demo page will change under this backfill** — do not re-verify days-on-market (or anything computed from `listed_date`: this section's own figure, and the `days`/`days_to_offer`/`days_to_sell`-style figures inside sections 6/7's comparables) until cc4 confirms the backfill is complete, then re-check and report anything that moved that shouldn't have.
 - **Listing status** — `isLiveOnAnyPortal()` (fixed 2026-08-25 — was `(bool) $property->published_at`, which tracks whether a listing was EVER published, not whether it's live now).
 - **Mandate status + expiry date in words** — `$compliance['mandate_expired']` for the badge, `$compliance['mandate_expiry']` formatted as "Your mandate runs until {date}." / "Your mandate expired on {date}." A bare "Mandate: Active" badge told a seller nothing on its own.
 
@@ -89,37 +91,62 @@ The existing Views & Enquiries chart (`PropertyIntelligenceService::getPortalEng
 ### (What's your agent doing — unchanged, kept where it was)
 Agent-authored, seller-visible recommendations (`property_recommendations`, `seller_visible = true`). Absent unless the agent has actually written one.
 
-### 6. Similar homes on the market near you
-`PropertyIntelligenceService::getActiveComparables()` — reuses `CompetitorStockMatchService::findComparableStock()` (the SAME vetted, on-market, family/band-scored engine the CMA presentation flow and the page's own prior "Similar properties" section already trusted), extended with `location` (complex name or street name), `property_type`, `beds`, `baths`. **Deliberately excludes `unit_number` and any agency-identifying field.**
+### 6. Your competition right now
 
-**Sourcing caveat — disclosed, not hidden:** `findComparableStock()` is scoped to the SUBJECT property's own `agency_id`. This is the agency's own other active stock nearby, **not verified cross-agency market data**. QA1 only has one seeded agency, so cross-agency behaviour cannot be tested either way on this environment. Worded in the view as "Similar homes on the market near you", deliberately not "your competition" or "competing agencies" — that framing is not what this data source supports.
+**DECISION (Johan, 2026-08-25 — RULING on the identifiability flag raised when this section first shipped, supersedes the original build):** LESS identifiable than first built — verbatim: *"No address at all. Not street, not complex, not unit."* His reasoning, verbatim: *"a seller needs to see the shape of their competition, not a directory of rival listings on their own agent's page."*
 
-**Open data-quality flag:** some `complex_name` values in the underlying data embed unit-level detail as free text (e.g. one real QA1 row: `complex_name = "Tonmawr Section 15 Door 12 LLE"`) — the correct field is being read, but its content is more identifying than the field name implies. Not fixed here (a display-layer regex strip would be a risky heuristic on free text); flagged for whoever owns data entry / cc4's inventory.
+A competitor renders as **characteristics only** — property type, beds, baths, asking price, days on market, and the SUBJECT's own suburb (already visible elsewhere on the page, not anything read off the comparable's own record): *"A 2-bed, 2-bath apartment in your suburb, asking R1,200,000, 45 days on market."*
+
+`PropertyIntelligenceService::getActiveComparables()` reuses `CompetitorStockMatchService::findComparableStock()` (the SAME vetted, on-market, family/band-scored engine the CMA presentation flow already trusts) but **does not fetch `id` or `location` at all any more** — not merely hides them in the view, there is nothing left to leak. Checked per Johan's explicit instruction to check "the HTML and any JSON payload, not just the rendered output": this data is never `@json()`-dumped anywhere on the page (unlike the engagement chart's `data-engagement-series`), only rendered as plain sentence text.
+
+**Sourcing caveat — disclosed, not hidden (unchanged):** `findComparableStock()` is scoped to the SUBJECT property's own `agency_id` — the agency's own other active stock nearby, **not verified cross-agency market data**. QA1 only has one seeded agency, so cross-agency behaviour cannot be tested either way on this environment.
 
 **Whole section absent below 2 genuine comparables** — "one lonely comparable is not a market."
 
 ### 7. What has actually sold near you / What has recently gone under offer near you
 
-**⚠ SOLD-VS-UNDER-OFFER RULE — READ BEFORE TOUCHING THIS SECTION (Johan, 2026-08-25 CORRECTION):**
-This page originally sourced "sold" comparables from `property_sold_records`. That table's `sold_price` is confirmed **not an achieved sale price** — `SuburbReportDataService`'s own docblock (2026-08-24) records that every row's `sold_price` mirrors `listing_price_at_sale`, i.e. the property's own last advertised price copied into itself, not an independently captured transaction figure. **`property_sold_records` must never be used for a "sold" claim on this page again — full stop.**
+**⚠ SOLD-VS-UNDER-OFFER RULE — READ BEFORE TOUCHING THIS SECTION. Two rulings, in sequence, on the same day — the SECOND one is current. Do not implement the first.**
 
-There are exactly two real sources for this section, and they are NOT interchangeable:
-- **Registered sale** (may say "sold"): the legacy `deals` table (internally "Dr1"), `registration_date IS NOT NULL`, price `sale_price ?? property_value`. `PropertyIntelligenceService::getRegisteredSaleComparables()`.
-- **Accepted offer, not yet registered** (must NEVER say "sold" or "achieved" — it can still fall through): `deals_v2` (internally "Dr2"), `actual_registration IS NULL` with `offer_date IS NOT NULL`, price `purchase_price`. `PropertyIntelligenceService::getUnderOfferComparables()`.
+**Background (still true):** this page originally sourced "sold" comparables from `property_sold_records`. That table's `sold_price` is confirmed **not an achieved sale price** — `SuburbReportDataService`'s own docblock (2026-08-24) records that every row's `sold_price` mirrors `listing_price_at_sale`, the property's own last advertised price copied into itself. **`property_sold_records` must never be used for a "sold" claim on this page — full stop.**
 
-Both require the deal's `property_id` to resolve to a real `Property` row — comparability (type/beds/baths) cannot be confirmed otherwise. Verified against a real case: the legacy `deals` table's own genuine Ramsgate registration (R770,000, `registration_date` 2026-03-30) has no `property_id` link, so it is correctly EXCLUDED here even though the sale itself is real — an unconfirmed comparable is not a comparable, whatever else it is. On current QA1 data, ZERO rows in `deals` resolve `property_id` at all — the registered-sale section will legitimately not render until that changes; this is correct, not a bug.
+**Ruling 1 (superseded, do not build):** registered-only counts as sold; anything else with an offer is under offer.
 
-**Every customer-facing word for this distinction lives in `SellerLinkController::LABELS`** (`sold_heading`, `sold_subtitle`, `sold_verb`, `under_offer_heading`, `under_offer_subtitle`, `under_offer_verb`) and ONLY there — a rename is a one-line edit to that array, never a hunt through the view. The view templates both sentences through one shared closure (`$buildComparisonSentence`) parameterized by verb, so the two sections can never drift into different sentence structures.
+**Ruling 2 — CURRENT (Johan, 2026-08-25, verbatim): "pending = under offer, granted and registered = sold."** A GRANTED deal counts as sold even before it has a registration date. This is his call, not an inference from the audit — cc4 is separately checking whether a granted deal can still collapse/fall through; if it can, this wording may change a third time, which is exactly why it lives in one place (`SellerLinkController::LABELS`) and nowhere else.
+
+**Real classification** (verified against real QA1 data — these are the ONLY distinct values either status column holds):
+```
+deals_v2.status:        'granted' | 'active' | 'declined'
+deals.accepted_status:  'G' | 'P' | 'R' | 'D' | '' (blank)
+
+SOLD        = status='granted' OR actual_registration IS NOT NULL     (Dr2 / deals_v2)
+            = accepted_status IN ('G','R') OR registration_date IS NOT NULL   (Dr1 / legacy deals)
+UNDER OFFER = status='active' AND actual_registration IS NULL         (Dr2)
+            = accepted_status='P' AND registration_date IS NULL       (Dr1)
+EXCLUDED    = status='declined' (Dr2) / accepted_status='D' (Dr1) / blank accepted_status
+              with no registration_date (Dr1) — unclassifiable, never guessed into either bucket
+```
+
+`PropertyIntelligenceService::getSoldComparables()` and `getUnderOfferComparables()` each **UNION real rows from BOTH deal tables** — a "sold"/"under offer" claim isn't tied to which system happened to record the deal — **deduplicated** so a deal migrated from the legacy `deals` table into `deals_v2` is never counted twice (excluded via `deals.id NOT IN (SELECT legacy_deal_id FROM deals_v2 WHERE legacy_deal_id IS NOT NULL)` on the legacy-side query). Verified this matters: on real QA1 data, every one of the 9 `deals_v2` rows with `status='granted'` is a mirror of a `deals` row with `accepted_status='G'` — a naive union without the dedupe would have shown each of those 9 real sales twice.
+
+**Reference date per row** — not assumed, checked against real data: EVERY `deals_v2` `'granted'` row (11 of 11, QA1) has `actual_registration` NULL, so the date falls back to `offer_date`. EVERY legacy `'G'` row (43 of 43) has `deal_date` populated (`registration_date` only 3 of 43, `granted_at` only 30 of 43) — falls back `registration_date ?? granted_at ?? deal_date`, in that order of confidence. `days` = `listed_date → that date`.
+
+Both sources require the deal's `property_id` to resolve to a real `Property` row — comparability (type/beds/baths) cannot be confirmed otherwise. Verified against a real case: the legacy `deals` table's own genuine Ramsgate registration (R770,000, `registration_date` 2026-03-30) has no `property_id` link, so it is correctly EXCLUDED even though the sale itself is real.
+
+**Every customer-facing word for this distinction lives in `SellerLinkController::LABELS`** (`sold_heading`, `sold_subtitle`, `sold_verb`, `sold_days_suffix`, `under_offer_heading`, `under_offer_subtitle`, `under_offer_verb`, `under_offer_days_suffix`) and ONLY there — a rename is a one-line edit to that array, never a hunt through the view. `sold_days_suffix`/`under_offer_days_suffix` exist separately from the main verbs because "N days to sold" is broken English — found and fixed while proving this on real data; the per-row caption needs its own grammatical form ("N days to sale" / "N days to offer"), not a direct reuse of the sentence verb. The view templates both main sentences through one shared closure (`$buildComparisonSentence`) parameterized by verb, so the two branches can never structurally drift apart.
 
 **Data-quality guard (unchanged):** `sanePropertyCount()` bounds beds/baths to `0 < n ≤ 10` — a real seed-data row had `baths = 25` (an entry error), and this drops just that field, not the whole comparable.
 
-**Property-type matching** uses `App\Services\TitleTypeClassifier::fromPropertyType()` (the same sectional/freehold classifier `CompetitorStockMatchService` already uses to family-gate active comparables) — applied inside both new query methods before the comparable ever reaches `buildBestComparison()`.
+**Property-type matching** uses `App\Services\TitleTypeClassifier::fromPropertyType()` (the same sectional/freehold classifier `CompetitorStockMatchService` already uses to family-gate active comparables) — applied inside both query methods before a comparable ever reaches `buildBestComparison()`.
 
-**Verified against cc4's exact demo figures**, independently, against real QA1 data: `getUnderOfferComparables()` on a real Ramsgate subject returns `House, 4 bed, 2 bath, R1,650,000, days_to_offer=13` (`listed_date` 2026-07-15 → `offer_date` 2026-07-28) — producing the sentence "...a comparable 4 bed 2 bath nearby went under offer in 13 days at R1,650,000." exactly.
+**Verified against cc4's exact demo figures, independently, against real QA1 data, end to end through the real controller and view (not by construction):**
+- `getUnderOfferComparables()` on a real Ramsgate subject returns `House, 4 bed, 2 bath, R1,650,000, days=13` (`listed_date` 2026-07-15 → `offer_date` 2026-07-28) → "...a comparable 4 bed 2 bath nearby went under offer in 13 days at R1,650,000." exactly.
+- `getSoldComparables()` on a real Margate subject (property 6079) returns a granted Margate apartment comparable → "...a comparable 2 bed 2 bath nearby sold in 49 days at R1,075,000." — confirms the granted-counts-as-sold branch renders correctly end to end.
 
 **Whole (sub)section absent** when its own collection is empty — the two halves collapse fully independently of each other.
 
-**Consumes `SuburbReportDataService`'s data model, not its output directly:** cc4 is separately correcting that service to split `achieved_sales` into registered-vs-under-offer buckets at the suburb-aggregate level. This page's two new `PropertyIntelligenceService` methods mirror the same `deals_v2`/`deals` join pattern and the same registered/under-offer distinction at PER-PROPERTY comparable granularity (not suburb-aggregate) — when `SuburbReportDataService` lands its fix, the two should describe the same underlying reality the same way; if they ever disagree, that is a bug worth chasing, not two independent opinions.
+**Consumes the same underlying data model `SuburbReportDataService` uses, not its live output directly:** cc4 landed a first fix to that service on 2026-08-25 (`achievedSalesFromDr2()` → `salesActivityForSuburb()`, registered-vs-under-offer split at suburb-aggregate granularity) and is now re-running it against Johan's Ruling 2 above. This page's two `PropertyIntelligenceService` methods implement Ruling 2 independently, at per-property comparable granularity — when `SuburbReportDataService` catches up to the same ruling, the two should describe the same underlying reality the same way; if they ever disagree, that's a bug worth chasing, not two valid opinions.
+
+**⚠ RE-VERIFICATION HOLD:** do not re-check the day-counts in this section until cc4 confirms the `listed_date` backfill (Decision 2, §2 above) is complete — every `days`/`days_to_offer`/`days_to_sell`-style figure here depends on `listed_date` and will shift when it lands.
 
 ### 8. Agent card + footer
 Unchanged shared partials.

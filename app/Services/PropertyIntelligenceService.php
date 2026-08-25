@@ -358,18 +358,26 @@ class PropertyIntelligenceService
      * listings, seller-facing, for the seller live link's own competitive-
      * position section. Same vetted engine as getComparableListings() above
      * (CompetitorStockMatchService::findComparableStock — on-market, same
-     * family/band, scored) — not a second query — but with the extra fields
-     * (type/beds/baths/location) that section needs, and deliberately
-     * WITHOUT unit_number or any agency-identifying field on either side.
+     * family/band, scored) — not a second query.
+     *
+     * 2026-08-25 CORRECTION (Johan, ruling on the decision flag raised
+     * earlier) — LESS identifiable than the first build: "no address at
+     * all. Not street, not complex, not unit." A competitor is
+     * characteristics only — property_type/beds/baths/price/days_on_market
+     * — no id, no location, no photo, and nothing in the HTML source or
+     * any JSON payload that identifies which property it is either
+     * (checked: this data is never @json()-dumped anywhere on the page,
+     * only rendered as plain text). "A seller needs to see the shape of
+     * their competition, not a directory of rival listings on their own
+     * agent's page." Neither `id` nor `location` is fetched or returned
+     * from this method at all, not merely hidden by the view — there is
+     * nothing left to accidentally leak.
      *
      * Sourcing note (disclosed, not hidden): findComparableStock() is scoped
      * to the SUBJECT property's own agency_id — these are the agency's own
-     * other active stock nearby, the same source the page's existing
-     * "Similar properties" section already trusted, NOT verified cross-
-     * agency market data. QA1 only has one seeded agency, so cross-agency
-     * behaviour cannot be tested here either way. Worded honestly in the
-     * view as "Similar homes on the market near you", not "competing
-     * agencies", because that is the honest claim this data supports.
+     * other active stock nearby, NOT verified cross-agency market data.
+     * QA1 only has one seeded agency, so cross-agency behaviour cannot be
+     * tested here either way.
      */
     public function getActiveComparables(int $propertyId, int $limit = 5): Collection
     {
@@ -379,8 +387,6 @@ class PropertyIntelligenceService
         return app(\App\Services\Presentations\CompetitorStockMatchService::class)
             ->findComparableStock($property, $limit)
             ->map(fn ($p) => [
-                'id'             => $p->id,
-                'location'       => $p->complex_name ?: $p->street_name,
                 'property_type'  => $p->property_type,
                 'beds'           => $this->sanePropertyCount($p->beds),
                 'baths'          => $this->sanePropertyCount($p->baths),
@@ -393,31 +399,56 @@ class PropertyIntelligenceService
     }
 
     /**
-     * 2026-08-25 (Johan, CORRECTION — supersedes the same-day comment this
-     * replaced) — the original version of this section read
-     * property_sold_records, which SuburbReportDataService's own docblock
-     * (2026-08-24) confirms is NOT an achieved sale price: every row's
-     * sold_price mirrors listing_price_at_sale — the property's own last
-     * ADVERTISED price copied into itself, not an independently captured
-     * transaction figure. Worse than a wording problem: a seller pricing
-     * their home against that number is pricing against a number we
-     * invented, with their agent's name on it. property_sold_records must
-     * never be used for a "sold" claim anywhere on this page again.
+     * 2026-08-25 (Johan, RULING — supersedes both same-day comments this
+     * replaced; read this before touching either method below) — verbatim:
+     * "pending = under offer, granted and registered = sold." A GRANTED
+     * deal counts as sold even before it has a registration date — that is
+     * his call, not an inference from the audit. cc4 is separately
+     * re-checking whether a granted deal can still collapse; if it comes
+     * back that it can, this wording may change again, which is exactly
+     * why every classification below is documented in one place (here) and
+     * every customer-facing word lives in SellerLinkController::LABELS.
      *
-     * Replaced with the two real, verifiable sources SuburbReportDataService
-     * (Layer B) already established and this reuses, not reinvents:
-     *   - getUnderOfferComparables() — deals_v2 (Dr2), an ACCEPTED OFFER
-     *     that has not yet registered. Never call this "sold".
-     *   - getRegisteredSaleComparables() — the legacy `deals` table (Dr1),
-     *     registration_date IS NOT NULL — a genuinely completed,
-     *     registered transaction. This is the only source this page may
-     *     ever call "sold".
+     * Original context (still true, still why property_sold_records is
+     * banned from a "sold" claim on this page): SuburbReportDataService's
+     * own docblock (2026-08-24) confirms property_sold_records.sold_price
+     * mirrors listing_price_at_sale — the property's own advertised price
+     * copied into itself, not a real transaction figure.
+     *
+     * Real classification, both deal tables (verified against real QA1
+     * data — distinct values are exactly these, nothing else on either
+     * column):
+     *   deals_v2.status:        'granted' | 'active' | 'declined'
+     *   deals.accepted_status:  'G' | 'P' | 'R' | 'D' | '' (blank)
+     *
+     *   SOLD        = status='granted' OR actual_registration IS NOT NULL   (Dr2)
+     *               = accepted_status IN ('G','R') OR registration_date IS NOT NULL  (Dr1)
+     *   UNDER OFFER = status='active' AND actual_registration IS NULL      (Dr2)
+     *               = accepted_status='P' AND registration_date IS NULL    (Dr1)
+     *   EXCLUDED    = status='declined' (Dr2) / accepted_status='D' (Dr1) / blank
+     *                 accepted_status with no registration_date (Dr1) — an
+     *                 unclassifiable row is excluded, never guessed into
+     *                 either bucket.
+     *
+     * Both methods below UNION real rows from BOTH tables (a "sold"/"under
+     * offer" claim on this page is not tied to which system recorded the
+     * deal), deduplicated so a deal migrated into deals_v2 is never also
+     * counted via its own legacy `deals` shadow row (excluded via
+     * `deals.id NOT IN (SELECT legacy_deal_id FROM deals_v2 WHERE
+     * legacy_deal_id IS NOT NULL)`).
+     *
+     * Date used per row — real QA1 data checked, not assumed: EVERY
+     * deals_v2 'granted' row (11 of 11) has actual_registration NULL, so
+     * the reference date falls back to offer_date. EVERY legacy 'G' row
+     * (43 of 43) has deal_date populated (registration_date only 3 of 43,
+     * granted_at only 30 of 43) — falls back registration_date ??
+     * granted_at ?? deal_date, in that order of confidence.
+     *
      * Both require the deal's property_id to resolve to a real Property
-     * row — comparability (type/beds/baths) cannot be confirmed otherwise,
-     * and an unconfirmed comparable must not be shown as one (verified
-     * against a real case: the Dr1 table's own Ramsgate registration has
-     * no property_id link, so it is correctly excluded here even though
-     * the sale is real).
+     * row — comparability (type/beds/baths) cannot be confirmed otherwise.
+     * Verified against a real case: the Dr1 table's own genuine Ramsgate
+     * registration has no property_id link, so it is correctly excluded
+     * even though the sale is real.
      */
     private function sanePropertyCount($value): ?float
     {
@@ -426,19 +457,65 @@ class PropertyIntelligenceService
         return ($n > 0 && $n <= 10) ? $n : null;
     }
 
-    /**
-     * Comparable ACCEPTED OFFERS (not yet registered) in the subject's
-     * suburb + agency — same deals_v2->deals->properties join
-     * SuburbReportDataService::achievedSalesFromDr2() already uses (agency-
-     * scoped, since a deal always belongs to one agency), narrowed here to
-     * a single property's genuine comparables rather than a suburb-wide
-     * list, and gated to actual_registration IS NULL (still under offer)
-     * with offer_date IS NOT NULL (an offer actually exists to measure).
-     * days_to_offer is listed_date -> offer_date: "how fast did this
-     * property attract an accepted offer", the honest seller-relevant
-     * figure — not offer_date -> now, which measures nothing about the
-     * property's own market performance.
-     */
+    /** Legacy `deals` rows already mirrored into deals_v2 — excluded from direct `deals` queries to avoid double-counting one real transaction as two comparables. */
+    private function dealsAlreadyInDealsV2()
+    {
+        return DB::table('deals_v2')->whereNotNull('legacy_deal_id')->select('legacy_deal_id');
+    }
+
+    public function getSoldComparables(int $propertyId, int $months = 12, int $limit = 5): Collection
+    {
+        $property = Property::withoutGlobalScopes()->find($propertyId);
+        if (!$property || !$property->suburb_normalised) return collect();
+
+        $classifier = app(\App\Services\TitleTypeClassifier::class);
+        $subjectFamily = $classifier->fromPropertyType((string) $property->property_type);
+
+        $fromDr2 = DB::table('deals_v2')
+            ->join('deals', 'deals.id', '=', 'deals_v2.legacy_deal_id')
+            ->join('properties', 'properties.id', '=', 'deals.property_id')
+            ->where('deals_v2.agency_id', $property->agency_id)
+            ->where('properties.suburb_normalised', $property->suburb_normalised)
+            ->where('properties.id', '!=', $propertyId)
+            ->whereNull('deals_v2.deleted_at')
+            ->where(fn ($q) => $q->where('deals_v2.status', 'granted')->orWhereNotNull('deals_v2.actual_registration'))
+            ->whereNotNull('deals_v2.purchase_price')
+            ->get([
+                'properties.property_type', 'properties.beds', 'properties.baths', 'properties.listed_date',
+                'deals_v2.purchase_price as price',
+                DB::raw('COALESCE(deals_v2.actual_registration, deals_v2.offer_date) as sold_date'),
+            ]);
+
+        $fromDr1 = DB::table('deals')
+            ->join('properties', 'properties.id', '=', 'deals.property_id')
+            ->where('deals.agency_id', $property->agency_id)
+            ->where('properties.suburb_normalised', $property->suburb_normalised)
+            ->where('properties.id', '!=', $propertyId)
+            ->whereNull('deals.deleted_at')
+            ->whereNotIn('deals.id', $this->dealsAlreadyInDealsV2())
+            ->where(fn ($q) => $q->whereIn('deals.accepted_status', ['G', 'R'])->orWhereNotNull('deals.registration_date'))
+            ->where(fn ($q) => $q->whereNotNull('deals.sale_price')->orWhereNotNull('deals.property_value'))
+            ->get([
+                'properties.property_type', 'properties.beds', 'properties.baths', 'properties.listed_date',
+                DB::raw('COALESCE(deals.sale_price, deals.property_value) as price'),
+                DB::raw('COALESCE(deals.registration_date, deals.granted_at, deals.deal_date) as sold_date'),
+            ]);
+
+        return $fromDr2->concat($fromDr1)
+            ->filter(fn ($r) => $classifier->fromPropertyType((string) $r->property_type) === $subjectFamily && $r->sold_date !== null)
+            ->sortByDesc('sold_date')
+            ->take($limit)
+            ->map(fn ($r) => [
+                'property_type' => $r->property_type,
+                'beds'          => $this->sanePropertyCount($r->beds),
+                'baths'         => $this->sanePropertyCount($r->baths),
+                'price'         => (float) $r->price,
+                'event_date'    => $r->sold_date,
+                'days'          => $r->listed_date ? \App\Support\HumanDiff::daysBetween($r->listed_date, $r->sold_date) : null,
+            ])
+            ->values();
+    }
+
     public function getUnderOfferComparables(int $propertyId, int $months = 6, int $limit = 5): Collection
     {
         $property = Property::withoutGlobalScopes()->find($propertyId);
@@ -447,80 +524,52 @@ class PropertyIntelligenceService
         $classifier = app(\App\Services\TitleTypeClassifier::class);
         $subjectFamily = $classifier->fromPropertyType((string) $property->property_type);
 
-        return DB::table('deals_v2')
+        $fromDr2 = DB::table('deals_v2')
             ->join('deals', 'deals.id', '=', 'deals_v2.legacy_deal_id')
             ->join('properties', 'properties.id', '=', 'deals.property_id')
             ->where('deals_v2.agency_id', $property->agency_id)
             ->where('properties.suburb_normalised', $property->suburb_normalised)
             ->where('properties.id', '!=', $propertyId)
             ->whereNull('deals_v2.deleted_at')
+            ->where('deals_v2.status', 'active')
             ->whereNull('deals_v2.actual_registration')
             ->whereNotNull('deals_v2.offer_date')
             ->where('deals_v2.offer_date', '>=', now()->subMonths($months))
             ->whereNotNull('deals_v2.purchase_price')
-            ->orderByDesc('deals_v2.offer_date')
-            ->limit($limit * 3) // over-fetch; family-gated in PHP below, same pattern as findComparableStock()
             ->get([
                 'properties.property_type', 'properties.beds', 'properties.baths', 'properties.listed_date',
-                'deals_v2.purchase_price', 'deals_v2.offer_date',
-            ])
-            ->filter(fn ($r) => $classifier->fromPropertyType((string) $r->property_type) === $subjectFamily)
-            ->take($limit)
-            ->map(fn ($r) => [
-                'property_type' => $r->property_type,
-                'beds'          => $this->sanePropertyCount($r->beds),
-                'baths'         => $this->sanePropertyCount($r->baths),
-                'price'         => (float) $r->purchase_price,
-                'offer_date'    => $r->offer_date,
-                'days_to_offer' => $r->listed_date ? \App\Support\HumanDiff::daysBetween($r->listed_date, $r->offer_date) : null,
-            ])
-            ->values();
-    }
+                'deals_v2.purchase_price as price', 'deals_v2.offer_date as event_date',
+            ]);
 
-    /**
-     * Comparable REGISTERED sales — the legacy `deals` table (Dr1), the
-     * only table on this system a "sold" claim may be sourced from.
-     * property_value is used ahead of sale_price (the real Ramsgate
-     * registration this was proven against has sale_price NULL,
-     * property_value populated) — coalesced, never both summed.
-     * property_id frequently doesn't resolve on this legacy table (~90%
-     * per SuburbReportDataService's own finding); when it doesn't, beds/
-     * baths/type can't be confirmed, so the row is correctly EXCLUDED, not
-     * shown without them — a real sale with unconfirmed comparability is
-     * not a comparable, whatever else it is.
-     */
-    public function getRegisteredSaleComparables(int $propertyId, int $months = 12, int $limit = 5): Collection
-    {
-        $property = Property::withoutGlobalScopes()->find($propertyId);
-        if (!$property || !$property->suburb_normalised) return collect();
-
-        $classifier = app(\App\Services\TitleTypeClassifier::class);
-        $subjectFamily = $classifier->fromPropertyType((string) $property->property_type);
-
-        return DB::table('deals')
+        $fromDr1 = DB::table('deals')
             ->join('properties', 'properties.id', '=', 'deals.property_id')
             ->where('deals.agency_id', $property->agency_id)
             ->where('properties.suburb_normalised', $property->suburb_normalised)
             ->where('properties.id', '!=', $propertyId)
             ->whereNull('deals.deleted_at')
-            ->whereNotNull('deals.registration_date')
-            ->where('deals.registration_date', '>=', now()->subMonths($months))
+            ->whereNotIn('deals.id', $this->dealsAlreadyInDealsV2())
+            ->where('deals.accepted_status', 'P')
+            ->whereNull('deals.registration_date')
+            ->whereNotNull('deals.deal_date')
+            ->where('deals.deal_date', '>=', now()->subMonths($months))
             ->where(fn ($q) => $q->whereNotNull('deals.sale_price')->orWhereNotNull('deals.property_value'))
-            ->orderByDesc('deals.registration_date')
-            ->limit($limit * 3)
             ->get([
                 'properties.property_type', 'properties.beds', 'properties.baths', 'properties.listed_date',
-                'deals.sale_price', 'deals.property_value', 'deals.registration_date',
-            ])
+                DB::raw('COALESCE(deals.sale_price, deals.property_value) as price'),
+                'deals.deal_date as event_date',
+            ]);
+
+        return $fromDr2->concat($fromDr1)
             ->filter(fn ($r) => $classifier->fromPropertyType((string) $r->property_type) === $subjectFamily)
+            ->sortByDesc('event_date')
             ->take($limit)
             ->map(fn ($r) => [
-                'property_type'     => $r->property_type,
-                'beds'              => $this->sanePropertyCount($r->beds),
-                'baths'             => $this->sanePropertyCount($r->baths),
-                'price'             => (float) ($r->sale_price ?: $r->property_value),
-                'registration_date' => $r->registration_date,
-                'days_to_sell'      => $r->listed_date ? \App\Support\HumanDiff::daysBetween($r->listed_date, $r->registration_date) : null,
+                'property_type' => $r->property_type,
+                'beds'          => $this->sanePropertyCount($r->beds),
+                'baths'         => $this->sanePropertyCount($r->baths),
+                'price'         => (float) $r->price,
+                'event_date'    => $r->event_date,
+                'days'          => $r->listed_date ? \App\Support\HumanDiff::daysBetween($r->listed_date, $r->event_date) : null,
             ])
             ->values();
     }
