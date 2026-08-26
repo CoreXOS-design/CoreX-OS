@@ -13285,6 +13285,7 @@ CREATE TABLE `tracked_property_owners` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `tracked_property_id` bigint unsigned NOT NULL,
   `contact_id` bigint unsigned DEFAULT NULL,
+  `matched_contact_at` timestamp NULL DEFAULT NULL,
   `name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `id_number` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `id_type` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -15614,3 +15615,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1201,'2026_08_30_0
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1202,'2026_08_30_000003_add_sort_order_to_contact_representatives_table',248);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1203,'2026_08_30_000003_create_site_connectors_table',248);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1204,'2026_08_30_000004_make_expiry_hours_nullable_on_demo_access_grants_table',248);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1205,'2026_08_30_000004_add_matched_contact_at_to_tracked_property_owners_table',249);
