@@ -153,6 +153,78 @@ class RecipientTemplate extends Model
     }
 
     /**
+     * cc2, 2026-08-26 (cc4's stranger-rebind finding) — the Contact id of
+     * whoever is bound into the PARTY slot (the party being represented —
+     * conventionally the first slot in party_slots; "Late Estate of
+     * {deceased} herein represented by {executor}" names the party first,
+     * matching every real template on record). Resolved the SAME way
+     * resolveSlotDisplayName() resolves a slot's display text — self /
+     * contact / recipient — but returning the identity, not a formatted
+     * string, so a caller can check WHO this actually is rather than what
+     * it prints as.
+     *
+     * This is what "Replace this party" was missing entirely: the rebind
+     * only ever confirmed the row being updated still points at ITSELF
+     * (trivially always true), never that the PARTY just bound is who the
+     * signer actually, by identity, represents. Pair this with
+     * SignatureRequest::assertSignerIsCurrentRepresentative() at the call
+     * site — the same one canonical check the create path already uses —
+     * rather than inventing a second relationship check here.
+     */
+    public function resolvePartyContactId(SignatureRequest $selfRecipient, array $slotBindings): ?int
+    {
+        $slots = $this->party_slots ?? [];
+        if (empty($slots)) {
+            return null;
+        }
+
+        $partySlot = $slots[0];
+        $key = $partySlot['key'] ?? null;
+        $label = $partySlot['label'] ?? $key;
+        if ($key === null) {
+            return null;
+        }
+
+        $binding = $slotBindings[$key] ?? null;
+        if ($binding === null) {
+            throw DanglingSlotBindingException::forSlot($key, (string) $label);
+        }
+
+        return $this->resolveSlotContactId($selfRecipient, $key, (string) $label, $binding);
+    }
+
+    private function resolveSlotContactId(SignatureRequest $selfRecipient, string $key, string $label, array $binding): ?int
+    {
+        $type = $binding['type'] ?? null;
+
+        if ($type === 'self') {
+            return $selfRecipient->contact_id;
+        }
+
+        if ($type === 'contact') {
+            $contactId = $binding['contact_id'] ?? null;
+            if ($contactId === null || ! \App\Models\Contact::withoutGlobalScopes()->where('id', $contactId)->exists()) {
+                throw DanglingSlotBindingException::forSlot($key, $label);
+            }
+
+            return (int) $contactId;
+        }
+
+        if ($type === 'recipient') {
+            $recipient = SignatureRequest::where('signature_template_id', $selfRecipient->signature_template_id)
+                ->where('recipient_local_key', $binding['recipient_local_key'] ?? null)
+                ->first();
+            if ($recipient === null) {
+                throw DanglingSlotBindingException::forSlot($key, $label);
+            }
+
+            return $recipient->contact_id;
+        }
+
+        throw DanglingSlotBindingException::forSlot($key, $label);
+    }
+
+    /**
      * Johan, 2026-08-24 (fault B) — the SAME resolution this class already
      * did at generation time (resolveBoundText, frozen onto
      * SignatureRequest::party_clause_text), run instead against the wizard's
