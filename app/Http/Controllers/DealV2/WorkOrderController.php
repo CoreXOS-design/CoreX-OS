@@ -306,10 +306,16 @@ class WorkOrderController extends Controller
             'items'              => $items,
             'responsible_labels' => \App\Services\DealV2\CocWorkOrderService::responsibleLabels(),
             'suppliers'          => $this->supplierPayload(),
-            // Supplier-type list for the inline "＋ Add supplier" — the SAME set the Suppliers
-            // directory add-form offers (incl. transfer_attorney), so any supplier type can be
-            // added inline from the pipeline.
-            'specialties'        => \App\Http\Controllers\DealV2\SupplierDirectoryController::SPECIALTIES,
+            // Johan, 2026-08-26 — "read from the real service-types settings, not a
+            // hardcoded list." Supplier-type list for the inline "＋ Add supplier" — the
+            // SAME agency-configurable list the Suppliers directory add-form now offers
+            // (AgencyServiceType::active(), the same query that already drives that
+            // screen's per-supplier tick boxes), not a copy of a hardcoded array. Kept as
+            // a flat array of codes (not {code,label}) — _supplier-work-orders.blade.php's
+            // Alpine template binds :value="s" and formats it client-side via
+            // prettySpecialty(s); that contract is unchanged, only the source is live now.
+            'specialties'        => \App\Models\DealV2\AgencyServiceType::active()
+                ->orderBy('sort_order')->orderBy('id')->pluck('code')->all(),
         ]);
     }
 

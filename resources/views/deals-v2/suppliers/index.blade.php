@@ -62,7 +62,7 @@
                         class="w-full rounded-md px-3 py-2 text-sm"
                         style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                     @foreach($specialties as $s)
-                        <option value="{{ $s }}">{{ ucwords(str_replace('_', ' ', $s)) }}</option>
+                        <option value="{{ $s->code }}">{{ $s->label }}</option>
                     @endforeach
                 </select>
             </div>
