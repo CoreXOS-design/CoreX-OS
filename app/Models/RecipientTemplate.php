@@ -153,44 +153,111 @@ class RecipientTemplate extends Model
     }
 
     /**
-     * cc2, 2026-08-26 (cc4's stranger-rebind finding) — the Contact id of
-     * whoever is bound into the PARTY slot (the party being represented —
-     * conventionally the first slot in party_slots; "Late Estate of
-     * {deceased} herein represented by {executor}" names the party first,
-     * matching every real template on record). Resolved the SAME way
-     * resolveSlotDisplayName() resolves a slot's display text — self /
-     * contact / recipient — but returning the identity, not a formatted
-     * string, so a caller can check WHO this actually is rather than what
-     * it prints as.
+     * cc2, 2026-08-26 (cc4's stranger-rebind finding, corrected twice the
+     * same night). First version only ever validated slot_bindings[0] — the
+     * "deceased" slot on the one template that exists. cc4's real
+     * reproduction (document 959, signature_request 1578) proved that
+     * wrong: "deceased" was bound to self (Signature Request 1578 IS the
+     * deceased party's own row), which the first version treated as
+     * "nothing to check" — because $partyContactId resolved to
+     * $selfRecipient's own id, matching the self-exemption — and NEVER
+     * looked at "executor", the slot actually naming the stranger. Checking
+     * position 0 "because it happens to be first" was the bug Johan named
+     * directly.
      *
-     * This is what "Replace this party" was missing entirely: the rebind
-     * only ever confirmed the row being updated still points at ITSELF
-     * (trivially always true), never that the PARTY just bound is who the
-     * signer actually, by identity, represents. Pair this with
-     * SignatureRequest::assertSignerIsCurrentRepresentative() at the call
-     * site — the same one canonical check the create path already uses —
-     * rather than inventing a second relationship check here.
+     * The party_slots declared order IS the template's own chain of
+     * custody — "Late Estate of {deceased} herein represented by
+     * {executor}" — slot i is represented by slot i+1, for every adjacent
+     * pair, regardless of which one $selfRecipient itself occupies. A slot
+     * bound to type=self needs no existence check ($selfRecipient obviously
+     * exists) — but that says NOTHING about whether the OTHER slot's bound
+     * contact legitimately represents it, and that pair is checked here
+     * exactly the same as any other. This validates the CLAUSE's declared
+     * relationships, not "is $selfRecipient legitimate" — the row asking
+     * doesn't matter; the chain it's part of has to be real all the way
+     * through, not just at the one slot that happens to be this row's own.
+     *
+     * @throws \App\Exceptions\DanglingSlotBindingException
+     * @throws \App\Exceptions\PartyClauseSignerMismatchException
      */
-    public function resolvePartyContactId(SignatureRequest $selfRecipient, array $slotBindings): ?int
+    public function assertChainIsLegitimate(SignatureRequest $selfRecipient, array $slotBindings): void
     {
         $slots = $this->party_slots ?? [];
-        if (empty($slots)) {
-            return null;
+        if (count($slots) < 2) {
+            return; // a single-slot template names nobody as anybody's representative.
         }
 
-        $partySlot = $slots[0];
-        $key = $partySlot['key'] ?? null;
-        $label = $partySlot['label'] ?? $key;
-        if ($key === null) {
-            return null;
+        $resolved = [];
+        foreach ($slots as $slot) {
+            $key = $slot['key'] ?? null;
+            $label = $slot['label'] ?? $key;
+            if ($key === null) {
+                continue;
+            }
+            $binding = $slotBindings[$key] ?? null;
+            if ($binding === null) {
+                throw DanglingSlotBindingException::forSlot($key, (string) $label);
+            }
+            $resolved[$key] = $this->resolveSlotContactId($selfRecipient, $key, (string) $label, $binding);
         }
 
-        $binding = $slotBindings[$key] ?? null;
-        if ($binding === null) {
-            throw DanglingSlotBindingException::forSlot($key, (string) $label);
+        for ($i = 0; $i < count($slots) - 1; $i++) {
+            $partyId = $resolved[$slots[$i]['key'] ?? null] ?? null;
+            $repId = $resolved[$slots[$i + 1]['key'] ?? null] ?? null;
+
+            if ($partyId === null || $repId === null || $partyId === $repId) {
+                continue; // nothing to verify, or the same identity claiming no representation at all.
+            }
+
+            SignatureRequest::assertSignerIsCurrentRepresentative($repId, $partyId);
+        }
+    }
+
+    /**
+     * Who $selfRecipient represents, for persisting onto
+     * SignatureRequest::represented_contact_id (so
+     * SignatureRequest::isSigningBlocked() has something to re-check at
+     * sign time — see that column's migration). Finds WHICH slot
+     * $selfRecipient itself occupies (by identity, not position — the same
+     * principle assertChainIsLegitimate() applies) and returns the
+     * PRECEDING slot's contact — the party they stand in for. Null when
+     * $selfRecipient occupies the first slot (they ARE the party, not a
+     * representative of one) or isn't found in the binding at all.
+     */
+    public function resolveRepresentedContactIdFor(SignatureRequest $selfRecipient, array $slotBindings): ?int
+    {
+        $slots = $this->party_slots ?? [];
+        $resolved = [];
+        foreach ($slots as $slot) {
+            $key = $slot['key'] ?? null;
+            $label = $slot['label'] ?? $key;
+            if ($key === null) {
+                continue;
+            }
+            $binding = $slotBindings[$key] ?? null;
+            if ($binding === null) {
+                continue;
+            }
+            try {
+                $resolved[$key] = $this->resolveSlotContactId($selfRecipient, $key, (string) $label, $binding);
+            } catch (DanglingSlotBindingException) {
+                $resolved[$key] = null;
+            }
         }
 
-        return $this->resolveSlotContactId($selfRecipient, $key, (string) $label, $binding);
+        foreach ($slots as $i => $slot) {
+            $key = $slot['key'] ?? null;
+            if ($key !== null && ($resolved[$key] ?? null) === $selfRecipient->contact_id) {
+                if ($i === 0) {
+                    return null;
+                }
+                $prevKey = $slots[$i - 1]['key'] ?? null;
+
+                return $prevKey !== null ? ($resolved[$prevKey] ?? null) : null;
+            }
+        }
+
+        return null;
     }
 
     private function resolveSlotContactId(SignatureRequest $selfRecipient, string $key, string $label, array $binding): ?int

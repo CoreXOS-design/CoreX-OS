@@ -3908,60 +3908,43 @@ class ESignWizardController extends Controller
                 ]);
             }
 
-            // cc2, 2026-08-26 (cc4's stranger-rebind finding — the most
-            // serious thing open on e-sign) — the check above only ever
-            // confirmed $sigReq points at ITSELF within the binding, which
-            // is always true by construction and asks nothing about
-            // legitimacy. It never asked whether the PARTY just picked in
-            // this rebind is who $sigReq's own contact genuinely represents
-            // — so any contact in the system could be bound as anyone's
-            // representative and it would freeze and send. Same canonical
-            // check the create path already uses
-            // (SignatureRequest::assertSignerIsCurrentRepresentative(),
-            // itself Contact::signingRepresentatives() — one identity rule,
-            // not a second one invented for the rebind path).
-            // cc2, 2026-08-26 — resolved once, used both to verify THIS
-            // rebind (below) and persisted onto the row so a LATER re-check
-            // (SignatureRequest::isSigningBlocked(), at sign time) has
-            // something to re-verify against — the same identity, stored,
-            // not recomputed a third way.
-            $partyContactId = null;
-            if ($sigReq->contact_id !== null) {
-                try {
-                    $partyContactId = $recipientTemplate->resolvePartyContactId($sigReq, $binding['slot_bindings']);
-                } catch (\App\Exceptions\DanglingSlotBindingException $e) {
-                    throw \Illuminate\Validation\ValidationException::withMessages([
-                        'recipients' => $e->getMessage(),
-                    ]);
-                }
-
-                // $sigReq IS the party (its own "deceased"/party slot is
-                // bound to itself, e.g. a deceased party's own inert
-                // display row) — nothing to verify or persist as
-                // "represented"; they don't represent anyone.
-                if ($partyContactId === $sigReq->contact_id) {
-                    $partyContactId = null;
-                } elseif ($partyContactId !== null) {
-                    try {
-                        \App\Models\Docuperfect\SignatureRequest::assertSignerIsCurrentRepresentative(
-                            $sigReq->contact_id,
-                            $partyContactId,
-                        );
-                    } catch (\App\Exceptions\PartyClauseSignerMismatchException $e) {
-                        throw \Illuminate\Validation\ValidationException::withMessages([
-                            'recipients' => "\"{$sigReq->signer_name}\" is not currently linked as a "
-                                . 'representative of the party just chosen — pick someone who genuinely '
-                                . 'stands in that relationship before sending.',
-                        ]);
-                    }
-                }
+            // cc2, 2026-08-26 (cc4's stranger-rebind finding, corrected
+            // twice the same night — cc4's real reproduction, document 959
+            // / signature_request 1578, proved the first version wrong: it
+            // only ever validated party_slots[0] — "deceased" — which was
+            // bound to self on that exact row, so the check exempted
+            // itself and NEVER looked at "executor", the slot naming the
+            // stranger. Checking a slot because it happens to be first was
+            // the bug. RecipientTemplate::assertChainIsLegitimate()
+            // validates every adjacent pair the template declares — the
+            // FULL chain, not one position — using the same canonical
+            // identity check the create path already uses
+            // (SignatureRequest::assertSignerIsCurrentRepresentative()).
+            try {
+                $recipientTemplate->assertChainIsLegitimate($sigReq, $binding['slot_bindings']);
+            } catch (\App\Exceptions\DanglingSlotBindingException $e) {
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'recipients' => $e->getMessage(),
+                ]);
+            } catch (\App\Exceptions\PartyClauseSignerMismatchException $e) {
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'recipients' => 'This party replacement names someone who is not currently linked '
+                        . 'as a genuine representative — pick someone who actually stands in that '
+                        . 'relationship before sending. (' . $e->getMessage() . ')',
+                ]);
             }
+
+            // Persisted onto the row so a LATER re-check
+            // (SignatureRequest::isSigningBlocked(), at sign time) has
+            // something to re-verify against — the same identity just
+            // validated above, not recomputed a third way.
+            $representedContactId = $recipientTemplate->resolveRepresentedContactIdFor($sigReq, $binding['slot_bindings']);
 
             $sigReq->update([
                 'recipient_template_id' => $recipientTemplate->id,
                 'slot_bindings' => $binding['slot_bindings'],
                 'party_clause_text' => $resolvedText,
-                'represented_contact_id' => $partyContactId,
+                'represented_contact_id' => $representedContactId,
             ]);
         }
     }
