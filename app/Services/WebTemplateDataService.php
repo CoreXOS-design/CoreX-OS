@@ -787,20 +787,44 @@ class WebTemplateDataService
      * wrong per spec, and exactly what cc1 flagged in the rendered body.
      * Self-contained here rather than calling EsignRecipientPreset's
      * private equivalent (a different file, not touched by this change).
+     *
+     * Johan, 2026-08-26 (Anine/Piet/Andre flow) — a resolved multi-party
+     * clause ("Late Estate of Anine ... herein represented by Piet
+     * Begrafnis (ID: ...)") already ends in its OWN "represented by"
+     * phrase. Joining the next seller with the bare word "and" — the
+     * plain-name rule above — reads as if that next seller is ALSO a
+     * representative in the same chain ("...represented by Piet
+     * Begrafnis and Andre Roets"), which is exactly the fault Johan
+     * reported: "Andre Roets should not be in that clause at all." $isClause
+     * (parallel to $items, from hasResolvedPartyClause()) marks which
+     * entries are such a clause. Whenever any are, every item is
+     * separated with "; " instead of ", " — a plain comma-and-"and" list
+     * reads as one continuous enumeration; semicolons give each party,
+     * clause or plain name, its own clearly bounded sentence segment.
      */
-    private function joinPartiesWithAnd(array $items): string
+    private function joinPartiesWithAnd(array $items, array $isClause = []): string
     {
-        $items = array_values(array_filter($items, fn ($i) => trim((string) $i) !== ''));
-        if (count($items) === 0) {
+        $filtered = [];
+        $filteredIsClause = [];
+        foreach ($items as $i => $item) {
+            if (trim((string) $item) === '') {
+                continue;
+            }
+            $filtered[] = $item;
+            $filteredIsClause[] = $isClause[$i] ?? false;
+        }
+        if (count($filtered) === 0) {
             return '';
         }
-        if (count($items) === 1) {
-            return $items[0];
+        if (count($filtered) === 1) {
+            return $filtered[0];
         }
 
-        $last = array_pop($items);
+        $last = array_pop($filtered);
+        $hasClause = in_array(true, $filteredIsClause, true);
+        $separator = $hasClause ? '; ' : ', ';
 
-        return implode(', ', $items) . ' and ' . $last;
+        return implode($separator, $filtered) . ($hasClause ? '; and ' : ' and ') . $last;
     }
 
     /**
@@ -1303,6 +1327,7 @@ class WebTemplateDataService
         // same resolution resolveContactFromKey() already applies; route
         // any name-ish member column through resolvedPartyName() instead.
         $displayParts = [];
+        $isClauseFlags = [];
         foreach ($contacts as $contact) {
             $nameParts = [];
             $idNumber = '';
@@ -1320,16 +1345,18 @@ class WebTemplateDataService
                     $nameParts[] = $val;
                 }
             }
+            $isClause = $this->hasResolvedPartyClause($contact);
             $line = $hasNameColumn ? $this->resolvedPartyName($contact, $recipients) : implode(' ', $nameParts);
-            if (!empty($idNumber) && !$this->hasResolvedPartyClause($contact)) {
+            if (!empty($idNumber) && !$isClause) {
                 $line .= ' (ID: ' . $idNumber . ')';
             }
             if (!empty(trim($line))) {
                 $displayParts[] = trim($line);
+                $isClauseFlags[] = $isClause;
             }
         }
 
-        return $this->joinPartiesWithAnd($displayParts);
+        return $this->joinPartiesWithAnd($displayParts, $isClauseFlags);
     }
 
     /**
