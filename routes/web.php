@@ -994,6 +994,8 @@ Route::prefix('deals-v2/suppliers')->middleware(['auth'])->group(function () {
     Route::post('/{provider}/types', [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'syncTypes'])->name('deals-v2.suppliers.types')->middleware('permission:deals_v2.manage_suppliers');
     // AT-364 — persist a supplier's attorney capabilities (Transfer / Bond); a firm can be both.
     Route::post('/{provider}/attorney-capabilities', [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'syncAttorneyCapabilities'])->name('deals-v2.suppliers.attorney-capabilities')->middleware('permission:deals_v2.manage_suppliers');
+    // The firm's business address — needed on any document the firm signs (e.g. an executor).
+    Route::post('/{provider}/address', [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'updateAddress'])->name('deals-v2.suppliers.address')->middleware('permission:deals_v2.manage_suppliers');
     Route::post('/{provider}/deactivate', [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'deactivate'])->name('deals-v2.suppliers.deactivate')->middleware('permission:deals_v2.manage_suppliers');
     // (DR2 respec) firm → contact persons management.
     Route::post('/{provider}/contacts', [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'storeContact'])->name('deals-v2.suppliers.contacts.store')->middleware('permission:deals_v2.manage_suppliers');
