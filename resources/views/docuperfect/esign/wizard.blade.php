@@ -603,22 +603,41 @@
                                 </template>
 
                                 {{-- Entity recipient preview — how this company expands into its
-                                     signing representative(s) (from the agency's recipient preset). --}}
+                                     signing representative(s) (from the agency's recipient preset).
+                                     Johan, 2026-08-26 (correcting placement from earlier the same day):
+                                     "the ask was a sort on directors. now I have it on tick proxy to
+                                     reorder" — the director list and its up/down order controls live
+                                     HERE, always visible whenever this company has representatives,
+                                     Proxy ticked or not. Iterates all_representatives (the full,
+                                     already-ordered list), not the proxy-collapsed "signers" — ticking
+                                     Proxy must never hide the other directors or their arrows. --}}
                                 <template x-if="r._is_entity && r._representation">
                                     <div class="rounded-md p-3 text-xs" style="background: color-mix(in srgb, var(--brand-icon,#2563eb) 6%, transparent); border: 1px solid color-mix(in srgb, var(--brand-icon,#2563eb) 25%, var(--border));">
                                         <template x-if="r._representation.needs_representative">
                                             <div style="color: var(--ds-amber,#b45309);">⚠ This company has no representative linked. Add a director/executor/trustee (with a capacity) on its contact record — it cannot sign until then.</div>
                                         </template>
                                         <template x-if="!r._representation.needs_representative">
-                                            <div>
-                                                <div class="font-semibold mb-1" style="color: var(--brand-icon,#2563eb);">Signs via its representative<span x-show="r._representation.signers.length > 1">s</span>:</div>
-                                                <template x-for="(s, si) in r._representation.signers" :key="si">
-                                                    <div class="mb-1">
-                                                        <span class="font-semibold" style="color: var(--text-primary);" x-text="s.rep_name"></span>
-                                                        <span style="color: var(--text-muted);" x-show="s.capacity" x-text="' (' + s.capacity + ')'"></span>
-                                                        <span x-show="s.is_proxy" class="ml-1 text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded" style="background:color-mix(in srgb, var(--ds-amber,#f59e0b) 18%, transparent); color:var(--ds-amber,#b45309);">proxy</span>
-                                                        <div class="italic mt-0.5" style="color: var(--text-muted);" x-text="'“' + s.phrase + '”'"></div>
+                                            <div class="space-y-1">
+                                                <div class="font-semibold mb-1" style="color: var(--brand-icon,#2563eb);">Signs via its representative<span x-show="r._representation.signers.length > 1">s</span> — order sets the clause, address sections, signature positions and signing order:</div>
+                                                <template x-for="(rep, repIdx) in r._representation.all_representatives" :key="rep.contact_id">
+                                                    <div class="flex items-center justify-between gap-2">
+                                                        <div class="min-w-0">
+                                                            <span class="font-semibold" style="color: var(--text-primary);" x-text="(repIdx + 1) + '. ' + rep.name"></span>
+                                                            <span style="color: var(--text-muted);" x-show="rep.capacity" x-text="' (' + rep.capacity + ')'"></span>
+                                                            <span x-show="rep.is_proxy" class="ml-1 text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded" style="background:color-mix(in srgb, var(--ds-amber,#f59e0b) 18%, transparent); color:var(--ds-amber,#b45309);">proxy</span>
+                                                        </div>
+                                                        <div class="flex items-center gap-1 flex-shrink-0">
+                                                            <button type="button" @click="moveEntityRep(ri, rep.contact_id, -1)" :disabled="repIdx === 0"
+                                                                    :style="repIdx === 0 ? 'opacity:0.3;' : 'opacity:1; cursor:pointer;'"
+                                                                    style="background:none; border:none; padding:2px;" title="Move up">▲</button>
+                                                            <button type="button" @click="moveEntityRep(ri, rep.contact_id, 1)" :disabled="repIdx === (r._representation.all_representatives.length - 1)"
+                                                                    :style="repIdx === (r._representation.all_representatives.length - 1) ? 'opacity:0.3;' : 'opacity:1; cursor:pointer;'"
+                                                                    style="background:none; border:none; padding:2px;" title="Move down">▼</button>
+                                                        </div>
                                                     </div>
+                                                </template>
+                                                <template x-if="r._representation.signers.length === 1">
+                                                    <div class="italic mt-1" style="color: var(--text-muted);" x-text="'“' + r._representation.signers[0].phrase + '”'"></div>
                                                 </template>
                                             </div>
                                         </template>
@@ -668,39 +687,30 @@
                                      case and keeps its old plain text box below. Every
                                      representative stays NAMED on the document either way —
                                      picking one here only narrows who gets the SIGNING EMAIL. --}}
+                                {{-- Johan, 2026-08-26 (correcting placement, same day) — this stays
+                                     Proxy-gated: it answers WHO SIGNS, nothing else. The order itself
+                                     (arrows) moved up to the always-visible director list above so it
+                                     no longer depends on this tick. --}}
                                 <div x-show="r._is_entity && r._is_proxy" class="rounded-md px-3 py-2 text-xs space-y-2" style="background: color-mix(in srgb, var(--ds-amber,#f59e0b) 8%, transparent); border: 1px solid color-mix(in srgb, var(--ds-amber,#f59e0b) 25%, transparent); color: var(--text-secondary);">
-                                    <div>Every representative below still displays on the document. Pick the ONE who actually signs, and use the arrows to set the order they appear in — the clause, the address sections, the signature positions and the signing order all follow it:</div>
+                                    <div>Every representative still displays on the document. Pick the ONE who actually signs:</div>
                                     <template x-if="!r._representation || !(r._representation.all_representatives || []).length">
                                         <div style="color: var(--ds-amber,#b45309);">No representatives linked yet — add one on this company's contact record first.</div>
                                     </template>
                                     <template x-for="(rep, repIdx) in (r._representation ? (r._representation.all_representatives || []) : [])" :key="rep.contact_id">
-                                        <div class="flex items-center justify-between gap-2">
-                                            <label class="flex items-center gap-1.5 cursor-pointer select-none">
-                                                {{-- Johan, 2026-08-26 (bug found testing 913f2f102) — checked
-                                                     reflects THIS recipient's own pick only (r._entity_proxy_
-                                                     contact_id), never rep.is_proxy — that field can carry a
-                                                     permanent pivot value from outside this document entirely;
-                                                     trusting it here is exactly how a pick leaked onto the next,
-                                                     unrelated document. A brand-new pick on this document starts
-                                                     with nothing checked, full stop. --}}
-                                                <input type="radio" :name="'entity-proxy-' + ri" :checked="r._entity_proxy_contact_id === rep.contact_id"
-                                                       @change="setEntityProxyPick(ri, rep.contact_id)"
-                                                       style="accent-color: var(--ds-amber, #f59e0b); width: 13px; height: 13px;">
-                                                <span class="font-medium" style="color: var(--text-primary);" x-text="(repIdx + 1) + '. ' + rep.name"></span>
-                                                <span x-show="rep.capacity" style="color: var(--text-muted);" x-text="'(' + rep.capacity + ')'"></span>
-                                            </label>
-                                            {{-- "Lets find an easy way to do this" (Johan) — up/down on the
-                                                 same rows, no new screen. Disabled at the ends rather than
-                                                 hidden, so the row count never visibly jumps around. --}}
-                                            <div class="flex items-center gap-1 flex-shrink-0">
-                                                <button type="button" @click="moveEntityRep(ri, rep.contact_id, -1)" :disabled="repIdx === 0"
-                                                        :style="repIdx === 0 ? 'opacity:0.3;' : 'opacity:1; cursor:pointer;'"
-                                                        style="background:none; border:none; padding:2px;" title="Move up">▲</button>
-                                                <button type="button" @click="moveEntityRep(ri, rep.contact_id, 1)" :disabled="repIdx === (r._representation.all_representatives.length - 1)"
-                                                        :style="repIdx === (r._representation.all_representatives.length - 1) ? 'opacity:0.3;' : 'opacity:1; cursor:pointer;'"
-                                                        style="background:none; border:none; padding:2px;" title="Move down">▼</button>
-                                            </div>
-                                        </div>
+                                        <label class="flex items-center gap-1.5 cursor-pointer select-none">
+                                            {{-- Johan, 2026-08-26 (bug found testing 913f2f102) — checked
+                                                 reflects THIS recipient's own pick only (r._entity_proxy_
+                                                 contact_id), never rep.is_proxy — that field can carry a
+                                                 permanent pivot value from outside this document entirely;
+                                                 trusting it here is exactly how a pick leaked onto the next,
+                                                 unrelated document. A brand-new pick on this document starts
+                                                 with nothing checked, full stop. --}}
+                                            <input type="radio" :name="'entity-proxy-' + ri" :checked="r._entity_proxy_contact_id === rep.contact_id"
+                                                   @change="setEntityProxyPick(ri, rep.contact_id)"
+                                                   style="accent-color: var(--ds-amber, #f59e0b); width: 13px; height: 13px;">
+                                            <span class="font-medium" style="color: var(--text-primary);" x-text="(repIdx + 1) + '. ' + rep.name"></span>
+                                            <span x-show="rep.capacity" style="color: var(--text-muted);" x-text="'(' + rep.capacity + ')'"></span>
+                                        </label>
                                     </template>
                                 </div>
                                 <div x-show="!r._is_entity && r._is_proxy" class="rounded-md px-3 py-2 text-xs" style="background: color-mix(in srgb, var(--ds-amber,#f59e0b) 8%, transparent); border: 1px solid color-mix(in srgb, var(--ds-amber,#f59e0b) 25%, transparent); color: var(--text-secondary);">
