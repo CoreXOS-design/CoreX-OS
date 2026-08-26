@@ -26,6 +26,16 @@ return [
     // a local/staging custom-website dev server (e.g. http://91.99.130.85:1050).
     'public_website_url'   => env('PUBLIC_WEBSITE_URL', 'https://www.hfcoastal.co.za'),
 
+    // Base URL of the CoreX MARKETING site (corexweb.co.za) — a different site
+    // from public_website_url above, which is an agency's own listing website.
+    // Used to compose each webinar's public registration link:
+    //   {corex_website_url}/webinars/{slug}
+    // CoreX has no other way to learn that hostname, and the link is the thing
+    // the admin console exists to hand out — built from app.url it would point
+    // at this API instead of at the registration page.
+    // Spec: .ai/specs/webinar-registration.md §4.3
+    'corex_website_url'    => env('COREX_WEBSITE_URL', 'https://corexweb.co.za'),
+
     /*
     |--------------------------------------------------------------------------
     | Agency Public API — auth debug

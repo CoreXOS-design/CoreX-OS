@@ -188,6 +188,82 @@ Validation: `name` required ≤255 · `email` required, valid, ≤255 · `compan
 
 **The response never contains the access code**, and the code is never logged. It exists in the queued email and nowhere else.
 
+### §4.3 Admin API — the website's own console (AMENDMENT)
+
+**Status: added after §4.1/§4.2 shipped. Needs Johan's gate before Staging.**
+
+§7.2 puts webinar admin inside CoreX at `admin/dev-settings/webinars`, and it stays
+there — those screens are not being removed. This amendment adds a **second way in**,
+for the CoreX marketing website's own admin console, because the person who runs a
+webinar is the person who runs the website's funnel and should not need an owner
+login to CoreX to hand out a registration link or pull a registrant list.
+
+Same group, same `site.connector` middleware, same throttle:
+
+```php
+Route::get   ('/',                        …'index')             ->name('v1.webinars.index');
+Route::post  ('/',                        …'store')             ->name('v1.webinars.store');
+Route::put   ('/{slug}',                  …'update')            ->name('v1.webinars.update');
+Route::delete('/{slug}',                  …'archive')           ->name('v1.webinars.archive');
+Route::get   ('/{slug}/registrations',     …'registrations')    ->name('v1.webinars.registrations');
+Route::get   ('/{slug}/registrations.csv', …'registrationsCsv') ->name('v1.webinars.registrations-csv');
+```
+
+Ordering matters: `/` and the two `registrations*` routes are registered so that
+`GET /{slug}` cannot swallow them. `registrations.csv` is declared before
+`registrations` for the same reason.
+
+**`GET /api/v1/webinars?include_archived=false`** — the list.
+
+```json
+{ "ok": true,
+  "webinars": [
+    { "slug": "…", "title": "…", "starts_at": "…+02:00", "duration_minutes": 60,
+      "registration_open": true, "status_label": "Open for registration",
+      "demo_access_ends_at": "…+02:00", "registration_count": 47,
+      "registration_url": "https://corexweb.co.za/webinars/…", "archived": false } ] }
+```
+
+`registration_url` is built from `integrations.corex_website_url`, **not** `app.url`.
+It names the marketing site, and CoreX has no other way to know that hostname — this
+is the one field only CoreX can get right, and getting it wrong hands out a link to
+the API instead of to the page.
+
+**`POST /`** / **`PUT /{slug}`** — create and edit. Same body and the same validation
+rules as `Admin\WebinarController::validated()`, deliberately: two front doors to one
+record must not disagree about what a valid record is. `slug` blank on create →
+derived from the title. `200`/`201` with the webinar object; `422` field-keyed.
+
+**`DELETE /{slug}`** — archive, never delete. Idempotent: archiving an
+already-archived webinar is `200`, not an error.
+
+**`GET /{slug}/registrations?page=1&per_page=100`** — paginated, newest first, with a
+`meta` block. Returns the registrant's PII.
+
+**`GET /{slug}/registrations.csv?format=zoom|full`** — streamed, chunked, never
+buffered whole. `zoom` is column-for-column what Zoom's bulk-registrant importer
+expects; `full` is the sales follow-up and matches the existing admin export.
+
+#### Two knowingly-imperfect things
+
+**1. `first_name` / `last_name` are derived, not stored.** §3.2 stores a single
+`name`. The website's console and Zoom's importer both need the halves, so they are
+split at the **first space** — "Jan van der Merwe" → `Jan` / `van der Merwe`. The
+split is lossless on rejoin, so the website's list renders the true full name either
+way, and `name` is also returned so nothing depends on the guess. When the
+`first_name`/`last_name` column split lands, this derivation is deleted and the real
+columns are returned; the API shape does not change.
+
+**2. One token, two scopes — the scopes are not enforced.** The website holds
+`COREX_WEBINAR_PUBLIC_TOKEN` and `COREX_WEBINAR_ADMIN_TOKEN` separately so that a
+compromise of the public registration page cannot read the registrant list. CoreX
+mints **one** `SiteConnector` (§3.3), and `mint()` revokes every previous active
+token, so both website variables currently hold the same value — meaning that
+separation is a property of the website's code only, and any valid site token can
+read registrant PII. Closing this needs a `scope` column on `site_connectors`, a
+middleware parameter, and one active token per scope. **Not built here** — it is a
+change to the connector's own model and admin card, and it belongs in its own task.
+
 ---
 
 ## §5 — The expiry model (A3) — the significant change
