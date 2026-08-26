@@ -2346,9 +2346,9 @@ final class RoleBlockExpansionService
      * before); this only ever adds an ID to a NATURAL-PERSON party's own
      * name, which was never possible before regardless of representation.
      */
-    public function composeEntityPartyText(Contact $entity, bool $includeRegNo = true): string
+    public function composeEntityPartyText(Contact $entity, bool $includeRegNo = true, ?int $overrideProxyRepId = null): string
     {
-        $reps = $this->resolveDocumentRepresentatives($entity);
+        $reps = $this->resolveDocumentRepresentatives($entity, 0, [], $overrideProxyRepId);
 
         $name = (string) ($entity->entity_name ?: $entity->full_name);
         if ($entity->isEntity()) {
@@ -2416,7 +2416,7 @@ final class RoleBlockExpansionService
      *
      * @return array<int, array{0: Contact, 1: ?string, 2: bool, 3: array}> [rep, capacity, isProxy, nestedReps] per rep
      */
-    private function resolveDocumentRepresentatives(Contact $entity, int $depth = 0, array $seenIds = []): array
+    private function resolveDocumentRepresentatives(Contact $entity, int $depth = 0, array $seenIds = [], ?int $overrideProxyRepId = null): array
     {
         if ($depth > self::MAX_REPRESENTATIVE_DEPTH) {
             throw UnresolvableRepresentativeChainException::tooDeep($entity, self::MAX_REPRESENTATIVE_DEPTH);
@@ -2426,7 +2426,15 @@ final class RoleBlockExpansionService
         }
         $seenIds[] = $entity->id;
 
-        $reps = $this->resolveDirectRepresentatives($entity);
+        // Johan, 2026-08-26 — the per-document proxy override (never written
+        // to the pivot) applies only at depth 0, the exact entity
+        // composeEntityPartyText() was called on — same bound as
+        // Contact::proxyAwareRepresentatives()'s own override, so the clause
+        // and the signer describe the same one-off choice, never a deeper
+        // level of the chain.
+        $reps = $depth === 0
+            ? $this->resolveDirectRepresentatives($entity, $overrideProxyRepId)
+            : $this->resolveDirectRepresentatives($entity);
 
         if (empty($reps)) {
             // A NESTED entity representative (depth > 0) with nobody
@@ -2462,7 +2470,7 @@ final class RoleBlockExpansionService
             // they're an entity — so the clause and the signer are
             // guaranteed to describe the same chain.
             $nested = ($r->isEntity() || $r->representatives()->exists())
-                ? $this->resolveDocumentRepresentatives($r, $depth + 1, $seenIds)
+                ? $this->resolveDocumentRepresentatives($r, $depth + 1, $seenIds) // override never inherited past depth 0
                 : [];
 
             return [$r, $capacity, $isProxy, $nested];
@@ -2491,10 +2499,24 @@ final class RoleBlockExpansionService
      *
      * @return array<int, array{0: Contact, 1: ?string, 2: bool}> [rep, capacity, isProxy] per rep
      */
-    private function resolveDirectRepresentatives(Contact $party): array
+    private function resolveDirectRepresentatives(Contact $party, ?int $overrideProxyRepId = null): array
     {
-        return $party->representatives()->get()
-            ->map(fn (Contact $r) => [$r, $r->pivot->capacity, (bool) ($r->pivot->signs_as_proxy ?? false)])
+        $reps = $party->representatives()->get();
+
+        // Johan, 2026-08-26 — the per-document proxy override, never written
+        // to signs_as_proxy on the pivot. Everyone stays named either way
+        // (this method names ALL representatives regardless of proxy); the
+        // override only changes which ONE renders with the proxy wording,
+        // matching whichever one actually receives the signing request.
+        if ($overrideProxyRepId !== null) {
+            if (! $reps->contains('id', $overrideProxyRepId)) {
+                $pickedName = optional(Contact::withoutGlobalScopes()->find($overrideProxyRepId))->full_name ?? 'That person';
+                throw UnresolvableRepresentativeChainException::overrideNotLinked($party, $pickedName);
+            }
+            return $reps->map(fn (Contact $r) => [$r, $r->pivot->capacity, $r->id === $overrideProxyRepId])->all();
+        }
+
+        return $reps->map(fn (Contact $r) => [$r, $r->pivot->capacity, (bool) ($r->pivot->signs_as_proxy ?? false)])
             ->all();
     }
 

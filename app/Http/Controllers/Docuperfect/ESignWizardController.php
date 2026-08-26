@@ -1215,18 +1215,24 @@ class ESignWizardController extends Controller
      * the chain work uses, factored out of searchContacts() below so there is
      * exactly one place this is computed, not a second copy.
      */
-    private function buildEntityRepresentationPreview(Contact $c, ?\App\Models\Docuperfect\EsignRecipientPreset $entityPreset): ?array
+    private function buildEntityRepresentationPreview(Contact $c, ?\App\Models\Docuperfect\EsignRecipientPreset $entityPreset, ?int $overrideProxyRepId = null): ?array
     {
         if (! $c->isEntity()) {
             return null;
         }
-        $signers = $c->signingRepresentatives();
+        // Johan, 2026-08-29 — a per-document proxy pick lives on the flow's
+        // OWN recipient (never written to contact_representatives), so it is
+        // ALWAYS supplied by the caller from that recipient's own data, never
+        // read back from the company/contact here. $overrideProxyRepId null
+        // means "no pick made on this document" — falls through to whatever
+        // is permanently on file (usually nothing, for an ordinary company).
+        $signers = $c->signingRepresentatives($overrideProxyRepId);
 
         return [
             'needs_representative' => $signers->isEmpty(),
-            'signers' => $signers->map(function ($rep) use ($c, $entityPreset) {
+            'signers' => $signers->map(function ($rep) use ($c, $entityPreset, $overrideProxyRepId) {
                 $capacity = $rep->pivot->capacity ?? null;
-                $isProxy  = (bool) ($rep->pivot->signs_as_proxy ?? false);
+                $isProxy  = $overrideProxyRepId !== null ? ($rep->id === $overrideProxyRepId) : (bool) ($rep->pivot->signs_as_proxy ?? false);
                 $phrase   = $entityPreset
                     ? $entityPreset->renderPhrase($c, $rep, $capacity, $isProxy)
                     : \App\Models\Docuperfect\EsignRecipientPreset::substitute(
@@ -1242,14 +1248,17 @@ class ESignWizardController extends Controller
             // agent needs to see and choose among ALL of this company's
             // representatives, not just whoever is currently chosen. Same
             // underlying relation (Contact::representatives(), the raw pivot),
-            // not a second resolution of who signs.
-            'all_representatives' => $c->representatives()->get()->map(function ($rep) {
+            // not a second resolution of who signs. is_proxy here reflects
+            // THIS DOCUMENT's pick when one was made, never the permanent
+            // pivot value in that case — the picker must show what's true
+            // for this flow, not silently show a different document's pick.
+            'all_representatives' => $c->representatives()->get()->map(function ($rep) use ($overrideProxyRepId) {
                 return [
                     'contact_id' => $rep->id,
                     'name' => $rep->full_name,
                     'capacity' => $rep->pivot->capacity ?? null,
                     'is_primary' => (bool) ($rep->pivot->is_primary ?? false),
-                    'is_proxy' => (bool) ($rep->pivot->signs_as_proxy ?? false),
+                    'is_proxy' => $overrideProxyRepId !== null ? ($rep->id === $overrideProxyRepId) : (bool) ($rep->pivot->signs_as_proxy ?? false),
                 ];
             })->values()->all(),
         ];
@@ -1296,7 +1305,10 @@ class ESignWizardController extends Controller
             // non-entity, exactly as before.
             $r['_is_entity'] = $contact->isEntity();
             if ($contact->isEntity()) {
-                $r['_representation'] = $this->buildEntityRepresentationPreview($contact, $entityPreset);
+                // Reopening a saved flow must show THIS flow's own pick
+                // (already sitting on the recipient row, never on the
+                // contact) — not whatever the permanent pivot happens to say.
+                $r['_representation'] = $this->buildEntityRepresentationPreview($contact, $entityPreset, $r['_entity_proxy_contact_id'] ?? null);
             }
         }
         unset($r);
@@ -1694,15 +1706,25 @@ class ESignWizardController extends Controller
      * actually matters is contact_representatives.signs_as_proxy on the
      * CHOSEN representative, which nothing in the wizard let an agent set.
      *
-     * This is that missing write path. It does not add a new way of working
-     * out who signs — Contact::proxyAwareRepresentatives() (via
-     * signingRepresentatives()) already reads signs_as_proxy + is_primary
-     * and already refuses by name rather than guessing when more than one
-     * proxy is marked with no single primary; this endpoint only ever
-     * produces the clean, unambiguous state that logic expects: exactly one
-     * representative flagged proxy+primary, every other one left as a named,
-     * non-signing party (clause unchanged — everyone still named; only the
-     * signing email narrows to one person).
+     * Johan, 2026-08-26 (bug found testing 913f2f102) — the FIRST version of
+     * this endpoint wrote the pick to contact_representatives.signs_as_proxy/
+     * is_primary directly. That is a SHARED, permanent record — a pick made
+     * on one document showed up already selected on the next, unrelated
+     * document for the same company, exactly the class of fault cc2 fixed
+     * the same day for a supplier-executor wrongly linked onto a property as
+     * owner (81f183284): a per-document choice leaking into permanent data.
+     * READ-ONLY now — no write of any kind, to this contact or any other
+     * record. It validates the pick against this company's real, currently-
+     * linked representatives and returns a computed preview of what the
+     * document would look like with that pick applied; the pick itself is
+     * held by the wizard purely client-side and saved only inside THIS
+     * flow's own step_data (_entity_proxy_contact_id on the recipient row),
+     * the same way _is_deceased/_slot_bindings already are. Contact::
+     * signingRepresentatives()/RoleBlockExpansionService::
+     * composeEntityPartyText() both now accept that same per-document
+     * override directly — reused, not duplicated — so the signing decision
+     * and the document's clause text agree without either ever consulting
+     * or touching the permanent pivot for a document-scoped pick.
      */
     public function setEntityProxy(Request $request, Contact $contact): \Illuminate\Http\JsonResponse
     {
@@ -1716,17 +1738,14 @@ class ESignWizardController extends Controller
         }
 
         $validated = $request->validate([
-            // Nullable, not required — sending no id CLEARS the proxy (an
-            // agent who ticked, picked, then changes their mind needs a way
-            // back to "nobody chosen yet" without a second endpoint).
+            // Nullable, not required — sending no id previews "nobody
+            // chosen yet" (the wizard clears its own local pick either way).
             'representative_contact_id' => 'nullable|integer',
         ]);
 
-        $representatives = $contact->representatives()->get();
         $chosenId = $validated['representative_contact_id'] ?? null;
-        $chosen = $chosenId !== null ? $representatives->firstWhere('id', (int) $chosenId) : null;
 
-        if ($chosenId !== null && ! $chosen) {
+        if ($chosenId !== null && ! $contact->representatives()->get()->contains('id', (int) $chosenId)) {
             return response()->json([
                 'ok' => false,
                 'error' => 'That person is not currently linked as a representative of '
@@ -1735,15 +1754,6 @@ class ESignWizardController extends Controller
             ], 422);
         }
 
-        \Illuminate\Support\Facades\DB::transaction(function () use ($contact, $representatives, $chosen) {
-            foreach ($representatives as $rep) {
-                $contact->representatives()->updateExistingPivot($rep->id, [
-                    'signs_as_proxy' => $chosen !== null && $rep->id === $chosen->id,
-                    'is_primary' => $chosen !== null && $rep->id === $chosen->id,
-                ]);
-            }
-        });
-
         $actingAgencyId = (int) ($request->user()?->agency_id ?? 0);
         $entityPreset = $actingAgencyId
             ? \App\Models\Docuperfect\EsignRecipientPreset::resolveFor($actingAgencyId, 'entity')
@@ -1751,7 +1761,7 @@ class ESignWizardController extends Controller
 
         return response()->json([
             'ok' => true,
-            'representation' => $this->buildEntityRepresentationPreview($contact->fresh(), $entityPreset),
+            'representation' => $this->buildEntityRepresentationPreview($contact, $entityPreset, $chosenId !== null ? (int) $chosenId : null),
         ]);
     }
 
@@ -4301,11 +4311,19 @@ class ESignWizardController extends Controller
                 continue;
             }
 
+            // Johan, 2026-08-26 (bug found testing 913f2f102) — the proxy
+            // pick lives on THIS recipient's own row only, never on the
+            // contact/company — set purely client-side by the wizard's
+            // picker and carried through step_data like _is_deceased/
+            // _slot_bindings already are. Never read back from
+            // contact_representatives for this purpose.
+            $overrideProxyRepId = isset($r['_entity_proxy_contact_id']) ? (int) $r['_entity_proxy_contact_id'] : null;
+
             // Proxy-narrowed (who signs) unless this call is explicitly for
             // display, in which case every representative renders its own
             // address/phone/email — a proxy pick must never make the other
             // representatives' details disappear from the document.
-            $signers = $forDisplay ? $contact->representatives()->get() : $contact->signingRepresentatives();
+            $signers = $forDisplay ? $contact->representatives()->get() : $contact->signingRepresentatives($overrideProxyRepId);
             if ($signers->isEmpty()) {
                 $r['order']                        = ++$order;
                 $r['_entity_contact_id']           = (int) $contact->id;
@@ -4317,8 +4335,10 @@ class ESignWizardController extends Controller
 
             foreach ($signers as $rep) {
                 $capacity = $rep->pivot->capacity ?? null;
-                // A PROXY signer renders with the distinct proxy wording.
-                $isProxy  = (bool) ($rep->pivot->signs_as_proxy ?? false);
+                // A PROXY signer renders with the distinct proxy wording —
+                // this document's own pick when one was made, else whatever
+                // is permanently on file (ordinarily nothing, for a company).
+                $isProxy  = $overrideProxyRepId !== null ? ($rep->id === $overrideProxyRepId) : (bool) ($rep->pivot->signs_as_proxy ?? false);
                 $label    = $preset
                     ? $preset->renderPhrase($contact, $rep, $capacity, $isProxy)
                     : \App\Models\Docuperfect\EsignRecipientPreset::substitute(
@@ -4334,7 +4354,7 @@ class ESignWizardController extends Controller
                 // below). A wording template edited after this point must
                 // never change what an already-sent document says.
                 $partyClauseText = app(\App\Services\Docuperfect\RoleBlockExpansionService::class)
-                    ->composeEntityPartyText($contact);
+                    ->composeEntityPartyText($contact, true, $overrideProxyRepId);
 
                 $out[] = [
                     'order'                 => ++$order,

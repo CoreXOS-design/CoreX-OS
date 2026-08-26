@@ -703,9 +703,9 @@ class Contact extends Model
      *
      * @return \Illuminate\Support\Collection<int, \App\Models\Contact>
      */
-    public function signingRepresentatives(): \Illuminate\Support\Collection
+    public function signingRepresentatives(?int $overrideProxyRepId = null): \Illuminate\Support\Collection
     {
-        return $this->proxyAwareRepresentatives();
+        return $this->proxyAwareRepresentatives(0, [], $overrideProxyRepId);
     }
 
     /**
@@ -783,7 +783,7 @@ class Contact extends Model
      *   natural person... refuse, never render/dispatch to a bare entity."
      * @return \Illuminate\Support\Collection<int, \App\Models\Contact>
      */
-    private function proxyAwareRepresentatives(int $depth = 0, array $seenIds = []): \Illuminate\Support\Collection
+    private function proxyAwareRepresentatives(int $depth = 0, array $seenIds = [], ?int $overrideProxyRepId = null): \Illuminate\Support\Collection
     {
         if ($depth > self::MAX_REPRESENTATIVE_DEPTH) {
             throw UnresolvableRepresentativeChainException::tooDeep($this, self::MAX_REPRESENTATIVE_DEPTH);
@@ -810,23 +810,42 @@ class Contact extends Model
             return collect();
         }
 
-        // cc4's finding, cc2 2026-08-26 — first() over whichever rows
-        // signs_as_proxy happens to be true on picked the FIRST one, in
-        // whatever order the query returned them — arbitrary, silent, and
-        // it decides who signs a legal document. is_primary is the pivot
-        // column that exists precisely to break this tie; consult it
-        // instead of guessing. Exactly one proxy: unchanged, no tie to
-        // break. More than one: exactly one must be marked primary, or this
-        // refuses rather than pick — "don't guess" is Johan's own rule.
-        $proxies = $reps->filter(fn (Contact $rep) => (bool) ($rep->pivot->signs_as_proxy ?? false));
-        if ($proxies->count() > 1) {
-            $primaries = $proxies->filter(fn (Contact $rep) => (bool) ($rep->pivot->is_primary ?? false));
-            if ($primaries->count() !== 1) {
-                throw UnresolvableRepresentativeChainException::ambiguousProxy($this, $proxies->count(), $primaries->count());
+        // Johan, 2026-08-26 — a per-document proxy pick (the wizard's
+        // "Proxy" picker) applies ONLY at depth 0 — the exact entity
+        // signingRepresentatives()/emailRepresentatives() was called on —
+        // and is never written to signs_as_proxy/is_primary on the pivot;
+        // it lives on the flow's own recipient data and is passed in fresh
+        // on every call. A deeper level in the chain (this rep is itself
+        // represented by someone else) still resolves from the pivot's own
+        // permanent state below, unaffected — the override is not this
+        // party's standing designation, only this one document's choice of
+        // who among ALREADY-linked representatives actually signs.
+        if ($depth === 0 && $overrideProxyRepId !== null) {
+            $picked = $reps->firstWhere('id', $overrideProxyRepId);
+            if (! $picked) {
+                $pickedName = optional(self::withoutGlobalScopes()->find($overrideProxyRepId))->full_name ?? 'That person';
+                throw UnresolvableRepresentativeChainException::overrideNotLinked($this, $pickedName);
             }
-            $proxy = $primaries->first();
+            $proxy = $picked;
         } else {
-            $proxy = $proxies->first();
+            // cc4's finding, cc2 2026-08-26 — first() over whichever rows
+            // signs_as_proxy happens to be true on picked the FIRST one, in
+            // whatever order the query returned them — arbitrary, silent, and
+            // it decides who signs a legal document. is_primary is the pivot
+            // column that exists precisely to break this tie; consult it
+            // instead of guessing. Exactly one proxy: unchanged, no tie to
+            // break. More than one: exactly one must be marked primary, or this
+            // refuses rather than pick — "don't guess" is Johan's own rule.
+            $proxies = $reps->filter(fn (Contact $rep) => (bool) ($rep->pivot->signs_as_proxy ?? false));
+            if ($proxies->count() > 1) {
+                $primaries = $proxies->filter(fn (Contact $rep) => (bool) ($rep->pivot->is_primary ?? false));
+                if ($primaries->count() !== 1) {
+                    throw UnresolvableRepresentativeChainException::ambiguousProxy($this, $proxies->count(), $primaries->count());
+                }
+                $proxy = $primaries->first();
+            } else {
+                $proxy = $proxies->first();
+            }
         }
         $levelReps = $proxy ? collect([$proxy]) : $reps;
 

@@ -675,7 +675,14 @@
                                     </template>
                                     <template x-for="rep in (r._representation ? (r._representation.all_representatives || []) : [])" :key="rep.contact_id">
                                         <label class="flex items-center gap-1.5 cursor-pointer select-none">
-                                            <input type="radio" :name="'entity-proxy-' + ri" :checked="rep.is_proxy"
+                                            {{-- Johan, 2026-08-26 (bug found testing 913f2f102) — checked
+                                                 reflects THIS recipient's own pick only (r._entity_proxy_
+                                                 contact_id), never rep.is_proxy — that field can carry a
+                                                 permanent pivot value from outside this document entirely;
+                                                 trusting it here is exactly how a pick leaked onto the next,
+                                                 unrelated document. A brand-new pick on this document starts
+                                                 with nothing checked, full stop. --}}
+                                            <input type="radio" :name="'entity-proxy-' + ri" :checked="r._entity_proxy_contact_id === rep.contact_id"
                                                    @change="setEntityProxyPick(ri, rep.contact_id)"
                                                    style="accent-color: var(--ds-amber, #f59e0b); width: 13px; height: 13px;">
                                             <span class="font-medium" style="color: var(--text-primary);" x-text="rep.name"></span>
@@ -3370,6 +3377,13 @@ function esignWizard() {
                         // a later session re-opening the replace modal can
                         // still clean up a stale auto-added recipient.
                         _deceased_substitute_for: r._deceased_substitute_for || null,
+                        // Johan, 2026-08-26 (bug found testing 913f2f102) — the
+                        // proxy pick belongs to THIS document only. Must be
+                        // explicitly saved here or it silently vanishes the
+                        // moment the agent leaves this step, since this
+                        // recipient list is a hand-picked whitelist, not a
+                        // pass-through of the whole live object.
+                        _entity_proxy_contact_id: r._entity_proxy_contact_id || null,
                     })),
                 };
                 case 4: {
@@ -3698,11 +3712,14 @@ function esignWizard() {
             // server re-expands via expandEntityRecipients().
             r._is_entity = !!contact.is_entity;
             r._representation = contact.representation || null;
-            // Reflect whatever proxy is ALREADY set on this company's
-            // representatives (contact_representatives.signs_as_proxy),
-            // rather than always starting the checkbox unticked — reopening
-            // a company with a proxy already chosen should show it as such.
-            r._is_proxy = !!(r._representation && (r._representation.all_representatives || []).some(x => x.is_proxy));
+            // Johan, 2026-08-26 (bug found testing 913f2f102) — a proxy pick
+            // belongs to THIS document only, never to the company. Picking a
+            // company here is always a BRAND NEW document as far as proxy
+            // goes: starts unticked, nothing pre-selected, regardless of any
+            // pick made on some other document for the same company. Do not
+            // seed this from the search result's representation.
+            r._is_proxy = false;
+            r._entity_proxy_contact_id = null;
 
             // Johan, 2026-08-25 — supplier vs contact recipient. A picked
             // supplier's own id lives in a DIFFERENT book (agency_service_
@@ -3781,15 +3798,22 @@ function esignWizard() {
         // nothing: it flagged the entity's own recipient row, which the
         // server discards the moment it expands into the real representative
         // rows. Ticking now opens a picker over this company's actual
-        // representatives; picking one writes signs_as_proxy+is_primary onto
-        // THAT representative's contact_representatives pivot — the same
-        // field Contact::proxyAwareRepresentatives() already reads to decide
-        // who signs. Un-ticking clears it (same endpoint, no id) rather than
-        // just hiding the picker, so the checkbox always reflects real state.
+        // representatives.
+        //
+        // Johan, 2026-08-26 (bug found testing 913f2f102) — the FIRST version
+        // of this wrote the pick straight onto contact_representatives, a
+        // SHARED record — a pick on one document showed up already selected
+        // on the next, unrelated document for the same company. The pick now
+        // lives ONLY on this recipient row (_entity_proxy_contact_id),
+        // saved into THIS flow's own step_data exactly like _is_deceased/
+        // _slot_bindings already are — never sent anywhere as a write. The
+        // server call below is READ-ONLY: it validates the pick against the
+        // company's real representatives and returns a computed preview,
+        // nothing more.
         async toggleEntityProxy(recipientIndex) {
             const r = this.recipients[recipientIndex];
             if (r._is_proxy) return; // opening the picker is enough; nothing to save until a pick is made
-            // Unticked — clear whichever representative was proxy.
+            // Unticked — clear whichever representative was picked FOR THIS DOCUMENT.
             await this.setEntityProxyPick(recipientIndex, null);
         },
 
@@ -3812,11 +3836,12 @@ function esignWizard() {
                     return;
                 }
                 r._representation = result.representation;
-                r._is_proxy = !!(r._representation.all_representatives || []).some(x => x.is_proxy);
-                this.showToast(representativeContactId ? 'Proxy representative set.' : 'Proxy cleared — all representatives sign again.', 'success');
+                r._entity_proxy_contact_id = representativeContactId || null;
+                r._is_proxy = !!representativeContactId;
+                this.showToast(representativeContactId ? 'Proxy representative set for this document.' : 'Proxy cleared for this document — all representatives sign again.', 'success');
             } catch (e) {
                 console.error('setEntityProxyPick error:', e);
-                this.showToast('Could not reach the server to set the proxy.', 'error');
+                this.showToast('Could not reach the server to check the proxy pick.', 'error');
             }
         },
 

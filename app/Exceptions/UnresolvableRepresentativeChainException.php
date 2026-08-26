@@ -87,4 +87,26 @@ class UnresolvableRepresentativeChainException extends Exception
             null
         );
     }
+
+    /**
+     * Johan, 2026-08-26 — a per-document proxy pick (the wizard's "Proxy"
+     * picker on a company recipient) lives on the flow/recipient only, never
+     * written onto contact_representatives — so it can go stale between the
+     * moment an agent picks it and the moment the document actually
+     * generates (the representative link could have been removed in
+     * between). Refuse and name both parties, same as every other
+     * unresolvable shape in this class, rather than silently fall back to a
+     * different signer than the one the agent actually picked.
+     */
+    public static function overrideNotLinked(Contact $party, string $pickedName): self
+    {
+        $name = (string) ($party->entity_name ?: $party->full_name);
+
+        return new self(
+            "\"{$pickedName}\" was picked as the signing proxy for \"{$name}\" on this document, but is no longer "
+            . 'linked as a representative — re-pick the proxy on the recipient screen before re-sending.',
+            0,
+            null
+        );
+    }
 }
