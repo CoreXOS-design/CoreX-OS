@@ -1792,8 +1792,17 @@ class SignatureService
      *                                       signing_order walk exactly like any other skip.
      * @return SignatureRequest|null the request actually notified (or the authoriser request for
      *                                the caller to notify), or null once the chain is exhausted.
+     *
+     * 2026-08-26 fix (Johan — the send cascade stalls at a skipped party) —
+     * made public so SignatureController::sendForSignature()'s manual "click
+     * send" path can call this SAME walk instead of the standalone
+     * party_role lookup it used to do (first same-role row, no signing_order,
+     * no status filter — which could land on an already-NOT_REQUIRED row and
+     * silently do nothing while still reporting success). No other caller or
+     * behaviour changes; this is a visibility change onto the one existing
+     * implementation, not a new one.
      */
-    private function advanceToNextSigningParticipant(SignatureTemplate $template, ?SignatureRequest $only): ?SignatureRequest
+    public function advanceToNextSigningParticipant(SignatureTemplate $template, ?SignatureRequest $only): ?SignatureRequest
     {
         $candidate = $only;
 
@@ -1822,6 +1831,30 @@ class SignatureService
 
             return $candidate; // a real dispatch happened (PENDING or DEFERRED)
         }
+    }
+
+    /**
+     * 2026-08-26 fix (Johan — the send cascade stalls at a skipped party) —
+     * READ-ONLY preview of who advanceToNextSigningParticipant() would
+     * actually notify right now: the same signing_order walk, the same
+     * isSigningParticipant() predicate every real skip decision already
+     * goes through — but no send, no NOT_REQUIRED transition, no side
+     * effect at all. Exists so a caller (the manual "send" button) can
+     * check something about the REAL next party — has an email, needs a
+     * custom message attached — before the actual notify/skip walk runs,
+     * without re-deriving "who's a real participant" a second way. Skips
+     * straight past a WAITING row that isn't a genuine signing participant
+     * (deceased, proxy-collapsed) exactly as the real walk would, but
+     * leaves those rows untouched — they're only ever transitioned by
+     * sendSigningRequest() itself, never by this preview.
+     */
+    public function peekNextSigningCandidate(SignatureTemplate $template): ?SignatureRequest
+    {
+        return $template->requests()
+            ->where('status', SignatureRequest::STATUS_WAITING)
+            ->orderBy('signing_order', 'asc')
+            ->get()
+            ->first(fn (SignatureRequest $r) => $this->isAuthoriserRole($r->party_role) || $r->isSigningParticipant());
     }
 
     /**

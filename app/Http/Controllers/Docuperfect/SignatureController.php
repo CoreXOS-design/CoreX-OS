@@ -1907,12 +1907,24 @@ class SignatureController extends Controller
         ];
 
         if (in_array($template->status, $awaitingStatuses)) {
-            $currentRole = $template->currentPartyRole();
-            $partyRequest = $currentRole
-                ? $template->requests()->where('party_role', $currentRole)->first()
-                : null;
+            // 2026-08-26 fix (Johan — the send cascade stalls at a skipped
+            // party) — this used to look up "the first row with this role,"
+            // no signing_order, no status filter. Once that first row was
+            // already NOT_REQUIRED (deceased, or superseded by a proxy in
+            // its own group), the $partyRequest->status === WAITING check
+            // below was never true, sendSigningRequest() was never called on
+            // ANYONE, and the agent still saw "Document sent" — the exact
+            // shape Johan named: the deceased is skipped, but the substitute
+            // who actually signs is never reached by the ordinary button.
+            // peekNextSigningCandidate() finds who the real walk would
+            // notify (same signing_order, same isSigningParticipant() the
+            // walk itself uses — read-only, no second definition of "who
+            // signs"), so the no-email check and the custom message below
+            // land on the actual next real party, not a stale guess.
+            $partyRequest = $this->signatureService->peekNextSigningCandidate($template);
+            $currentRole = $partyRequest?->party_role ?? $template->currentPartyRole();
 
-            if ($partyRequest && $partyRequest->status === SignatureRequest::STATUS_WAITING) {
+            if ($partyRequest) {
                 // AT-294 PREVENT — reject upfront rather than silently dead-end
                 // on a Mail::to('') that gets swallowed.
                 if (trim((string) $partyRequest->signer_email) === '') {
@@ -1923,7 +1935,11 @@ class SignatureController extends Controller
                 if ($request->filled('message')) {
                     $partyRequest->update(['message' => $request->input('message')]);
                 }
-                $this->signatureService->sendSigningRequest($partyRequest);
+                // The real walk, not a second lookup: passes the peeked
+                // candidate as $only, which the walk tries first and falls
+                // through from exactly like any other skip if it turns out
+                // to no longer qualify by the time this runs.
+                $this->signatureService->advanceToNextSigningParticipant($template, $partyRequest);
             }
 
             $partyLabel = $currentRole ? ucfirst($currentRole) : 'next party';
