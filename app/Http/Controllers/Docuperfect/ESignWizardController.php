@@ -627,7 +627,11 @@ class ESignWizardController extends Controller
         // agent confirms here is exactly what gets created.
         $recipientsForView = $step === 6
             ? $this->expandEntityRecipients($stepData['recipients']['recipients'] ?? [], $request->user())
-            : ($stepData['recipients']['recipients'] ?? []);
+            // Flow 480 (Johan, 2026-08-29) — the raw recipient rows shown on
+            // steps 1-5 need _is_entity/_representation recomputed on every
+            // load, not just carried from a fresh client-side pick, or the
+            // "Signs via its representative(s)" preview vanishes on reopen.
+            : $this->attachEntityRepresentationPreview($stepData['recipients']['recipients'] ?? [], $request->user());
 
         return view('docuperfect.esign.wizard', [
             'flow'           => $flow,
@@ -1181,6 +1185,78 @@ class ESignWizardController extends Controller
     }
 
     /**
+     * Flow 480 (Johan, 2026-08-29) — the recipients step (3) shows an entity's
+     * "Signs via its representative(s)" preview off `_is_entity`/`_representation`
+     * on the recipient row, but those are set client-side only at the moment a
+     * contact is picked (selectContact() in wizard.blade.php) and were never
+     * persisted into step_data — so the preview showed correctly on a fresh
+     * pick and vanished on reopening the saved flow. Rather than persist a
+     * snapshot (which can drift — the same entity's proxy/primary flags
+     * changed mid-session earlier tonight), this recomputes it fresh from the
+     * SAME identity resolution (Contact::signingRepresentatives()) the rest of
+     * the chain work uses, factored out of searchContacts() below so there is
+     * exactly one place this is computed, not a second copy.
+     */
+    private function buildEntityRepresentationPreview(Contact $c, ?\App\Models\Docuperfect\EsignRecipientPreset $entityPreset): ?array
+    {
+        if (! $c->isEntity()) {
+            return null;
+        }
+        $signers = $c->signingRepresentatives();
+
+        return [
+            'needs_representative' => $signers->isEmpty(),
+            'signers' => $signers->map(function ($rep) use ($c, $entityPreset) {
+                $capacity = $rep->pivot->capacity ?? null;
+                $isProxy  = (bool) ($rep->pivot->signs_as_proxy ?? false);
+                $phrase   = $entityPreset
+                    ? $entityPreset->renderPhrase($c, $rep, $capacity, $isProxy)
+                    : \App\Models\Docuperfect\EsignRecipientPreset::substitute(
+                        $isProxy
+                            ? \App\Models\Docuperfect\EsignRecipientPreset::DEFAULT_PROXY_PHRASING
+                            : \App\Models\Docuperfect\EsignRecipientPreset::DEFAULT_PHRASING,
+                        $c, $rep, $capacity);
+                return ['rep_name' => $rep->full_name, 'capacity' => $capacity, 'is_proxy' => $isProxy, 'phrase' => $phrase];
+            })->values()->all(),
+        ];
+    }
+
+    /**
+     * Flow 480 — re-attaches _is_entity/_representation to every entity
+     * recipient row before handing $recipients to the wizard view, so the
+     * step-3 preview survives a reload the same way it showed on first pick.
+     * Additive only: rows without a resolvable Contact are returned as-is.
+     */
+    private function attachEntityRepresentationPreview(array $recipients, $user): array
+    {
+        $entityContactIds = collect($recipients)
+            ->filter(fn ($r) => ! empty($r['_contact_id']) && ($r['_recipient_source'] ?? 'contact') === 'contact')
+            ->pluck('_contact_id')
+            ->unique();
+        if ($entityContactIds->isEmpty()) {
+            return $recipients;
+        }
+
+        $contactsById = Contact::whereIn('id', $entityContactIds)->get()->keyBy('id');
+        $actingAgencyId = (int) ($user?->agency_id ?? 0);
+        $entityPreset = $actingAgencyId
+            ? \App\Models\Docuperfect\EsignRecipientPreset::resolveFor($actingAgencyId, 'entity')
+            : null;
+
+        foreach ($recipients as &$r) {
+            $contact = ! empty($r['_contact_id']) ? ($contactsById[$r['_contact_id']] ?? null) : null;
+            if (! $contact || ! $contact->isEntity()) {
+                continue;
+            }
+            $r['_is_entity'] = true;
+            $r['_representation'] = $this->buildEntityRepresentationPreview($contact, $entityPreset);
+        }
+        unset($r);
+
+        return $recipients;
+    }
+
+    /**
      * API: search contacts for autocomplete.
      *
      * Returns full contact data including bank details for auto-fill.
@@ -1293,25 +1369,7 @@ class ESignWizardController extends Controller
             : collect();
 
         $contactResults = $contacts->map(function ($c) use ($q, $entityPreset) {
-            $representation = null;
-            if ($c->isEntity()) {
-                $signers = $c->signingRepresentatives();
-                $representation = [
-                    'needs_representative' => $signers->isEmpty(),
-                    'signers' => $signers->map(function ($rep) use ($c, $entityPreset) {
-                        $capacity = $rep->pivot->capacity ?? null;
-                        $isProxy  = (bool) ($rep->pivot->signs_as_proxy ?? false);
-                        $phrase   = $entityPreset
-                            ? $entityPreset->renderPhrase($c, $rep, $capacity, $isProxy)
-                            : \App\Models\Docuperfect\EsignRecipientPreset::substitute(
-                                $isProxy
-                                    ? \App\Models\Docuperfect\EsignRecipientPreset::DEFAULT_PROXY_PHRASING
-                                    : \App\Models\Docuperfect\EsignRecipientPreset::DEFAULT_PHRASING,
-                                $c, $rep, $capacity);
-                        return ['rep_name' => $rep->full_name, 'capacity' => $capacity, 'is_proxy' => $isProxy, 'phrase' => $phrase];
-                    })->values()->all(),
-                ];
-            }
+            $representation = $this->buildEntityRepresentationPreview($c, $entityPreset);
             return [
                 'id'                  => $c->id,
                 'source'              => 'contact',
