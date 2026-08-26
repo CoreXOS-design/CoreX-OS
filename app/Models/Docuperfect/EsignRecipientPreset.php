@@ -243,10 +243,25 @@ class EsignRecipientPreset extends Model
     }
 
     /**
+     * The ", duly authorised representative" phrase attaches in exactly ONE
+     * place: the one real person who actually signs — the LEAF of the
+     * chain, whatever the chain is made of. Every intermediate LINK
+     * (whether it's an entity, per cc3's fix f8ad367f7, or a natural person
+     * who is themselves represented by someone else, cc2's own regression
+     * the same night) never appends the phrase itself; the recursive call
+     * into the deepest rep's own entry already appends it once, correctly,
+     * there. A single condition governs this for both shapes — $nestedReps
+     * empty means THIS rep is the leaf and the phrase belongs to them;
+     * $nestedReps non-empty means it doesn't, full stop — so the entity
+     * branch and the natural-person branch can never again drift into two
+     * separate copies of the same rule.
+     *
      * @param array<int, array{0: Contact, 1: ?string, 2: bool, 3?: array}> $nestedReps this rep's OWN representatives — an entity rep's by requirement, a natural-person rep's when they are themselves represented by someone else
      */
     private static function formatRepresentativeEntry(Contact $rep, ?string $capacity, bool $isProxy, array $nestedReps = []): string
     {
+        $isLeaf = empty($nestedReps);
+
         if ($rep->isEntity()) {
             // A representative that is itself an entity MUST have its own
             // representative(s) by the time this runs — the producer
@@ -256,7 +271,7 @@ class EsignRecipientPreset extends Model
             // that reaches this method some other way must not silently
             // fall through to the bare-company-name bug this whole change
             // exists to fix.
-            if (empty($nestedReps)) {
+            if ($isLeaf) {
                 throw UnresolvableRepresentativeChainException::entityWithNoRepresentative($rep);
             }
 
@@ -267,35 +282,36 @@ class EsignRecipientPreset extends Model
             }
 
             $entry = self::composePartyClause($repName, $nestedReps);
+        } else {
+            $id = trim((string) ($rep->id_number ?? ''));
+            $cap = trim((string) ($capacity ?? ''));
+            $name = (string) $rep->full_name;
 
-            return $isProxy ? "{$entry}, duly authorised representative" : $entry;
+            $bracket = implode(', ', array_filter([
+                $id !== '' ? "ID: {$id}" : null,
+                $cap !== '' ? $cap : null,
+            ]));
+
+            $label = $bracket !== '' ? "{$name} ({$bracket})" : $name;
+
+            // A natural-person rep with their OWN representative
+            // (RoleBlockExpansionService::resolveDocumentRepresentatives()
+            // resolves this chain past them, matching
+            // Contact::signingRepresentatives()'s already-correct reach)
+            // must print the FULL chain here too, or the clause silently
+            // undercounts at exactly the hop the resolver already walks —
+            // Anna → Ben → Chris, cc2, 2026-08-26. A natural person with no
+            // representative of their own (the ordinary, overwhelming
+            // majority case) is unaffected — $nestedReps is empty and this
+            // is exactly the prior, unchanged behaviour.
+            $entry = $isLeaf ? $label : self::composePartyClause($label, $nestedReps);
         }
 
-        $id = trim((string) ($rep->id_number ?? ''));
-        $cap = trim((string) ($capacity ?? ''));
-        $name = (string) $rep->full_name;
-
-        $bracket = implode(', ', array_filter([
-            $id !== '' ? "ID: {$id}" : null,
-            $cap !== '' ? $cap : null,
-        ]));
-
-        $label = $bracket !== '' ? "{$name} ({$bracket})" : $name;
-
-        // cc2, 2026-08-26 (Anna → Ben → Chris) — a natural-person rep with
-        // their OWN representative (RoleBlockExpansionService::
-        // resolveDocumentRepresentatives() now resolves this chain past Ben,
-        // matching Contact::signingRepresentatives()'s already-correct
-        // reach) must print the FULL chain here too, or the clause silently
-        // undercounts at exactly the hop the resolver just fixed — a clause
-        // saying "represented by Ben" while the actual, correctly-resolved
-        // signer is Chris is the same disagreement last night's guard exists
-        // to prevent, just moved into the text itself. A natural person with
-        // no representative of their own (the ordinary case) is unaffected
-        // — $nestedReps is empty and this is exactly the prior behaviour.
-        $entry = empty($nestedReps) ? $label : self::composePartyClause($label, $nestedReps);
-
-        return $isProxy ? "{$entry}, duly authorised representative" : $entry;
+        // $isProxy describes THIS rep's own relationship to whoever they
+        // represent — real regardless of leaf-ness — but the WORDING only
+        // belongs at the leaf: an intermediate link's own proxy status has
+        // no bearing on a signature nobody at that level ever makes.
+        return ($isProxy && $isLeaf) ? "{$entry}, duly authorised representative" : $entry;
     }
 
     /** Johan's join rule (2026-08-24): comma between, "and" before the last one. */
