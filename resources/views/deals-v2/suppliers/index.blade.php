@@ -149,6 +149,7 @@
                                 <span class="font-medium" style="color: var(--text-primary);">{{ $p->name }}</span>
                                 @if($p->is_preferred)<span class="ds-badge ds-badge-success ml-2">Preferred</span>@endif
                                 @if($p->company)<div class="text-[11px]" style="color: var(--text-muted);">{{ $p->company }}</div>@endif
+                                @if($p->registration_number)<div class="text-[11px]" style="color: var(--text-muted);">Reg: {{ $p->registration_number }}</div>@endif
                                 {{-- AT-319 — the supplier's service types (labels; falls back to the stored code if archived). --}}
                                 @if($p->serviceTypes->isNotEmpty())
                                     <div class="mt-1 flex flex-wrap gap-1">
