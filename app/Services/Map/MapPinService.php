@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Map;
 
+use App\Models\Prospecting\TrackedPropertyAddress;
 use App\Support\MarketAnalytics\OutlierGuard;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -484,7 +485,7 @@ final class MapPinService
         $rows = $q->select([
                 'id', 'agency_id',
                 'street_number', 'street_name', 'suburb', 'town', 'province',
-                'erf_number', 'property_type',
+                'erf_number', 'section_number', 'unit_number', 'property_type',
                 'latitude', 'longitude',
                 'first_seen_at', 'last_enriched_at',
                 'geo_source', 'geo_confidence',
@@ -492,6 +493,75 @@ final class MapPinService
             ->orderBy('id')
             ->limit($limit)
             ->get();
+
+        // 2026-08-27 — Johan/cc2's finding: a tracked property whose address is
+        // an EXACT match (street_number + normalised street_name + normalised
+        // suburb) for an existing, non-deleted agency Property still draws its
+        // own separate T-pin on top of the H-pin, because the only exclusion
+        // this method had was promoted_to_property_id IS NULL — and nobody had
+        // ever run the (manual, agent-triggered) promote action on this specific
+        // pair, so that column stays null even though the two are unmistakably
+        // the same physical property. Reproduced on staging: "3 Sixth Street" /
+        // "27 6th Street" — same street (the ordinal normaliser already unifies
+        // "Sixth" and "6th"), never linked.
+        //
+        // This is NOT a new, invented link — it reuses the EXACT structured
+        // address-fallback comparison TrackedPropertyMatchOrCreateService::
+        // resolvePropertyMatch() already trusts enough to auto-select without
+        // human review (unlike that method's separate, deliberately-cautious
+        // GPS-proximity fallback, which the comments there explicitly say is
+        // "a corroborating signal, not an identity one" and is NEVER
+        // auto-linked). Read-only for map presentation — this does not write
+        // promoted_to_property_id or touch any stored data, and it never folds
+        // two tracked properties into each other's Property match when they
+        // carry conflicting unit/section numbers, exactly as
+        // propertyIdentityConflicts() already guards for promotion itself.
+        if ($rows->isNotEmpty()) {
+            $preFoldCount = $rows->count();
+            $propertyRows = DB::table('properties')
+                ->where('agency_id', $req->agencyId)
+                ->whereNull('deleted_at')
+                ->whereNotNull('street_number')
+                ->whereNotNull('street_name_normalised')
+                ->whereNotNull('suburb_normalised')
+                ->select(['street_number', 'street_name_normalised', 'suburb_normalised', 'unit_number'])
+                ->get();
+            $propertyIndex = [];
+            foreach ($propertyRows as $pr) {
+                $key = trim((string) $pr->street_number) . '|' . $pr->street_name_normalised . '|' . $pr->suburb_normalised;
+                $propertyIndex[$key][] = TrackedPropertyAddress::normaliseNumericIdentifier($pr->unit_number);
+            }
+
+            $rows = $rows->reject(function ($r) use ($propertyIndex) {
+                if (!$r->street_number || !$r->street_name || !$r->suburb) {
+                    return false;
+                }
+                $streetNorm = TrackedPropertyAddress::normaliseStreet($r->street_name);
+                $suburbNorm = TrackedPropertyAddress::normaliseSuburb($r->suburb);
+                if ($streetNorm === null || $suburbNorm === null) {
+                    return false;
+                }
+                $key = trim((string) $r->street_number) . '|' . $streetNorm . '|' . $suburbNorm;
+                if (!isset($propertyIndex[$key])) {
+                    return false;
+                }
+                $tpUnit = TrackedPropertyAddress::normaliseNumericIdentifier($r->section_number ?: $r->unit_number);
+                foreach ($propertyIndex[$key] as $candUnit) {
+                    // No conflict (either side blank, or both agree) → same
+                    // property already on our books; fold the T-pin away.
+                    if ($tpUnit === null || $candUnit === null || $tpUnit === $candUnit) {
+                        return true;
+                    }
+                }
+                return false; // every candidate at this address is a DIFFERENT unit
+            })->values();
+
+            // Keep the cap-detection total honest — it must reflect the
+            // SAME already-on-our-books folding the pins themselves just
+            // got, or a bbox with folded duplicates would misreport a
+            // "truncated" layer badge that was never true.
+            $total = max($total - ($preFoldCount - $rows->count()), $rows->count());
+        }
 
         $pins = $rows->map(function ($r) {
             $streetParts = array_filter([$r->street_number ?? null, $r->street_name ?? null]);
