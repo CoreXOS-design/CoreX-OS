@@ -476,7 +476,16 @@ final class RoleBlockExpansionService
         if ($blocks === false || $blocks->length === 0) {
             return;
         }
-        $byRole = $this->groupRecipientsByRole($recipients);
+        // Johan, 2026-08-26 (Anine/Elize flow) — a deceased party is named in
+        // the document body (unaffected: that uses the OUTER $recipsByRole
+        // grouping in expandWithLooping(), a separate call) but never signs
+        // and must never get an attestation block of her own — an empty
+        // "Thus done and signed by the Seller at ___" line is exactly what a
+        // conveyancer rejects. Filtered ONLY for this local grouping, not the
+        // shared groupRecipientsByRole() method itself.
+        $byRole = $this->groupRecipientsByRole(
+            $recipients->reject(fn (SignatureRequest $r) => (bool) $r->is_deceased)
+        );
 
         // Snapshot to a plain array — we mutate the DOM while iterating.
         $blockEls = [];

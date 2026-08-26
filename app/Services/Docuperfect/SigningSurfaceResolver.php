@@ -116,6 +116,24 @@ class SigningSurfaceResolver
                 }
                 $familyBase = preg_replace('/_\d+$/', '', strtolower((string) $rc['key']));
 
+                // Johan, 2026-08-26 (Anine/Elize flow, "Elize appears twice")
+                // — a family whose existing surface lives in a `.sig-party-block`
+                // is compose-expanded PER RECIPIENT later, by
+                // RoleBlockExpansionService::expandAttestationBlocksPerRecipient()
+                // (see closestSignatureBlock()'s docblock: that block type is
+                // deliberately excluded from cloneFamilyBlockForInstance() below
+                // for exactly this reason — cloning it here would double it).
+                // That means a missing NUMBERED instance (seller_2, seller_3...)
+                // of such a family is not actually missing — it will exist once
+                // the shared block splits — so injecting one here always doubles
+                // whichever recipient it lands on. Only a family with NO surface
+                // at all, or one housed in the template's own per-party layout
+                // (.signature-section/.mdf-sig, which is NOT compose-expanded),
+                // still needs this resolver's help.
+                if ($this->familyHasSigPartyBlockMarker($xpath, $familyBase)) {
+                    continue;
+                }
+
                 // AT-303 ISSUE-2 — a 2nd same-role recipient (seller_2) must render in
                 // the TEMPLATE'S OWN signature layout, GROUPED with seller_1 — never
                 // stranded in a separate injected section at the end of the page (which
@@ -174,6 +192,14 @@ class SigningSurfaceResolver
         $out    = [];
         $counts = [];
         foreach ($recipients as $r) {
+            // Johan, 2026-08-26 (Anine/Elize flow) — a deceased party never
+            // signs, so she is not a signing recipient for this purpose (she
+            // still appears in the document body via a separate path). Left
+            // uncounted here so a later recipient's canonical key isn't
+            // shifted (seller_3 for what is really the 2nd actual signer).
+            if (! empty($r['_is_deceased'])) {
+                continue;
+            }
             $role = strtolower(preg_replace('/_\d+$/', '', $r['role'] ?? ''));
             if ($role === '' || in_array($role, self::AGENT_TERMS, true)) {
                 continue; // agent added explicitly below
@@ -293,6 +319,42 @@ class SigningSurfaceResolver
             $block->parentNode->appendChild($clone);
         }
         return true;
+    }
+
+    /**
+     * Johan, 2026-08-26 (Anine/Elize flow) — does this family's EXISTING
+     * signature surface (any instance, base or numbered) live inside a
+     * `.sig-party-block`? That block type is compose-expanded per recipient
+     * later (RoleBlockExpansionService::expandAttestationBlocksPerRecipient(),
+     * same "one shared block, N recipients" split closestSignatureBlock()'s
+     * docblock already describes) — so resolve() must never inject an
+     * additional surface for a "missing" numbered instance of such a family;
+     * it isn't actually missing, it will exist once the shared block splits.
+     */
+    private function familyHasSigPartyBlockMarker(\DOMXPath $xpath, string $familyBase): bool
+    {
+        $markers = $xpath->query('//*[@data-marker-type="signature"][@data-marker-party]');
+        if ($markers === false) {
+            return false;
+        }
+        foreach ($markers as $m) {
+            if (! $m instanceof \DOMElement) {
+                continue;
+            }
+            $party = strtolower((string) $m->getAttribute('data-marker-party'));
+            if (preg_replace('/_\d+$/', '', $party) !== $familyBase) {
+                continue;
+            }
+            $node = $m;
+            while ($node instanceof \DOMElement) {
+                $cls = ' ' . strtolower(trim($node->getAttribute('class'))) . ' ';
+                if (str_contains($cls, ' sig-party-block ')) {
+                    return true;
+                }
+                $node = $node->parentNode;
+            }
+        }
+        return false;
     }
 
     /**
