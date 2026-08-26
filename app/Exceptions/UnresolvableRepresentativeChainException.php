@@ -63,4 +63,28 @@ class UnresolvableRepresentativeChainException extends Exception
             null
         );
     }
+
+    /**
+     * cc4's finding, cc2 2026-08-26 — two (or zero) representatives marked
+     * signs_as_proxy for the same party, with is_primary — the field that
+     * exists precisely to break this tie — either not consulted at all or
+     * itself not pointing at exactly one of them. Picking whichever record
+     * happens to sort first is a silent, arbitrary decision about who signs
+     * a legal document. Refuse and name the party, same as every other
+     * unresolvable shape in this class, rather than guess.
+     */
+    public static function ambiguousProxy(Contact $party, int $proxyCount, int $primaryCount): self
+    {
+        $name = (string) ($party->entity_name ?: $party->full_name);
+        $detail = $primaryCount === 0
+            ? "{$proxyCount} representatives are marked as signing by proxy, and none is marked primary"
+            : "{$proxyCount} representatives are marked as signing by proxy, and {$primaryCount} are marked primary";
+
+        return new self(
+            "\"{$name}\" has more than one representative marked to sign by proxy, and it isn't clear which one — "
+            . "{$detail}. Mark exactly one as primary on the recipient screen before re-sending.",
+            0,
+            null
+        );
+    }
 }

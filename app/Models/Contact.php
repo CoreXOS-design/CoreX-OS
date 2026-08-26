@@ -810,7 +810,24 @@ class Contact extends Model
             return collect();
         }
 
-        $proxy = $reps->first(fn (Contact $rep) => (bool) ($rep->pivot->signs_as_proxy ?? false));
+        // cc4's finding, cc2 2026-08-26 — first() over whichever rows
+        // signs_as_proxy happens to be true on picked the FIRST one, in
+        // whatever order the query returned them — arbitrary, silent, and
+        // it decides who signs a legal document. is_primary is the pivot
+        // column that exists precisely to break this tie; consult it
+        // instead of guessing. Exactly one proxy: unchanged, no tie to
+        // break. More than one: exactly one must be marked primary, or this
+        // refuses rather than pick — "don't guess" is Johan's own rule.
+        $proxies = $reps->filter(fn (Contact $rep) => (bool) ($rep->pivot->signs_as_proxy ?? false));
+        if ($proxies->count() > 1) {
+            $primaries = $proxies->filter(fn (Contact $rep) => (bool) ($rep->pivot->is_primary ?? false));
+            if ($primaries->count() !== 1) {
+                throw UnresolvableRepresentativeChainException::ambiguousProxy($this, $proxies->count(), $primaries->count());
+            }
+            $proxy = $primaries->first();
+        } else {
+            $proxy = $proxies->first();
+        }
         $levelReps = $proxy ? collect([$proxy]) : $reps;
 
         $leaves = collect();
