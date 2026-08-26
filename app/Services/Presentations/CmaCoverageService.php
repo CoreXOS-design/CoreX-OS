@@ -508,8 +508,18 @@ class CmaCoverageService
      */
     private function recommendation(string $state, int $compCount, array $thresholds, array $missingSubjectInputs = []): string
     {
+        // 2026-08-26 — this label used to say "within {radius}m" outright for
+        // SCOPE_RADIUS_ALL, implying every counted comp had been distance-
+        // checked. It hadn't: countComps() only distance-gates the MIC
+        // market_report_comp_rows source (via compInScope()) — deals and
+        // presentation_sold_comps are matched on suburb text alone,
+        // unconditionally, regardless of this scope setting. A wrong label
+        // is a wrong number by another name; fixed to say what's actually
+        // counted rather than quietly adding a distance gate to the other
+        // two sources to make the old label true — that would change the
+        // count itself, not just describe it honestly.
         $scopeLabel = $thresholds['scope'] === self::SCOPE_RADIUS_ALL
-            ? sprintf('within %dm', $thresholds['radius_m'])
+            ? sprintf('within %dm where geo-located, suburb-wide otherwise', $thresholds['radius_m'])
             : 'suburb-only';
 
         // 2026-08-20 — Johan: "merge both facts into ONE sentence rather
