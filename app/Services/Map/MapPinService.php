@@ -849,6 +849,20 @@ final class MapPinService
         // agent who captured the prospect — the equivalent "owning agent" linkage.
         $this->applySearchFilter($q, $req, ['pl.address', 'pl.suburb'], 'pl.captured_by_user_id');
 
+        // Johan, 2026-08-26 — "a property appears TWICE on the map... it is
+        // not a case for merging map layers; it is a missing filter." Portal
+        // stock already matched to one of our own on-market properties must
+        // not draw a second pin here — every other MIC/map surface excludes
+        // it via this exact canonical filter (OnMarketStockService::
+        // applyNotStock(), already proven to work on a raw DB::table
+        // builder like this one — see its own docblock), this was the one
+        // pin layer that never called it. Applied to the SHARED base $q
+        // before the wide-zoom/per-pin branch below, so both paths (bucket
+        // aggregation and individual pins) get it identically — never a
+        // second, drifting filter.
+        $q = app(\App\Services\Prospecting\OnMarketStockService::class)
+            ->applyNotStock($q, $req->agencyId, 'pl.portal_ref', 'pl.normalized_address');
+
         if ($isWideZoom) {
             // ── Wide-zoom: aggregate path ────────────────────────────
             // ROUND(latitude*10)/10 buckets at 0.1° (~11 km tiles). The
