@@ -687,7 +687,11 @@ class SigningController extends Controller
             'reacceptanceMode' => $reacceptanceMode,       // AT-373 inc5 — second mandatory ECT-Act tick
             'reacceptanceReason' => $reacceptanceReason,   // AT-373 inc5 — why the amendment was rejected
             'currentRecipient' => $signingRequest,        // B1 — alias for the loop-engine downstream layers
-            'currentRoleIdentity' => $signingRequest->role_identity,  // B1 — '{party_role}_{role_index}'
+            // Johan, 2026-08-27 — attestationIdentity(), not role_identity: the
+            // client matches this against data-recipient-identity, which is
+            // DOM-position-compacted (excludes deceased same-role siblings),
+            // not raw role_index. See SignatureRequest::attestationIdentity().
+            'currentRoleIdentity' => $signingRequest->attestationIdentity(),
             'template' => $template,
             'document' => $document,
             'docTemplate' => $docTemplate,                // B3 info panel — isSalesDocument() / role labelling
@@ -1546,7 +1550,10 @@ class SigningController extends Controller
         array $fieldMappingsRaw,
     ): array {
         $partyRole       = strtolower((string) $signingRequest->party_role);
-        $viewerIdentity  = strtolower((string) $signingRequest->role_identity);
+        // Johan, 2026-08-27 — attestationIdentity(), not role_identity: this
+        // is matched against the field's data-recipient-identity, which is
+        // DOM-position-compacted. See SignatureRequest::attestationIdentity().
+        $viewerIdentity  = strtolower($signingRequest->attestationIdentity());
         $isAgent         = $partyRole === 'agent';
 
         $roleToEditableBy = [

@@ -404,6 +404,43 @@ class SignatureRequest extends Model
     }
 
     /**
+     * Johan, 2026-08-27 (Anine/Andre/Piet flow — signature blocks showing
+     * the same place/time for two different sellers) — the identity
+     * ACTUALLY stamped onto DOM markers (data-recipient-identity) by
+     * RoleBlockExpansionService::expandAttestationBlocksPerRecipient() and
+     * expandViaContract() is a POSITION count among this role's NON-DECEASED
+     * siblings, in role_index order — not the raw role_index itself. The two
+     * agree only when no same-role sibling ahead of this one is deceased/
+     * excluded. The moment one is (a deceased seller at role_index 1, two
+     * real signers at role_index 2 and 3), the DOM compacts them to
+     * "seller_1"/"seller_2" while role_identity/canonicalPartyKey still say
+     * "seller_2"/"seller_3" — and by coincidence of the exact offset,
+     * role_index=2's OWN role_identity ("seller_2") collides with role_index=
+     * 3's DOM position ("seller_2" too), so the FIRST signer's own
+     * currentRoleIdentity looks like it names the SECOND signer's marker.
+     * Anything that must match a signer against a DOM stamp — the
+     * currentRoleIdentity sent to a signing view, viewer-editability
+     * stamping, per-field write authorisation, ink/ceremony ownership —
+     * MUST use THIS, not role_identity/canonicalPartyKey (which stay
+     * correct for everything keyed independently of the DOM: signing order,
+     * parties_json, partyProgress, signed_initials).
+     */
+    public function attestationIdentity(): string
+    {
+        if ((bool) $this->is_deceased) {
+            return $this->role_identity; // never stamped in the DOM; value is moot
+        }
+        $position = 1 + static::query()
+            ->where('signature_template_id', $this->signature_template_id)
+            ->where('party_role', $this->party_role)
+            ->where('is_deceased', false)
+            ->where('role_index', '<', (int) ($this->role_index ?? 1))
+            ->count();
+
+        return $this->party_role . '_' . $position;
+    }
+
+    /**
      * @param  \Illuminate\Database\Eloquent\Builder  $query
      */
     public function scopeForRoleInstance($query, string $roleToken, int $index)

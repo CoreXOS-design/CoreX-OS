@@ -83,7 +83,18 @@ class CanonicalInkComposer
             );
             $xpath = new \DOMXPath($dom);
 
-            $signerIdentity = strtolower((string) ($signer->role_identity ?? ''));
+            // Johan, 2026-08-27 — attestationIdentity(), not role_identity:
+            // this is matched against data-recipient-identity, which is
+            // DOM-position-compacted (excludes deceased same-role siblings),
+            // not the raw role_index role_identity carries. Using role_identity
+            // here let one signer's own ceremony key coincidentally equal a
+            // DIFFERENT signer's DOM-stamped identity whenever a deceased
+            // party in the same role sits ahead of them — e.g. seller
+            // role_index 2's role_identity ("seller_2") matched role_index
+            // 3's DOM position ("seller_2") after role_index 1 was excluded,
+            // baking one signer's place/time onto the other's block. See
+            // SignatureRequest::attestationIdentity().
+            $signerIdentity = strtolower($signer->attestationIdentity());
             $signerRole     = strtolower((string) ($signer->party_role ?? ''));
             $signerAliases  = $this->aliasesFor($signerRole);
             $signerName     = (string) ($signer->signer_name ?? '');

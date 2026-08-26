@@ -948,7 +948,11 @@ final class RoleBlockExpansionService
         }
 
         $viewerRole     = strtolower((string) ($viewer->party_role ?? ''));
-        $viewerIdentity = strtolower((string) ($viewer->role_identity ?? ''));
+        // Johan, 2026-08-27 — attestationIdentity(), not role_identity: this
+        // is matched against data-recipient-identity, which is DOM-position-
+        // compacted (excludes deceased same-role siblings). See
+        // SignatureRequest::attestationIdentity().
+        $viewerIdentity = strtolower($viewer->attestationIdentity());
         $isAgent        = $viewerRole === 'agent';
         $editableByRole = self::CANONICAL_FOR_VIEWER[$viewerRole] ?? $viewerRole;
 
