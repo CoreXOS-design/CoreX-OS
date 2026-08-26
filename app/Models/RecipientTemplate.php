@@ -361,6 +361,14 @@ class RecipientTemplate extends Model
         return $id !== '' ? "{$name} (ID: {$id})" : $name;
     }
 
+    /** Same shape as withIdSuffix() but for a COMPANY's registration number, never a person's ID. */
+    public static function withRegSuffix(string $name, ?string $registrationNumber): string
+    {
+        $reg = trim((string) $registrationNumber);
+
+        return $reg !== '' ? "{$name} (Reg: {$reg})" : $name;
+    }
+
     private function resolveSlotDisplayName(SignatureRequest $selfRecipient, string $key, string $label, array $binding): string
     {
         $type = $binding['type'] ?? null;
@@ -393,7 +401,22 @@ class RecipientTemplate extends Model
                 throw DanglingSlotBindingException::forSlot($key, $label);
             }
 
-            return self::withIdSuffix((string) $recipient->signer_name, $recipient->signer_id_number);
+            $repText = self::withIdSuffix((string) $recipient->signer_name, $recipient->signer_id_number);
+
+            // Johan, 2026-08-26 — the three-part chain: "late estate of piet
+            // (id) herein represented by exec pty ltd (reg) represented by
+            // Koos (id)." A supplier-sourced representative (frozen at
+            // generation time onto THIS bound recipient's own row — see
+            // 2026_08_29_000008) inserts the COMPANY between the slot's own
+            // label and the person actually signing. A contact-sourced
+            // representative has no company in the middle — collapses to
+            // deceased -> person exactly as before.
+            $firmName = trim((string) $recipient->supplier_firm_name);
+            if ($firmName !== '') {
+                return self::withRegSuffix($firmName, $recipient->supplier_firm_registration_number) . " represented by {$repText}";
+            }
+
+            return $repText;
         }
 
         throw DanglingSlotBindingException::forSlot($key, $label);
@@ -440,7 +463,20 @@ class RecipientTemplate extends Model
                 throw DanglingSlotBindingException::forSlot($key, $label);
             }
 
-            return self::displayNameFromRecipientArray($match);
+            $repText = self::displayNameFromRecipientArray($match);
+
+            // Mirrors resolveSlotDisplayName()'s type:'recipient' branch
+            // above — must never drift from it (Johan's standing rule for
+            // this preview/generation pair). Reads the wizard array's own
+            // _supplier_firm_name/_supplier_firm_registration_number, the
+            // SAME fields the generation-time path freezes onto the row
+            // from at send.
+            $firmName = trim((string) ($match['_supplier_firm_name'] ?? ''));
+            if ($firmName !== '') {
+                return self::withRegSuffix($firmName, $match['_supplier_firm_registration_number'] ?? null) . " represented by {$repText}";
+            }
+
+            return $repText;
         }
 
         throw DanglingSlotBindingException::forSlot($key, $label);

@@ -3637,6 +3637,11 @@ function esignWizard() {
                 r._supplier_contact_id = contact.supplier_contact_id;
                 r._supplier_firm_id = contact.supplier_firm_id || null;
                 r._supplier_firm_name = contact.supplier_firm_name || '';
+                // Company half of the three-part clause chain (Johan,
+                // 2026-08-26) — cached here for the live document preview;
+                // Send freezes the authoritative copy from a live DB lookup
+                // (stampSupplierFirmIfAny()), never trusts this value.
+                r._supplier_firm_registration_number = contact.supplier_firm_registration_number || '';
                 // A supplier's specialty (e.g. "Supplier") is not a
                 // transaction role — never overwrite the slot's actual role
                 // (seller/buyer/witness/etc.) the way a Contact's esign_role
@@ -3648,6 +3653,7 @@ function esignWizard() {
                 r._supplier_contact_id = null;
                 r._supplier_firm_id = null;
                 r._supplier_firm_name = '';
+                r._supplier_firm_registration_number = '';
 
                 // Set role from esign_role (maps type to signing role) or contact_type name as fallback
                 if (contact.esign_role) {
@@ -3698,6 +3704,7 @@ function esignWizard() {
             r._supplier_contact_id = null;
             r._supplier_firm_id = null;
             r._supplier_firm_name = '';
+            r._supplier_firm_registration_number = '';
             r._searchQuery = '';
             r.name = '';
             r.email = '';
@@ -3777,6 +3784,7 @@ function esignWizard() {
                 supplier_contact_id: match.supplier_contact_id,
                 supplier_firm_id: match.supplier_firm_id,
                 supplier_firm_name: match.firm_name || '',
+                supplier_firm_registration_number: match.firm_registration_number || '',
             });
             const r = this.recipients[ri];
             r._addingSupplier = false;
@@ -4100,6 +4108,7 @@ function esignWizard() {
                     _supplier_contact_id: supplier.supplier_contact_id,
                     _supplier_firm_id: supplier.supplier_firm_id || null,
                     _supplier_firm_name: supplier.supplier_firm_name || '',
+                    _supplier_firm_registration_number: supplier.supplier_firm_registration_number || '',
                     _searchQuery: supplier.full_name || '', _searchResults: [], _searchOpen: false, _searching: false, _searchIdx: 0,
                     _is_deceased: false,
                     _is_proxy: false,

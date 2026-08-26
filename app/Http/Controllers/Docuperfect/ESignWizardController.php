@@ -1400,6 +1400,14 @@ class ESignWizardController extends Controller
                 'supplier_contact_id' => $sc->id,
                 'supplier_firm_id'    => $firm->id ?? null,
                 'supplier_firm_name'  => $firm->name ?? '',
+                // The company half of the three-part clause chain (Johan,
+                // 2026-08-26) — cached on the picked recipient client-side
+                // for the live document preview
+                // (RecipientTemplate::resolveBoundTextFromArray()); the
+                // authoritative copy frozen at Send is looked up live from
+                // this same firm record (stampSupplierFirmIfAny()), never
+                // trusted from this cached value.
+                'supplier_firm_registration_number' => $firm->registration_number ?? '',
                 'supplier_role'       => $sc->role ?? '',
             ];
         });
@@ -1453,6 +1461,7 @@ class ESignWizardController extends Controller
                 'phone'               => $m['contact']->phone,
                 'address'             => $m['contact']->firm->address ?? '',
                 'id_number'           => $m['contact']->id_number ?? '',
+                'firm_registration_number' => $m['contact']->firm->registration_number ?? '',
                 'reasons'             => $m['reasons'],
             ])->values(),
         ]);
@@ -1510,15 +1519,19 @@ class ESignWizardController extends Controller
             'email'               => $contact->email ?? '',
             'phone'               => $contact->phone ?: ($firm->phone ?? ''),
             'address'             => $firm->address ?? '',
-            // The registration/ID number just captured above, if any — a
-            // brand-new firm reusing an EXISTING match via findOrCreate()
-            // keeps whatever that firm already had on file (a match is
-            // never silently overwritten by this quick-add's own input).
-            'id_number'           => $firm->registration_number ?? '',
+            // Johan, 2026-08-26 — this quick-add screen only ever captures
+            // the FIRM's registration number, never a representative's own
+            // ID (that field lives on the Deal Register supplier screen,
+            // added after this contact exists). id_number here is the
+            // REPRESENTATIVE's own field (blank on a brand-new contact,
+            // same as any other optional field) — the firm's registration
+            // number is carried separately below.
+            'id_number'           => $contact->id_number ?? '',
             'contact_type'        => 'Supplier',
             'supplier_contact_id' => $contact->id,
             'supplier_firm_id'    => $firm->id,
             'supplier_firm_name'  => $firm->name,
+            'supplier_firm_registration_number' => $firm->registration_number ?? '',
         ]);
     }
 
@@ -3140,6 +3153,8 @@ class ESignWizardController extends Controller
                     representedContactId: isset($r['_entity_contact_id']) ? (int) $r['_entity_contact_id'] : null,
                 );
 
+                $this->stampSupplierFirmIfAny($sigReq, $r);
+
                 // "Replace this party" (Johan, 2026-08-24) — a recipient whose party is
                 // being replaced (e.g. deceased, represented by a chain) carries a
                 // recipient template + slot bindings from the wizard. Resolved in a
@@ -4186,6 +4201,41 @@ class ESignWizardController extends Controller
                 ]);
             }
         }
+    }
+
+    /**
+     * Johan, 2026-08-26 — the three-part clause chain's middle piece: when
+     * $r is a supplier-sourced recipient (standing in as someone's
+     * representative), freeze the FIRM's name and registration number onto
+     * $sigReq's own row at the moment it's created — see
+     * 2026_08_29_000008_add_supplier_firm_to_signature_requests_table.
+     * RecipientTemplate::resolveSlotDisplayName()'s type:'recipient' branch
+     * reads these back later to build "Firm (Reg: NNN) represented by
+     * Person (ID: NNN)" instead of just the person.
+     *
+     * Looked up LIVE from the real AgencyServiceProvider row via
+     * _supplier_firm_id, never trusted from the wizard's own
+     * _supplier_firm_name/_supplier_firm_registration_number — same
+     * live-DB-over-client-payload discipline
+     * assertSupplierRepresentativesHaveRegistrationNumber() already uses,
+     * so what freezes onto a legal document's clause is never something the
+     * browser merely claimed.
+     */
+    private function stampSupplierFirmIfAny(\App\Models\Docuperfect\SignatureRequest $sigReq, array $r): void
+    {
+        if (($r['_recipient_source'] ?? null) !== 'supplier' || empty($r['_supplier_firm_id'])) {
+            return;
+        }
+
+        $firm = \App\Models\DealV2\AgencyServiceProvider::withoutGlobalScopes()->find((int) $r['_supplier_firm_id']);
+        if ($firm === null) {
+            return;
+        }
+
+        $sigReq->update([
+            'supplier_firm_name' => $firm->name,
+            'supplier_firm_registration_number' => $firm->registration_number,
+        ]);
     }
 
     /**
@@ -6555,6 +6605,7 @@ class ESignWizardController extends Controller
                     representedContactId: isset($r['_entity_contact_id']) ? (int) $r['_entity_contact_id'] : null,
                 );
                 $sigReq->update(['signing_method' => 'wet_ink']);
+                $this->stampSupplierFirmIfAny($sigReq, $r);
 
                 if (! empty($r['_recipient_template_id']) && ! empty($r['_slot_bindings'])) {
                     $chainBindings[] = [
