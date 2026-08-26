@@ -1218,6 +1218,22 @@ class ESignWizardController extends Controller
                         $c, $rep, $capacity);
                 return ['rep_name' => $rep->full_name, 'capacity' => $capacity, 'is_proxy' => $isProxy, 'phrase' => $phrase];
             })->values()->all(),
+            // Johan, 2026-08-29 — "signers" above is already proxy-collapsed
+            // (ONE row once a proxy is picked), which is right for "who
+            // actually signs" but wrong for a PICKER's own option list — the
+            // agent needs to see and choose among ALL of this company's
+            // representatives, not just whoever is currently chosen. Same
+            // underlying relation (Contact::representatives(), the raw pivot),
+            // not a second resolution of who signs.
+            'all_representatives' => $c->representatives()->get()->map(function ($rep) {
+                return [
+                    'contact_id' => $rep->id,
+                    'name' => $rep->full_name,
+                    'capacity' => $rep->pivot->capacity ?? null,
+                    'is_primary' => (bool) ($rep->pivot->is_primary ?? false),
+                    'is_proxy' => (bool) ($rep->pivot->signs_as_proxy ?? false),
+                ];
+            })->values()->all(),
         ];
     }
 
@@ -1637,6 +1653,76 @@ class ESignWizardController extends Controller
             'ok' => true,
             'supplier_firm_id' => $firm->id,
             'registration_number' => $firm->registration_number,
+        ]);
+    }
+
+    /**
+     * Johan, 2026-08-29 — "the proxy tick essentially does nothing... it
+     * should let you pick one of the parties on the company to select as
+     * the proxy." The recipient row's own _is_proxy checkbox was flagging
+     * the ENTITY's row, which expandEntityRecipients() discards the moment
+     * it expands into the real representative rows — the flag that
+     * actually matters is contact_representatives.signs_as_proxy on the
+     * CHOSEN representative, which nothing in the wizard let an agent set.
+     *
+     * This is that missing write path. It does not add a new way of working
+     * out who signs — Contact::proxyAwareRepresentatives() (via
+     * signingRepresentatives()) already reads signs_as_proxy + is_primary
+     * and already refuses by name rather than guessing when more than one
+     * proxy is marked with no single primary; this endpoint only ever
+     * produces the clean, unambiguous state that logic expects: exactly one
+     * representative flagged proxy+primary, every other one left as a named,
+     * non-signing party (clause unchanged — everyone still named; only the
+     * signing email narrows to one person).
+     */
+    public function setEntityProxy(Request $request, Contact $contact): \Illuminate\Http\JsonResponse
+    {
+        $agencyId = (int) ($request->user()?->effectiveAgencyId() ?? 0);
+        if ($agencyId <= 0 || (int) $contact->agency_id !== $agencyId) {
+            abort(403);
+        }
+
+        if (! $contact->isEntity()) {
+            return response()->json(['ok' => false, 'error' => 'Only a company/entity party can have a proxy representative.'], 422);
+        }
+
+        $validated = $request->validate([
+            // Nullable, not required — sending no id CLEARS the proxy (an
+            // agent who ticked, picked, then changes their mind needs a way
+            // back to "nobody chosen yet" without a second endpoint).
+            'representative_contact_id' => 'nullable|integer',
+        ]);
+
+        $representatives = $contact->representatives()->get();
+        $chosenId = $validated['representative_contact_id'] ?? null;
+        $chosen = $chosenId !== null ? $representatives->firstWhere('id', (int) $chosenId) : null;
+
+        if ($chosenId !== null && ! $chosen) {
+            return response()->json([
+                'ok' => false,
+                'error' => 'That person is not currently linked as a representative of '
+                    . ($contact->entity_name ?: 'this company') . ' — refusing to set them as proxy. '
+                    . 'Link them as a representative first, on the contact record.',
+            ], 422);
+        }
+
+        \Illuminate\Support\Facades\DB::transaction(function () use ($contact, $representatives, $chosen) {
+            foreach ($representatives as $rep) {
+                $contact->representatives()->updateExistingPivot($rep->id, [
+                    'signs_as_proxy' => $chosen !== null && $rep->id === $chosen->id,
+                    'is_primary' => $chosen !== null && $rep->id === $chosen->id,
+                ]);
+            }
+        });
+
+        $actingAgencyId = (int) ($request->user()?->agency_id ?? 0);
+        $entityPreset = $actingAgencyId
+            ? \App\Models\Docuperfect\EsignRecipientPreset::resolveFor($actingAgencyId, 'entity')
+            : null;
+
+        return response()->json([
+            'ok' => true,
+            'representation' => $this->buildEntityRepresentationPreview($contact->fresh(), $entityPreset),
         ]);
     }
 

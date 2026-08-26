@@ -635,7 +635,8 @@
                                         Deceased — replace this party
                                     </label>
                                     <label class="flex items-center gap-1.5 text-xs cursor-pointer select-none" style="color: var(--text-secondary);">
-                                        <input type="checkbox" x-model="r._is_proxy" @change="if (r._is_proxy) r._is_deceased = false"
+                                        <input type="checkbox" x-model="r._is_proxy"
+                                               @change="if (r._is_proxy) r._is_deceased = false; if (r._is_entity) toggleEntityProxy(ri)"
                                                class="rounded" style="accent-color: var(--ds-amber, #f59e0b); width: 14px; height: 14px;">
                                         Proxy — signs on behalf of the others in this role
                                     </label>
@@ -646,7 +647,28 @@
                                 <div x-show="r._is_deceased" class="rounded-md px-3 py-2 text-xs" style="background: color-mix(in srgb, var(--ds-red,#dc2626) 8%, transparent); border: 1px solid color-mix(in srgb, var(--ds-red,#dc2626) 25%, transparent); color: var(--text-secondary);">
                                     Still displays on the document with full details. Never receives a signing request.
                                 </div>
-                                <div x-show="r._is_proxy" class="rounded-md px-3 py-2 text-xs" style="background: color-mix(in srgb, var(--ds-amber,#f59e0b) 8%, transparent); border: 1px solid color-mix(in srgb, var(--ds-amber,#f59e0b) 25%, transparent); color: var(--text-secondary);">
+
+                                {{-- Johan, 2026-08-29 — the picker itself. Entity-only: a
+                                     non-entity recipient's Proxy tick is a separate, untouched
+                                     case and keeps its old plain text box below. Every
+                                     representative stays NAMED on the document either way —
+                                     picking one here only narrows who gets the SIGNING EMAIL. --}}
+                                <div x-show="r._is_entity && r._is_proxy" class="rounded-md px-3 py-2 text-xs space-y-2" style="background: color-mix(in srgb, var(--ds-amber,#f59e0b) 8%, transparent); border: 1px solid color-mix(in srgb, var(--ds-amber,#f59e0b) 25%, transparent); color: var(--text-secondary);">
+                                    <div>Every representative below still displays on the document. Pick the ONE who actually signs:</div>
+                                    <template x-if="!r._representation || !(r._representation.all_representatives || []).length">
+                                        <div style="color: var(--ds-amber,#b45309);">No representatives linked yet — add one on this company's contact record first.</div>
+                                    </template>
+                                    <template x-for="rep in (r._representation ? (r._representation.all_representatives || []) : [])" :key="rep.contact_id">
+                                        <label class="flex items-center gap-1.5 cursor-pointer select-none">
+                                            <input type="radio" :name="'entity-proxy-' + ri" :checked="rep.is_proxy"
+                                                   @change="setEntityProxyPick(ri, rep.contact_id)"
+                                                   style="accent-color: var(--ds-amber, #f59e0b); width: 13px; height: 13px;">
+                                            <span class="font-medium" style="color: var(--text-primary);" x-text="rep.name"></span>
+                                            <span x-show="rep.capacity" style="color: var(--text-muted);" x-text="'(' + rep.capacity + ')'"></span>
+                                        </label>
+                                    </template>
+                                </div>
+                                <div x-show="!r._is_entity && r._is_proxy" class="rounded-md px-3 py-2 text-xs" style="background: color-mix(in srgb, var(--ds-amber,#f59e0b) 8%, transparent); border: 1px solid color-mix(in srgb, var(--ds-amber,#f59e0b) 25%, transparent); color: var(--text-secondary);">
                                     Every other recipient in this role still displays with full details but will not receive a signing request — only this one signs.
                                 </div>
 
@@ -3635,6 +3657,11 @@ function esignWizard() {
             // server re-expands via expandEntityRecipients().
             r._is_entity = !!contact.is_entity;
             r._representation = contact.representation || null;
+            // Reflect whatever proxy is ALREADY set on this company's
+            // representatives (contact_representatives.signs_as_proxy),
+            // rather than always starting the checkbox unticked — reopening
+            // a company with a proxy already chosen should show it as such.
+            r._is_proxy = !!(r._representation && (r._representation.all_representatives || []).some(x => x.is_proxy));
 
             // Johan, 2026-08-25 — supplier vs contact recipient. A picked
             // supplier's own id lives in a DIFFERENT book (agency_service_
@@ -3707,6 +3734,49 @@ function esignWizard() {
             });
 
             this.showToast(contact.full_name + ' selected', 'success');
+        },
+
+        // Johan, 2026-08-29 — the "Proxy" tick on a company recipient did
+        // nothing: it flagged the entity's own recipient row, which the
+        // server discards the moment it expands into the real representative
+        // rows. Ticking now opens a picker over this company's actual
+        // representatives; picking one writes signs_as_proxy+is_primary onto
+        // THAT representative's contact_representatives pivot — the same
+        // field Contact::proxyAwareRepresentatives() already reads to decide
+        // who signs. Un-ticking clears it (same endpoint, no id) rather than
+        // just hiding the picker, so the checkbox always reflects real state.
+        async toggleEntityProxy(recipientIndex) {
+            const r = this.recipients[recipientIndex];
+            if (r._is_proxy) return; // opening the picker is enough; nothing to save until a pick is made
+            // Unticked — clear whichever representative was proxy.
+            await this.setEntityProxyPick(recipientIndex, null);
+        },
+
+        async setEntityProxyPick(recipientIndex, representativeContactId) {
+            const r = this.recipients[recipientIndex];
+            if (!r._contact_id) return;
+            try {
+                const resp = await fetch('/docuperfect/esign/api/entity/' + r._contact_id + '/proxy', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': csrfToken,
+                        'Accept': 'application/json',
+                    },
+                    body: JSON.stringify({ representative_contact_id: representativeContactId }),
+                });
+                const result = await resp.json();
+                if (!resp.ok || !result.ok) {
+                    this.showToast(result.error || 'Could not set the proxy representative.', 'error');
+                    return;
+                }
+                r._representation = result.representation;
+                r._is_proxy = !!(r._representation.all_representatives || []).some(x => x.is_proxy);
+                this.showToast(representativeContactId ? 'Proxy representative set.' : 'Proxy cleared — all representatives sign again.', 'success');
+            } catch (e) {
+                console.error('setEntityProxyPick error:', e);
+                this.showToast('Could not reach the server to set the proxy.', 'error');
+            }
         },
 
         clearContactSelection(recipientIndex) {
