@@ -112,9 +112,27 @@ class CanonicalDocumentRenderer
         //    so every same-party recipient has a STABLE, distinct instance for
         //    ink to attach to (the un-expanded merged_html could not — see the
         //    ESIGN-WETINK gap audit finding (b)).
+        //
+        // Johan, 2026-08-26 (escalation of cc5's 547863fbb) — the real
+        // SignatureRequest set is, correctly, narrowed to one row per entity
+        // (the proxy, or the sole non-proxied rep) because only one person
+        // actually signs. Feeding that narrowed set straight into
+        // expandWithLooping() is why an entity's OTHER representatives —
+        // present in the clause text, absent everywhere else — never got
+        // their own address/phone/email block on the agent signing screen,
+        // the ceremony, or the PDF: this is THE ONE render path all three
+        // go through. expandRepresentedEntitiesForDisplay() replaces each
+        // entity-represented row with one synthetic, unsaved SignatureRequest
+        // per CURRENT representative, purely for this DOM loop — nothing
+        // here is persisted, nothing here changes who receives a signing
+        // request or who signs. The signature block itself is unaffected:
+        // it carries no data-role-block markers (see signature-block.blade.php)
+        // and was already built, correctly narrowed to the actual signer(s),
+        // when merged_html was first composed via filterToSigningParticipants().
         $recipients = SignatureRequest::where('signature_template_id', $template->id)
             ->orderBy('signing_order')
             ->get();
+        $recipients = $this->expandRepresentedEntitiesForDisplay($recipients);
         $fieldMappings = is_array($docTemplate?->field_mappings ?? null)
             ? $docTemplate->field_mappings
             : [];
@@ -161,6 +179,55 @@ class CanonicalDocumentRenderer
         $html = $this->maybeHighlight($html, $document, $webData);
 
         return $html;
+    }
+
+    /**
+     * Johan, 2026-08-26 (escalation of cc5's 547863fbb) — expand every
+     * entity-represented SignatureRequest into one synthetic, UNSAVED row
+     * per CURRENT representative of that entity, for role-block DISPLAY
+     * looping only. A plain (non-entity) row passes through untouched.
+     *
+     * Never persisted (no ->save()/->create() anywhere here), never seen by
+     * anything that decides who receives a signing request or who signs —
+     * those still read the real SignatureRequest table directly. Only
+     * contact_id/signer_name/signer_email/signer_id_number differ per
+     * clone; RoleBlockExpansionService::mutateCloneForInstance() re-resolves
+     * each clone's address/phone/email straight from that representative's
+     * own Contact record, so nothing further needs to be carried here.
+     * is_proxy is preserved on whichever clone is the actual signer, so any
+     * "(proxy)" display affordance still points at the right person.
+     */
+    private function expandRepresentedEntitiesForDisplay(\Illuminate\Support\Collection $requests): \Illuminate\Support\Collection
+    {
+        $out = collect();
+        foreach ($requests as $req) {
+            $entityId = $req->represented_contact_id;
+            if (empty($entityId)) {
+                $out->push($req);
+                continue;
+            }
+            $entity = \App\Models\Contact::withoutGlobalScopes()->find($entityId);
+            $reps = $entity ? $entity->representatives()->get() : collect();
+            if ($reps->isEmpty()) {
+                // Nothing to expand against — keep the real row rather than dropping the party.
+                $out->push($req);
+                continue;
+            }
+            $signerContactId = $req->contact_id;
+            $index = 0;
+            foreach ($reps as $rep) {
+                $index++;
+                $clone = $req->replicate();
+                $clone->contact_id       = $rep->id;
+                $clone->signer_name      = $rep->full_name;
+                $clone->signer_email     = (string) ($rep->email ?? '');
+                $clone->signer_id_number = (string) ($rep->id_number ?? '');
+                $clone->role_index       = $index;
+                $clone->is_proxy         = ((int) $rep->id === (int) $signerContactId);
+                $out->push($clone);
+            }
+        }
+        return $out->values();
     }
 
     /**

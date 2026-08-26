@@ -626,7 +626,7 @@ class ESignWizardController extends Controller
         // uses to actually create the SignatureRequest rows, so what the
         // agent confirms here is exactly what gets created.
         $recipientsForView = $step === 6
-            ? $this->expandEntityRecipients($stepData['recipients']['recipients'] ?? [], $request->user())
+            ? $this->expandEntityRecipients($stepData['recipients']['recipients'] ?? [], $request->user(), signersOnly: true)
             // Flow 480 (Johan, 2026-08-29) — the raw recipient rows shown on
             // steps 1-5 need _is_entity/_representation recomputed on every
             // load, not just carried from a fresh client-side pick, or the
@@ -2033,11 +2033,13 @@ class ESignWizardController extends Controller
                 // to $stepData, so the clause-collapse above is untouched.
                 $wizardRecipients = $this->buildTransientSignatureRequestsForPreview(
                     $flow,
-                    // forDisplay: true — Johan, 2026-08-26: "all parties must
-                    // show on the document, although only 1 party will
-                    // actually sign." Proxy narrows WHO SIGNS (elsewhere,
-                    // unchanged); it must never narrow what renders here.
-                    $this->expandEntityRecipients($flow->step_data['recipients']['recipients'] ?? [], $user, forDisplay: true),
+                    // Johan, 2026-08-26: "all parties must show on the
+                    // document, although only 1 party will actually sign."
+                    // Proxy narrows WHO SIGNS (elsewhere, unchanged); it must
+                    // never narrow what renders here. Display is now the
+                    // default (see expandEntityRecipients() docblock) — no
+                    // flag needed at this call site.
+                    $this->expandEntityRecipients($flow->step_data['recipients']['recipients'] ?? [], $user),
                 );
                 if ($wizardRecipients->isNotEmpty()) {
                     // AT-295 — stamp the data-role-block contract onto the raw
@@ -2552,7 +2554,16 @@ class ESignWizardController extends Controller
         // body. This is the generation-time twin of expandRecipientsForMerge()
         // — same expansion, no dedup: signing genuinely needs one row per
         // actual signer, unlike the preview body's single mention.
-        $recipients = $this->expandEntityRecipients($recipients, $user);
+        //
+        // Johan, 2026-08-26 (escalation of cc5's 547863fbb) — signersOnly:
+        // true is deliberate and correct HERE (this narrowed $recipients
+        // feeds the SignatureRequest-creation loop below: only a proxy, or
+        // an unproxied rep, may actually receive/sign). It must NOT be
+        // reused for anything a human reads — see $bodyStepData below,
+        // which now does its OWN, separate, display-mode expansion instead
+        // of inheriting this narrowed array.
+        $recipientsPreExpansion = $recipients;
+        $recipients = $this->expandEntityRecipients($recipients, $user, signersOnly: true);
         // Flow 480 (Johan, 2026-08-29) — an entity's signing_setup entries
         // name its representatives (step 6's own preview shows expanded
         // names, "Fault 3, round 5" above), so they can never match the
@@ -2571,22 +2582,32 @@ class ESignWizardController extends Controller
         $this->assertChainPartiesHaveIdNumbers($recipients);
 
         // GENERATED-DOCUMENT BODY (Johan, 2026-08-25 — cc1's finding on
-        // 93a10b6a2): the document actually going out must read the SAME
-        // resolved clause the SignatureRequest rows carry — an entity's
-        // "Company (Reg: X), herein represented by Rep (ID, Capacity)" is
-        // ONLY ever computed by expandEntityRecipients() (above), which
-        // never wrote back into $stepData itself. Every WebTemplateDataService
-        // ::resolve() call below that builds document body HTML (not the
-        // agent-facing recipients FORM, which must stay exactly as-is —
-        // see prepareRecipientsForMerge()'s own "never expands" contract)
-        // is handed $bodyStepData: a narrow, local copy carrying the
-        // ALREADY-expanded, display-deduped $recipients — never a second
-        // expandEntityRecipients() call, never a second source of truth.
+        // 93a10b6a2 — REVISED 2026-08-26, escalation of cc5's 547863fbb):
+        // the document actually going out must read the SAME resolved
+        // clause the SignatureRequest rows carry — an entity's "Company
+        // (Reg: X), herein represented by Rep (ID, Capacity)" is computed
+        // by expandEntityRecipients(), which never writes back into
+        // $stepData itself.
+        //
+        // The original version of this comment said "never a second
+        // expandEntityRecipients() call, never a second source of truth"
+        // and reused the SAME $recipients the SignatureRequest loop above
+        // had already narrowed with signersOnly:true. That was the bug: a
+        // human reading the document (agent signing screen, final PDF)
+        // only ever saw the proxy — every OTHER representative's own
+        // address/phone/email vanished. DISPLAY and SIGNING are different
+        // questions and must use different expansions of the SAME
+        // pre-expansion recipients ($recipientsPreExpansion, captured
+        // above, before signersOnly narrowing). This second call is
+        // intentional, not drift: one source of truth (the same
+        // recipients, same function), two honestly different call-time
+        // arguments for two honestly different audiences.
         // $stepData itself is untouched — every other consumer in this
         // function (partiesForSigning, property/details, etc.) still reads
         // the original, unexpanded step_data exactly as before.
         $bodyStepData = $stepData;
-        $bodyStepData['recipients']['recipients'] = $this->dedupeEntityRecipientsForDisplay($recipients);
+        $displayRecipients = $this->expandEntityRecipients($recipientsPreExpansion, $user);
+        $bodyStepData['recipients']['recipients'] = $this->dedupeEntityRecipientsForDisplay($displayRecipients);
 
         $propertyAddress = $stepData['property']['address'] ?? $stepData['property']['title'] ?? '';
 
@@ -4319,16 +4340,24 @@ class ESignWizardController extends Controller
     }
 
     /**
-     * Johan, 2026-08-26 — "all parties must show on the document, although
-     * only 1 party will actually sign." $forDisplay=true is the DISPLAY
-     * question (every representative, always — same rule
-     * RoleBlockExpansionService::composeEntityPartyText()'s own docblock
-     * states: "a proxy flag changes only who SIGNS, never who is NAMED"),
-     * never used for anything that creates a real SignatureRequest row or
-     * sends an email. Every OTHER call site keeps the default (false) — the
-     * SIGNING question, proxy-narrowed, exactly as cc3 built it — untouched.
+     * Johan, 2026-08-26 (cc5's proxy fix, 547863fbb, escalated) — DISPLAY and
+     * SIGNING are different questions with different answers, decided ONCE,
+     * here, not per call site: a human reading this document — Fill &
+     * Review, the agent signing screen, the generated document, the PDF —
+     * must see every representative's own name/address/phone/email,
+     * regardless of proxy; only the code that decides who receives a
+     * signing request and who actually signs narrows to the proxy (or the
+     * sole non-proxied rep). $forDisplay defaulted to false and was wired
+     * into exactly one call site (the wizard preview) — every OTHER
+     * consumer, including the ones that bake the address/phone/email
+     * sections into the document that actually gets sent, inherited the
+     * narrowed default and only ever showed the proxy. Inverted: the
+     * default is now "show everyone" (what any new call site gets without
+     * having to know this distinction exists); $signersOnly=true is the
+     * one, explicit, opt-in for the two places that must stay narrowed —
+     * the Signing Order list and the SignatureRequest-creation loop itself.
      */
-    private function expandEntityRecipients(array $recipients, $user, bool $forDisplay = false): array
+    private function expandEntityRecipients(array $recipients, $user, bool $signersOnly = false): array
     {
         $contactIds = collect($recipients)->pluck('_contact_id')->filter()->unique()->values();
         if ($contactIds->isEmpty()) {
@@ -4397,11 +4426,12 @@ class ESignWizardController extends Controller
             // never-on-the-contact rule as the proxy pick itself.
             $effectiveOrder = $this->resolveEffectiveRepOrder($r, $overrideProxyRepId);
 
-            // Proxy-narrowed (who signs) unless this call is explicitly for
-            // display, in which case every representative renders its own
-            // address/phone/email — a proxy pick must never make the other
-            // representatives' details disappear from the document.
-            $signers = $forDisplay ? $contact->representatives()->get() : $contact->signingRepresentatives($overrideProxyRepId);
+            // Full representative list by default — every one renders their
+            // own address/phone/email; a proxy pick must never make the
+            // other representatives' details disappear from a document a
+            // human reads. Proxy-narrowed (who actually signs/receives the
+            // request) ONLY when the caller explicitly asks for that.
+            $signers = $signersOnly ? $contact->signingRepresentatives($overrideProxyRepId) : $contact->representatives()->get();
             $signers = Contact::applyRepresentativeOrder($signers, $effectiveOrder);
             if ($signers->isEmpty()) {
                 $r['order']                        = ++$order;
@@ -6332,6 +6362,14 @@ class ESignWizardController extends Controller
             $req->signer_name = (string) ($r['name'] ?? '');
             $req->signer_email = (string) ($r['email'] ?? '');
             $req->contact_id  = $r['_contact_id'] ?? null;
+            // Johan, 2026-08-26 — RoleBlockExpansionService::expandWithLooping()'s
+            // attestation-block split reads is_proxy/is_deceased straight off
+            // these transient rows (never the DB — nothing here is persisted)
+            // to decide which representative's signature block is the real one
+            // vs. a display-only entry. Without these, every entity
+            // representative in the preview looked like a signer.
+            $req->is_proxy    = (bool) ($r['_is_proxy'] ?? false);
+            $req->is_deceased = (bool) ($r['_is_deceased'] ?? false);
             $out->push($req);
         }
         return $out;
@@ -6853,7 +6891,13 @@ class ESignWizardController extends Controller
         // called with the ENTITY's own raw contact row, not the natural
         // person who actually signs. Same call, same place in the pipeline,
         // as the e-sign path.
-        $recipients = $this->expandEntityRecipients($recipients, $user);
+        //
+        // Johan, 2026-08-26 (escalation of cc5's 547863fbb) — signersOnly:
+        // true here is deliberate: this narrowed $recipients feeds the
+        // signing-request creation below. It must not be reused for the
+        // printed document body — see $bodyStepData below.
+        $recipientsPreExpansion = $recipients;
+        $recipients = $this->expandEntityRecipients($recipients, $user, signersOnly: true);
         // Flow 480 (Johan, 2026-08-29) — see prepareSigning() for full
         // rationale: entity signing_setup entries name representatives, so
         // they can only match after expansion.
@@ -6869,12 +6913,17 @@ class ESignWizardController extends Controller
         $this->assertChainPartiesHaveIdNumbers($recipients);
 
         // GENERATED-DOCUMENT BODY — same reasoning as prepareSigning()
-        // (ESignWizardController.php ~2035-2050): the printed document must
-        // read the SAME resolved clause the SignatureRequest rows carry.
-        // $stepData itself is untouched; every other consumer below still
-        // reads the original, unexpanded step_data.
+        // (ESignWizardController.php ~2586-2610): the printed document must
+        // read the SAME resolved clause the SignatureRequest rows carry, but
+        // every representative — not just the proxy who signs — must render
+        // their own address/phone/email. A fresh, separate display-mode
+        // expansion of the pre-narrowing recipients, not a reuse of the
+        // signersOnly-narrowed $recipients above. $stepData itself is
+        // untouched; every other consumer below still reads the original,
+        // unexpanded step_data.
         $bodyStepData = $stepData;
-        $bodyStepData['recipients']['recipients'] = $this->dedupeEntityRecipientsForDisplay($recipients);
+        $displayRecipients = $this->expandEntityRecipients($recipientsPreExpansion, $user);
+        $bodyStepData['recipients']['recipients'] = $this->dedupeEntityRecipientsForDisplay($displayRecipients);
 
         $propertyAddress = $stepData['property']['address'] ?? $stepData['property']['title'] ?? '';
 

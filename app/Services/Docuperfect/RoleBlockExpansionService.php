@@ -435,8 +435,46 @@ final class RoleBlockExpansionService
         // done and signed by the Seller/s (A), (B) … on this __ day of __ at __")
         // into ONE complete block PER recipient. Runs after role-block expansion,
         // fail-safe (leaves the block untouched on any anomaly).
+        //
+        // Johan, 2026-08-26 (escalation of cc5's 547863fbb) — $recipients here
+        // may now carry entity-representative rows added purely for the
+        // address/domicilium DISPLAY looping above (CanonicalDocumentRenderer::
+        // expandRepresentedEntitiesForDisplay(), same shape as the wizard
+        // preview's transient-request rows) — never for signing. A place TO
+        // SIGN is not a display of the party (Flow 330 Finding A — same rule
+        // ESignWizardController::filterToSigningParticipants() already applies
+        // to the wizard's own array-shaped recipients): a non-signing
+        // representative must never get her own blank, unexecutable "Thus
+        // done and signed" line.
+        //
+        // Deliberately NOT SignatureRequest::isSigningParticipant() — that
+        // predicate's "does this role already have a proxy" check queries the
+        // DB by signature_template_id, which only ever finds a PERSISTED
+        // sibling row. Both the display rows added above and the wizard
+        // preview's own transient rows (buildTransientSignatureRequestsForPreview())
+        // are unsaved, so a DB lookup would silently find nothing and treat
+        // every representative as a signer. Checking the IN-MEMORY collection
+        // this method actually received — the array-shape twin of
+        // filterToSigningParticipants() — works identically whether the rows
+        // are real, transient, or synthetic-for-display.
         try {
-            $this->expandAttestationBlocksPerRecipient($dom, $recipients);
+            $proxyRoles = [];
+            foreach ($recipients as $r) {
+                if (! empty($r->is_proxy)) {
+                    $proxyRoles[strtolower((string) $r->party_role)] = true;
+                }
+            }
+            $signingOnly = $recipients->filter(function (SignatureRequest $r) use ($proxyRoles) {
+                if (! empty($r->is_deceased)) {
+                    return false;
+                }
+                $role = strtolower((string) $r->party_role);
+                if (! empty($proxyRoles[$role]) && empty($r->is_proxy)) {
+                    return false; // collapsed by a proxy elsewhere in this same role group
+                }
+                return true;
+            })->values();
+            $this->expandAttestationBlocksPerRecipient($dom, $signingOnly);
         } catch (\Throwable $e) {
             Log::warning('RoleBlockExpansionService: attestation split failed (non-fatal, block left shared)', [
                 'template_id' => $template?->id,
