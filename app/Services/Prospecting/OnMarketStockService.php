@@ -58,13 +58,25 @@ class OnMarketStockService
      * zoom paid it fresh (identified as ~75-78% of total map API time — the
      * proximate cause was applyNotStock() being added to the map's
      * active_listings layer for the double-pin fix). Cached here, cross-request,
-     * keyed per agency. TTL is a staleness backstop only — the normal path is
-     * PropertyObserver busting this key on every save/delete/restore, so a
-     * property edit reflects on the map within the same request cycle that
-     * follows it. Worst-case staleness if a write ever bypasses the observer
-     * (a raw DB::table() update, for instance) is this TTL.
+     * keyed per agency.
+     *
+     * Correctness is carried by PropertyObserver, NOT by this TTL — Johan's
+     * ruling (2026-08-27): the map must reflect a save immediately, an agent
+     * marking a property sold must never still see its pin. saved()/deleted()/
+     * restored() bust this key synchronously as part of the save, before the
+     * response returns, so the very next map/MIC load after any Eloquent write
+     * rebuilds fresh. Confirmed no write path in this codebase bypasses that —
+     * grepped for Property::query()->update(), DB::table('properties')->update/
+     * insert/upsert(), none exist; every write is a model save/delete.
+     *
+     * This TTL exists ONLY for a write that bypasses Eloquent entirely (a raw
+     * SQL fix, a future migration, a DBA one-off) — none exist today, so this
+     * is deliberately a long, rarely-triggered safety net rather than a second
+     * correctness mechanism. 30 minutes: long enough that nobody could mistake
+     * it for "the map refreshes every N minutes," short enough that even the
+     * theoretical bypass case self-heals within a work session.
      */
-    private const IDENTITY_CACHE_TTL_SECONDS = 300;
+    private const IDENTITY_CACHE_TTL_SECONDS = 1800;
 
     private static function identityCacheKey(int $agencyId): string
     {
