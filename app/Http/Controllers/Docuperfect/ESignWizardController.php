@@ -1987,7 +1987,11 @@ class ESignWizardController extends Controller
                 // to $stepData, so the clause-collapse above is untouched.
                 $wizardRecipients = $this->buildTransientSignatureRequestsForPreview(
                     $flow,
-                    $this->expandEntityRecipients($flow->step_data['recipients']['recipients'] ?? [], $user),
+                    // forDisplay: true — Johan, 2026-08-26: "all parties must
+                    // show on the document, although only 1 party will
+                    // actually sign." Proxy narrows WHO SIGNS (elsewhere,
+                    // unchanged); it must never narrow what renders here.
+                    $this->expandEntityRecipients($flow->step_data['recipients']['recipients'] ?? [], $user, forDisplay: true),
                 );
                 if ($wizardRecipients->isNotEmpty()) {
                     // AT-295 — stamp the data-role-block contract onto the raw
@@ -4244,7 +4248,17 @@ class ESignWizardController extends Controller
         return $recipients;
     }
 
-    private function expandEntityRecipients(array $recipients, $user): array
+    /**
+     * Johan, 2026-08-26 — "all parties must show on the document, although
+     * only 1 party will actually sign." $forDisplay=true is the DISPLAY
+     * question (every representative, always — same rule
+     * RoleBlockExpansionService::composeEntityPartyText()'s own docblock
+     * states: "a proxy flag changes only who SIGNS, never who is NAMED"),
+     * never used for anything that creates a real SignatureRequest row or
+     * sends an email. Every OTHER call site keeps the default (false) — the
+     * SIGNING question, proxy-narrowed, exactly as cc3 built it — untouched.
+     */
+    private function expandEntityRecipients(array $recipients, $user, bool $forDisplay = false): array
     {
         $contactIds = collect($recipients)->pluck('_contact_id')->filter()->unique()->values();
         if ($contactIds->isEmpty()) {
@@ -4287,7 +4301,11 @@ class ESignWizardController extends Controller
                 continue;
             }
 
-            $signers = $contact->signingRepresentatives();
+            // Proxy-narrowed (who signs) unless this call is explicitly for
+            // display, in which case every representative renders its own
+            // address/phone/email — a proxy pick must never make the other
+            // representatives' details disappear from the document.
+            $signers = $forDisplay ? $contact->representatives()->get() : $contact->signingRepresentatives();
             if ($signers->isEmpty()) {
                 $r['order']                        = ++$order;
                 $r['_entity_contact_id']           = (int) $contact->id;
