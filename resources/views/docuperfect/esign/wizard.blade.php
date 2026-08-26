@@ -4163,7 +4163,7 @@ function esignWizard() {
 
         bindSlotToSelf(slotKey) {
             const r = this.recipients[this.replaceModal.recipientIndex];
-            this.replaceModal.bindings[slotKey] = { type: 'self', label: r.name || 'This party' };
+            this.replaceModal.bindings[slotKey] = { type: 'self', label: r.name || 'This party', id_number: r.id_number || '' };
         },
 
         bindSlotToRecipient(slotKey, recipient) {
@@ -4188,10 +4188,24 @@ function esignWizard() {
                 return;
             }
 
+            // Johan, 2026-08-26 — "selected executor but the screen shows the
+            // contact, not the company." This is the exact point the firm was
+            // being discarded: `recipient` (bindSlotToSupplier()'s own target,
+            // right here in scope) still carries _supplier_firm_name/
+            // _supplier_firm_registration_number at this moment, but the
+            // binding this function wrote only ever kept `label` (the bare
+            // person name) — the modal's live preview, and everything a later
+            // save/reload derives from _slot_bindings, had nothing left to
+            // read the company from. Carrying it here, on the selection
+            // itself, is what "the selection carries the firm alongside the
+            // person" means.
             this.replaceModal.bindings[slotKey] = {
                 type: 'recipient',
                 recipient_local_key: recipient._recipient_local_key,
                 label: recipient.name || '(unnamed recipient)',
+                id_number: recipient.id_number || '',
+                _supplier_firm_name: recipient._supplier_firm_name || '',
+                _supplier_firm_registration_number: recipient._supplier_firm_registration_number || '',
             };
         },
 
@@ -4408,20 +4422,72 @@ function esignWizard() {
             this.replaceModal.slotSearch[slotKey] = { query: contact.full_name || '', results: [], open: false };
         },
 
-        // Client-side preview only — mirrors RecipientTemplate::substitute()'s
-        // token replacement so the agent sees the sentence before confirming.
-        // The server resolves the SAME template the same way at send time;
-        // this never becomes the stored text itself.
+        // Client-side preview only — mirrors RecipientTemplate::
+        // resolveSlotSubTokens()/resolveSlotSubTokensFromArray() so the agent
+        // sees the sentence before confirming. The server resolves the SAME
+        // template the same way at send time; this never becomes the stored
+        // text itself. Must never drift from the PHP originals (2026-08-26 —
+        // this is exactly the class of bug Johan found: a binding that
+        // carried the firm but a preview that only ever knew how to print
+        // {key} -> label, never the full chain, never the 4 component
+        // tokens).
+        resolveSlotSubTokensJs(binding) {
+            const empty = { company: '', company_reg: '', representative: '', representative_id: '' };
+            if (!binding) return empty;
+            if (binding.type === 'recipient') {
+                return {
+                    company: binding._supplier_firm_name || '',
+                    company_reg: binding._supplier_firm_registration_number || '',
+                    representative: binding.label || '',
+                    representative_id: binding.id_number || '',
+                };
+            }
+            if (binding.type === 'self') {
+                return { company: '', company_reg: '', representative: binding.label || '', representative_id: binding.id_number || '' };
+            }
+            // type === 'contact' — a named-only Contact never carries a company
+            // in this wizard, and its ID isn't cached on the binding (the real
+            // render resolves it fresh from the Contact record) — name only
+            // for this fast preview.
+            return { company: '', company_reg: '', representative: binding.label || '', representative_id: '' };
+        },
+
+        // Mirrors RecipientTemplate::substitute()'s empty-collapse rules
+        // exactly — same two narrow cases, nothing broader invented here
+        // either: a parenthetical left holding only its own label collapses,
+        // and a "represented by" immediately followed by another one
+        // collapses to the last.
+        substituteJs(template, tokens) {
+            let out = template;
+            Object.keys(tokens).forEach(k => { out = out.split(k).join(tokens[k]); });
+            out = out.replace(/\(\s*\)/g, '');
+            out = out.replace(/\(\s*[A-Za-z][A-Za-z \t]*:\s*\)/g, '');
+            out = out.replace(/represented by\s+(?=represented by)/gi, '');
+            return out.replace(/\s{2,}/g, ' ').trim();
+        },
+
         replacePreviewText() {
             const t = this.replaceModal.selectedTemplate;
             if (!t) return '';
-            let text = t.text_template;
+            const tokens = {};
             (t.party_slots || []).forEach(slot => {
                 const b = this.replaceModal.bindings[slot.key];
-                const value = b ? b.label : ('{' + slot.key + '}');
-                text = text.split('{' + slot.key + '}').join(value);
+                const sub = this.resolveSlotSubTokensJs(b);
+                let full;
+                if (!b) {
+                    full = '{' + slot.key + '}';
+                } else if (sub.company) {
+                    full = sub.company + (sub.company_reg ? ' (Reg: ' + sub.company_reg + ')' : '') + ' represented by ' + (b.label || '');
+                } else {
+                    full = b.label || '';
+                }
+                tokens['{' + slot.key + '}'] = full;
+                tokens['{' + slot.key + '_company}'] = sub.company;
+                tokens['{' + slot.key + '_company_reg}'] = sub.company_reg;
+                tokens['{' + slot.key + '_representative}'] = sub.representative;
+                tokens['{' + slot.key + '_representative_id}'] = sub.representative_id;
             });
-            return text;
+            return this.substituteJs(t.text_template, tokens);
         },
 
         replaceModalCanConfirm() {
