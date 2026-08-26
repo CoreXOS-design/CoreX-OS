@@ -264,6 +264,230 @@ read registrant PII. Closing this needs a `scope` column on `site_connectors`, a
 middleware parameter, and one active token per scope. **Not built here** — it is a
 change to the connector's own model and admin card, and it belongs in its own task.
 
+### §4.4 Send the joining link to everyone already registered (AMENDMENT)
+
+**Status: added after §4.3 shipped. Needs Johan's gate before Staging.**
+
+A webinar is created before its Zoom link exists — the date goes up as soon as it is
+decided, the link is generated days later. Everyone who registers in that window gets a
+confirmation email with **no joining link at all**: `WebinarConfirmationMail` emits
+nothing for a null `join_url`, and the `.ics` attachment falls back to `Online`. Until
+now there was no way to reach those people. Editing the webinar (§4.3 `PUT /{slug}`)
+saves the link for *future* registrants and tells the existing cohort nothing.
+
+This is the one action that closes that gap: **save the link and tell everyone already
+signed up, in one press.** The website's registrants screen posts to it.
+
+```php
+Route::post('/{slug}/join-link', …'sendJoinLink')->name('v1.webinars.send-join-link');
+```
+
+Same group, same `site.connector` middleware, same `throttle:website-api`. No ordering
+hazard: there is no `POST /{slug}`, so nothing can swallow it. It is declared beside the
+other §4.3 admin routes because that is where a reader looks for the console's verbs.
+
+**`POST /api/v1/webinars/{slug}/join-link`**
+
+```json
+{ "join_url": "https://zoom.us/j/123456789" }
+```
+
+| Code | Body |
+|------|------|
+| `200` | `{"ok":true,"join_url":"…","notified":47}` |
+| `422` | `{"ok":false,"errors":{"join_url":["…"]}}` |
+| `404` | `{"ok":false,"message":"…"}` — unknown or archived slug |
+
+#### Validation
+
+`join_url` → `['required', 'url', 'max:500']`. The `url` and `max` rules are
+character-for-character those of `Admin\WebinarController::validated()`, and the
+`join_url.url` message is reused **verbatim**:
+
+> The joining link needs to be a full web address, starting with https://
+
+Two front doors to one field must not disagree about what a valid link is, and the
+website renders CoreX's message against its own input — a message written for a
+different form would read as nonsense there.
+
+`required` is the one deliberate divergence: the admin form treats `join_url` as
+`nullable` because a webinar may legitimately not have a link yet, whereas this endpoint
+exists *only* to set one, so an absent link is a mistake rather than a state. It
+therefore needs a message the admin form has never had:
+
+> `join_url.required` → Paste the joining link before sending it to registrants.
+
+`max:500` keeps Laravel's default message, exactly as the admin form does.
+
+#### Behaviour
+
+1. Resolve the webinar with `Webinar::notArchived()`. Miss → `404`.
+2. Save `join_url`.
+3. Queue **one** email per existing registration, carrying the link.
+4. Stamp `join_link_sent_at` on each registration.
+5. Return the number queued as `notified`.
+
+**Archived webinars are a `404`, never a send.** A cancelled webinar's cohort has already
+been told it is off; mailing them a joining link for it is worse than doing nothing.
+Unlike §4.2's registration endpoint — which deliberately conflates closed, archived, past
+and non-existent so nobody can map the sales calendar by probing slugs — this endpoint
+may be honest about *why*, because it is reached only with the admin connector token. Its
+404 therefore does **not** reuse the shared `notFound()` helper (*"That webinar is not
+open for registration"*, which is untrue of an archived webinar and meaningless to an
+operator):
+
+> That webinar no longer exists, or has been archived.
+
+**Re-sending is expected, not guarded against.** Zoom links get regenerated, and the whole
+point of this endpoint is to push the new one out. Every call mails the entire cohort
+again and overwrites `join_link_sent_at`. There is no "only those not yet told" filter,
+because after a link change the people already told are precisely the people who most need
+telling again. `notified` is therefore always the full registration count, not a delta.
+
+**A webinar with no registrants is a `200` with `notified: 0`**, and the link is still
+saved. Nothing is queued and nothing is wrong — it is the ordinary case of setting the
+link before anyone has signed up.
+
+#### The guard rail: one transaction, and why it actually holds
+
+The website reports *"saved and emailed to N"* on a `200`, and an operator will believe
+it. A partial failure that saved `join_url` and queued nothing — or queued 200 emails and
+then failed to save — would make that sentence a lie, in a direction nobody can undo.
+Email does not roll back.
+
+So the save, the queueing and the stamps happen inside **one `DB::transaction()`**, and
+here that is real atomicity rather than a gesture:
+
+- `QUEUE_CONNECTION=database`, and `DB_QUEUE_CONNECTION` is unset — so the `jobs` table
+  lives on the **same connection** as `webinars` and `webinar_registrations`.
+- `config/queue.php` sets `'after_commit' => false`, so each queued mail is `INSERT`ed
+  into `jobs` *inside* the open transaction rather than deferred past it.
+- A throw at any point therefore rolls back the `join_url` write, every
+  `join_link_sent_at` stamp **and every queued job together**. Uncommitted `jobs` rows are
+  invisible to the worker, so no email can escape from a transaction that later dies.
+
+**This atomicity is a property of the queue configuration, not of the code.** If
+`DB_QUEUE_CONNECTION` is ever pointed at a separate database, or the driver moved to
+Redis/SQS, the jobs stop rolling back and this guarantee silently becomes false while
+every test still passes. Anyone making that change must revisit this endpoint. That is the
+trade being accepted here, recorded so it is a decision rather than a surprise.
+
+The cost is a transaction holding ~2 writes per registrant. At the scale this feature
+operates (tens to low hundreds) that is a sub-second transaction and the correct trade.
+Should a cohort ever reach the thousands, the answer is a single queued fan-out job —
+**not** chunked commits, which would reintroduce exactly the partial state this prevents.
+
+This is deliberately **unlike** `SendWebinarReminders` (§6.4), which stamps per row,
+swallows one bad address and lets the next hourly sweep retry. That is right for a
+recurring sweep with a second chance. This is a one-shot operator action whose reported
+count is read as fact, so it is all-or-nothing instead.
+
+#### The email — a new Mailable, not a reuse
+
+`WebinarJoinLinkMail`, alongside the other two in `app/Mail/`:
+
+- **It carries the joining link and nothing else of value.** It must **not** restate or
+  re-issue demo credentials. The access code is delivered exactly once, at registration;
+  CoreX stores `bcrypt(code)` alone and *cannot* re-send it (§0 D6). An email implying
+  otherwise generates support mail nobody can answer.
+- It is *"here is your joining link"*, not a second confirmation. Re-sending
+  `WebinarConfirmationMail` would tell people they have registered — which they know —
+  and re-attach a calendar invite they already accepted.
+- `ShouldQueue`, **no pinned queue name.** The CoreX workers run `queue:work` with no
+  `--queue` flag and drain `default` only; anything else is stranded forever.
+- Sent via `Mail::mailer('corex')` **at the call site**, like every other CoreX product
+  email. `Mailer::queue()` stamps the sending mailer onto the mailable on its way to the
+  queue, so the call site always wins whatever the constructor sets. A `From` that
+  disagrees with the authenticated SMTP account fails SPF and is binned silently.
+- Closest existing template is `WebinarReminderMail` — same shape, same constraints, same
+  reason for carrying no credential.
+
+#### Auditability
+
+`webinar_registrations.join_link_sent_at` (nullable timestamp) records who was told and
+when, and survives the re-sends above by being overwritten each time. Without it there is
+no answer to *"did this person ever get the link?"* — the one question that gets asked on
+the morning of a webinar.
+
+**Log the count, never the list.** §4.3 established that registrants are personal data
+with no second copy in CoreX; a log line naming recipients creates that second copy in a
+file with a different retention policy and no delete path:
+
+```
+[webinars] join link sent  {webinar_id, notified}
+```
+
+#### One field added to §4.3
+
+`GET /{slug}/registrations` returns a `webinar` block of `{slug,title,starts_at}`. **Add
+`join_url`.** The website's screen renders "Link is set" / "Not set yet" from it and,
+lacking the field, currently always says "Not set yet" — which walks an operator straight
+into sending the link a second time to a cohort that already has it.
+
+`GET /{slug}` (§4.1, public) still returns **no** `join_url`. That is unchanged and
+deliberate: the link is earned by registering.
+
+#### Decisions Claude made
+
+1. **A `WebinarJoinLinkSent` domain event is emitted**, with no listener. Its two siblings
+   — `WebinarRegistered` and `WebinarReminderSent` — exist purely so the fact lands in
+   `domain_event_log` (§6.5); without one, this becomes the only webinar mail invisible to
+   the audit log, which is the log people reach for when asked what a registrant was sent.
+   `agencyId()` null, matching the other two, plus a catalogue row in
+   `corex-domain-events-spec.md` (non-negotiable #9).
+2. **The 404 names the archived case plainly.** Safe here, and only here, because this
+   endpoint is reachable only with the admin connector token — §4.2's deliberate
+   vagueness exists to stop anonymous slug-probing, which does not apply.
+3. **`join_link_sent_at` overwrites rather than accumulating.** A history table for
+   "times we mailed this person a link" answers a question nobody asks; the last send is
+   the one an operator needs on the morning of the webinar.
+
+#### The one business consequence worth stating plainly
+
+Pressing this button emails **everyone who has registered**, including people who
+registered *after* the link was set and already have it in their confirmation email.
+Those people receive the link twice.
+
+That is the deliberate trade: the alternative — mailing only those whose confirmation went
+out without a link — silently skips anyone whose link has since *changed*, which is the
+main reason to press the button a second time. A duplicate email is a small annoyance; a
+registrant sitting on a dead Zoom link at the start of the webinar is a lost sale. If
+Johan would rather the button only ever mailed people who have never been sent a link,
+that is a one-line change to the query and this note is where it gets revisited.
+
+#### Files
+
+| File | Change |
+|------|--------|
+| `routes/api.php` | `POST /{slug}/join-link` in the `v1/webinars` group |
+| `app/Http/Controllers/Api/V1/WebinarApiController.php` | `sendJoinLink()`; `join_url` added to `registrations()`'s webinar block |
+| `app/Mail/WebinarJoinLinkMail.php` | **new** |
+| `resources/views/emails/webinars/join-link.blade.php` | **new** |
+| `database/migrations/*_add_join_link_sent_at_to_webinar_registrations.php` | **new** |
+| `database/schema/mysql-schema.sql` | re-dumped (non-negotiable #12a), `DEFINER` stripped |
+| `app/Models/WebinarRegistration.php` | `join_link_sent_at` in `$fillable` + `$casts` |
+| `app/Events/Webinars/WebinarJoinLinkSent.php` | **new**, if decision 1 is yes |
+| `tests/Feature/Webinars/…` | see below |
+
+#### Acceptance criteria
+
+1. A webinar with registrants and `join_url = null`; `POST …/join-link` with a valid link
+   → `200`, `notified` equals the registration count, `join_url` persisted.
+2. Exactly one mail queued per registration, on the `default` queue, and every
+   `join_link_sent_at` stamped.
+3. The queued mail contains the joining link and **no** access code or credentials.
+4. `GET …/registrations` afterwards reports the new `join_url`.
+5. Invalid link → `422`, field-keyed under `join_url`, with the §4.4 messages — and
+   **nothing** saved, queued or stamped.
+6. Archived slug → `404`, and no mail queued.
+7. Unknown slug → `404`.
+8. A forced failure mid-send leaves `join_url` unchanged **and** the `jobs` table empty —
+   the transaction assertion, and the one that would have caught the failure mode this
+   guard rail exists for.
+9. A second call re-queues the whole cohort and updates `join_link_sent_at`.
+10. Zero registrants → `200`, `notified: 0`, link saved.
+11. No log line anywhere names a registrant's email.
+
 ---
 
 ## §5 — The expiry model (A3) — the significant change
