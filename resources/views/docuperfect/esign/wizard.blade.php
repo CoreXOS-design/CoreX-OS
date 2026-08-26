@@ -2220,6 +2220,18 @@ function esignWizard() {
                 if (!r.hasOwnProperty('_searching')) r._searching = false;
                 if (!r.hasOwnProperty('_searchIdx')) r._searchIdx = 0;
                 if (!r.hasOwnProperty('_contact_id')) r._contact_id = null;
+                // Johan, 2026-08-26 — a row with _is_entity simply absent
+                // (never search-picked: addSecondOwner()/addRecipient()'s
+                // blank rows, or an older saved flow from before the
+                // server started sending this) left :disabled="r._is_entity"
+                // reading undefined. Alpine's boolean-attribute binding
+                // treats an undefined value as disabling, not as falsy —
+                // confirmed directly against a live page: the SAME
+                // undefined value left :style (a plain, non-boolean
+                // attribute) correctly falsy, but set disabled="disabled"
+                // regardless. Explicit false is the only value Alpine
+                // reads as "not disabled" here.
+                if (!r.hasOwnProperty('_is_entity')) r._is_entity = false;
                 // Restore skipEmail and overridden email from signing_setup step data
                 const saved = serverStepData?.signing_setup?.[i] || {};
                 if (!r.hasOwnProperty('skipEmail')) r.skipEmail = saved.skipEmail || false;

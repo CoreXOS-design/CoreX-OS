@@ -3564,6 +3564,16 @@ class ESignWizardController extends Controller
                             'cell'        => $contact->phone ?? '',
                             'address'     => $contact->address ?? '',
                             '_contact_id' => $contact->id,
+                            // Johan, 2026-08-26 — auto-populated-from-property rows
+                            // never carried this (only a fresh search-pick via
+                            // selectContact() did), so the "deceased" checkbox's
+                            // :disabled="r._is_entity" read an undefined value on
+                            // first load — an Alpine quirk where an undefined
+                            // boolean-attribute binding disables rather than
+                            // leaving enabled, greying the tick out for a company
+                            // AND a natural person alike whenever neither had ever
+                            // been re-picked via search.
+                            '_is_entity'  => $contact->isEntity(),
                             'bank_name'           => $contact->bank_name ?? '',
                             'bank_account_name'   => $contact->bank_account_name ?? '',
                             'bank_account_number' => $contact->bank_account_number ?? '',
@@ -3631,6 +3641,28 @@ class ESignWizardController extends Controller
         // operation for document-body merge purposes ONLY; it must never
         // reach anything that becomes what gets edited or saved as "the
         // recipient."
+        // Johan, 2026-08-26 — re-derive _is_entity for EVERY contact-linked
+        // recipient on EVERY load, not just a fresh auto-populate above. A
+        // RESUMED flow's recipients come straight from saved step_data,
+        // which never carried this flag before today — leaving it simply
+        // absent. The recipients screen's "Deceased" checkbox binds
+        // :disabled="r._is_entity"; Alpine reads an undefined boolean-
+        // attribute binding as disabling, not as falsy, so a resumed
+        // flow's recipient — company OR natural person — came back
+        // permanently greyed out regardless of which one it actually was.
+        // Every resolvable contact gets an explicit boolean either way.
+        $contactIds = collect($recipients)->pluck('_contact_id')->filter()->unique();
+        if ($contactIds->isNotEmpty()) {
+            $contactsById = Contact::whereIn('id', $contactIds)->get()->keyBy('id');
+            foreach ($recipients as &$r) {
+                $contact = ! empty($r['_contact_id']) ? ($contactsById[$r['_contact_id']] ?? null) : null;
+                if ($contact) {
+                    $r['_is_entity'] = $contact->isEntity();
+                }
+            }
+            unset($r);
+        }
+
         if (!empty($recipients)) {
             $stepData['recipients'] = ['recipients' => $recipients];
         }
