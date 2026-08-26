@@ -748,6 +748,23 @@
                                 <div class="rounded-md p-3" style="border: 1px solid var(--border);">
                                     <label class="block text-xs font-semibold mb-2" style="color: var(--text-secondary);" x-text="slot.label"></label>
 
+                                    {{-- Johan, 2026-08-26 — "The agent has ALREADY ticked which
+                                         recipient is deceased, before reaching this dialog. Asking
+                                         again is wrong... Show the name as a fact. No buttons, no
+                                         search box, nothing to pick." Always bound to this party
+                                         (enforced in selectReplaceTemplate()/openReplaceModal()); the
+                                         deceased slot never offers a choice, it states one. --}}
+                                    <template x-if="slot.key === 'deceased'">
+                                        <div>
+                                            <div class="text-sm font-medium rounded-md px-2.5 py-1.5"
+                                                 style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);"
+                                                 x-text="recipients[replaceModal.recipientIndex]?.name || 'This recipient'"></div>
+                                            <p class="mt-1.5 text-xs" style="color: var(--text-muted);">To change who this is, update it on the recipient — not here.</p>
+                                        </div>
+                                    </template>
+
+                                    <template x-if="slot.key !== 'deceased'">
+                                    <div>
                                     <div class="flex flex-wrap gap-1.5 mb-2">
                                         <button type="button" @click="bindSlotToSelf(slot.key)"
                                                 class="text-xs px-2.5 py-1 rounded-full transition"
@@ -807,6 +824,8 @@
                                     <div x-show="replaceModal.bindings[slot.key]" class="mt-2 text-xs" style="color: var(--ds-green,#16a34a);">
                                         ✓ <span x-text="replaceModal.bindings[slot.key]?.label"></span>
                                     </div>
+                                    </div>
+                                    </template>
                                 </div>
                             </template>
                         </div>
@@ -3823,6 +3842,14 @@ function esignWizard() {
                 this.replaceModal.templates = Array.isArray(data) ? data : [];
                 if (r._recipient_template_id) {
                     this.replaceModal.selectedTemplate = this.replaceModal.templates.find(t => t.id === r._recipient_template_id) || null;
+                    // A restored prior selection could in principle carry a
+                    // stale/different deceased binding from before this rule
+                    // existed — re-assert it as this party, unconditionally,
+                    // same as a fresh template pick.
+                    const hasDeceasedSlot = (this.replaceModal.selectedTemplate?.party_slots || []).some(slot => slot.key === 'deceased');
+                    if (hasDeceasedSlot) {
+                        this.replaceModal.bindings['deceased'] = { type: 'self', label: r.name || 'This party' };
+                    }
                 }
             } catch (e) {
                 console.error('Failed to load recipient templates', e);
@@ -3865,12 +3892,22 @@ function esignWizard() {
         selectReplaceTemplate(t) {
             this.replaceModal.selectedTemplate = t;
             // Fresh bindings per template — a slot key from a different template
-            // has no meaning here. "self" is offered as a one-click default for
-            // the FIRST slot (matches the deceased/estate case: the party being
-            // replaced usually IS the first slot).
+            // has no meaning here. Johan, 2026-08-26 — the "deceased" slot is
+            // never a choice: it's always this party, unconditionally, however
+            // many slots the template has or in whatever order they appear.
+            // Everything else keeps the old one-click-default-for-the-first-slot
+            // behaviour (unchanged for templates with no "deceased" slot).
+            const hasDeceasedSlot = (t.party_slots || []).some(slot => slot.key === 'deceased');
+            const selfLabel = this.recipients[this.replaceModal.recipientIndex].name || 'This party';
             const bindings = {};
             (t.party_slots || []).forEach((slot, i) => {
-                bindings[slot.key] = i === 0 ? { type: 'self', label: this.recipients[this.replaceModal.recipientIndex].name || 'This party' } : null;
+                if (slot.key === 'deceased') {
+                    bindings[slot.key] = { type: 'self', label: selfLabel };
+                } else if (!hasDeceasedSlot && i === 0) {
+                    bindings[slot.key] = { type: 'self', label: selfLabel };
+                } else {
+                    bindings[slot.key] = null;
+                }
             });
             this.replaceModal.bindings = bindings;
         },
