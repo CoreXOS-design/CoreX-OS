@@ -278,8 +278,12 @@ final class SgSearchService
             preg_replace('/[^A-Za-z0-9_\-]/', '_', $sgDoc->sg_document_number),
             $sgDoc->sg_page_number,
         );
-        Storage::disk($this->disk())->put($relative, file_get_contents($tmpPath));
+        $written = Storage::disk($this->disk())->put($relative, file_get_contents($tmpPath));
         @unlink($tmpPath);
+
+        if (!$written || !Storage::disk($this->disk())->exists($relative)) {
+            throw new \RuntimeException("Failed to persist SG document to storage at {$relative}");
+        }
 
         $sgDoc->forceFill([
             'storage_path'     => $relative,
