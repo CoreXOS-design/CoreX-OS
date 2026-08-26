@@ -2,7 +2,9 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Events\Webinars\WebinarJoinLinkSent;
 use App\Http\Controllers\Controller;
+use App\Mail\WebinarJoinLinkMail;
 use App\Models\Role;
 use App\Models\User;
 use App\Models\Webinar;
@@ -10,7 +12,10 @@ use App\Models\WebinarRegistration;
 use App\Services\Webinars\WebinarRegistrationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -299,6 +304,136 @@ class WebinarApiController extends Controller
     }
 
     /**
+     * POST /api/v1/webinars/{slug}/join-link
+     *
+     * Save the joining link AND tell everyone who has already registered, in one press.
+     *
+     * Spec: .ai/specs/webinar-registration.md §4.4
+     *
+     * WHY THIS EXISTS. A webinar goes up as soon as its date is decided; the Zoom link
+     * is generated days later. Everyone who registers in that window receives a
+     * confirmation carrying no joining link at all, and PUT /{slug} only fixes that for
+     * FUTURE registrants — it tells the existing cohort nothing. This is the only way
+     * to reach them.
+     *
+     * ══ ONE TRANSACTION, AND IT IS A REAL ONE ══
+     *
+     * The website reports "saved and emailed to N" on a 200 and the operator believes
+     * it. Saving join_url but queueing nothing — or queueing 200 emails and then
+     * failing to save — makes that sentence a lie in a direction nobody can undo,
+     * because email does not roll back.
+     *
+     * The save, the queueing and the stamps therefore share ONE transaction, and here
+     * that is genuine atomicity rather than a gesture: QUEUE_CONNECTION=database with
+     * DB_QUEUE_CONNECTION unset puts the `jobs` table on the SAME connection as
+     * `webinars`, and config/queue.php sets 'after_commit' => false, so each queued
+     * mail is INSERTed inside the open transaction. A throw anywhere rolls back the
+     * join_url write, every stamp and every queued job together — and uncommitted
+     * `jobs` rows are invisible to the worker, so no mail can escape a transaction
+     * that later dies.
+     *
+     * THAT GUARANTEE IS A PROPERTY OF THE QUEUE CONFIG, NOT OF THIS CODE. Point
+     * DB_QUEUE_CONNECTION at another database, or move the driver to Redis/SQS, and
+     * the jobs stop rolling back while every test here still passes. Anyone making
+     * that change must revisit this method.
+     *
+     * Deliberately UNLIKE SendWebinarReminders (§6.4), which stamps per row, swallows
+     * one bad address and lets the next hourly sweep retry. That is right for a
+     * recurring sweep with a second chance. This is a one-shot operator action whose
+     * reported count is read as fact, so it is all-or-nothing instead.
+     */
+    public function sendJoinLink(Request $request, string $slug): JsonResponse
+    {
+        // Archived is a 404 and never a send: a cancelled webinar's cohort has already
+        // been told it is off, and mailing them a joining link for it is worse than
+        // doing nothing.
+        $webinar = Webinar::notArchived()->where('slug', $slug)->first();
+
+        if (! $webinar) {
+            // NOT the shared notFound() helper. Its "not open for registration" is
+            // untrue of an archived webinar and meaningless to an operator. §4.2's
+            // deliberate vagueness exists to stop anonymous slug-probing; this
+            // endpoint is reachable only with the admin connector token, so it can
+            // afford to be honest.
+            return response()->json([
+                'ok'      => false,
+                'message' => 'That webinar no longer exists, or has been archived.',
+            ], 404);
+        }
+
+        $data = $request->validate([
+            // Character-for-character the admin form's rule (Admin\WebinarController
+            // ::validated()) apart from `required` — two front doors to one field must
+            // not disagree about what a valid link is.
+            'join_url' => ['required', 'url', 'max:500'],
+        ], [
+            // Verbatim from the admin form: the website renders CoreX's message
+            // against its own input, so a message written for a different form would
+            // read as nonsense there.
+            'join_url.url' => 'The joining link needs to be a full web address, starting with https://',
+
+            // The one message the admin form has never had. It treats join_url as
+            // nullable because a webinar may legitimately not have a link yet; this
+            // endpoint exists only to set one, so absent is a mistake, not a state.
+            'join_url.required' => 'Paste the joining link before sending it to registrants.',
+        ]);
+
+        $joinUrl = $data['join_url'];
+
+        $notified = DB::transaction(function () use ($webinar, $joinUrl) {
+            $webinar->update(['join_url' => $joinUrl]);
+
+            $now   = Carbon::now();
+            $count = 0;
+
+            // Chunked so a large cohort does not have to fit in this process's memory
+            // at once. Still ONE transaction — chunking the reads is not chunking the
+            // commits, which would reintroduce exactly the partial state this prevents.
+            $webinar->registrations()
+                ->with('webinar')
+                ->orderBy('id')
+                ->chunkById(200, function ($registrations) use ($joinUrl, $now, &$count) {
+                    foreach ($registrations as $registration) {
+                        // The link is passed to the Mailable rather than read off the
+                        // webinar at render time: the worker renders this long after
+                        // the transaction closes, by which point the operator may have
+                        // pressed again with a newer link. This captures what THIS
+                        // send promised.
+                        Mail::mailer('corex')
+                            ->to($registration->email)
+                            ->send(new WebinarJoinLinkMail($registration, $joinUrl));
+
+                        $registration->forceFill(['join_link_sent_at' => $now])->save();
+
+                        WebinarJoinLinkSent::dispatch($registration);
+
+                        $count++;
+                    }
+                });
+
+            return $count;
+        });
+
+        // The COUNT, never the list. Registrants are personal data with no second copy
+        // in CoreX (§4.3); naming them here would create that second copy in a file
+        // with a different retention policy and no delete path.
+        Log::info('[webinars] join link sent', [
+            'webinar_id' => $webinar->id,
+            'notified'   => $notified,
+        ]);
+
+        return response()->json([
+            'ok'       => true,
+            'join_url' => $joinUrl,
+
+            // Always the full registration count, never a delta. Re-sending is the
+            // point — Zoom links get regenerated, and the people already told are
+            // precisely the people who most need telling again.
+            'notified' => $notified,
+        ]);
+    }
+
+    /**
      * GET /api/v1/webinars/{slug}/registrations?page=1&per_page=100
      *
      * THIS IS THE ONLY PLACE THESE PEOPLE EXIST (§3.2) — registrants are
@@ -330,6 +465,13 @@ class WebinarApiController extends Controller
                 'slug'      => $webinar->slug,
                 'title'     => $webinar->title,
                 'starts_at' => $webinar->starts_at->toIso8601String(),
+
+                // §4.4. The website's screen renders "Link is set" / "Not set yet"
+                // from this. Without it that badge always read "Not set yet", which
+                // walks an operator straight into mailing the cohort a second time.
+                // NOTE this is the ADMIN list; GET /{slug} (§4.1, public) still
+                // returns no join_url — that is earned by registering.
+                'join_url'  => $webinar->join_url,
             ],
             'registrations' => collect($page->items())
                 ->map(fn (WebinarRegistration $r) => $this->registrationPayload($r))

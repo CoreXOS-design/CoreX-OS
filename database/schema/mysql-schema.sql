@@ -14108,6 +14108,7 @@ CREATE TABLE `webinar_registrations` (
   `demo_access_grant_id` bigint unsigned DEFAULT NULL,
   `confirmation_sent_at` timestamp NULL DEFAULT NULL,
   `reminder_sent_at` timestamp NULL DEFAULT NULL,
+  `join_link_sent_at` timestamp NULL DEFAULT NULL,
   `last_issued_at` timestamp NULL DEFAULT NULL,
   `ip_address` varchar(45) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `user_agent` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,

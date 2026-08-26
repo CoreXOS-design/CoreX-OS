@@ -324,6 +324,13 @@ Route::prefix('v1/webinars')
         Route::get('/{slug}/registrations.csv', [\App\Http\Controllers\Api\V1\WebinarApiController::class, 'registrationsCsv'])->name('v1.webinars.registrations-csv');
         Route::get('/{slug}/registrations', [\App\Http\Controllers\Api\V1\WebinarApiController::class, 'registrations'])->name('v1.webinars.registrations');
 
+        // Save the joining link AND mail it to everyone already registered, in one
+        // action. A webinar is created before its Zoom link exists, so this is the
+        // ONLY way to reach the cohort whose confirmation went out without one.
+        // No ordering hazard: there is no POST /{slug} for this to collide with.
+        // Spec: webinar-registration.md §4.4
+        Route::post('/{slug}/join-link', [\App\Http\Controllers\Api\V1\WebinarApiController::class, 'sendJoinLink'])->name('v1.webinars.send-join-link');
+
         Route::put('/{slug}', [\App\Http\Controllers\Api\V1\WebinarApiController::class, 'update'])->name('v1.webinars.update');
 
         // Archive, never delete — the registration link stops working, but
