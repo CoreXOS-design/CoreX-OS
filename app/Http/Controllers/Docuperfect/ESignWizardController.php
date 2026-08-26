@@ -3920,6 +3920,12 @@ class ESignWizardController extends Controller
             // (SignatureRequest::assertSignerIsCurrentRepresentative(),
             // itself Contact::signingRepresentatives() — one identity rule,
             // not a second one invented for the rebind path).
+            // cc2, 2026-08-26 — resolved once, used both to verify THIS
+            // rebind (below) and persisted onto the row so a LATER re-check
+            // (SignatureRequest::isSigningBlocked(), at sign time) has
+            // something to re-verify against — the same identity, stored,
+            // not recomputed a third way.
+            $partyContactId = null;
             if ($sigReq->contact_id !== null) {
                 try {
                     $partyContactId = $recipientTemplate->resolvePartyContactId($sigReq, $binding['slot_bindings']);
@@ -3931,9 +3937,11 @@ class ESignWizardController extends Controller
 
                 // $sigReq IS the party (its own "deceased"/party slot is
                 // bound to itself, e.g. a deceased party's own inert
-                // display row) — nothing to verify. The check only applies
-                // when $sigReq is claiming to REPRESENT someone else.
-                if ($partyContactId !== null && $partyContactId !== $sigReq->contact_id) {
+                // display row) — nothing to verify or persist as
+                // "represented"; they don't represent anyone.
+                if ($partyContactId === $sigReq->contact_id) {
+                    $partyContactId = null;
+                } elseif ($partyContactId !== null) {
                     try {
                         \App\Models\Docuperfect\SignatureRequest::assertSignerIsCurrentRepresentative(
                             $sigReq->contact_id,
@@ -3953,6 +3961,7 @@ class ESignWizardController extends Controller
                 'recipient_template_id' => $recipientTemplate->id,
                 'slot_bindings' => $binding['slot_bindings'],
                 'party_clause_text' => $resolvedText,
+                'represented_contact_id' => $partyContactId,
             ]);
         }
     }

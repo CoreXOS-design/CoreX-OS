@@ -18,16 +18,21 @@
     --}}
     @php
         $copy = match($reason ?? 'unavailable') {
-            'cancelled' => 'This signing request has been withdrawn by the agency. It is no longer available to sign.',
-            'declined'  => 'This document was declined and is no longer available to sign.',
-            'expired'   => 'This signing link is no longer valid.',
-            default     => 'This signing link is no longer available.',
+            'cancelled'         => 'This signing request has been withdrawn by the agency. It is no longer available to sign.',
+            'declined'          => 'This document was declined and is no longer available to sign.',
+            'expired'           => 'This signing link is no longer valid.',
+            // cc4's finding, cc2 2026-08-26 — a revoked representative
+            // opening their link deserves to be told plainly what changed,
+            // not shown a generic dead-link page.
+            'authority_changed' => 'Your authority to sign this document on behalf of the party named in it has changed. This link is no longer valid for you. Please contact the agency directly if you believe this is a mistake.',
+            default             => 'This signing link is no longer available.',
         };
         $heading = match($reason ?? 'unavailable') {
-            'cancelled' => 'No longer available',
-            'declined'  => 'Signing declined',
-            'expired'   => 'Link no longer available',
-            default     => 'Link unavailable',
+            'cancelled'         => 'No longer available',
+            'declined'          => 'Signing declined',
+            'expired'           => 'Link no longer available',
+            'authority_changed' => 'Your authority has changed',
+            default             => 'Link unavailable',
         };
     @endphp
     <title>{{ $heading }} — {{ $agencyName ?? 'Agency' }}</title>

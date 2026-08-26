@@ -56,6 +56,7 @@ class SignatureRequest extends Model
         'authorised_at',
         'fica_required',
         'contact_id',
+        'represented_contact_id',
         'fica_submission_id',
     ];
 
@@ -286,7 +287,46 @@ class SignatureRequest extends Model
     {
         return $this->isExpired()
             || (bool) $this->template?->isLapsed()
-            || $this->template?->status === SignatureTemplate::STATUS_CANCELLED;
+            || $this->template?->status === SignatureTemplate::STATUS_CANCELLED
+            || $this->authorityRevoked();
+    }
+
+    /**
+     * cc4's finding, cc2 2026-08-26 — "a revoked representative can still
+     * sign." Every guard tonight ran at CREATION; nothing re-checked the
+     * relationship at the moment of SIGNING — the window between send and
+     * sign is exactly where a real revocation (a family dispute, a
+     * cancelled power of attorney) happens. Re-verifies live, every time
+     * this link is opened or acted on (isSigningBlocked() is already the
+     * one check every write action in SigningController gates on — this
+     * rides that same single choke point, not a new one), using the SAME
+     * identity resolution the create-time guard and the rebind both already
+     * use: is the signer still, right now, a genuine representative of the
+     * party recorded when this row was created or last rebound?
+     *
+     * Only ever true for a row that was claiming to represent someone
+     * (represented_contact_id is null for the overwhelming majority of
+     * rows — an ordinary party signing for themselves — and this returns
+     * false immediately for all of them). A legitimate substitution (the
+     * party now represented by someone else) does not strand the
+     * document: "Replace this party" rebinds contact_id AND
+     * represented_contact_id together to the new, current, correct pair —
+     * this check only ever flags the STALE link that was never rebound,
+     * never a document that's been properly corrected.
+     */
+    public function authorityRevoked(): bool
+    {
+        if ($this->represented_contact_id === null || $this->contact_id === null) {
+            return false;
+        }
+
+        try {
+            self::assertSignerIsCurrentRepresentative($this->contact_id, $this->represented_contact_id);
+        } catch (\App\Exceptions\PartyClauseSignerMismatchException) {
+            return true;
+        }
+
+        return false;
     }
 
     public function isComplete(): bool

@@ -931,6 +931,11 @@ class SignatureService
             'message' => $message,
             'fica_required' => $ficaRequired,
             'contact_id' => $contactId,
+            // cc2, 2026-08-26 (cc4's revoked-representative finding) —
+            // persisted, not discarded after this one create-time check, so
+            // SignatureRequest::isSigningBlocked() can re-verify the
+            // relationship still holds every time this link is opened.
+            'represented_contact_id' => $representedContactId,
             'fica_submission_id' => $ficaSubmissionId,
         ]);
 

@@ -1061,9 +1061,21 @@ class SigningController extends Controller
         ];
     }
 
-    /** Shared by every isSigningBlocked() render site — see renderUnavailable(). */
+    /**
+     * Shared by every isSigningBlocked() render site — see
+     * renderUnavailable(). authorityRevoked() checked FIRST — cc4's
+     * finding, cc2 2026-08-26: this recipient's own relationship having
+     * changed is a specific, personal fact about THEIR link, distinct from
+     * the ceremony being cancelled or lapsed generally, and deserves its
+     * own clear wording — "your authority has changed," not a generic
+     * "no longer available" that reads like a broken page.
+     */
     private function unavailableReason(SignatureRequest $signingRequest): string
     {
+        if ($signingRequest->authorityRevoked()) {
+            return 'authority_changed';
+        }
+
         return optional($signingRequest->template)->status === SignatureTemplate::STATUS_CANCELLED
             ? 'cancelled'
             : 'expired';
