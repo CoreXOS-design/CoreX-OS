@@ -2028,19 +2028,52 @@ final class RoleBlockExpansionService
             // Stamp identity.
             $f->setAttribute('data-recipient-identity', $role . '_' . $instanceIndex);
             $f->setAttribute('data-role-token', $role);
-            // Pre-fill from contact if mapping recognised.
-            if ($contact !== null && $parsed['sub_name'] !== null) {
-                $value = $this->resolveContactValue($contact, $parsed['sub_name'], $recipient);
-                // AT-292 — headline couple's-mandate fix. When the matched
-                // Contact has no id_number, fall back to the ID the signer
-                // typed in the wizard (persisted on THIS recipient's own
-                // SignatureRequest.signer_id_number) so the second seller
-                // still renders their own ID rather than nothing.
+            // Pre-fill if this field's mapping is recognised.
+            if ($parsed['sub_name'] !== null) {
+                // cc3, 2026-08-26 (cc5's find) — the $contact !== null guard this
+                // used to sit behind meant a recipient with NO linked Contact at
+                // all (a supplier-sourced representative like an executor —
+                // _contact_id is null, resolveContact() returns null) skipped
+                // this entire block for every field, so the "always write"
+                // fix below never ran for them: their clone kept whatever the
+                // un-cloned source held, which — per the comment this replaces —
+                // is WebTemplateDataService::resolveContactColumnAllRecipients()'s
+                // JOIN of every OTHER recipient sharing the role. On real data
+                // this printed the executor's Domicilium as the OTHER TWO
+                // sellers' addresses concatenated with "and" — a legal document
+                // stating one party's address as two other people's addresses
+                // stuck together. Resolve from the Contact when one exists;
+                // otherwise fall through to this recipient's OWN SignatureRequest
+                // fields (name/email/ID — the only three it can carry without a
+                // linked Contact; phone/address have no such column and
+                // correctly resolve to blank, never another party's value).
+                $value = $contact !== null
+                    ? $this->resolveContactValue($contact, $parsed['sub_name'], $recipient)
+                    : null;
+                // AT-292 — headline couple's-mandate fix, and now also the
+                // no-Contact-at-all case above. When there is no id_number to
+                // read (Contact has none, or there is no Contact), fall back
+                // to the ID the signer typed in the wizard (persisted on THIS
+                // recipient's own SignatureRequest.signer_id_number) so this
+                // party still renders their own ID rather than nothing.
                 if ($value === null
                     && $recipient !== null
                     && in_array($parsed['sub_name'], ['id', 'id_number'], true)
                 ) {
                     $value = $this->blankToNull($recipient->signer_id_number);
+                }
+                // Same reasoning for email and name — SignatureRequest carries
+                // its own signer_email/signer_name regardless of whether a
+                // Contact is linked; a Contact's version wins when present
+                // (already resolved above), this is only the no-Contact case.
+                if ($value === null && $recipient !== null && $parsed['sub_name'] === 'email') {
+                    $value = $this->blankToNull($recipient->signer_email);
+                }
+                if ($value === null
+                    && $recipient !== null
+                    && in_array($parsed['sub_name'], ['name', 'full_name', 'first_name+last_name'], true)
+                ) {
+                    $value = $this->blankToNull($recipient->signer_name);
                 }
                 // Johan, 2026-08-26 — a null here used to SKIP
                 // replaceTextContent() entirely, silently leaving whatever
@@ -2053,11 +2086,10 @@ final class RoleBlockExpansionService
                 // WebTemplateDataService::resolveContactColumnAllRecipients() —
                 // which JOINS every recipient sharing the role into ONE flat
                 // value ("Anna's address and Ben's address"). "Leave it"
-                // therefore never preserved THIS recipient's own typed value
-                // (SignatureRequest has no address/phone/email column to type
-                // a value INTO) — it printed every OTHER recipient's address,
-                // phone and ID verbatim on a party who captured none of their
-                // own. A privacy and document-integrity defect, not a display
+                // therefore never preserved THIS recipient's own typed value —
+                // it printed every OTHER recipient's address, phone and ID
+                // verbatim on a party who captured none of their own. A
+                // privacy and document-integrity defect, not a display
                 // nicety: one client's home address and mobile number on
                 // another client's signed legal document. Always write —
                 // blank is the correct empty state for this party; another
