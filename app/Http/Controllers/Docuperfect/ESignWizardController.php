@@ -1351,12 +1351,19 @@ class ESignWizardController extends Controller
         // rather than an error, same as a Contact with none on file).
         // Address/phone fall back to the FIRM's when the specific working
         // contact has none of their own — AgencyServiceProviderContact has
-        // no address field at all, only the firm does. id_number likewise
-        // borrows the FIRM's registration_number (2026-08-25, Johan: "so
-        // add a registration field on suppliers") — this is what makes the
-        // existing "herein represented by X, ID/registration NNN" wording
-        // engine print a supplier's number with no wording-engine changes;
-        // it reads this same generic id_number field for a Contact.
+        // no address field at all, only the firm does.
+        //
+        // Johan, 2026-08-26 — id_number now reads the REPRESENTATIVE's own
+        // id_number (new 2026_08_29_000007), not the firm's
+        // registration_number. Previously it borrowed the firm's number
+        // (2026-08-25) as a stand-in for both concepts; now that the two
+        // are genuinely separate fields, this is the one that belongs on a
+        // PERSON — the firm's own registration_number is checked
+        // separately, alongside this, by
+        // assertSupplierRepresentativesHaveRegistrationNumber(). No
+        // backfill exists for this field yet (see the migration's
+        // docblock) — existing representatives show blank here until an
+        // agent adds it on the supplier directory screen.
         $supplierResults = $suppliers->map(function (\App\Models\DealV2\AgencyServiceProviderContact $sc) {
             $firm = $sc->firm;
             $name = trim((string) ($sc->attorney_name ?: $sc->contact_person ?: ($firm->name ?? '')));
@@ -1375,7 +1382,7 @@ class ESignWizardController extends Controller
                 'agent'               => null,
                 'email'               => $sc->email ?: '',
                 'phone'               => $sc->phone ?: ($firm->phone ?? ''),
-                'id_number'           => $firm->registration_number ?? '',
+                'id_number'           => $sc->id_number ?? '',
                 'address'             => $firm->address ?? '',
                 'contact_type'        => 'Supplier',
                 'esign_role'          => null,
@@ -1445,7 +1452,7 @@ class ESignWizardController extends Controller
                 'email'               => $m['contact']->email,
                 'phone'               => $m['contact']->phone,
                 'address'             => $m['contact']->firm->address ?? '',
-                'id_number'           => $m['contact']->firm->registration_number ?? '',
+                'id_number'           => $m['contact']->id_number ?? '',
                 'reasons'             => $m['reasons'],
             ])->values(),
         ]);
@@ -4099,21 +4106,29 @@ class ESignWizardController extends Controller
 
     /**
      * HARD BLOCK (Johan, 2026-08-25 — "so add a registration field on
-     * suppliers"): a supplier bound as someone's representative via a
-     * type:'recipient' slot binding (the same "Replace this party" chain
+     * suppliers"; split 2026-08-26 — "split registration and ID into two
+     * fields on supplier... a company registration number, and the
+     * representative's ID number. The clause needs both"): a supplier
+     * bound as someone's representative via a type:'recipient' slot
+     * binding (the same "Replace this party" chain
      * assertDeceasedRecipientsHaveSubstituteSigner() above checks) must
-     * carry a registration/ID number, because that number is what prints
-     * in the "herein represented by X, registration NNN" clause. Johan's
-     * words: "it must not silently print a representative with no
-     * identifying number — that was the whole reason Johan asked for
-     * this." An ordinary supplier recipient who is NOT standing in as
-     * anyone's representative is untouched — existing suppliers with no
-     * number on file are fine right up until the moment one is actually
-     * used this way, per Johan's explicit "not required retrospectively"
-     * instruction.
+     * carry BOTH numbers — the FIRM's registration number
+     * (AgencyServiceProvider::registration_number) and the REPRESENTATIVE's
+     * own ID number (AgencyServiceProviderContact::id_number, new
+     * 2026_08_29_000007) — because the clause names both: the company by
+     * its registration, the person signing by their own ID. Checked
+     * against the real, current DB records (not the wizard's own
+     * flattened recipient-array snapshot, which only ever carried one
+     * borrowed value) so a number added moments ago on the supplier
+     * directory screen is picked up immediately. An ordinary supplier
+     * recipient who is NOT standing in as anyone's representative is
+     * untouched — existing suppliers with no number on file are fine
+     * right up until the moment one is actually used this way, per
+     * Johan's explicit "not required retrospectively" instruction.
      *
-     * The message names the specific supplier and tells the agent exactly
-     * what to add and where, per Johan's "if you block, say so" steer.
+     * The message names the specific supplier, which number(s) are
+     * missing, and where to add them, per Johan's "if you block, say so"
+     * steer.
      */
     private function assertSupplierRepresentativesHaveRegistrationNumber(array $recipients): void
     {
@@ -4143,15 +4158,31 @@ class ESignWizardController extends Controller
                 if ($bound === null || ($bound['_recipient_source'] ?? null) !== 'supplier') {
                     continue;
                 }
-                if (trim((string) ($bound['id_number'] ?? '')) !== '') {
+
+                $supplierContactId = $bound['_supplier_contact_id'] ?? null;
+                $representative = $supplierContactId
+                    ? \App\Models\DealV2\AgencyServiceProviderContact::withoutGlobalScopes()->with('firm')->find($supplierContactId)
+                    : null;
+
+                $supplierName = trim((string) ($bound['name'] ?? '')) ?: 'This supplier';
+                $firmName = trim((string) ($bound['_supplier_firm_name'] ?? ($representative->firm->name ?? '')));
+                $where = $firmName !== '' ? "the supplier directory entry for {$firmName}" : 'the supplier directory';
+
+                $missingCompanyReg = $representative === null || trim((string) ($representative->firm->registration_number ?? '')) === '';
+                $missingRepId = $representative === null || trim((string) ($representative->id_number ?? '')) === '';
+
+                if (! $missingCompanyReg && ! $missingRepId) {
                     continue;
                 }
 
-                $supplierName = trim((string) ($bound['name'] ?? '')) ?: 'This supplier';
-                $firmName = trim((string) ($bound['_supplier_firm_name'] ?? ''));
-                $where = $firmName !== '' ? "the supplier directory entry for {$firmName}" : 'the supplier directory';
+                $missing = array_filter([
+                    $missingCompanyReg ? 'the company registration number' : null,
+                    $missingRepId ? "{$supplierName}'s own ID number" : null,
+                ]);
+                $missingText = implode(' and ', $missing);
+
                 throw \Illuminate\Validation\ValidationException::withMessages([
-                    'recipients' => "{$supplierName} is standing in as a representative on this document but has no registration or ID number on file. Add it in {$where} (Deal Register \u{2192} Suppliers) before sending.",
+                    'recipients' => "{$supplierName} is standing in as a representative on this document but {$missingText} " . (count($missing) > 1 ? 'are' : 'is') . " missing. Add " . (count($missing) > 1 ? 'them' : 'it') . " in {$where} (Deal Register \u{2192} Suppliers) before sending.",
                 ]);
             }
         }

@@ -28,6 +28,7 @@ class AgencyServiceProviderContact extends Model
         'role',
         'email',
         'phone',
+        'id_number',
         'default_delivery_mode',
         'default_channel',
         'is_active',

@@ -300,6 +300,11 @@ class SupplierDirectoryController extends Controller
             'role'           => 'nullable|string|max:100',
             'email'          => 'nullable|email|max:191',
             'phone'          => 'nullable|string|max:50',
+            // Optional here, same as the firm's own registration_number
+            // (2026_08_25_150000) — required only at the point this
+            // representative is actually bound as a signing party for
+            // e-sign (assertSupplierRepresentativesHaveRegistrationNumber()).
+            'id_number'      => 'nullable|string|max:20',
         ]);
 
         if (empty($data['attorney_name']) && empty($data['contact_person'])) {
