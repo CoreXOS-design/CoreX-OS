@@ -349,6 +349,14 @@
                     // Ridge Road (2026-08-22).
                     $tpPredatesThisCapture = $tp->capture_kind !== 'deeds_capture';
 
+                    // Johan, 2026-08-29 — "this should be bold and Red - critical
+                    // information displayed should not be missed." Only the
+                    // "already have this on file, not on your books" case below is
+                    // this critical (a duplicate an agent could easily re-capture);
+                    // the other status lines aren't the same kind of miss-this-and-
+                    // you-lose-data warning, so they stay as they were.
+                    $rowIsCriticalWarning = false;
+
                     if ($stockStatus['state'] === 'live') {
                         $matchedAddress = $stockStatus['property']->address ?: 'a property already on your books';
                         $rowStatusLine = 'We think this is the same as ' . $matchedAddress
@@ -373,6 +381,7 @@
                         $rowStatusLine = 'We already have this property on file, but it is not on your books.';
                         $rowWhyLine = $matchDecision->reason ?? 'Not recorded for older captures.';
                         $rowConfirmName = $shortStreetAddress($tp) ?: ($headline !== '' ? $headline : 'this property');
+                        $rowIsCriticalWarning = true;
                     } else {
                         $rowStatusLine = "New to us — we don't have this property yet.";
                         $rowWhyLine = null;
@@ -401,7 +410,7 @@
                                  rocket scientists?" ONE sentence, agent language, never a
                                  second contradicting chip. No ids anywhere — the "view" link
                                  opens the record without ever printing its number. --}}
-                            <div class="text-sm mt-1.5" style="color: var(--text-primary);">
+                            <div class="text-sm mt-1.5" style="{{ $rowIsCriticalWarning ? 'color: var(--ds-crimson, #dc2626); font-weight: 700;' : 'color: var(--text-primary);' }}">
                                 {{ $rowStatusLine }}
                                 @if($tpPredatesThisCapture)
                                     <a href="{{ route('corex.tracked-properties.show', $tp->id) }}"
@@ -413,7 +422,7 @@
                                 @endif
                             </div>
                             @if($rowWhyLine)
-                                <div class="text-xs mt-0.5" style="color: var(--text-muted);">
+                                <div class="text-xs mt-0.5" style="{{ $rowIsCriticalWarning ? 'color: var(--ds-crimson, #dc2626); font-weight: 600;' : 'color: var(--text-muted);' }}">
                                     Why: {{ $rowWhyLine }}
                                 </div>
                             @endif

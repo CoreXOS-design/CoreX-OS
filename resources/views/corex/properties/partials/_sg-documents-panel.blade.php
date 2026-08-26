@@ -15,6 +15,16 @@
     $sgQueryBuilder = app(\App\Support\SG\SgQueryBuilder::class);
     $sgBuild = $sgQueryBuilder->buildFromProperty($property);
     $sgDocs = $property->sgDocuments()->orderBy('sg_document_number')->orderBy('sg_page_number')->get();
+    // A row can say is_saved=true from a genuinely successful save that
+    // later stopped being true on disk (see the 2026-08-26 save-reliability
+    // fix) — re-check on every load so the badge never claims a document is
+    // safe when it no longer is.
+    $sgDisk = \Illuminate\Support\Facades\Storage::disk(config('filesystems.default'));
+    $sgDocs->each(function ($doc) use ($sgDisk) {
+        $doc->file_missing = $doc->is_saved
+            && $doc->storage_path
+            && !$sgDisk->exists($doc->storage_path);
+    });
     $hasErf = !empty($property->erf_number);
     $hasSearched = $property->sg_last_searched_at !== null;
 @endphp
@@ -167,22 +177,25 @@
                                     <td style="padding:8px 12px;color:var(--text-secondary);font-size:0.75rem;" x-text="d.sg_doc_type.replace('_', ' ')"></td>
                                     <td style="padding:8px 12px;text-align:center;color:var(--text-secondary);font-size:0.75rem;" x-text="d.sg_page_number"></td>
                                     <td style="padding:8px 12px;font-size:0.6875rem;">
-                                        <span x-show="d.is_saved" style="color:#00b594;font-weight:600;">
+                                        <span x-show="d.is_saved && !d.file_missing" style="color:#00b594;font-weight:600;">
                                             ✓ Saved · <span x-text="formatBytes(d.file_size_bytes)"></span>
+                                        </span>
+                                        <span x-show="d.is_saved && d.file_missing" style="color:#dc2626;font-weight:600;">
+                                            ⚠ Missing — save again
                                         </span>
                                         <span x-show="!d.is_saved" style="color:var(--text-muted);">—</span>
                                     </td>
                                     <td style="padding:8px 12px;text-align:right;">
                                         <a :href="d.sg_source_url" target="_blank" rel="noopener"
                                            style="font-size:0.6875rem;color:var(--text-muted);text-decoration:none;margin-right:8px;">Open in SG ↗</a>
-                                        <template x-if="!d.is_saved">
-                                            <button type="button" @click="saveOne(d)" :disabled="busyIds.includes(d.id)"
+                                        <template x-if="!d.is_saved || d.file_missing">
+                                            <button type="button" @click="saveOne(d, d.is_saved)" :disabled="busyIds.includes(d.id)"
                                                     class="corex-btn-primary" style="font-size:0.6875rem;padding:4px 10px;">
-                                                <span x-show="!busyIds.includes(d.id)">Save to Drive</span>
+                                                <span x-show="!busyIds.includes(d.id)" x-text="d.file_missing ? 'Save again' : 'Save to Drive'"></span>
                                                 <span x-show="busyIds.includes(d.id)">Saving…</span>
                                             </button>
                                         </template>
-                                        <template x-if="d.is_saved">
+                                        <template x-if="d.is_saved && !d.file_missing">
                                             <span>
                                                 <a :href="downloadUrl(d.id)" class="corex-btn-outline" style="font-size:0.6875rem;padding:4px 10px;text-decoration:none;">View</a>
                                                 <button type="button" @click="saveOne(d, true)"

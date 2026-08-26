@@ -283,7 +283,7 @@ class SuburbReportDataService
             ->where('agency_id', $agencyId)
             ->where('suburb_normalised', $suburbNorm);
 
-        $activeStock = (clone $stockQuery)->where('status', 'active')->get(['id', 'price', 'listed_date']);
+        $activeStock = (clone $stockQuery)->where('status', 'active')->get(['id', 'price', 'listed_date', 'title_type']);
 
         $domToday = now();
         $activeWithDom = $activeStock->filter(fn ($p) => $p->listed_date !== null)->map(fn ($p) => [
@@ -313,6 +313,7 @@ class SuburbReportDataService
                 'count'                    => $activeStock->count(),
                 'with_days_on_market_known' => $activeWithDom->count(),
                 'listings'                 => $activeWithDom->all(),
+                'title_type_breakdown'     => $this->titleTypeBreakdown($activeStock->map(fn ($p) => ['title_type' => $p->title_type])->all()),
             ],
             'price_reductions' => [
                 'count'   => $priceReductions->count(),
@@ -329,8 +330,10 @@ class SuburbReportDataService
             'sales_activity' => [
                 'sold_count'          => count($salesActivity['sold']),
                 'sold'                => $salesActivity['sold'],
+                'sold_title_type_breakdown' => $this->titleTypeBreakdown($salesActivity['sold']),
                 'under_offer_count'   => count($salesActivity['under_offer']),
                 'under_offer'         => $salesActivity['under_offer'],
+                'under_offer_title_type_breakdown' => $this->titleTypeBreakdown($salesActivity['under_offer']),
                 // Median days-to-sell across SOLD records that carry both a
                 // real listed_date and a real sale date — never averaged
                 // over a partial/assumed set, and simply absent when no
@@ -453,7 +456,7 @@ class SuburbReportDataService
                 'deals.property_address',
                 'properties.address as property_address_resolved',
                 'properties.beds', 'properties.baths', 'properties.property_type',
-                'properties.listed_date'
+                'properties.listed_date', 'properties.title_type'
             )
             ->get();
 
@@ -488,7 +491,7 @@ class SuburbReportDataService
                 'deals.property_address',
                 'properties.address as property_address_resolved',
                 'properties.beds', 'properties.baths', 'properties.property_type',
-                'properties.listed_date'
+                'properties.listed_date', 'properties.title_type'
             )
             ->get();
 
@@ -532,6 +535,15 @@ class SuburbReportDataService
                 'stage'         => $isSold ? SaleStageLabel::SOLD : SaleStageLabel::UNDER_OFFER,
                 'sale_date'     => $saleDate,
                 'days_to_sell'  => $daysToSell,
+                // 2026-08-26 (Johan) — freehold and sectional title are two
+                // separate markets; a blended figure describes neither. Carried
+                // through so the report can show "N sold — X freehold, Y
+                // sectional title" instead of one lump. Null when the linked
+                // property record itself has no title_type recorded (or the
+                // deal never resolved to a real property row) — the sub-line
+                // must say so explicitly, never fold an unrecorded property
+                // silently into either side.
+                'title_type'    => $r->title_type ?? null,
             ];
 
             if ($isSold) {
@@ -632,5 +644,30 @@ class SuburbReportDataService
         $mid = (int) floor($n / 2);
         if ($n % 2 === 1) return (int) $values[$mid];
         return (int) round(($values[$mid - 1] + $values[$mid]) / 2);
+    }
+
+    /**
+     * 2026-08-26 (Johan) — "freehold and sectional title must be two separate
+     * indicators on the same report... an agent shown a blended number is
+     * being shown a number that describes neither." Counts a set of agency
+     * records (each carrying a 'title_type' key from properties.title_type,
+     * possibly null) into full/sectional/vacant-land/not-recorded buckets so
+     * the view can print "N sold — X freehold, Y sectional title" instead of
+     * one lump. 'not_recorded' is never folded into either side — it is the
+     * count of records whose linked property has no title_type at all (or
+     * never resolved to a real property row), shown honestly as its own
+     * bucket rather than silently dropped or guessed into freehold/sectional.
+     *
+     * @param  array<int, array{title_type?: ?string}>  $records
+     * @return array{total:int, full_title:int, sectional_title:int, vacant_land:int, not_recorded:int}
+     */
+    private function titleTypeBreakdown(array $records): array
+    {
+        $out = ['total' => count($records), 'full_title' => 0, 'sectional_title' => 0, 'vacant_land' => 0, 'not_recorded' => 0];
+        foreach ($records as $r) {
+            $type = $r['title_type'] ?? null;
+            $out[in_array($type, ['full_title', 'sectional_title', 'vacant_land'], true) ? $type : 'not_recorded']++;
+        }
+        return $out;
     }
 }

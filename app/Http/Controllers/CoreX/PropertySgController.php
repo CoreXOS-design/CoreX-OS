@@ -76,8 +76,24 @@ final class PropertySgController extends Controller
         // Persist documents to the property (idempotent via unique constraint).
         $savedRows = [];
         if ($result->ok()) {
+            // A corrected re-search (wrong erf typed, then fixed) must not leave
+            // the previous, mistaken search's rows sitting in the property's
+            // document list forever — clear anything not already saved before
+            // recording this search's results. Saved documents are an agent's
+            // deliberate choice and are never touched here.
+            PropertySgDocument::where('property_id', $property->id)
+                ->where('is_saved', false)
+                ->get()
+                ->each->delete();
+
             foreach ($result->documents as $doc) {
-                $row = PropertySgDocument::updateOrCreate(
+                // withTrashed(): the same document number can legitimately
+                // resurface after the clear-stale step above soft-deleted it
+                // (e.g. an agent corrects a search back to a parcel they'd
+                // already tried) — the DB's unique key doesn't exempt
+                // soft-deleted rows, so a plain updateOrCreate() would throw
+                // a duplicate-key error instead of restoring the row.
+                $row = PropertySgDocument::withTrashed()->updateOrCreate(
                     [
                         'property_id'        => $property->id,
                         'sg_document_number' => $doc['sg_document_number'],
@@ -89,6 +105,12 @@ final class PropertySgController extends Controller
                         'sg_source_url' => $doc['sg_source_url'],
                     ]
                 );
+                // deleted_at isn't mass-assignable, so restoring it needs the
+                // dedicated SoftDeletes method rather than passing it through
+                // the attributes array above.
+                if ($row->trashed()) {
+                    $row->restore();
+                }
                 $savedRows[] = $row->fresh()->toArray();
             }
 

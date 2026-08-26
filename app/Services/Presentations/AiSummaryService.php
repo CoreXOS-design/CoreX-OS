@@ -130,67 +130,54 @@ TXT;
 
         // Build 8 — canonical "competition count" for the AI prose. Reads
         // the scored competitor_stock.visible set the agent curated on the
-        // review screen, falling back to the legacy
-        // presentation_active_listings table for pre-Build-8 snapshots
-        // (or callers that bypass compile()). Same single-source contract
-        // as the PDF tiles / public-show headline / teaser — regenerated
-        // AI prose now quotes the same denominator the seller sees on
-        // every other surface.
-        $competitorStock  = $snapshot['analytics']['competitor_stock'] ?? null;
-        $visibleScored    = is_array($competitorStock) ? ($competitorStock['visible'] ?? []) : [];
-
-        // 2026-08-25 fix — this used to check !empty($visibleScored), which
-        // fell back to the legacy pipeline whenever the agent had unticked
-        // every competitor, not just when competitor_stock was genuinely
-        // never computed (pre-Build-8). An agent's deliberate "none of
-        // these" is the honest zero, not a signal to go count a different,
-        // selection-blind dataset instead (Johan — "respect what the agent
-        // selected"). is_array($competitorStock) is true whenever the block
-        // was computed at all, empty visible list included.
-        if (is_array($competitorStock)) {
-            $scoredPrices = array_values(array_filter(
-                array_map(static fn (array $row) => isset($row['price']) ? (int) $row['price'] : 0, $visibleScored),
-                static fn (int $p) => $p > 0,
-            ));
-            sort($scoredPrices);
-            $scoredCount = count($visibleScored);
-            $activeBlock = [
-                'count'             => $scoredCount,
-                'average_dom'       => null,
-                'median_list_price' => $scoredPrices === []
-                    ? null
-                    : (int) ($scoredPrices[(int) floor(count($scoredPrices) / 2)] ?? 0),
-                'sample'            => array_map(static fn (array $row) => [
-                    'address'        => $row['address']        ?? null,
-                    'list_price'     => isset($row['price']) ? (int) $row['price'] : null,
-                    'days_on_market' => isset($row['days_on_market']) ? (int) $row['days_on_market'] : null,
-                ], array_slice($visibleScored, 0, 3)),
-                'source'            => 'competitor_stock',
-            ];
-        } else {
-            // Graceful degradation: pre-Build-8 snapshot has no
-            // competitor_stock block, OR the agent has unticked every
-            // scored competitor. Fall back to the legacy
-            // presentation_active_listings query so the AI never sees
-            // an empty competition block when at least the legacy
-            // pipeline has data.
-            $active = $presentation->activeListings()->whereNotNull('list_price_inc')->get();
-            $activeBlock = [
-                'count'             => $active->count(),
-                'average_dom'       => null,
-                'median_list_price' => null,
-                'sample'            => $active->take(3)->map(fn ($a) => [
-                    'address'        => is_string($a->raw_row_json) ? (json_decode($a->raw_row_json, true)['address'] ?? null) : null,
-                    'list_price'     => $a->list_price_inc,
-                    'days_on_market' => is_string($a->raw_row_json) ? (json_decode($a->raw_row_json, true)['days_on_market'] ?? null) : null,
-                ])->all(),
-                'source'            => 'legacy_active_listings',
-            ];
-            if ($active->isNotEmpty()) {
-                $prices = $active->pluck('list_price_inc')->sort()->values();
-                $activeBlock['median_list_price'] = (int) ($prices[(int) floor($prices->count() / 2)] ?? 0);
-            }
+        // review screen. Same single-source contract as the PDF tiles /
+        // public-show headline / teaser — regenerated AI prose now quotes
+        // the same denominator the seller sees on every other surface.
+        //
+        // 2026-08-25 fix (Johan) — data_snapshot_json['analytics'] is
+        // assembled by PresentationCompilerService from the OLDER,
+        // separate PresentationSnapshot.output_summary_json record (its
+        // own docblock: "PURE ASSEMBLY — never re-runs analytics"), which
+        // predates and knows nothing about competitor_stock. That key is
+        // therefore NEVER present on a real compiled version — every
+        // presentation fell through to the "legacy" branch below, which
+        // read presentation_active_listings: a per-presentation manual-
+        // upload table that is empty for any presentation built from the
+        // live MIC pipeline (0 rows, every time, on presentation 144).
+        // Regenerating the AI summary silently produced a fact sheet with
+        // NO competition line at all — contradicting the real competitor
+        // count the Analysis page already shows from the exact same
+        // AnalysisDataService/CompetitorStockMatchService pipeline, right
+        // above the summary on the same screen. Still check the snapshot
+        // first (free, and correct if some future caller ever does
+        // populate it) but compute the SAME live scored+curated set the
+        // screen renders — not a second table — as the fallback, so the
+        // sentence and the tile can never disagree again.
+        $competitorStock = $snapshot['analytics']['competitor_stock'] ?? null;
+        if (!is_array($competitorStock)) {
+            $competitorStock = app(AnalysisDataService::class)->competitorStockBlock($presentation, $version);
         }
+        $visibleScored = $competitorStock['visible'] ?? [];
+
+        $scoredPrices = array_values(array_filter(
+            array_map(static fn (array $row) => isset($row['price']) ? (int) $row['price'] : 0, $visibleScored),
+            static fn (int $p) => $p > 0,
+        ));
+        sort($scoredPrices);
+        $scoredCount = count($visibleScored);
+        $activeBlock = [
+            'count'             => $scoredCount,
+            'average_dom'       => null,
+            'median_list_price' => $scoredPrices === []
+                ? null
+                : (int) ($scoredPrices[(int) floor(count($scoredPrices) / 2)] ?? 0),
+            'sample'            => array_map(static fn (array $row) => [
+                'address'        => $row['address']        ?? null,
+                'list_price'     => isset($row['price']) ? (int) $row['price'] : null,
+                'days_on_market' => isset($row['days_on_market']) ? (int) $row['days_on_market'] : null,
+            ], array_slice($visibleScored, 0, 3)),
+            'source'            => 'competitor_stock',
+        ];
 
         // Stock absorption + holding cost come from the snapshot if compiled,
         // otherwise from presentation fields directly.

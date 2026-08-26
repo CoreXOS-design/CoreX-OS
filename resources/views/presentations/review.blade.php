@@ -404,16 +404,33 @@
     <div class="review-card">
         <div class="review-section-header">
             <div class="review-section-tag"></div>
-            {{-- AT-214 — presentation-scoped: N = comps used in THIS CMA, M = the
-                 CANONICAL count available for the property (CmaCoverageService, the
-                 same figure as the Intelligence panel + coverage badge). Not
-                 count($compRows) (this presentation's own set), which read "N of N"
-                 and implied every available comp was used. --}}
+            {{-- 2026-08-25 — the AT-214 "N of M" phrasing conflated two different
+                 systems' answers to two different questions under one label: N
+                 (comps actually used) was this presentation's own hydrated set,
+                 but M silently became CmaCoverageService's suburb-wide canonical
+                 estimate whenever it exceeded N — including when N was 0 because
+                 NOTHING had hydrated yet, producing "0 of 61" that read as "61
+                 comps were found and filtered out" when the true state was "zero
+                 comps are loaded into this presentation at all" (the Marina Glen
+                 incident — see .ai/audits/2026-08-24-*). M is now what's actually
+                 loaded into THIS presentation ($compsLoaded = count($compRows)),
+                 so the fraction never means something other than what it looks
+                 like. The canonical suburb-wide figure (AT-214's original
+                 concern — an agent not realising more comps may exist) is kept,
+                 but as its own separate, honestly-labelled line below, never
+                 blended into the "N of M" phrase again. --}}
             @php
-                $compsUsed      = collect($compRows)->where('is_included', true)->count();
-                $compsAvailable = max((int) ($canonicalCompCount ?? 0), $compsUsed);
+                $compsUsed        = collect($compRows)->where('is_included', true)->count();
+                $compsLoaded      = count($compRows);
+                $canonicalOnFile  = (int) ($canonicalCompCount ?? 0);
+                $moreOnFile       = max(0, $canonicalOnFile - $compsLoaded);
             @endphp
-            <h2 class="review-section-title">2 · Comparable Sales — {{ $compsUsed }} of {{ $compsAvailable }} comps used in this CMA</h2>
+            <h2 class="review-section-title">2 · Comparable Sales — {{ $compsUsed }} of {{ $compsLoaded }} comps used in this CMA</h2>
+            @if($moreOnFile > 0)
+            <div class="text-xs" style="color: var(--text-muted); margin-top: 2px;">
+                {{ $moreOnFile }} more comparable {{ Str::plural('sale', $moreOnFile) }} on file for this suburb, not yet pulled into this presentation.
+            </div>
+            @endif
         </div>
 
         <div class="review-comps-layout">
@@ -512,8 +529,23 @@
                             </div>
                         </div>
                     @empty
+                        {{-- 2026-08-24 — "No comparable sales were found for this
+                             subject" implied a search ran and came up empty. The
+                             real state is that none were HYDRATED into this
+                             presentation, which is a different fact with a
+                             different next action: no report imported at all
+                             (upload one) vs a report imported but nothing
+                             extracted from it (the browse tool or the report
+                             itself needs attention). Reuses $importSummary's
+                             reports_imported, the same honest source the banner
+                             above already draws on — one truth, not a second
+                             guess at the same question. --}}
                         <div class="px-4 py-12 text-center text-sm" style="color: var(--text-muted);">
-                            No comparable sales were found for this subject. Use “Browse more freehold comps” below to pull in sales beyond the auto-pool.
+                            @if(($importSummary['reports_imported'] ?? 0) === 0)
+                                No CMA report has been imported for this property yet, so no comparable sales are loaded. Upload a CMA report, or use “Browse more freehold comps” below to search directly.
+                            @else
+                                A CMA report was imported, but no comparable sales were extracted from it for this presentation. Use “Browse more freehold comps” below to search directly, or check the uploaded report.
+                            @endif
                         </div>
                     @endforelse
                 </div>

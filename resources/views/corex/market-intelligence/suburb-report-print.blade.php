@@ -51,7 +51,7 @@
 
 @include('corex.market-intelligence._suburb-report-body')
 
-<div class="foot">{{ $branding['name'] }} — Suburb Report for {{ $data['suburb']['name'] ?? '' }}, generated {{ $generatedAt->format('d M Y, H:i') }}. Figures reflect CoreX's own records and any CMA reports on file as at generation time.</div>
+<div class="foot">{{ $branding['name'] }} — Suburb Report for {{ $data['suburb']['name'] ?? '' }}, generated {{ $generatedAt->format('d M Y, H:i') }}. Figures reflect {{ $branding['name'] }}'s own records and any market reports on file as at generation time.</div>
 
 </body>
 </html>

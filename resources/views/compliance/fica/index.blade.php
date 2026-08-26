@@ -138,10 +138,18 @@
     @php
         $fcuId     = (string) auth()->id();
         $fcIsMine  = (string) $filterAgentId === $fcuId;
-        $fcIsAll   = $filterAgentId === '';
+        // 'all' is the sentinel that survives round-tripping through links —
+        // '' does not: ConvertEmptyStringsToNull turns an incoming agent_id=
+        // into null, and http_build_query() (used by both the paginator's
+        // withQueryString() and route()'s own array-to-query building) drops
+        // null query params entirely. Every "All" link built from an empty
+        // string therefore loses agent_id the moment the user pages or
+        // switches tabs, silently reverting to "My FICA". '' is still
+        // accepted below for any old bookmarked link, but never generated.
+        $fcIsAll   = in_array($filterAgentId, ['', 'all'], true);
         $fcCarry   = request()->except(['agent_id', 'page']);
         $fcMineUrl = route('compliance.fica.index', array_merge($fcCarry, ['agent_id' => $fcuId]));
-        $fcAllUrl  = route('compliance.fica.index', array_merge($fcCarry, ['agent_id' => '']));
+        $fcAllUrl  = route('compliance.fica.index', array_merge($fcCarry, ['agent_id' => 'all']));
         $fcAllWord = ($scope ?? '') === 'branch' ? 'branch' : 'agency';
     @endphp
     <div class="flex items-center gap-2 mb-2">

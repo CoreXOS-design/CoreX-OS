@@ -133,6 +133,8 @@ final class CompetitorStockMatchService
             return collect();
         }
 
+        $scored = $this->deduplicateSamePhysicalProperty($scored, $criteria);
+
         $aboveThreshold = $scored->filter(fn (array $row) => $row['score'] >= $threshold)->values();
 
         // No silent fail (Johan, 2026-08-20): a threshold that zeroes an
@@ -175,6 +177,132 @@ final class CompetitorStockMatchService
         })
         ->sortByDesc('score')
         ->values();
+    }
+
+    /**
+     * Collapse duplicate portal ADVERTS of the SAME physical property into
+     * one competitor card.
+     *
+     * loadCandidates() reads prospecting_listings, which stores one row
+     * PER ADVERT — the same house cross-posted to P24 and Private Property
+     * (often by more than one agency, or re-listed under a new portal_ref
+     * after the old one expired) produces several rows. Left alone, an
+     * agent reads "6 competitors" for what is one rival house — the same
+     * inflation Fault B already fixed for the subject's OWN advert; this is
+     * the other half, for every OTHER property in the pool.
+     *
+     * MATCHING RULE: same suburb (already guaranteed — loadCandidates scopes
+     * to one suburb) AND exact price match AND size within 10% tolerance —
+     * erf_size_m2 for a freehold subject, property_size_m2 (floor area) for
+     * a sectional one, matching how the family was already gated upstream —
+     * AND bedroom count agreeing whenever BOTH sides actually report one.
+     * The price+size rule is the SAME one AnalysisDataService::
+     * deduplicateByProperty() already uses for the identical real-world
+     * pattern on the legacy CMA-upload competition path (P24 showing one
+     * property listed by several agencies as separate search rows) —
+     * reused rather than invented, so the two competitor-dedup rules in
+     * this module agree. The bedroom check is new here: found on Retha's
+     * real pool (property 15720), two DIFFERENT houses in Margate matched
+     * on price to the Rand and erf within 0.2%, but one was 4-bed/1-garage
+     * and the other 3-bed/3-garage — clearly not the same house. A row
+     * missing price, size, or a bedroom count on either side never merges
+     * on that missing signal (absence of data is not evidence of a match)
+     * — this UNDER-collapses in the worst case, never over-collapses two
+     * genuinely different, similarly-priced houses.
+     *
+     * CONFIDENCE: high. Every real duplicate group inspected by hand across
+     * this pool shared not just price-to-the-Rand and near-identical size,
+     * but the SAME agency advertising under its P24 vs. Private Property
+     * display-name variant (e.g. "Wakefields Estate Agents Shelly Beach"
+     * on P24, "Wakefields" on PP) or a genuine open mandate (several
+     * different agencies, identical price/erf/beds/baths) — both are
+     * exactly the real-world pattern Johan described, not coincidence.
+     * The one coincidental near-match found (above) is exactly what the
+     * bedroom-agreement guard now excludes.
+     *
+     * The highest-scoring row in each group survives (already the best
+     * comparability match to the subject); a duplicate with a real address
+     * or thumbnail the survivor lacks is not currently borrowed across —
+     * out of scope for a count fix.
+     *
+     * @param  Collection<int, array>  $rows
+     * @return Collection<int, array>
+     */
+    private function deduplicateSamePhysicalProperty(Collection $rows, array $criteria): Collection
+    {
+        if ($rows->count() <= 1) {
+            return $rows;
+        }
+
+        $sizeField = $criteria['family'] === 'sectional' ? 'property_size_m2' : 'erf_size_m2';
+
+        $groupReps = []; // group index => representative row (highest score so far)
+
+        foreach ($rows as $row) {
+            $price = (int) ($row['price'] ?? 0);
+            $size  = (float) ($row[$sizeField] ?? 0);
+
+            if ($price <= 0 || $size <= 0) {
+                // Can't be reliably grouped — always its own group.
+                $groupReps[] = $row;
+                continue;
+            }
+
+            $foundKey = null;
+            foreach ($groupReps as $key => $rep) {
+                $repPrice = (int) ($rep['price'] ?? 0);
+                $repSize  = (float) ($rep[$sizeField] ?? 0);
+                if ($repPrice <= 0 || $repSize <= 0) {
+                    continue; // that rep was never reliably-grouped either
+                }
+                if ($price === $repPrice
+                    && $this->sizesMatch($size, $repSize)
+                    && $this->bedsAgree($row['bedrooms'] ?? null, $rep['bedrooms'] ?? null)
+                ) {
+                    $foundKey = $key;
+                    break;
+                }
+            }
+
+            if ($foundKey === null) {
+                $groupReps[] = $row;
+            } elseif ((int) $row['score'] > (int) $groupReps[$foundKey]['score']) {
+                $groupReps[$foundKey] = $row;
+            }
+        }
+
+        return collect(array_values($groupReps));
+    }
+
+    /**
+     * Same-property size tolerance — 10% of the larger value, both sides
+     * required non-zero. Mirrors AnalysisDataService::erfsMatch() exactly.
+     */
+    private function sizesMatch(float $a, float $b): bool
+    {
+        if ($a <= 0 || $b <= 0) {
+            return false;
+        }
+        $max = max($a, $b);
+        return abs($a - $b) / $max <= 0.10;
+    }
+
+    /**
+     * A same-price, same-size coincidence is not enough on its own — found
+     * on Retha's real pool (property 15720): two listings agreeing on price
+     * to the Rand and erf to within 0.2% (1026 vs 1028 m²), from two
+     * unrelated agencies, one 4-bed/1-garage and the other 3-bed/3-garage.
+     * That is two different houses, not a re-advertised one. Require
+     * bedroom counts to agree WHEN BOTH sides actually report one — a
+     * real conflict here is evidence against a match, unlike a missing
+     * value, which is simply silent.
+     */
+    private function bedsAgree(mixed $a, mixed $b): bool
+    {
+        if ($a === null || $b === null) {
+            return true;
+        }
+        return (int) $a === (int) $b;
     }
 
     /**

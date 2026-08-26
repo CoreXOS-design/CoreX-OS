@@ -930,6 +930,61 @@ class User extends Authenticatable
     }
 
     /**
+     * 2026-08-24 (Johan) — public-link resilience: "if the agent leaves we
+     * redirect to another agent, typically a bm, or assigned user to take
+     * over." Two tiers, in the order Johan described:
+     *
+     *   1. The role='branch_manager' user assigned to $branchId — the same
+     *      role+branch_id match CandidatePractitionerService::isBranchManagerOf()
+     *      already uses elsewhere (a real, resolvable concept in this
+     *      codebase, previously unused by any of the takeover-style fallbacks
+     *      the resilience audit found — see .ai/audits/2026-08-24-public-link-
+     *      resilience-audit.md's reassignment-mechanism section).
+     *   2. Failing that, the earliest-created active super_admin/admin in the
+     *      agency — the SAME selection SellerOutreachLandingService::
+     *      resolveBranchManagerFallback() already uses (private to that
+     *      class; extracted here as a shared, public resolver so a second
+     *      real consumer — AgentDeactivated's new QR-reroute listener — does
+     *      not grow a third near-identical copy), with ONE deliberate
+     *      difference: this version also requires is_active=true, which that
+     *      one doesn't check. An inactive admin is not a safe takeover
+     *      target — it would just move the stranding problem up one level.
+     *
+     * SellerOutreachLandingService itself is deliberately left untouched —
+     * pointing it at this shared method is a separate, its-own-scoped piece
+     * of work, not folded into today's fix. Returns null (not a placeholder
+     * "The team" user, unlike the outreach service's own fallback) when
+     * nobody qualifies at either tier — callers decide what null means for
+     * their own context.
+     */
+    public static function resolveBranchManagerOrAdminFallback(int $agencyId, ?int $branchId = null): ?self
+    {
+        if ($branchId) {
+            $branchManager = static::query()
+                ->withoutGlobalScopes()
+                ->where('agency_id', $agencyId)
+                ->where('branch_id', $branchId)
+                ->where('role', 'branch_manager')
+                ->where('is_active', true)
+                ->whereNull('deleted_at')
+                ->orderBy('id')
+                ->first();
+            if ($branchManager) {
+                return $branchManager;
+            }
+        }
+
+        return static::query()
+            ->withoutGlobalScopes()
+            ->where('agency_id', $agencyId)
+            ->whereIn('role', ['super_admin', 'admin'])
+            ->where('is_active', true)
+            ->whereNull('deleted_at')
+            ->orderBy('id')
+            ->first();
+    }
+
+    /**
      * AT-268 — the password a freshly-INVITED user is created with: unusable, unguessable, unshared.
      *
      * An invited account must not be loginable until the invitee redeems their signed setup link and

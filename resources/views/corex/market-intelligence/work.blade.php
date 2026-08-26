@@ -46,9 +46,6 @@
 ])
 </div>
 
-<div data-tour="mic-upload">
-@include('corex.market-intelligence.partials.quick-upload-cma')
-</div>
 
 <header class="mi-header" id="mic-slot-stats"
         style="position: sticky; top: 0; z-index: 10; background: var(--surface);">

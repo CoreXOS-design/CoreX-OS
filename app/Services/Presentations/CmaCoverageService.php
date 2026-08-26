@@ -508,8 +508,18 @@ class CmaCoverageService
      */
     private function recommendation(string $state, int $compCount, array $thresholds, array $missingSubjectInputs = []): string
     {
+        // 2026-08-26 — this label used to say "within {radius}m" outright for
+        // SCOPE_RADIUS_ALL, implying every counted comp had been distance-
+        // checked. It hadn't: countComps() only distance-gates the MIC
+        // market_report_comp_rows source (via compInScope()) — deals and
+        // presentation_sold_comps are matched on suburb text alone,
+        // unconditionally, regardless of this scope setting. A wrong label
+        // is a wrong number by another name; fixed to say what's actually
+        // counted rather than quietly adding a distance gate to the other
+        // two sources to make the old label true — that would change the
+        // count itself, not just describe it honestly.
         $scopeLabel = $thresholds['scope'] === self::SCOPE_RADIUS_ALL
-            ? sprintf('within %dm', $thresholds['radius_m'])
+            ? sprintf('within %dm where geo-located, suburb-wide otherwise', $thresholds['radius_m'])
             : 'suburb-only';
 
         // 2026-08-20 — Johan: "merge both facts into ONE sentence rather
@@ -529,11 +539,22 @@ class CmaCoverageService
             );
         }
 
+        // 2026-08-26 — this count and the suburb report's own "N area sales"
+        // figures draw from genuinely different upload types (this one:
+        // your own deals + uploaded valuation/comp reports; the suburb
+        // report: suburb-summary reports like "CMA Info — Median Sales
+        // Analysis") and can legitimately disagree for the same suburb.
+        // Naming the source here so that disagreement reads as "these are
+        // two different counts" rather than the system contradicting
+        // itself — the actual reconciliation of the two stores is separate,
+        // larger work, not this label.
+        $sourceNote = 'from your deals and uploaded comparable-sale reports';
+
         return match ($state) {
-            self::STATE_RICH     => sprintf('Strong data — %d recent comparable sales (%s).', $compCount, $scopeLabel),
-            self::STATE_MODERATE => sprintf('Moderate data — %d recent comparable sales (%s). Stronger comps available with more uploads.', $compCount, $scopeLabel),
-            self::STATE_THIN     => sprintf('Thin data — %d recent comparable sale%s (%s). Upload more CMAs to strengthen.', $compCount, $compCount === 1 ? '' : 's', $scopeLabel),
-            default              => sprintf('No comparable sales found (%s). Upload CMAs first?', $scopeLabel),
+            self::STATE_RICH     => sprintf('Strong data — %d recent comparable sales %s (%s).', $compCount, $sourceNote, $scopeLabel),
+            self::STATE_MODERATE => sprintf('Moderate data — %d recent comparable sales %s (%s). Stronger comps available with more uploads.', $compCount, $sourceNote, $scopeLabel),
+            self::STATE_THIN     => sprintf('Thin data — %d recent comparable sale%s %s (%s). Upload more CMAs to strengthen.', $compCount, $compCount === 1 ? '' : 's', $sourceNote, $scopeLabel),
+            default              => sprintf('No comparable sales found %s (%s). Upload CMAs first?', $sourceNote, $scopeLabel),
         };
     }
 }

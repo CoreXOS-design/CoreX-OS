@@ -682,6 +682,21 @@ class AppServiceProvider extends ServiceProvider
             Event::listen($eventClass, $listenerClass);
         }
 
+        // 2026-08-24 (Johan) — public-link resilience: a SECOND listener on
+        // AgentDeactivated (already logged via the wave6 map above through
+        // LogAgentEvent). NOT added as a second key in $wave6 above — that
+        // array is a plain PHP literal, so a duplicate AgentDeactivated::class
+        // key would silently overwrite the LogAgentEvent mapping instead of
+        // adding to it. Same pattern already used for OptOutRecorded just
+        // above (AppendOutreachToContactTimeline + RecordOptOutOnContact,
+        // two independent Event::listen() calls) — multiple listeners on one
+        // event are separate registrations, not combined into one array
+        // entry. See the listener's own docblock for what this does and why.
+        Event::listen(
+            \App\Events\Agent\AgentDeactivated::class,
+            \App\Listeners\Agent\SetQrRerouteOnDeactivation::class,
+        );
+
         // CMA back-propagation: when presentation_fields are written, propagate the
         // CMAInfo-extracted erf / GPS / municipal valuation back to the linked Property.
         // Failure-isolated — see PropagateCmaToProperty.

@@ -16,7 +16,7 @@ use Illuminate\Validation\Rule;
 
 class BuyerPortalController extends Controller
 {
-    public function show(string $token)
+    public function show(Request $request, string $token)
     {
         $link = DB::table('buyer_portal_links')->where('token', $token)->first();
         // Genuinely unknown token — nothing to brand with, stays the
@@ -48,11 +48,26 @@ class BuyerPortalController extends Controller
         // consumed by every tokenised public page (AT-204 / cc1 shared contract).
         $brand = Agency::publicBrandingFor($agencyId);
 
-        // WHO to call. The agent who generated this link is the buyer's point of
-        // contact; fall back to the contact's assigned agent. Null-safe — the
-        // page still renders (agency footer) when no agent is resolvable.
+        // WHO to call. 2026-08-25 (Johan) — an explicit ?agent=<id> override
+        // now wins first: the same "covering agent" mechanism
+        // PropertyController::livePreview() already had (the id is baked
+        // into the URL at share time, not resolved against the CURRENT
+        // viewer's session — copying the version of that pattern
+        // livePreview's own history shows was fixed, not the session-
+        // relative version that broke). Same-agency guarded: an override id
+        // outside this link's own agency is silently ignored, never
+        // resolved. Falls back, unchanged, to the agent who generated this
+        // link, then the contact's assigned agent. Null-safe throughout —
+        // the page still renders (agency footer) when no agent is resolvable.
         $agent = null;
-        if ($link->generated_by_user_id) {
+        $agentOverride = $request->query('agent');
+        if ($agentOverride !== null && ctype_digit((string) $agentOverride) && $agencyId > 0) {
+            $agent = User::withoutGlobalScopes()
+                ->where('id', (int) $agentOverride)
+                ->where('agency_id', $agencyId)
+                ->first();
+        }
+        if (!$agent && $link->generated_by_user_id) {
             $agent = User::withoutGlobalScopes()->find($link->generated_by_user_id);
         }
         if (!$agent && $contact->agent_id) {

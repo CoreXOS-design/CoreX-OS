@@ -199,7 +199,6 @@
             }
 
             function renderEmbed(payload, opts) {
-                let soldN = 0, activeN = 0, totalN = 0;
                 const addPin = (pin) => {
                     const m = L.marker([pin.lat, pin.lng], { icon: nearbyIcon(pin.layer) });
                     const html = '<div style="font-weight:600;font-size:0.8125rem;">' + (pin.title || '') + '</div>'
@@ -207,17 +206,40 @@
                         + (opts.fullMapUrl ? '<div style="margin-top:6px;"><a href="' + opts.fullMapUrl + '" style="font-size:0.6875rem;color:#0ea5e9;">View detail →</a></div>' : '');
                     m.bindPopup(html, { maxWidth: 220 });
                     m.addTo(map);
-                    totalN++;
-                    if (pin.layer === 'sold_comps') soldN++;
-                    else if (pin.layer === 'active_listings') activeN++;
                 };
 
                 if (opts.mode === 'presentation') {
-                    (payload.sold_comps      || []).forEach(addPin);
-                    (payload.active_listings || []).forEach(addPin);
+                    let soldN = 0, activeN = 0;
+                    (payload.sold_comps || []).forEach(pin => { addPin(pin); soldN++; });
+                    (payload.active_listings || []).forEach(pin => { addPin(pin); activeN++; });
                     if (captionEl) captionEl.textContent = soldN + ' sold comp' + (soldN === 1 ? '' : 's') + ' and ' + activeN + ' active listing' + (activeN === 1 ? '' : 's') + ' — backing this analysis';
                 } else {
-                    (payload.layers || []).forEach(layer => (layer.pins || []).forEach(addPin));
+                    // Bounds mode's /corex/map/pins endpoint returns a location-clustering
+                    // shape (payload.locations[], each with its own latitude/longitude and
+                    // categories_present[]), not the flat payload.layers[].pins[] shape this
+                    // code used to read — that shape stopped being returned some time ago, so
+                    // this parser was silently finding nothing and rendering "0 and 0" on every
+                    // property page regardless of how much real data existed underneath (found
+                    // on a real Margate/Uvongo property: server had 144 sold + 59 active within
+                    // 1km, page showed 0 and 0). The one honest total is payload.layer_counts —
+                    // computed server-side before location-clustering groups records together,
+                    // so it isn't affected by a composite location bundling several records into
+                    // one pin. Pins are still placed one per location (its own lat/lng), not one
+                    // per underlying record, so a cluster of e.g. 14 sold comps at one address
+                    // renders as one marker, same as the standalone map does.
+                    (payload.locations || []).forEach(loc => {
+                        if (loc.latitude == null || loc.longitude == null) return;
+                        addPin({
+                            lat: loc.latitude,
+                            lng: loc.longitude,
+                            layer: loc.primary_category,
+                            title: loc.hover_summary && loc.hover_summary.title,
+                            subtitle: loc.hover_summary && loc.hover_summary.subtitle,
+                        });
+                    });
+                    const counts = payload.layer_counts || {};
+                    const soldN = counts.sold_comps || 0;
+                    const activeN = counts.active_listings || 0;
                     if (captionEl) captionEl.textContent = 'Showing ' + soldN + ' sold comp' + (soldN === 1 ? '' : 's') + ' and ' + activeN + ' active listing' + (activeN === 1 ? '' : 's') + ' within ' + (opts.radiusM / 1000).toFixed(1) + ' km';
                 }
             }

@@ -262,9 +262,26 @@
     try { const img = card.querySelector('.p24_branding img[alt]'); if (img) { const a = img.getAttribute('alt').trim(); if (a) listing.agency_name = a; } } catch (e) { /* */ }
 
     try {
+      // P24 lazy-loads card images: `src` holds a placeholder (observed:
+      // "/blank.gif") until the real image swaps in from data-original/
+      // lazy-src as the card scrolls into view. `src` is checked first
+      // historically, so `src`'s truthy placeholder always won and the real
+      // URL in data-original was never reached — captured "/blank.gif" as
+      // the listing's photo on ~76% of active P24 rows (2026-08-24 MIC photo
+      // investigation). Fix: prefer the lazy-load attributes; only trust
+      // `src` when it's a genuine absolute image URL, not a bare relative
+      // placeholder path.
+      const isRealImageUrl = (u) => !!u && /^https?:\/\//i.test(u) && !/blank\.gif/i.test(u);
       const thumb = card.querySelector('img.js_P24_listingImage');
-      if (thumb) listing.thumbnail_url = thumb.getAttribute('src') || thumb.getAttribute('data-original') || thumb.getAttribute('lazy-src') || null;
-      if (!listing.thumbnail_url) { const el = card.querySelector('.p24_image img[src]'); if (el) listing.thumbnail_url = el.getAttribute('src'); }
+      if (thumb) {
+        const lazy = thumb.getAttribute('data-original') || thumb.getAttribute('lazy-src');
+        const src = thumb.getAttribute('src');
+        listing.thumbnail_url = isRealImageUrl(lazy) ? lazy : (isRealImageUrl(src) ? src : null);
+      }
+      if (!listing.thumbnail_url) {
+        const el = card.querySelector('.p24_image img[src]');
+        if (el) { const s = el.getAttribute('src'); if (isRealImageUrl(s)) listing.thumbnail_url = s; }
+      }
     } catch (e) { /* */ }
 
     // MIC SOLD / OFF-MARKET — portal lifecycle status (active/under_offer/sold/withdrawn).

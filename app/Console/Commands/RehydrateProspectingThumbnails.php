@@ -16,14 +16,23 @@ use Illuminate\Support\Facades\Storage;
  * orphaning every thumbnail downloaded before the move. This command finds
  * those rows and re-fetches the image — no fresh portal capture required.
  *
- * TWO recovery sources, in priority order:
+ * 2026-08-24 (MIC photo failure investigation) — widened to ALSO cover rows
+ * that have NO thumbnail_path at all (as long as a portal_url is known),
+ * not just orphaned-but-set ones. The dominant P24 failure turned out to be a
+ * Chrome-extension bug capturing "/blank.gif" (P24's lazy-load placeholder)
+ * into thumbnail_source_url instead of the real image — ~11.5K rows. Those
+ * poisoned values are nulled out separately (data fix, not this command), and
+ * once null, thumbnail_path was ALSO null (the download job never ran on a
+ * relative-path "URL"), so the original whereNotNull(thumbnail_path) scope
+ * would have silently excluded every one of them from recovery.
+ *
+ * THREE recovery sources, in priority order:
  *   1. thumbnail_source_url — the original portal image URL, when known.
- *   2. portal_url → og:image (--derive-from-portal) — for the 4032 rows whose
- *      source_url is null (the column post-dates them), fetch the Property24 /
- *      PrivateProperty listing page and read its Open Graph image. 100% of
- *      those rows have a portal_url, so this is the path that actually recovers
- *      live data. The resolved URL is persisted to thumbnail_source_url so the
- *      row is rehydratable thereafter. THROTTLED (--throttle-ms) because it is
+ *   2. portal_url → og:image (--derive-from-portal) — for rows whose
+ *      source_url is null or was never captured, fetch the Property24 /
+ *      PrivateProperty listing page and read its Open Graph image. The
+ *      resolved URL is persisted to thumbnail_source_url so the row is
+ *      rehydratable thereafter. THROTTLED (--throttle-ms) because it is
  *      outbound traffic to the portals at scale.
  *
  * Every download flows through DownloadListingThumbnail → ListingImageValidator
@@ -74,8 +83,23 @@ class RehydrateProspectingThumbnails extends Command
             . ($derive ? ' (deriving missing source URLs from portal og:image)' : '') . '...');
 
         ProspectingListing::query()
-            ->whereNotNull('thumbnail_path')
-            ->where('thumbnail_path', '!=', '')
+            ->where(function ($q) {
+                // Orphaned — a path was recorded but the file isn't (necessarily)
+                // there any more; checked for real below.
+                $q->where(function ($q2) {
+                    $q2->whereNotNull('thumbnail_path')->where('thumbnail_path', '!=', '');
+                })
+                // Never captured — no path was ever recorded (a scraper-side bug
+                // like the P24 lazy-load-placeholder capture, or simply never
+                // downloaded), but we still hold the portal listing page to
+                // derive an image from. 2026-08-24: widened from
+                // whereNotNull('thumbnail_path') so a row whose poisoned
+                // thumbnail_source_url (e.g. literal "/blank.gif") was nulled
+                // out is picked up here instead of silently staying out of scope.
+                ->orWhere(function ($q2) {
+                    $q2->whereNull('thumbnail_path')->whereNotNull('portal_url');
+                });
+            })
             ->when($portal !== '', fn ($q) => $q->where('portal_source', $portal))
             ->orderBy('id')
             ->chunkById($chunkSize, function ($listings) use (
@@ -87,7 +111,9 @@ class RehydrateProspectingThumbnails extends Command
                     $scanned++;
 
                     // File present → nothing to do (idempotent re-runs land here).
-                    if (Storage::disk('local')->exists($listing->thumbnail_path)) {
+                    // A null thumbnail_path is trivially "no file" — never call
+                    // exists() with a null path.
+                    if ($listing->thumbnail_path && Storage::disk('local')->exists($listing->thumbnail_path)) {
                         continue;
                     }
 
@@ -146,6 +172,18 @@ class RehydrateProspectingThumbnails extends Command
                         }
                     }
                 }
+
+                // 2026-08-24 — a full run is ~9 hours unattended (throttled
+                // outbound traffic to the portals), so the console pane isn't
+                // a reliable place to check progress. One log line per chunk
+                // survives the session; Johan can `tail -f storage/logs/laravel.log`
+                // or grep for "rehydrate-thumbnails progress".
+                \Illuminate\Support\Facades\Log::info('rehydrate-thumbnails progress', [
+                    'scanned' => $scanned, 'missing_file' => $missingFile,
+                    'derived' => $derived, 'derive_failed' => $deriveFailed,
+                    'no_source_url' => $noSourceUrl, 'processed' => $reDispatched,
+                    'network_rows' => $networkRows, 'dry_run' => $dryRun,
+                ]);
             });
 
         $this->table(

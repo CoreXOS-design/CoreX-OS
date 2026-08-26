@@ -40,8 +40,25 @@ class PropertyThumbnailService
 
     /**
      * The URL a list view should use for a given original image: the thumbnail
-     * if it exists on disk, otherwise the original (graceful fallback). Any URL
-     * that isn't a recognised property-image /storage path is returned as-is.
+     * if it exists on disk, else the original if IT exists, else null. Any URL
+     * that isn't a recognised property-image /storage path is returned as-is
+     * (can't verify existence for those, so behaviour is unchanged for them).
+     *
+     * 2026-08-25 — was "return the original whenever the thumb isn't on disk
+     * yet", which assumed the original always exists (true for the pre/during
+     * -backfill case this was written for, false when the original itself has
+     * gone missing — deleted, orphaned, moved). Every caller of thumbFor()/
+     * displayUrl() across the app (match cards, the buyer portal, the shared
+     * wishlist page, the properties list/detail/ad pages) got handed back a
+     * URL to a file that doesn't exist, with no way to tell. Most callers
+     * already have a `@if($thumb) <img> @else <placeholder> @endif` guard —
+     * this fix makes that guard actually work for a missing original, not
+     * just a missing thumb. A caller whose <img> has no onerror handler and
+     * a real (non-empty) alt attribute — e.g. a property's marketing title —
+     * showed that alt text as visible page content when the browser's native
+     * broken-image fallback kicked in (confirmed live: property 6148, MIC
+     * photo investigation, extended to Buyers Pipeline / Core Matches / the
+     * buyer portal once the same root cause was found there).
      */
     public function displayUrl(?string $publicUrl): ?string
     {
@@ -52,11 +69,14 @@ class PropertyThumbnailService
         if ($rel === null) {
             return $publicUrl;
         }
+        $disk = Storage::disk('public');
         $thumbRel = $this->thumbRelPath($rel);
 
-        return Storage::disk('public')->exists($thumbRel)
-            ? Storage::url($thumbRel)
-            : $publicUrl;
+        if ($disk->exists($thumbRel)) {
+            return Storage::url($thumbRel);
+        }
+
+        return $disk->exists($rel) ? $publicUrl : null;
     }
 
     /**
