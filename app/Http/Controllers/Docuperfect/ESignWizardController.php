@@ -1842,27 +1842,37 @@ class ESignWizardController extends Controller
             if ($flow) {
                 // Johan, 2026-08-26 — "company esign still blocks on only
                 // rendering 1 seller address, tel, email" — a company
-                // represented by three parties. step_data['recipients'] is
-                // the PRE-expansion array (deliberately: see
-                // prepareRecipientsForMerge()'s docblock, that array is what
-                // gets edited/saved as "the recipient" and must never
-                // silently become someone's representative instead) — for an
-                // entity seller that is ONE row, the company itself, not its
-                // representatives. Passing that straight into
-                // buildTransientSignatureRequestsForPreview() built exactly
-                // one transient SignatureRequest (the company), so
-                // expandWithLooping() below correctly cloned the
-                // data-role-block ONE time — there was only ever one
-                // "seller" in what it was given. Expanding here — the same
-                // expandEntityRecipients() every other consumer of this
-                // array already runs before using it downstream — gives the
-                // preview the real three representatives (Elize Reichel, HA
-                // Pretorius, Steve Jobs), so the address/tel/email block
-                // clones once per person, same as the clause and signing
-                // order already correctly do.
+                // represented by three parties (Elize Reichel, HA Pretorius,
+                // Steve Jobs). Two DIFFERENT, both-correct-in-their-own-place
+                // transformations were being conflated here:
+                //
+                // By this point $stepData came through expandRecipientsForMerge()
+                // (above, in this same method) — which itself expands the
+                // entity into its 3 representative rows, but then DELIBERATELY
+                // dedupeEntityRecipientsForDisplay()s them back down to ONE
+                // row sharing the entity's _entity_contact_id, specifically so
+                // resolveFieldGroupValue()'s "and"-joined clause names the
+                // company/all-reps ONCE, not three times. That collapse is
+                // correct for the clause — Johan's own words: "The CLAUSE
+                // naming everyone while the signing EMAIL goes to one signer
+                // is DELIBERATE and correct. Do not touch it."
+                //
+                // But $stepData['recipients']['recipients'] — already
+                // collapsed to 1 row for that reason — is the WRONG input
+                // for the address/tel/email role-block expansion below: "the
+                // document's own per-recipient detail fields... must carry
+                // all three." Re-expanding the already-deduped 1 row finds
+                // nothing further to expand (it is now its own individual
+                // contact, not the entity's) — which is exactly why an
+                // earlier attempt at this fix still produced only one block.
+                // The fix reaches past the dedup: expand the flow's OWN raw,
+                // un-deduped recipients (the same source
+                // expandRecipientsForMerge() itself expands from) fresh,
+                // right here, for this one purpose only — never written back
+                // to $stepData, so the clause-collapse above is untouched.
                 $wizardRecipients = $this->buildTransientSignatureRequestsForPreview(
                     $flow,
-                    $this->expandEntityRecipients($stepData['recipients']['recipients'] ?? [], $user),
+                    $this->expandEntityRecipients($flow->step_data['recipients']['recipients'] ?? [], $user),
                 );
                 if ($wizardRecipients->isNotEmpty()) {
                     // AT-295 — stamp the data-role-block contract onto the raw
