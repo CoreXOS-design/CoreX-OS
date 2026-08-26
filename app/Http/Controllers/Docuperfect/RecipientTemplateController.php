@@ -49,6 +49,16 @@ class RecipientTemplateController extends Controller
             ->with('status', "Recipient template \"{$data['name']}\" created.");
     }
 
+    public function edit(Request $request, RecipientTemplate $recipientTemplate)
+    {
+        $agencyId = $request->user()->effectiveAgencyId();
+        // Same scope as update()/destroy() — an id from another agency (or a
+        // CoreX NULL-agency default) 404s here rather than being editable.
+        abort_unless($recipientTemplate->agency_id === $agencyId, 404);
+
+        return view('docuperfect.recipient-templates.edit', compact('recipientTemplate'));
+    }
+
     public function update(Request $request, RecipientTemplate $recipientTemplate)
     {
         $agencyId = $request->user()->effectiveAgencyId();

@@ -119,10 +119,13 @@
                             </div>
                             <div class="text-xs italic mt-0.5" style="color: var(--text-muted);">{{ $t->text_template }}</div>
                         </div>
-                        <form method="POST" action="{{ route('docuperfect.recipient-templates.destroy', $t) }}" onsubmit="return confirm('Remove this recipient template?');">
-                            @csrf @method('DELETE')
-                            <button type="submit" class="text-xs flex-shrink-0" style="color: var(--ds-red,#dc2626);">Remove</button>
-                        </form>
+                        <div class="flex items-center gap-3 flex-shrink-0">
+                            <a href="{{ route('docuperfect.recipient-templates.edit', $t) }}" class="text-xs no-underline" style="color: var(--brand-icon,#2563eb);">Edit</a>
+                            <form method="POST" action="{{ route('docuperfect.recipient-templates.destroy', $t) }}" onsubmit="return confirm('Remove this recipient template?');">
+                                @csrf @method('DELETE')
+                                <button type="submit" class="text-xs" style="color: var(--ds-red,#dc2626);">Remove</button>
+                            </form>
+                        </div>
                     </div>
                 @endforeach
             </div>

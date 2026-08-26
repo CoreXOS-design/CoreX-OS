@@ -4128,6 +4128,7 @@ Route::prefix('docuperfect')->middleware(['auth', 'permission:access_docuperfect
         ->group(function () {
             Route::get('/', [\App\Http\Controllers\Docuperfect\RecipientTemplateController::class, 'index'])->name('index');
             Route::post('/', [\App\Http\Controllers\Docuperfect\RecipientTemplateController::class, 'store'])->name('store');
+            Route::get('/{recipientTemplate}/edit', [\App\Http\Controllers\Docuperfect\RecipientTemplateController::class, 'edit'])->name('edit');
             Route::put('/{recipientTemplate}', [\App\Http\Controllers\Docuperfect\RecipientTemplateController::class, 'update'])->name('update');
             Route::delete('/{recipientTemplate}', [\App\Http\Controllers\Docuperfect\RecipientTemplateController::class, 'destroy'])->name('destroy');
         });
