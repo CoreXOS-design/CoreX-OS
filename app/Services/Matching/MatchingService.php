@@ -296,7 +296,21 @@ class MatchingService
 
         $listingType  = $overrides['listing_type']  ?? $match->listing_type; // sale vs rental is a hard filter — never mix the two
         $category     = $overrides['category']      ?? $match->category;
-        $propertyType = $overrides['property_type'] ?? $match->property_type;
+        // 2026-08-19 (Falan, live bug) — this used to read the legacy singular
+        // property_type column, which the controller only ever populates with
+        // the FIRST of the buyer's selected types (property_type <-> property_types
+        // reconciliation, ContactMatchController::update()). A buyer with
+        // House+Townhouse+Vacant Land ticked got a candidate query pre-filtered
+        // to House alone — the townhouses and land were excluded before score()
+        // ever ran, never a scoring/family-gate problem (those already correctly
+        // read the full array via propertyTypeList(), see below). An explicit
+        // override still wins and still behaves as a single value — that's a
+        // deliberate ad-hoc single-type filter on the public/mobile match views
+        // (SharedMatchController, MobileCoreMatchController), not the buyer's
+        // persisted multi-select, and must not be widened.
+        $propertyTypes = array_key_exists('property_type', $overrides)
+            ? array_filter([$overrides['property_type']])
+            : $match->propertyTypeList();
         $priceMin     = $overrides['price_min']     ?? $match->price_min;
         $priceMax     = $overrides['price_max']     ?? $match->price_max;
         $bedsMin      = $overrides['beds_min']      ?? $match->beds_min;
@@ -311,6 +325,14 @@ class MatchingService
         $strLoose = function (Builder $q, string $col, string $val) {
             $q->where(function (Builder $q2) use ($col, $val) {
                 $q2->whereNull($col)->orWhere($col, $val);
+            });
+        };
+        // Multi-value counterpart — property_type is a multi-select on the buyer's
+        // side (propertyTypeList()); the candidate query must match ANY of the
+        // wanted types, not force the whole set down to one value.
+        $strLooseIn = function (Builder $q, string $col, array $vals) {
+            $q->where(function (Builder $q2) use ($col, $vals) {
+                $q2->whereNull($col)->orWhereIn($col, $vals);
             });
         };
         // listing_type uses STRICT equality — sale vs rental are different markets and
@@ -332,8 +354,8 @@ class MatchingService
             }
         }
         // category / property_type stay loose — half-filled listings still appear.
-        if ($category)     $strLoose($query, 'category', $category);
-        if ($propertyType) $strLoose($query, 'property_type', $propertyType);
+        if ($category)          $strLoose($query, 'category', $category);
+        if (!empty($propertyTypes)) $strLooseIn($query, 'property_type', $propertyTypes);
 
         // Numeric criteria: allow NULL on the property side too.
         $numLoose = function (Builder $q, string $col, string $op, int $val) {
@@ -376,6 +398,220 @@ class MatchingService
             ->filter(fn (Property $p) => !$relaxed || $p->match_score >= self::MIN_SCORE_TO_DISPLAY)
             ->sortByDesc('match_score')
             ->values();
+    }
+
+    /**
+     * Batched counts-only equivalent of calling
+     * propertiesForMatch($m, ['agent_id' => null, 'include_hidden' => true])
+     * once per match — same results, one query per distinct agency instead of
+     * one-to-three queries PER MATCH. Built for
+     * ContactMatchController::propertyCountsFor() (the "All Core Matches"
+     * oversight page), which needs total/visible/hidden counts for
+     * potentially hundreds of matches on one page load — the per-match call
+     * was the page's N+1.
+     *
+     * This assumes EXACTLY that override shape (no agent_id constraint,
+     * hidden properties counted). It is NOT a general replacement for
+     * propertiesForMatch(), which stays SQL-first and untouched for its
+     * single-match, usually agent-scoped callers (results(), printList(),
+     * candidatesForProperty()) — pushing `WHERE agent_id = X` into SQL is the
+     * right, selective thing to do there, and would be wrong here (this path
+     * needs every agent's properties, for every match, on one page).
+     *
+     * Correctness note: matchSurvivesFilters() below is a PHP mirror of
+     * propertiesForMatch()'s WHERE-clause logic above (listing type + status,
+     * category, property_type, price/beds/baths/garages/floor/erf tolerance
+     * bands, suburb ids) and must be kept in lockstep with it — there is
+     * deliberately no single shared implementation, because the single-match
+     * path filters in SQL and this one filters an already-fetched in-memory
+     * candidate set. score() itself IS shared (called unchanged, verbatim) —
+     * only the WHERE-equivalent filtering is duplicated, and only here.
+     *
+     * @param  \Illuminate\Support\Collection<int,ContactMatch>  $matches
+     * @return array<int,array{total:int,visible:int,hidden:int}>
+     */
+    public function propertyCountsForMatches($matches): array
+    {
+        $counts = [];
+        $candidatesByAgency = [];
+
+        foreach ($matches as $match) {
+            if (!$match->isCountable()) {
+                $counts[$match->id] = ['total' => 0, 'hidden' => 0, 'visible' => 0];
+                continue;
+            }
+
+            $agencyId = $match->agency_id;
+            if (!array_key_exists($agencyId, $candidatesByAgency)) {
+                $candidatesByAgency[$agencyId] = $this->matchableCandidatePool($agencyId);
+            }
+            $candidates = $candidatesByAgency[$agencyId];
+
+            $resolved = $candidates
+                ->filter(fn (Property $p) => $this->matchSurvivesFilters($p, $match))
+                ->map(function (Property $p) use ($match) {
+                    $sc = $this->score($p, $match);
+                    $p->setAttribute('match_score', $sc);
+                    return $p;
+                })
+                ->filter(fn (Property $p) => $p->match_score >= self::MIN_SCORE_TO_DISPLAY);
+
+            $hiddenIds = $match->hidden_property_ids ?? [];
+            $hidden = $resolved->filter(fn ($p) => in_array($p->id, $hiddenIds, true))->count();
+            $counts[$match->id] = [
+                'total'   => $resolved->count(),
+                'hidden'  => $hidden,
+                'visible' => $resolved->count() - $hidden,
+            ];
+        }
+
+        return $counts;
+    }
+
+    /**
+     * The agency-wide "could possibly match something" candidate pool — every
+     * non-off-market property regardless of agent/branch (agent_id=null means
+     * propertiesForMatch() never constrains by agent for this call shape
+     * either), fetched ONCE per agency and reused across every match's filter
+     * pass instead of one propertiesForMatch() SQL round-trip per match.
+     *
+     * Public: used by propertyCountsForMatches() below (agent_id=null,
+     * include_hidden=true — the "All Core Matches" oversight page) AND by
+     * PropertyMatchScoringService::recomputeForBuyer() when it's given a
+     * pre-fetched pool (agent_id=null, include_hidden=false —
+     * RegenerateBuyerMatchesJob's per-agency buyer-match regeneration, the
+     * SAME propertiesForMatch() N+1 shape, third and fourth time this exact
+     * pattern has turned up in one day). Deliberately does NOT eager-load
+     * agent/branch — neither caller's scoring path reads either relation.
+     */
+    public function matchableCandidatePool(?int $agencyId): Collection
+    {
+        $query = Property::query()
+            ->where(function (Builder $sub) {
+                $sub->whereNull('status')
+                    ->orWhereRaw('LOWER(TRIM(status)) NOT IN ('
+                        . collect(self::NON_MATCHABLE_STATUSES)->map(fn ($s) => "'$s'")->implode(',')
+                        . ')');
+            });
+        if ($agencyId) {
+            $query->where('agency_id', $agencyId);
+        }
+
+        return $query->get();
+    }
+
+    /**
+     * PHP mirror of propertiesForMatch()'s per-match WHERE clauses — see that
+     * method for the SQL this must stay identical to. agent_id/branch_id are
+     * not re-checked here: both callers (propertyCountsForMatches(),
+     * PropertyMatchScoringService::recomputeForBuyer()) always use
+     * agent_id=null with no branch_id override, so those two conditions are
+     * already no-ops in propertiesForMatch() too under either call shape.
+     * include_hidden DOES differ between callers (true for the oversight
+     * counts page, false for buyer-match regeneration), so it's the one
+     * parameter this takes rather than assuming a single fixed shape.
+     */
+    private function matchSurvivesFilters(Property $p, ContactMatch $match, bool $includeHidden = true): bool
+    {
+        // Both callers always evaluate in relaxed mode — same as
+        // propertiesForMatch()'s default ($overrides['relaxed'] never set by
+        // either).
+        $priceTol = 0.30;
+        $countTol = 1;
+        $sizeTol  = 0.30;
+
+        if (!$includeHidden && !empty($match->hidden_property_ids) && in_array($p->id, $match->hidden_property_ids, true)) {
+            return false;
+        }
+
+        $listingType = $match->listing_type;
+        if ($listingType) {
+            if ($p->listing_type !== $listingType) {
+                return false;
+            }
+            $allowedStatuses = self::STATUS_BY_LISTING_TYPE[$listingType] ?? null;
+            if ($allowedStatuses !== null && $p->status !== null && !in_array(strtolower($p->status), $allowedStatuses, true)) {
+                return false;
+            }
+        }
+
+        $category = $match->category;
+        if ($category && $p->category !== null && $p->category !== $category) {
+            return false;
+        }
+
+        $propertyTypes = $match->propertyTypeList();
+        if (!empty($propertyTypes) && $p->property_type !== null && !in_array($p->property_type, $propertyTypes, true)) {
+            return false;
+        }
+
+        $numLooseOk = function ($val, string $op, int $threshold): bool {
+            if ($val === null) {
+                return true; // property side NULL is never penalised
+            }
+            return $op === '>=' ? ((int) $val >= $threshold) : ((int) $val <= $threshold);
+        };
+
+        if ($match->price_min && !$numLooseOk($p->price, '>=', (int) floor($match->price_min * (1 - $priceTol)))) return false;
+        if ($match->price_max && !$numLooseOk($p->price, '<=', (int) ceil($match->price_max * (1 + $priceTol)))) return false;
+        if ($match->beds_min && !$numLooseOk($p->beds, '>=', max(0, (int) $match->beds_min - $countTol))) return false;
+        if ($match->baths_min && !$numLooseOk($p->baths, '>=', max(0, (int) $match->baths_min - $countTol))) return false;
+        if ($match->garages_min && !$numLooseOk($p->garages, '>=', max(0, (int) $match->garages_min - $countTol))) return false;
+        if ($match->floor_size_min && !$numLooseOk($p->size_m2, '>=', (int) floor($match->floor_size_min * (1 - $sizeTol)))) return false;
+        if ($match->floor_size_max && !$numLooseOk($p->size_m2, '<=', (int) ceil($match->floor_size_max * (1 + $sizeTol)))) return false;
+        if ($match->erf_size_min && !$numLooseOk($p->erf_size_m2, '>=', (int) floor($match->erf_size_min * (1 - $sizeTol)))) return false;
+        if ($match->erf_size_max && !$numLooseOk($p->erf_size_m2, '<=', (int) ceil($match->erf_size_max * (1 + $sizeTol)))) return false;
+
+        $suburbIds = $match->p24SuburbIdList();
+        if (!empty($suburbIds) && !in_array($p->p24_suburb_id, $suburbIds, true)) {
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Batched equivalent of calling propertiesForMatch($m, ['agent_id' => null,
+     * 'include_hidden' => false]) once per $match and keeping the best score
+     * per property across all of them — same result,
+     * count($candidatePool)-worth of in-memory filtering instead of
+     * count($matches) SQL round-trips.
+     *
+     * Built for PropertyMatchScoringService::recomputeForBuyer(), which
+     * previously called propertiesForMatch() once per wishlist for every one
+     * of an agency's buyer contacts (388 contacts on agency 1 — the exact
+     * same propertiesForMatch() N+1 shape as
+     * ContactMatchController::propertyCountsFor(), just triggered from a
+     * different call site). $candidatePool is expected to come from
+     * matchableCandidatePool() above, fetched ONCE per job run and shared
+     * across every contact — not re-fetched per contact.
+     *
+     * @param  \Illuminate\Support\Collection<int,ContactMatch>  $matches
+     * @param  \Illuminate\Support\Collection<int,Property>      $candidatePool
+     * @return array<int,array{score:int,tier:?string}> keyed by property_id
+     */
+    public function bestScoreAcrossMatches($matches, Collection $candidatePool): array
+    {
+        $best = [];
+        foreach ($matches as $match) {
+            if (!$match->isCountable()) {
+                continue;
+            }
+            foreach ($candidatePool as $p) {
+                if (!$this->matchSurvivesFilters($p, $match, includeHidden: false)) {
+                    continue;
+                }
+                $score = $this->score($p, $match);
+                if ($score < self::MIN_SCORE_TO_DISPLAY) {
+                    continue;
+                }
+                if (!isset($best[$p->id]) || $score > $best[$p->id]['score']) {
+                    $best[$p->id] = ['score' => $score, 'tier' => self::tierFor($score)];
+                }
+            }
+        }
+
+        return $best;
     }
 
     /**
@@ -628,8 +864,23 @@ class MatchingService
         if ($match->category && $property->category) {
             $components[] = [5, $property->category === $match->category ? 1.0 : 0.0];
         }
-        if ($match->property_type && $property->property_type) {
-            $components[] = [5, $property->property_type === $match->property_type ? 1.0 : 0.0];
+        // 2026-08-19 (Falan, live bug, second face of the same class) — this used
+        // the legacy singular property_type for an EXACT-equality scoring
+        // component. Even after propertiesForMatch()'s SQL correctly fetched
+        // Townhouse/Vacant-Land candidates for a House+Townhouse+Vacant-Land
+        // wishlist, THIS component still scored them 0/5 (property_type
+        // "Townhouse" !== match's legacy singular "House"), which — on a
+        // wishlist with few/no other criteria set — was enough to sink them
+        // below MIN_SCORE_TO_DISPLAY and drop them from the results. Reads the
+        // full propertyTypeList() and normalises case/whitespace on both sides
+        // (never assume the picker's label and however it landed in the DB
+        // agree on casing byte-for-byte) instead of a bare singular ===.
+        $wantedTypes = $match->propertyTypeList();
+        if (!empty($wantedTypes) && $property->property_type) {
+            $norm = fn ($s) => strtolower(trim((string) $s));
+            $propertyTypeNorm = $norm($property->property_type);
+            $wantedTypesNorm  = array_map($norm, $wantedTypes);
+            $components[] = [5, in_array($propertyTypeNorm, $wantedTypesNorm, true) ? 1.0 : 0.0];
         }
         // Floor/erf size — cosmetic (see guardrail note above): already hard-
         // gated when violated (above), so a present component here has
@@ -654,26 +905,30 @@ class MatchingService
 
         if (empty($components) || !$hasSubstantialSignal) {
             // AT-71 — belt-and-braces against the empty-wishlist inflation bug.
-            // 2026-08-11 fix: was `$match->isCountable() ? 100 : 0`, but
-            // isCountable() only requires ONE criteria group present anywhere
-            // on the wishlist — a wishlist with ONLY a property_type selected
-            // (already gated above, separately, and not itself a $components
-            // entry) and nothing else satisfied it, so a near-blank wishlist
-            // scored a flat 100. Via canonicalBestAcross()'s best-across-all-
-            // wishlists selection, that blank wishlist could then outrank a
-            // buyer's real, fully-specified one and surface a wrong-suburb
-            // property at 100% (confirmed: Caroline King's Southbroom+budget
-            // wishlists correctly scored low against a Ramsgate listing, but
-            // a separate blank wishlist of hers — no suburb, no price, no
-            // beds — won the "best" comparison at 100 every time). Extended
-            // 2026-08-11 (same day, follow-up): the guard now also fires when
-            // $components is non-empty but every entry is COSMETIC (no
-            // substantial signal) — the same inflation, just via a satisfied
-            // cosmetic component (e.g. a garbage erf_size_max) instead of zero
-            // components. No real signal now means either (a) it specified
-            // ONLY must-have features, which were already verified above → a
-            // genuine full match → 100; or (b) it specified nothing
-            // substantial at all → no real signal → 0, never inflated.
+            // Was `$match->isCountable() ? 100 : 0`; isCountable() only requires
+            // ONE criteria group present anywhere on the wishlist — a wishlist
+            // with ONLY a property_type selected (already gated above,
+            // separately, and not itself a $components entry) and nothing else
+            // satisfied it, so a near-blank wishlist scored a flat 100. Via
+            // canonicalBestAcross()'s best-across-all-wishlists selection, that
+            // blank wishlist could then outrank a buyer's real, fully-specified
+            // one and surface a wrong-suburb property at 100%.
+            //
+            // 2026-08-12 (Johan's ruling) — reverted the same-day
+            // "$hasSubstantialSignal" extension that also forced a
+            // COSMETIC-only wishlist (e.g. only erf_size_max/floor_size/
+            // category/property_type present) to this same 0/100 fallback,
+            // ignoring whatever it actually contained. Per Johan: "a wishlist
+            // means exactly what it says — no filter matches all, criteria
+            // filters by criteria, no cleverness." A cosmetic-only wishlist now
+            // scores naturally off its own components below instead of being
+            // silently overridden. The Caroline King incident that motivated
+            // the extension was a DATA problem (a garbage 2,000,000 m²
+            // erf_size_max typo on one wishlist) and was fixed as data, not
+            // as an engine rule — that fix stands on its own and needed no
+            // engine-level override. $components empty still means the
+            // wishlist stated nothing at all (or only must-haves, verified
+            // above): a genuine full match → 100, or truly nothing → 0.
             return !empty($mustHaves) ? 100 : 0;
         }
 
@@ -868,6 +1123,22 @@ class MatchingService
             }
         }
 
+        // 'garage' bridge (2026-08-18, live incident — contact 17097/match 349
+        // returned ZERO Core Matches for an otherwise-plain sale wishlist).
+        // 'garage' is a normal FEATURE_OPTIONS checkbox agents pick as a
+        // must-have, but garage COUNT is tracked on the dedicated `garages`
+        // numeric column (garages_min already scores this separately below),
+        // never duplicated as a "Garage" text tag inside features_json. Every
+        // property with real structured features_json data (so the must-have
+        // gate above doesn't skip as "unknown") but no redundant "Garage" tag
+        // therefore hard-failed a 'garage' must-have unconditionally — not a
+        // reconcile-merge regression, confirmed identical on pre-merge live
+        // (712f937b2). Same bridge pattern as poolTokens() below: a property
+        // fact the property row already carries becomes a positive token.
+        if ((int) ($property->garages ?? 0) > 0) {
+            $out[] = 'garage';
+        }
+
         return array_values(array_unique(array_merge($out, $property->poolTokens())));
     }
 
@@ -916,6 +1187,14 @@ class MatchingService
             'solar_panel'       => 'solar',
             'solar_geyser'      => 'solar',
             'garages'           => 'garage',
+            // 2026-08-18 live incident (contact 17097/match 349, Falan) — a
+            // property tagged "Single Garage"/"Double Garage" canonicalized to
+            // single_garage/double_garage, never plain 'garage', so it failed
+            // a garage must-have despite the tag explicitly saying so. Two of
+            // the 4 properties this incident affects had exactly this tag.
+            'single_garage'     => 'garage',
+            'double_garage'     => 'garage',
+            'triple_garage'     => 'garage',
             'granny_flat'       => 'flatlet',
             'cottage'           => 'flatlet',
         ];

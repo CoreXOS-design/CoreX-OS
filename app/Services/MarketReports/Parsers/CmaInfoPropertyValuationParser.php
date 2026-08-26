@@ -125,8 +125,33 @@ final class CmaInfoPropertyValuationParser extends AbstractCmaInfoParser
         }
 
         // ── Comp rows from the CMA Comparative Market Analysis table (page 5) ──
+        // 2026-08-25 fix — this table alone is a SHORT summary (3 comparative
+        // rows on Falan's real LLE Tonmawr document, of ~15 same-building
+        // sales actually in the file). It was the only comp source this
+        // parser read; the fuller "<N> most recent sales in '<scheme>'" table
+        // further into the same document (its own registrations list, page 7
+        // on the real file) was never reached at all. Merged here — the
+        // fuller list first (it carries more real sales and a R/m² column the
+        // short table lacks), the short table second, deduped by
+        // (sale_date, sale_price) so the 3 rows both tables agree on don't
+        // double-count. Verified against the real file: comp-row count goes
+        // from 3 to 15, matching every row printed in the "most recent sales"
+        // table exactly (section, extent, date, price, R/m²).
+        $cmaRows = array_merge(
+            $this->extractRecentSalesInScheme($text, $subject['scheme_name'] ?? null),
+            $this->extractCmaCompRows($text, $subject['scheme_name'] ?? null),
+        );
+        $seenSale = [];
+        $dedupedCmaRows = [];
+        foreach ($cmaRows as $row) {
+            $key = ($row['sale_date'] ?? 'no-date') . '|' . ($row['sale_price'] ?? 'no-price');
+            if (isset($seenSale[$key])) continue;
+            $seenSale[$key] = true;
+            $dedupedCmaRows[] = $row;
+        }
+
         $rowIndex = 1;
-        foreach ($this->extractCmaCompRows($text, $subject['scheme_name'] ?? null) as $row) {
+        foreach ($dedupedCmaRows as $row) {
             $compRows[] = $this->buildCompRow($row, MarketReportCompRow::ROW_COMP, $rowIndex++, $suburb);
             if (!empty($row['address'])) {
                 $addresses[] = $this->makeAddress([
@@ -386,6 +411,67 @@ final class CmaInfoPropertyValuationParser extends AbstractCmaInfoParser
             ];
         }
 
+        // ── Freehold (Erf-based) comp rows ──────────────────────────────────
+        // Live incident 2026-08-20 (presentation 137/138 Torquay Avenue,
+        // Leisure Bay): the pattern above is sectional-title only (Section +
+        // SS number + SS year + "Residence"). A FREEHOLD subject's own CMA
+        // table has no scheme/section/SS at all — its row shape is
+        // "<idx> <dist>m <erf> <STREET>, <SUBURB> <usage> <extent>m²
+        // <date> R<price> R<est> R<ppm>", e.g. "1  87 m  157  WALTON AVENUE,
+        // THREE HILLS  Residential  1 090 m²  2016/10/17  R 120 000
+        // R 172 000  R 158" (confirmed against the live source PDF via
+        // `pdftotext -layout`). The old pattern cannot match this shape at
+        // all — not a wording mismatch, a structurally different table — so
+        // every freehold subject's real comparables parsed to zero. "Usage"
+        // here is also "Residential", not "Residence" (same CMA Info
+        // vocabulary split already seen in the vicinity-sale report type),
+        // so both spellings are accepted.
+        //
+        // 2026-08-25 fix — the street name was required to START with a
+        // letter (`[A-Z]...`), but a real freehold document (Retha's 30
+        // Jenkins Street, Margate) prints its own house number as part of
+        // every comparative address — "46 VALLEY ROAD", "16 JENKINS STREET"
+        // — not the number-less street-only form the original pattern was
+        // built against ("WALTON AVENUE"). That leading digit sat right
+        // where the pattern demanded a letter, so the street group never
+        // matched and every one of this document's 14 real comparables
+        // parsed to zero, on top of the earlier 0-comp incident this same
+        // block was written to fix. House number is now optional in the
+        // street capture, matching the same "(?:\d{1,4}\s+)?" convention
+        // already used for this exact ambiguity elsewhere in this parser
+        // family (CmaInfoSectionalTitleSalesParser's own lookback pattern).
+        $freeholdPattern = '/(?<idx>\d{1,3})\s+(?<dist>\d{1,5})\s*m\s+(?<erf>\d{1,6})\s+'
+            .'(?<street>(?:\d{1,4}\s+)?[A-Z][A-Z0-9 \'&\.]{2,50}?),\s*(?<fsuburb>[A-Z][A-Z \'&\.]{2,40}?)\s+'
+            .'(?:Residential|Residence|Commercial|Vacant\s+Land)\s+'
+            .'(?<ext>\d{1,3}(?:\s\d{3})?)\s*m\S?\s+'
+            .'(?<date>\d{4}[\/\-]\d{2}[\/\-]\d{2})\s+R\s*(?<sp>\d{1,3}(?:[\s,]\d{3}){0,3})'
+            .'(?:\s+R\s*(?<est>\d{1,3}(?:[\s,]\d{3}){0,3}))?'
+            .'(?:\s+R\s*(?<ppm>\d{1,3}(?:[\s,]\d{3}){0,2}))?/u';
+
+        preg_match_all($freeholdPattern, $body, $freeholdMatches, PREG_SET_ORDER);
+
+        foreach ($freeholdMatches as $m) {
+            $rows[] = [
+                'scheme_name'           => null,
+                'section_number'        => null,
+                'ss_number'             => null,
+                'ss_year'               => null,
+                'property_type'         => 'Residential',
+                'extent_m2'             => (int) str_replace(' ', '', $m['ext']),
+                'sale_date'             => $this->parseDate($m['date']),
+                // Historical freehold sales in this table legitimately go well
+                // below the 50k default floor (1990s R13-14k sales seen on the
+                // live incident PDF) — widen the floor for this path only.
+                'sale_price'            => $this->parsePriceBounded($m['sp'], 'cma.freehold.sale_price', $m[0], 1_000),
+                'estimated_value'       => !empty($m['est']) ? $this->parsePriceBounded($m['est'], 'cma.freehold.estimated_value', $m[0], 1_000) : null,
+                'r_per_m2'              => !empty($m['ppm']) ? $this->parsePriceBounded($m['ppm'], 'cma.freehold.r_per_m2', $m[0], 100, 500000) : null,
+                'address'               => trim($m['street']),
+                'suburb_normalised'     => $this->normaliseSuburb(trim($m['fsuburb'])),
+                'distance_to_subject_m' => (int) $m['dist'],
+                'erf_number'            => $m['erf'],
+            ];
+        }
+
         // ── Stacked multi-section comps ─────────────────────────────────────
         // A combined-unit sale wraps its sections + extents to the lines above
         // and below the anchor, so the single-line pass above drops it entirely.
@@ -438,6 +524,63 @@ final class CmaInfoPropertyValuationParser extends AbstractCmaInfoParser
         }
 
         return $out;
+    }
+
+    /**
+     * "<N> most recent sales in '<scheme, address>'" table — the fuller
+     * same-building sales list this parser never read before 2026-08-25.
+     * Sits further into the document than the short "CMA - Comparative
+     * Market Analysis" table (extractCmaCompRows() above) and is not
+     * bounded by it in any way — a genuinely separate table, own heading,
+     * own row shape (no SS number / SS year columns, but carries R/m² which
+     * the short table doesn't).
+     *
+     * Row shape (confirmed against the real file via `pdftotext -layout`):
+     *   "<section>  Residence  <extent> m²  <date>  R <price>  R <r_per_m2>"
+     * — no per-row scheme/address text (every row is implicitly the
+     * document's own subject scheme, named in the table's own heading), so
+     * every row is attributed to $subjectScheme.
+     *
+     * Bounded to the block between the heading and the next section (a
+     * "Price Ranges" chart, "SOLD PROPERTIES", or end of document) so its
+     * row pattern can't accidentally match something in a different table.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private function extractRecentSalesInScheme(string $text, ?string $subjectScheme): array
+    {
+        $rows = [];
+
+        if (!preg_match(
+            '/\d+\s+most\s+recent\s+sales\s+in\s+"(?<body>.*?)(?=\f|Price\s+Ranges|SOLD\s+PROPERTIES|\Z)/su',
+            $text,
+            $blockMatch
+        )) {
+            return $rows;
+        }
+        $body = $blockMatch['body'];
+
+        $pattern = '/(?<sec>\d{1,3})\s+Residence\s+(?<ext>\d{1,5})\s*m\S?\s+(?<date>\d{4}[\/\-]\d{2}[\/\-]\d{2})\s+R\s*(?<sp>\d{1,3}(?:[\s,]\d{3}){0,3})\s+R\s*(?<ppm>\d{1,3}(?:[\s,]\d{3}){0,2})/u';
+
+        if (preg_match_all($pattern, $body, $matches, PREG_SET_ORDER)) {
+            foreach ($matches as $m) {
+                $rows[] = [
+                    'scheme_name'     => $subjectScheme,
+                    'section_number'  => $m['sec'],
+                    'ss_number'       => null,
+                    'ss_year'         => null,
+                    'property_type'   => 'Residence',
+                    'extent_m2'       => (int) $m['ext'],
+                    'sale_date'       => $this->parseDate($m['date']),
+                    'sale_price'      => $this->parsePriceBounded($m['sp'], 'cma.recent_sales.sale_price', $m[0]),
+                    'estimated_value' => null,
+                    'r_per_m2'        => $this->parsePriceBounded($m['ppm'], 'cma.recent_sales.r_per_m2', $m[0], 100, 500_000),
+                    'address'         => null,
+                ];
+            }
+        }
+
+        return $rows;
     }
 
     /**

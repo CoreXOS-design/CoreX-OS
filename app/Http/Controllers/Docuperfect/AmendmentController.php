@@ -50,7 +50,7 @@ class AmendmentController extends Controller
         abort_unless($amendment->document !== null, 404);
         $this->guardDocument($amendment->document);
 
-        $amendment->load(['template', 'document']);
+        $amendment->load(['template.document', 'document', 'amendedByRequest']);
 
         $conditions = DocumentCondition::where('amendment_id', $amendment->id)
             ->orderBy('block_id')
@@ -67,6 +67,10 @@ class AmendmentController extends Controller
             'document'       => $amendment->document,
             'conditions'     => $conditions,
             'strikethroughs' => $strikethroughs,
+            // AT-302 Phase 1 — render THE DOCUMENT with the flagged clause
+            // highlighted in place + the recipient's note attached, so the agent
+            // reviews in context ("means nothing without the document").
+            'flaggedDocumentHtml' => $this->buildFlaggedDocumentHtml($amendment),
         ]);
     }
 
@@ -164,6 +168,79 @@ class AmendmentController extends Controller
      * Mail failures are logged but never block the resolution flow —
      * the amendment record + audit log remain authoritative.
      */
+    /**
+     * AT-302 Phase 1 — render the document's stored merged_html with the flagged
+     * clause highlighted in place and the recipient's note attached at the clause.
+     * The clause is located by its number (flag_clause_ref) against the CDS
+     * .corex-clause / .corex-clause-number structure. Read-only display for the
+     * agent review screen; never mutates the stored document.
+     */
+    private function buildFlaggedDocumentHtml(DocumentAmendment $amendment): string
+    {
+        $document = $amendment->template?->document ?? $amendment->document;
+        // ESIGN-WETINK Phase 1b — the amendment review renders the ONE canonical
+        // artifact (the expanded, ink-bearing document every party saw), not the
+        // raw un-expanded merged_html, so the flagged clause is highlighted on the
+        // SAME rendering as the ceremony. Falls back to merged_html only when no
+        // canonical body composes.
+        $merged = '';
+        if ($amendment->template) {
+            $merged = app(\App\Services\Docuperfect\CanonicalDocumentRenderer::class)
+                ->forDisplay($amendment->template);
+        }
+        if (trim($merged) === '') {
+            $merged = (string) ($document?->web_template_data['merged_html'] ?? '');
+        }
+        if (trim($merged) === '') {
+            return '';
+        }
+
+        $ref = trim((string) $amendment->flag_clause_ref);
+        $note = trim((string) ($amendment->flag_reason ?? $amendment->new_text ?? ''));
+        $signer = $amendment->amendedByRequest?->signer_name ?: 'The signing party';
+
+        $dom = new \DOMDocument();
+        libxml_use_internal_errors(true);
+        $dom->loadHTML('<?xml encoding="utf-8"?><div id="__amreview_root">' . $merged . '</div>', LIBXML_NOERROR | LIBXML_NOWARNING);
+        libxml_clear_errors();
+        $xp = new \DOMXPath($dom);
+
+        if ($ref !== '') {
+            foreach ($xp->query('//*[contains(concat(" ", normalize-space(@class), " "), " corex-clause ")]') as $clause) {
+                if (! $clause instanceof \DOMElement) {
+                    continue;
+                }
+                $numEl = $xp->query('.//*[contains(concat(" ", normalize-space(@class), " "), " corex-clause-number ")]', $clause)->item(0);
+                if (! $numEl || trim($numEl->textContent) !== $ref) {
+                    continue;
+                }
+                $clause->setAttribute('class', trim($clause->getAttribute('class') . ' amendment-flagged'));
+                // Attach the recipient's note callout immediately after the clause.
+                $callout = $dom->createElement('div');
+                $callout->setAttribute('class', 'amendment-note');
+                $head = $dom->createElement('strong');
+                $head->appendChild($dom->createTextNode($signer . ' flagged this clause:'));
+                $callout->appendChild($head);
+                $callout->appendChild($dom->createElement('br'));
+                $callout->appendChild($dom->createTextNode($note !== '' ? $note : '(no note provided)'));
+                if ($clause->parentNode) {
+                    $clause->parentNode->insertBefore($callout, $clause->nextSibling);
+                }
+                break;
+            }
+        }
+
+        $root = $dom->getElementById('__amreview_root');
+        if (! $root) {
+            return $merged;
+        }
+        $out = '';
+        foreach ($root->childNodes as $child) {
+            $out .= $dom->saveHTML($child);
+        }
+        return $out;
+    }
+
     private function notifyRecipientOfResolution(
         DocumentAmendment $amendment,
         \App\Models\User $agent,

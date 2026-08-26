@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 /**
- * (HFC tenant-isolation, Wave 3, ported from main) — added BelongsToAgency.
+ * 2026-08-20 (HFC tenant-isolation, Wave 3) — added BelongsToAgency.
  * Knowledge Base had NO tenant boundary at all: no agency_id, no is_global,
  * no scope check anywhere in KnowledgeController — every agency's uploaded
  * policy/compliance documents were visible to every other agency

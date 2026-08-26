@@ -59,6 +59,9 @@ final class PublicOptOutController extends Controller
     {
         $send = $this->resolveSend($token);
         $contact = $this->resolveContact($send);
+        if (!$contact) {
+            return $this->renderArchived($send);
+        }
 
         return $this->render($send, $contact, done: false);
     }
@@ -71,6 +74,9 @@ final class PublicOptOutController extends Controller
     {
         $send = $this->resolveSend($token);
         $contact = $this->resolveContact($send);
+        if (!$contact) {
+            return $this->renderArchived($send);
+        }
         $agencyId = (int) $send->agency_id;
 
         $action = (string) $request->input('action', self::ACTION_STOP_MARKETING);
@@ -152,18 +158,43 @@ final class PublicOptOutController extends Controller
         }
     }
 
-    private function resolveContact(SellerOutreachSend $send): Contact
+    /**
+     * 2026-08-25 (Johan) — nullable, not firstOrFail()+abort(404): an
+     * archived contact now gets the shared rich "link expired" page (see
+     * renderArchived() below), not a bare 404. Same query, just no longer
+     * terminal here — the two call sites decide what a null means.
+     */
+    private function resolveContact(SellerOutreachSend $send): ?Contact
     {
-        try {
-            return Contact::withoutGlobalScopes()
-                ->whereNull('deleted_at')
-                ->where('id', $send->contact_id)
-                ->where('agency_id', $send->agency_id)
-                ->firstOrFail();
-        } catch (ModelNotFoundException) {
-            // Contact archived after the message went out — nothing to opt out.
-            abort(404);
-        }
+        return Contact::withoutGlobalScopes()
+            ->whereNull('deleted_at')
+            ->where('id', $send->contact_id)
+            ->where('agency_id', $send->agency_id)
+            ->first();
+    }
+
+    /**
+     * 2026-08-25 (Johan) — "click here to engage with one of our friendly
+     * agents for any property-related services." Was the bare, no-agent,
+     * no-listings seller-outreach.archived view; now the same shared rich
+     * page every other dead public link uses. PRIVACY unchanged: never says
+     * the contact was archived — "this link has expired" is true of both an
+     * archived contact and a genuinely stale link, so a visitor learns
+     * nothing about their own record's state either way.
+     */
+    private function renderArchived(SellerOutreachSend $send)
+    {
+        $agent = $send->agent_id
+            ? User::withoutGlobalScopes()->find($send->agent_id)
+            : null;
+
+        return app(\App\Services\PublicLinks\PublicLinkUnavailableResponder::class)->respond(
+            (int) $send->agency_id ?: null,
+            'Shucks — this link has expired',
+            "There's nothing to update here any more — but we're still around. Chat to one of our friendly agents for any property-related services.",
+            $agent,
+            eyebrow: 'Your preferences',
+        )->header('X-Robots-Tag', 'noindex, nofollow');
     }
 
     private function render(SellerOutreachSend $send, Contact $contact, bool $done)

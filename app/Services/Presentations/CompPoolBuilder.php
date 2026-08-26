@@ -168,7 +168,20 @@ final class CompPoolBuilder
             }
             $cLat = $this->floatOrNull($c['lat'] ?? null);
             $cLng = $this->floatOrNull($c['lng'] ?? null);
-            $dist = ($sLat !== null && $sLng !== null && $cLat !== null && $cLng !== null)
+            // cc2, 2026-08-25 — a stored (0.0, 0.0) location is never a real
+            // South African property (it's mid-ocean off West Africa); it
+            // reached here indistinguishable from a genuine GPS point, so
+            // every real, correctly-geocoded comparable computed as ~3,400km
+            // away and was silently dropped by the radius gate below — the
+            // one comp that ever survived was the one that happened to have
+            // NO coordinates at all. hasRealCoordinate() extends the
+            // existing "unknown location" posture (which already, correctly,
+            // skips the distance test) to also cover this exact sentinel.
+            // Deliberately narrow: only the literal (0,0) pair is affected,
+            // on either side. No other threshold, tolerance, or radius/price/
+            // type rule changes — a real, non-zero, merely-imprecise
+            // coordinate is untouched and still gates exactly as before.
+            $dist = ($this->hasRealCoordinate($sLat, $sLng) && $this->hasRealCoordinate($cLat, $cLng))
                 ? \App\Support\MarketAnalytics\HaversineDistance::distanceMetres($sLat, $sLng, $cLat, $cLng)
                 : null;
             // PRES-CMA-FIX — the subject can never be its own comparable.
@@ -182,7 +195,12 @@ final class CompPoolBuilder
                 'key'        => $c['key'] ?? null,
                 'price'      => $price,
                 'size_m2'    => $this->intOrNull($c['size_m2'] ?? null),
-                'category'   => $this->category($classifier, $c['title_type'] ?? null, $c['property_type'] ?? null),
+                // trustTitleType: true — see category()'s 2026-08-24 doc note.
+                // Candidates' title_type is always freshly derived per-row by
+                // the hydrator's deriveCompTitleType() this same request, not
+                // a stale cached column, so it must win over a re-read of the
+                // generic property_type text.
+                'category'   => $this->category($classifier, $c['title_type'] ?? null, $c['property_type'] ?? null, trustTitleType: true),
                 'kind'       => $this->kind($c['property_type'] ?? null),
                 'distance_m' => $dist,
                 'exempt'     => (bool) ($c['exempt'] ?? false),
@@ -497,13 +515,48 @@ final class CompPoolBuilder
 
     // ── Classification helpers ─────────────────────────────────────────────
 
-    /** Title category (freehold/sectional/vacant/other) via the keystone classifier. */
-    private function category(TitleTypeClassifier $classifier, ?string $titleType, ?string $propertyType): ?string
+    /**
+     * Title category (freehold/sectional/vacant/other) via the keystone
+     * classifier.
+     *
+     * Code-gate hardening (Uvonique bug) — FLIPPED priority: a fresh
+     * classification from $propertyType now wins over the passed-in
+     * $titleType. $titleType is typically sourced from a caller's cached
+     * column (e.g. properties.title_type), which self-heals only on save
+     * and can silently go stale — that staleness is exactly how this Level-1
+     * gate mismatched an apartment against houses. Re-deriving is a cheap
+     * string match, never a query, so there's no cost to always doing it.
+     * $titleType is now only a fallback for candidates that carry a
+     * resolved category but no raw property_type text at all.
+     */
+    /**
+     * 2026-08-24 — $trustTitleType (default false = today's behaviour,
+     * unchanged for the subject call and any other caller). Reintroduced,
+     * one stage later, the exact bug 2026-06-18's a55a4c617 already fixed
+     * in MicSnapshotHydrator::collectMatchedRows(): CMA-Info comp rows carry
+     * property_type='Residence' (the PDF's generic usage word), which
+     * fromPropertyType() buckets as full_title regardless of the row's own
+     * scheme_name/section_number. The gather stage already derives the
+     * correct category per-row via deriveCompTitleType() (signal-first,
+     * property_type only as its own fallback) BEFORE candidates ever reach
+     * this class — that value is not a stale cache, it was computed fresh
+     * this request, from stronger evidence than property_type alone. Only
+     * the candidate call site (below) passes trustTitleType: true, so a
+     * signal-derived category is never re-clobbered by the weaker raw-text
+     * reread. The subject call is untouched — it still passes the
+     * caller's title_type through the original cached-column-distrust path,
+     * exactly as the Uvonique fix intended.
+     */
+    private function category(TitleTypeClassifier $classifier, ?string $titleType, ?string $propertyType, bool $trustTitleType = false): ?string
     {
-        if ($titleType !== null && $titleType !== '') {
+        if ($trustTitleType && $titleType !== null && $titleType !== '') {
             return $titleType;
         }
-        return $classifier->fromPropertyType($propertyType);
+        $fresh = $classifier->fromPropertyType($propertyType);
+        if ($fresh !== null) {
+            return $fresh;
+        }
+        return ($titleType !== null && $titleType !== '') ? $titleType : null;
     }
 
     /**
@@ -607,5 +660,22 @@ final class CompPoolBuilder
             return null;
         }
         return (int) $v;
+    }
+
+    /**
+     * cc2, 2026-08-25 — true only for a genuinely usable coordinate. Both
+     * values must be present AND not the (0.0, 0.0) sentinel — a property
+     * that was never geocoded and defaulted to zero rather than staying
+     * null. Narrow on purpose: this is the ONLY location value ever treated
+     * as "unknown" beyond an actual null: not a tolerance band, not any
+     * other placeholder, just the one literal pair that can never be a real
+     * South African address.
+     */
+    private function hasRealCoordinate(?float $lat, ?float $lng): bool
+    {
+        if ($lat === null || $lng === null) {
+            return false;
+        }
+        return !($lat === 0.0 && $lng === 0.0);
     }
 }

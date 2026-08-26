@@ -67,6 +67,17 @@ return [
         ['key' => 'view_listings',           'label' => 'View Listing Stock',              'section' => 'agency-tracker',   'type' => 'access',  'module' => 'listings',         'sort_order' => 15],
         ['key' => 'import_listings',         'label' => 'Import Listings',                 'section' => 'agency-tracker',   'type' => 'access',  'module' => 'listings',         'sort_order' => 16],
         ['key' => 'view_performance',        'label' => 'View Performance',                'section' => 'agency-tracker',   'type' => 'access',  'module' => 'agency_tracker',   'sort_order' => 17],
+        // Buyers Report (Johan, 2026-08-20) — a plain access gate, same shape as
+        // view_performance above: WHETHER a role can open the report at all.
+        // WHAT that role then sees inside it (own/branch/agency) is a SEPARATE
+        // question, answered by 'buyers_report.view' below (own/branch/all via
+        // scope_defaults, same mechanism deals.view/targets.view use) — corrected
+        // 2026-08-20 (Johan): this must NOT read contacts.view — that key governs
+        // the pipeline/contacts screens, a deliberately separate, often broader
+        // grant (HFC's agents see the whole buyers book there by design); reports
+        // are scoped more tightly, by their own key, like every other report.
+        ['key' => 'view_buyers_report',      'label' => 'View Buyers Report',              'section' => 'agency-tracker',   'type' => 'access',  'module' => 'agency_tracker',   'sort_order' => 40],
+        ['key' => 'buyers_report.view',      'label' => 'View',                            'section' => 'agency-tracker',   'type' => 'action',  'module' => 'buyers_report',    'sort_order' => 41],
         ['key' => 'manage_targets',          'label' => 'Manage Targets',                  'section' => 'agency-tracker',   'type' => 'access',  'module' => 'agency_tracker',   'sort_order' => 18],
         ['key' => 'view_rentals',            'label' => 'View Rentals',                    'section' => 'agency-tracker',   'type' => 'access',  'module' => 'rentals',          'sort_order' => 19],
         ['key' => 'manage_rentals',          'label' => 'Create & Edit Rentals',           'section' => 'agency-tracker',   'type' => 'access',  'module' => 'rentals',          'sort_order' => 20],
@@ -410,6 +421,17 @@ return [
 
         // ── Prospecting ──
         ['key' => 'access_prospecting',          'label' => 'Access Prospecting',          'section' => 'prospecting',      'type' => 'access',  'module' => 'prospecting',      'sort_order' => 1],
+        ['key' => 'deeds_capture.access',        'label' => 'Access Deeds Capture',        'section' => 'prospecting',      'type' => 'access',  'module' => 'prospecting',      'sort_order' => 2],
+        // Johan, 2026-08-20: "lots of data now flowing in and staff is getting lost as they
+        // are all seeing everything that was scraped." `.view` is the SCOPED visibility key
+        // (own/branch/all via Role Manager's Data Scope control) — same mechanism as
+        // market_intelligence.view above. Own = the record's deeds_captured_by_user_id
+        // (the agent who scraped it — "that's the person who will go to deeds and look for
+        // their scraped stock", Johan's own definition); Branch = that scraper's branch
+        // (tracked_properties itself has no branch_id). Deliberately NOT added to any role's
+        // `include` list here — Johan sets the defaults himself; unset resolves to 'own'
+        // (the safe default), same as every other unset scope key.
+        ['key' => 'deeds_capture.view',          'label' => 'View Deeds Capture List',     'section' => 'prospecting',      'type' => 'action',  'module' => 'deeds_capture',    'sort_order' => 3],
 
         // ── Market Intelligence Centre (Phase A2) ── per spec §12.2/§12.3
         ['key' => 'mic.edit_address',            'label' => 'Edit / Add Property Address',         'section' => 'prospecting',      'type' => 'action',  'module' => 'mic',              'sort_order' => 50],
@@ -424,6 +446,9 @@ return [
         // same mechanism as outreach_queue.view / calendar.view. Before this, the
         // canvassing pool was agency-wide with no restriction for every role.
         ['key' => 'market_intelligence.view',    'label' => 'View Canvassing Pool',        'section' => 'prospecting',      'type' => 'action',  'module' => 'market_intelligence', 'sort_order' => 57],
+        // ── MIC property row comments — .ai/specs/mic-property-row-comments.md ──
+        ['key' => 'mic.comments.view',           'label' => 'View Property Comments',              'section' => 'prospecting',      'type' => 'access',  'module' => 'mic',              'sort_order' => 58],
+        ['key' => 'mic.comments.add',            'label' => 'Add Property Comments',               'section' => 'prospecting',      'type' => 'action',  'module' => 'mic',              'sort_order' => 59],
 
         // ── Evaluation (Property/Suburb/Town Reports) ──
         ['key' => 'access_evaluation',           'label' => 'Access Evaluation Reports',   'section' => 'evaluation',       'type' => 'access',  'module' => 'evaluation',       'sort_order' => 1],
@@ -470,6 +495,19 @@ return [
         // WS8 — the pipeline overview / dashboard-board surface. Branch_manager +
         // admin only (managers monitor the whole book; agents keep the register).
         ['key' => 'deals_v2.view_overview',      'label' => 'View Pipeline Overview',      'section' => 'deals-v2',         'type' => 'action',  'module' => 'deals_v2',         'sort_order' => 19],
+
+        // ── Deal Comms Suspense (AT-231) — inbound attorney-email review queue ──
+        ['key' => 'deal_comms_suspense.view',    'label' => 'View Comms Suspense (attorney email filing queue)', 'section' => 'deals-v2', 'type' => 'access', 'module' => 'deal_comms_suspense', 'sort_order' => 21],
+        ['key' => 'deal_comms_suspense.resolve', 'label' => 'Resolve Comms Suspense (confirm / reassign / reject)', 'section' => 'deals-v2', 'type' => 'action', 'module' => 'deal_comms_suspense', 'sort_order' => 22],
+
+        // ── DR2 Unfiled Emails (CX-113 Phase A, Johan 2026-08-21) — data-scope view key,
+        // same mechanism as deeds_capture.view / deals_v2.view: drives the None/Own/Branch/All
+        // selector in Role Manager. Own = the picking staff member was actually a party
+        // (To/From/CC) to the email (PermissionService::dr2UnfiledEmailsScope() reads this,
+        // Communication::scopeVisibleTo() enforces it) — never a shared-mailbox concept, HFC
+        // has none. Deliberately NOT added to any role's `include` list here — Johan sets the
+        // defaults himself in Role Manager; unset resolves to 'own', the safe default.
+        ['key' => 'dr2_unfiled_emails.view',      'label' => 'View Deal Register Unfiled Emails List',    'section' => 'deals-v2',         'type' => 'action',  'module' => 'dr2_unfiled_emails', 'sort_order' => 20],
 
         // ── Agencies ── REMOVED 2026-05-07: System Owner only (see agency-admin-rule.md).
         // Routes now gated by `owner_only` middleware. No permission keys needed.
@@ -689,7 +727,7 @@ return [
                 // MIC (Phase A2) — admin gets every MIC permission
                 'mic.edit_address', 'mic.merge_duplicates', 'mic.upload_reports',
                 'mic.view_team', 'mic.regenerate_brief', 'mic.view_ai_costs',
-                'mic.restore_reports',
+                'mic.restore_reports', 'mic.comments.view', 'mic.comments.add',
                 // Agency Public API — admins manage their agency's website keys
                 'agency_api.view', 'agency_api.manage',
                 // Testimonials — admins curate which testimonials go on the website
@@ -714,7 +752,7 @@ return [
                 // access settlements". BM keeps the deal register, loses settle_deals.
                 'view_worksheet', 'edit_worksheet', 'view_deals', 'create_deals', 'proforma.generate', 'proforma.view',
                 'calendar.tile.my_deals', // AT-216 R3 — deal-pipeline deck tile
-                'view_listings', 'view_performance', 'manage_targets',
+                'view_listings', 'view_performance', 'view_buyers_report', 'buyers_report.view', 'manage_targets',
                 'view_rentals', 'manage_rentals', 'view_daily_activity', 'manage_tv_messages',
                 'deals.view', 'deals.create', 'deals.edit',
                 'listings.view', 'listings.create', 'listings.edit',
@@ -789,6 +827,7 @@ return [
                 'deals_v2.manage_pipeline', 'deals_v2.override_dates', 'deals_v2.manage_suppliers',
                 'deals_v2.distribute_documents', 'deals_v2.manage_distribution_rules',
                 'deals_v2.view_overview',
+                'deal_comms_suspense.view', 'deal_comms_suspense.resolve', // AT-231 P2b
                 // Branches — can switch between branches of their own agency
                 // (testing / training), but does NOT bypass BranchScope by default.
                 'branches.switch',
@@ -815,6 +854,8 @@ return [
                 // AT-380 — .view scope (branch_manager→branch, agent→own via
                 // scope_defaults). Admin/owner get these via '*'/all-minus-exclude.
                 'market_intelligence.view', 'outreach_canvassing.view',
+                // MIC property row comments — agency-wide visibility per Johan's spec.
+                'mic.comments.view', 'mic.comments.add',
             ],
         ],
 
@@ -823,7 +864,7 @@ return [
                 'view_dashboard', 'view_dashboard_kpis', 'view_dashboard_charts',
                 'access_agency_tracker', 'access_daily_activity', 'access_rental_signatures',
                 'view_worksheet', 'edit_worksheet', 'view_deals', 'proforma.generate', 'proforma.view',
-                'view_listings', 'view_performance',
+                'view_listings', 'view_performance', 'view_buyers_report', 'buyers_report.view',
                 'view_rentals', 'manage_rentals', 'view_daily_activity',
                 'deals.view', 'deals.create',
                 'calendar.tile.my_deals', // AT-216 R3 — deal-pipeline deck tile (agent's working surface)
@@ -881,6 +922,7 @@ return [
                 // 'deals_v2.capture_own' via Role Manager to let agents capture the
                 // deals they are on (own-membership enforced server-side).
                 'deals_v2.view', 'deals_v2.edit',
+                'deal_comms_suspense.view', 'deal_comms_suspense.resolve', // AT-231 P2b
                 'access_rmcp',
                 'access_policy',
                 'view_own_screening',
@@ -905,6 +947,10 @@ return [
                 // AT-380 — .view scope (branch_manager→branch, agent→own via
                 // scope_defaults). Admin/owner get these via '*'/all-minus-exclude.
                 'market_intelligence.view', 'outreach_canvassing.view',
+                // MIC property row comments — every agent who can see MIC can
+                // see and add comments (Johan's explicit ask — cross-agent
+                // visibility on a specific property).
+                'mic.comments.view', 'mic.comments.add',
             ],
         ],
 
@@ -913,7 +959,7 @@ return [
                 'access_my_portal',
                 'view_dashboard', 'view_dashboard_kpis', 'view_dashboard_charts',
                 'access_agency_tracker', 'access_daily_activity',
-                'view_worksheet', 'view_deals', 'view_listings', 'view_performance',
+                'view_worksheet', 'view_deals', 'view_listings', 'view_performance', 'view_buyers_report', 'buyers_report.view',
                 'view_rentals', 'view_daily_activity',
                 'deals.view', 'listings.view', 'rentals.view', 'daily_activity.view', 'targets.view',
                 'access_training', 'training.view',

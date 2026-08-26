@@ -50,6 +50,28 @@ class SignatureActivityNotification extends Notification
         );
     }
 
+    public static function candidateNeedsAuthorisation(string $candidateName, string $documentName, int $documentId, string $reviewUrl, string $reviewType = 'initial_review'): self
+    {
+        return new self(
+            type: 'candidate_needs_authorisation',
+            message: "{$candidateName}'s document needs your authorisation: {$documentName}",
+            url: $reviewUrl,
+            documentId: $documentId,
+            metadata: ['review_type' => $reviewType],
+        );
+    }
+
+    public static function documentReturnedToCandidate(string $authoriserName, string $documentName, int $documentId, string $fixUrl, string $notes): self
+    {
+        return new self(
+            type: 'document_returned_to_candidate',
+            message: "{$authoriserName} sent back {$documentName} for changes — fix and re-sign",
+            url: $fixUrl,
+            documentId: $documentId,
+            metadata: ['notes' => $notes],
+        );
+    }
+
     public static function wetInkUploaded(string $signerName, string $documentName, int $documentId, string $inspectUrl): self
     {
         return new self(
@@ -57,6 +79,18 @@ class SignatureActivityNotification extends Notification
             message: "{$signerName} uploaded a signed copy of {$documentName} — review needed",
             url: $inspectUrl,
             documentId: $documentId,
+        );
+    }
+
+    public static function supportingDocumentsUploaded(string $signerName, string $documentName, int $documentId, int $fileCount, string $inspectUrl): self
+    {
+        $plural = $fileCount === 1 ? 'a supporting document' : "{$fileCount} supporting documents";
+        return new self(
+            type: 'supporting_documents_uploaded',
+            message: "{$signerName} uploaded {$plural} for {$documentName}",
+            url: $inspectUrl,
+            documentId: $documentId,
+            metadata: ['file_count' => $fileCount],
         );
     }
 

@@ -15,7 +15,7 @@
                         <option value="">Select staff member...</option>
                         @foreach($users as $u)
                         <option value="{{ $u->id }}" {{ ($selectedUser && $selectedUser->id === $u->id) ? 'selected' : '' }}>
-                            {{ $u->name }} ({{ $u->role }}) â€” {{ $u->screening_status ?? 'never screened' }}
+                            {{ $u->name }} ({{ $u->role }}) &mdash; {{ $u->screening_status ?? 'never screened' }}
                         </option>
                         @endforeach
                     </select>

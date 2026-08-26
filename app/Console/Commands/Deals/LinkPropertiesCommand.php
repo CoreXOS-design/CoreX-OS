@@ -45,15 +45,15 @@ final class LinkPropertiesCommand extends Command
             ['Already linked (skipped)',       $summary['already_linked']],
             ['Linked: exact confidence',       $summary['linked_exact']],
             ['Linked: high confidence',        $summary['linked_high']],
-            ['Linked + flagged for review',    $summary['linked_with_review_flag']],
-            ['Queued for review (no link)',    $summary['queued_for_review']],
+            ['Linked: medium confidence',      $summary['linked_with_review_flag']],
+            ['Ambiguous / low confidence (not linked)', $summary['queued_for_review']],
             ['No candidates found',            $summary['no_candidates']],
         ]);
 
         if ($dryRun) {
             $this->warn('Dry run — nothing was written. Re-run without --dry-run to apply.');
         } else {
-            $this->info('Done. Review the queue at /corex/admin/deal-link-review.');
+            $this->info('Done.');
         }
 
         return self::SUCCESS;

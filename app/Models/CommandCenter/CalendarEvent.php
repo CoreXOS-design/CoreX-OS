@@ -58,6 +58,7 @@ class CalendarEvent extends Model
         'property_id', 'contact_id', 'branch_id', 'agency_id',
         'reminder_offsets', 'reminder_channels', 'reminders_sent',
         'is_recurring', 'recurrence_rule', 'parent_event_id',
+        'dismissal_reason_code', 'dismissal_reason_notes',
         'metadata',
         'created_by_ai', 'ai_source', 'ai_transcript',
     ];
@@ -236,15 +237,37 @@ class CalendarEvent extends Model
         // AT-267 — an assistant's 'own' is their Assigned Agent's; everyone else: [$user->id].
         $identityIds = $user->dataIdentityIds();
 
+        // 2026-08-19 (Johan) — an event this user is INVITED to (pending, accepted,
+        // or tentative — matching CalendarVisibilityResolver::canSee()'s invitation
+        // check exactly, so the two never disagree) must reach the view regardless
+        // of role scope: the invitee decides accept/reject, not their own visibility
+        // scope. Keyed off $identityIds (not bare $user->id) so this stays consistent
+        // with AT-267: an assistant's widened 'own' scope carries their assigned
+        // agent's invitations too, same as every other branch below. 'none' is
+        // deliberately excluded — that scope means the role has no calendar access
+        // at all, and an invitation is not a backdoor into a module the role can't
+        // open. One indexed subquery
+        // (calendar_event_invitations_invitee_user_id_status_index) — this scope
+        // runs on every calendar load, so it's built once and reused across
+        // whichever branch below needs it, never per-row.
+        $invitedEventIds = \App\Models\CommandCenter\CalendarEventInvitation::query()
+            ->whereIn('invitee_user_id', $identityIds)
+            ->whereIn('status', ['pending', 'accepted', 'tentative'])
+            ->select('event_id');
+
         return match ($scope) {
             'all'    => $query,
             'branch' => $user->effectiveBranchId()
-                ? $query->where('branch_id', $user->effectiveBranchId())
+                // AT-267 (main) adds the invited-event carve-out to both branches below;
+                // the branches.view_all bypass (HEAD) is kept for a user with no
+                // effective branch — losing it would regress an admin/owner-type role
+                // that has the permission but no assigned branch back down to own+invited.
+                ? $query->where(fn ($q) => $q->where('branch_id', $user->effectiveBranchId())->orWhereIn('id', $invitedEventIds))
                 : ($user->hasPermission('branches.view_all')
                     ? $query
-                    : $query->whereIn('user_id', $identityIds)),
+                    : $query->where(fn ($q) => $q->whereIn('user_id', $identityIds)->orWhereIn('id', $invitedEventIds))),
             'none'   => $query->whereRaw('1 = 0'),
-            default  => $query->whereIn('user_id', $identityIds), // 'own' or null
+            default  => $query->where(fn ($q) => $q->whereIn('user_id', $identityIds)->orWhereIn('id', $invitedEventIds)), // 'own' or null
         };
     }
 
@@ -305,9 +328,47 @@ class CalendarEvent extends Model
         $this->update(['status' => 'completed']);
     }
 
-    public function markDismissed(): void
+    /**
+     * 2026-08-19 (Johan) — reason params are optional and PRESERVE any
+     * existing reason when omitted (never blank one out to null), so the
+     * mobile API's reason-less dismiss path (CommandCenterApiController::
+     * calendarDismiss(), which has no reason-picker UI and never will in
+     * this change) can never silently wipe a reason a web user already
+     * recorded.
+     */
+    /**
+     * 2026-08-19 (Johan) — human-readable dismissal reason, shared by the
+     * event panel and the Contact page (same-places-as-feedback requirement)
+     * so the two surfaces can never drift onto different wording. The reason
+     * codes are the same small hardcoded option lists the reason-picker
+     * modal already offers (index.blade.php's getReasonOptions(), branched
+     * by actor_role) — not DB-driven, so there is nothing to join against.
+     * dismissal_reason_notes already carries a readable value in the normal
+     * case (the client sends reasonPickerNotes if the agent typed one for
+     * "Other", else the raw code itself) — headline-case the code only when
+     * notes is empty or is literally the untouched code.
+     */
+    public function dismissalReasonLabel(): ?string
     {
-        $this->update(['status' => 'dismissed']);
+        if (!$this->dismissal_reason_code) {
+            return null;
+        }
+        $notes = trim((string) ($this->dismissal_reason_notes ?? ''));
+        if ($notes !== '' && $notes !== $this->dismissal_reason_code) {
+            return $notes;
+        }
+
+        return \Illuminate\Support\Str::headline($this->dismissal_reason_code);
+    }
+
+    public function markDismissed(?string $reasonCode = null, ?string $reasonNotes = null): void
+    {
+        $data = ['status' => 'dismissed'];
+        if ($reasonCode !== null) {
+            $data['dismissal_reason_code'] = $reasonCode;
+            $data['dismissal_reason_notes'] = $reasonNotes;
+        }
+        $this->update($data);
     }
 
     /**
@@ -409,7 +470,11 @@ class CalendarEvent extends Model
             return $override;
         }
         $cfg = CalendarEventClassSetting::forAgencyAndClass($this->agency_id, (string) ($this->category ?? ''));
-        return $cfg?->event_nature ?? 'actionable';
+        // No explicit nature (no class-config row / null column) → DERIVE from the
+        // category via the canonical shared map, so legacy NULL events render with
+        // the right actionable/informational nature without touching data. (Was a
+        // blanket 'actionable', which wrongly made meeting/other/etc. actionable.)
+        return $cfg?->event_nature ?? CalendarEventClassSetting::natureForCategory($this->category);
     }
 
     /** Informational = a marker/time-block: never goes red/overdue, never asks for feedback. */

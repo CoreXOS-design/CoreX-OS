@@ -101,12 +101,21 @@ class TemplateController extends Controller
         $file = $request->file('pdf');
         $name = $request->input('name') ?: pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME);
 
+        // 2026-08-24 — was is_global=false with no agency_id, which stranded the
+        // template the instant it was created (see Template::assertAccessibleBy()).
+        // Default to reachable WITHOUT going platform-wide: agency_id stamped,
+        // is_global stays false. Template::assertAccessibleBy()'s zero-branches ->
+        // agency-match fallback makes this visible to every branch of the creator's
+        // own agency, which is the actual requirement -- is_global bypasses agency
+        // scoping ENTIRELY (see CrossAgencyTemplateAccessTest), so it must never be a
+        // creation default.
         $template = Template::create([
             'name' => $name,
             'template_type' => 'sales',
             'page_count' => 0,
             'fields_json' => [],
             'is_global' => false,
+            'agency_id' => $user->effectiveAgencyId(),
             'owner_id' => $user->id,
         ]);
 
@@ -225,6 +234,23 @@ class TemplateController extends Controller
         $template = Template::findOrFail($id);
         $template->assertAccessibleBy($user);
 
+        // 2026-08-24 footgun guard — checked BEFORE any field is written, against the
+        // request's intended values, not the model's current (pre-update) state. Zero
+        // branches is NOT stranding by itself — Template::assertAccessibleBy() falls
+        // back to an agency_id match. It IS stranding, reachable by nobody but an
+        // owner-role user, when there's no agency_id to fall back to either. Refuse
+        // that specific combination outright rather than silently saving into it —
+        // this is exactly the shape (branches cleared to zero) that stranded template
+        // #52 after it was created correctly.
+        if ($request->has('allowed_branches')) {
+            $wouldHaveNoBranches = empty($request->input('allowed_branches', []));
+            if ($wouldHaveNoBranches && !$template->agency_id) {
+                return response()->json([
+                    'error' => 'This template has no agency assigned, so it must have at least one branch selected — otherwise nobody but a system owner will be able to open it.',
+                ], 422);
+            }
+        }
+
         $data = [];
 
         if ($request->has('fields')) {
@@ -243,9 +269,12 @@ class TemplateController extends Controller
             $val = $request->input('category');
             $data['category'] = in_array($val, ['sales', 'rentals']) ? $val : null;
         }
-        if ($request->has('is_global')) {
-            $data['is_global'] = $request->boolean('is_global');
-        }
+        // 2026-08-24 — is_global is deliberately never written from a request. There
+        // is no UI control for it any more (see the removed checkboxes in
+        // templates/edit.blade.php and templates/edit-web.blade.php); this endpoint
+        // must not honor an is_global key even if one arrives some other way (a raw
+        // API call, a stale cached form, dev tools), or removing the checkbox would
+        // have been cosmetic rather than an actual closure of the platform-wide leak.
         if ($request->has('is_esign')) {
             $data['is_esign'] = $request->boolean('is_esign');
         }
@@ -265,11 +294,11 @@ class TemplateController extends Controller
         }
 
         if ($request->has('allowed_branches')) {
-            if ($request->boolean('is_global')) {
-                $template->branches()->detach();
-            } else {
-                $template->branches()->sync($request->input('allowed_branches', []));
-            }
+            // The stranding case (empty branches + no agency_id) was already refused
+            // above, before $data was written — safe to sync as-is here. No is_global
+            // branch any more: there is no request-input path left that can set it, so
+            // "sync to the submitted branches" is the only remaining behavior.
+            $template->branches()->sync($request->input('allowed_branches', []));
         }
 
         // Save signature zones (replace-all pattern)
@@ -413,6 +442,20 @@ class TemplateController extends Controller
 
         // Extract field summary from CDS for the right panel
         $fields = $this->extractFieldsFromCds($draft->cds_json);
+
+        // AT-177 — attach a DETERMINISTIC binding suggestion to each input field, in the
+        // same document order the builder assigns parserIndex. Johan's imports carry an
+        // explicit "{Party} - {Attribute}" token convention, so we can bind the identity
+        // token to its field group (single I/We clause), each attribute to its own column,
+        // and populate editable_by up front — the builder shows it bound out of the box and
+        // the vet confirms rather than repairs. Unresolvable tokens stay null → the builder
+        // falls back to its existing best-match logic.
+        $suggester = new \App\Services\Docuperfect\CdsBindingSuggester($user->effectiveAgencyId() ?: null);
+        $suggested = $suggester->suggest($draft->cds_json);
+        foreach ($fields as $i => &$f) {
+            $f['binding'] = $suggested['bindings'][$i] ?? null;
+        }
+        unset($f);
 
         // Load named fields grouped by source_type + contact_type
         $namedFields = NamedField::whereNull('deleted_at')
@@ -575,7 +618,15 @@ class TemplateController extends Controller
             'signing_parties' => $request->input('signing_parties') ? json_decode($request->input('signing_parties'), true) : null,
             'category' => in_array($request->input('category'), ['sales', 'rentals']) ? $request->input('category') : null,
             'document_type_id' => $request->input('document_type_id') ?: null,
-            'is_global' => true,
+            // 2026-08-24 — is_global and agency_id are deliberately NOT set here.
+            // This array used to hardcode is_global=>true unconditionally and was
+            // applied on BOTH create and update -- every re-save of an existing
+            // template forced it platform-wide again, even one an admin (or this
+            // same fix, earlier today) had correctly scoped to its own agency.
+            // is_global bypasses agency scoping ENTIRELY (any agency on the
+            // platform, not just this one) -- see CrossAgencyTemplateAccessTest --
+            // so it must never be silently reasserted on a routine content edit.
+            // Both are set explicitly below, ONLY on the create branch.
             'owner_id' => $user->id,
             'editor_state' => [
                 'tags' => $draft->tags,
@@ -588,6 +639,13 @@ class TemplateController extends Controller
             $template = Template::findOrFail($draft->source_template_id);
             $template->update($templateData);
         } else {
+            // New template: agency_id stamped to the creator's own agency,
+            // is_global stays false. Reachability comes from
+            // Template::assertAccessibleBy()'s zero-branches -> agency-match
+            // fallback (every branch of the creator's agency), never from the
+            // platform-wide flag.
+            $templateData['is_global'] = false;
+            $templateData['agency_id'] = $user->effectiveAgencyId();
             $template = Template::create($templateData);
         }
 
@@ -601,8 +659,25 @@ class TemplateController extends Controller
         // Going forward every imported template carries the contract
         // from day one. Existing templates need the one-time backfill:
         //   php artisan docuperfect:normalize-templates
+        // ── PROJECT THE BINDINGS INTO THE MARKUP FIRST ─────────────────────────────
+        //
+        // The normalizer reads roles out of the HTML, but the CDS builder never puts them
+        // there: it writes `data-field-name="contact.full_names"` and keeps the actual
+        // binding (which contact type) in the mappings JSON, keyed by data-tag-id. So the
+        // normalizer saw no role-bearing fields, stamped nothing, and every CDS template in
+        // every database fell through to legacy clustering — contract coverage has been ZERO
+        // since the engine shipped. The engine was never broken; its input was never produced.
+        //
+        // Projection makes the binding visible to the engine that has to read it. It must run
+        // BEFORE normalize(), or there is still nothing for the normalizer to see.
+        $projector = app(\App\Services\Docuperfect\CdsBindingProjector::class);
+        $projected = $projector->project(
+            (string) ($draft->tagged_html ?? ''),
+            (array) ($draft->mappings ?? []),
+        );
+
         $normalizer = app(\App\Services\Docuperfect\RoleBlockNormalizer::class);
-        $normalisedTaggedHtml = $normalizer->normalize((string) ($draft->tagged_html ?? ''));
+        $normalisedTaggedHtml = $normalizer->normalize($projected);
         if ($normalisedTaggedHtml !== ($draft->tagged_html ?? '')) {
             $draft->tagged_html = $normalisedTaggedHtml;
             // Persist on the draft so re-opening the builder shows the
@@ -617,6 +692,25 @@ class TemplateController extends Controller
                 $template->save();
             }
         }
+
+        // Other-conditions insert (2026-08-20, Johan) — the SAME structural
+        // safety pass + registration step saveContent() runs, applied here
+        // too so an OTHER_CONDITIONS marker placed during import and one
+        // placed later via the template editor's Content tab are the
+        // identical artefact, not two paths that can drift apart again.
+        $markerNormalized = app(\App\Services\Docuperfect\MarkerBlockLevelNormalizer::class)
+            ->normalize((string) ($draft->tagged_html ?? ''));
+        if ($markerNormalized !== ($draft->tagged_html ?? '')) {
+            $draft->tagged_html = $markerNormalized;
+            $draft->save();
+            $editorState = $template->editor_state ?? [];
+            if (is_array($editorState)) {
+                $editorState['tagged_html'] = $markerNormalized;
+                $template->editor_state = $editorState;
+                $template->save();
+            }
+        }
+        $this->syncInsertableBlocksFromTaggedHtml($template, $draft->tagged_html ?? '');
 
         // Generate blade view — use tagged_html (user-edited) as source, fall back to cds_json
         $bladeView = $this->generateCdsBladeView(
@@ -716,6 +810,24 @@ class TemplateController extends Controller
                     'filled_by' => $this->inferFilledBy($item['field_name'] ?? ''),
                 ];
             }
+
+            // AT-262 — a custom-named insertable marker (~~~~Seller - Full name~~~~)
+            // is a bindable field: surface it in the fields list so the Input counter
+            // and the sidebar show it. Built-in insertable blocks (OTHER_CONDITIONS
+            // etc.) are areas, not fields, and are deliberately skipped.
+            if (($item['type'] ?? '') === 'insertable_block_placeholder'
+                && ($item['purpose'] ?? '') === 'custom_named') {
+                $label = $item['custom_label'] ?? $item['raw_token'] ?? 'FIELD';
+                $fieldName = $item['block_id'] ?? '';
+                $fields[] = [
+                    'index' => $index++,
+                    'label' => $label,
+                    'field_name' => $fieldName,
+                    'field_type' => 'text',
+                    'source' => $this->inferSource($fieldName),
+                    'filled_by' => $this->inferFilledBy($fieldName),
+                ];
+            }
         }
 
         // Check label_value_group pairs
@@ -777,7 +889,12 @@ class TemplateController extends Controller
      * When $taggedHtml is null, falls back to rendering from CDS JSON via
      * CdsRendererService (original path, for backward compatibility).
      */
-    private function generateCdsBladeView(
+    /**
+     * Public so WebTemplateBladeEnsurer can regenerate a missing generated blade
+     * on-demand from stored template data (blank-preview regression fix). Behaviour
+     * unchanged — the save path still calls it exactly as before.
+     */
+    public function generateCdsBladeView(
         array $cds,
         array $fieldMappings,
         int $templateId,
@@ -933,8 +1050,25 @@ BLADE;
             $displayParties = ['Lessor', 'Lessee', 'Agent'];
         }
 
+        // AT-304 OTP-3 — an OTP-style sig page detected by the parser carries a richer roster
+        // (witnesses per party, a co-signatory). Read the source signature_section roles: if it
+        // has witnesses, render witness columns; if it has a co-signatory, add that sign cell.
+        $sigRoles = [];
+        foreach (($cds['sections'] ?? []) as $sec) {
+            if (($sec['type'] ?? '') === 'signature_section') {
+                foreach (($sec['parties'] ?? []) as $p) {
+                    $sigRoles[] = strtolower((string) ($p['role'] ?? ''));
+                }
+            }
+        }
+        $showWitness = in_array('witness', $sigRoles, true);
+        if (in_array('co_signatory', $sigRoles, true) && ! in_array('Co-Signatory', $displayParties, true)) {
+            $displayParties[] = 'Co-Signatory';
+        }
+
         $partiesPhp = '["' . implode('", "', $displayParties) . '"]';
-        $blade .= '@include("docuperfect.web-templates.components.signature-block", ["parties" => ' . $partiesPhp . '])' . "\n\n";
+        $witnessPhp = $showWitness ? ', "show_witness" => true' : '';
+        $blade .= '@include("docuperfect.web-templates.components.signature-block", ["parties" => ' . $partiesPhp . $witnessPhp . '])' . "\n\n";
 
         $blade .= "</div>\n</div>\n\n";
         $blade .= "</body>\n</html>\n";
@@ -1137,8 +1271,32 @@ BLADE;
      * Map source_type + source_column + contact_type to a blade variable name.
      * Exact copy of WebTemplateDataService::deriveBladeName() to ensure
      * the blade file uses the same variable names the wizard resolves.
+     *
+     * AT-359b — the derived name is coerced to a valid PHP identifier here (the ONE exit),
+     * so every consumer (the blade emitter AND the view-data resolver) gets the SAME safe name
+     * and they stay in sync. Without this a composite source_column such as the property field
+     * 'address+suburb' leaks its '+' into the generated blade — {{ $property_address+suburb }} —
+     * where PHP reads the bare 'suburb' as an undefined constant and the whole template render
+     * throws, dropping the preview to the "formatted view could not be generated" fallback.
      */
     private function deriveBladeName(string $sourceType, string $sourceColumn, ?string $contactType): ?string
+    {
+        $name = $this->deriveBladeNameRaw($sourceType, $sourceColumn, $contactType);
+
+        if ($name === null || $name === '') {
+            return $name;
+        }
+
+        $name = preg_replace('/[^a-zA-Z0-9_]/', '_', $name);
+        if ($name !== '' && is_numeric($name[0])) {
+            $name = 'f_' . $name;
+        }
+
+        return $name;
+    }
+
+    /** Raw name derivation (pre-sanitisation). Callers must go through deriveBladeName(). */
+    private function deriveBladeNameRaw(string $sourceType, string $sourceColumn, ?string $contactType): ?string
     {
         if (empty($sourceColumn)) {
             return null;
@@ -1202,7 +1360,111 @@ BLADE;
         $documentTypes = DocumentType::orderBy('sort_order')->get();
         $namedFields = NamedField::orderBy('sort_order')->get();
 
-        return view('docuperfect.templates.edit-web', compact('template', 'branches', 'documentTypes', 'namedFields'));
+        // Other-conditions insert (2026-08-20, Johan) — the Content tab's
+        // starting document body. editor_state['tagged_html'] is the same
+        // source cdsGenerate() writes on every import (cdsGenerate() always
+        // sets it, even to an empty string), so a real imported template
+        // always has real content here — this is never the "no other
+        // conditions yet" case, only the "no editable body at all" case,
+        // which doesn't arise for anything that went through the normal
+        // import pipeline.
+        $editorState = $template->editor_state ?? [];
+        $contentTaggedHtml = is_array($editorState) ? (string) ($editorState['tagged_html'] ?? '') : '';
+
+        return view('docuperfect.templates.edit-web', compact('template', 'branches', 'documentTypes', 'namedFields', 'contentTaggedHtml'));
+    }
+
+    /**
+     * Other-conditions insert (2026-08-20, Johan): "editor insert must
+     * produce the SAME artefact the importer produces — marker AND
+     * registration, not marker alone." Saves the Content tab's edited body
+     * back onto an ALREADY-GENERATED template — the one thing editWeb()
+     * could never do before this. Mirrors cdsGenerate()'s own save shape
+     * (editor_state['tagged_html'] -> generateCdsBladeView() -> blade_view
+     * -> view:clear) so a template edited here and one freshly imported are
+     * indistinguishable to every downstream reader (webPreview, the e-sign
+     * wizard, InsertableBlockRenderer). Deliberately does NOT run the
+     * CdsBindingProjector/RoleBlockNormalizer pass cdsGenerate() runs before
+     * generation — that pipeline governs multi-party role-block contract
+     * detection, a different concern this tab never touches; re-running it
+     * here risks re-normalising already-normalised markup for no reason
+     * this feature needs.
+     *
+     * One source of truth, not a seventh: registration reuses
+     * InsertableBlockRenderer::extractMarkerBlocks() (the exact synthesis
+     * logic the signing-time fallback already relies on), never reimplements
+     * marker parsing.
+     */
+    public function saveContent(Request $request, $id)
+    {
+        $user = $request->user();
+        if (!$user->hasPermission('manage_templates')) {
+            abort(403);
+        }
+
+        $data = $request->validate([
+            'tagged_html' => 'required|string',
+        ]);
+        // Structural safety — every ~~~~MARKER~~~~ becomes the sole content
+        // of its own block-level element before anything else touches it.
+        // Same normalizer cdsGenerate() runs; see that call site's comment
+        // for why this exact equivalence matters.
+        $taggedHtml = app(\App\Services\Docuperfect\MarkerBlockLevelNormalizer::class)->normalize($data['tagged_html']);
+
+        $template = Template::findOrFail($id);
+
+        $this->syncInsertableBlocksFromTaggedHtml($template, $taggedHtml);
+
+        $editorState = $template->editor_state ?? [];
+        if (!is_array($editorState)) {
+            $editorState = [];
+        }
+        $editorState['tagged_html'] = $taggedHtml;
+        $template->editor_state = $editorState;
+
+        $bladeView = $this->generateCdsBladeView(
+            $template->cds_json ?? [],
+            $template->canonicalFieldMappings(),
+            $template->id,
+            $template->name,
+            $template->signing_parties,
+            $taggedHtml,
+            $editorState['tags'] ?? []
+        );
+        $template->blade_view = $bladeView;
+        $template->save();
+
+        Artisan::call('view:clear');
+
+        return response()->json(['ok' => true]);
+    }
+
+    /**
+     * Marker registration — the "AND registration" half of the equivalence
+     * requirement. Idempotent by block id: an already-registered block
+     * (e.g. one the importer registered, or one this same action registered
+     * on a previous save) is never re-added or overwritten, so re-saving
+     * the same content, or a document that already had a registered block,
+     * is a no-op here. New markers found in $taggedHtml that aren't yet in
+     * insertable_blocks get appended using the SAME shape
+     * synthBlockFromToken() would have synthesized for them anyway — a
+     * registered block and a would-be-synthesized fallback are byte-identical
+     * in structure by construction, never two competing shapes.
+     */
+    private function syncInsertableBlocksFromTaggedHtml(Template $template, string $taggedHtml): void
+    {
+        $found = app(\App\Services\Docuperfect\InsertableBlockRenderer::class)->extractMarkerBlocks($taggedHtml);
+        if (empty($found)) {
+            return;
+        }
+
+        $existing = collect($template->insertable_blocks ?? []);
+        $existingIds = $existing->pluck('id')->all();
+        $toAdd = collect($found)->reject(fn ($b) => in_array($b['id'] ?? null, $existingIds, true));
+
+        if ($toAdd->isNotEmpty()) {
+            $template->insertable_blocks = $existing->concat($toAdd)->values()->all();
+        }
     }
 
     public function webPreview(Request $request, $id)
@@ -1214,6 +1476,14 @@ BLADE;
 
         $template = Template::findOrFail($id);
         $template->assertAccessibleBy($user);
+
+        // 2026-08-15 (Johan, HFC tenant-isolation fix) — no per-record check
+        // existed at all; any user with manage_templates could preview any
+        // agency's non-global template by id.
+        $agencyId = method_exists($user, 'effectiveAgencyId') ? $user->effectiveAgencyId() : $user->agency_id;
+        if (!$template->isVisibleToAgency($agencyId)) {
+            abort(404);
+        }
 
         if (!$template->blade_view) {
             abort(404, 'No blade view configured for this template.');
@@ -1245,7 +1515,9 @@ BLADE;
         // Pass header_display so company-header component respects template setting
         $viewData['header_display'] = $template->header_display ?? 'first_page';
 
-        $html = view($template->blade_view, $viewData)->render();
+        // Blank-preview fix: regenerate the generated blade if its file is missing,
+        // and never blank on a render failure (stored-HTML fallback).
+        $html = app(\App\Services\Docuperfect\WebTemplateBladeEnsurer::class)->renderOrFallback($template, $viewData);
 
         return response($html)->header('Content-Type', 'text/html');
     }

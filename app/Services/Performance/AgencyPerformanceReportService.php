@@ -18,7 +18,30 @@ class AgencyPerformanceReportService
         private readonly HierarchyResolver $hierarchy,
         private readonly MetricProviderRegistry $registry,
         private readonly BranchAttributionResolver $branchAttribution,
+        private readonly DealStatusBreakdownService $dealStatus,
+        private readonly \App\Services\Performance\Providers\CommissionGrossProvider $commissionProvider,
     ) {}
+
+    /** Empty {qty,value,commission,company_commission} per status bucket (AT-366 §A frontend contract shape). */
+    private function emptyDealStatus(): array
+    {
+        return [
+            'pending'    => ['qty' => 0, 'value' => 0.0, 'commission' => 0.0, 'company_commission' => 0.0],
+            'granted'    => ['qty' => 0, 'value' => 0.0, 'commission' => 0.0, 'company_commission' => 0.0],
+            'registered' => ['qty' => 0, 'value' => 0.0, 'commission' => 0.0, 'company_commission' => 0.0],
+            'declined'   => ['qty' => 0, 'value' => 0.0, 'commission' => 0.0, 'company_commission' => 0.0],
+        ];
+    }
+
+    private function addDealStatus(array &$acc, array $ds): void
+    {
+        foreach (['pending', 'granted', 'registered', 'declined'] as $b) {
+            $acc[$b]['qty']                += $ds[$b]['qty'];
+            $acc[$b]['value']              += $ds[$b]['value'];
+            $acc[$b]['commission']         += $ds[$b]['commission'];
+            $acc[$b]['company_commission'] += $ds[$b]['company_commission'];
+        }
+    }
 
     public function build(PerformanceScope $scope, Period $period): array
     {
@@ -33,11 +56,19 @@ class AgencyPerformanceReportService
         }
         $metricMeta = array_map(fn ($p) => ['key' => $p->key(), 'label' => $p->label()], $providers);
 
+        // AT-366 §A — per-agent deal status breakdown (qty+value per bucket) for the toggle bar.
+        $dealBreak = $this->dealStatus->forUsers($userIds, $period, $scope->agencyId)['perAgent'];
+
+        // 2026-08 (company-share refinement) — same source as the 'commission_gross_ex_vat'
+        // provider, so this reconciles with it exactly; keyed by user_id => company_gross_ex_vat sum.
+        $companyShareByUser = $this->commissionProvider->forUsersWithCompanyShare($userIds, $period);
+
         $branchNames = $this->hierarchy->branchNames($scope->agencyId);
 
         $agentRows = [];
         $branchAgg = [];
         $companyAgg = [];
+        $companyDs  = $this->emptyDealStatus();
 
         foreach ($agents as $agent) {
             $uid = (int) $agent->id;
@@ -46,11 +77,28 @@ class AgencyPerformanceReportService
             foreach ($providers as $provider) {
                 $metrics[$provider->key()] = $valuesByKey[$provider->key()][$uid] ?? 0;
             }
+            // 2026-08 (company-share refinement) — sibling of 'commission_gross_ex_vat',
+            // flows through the SAME generic branch/company accumulation loop below.
+            $metrics['commission_gross_ex_vat_company'] = $companyShareByUser[$uid]['company'] ?? 0.0;
 
             $currentBranch = $agent->branch_id !== null ? (int) $agent->branch_id : null;
             $branchId      = $this->branchAttribution->branchAt($uid, $period->end, $currentBranch);
             $branchKey     = $branchId !== null ? (string) $branchId : 'unassigned';
             $branchLabel   = $branchId !== null ? ($branchNames[$branchId] ?? ('Branch #' . $branchId)) : 'Unassigned';
+
+            // AT-366 §A — this agent's deal status {qty,value} per bucket (from the breakdown service).
+            $pa = $dealBreak[$uid] ?? null;
+            $agentDs = $this->emptyDealStatus();
+            if ($pa) {
+                foreach (['pending', 'granted', 'registered', 'declined'] as $b) {
+                    $agentDs[$b] = [
+                        'qty' => (int) $pa[$b]['count'],
+                        'value' => (float) $pa[$b]['value'],
+                        'commission' => (float) $pa[$b]['commission'],
+                        'company_commission' => (float) $pa[$b]['company_commission'],
+                    ];
+                }
+            }
 
             $agentRows[] = [
                 'user_id'      => $uid,
@@ -58,14 +106,25 @@ class AgencyPerformanceReportService
                 'branch_id'    => $branchId,
                 'branch_label' => $branchLabel,
                 'metrics'      => $metrics,
+                'deal_status'  => $agentDs,
             ];
 
+            // Generic per-key sum — 'commission_gross_ex_vat_company' (company-share
+            // refinement, added above) flows through here exactly like every other
+            // provider metric, same one-pass-per-agent no-double-count rule.
             foreach ($metrics as $key => $value) {
                 $branchAgg[$branchKey]['label']          = $branchLabel;
                 $branchAgg[$branchKey]['metrics'][$key]  = ($branchAgg[$branchKey]['metrics'][$key] ?? 0) + $value;
                 $companyAgg[$key]                        = ($companyAgg[$key] ?? 0) + $value;
             }
+            if (!isset($branchAgg[$branchKey]['deal_status'])) {
+                $branchAgg[$branchKey]['deal_status'] = $this->emptyDealStatus();
+            }
+            $this->addDealStatus($branchAgg[$branchKey]['deal_status'], $agentDs);
+            $this->addDealStatus($companyDs, $agentDs);
         }
+
+        $companyAgg['deal_status'] = $companyDs; // AT-366 §A company rollup row
 
         return [
             'period'   => $period->toArray(),

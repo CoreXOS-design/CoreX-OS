@@ -38,6 +38,7 @@ class ClientUser extends Authenticatable
 
     protected $hidden = [
         'password',
+        'active_email',
     ];
 
     protected $casts = [

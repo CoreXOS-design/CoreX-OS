@@ -231,7 +231,7 @@ class MobilePropertyController extends Controller
             'title'         => "{$req}|string|max:255",
             'property_type' => "{$req}|string|max:100",
             'listing_type'  => "{$req}|string|in:sale,rental",
-            'status'        => "{$req}|string|max:50",
+            'status'        => [$req, 'string', 'max:50', new \App\Rules\AllowedPropertyStatus()], // AT-307 membership
             // Optional P24 sub-label banner (Reduced Price / Pending / Back on
             // Market / Raised Price). Only meaningful on an on-market 'active'
             // base — cleared automatically the moment the base status leaves

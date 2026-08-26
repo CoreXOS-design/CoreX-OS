@@ -24,7 +24,15 @@ final class LegalController extends Controller
     {
         return view('public.legal.privacy', [
             'contactEmail' => self::CONTACT_EMAIL,
-            'lastUpdated'  => 'June 2026',
+            'lastUpdated'  => '17 August 2026',
+        ]);
+    }
+
+    public function terms()
+    {
+        return view('public.legal.terms', [
+            'contactEmail' => self::CONTACT_EMAIL,
+            'lastUpdated'  => '18 August 2026',
         ]);
     }
 

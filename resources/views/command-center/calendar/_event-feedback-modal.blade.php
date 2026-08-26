@@ -59,12 +59,89 @@
                     <p class="text-sm" style="color: var(--text-muted);">Loading…</p>
                 </template>
 
-                {{-- Per-property fallback (listing presentations) — keep the richer
+                {{-- Per-property fallback (LISTING PRESENTATIONS ONLY — CX-103: a
+                     viewing is also feedback_mode=per_property since 2026-08-18
+                     but is a genuine one-buyer appointment and gets the real
+                     form below, not this dead end). Keep the richer
                      flow on the calendar; offer a direct jump rather than duplicate it. --}}
-                <template x-if="!loading && data.feedback_mode === 'per_property'">
+                <template x-if="!loading && data.feedback_mode === 'per_property' && data.feedback_kind !== 'viewing'">
                     <div class="rounded-md p-4 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-secondary);">
                         This event uses listing-presentation feedback (per property).
                         <a :href="calendarLink" class="font-semibold no-underline hover:underline" style="color: var(--brand-icon, #00d4aa);">Open it in the calendar →</a>
+                    </div>
+                </template>
+
+                {{-- Property-viewing feedback (CX-103) — feedback_mode=per_property
+                     but feedback_kind=viewing: the SAME form the calendar itself
+                     shows for a property viewing (one block per property, buyer
+                     vocabulary via lp_outcomes — already resolved server-side by
+                     actor_role, see CalendarController::showFeedback). Mirrors
+                     index.blade.php's per-property block markup verbatim so the
+                     two surfaces render identically, per Johan's ruling. --}}
+                <template x-if="!loading && data.feedback_mode === 'per_property' && data.feedback_kind === 'viewing'">
+                    <div class="space-y-4">
+                        <template x-for="item in data.items" :key="item.property_id">
+                            <div class="rounded-md p-4" style="background: var(--surface-2); border: 1px solid var(--border);">
+                                <h3 class="text-sm font-semibold mb-3" style="color: var(--text-primary);" x-text="item.label"></h3>
+
+                                <div class="mb-3">
+                                    <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Outcome</label>
+                                    <select x-model="form['prop:' + item.property_id].outcome"
+                                            class="w-full rounded-md px-3 py-2 text-sm"
+                                            style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                        <option value="">Select…</option>
+                                        <template x-for="o in data.lp_outcomes" :key="o">
+                                            <option :value="o" x-text="o"></option>
+                                        </template>
+                                    </select>
+                                </div>
+
+                                {{-- Mandate type — hides itself when the server sends no
+                                     options (never populated for a buyer-facing viewing). --}}
+                                <div class="mb-3" x-show="data.lp_mandate_types.length > 0">
+                                    <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Mandate type</label>
+                                    <select x-model="form['prop:' + item.property_id].mandate_type"
+                                            class="w-full rounded-md px-3 py-2 text-sm"
+                                            style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                        <option value="">Select…</option>
+                                        <template x-for="m in data.lp_mandate_types" :key="m">
+                                            <option :value="m" x-text="m"></option>
+                                        </template>
+                                    </select>
+                                </div>
+
+                                <div class="mb-3" x-show="data.lp_concerns.length > 0">
+                                    <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Concerns</label>
+                                    <div class="flex flex-wrap gap-2">
+                                        <template x-for="c in data.lp_concerns" :key="c.id">
+                                            <label class="inline-flex items-center gap-1.5 text-xs cursor-pointer" style="color: var(--text-primary);">
+                                                <input type="checkbox" :value="c.id" x-model="form['prop:' + item.property_id].concern_ids" class="rounded">
+                                                <span x-text="c.label"></span>
+                                            </label>
+                                        </template>
+                                    </div>
+                                </div>
+
+                                <div class="mb-3">
+                                    <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Internal notes</label>
+                                    <textarea x-model="form['prop:' + item.property_id].internal_notes" rows="2"
+                                              class="w-full rounded-md px-3 py-2 text-sm"
+                                              style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
+                                              placeholder="Agent-only notes for this property…"></textarea>
+                                </div>
+
+                                <div>
+                                    <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Next action</label>
+                                    <input type="text" x-model="form['prop:' + item.property_id].next_action_notes"
+                                           class="w-full rounded-md px-3 py-2 text-sm"
+                                           style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
+                                           placeholder="Follow-up action…">
+                                </div>
+                            </div>
+                        </template>
+                        <template x-if="data.items.length === 0">
+                            <p class="text-sm py-4 text-center" style="color: var(--text-muted);">No properties linked to this event.</p>
+                        </template>
                     </div>
                 </template>
 
@@ -162,7 +239,7 @@
                 </template>
                 <div class="px-6 py-4 flex items-center justify-end gap-2">
                     <button type="button" @click="isOpen = false" class="corex-btn-outline">Cancel</button>
-                    <template x-if="!loading && data.feedback_mode !== 'per_property' && data.contacts.length > 0">
+                    <template x-if="!loading && ((data.feedback_mode !== 'per_property' && data.contacts.length > 0) || (data.feedback_mode === 'per_property' && data.feedback_kind === 'viewing' && data.items.length > 0))">
                         <button type="button" @click="save()" :disabled="saving" class="corex-btn-primary disabled:opacity-50">
                             <span x-show="!saving">Save Feedback</span>
                             <span x-show="saving" x-cloak>Saving…</span>
@@ -186,7 +263,14 @@
             error: null,
             eventId: null,
             calendarLink: '#',
-            data: { event: null, feedback_mode: 'per_contact', contacts: [], properties: [], outcomes: [], concerns: [] },
+            data: {
+                event: null, feedback_mode: 'per_contact', feedback_kind: 'viewing',
+                contacts: [], properties: [], outcomes: [], concerns: [],
+                // CX-103 — property-viewing feedback (feedback_mode=per_property,
+                // feedback_kind=viewing): mirrors the calendar's own per-property
+                // fields verbatim (see index.blade.php feedbackData).
+                items: [], lp_outcomes: [], lp_mandate_types: [], lp_concerns: [],
+            },
             // One render block per property (or a single property-less block).
             blocks: [],
             form: {},
@@ -205,7 +289,11 @@
                 this.loading = true;
                 this.isOpen = true;
                 this.calendarLink = '{{ route('command-center.calendar') }}?capture_feedback=' + eventId;
-                this.data = { event: null, feedback_mode: 'per_contact', contacts: [], properties: [], outcomes: [], concerns: [] };
+                this.data = {
+                    event: null, feedback_mode: 'per_contact', feedback_kind: 'viewing',
+                    contacts: [], properties: [], outcomes: [], concerns: [],
+                    items: [], lp_outcomes: [], lp_mandate_types: [], lp_concerns: [],
+                };
                 this.blocks = [];
                 this.form = {};
                 try {
@@ -224,13 +312,34 @@
                     this.data = {
                         event: d.event || null,
                         feedback_mode: mode,
+                        feedback_kind: d.feedback_kind || 'viewing',
                         contacts: Array.isArray(d.contacts) ? d.contacts : [],
                         properties: Array.isArray(d.properties) ? d.properties : [],
                         outcomes: d.outcomes || [],
                         concerns: d.concerns || [],
+                        items: Array.isArray(d.items) ? d.items : [],
+                        lp_outcomes: d.lp_outcomes || [],
+                        lp_mandate_types: d.lp_mandate_types || [],
+                        lp_concerns: d.lp_concerns || [],
                     };
 
-                    if (mode !== 'per_property') {
+                    // CX-103 — property-viewing feedback (per_property + viewing):
+                    // one form row per property, keyed 'prop:<id>', pre-filled from
+                    // any existing per-property feedback row. Mirrors index.blade.php's
+                    // openFeedbackModal() per-property form-init verbatim.
+                    if (mode === 'per_property' && this.data.feedback_kind === 'viewing') {
+                        this.data.items.forEach(it => {
+                            const kd = it.kind_data || {};
+                            this.form['prop:' + it.property_id] = {
+                                outcome:           kd.outcome || '',
+                                mandate_type:      kd.mandate_type || '',
+                                concern_ids:       Array.isArray(kd.concern_ids) ? kd.concern_ids.map(String) : [],
+                                seller_notes:      kd.seller_notes || '',
+                                internal_notes:    it.internal_notes || '',
+                                next_action_notes: it.next_action || '',
+                            };
+                        });
+                    } else if (mode !== 'per_property') {
                         // Build one block per property; a property-less meeting
                         // collapses to a single block with property_id = null.
                         const props = this.data.properties;
@@ -271,6 +380,31 @@
             },
 
             buildPayload() {
+                // CX-103 — property-viewing feedback (per_property + viewing):
+                // one row per property, keyed 'prop:<id>'. Mirrors the calendar's
+                // own per-property save payload verbatim (storeFeedback branches
+                // on feedback_kind === 'listing_presentation' for ANY per-property
+                // save — that string means "property-keyed storage", not
+                // literally a listing presentation; see CalendarController::
+                // storeFeedback, which resolves the real buyer contact server-side
+                // for a buyer-facing class).
+                if (this.data.feedback_mode === 'per_property') {
+                    return {
+                        feedback_kind: 'listing_presentation',
+                        feedback: Object.entries(this.form).map(([k, f]) => ({
+                            property_id: parseInt(k.slice('prop:'.length)),
+                            kind_specific_data: {
+                                outcome: f.outcome || null,
+                                mandate_type: f.mandate_type || null,
+                                concern_ids: (f.concern_ids || []).map(Number),
+                                seller_notes: f.seller_notes || null,
+                            },
+                            internal_notes: f.internal_notes || null,
+                            next_action_notes: f.next_action_notes || null,
+                        })),
+                    };
+                }
+
                 // One row per (contact, property) field-set, mirroring the
                 // calendar's per-contact viewing payload (property_id nullable).
                 return {

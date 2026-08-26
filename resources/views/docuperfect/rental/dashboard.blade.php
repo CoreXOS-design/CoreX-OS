@@ -379,6 +379,8 @@
                                             </button>
                                         </form>
                                     @endif
+                                    {{-- AT-294 — per-recipient email send status + resend (shared partial) --}}
+                                    @include('docuperfect.signatures.partials._recipient-resend', ['document' => $doc, 'requests' => $sigTemplate->requests])
                                     @php $deferredReq = $sigTemplate->requests->first(fn($r) => $r->status === 'deferred'); @endphp
                                     @if($deferredReq && in_array($sigTemplate->status, ['awaiting_deferred', 'partial']))
                                         <button type="button"

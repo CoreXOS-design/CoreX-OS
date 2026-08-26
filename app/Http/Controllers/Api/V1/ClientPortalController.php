@@ -663,22 +663,28 @@ class ClientPortalController extends Controller
     /**
      * Resolve the agent assigned to this contact in its (current) agency.
      *
-     * The link is `created_by_user_id` — the agent who captured the contact,
-     * e.g. the agent whose QR code the client scanned at signup (see
-     * AgentQrController::upsertAgencyContact). Scope is bypassed and the query
-     * is pinned to the contact's own agency so we never leak an agent from
-     * another tenant, and so it resolves while authed as a ClientUser (which
-     * carries no User-agency context). SoftDeletes excludes departed agents.
+     * The link is `agent_id` — the OPERATIONAL responsible agent (the one
+     * shown as "Agent" on the CoreX Contacts page, reassignable there), not
+     * `created_by_user_id` (the immutable original capturer, e.g. via a QR
+     * signup — see AgentQrController::upsertAgencyContact). Changed
+     * 2026-08-13: a client whose contact had been reassigned to a different
+     * agent, or was captured with no agent at all and assigned later, was
+     * shown the WRONG (or no) agent on the mobile Home screen because it was
+     * reading the capture-time field instead of the current assignment.
+     * Scope is bypassed and the query is pinned to the contact's own agency
+     * so we never leak an agent from another tenant, and so it resolves
+     * while authed as a ClientUser (which carries no User-agency context).
+     * SoftDeletes excludes departed agents.
      */
     private function resolveAssignedAgent(Contact $contact): ?User
     {
-        if (!$contact->created_by_user_id) {
+        if (!$contact->agent_id) {
             return null;
         }
 
         return User::query()
             ->withoutGlobalScope(AgencyScope::class)
-            ->where('id', $contact->created_by_user_id)
+            ->where('id', $contact->agent_id)
             ->where('agency_id', $contact->agency_id)
             ->first();
     }

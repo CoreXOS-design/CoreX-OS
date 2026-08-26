@@ -54,4 +54,15 @@ class DevSetting extends Model
 
         return is_array($decoded) ? array_values(array_filter($decoded, 'is_string')) : [];
     }
+
+    /**
+     * Recipients for the queue-backlog critical alert (corex:queue-healthcheck).
+     * See .ai/specs/queue-worker-monitoring.md.
+     */
+    public static function queueBacklogAlertEmails(): array
+    {
+        $decoded = json_decode((string) self::get('queue_backlog_alert_emails', '[]'), true);
+
+        return is_array($decoded) ? array_values(array_filter($decoded, 'is_string')) : [];
+    }
 }

@@ -91,6 +91,120 @@ final class PrivateEventVisibilityTest extends TestCase
         $this->assertDatabaseHas('calendar_events', ['id' => $event->id, 'title' => 'Doctor visit', 'deleted_at' => null]);
     }
 
+    /**
+     * ITEM 4 gap fix, 2026-08-19 — complete()/dismiss() previously skipped the
+     * isPrivateHiddenFrom() guard that show/update/destroy/reschedule already
+     * enforce: a same-agency non-creator, non-admin user could POST directly
+     * to these endpoints and close someone else's private event without ever
+     * being able to see it. Restriction: blocked for a plain agent who is
+     * neither creator nor admin/owner/super_admin; the creator is unaffected.
+     */
+    public function test_complete_and_dismiss_block_non_creator_non_admin_on_private_event(): void
+    {
+        [$agencyId, $creator] = $this->seedAgencyUser('agent');
+        $other = User::factory()->create(['agency_id' => $agencyId, 'branch_id' => $agencyId, 'role' => 'agent']);
+        $this->privateClassSetting();
+
+        $event = $this->makePrivateEvent($agencyId, $creator->id, 'Therapy appointment');
+        $this->actingAs($other)
+            ->postJson(route('command-center.calendar.complete', $event))
+            ->assertForbidden();
+        $this->assertDatabaseHas('calendar_events', ['id' => $event->id, 'status' => 'pending']);
+
+        $event2 = $this->makePrivateEvent($agencyId, $creator->id, 'Doctor visit');
+        $this->actingAs($other)
+            ->postJson(route('command-center.calendar.dismiss', $event2))
+            ->assertForbidden();
+        $this->assertDatabaseHas('calendar_events', ['id' => $event2->id, 'status' => 'pending']);
+    }
+
+    /** The creator may still complete/dismiss their own private event. */
+    public function test_creator_can_complete_and_dismiss_own_private_event(): void
+    {
+        [$agencyId, $creator] = $this->seedAgencyUser('agent');
+        $this->privateClassSetting();
+
+        $event = $this->makePrivateEvent($agencyId, $creator->id, 'Therapy appointment');
+        $this->actingAs($creator)
+            ->postJson(route('command-center.calendar.complete', $event))
+            ->assertOk();
+        $this->assertDatabaseHas('calendar_events', ['id' => $event->id, 'status' => 'completed']);
+
+        $event2 = $this->makePrivateEvent($agencyId, $creator->id, 'Doctor visit');
+        $this->actingAs($creator)
+            ->postJson(route('command-center.calendar.dismiss', $event2))
+            ->assertOk();
+        $this->assertDatabaseHas('calendar_events', ['id' => $event2->id, 'status' => 'dismissed']);
+    }
+
+    /**
+     * Johan's business call, 2026-08-19: an admin/owner/super_admin MAY still
+     * complete or dismiss another user's private event — never blocked like a
+     * plain agent — but ONLY because the action is unconditionally audited,
+     * naming who did it. Both halves are asserted here.
+     */
+    public function test_admin_can_complete_and_dismiss_others_private_event_with_attributed_audit_row(): void
+    {
+        [$agencyId, $creator] = $this->seedAgencyUser('agent');
+        $admin = User::factory()->create(['agency_id' => $agencyId, 'branch_id' => $agencyId, 'role' => 'admin']);
+        $this->privateClassSetting();
+
+        $event = $this->makePrivateEvent($agencyId, $creator->id, 'Therapy appointment');
+        $this->actingAs($admin)
+            ->postJson(route('command-center.calendar.complete', $event))
+            ->assertOk();
+        $this->assertDatabaseHas('calendar_events', ['id' => $event->id, 'status' => 'completed']);
+        $this->assertDatabaseHas('calendar_event_audit_entries', [
+            'calendar_event_id' => $event->id, 'action' => 'completed', 'performed_by_user_id' => $admin->id,
+        ]);
+
+        $event2 = $this->makePrivateEvent($agencyId, $creator->id, 'Doctor visit');
+        $this->actingAs($admin)
+            ->postJson(route('command-center.calendar.dismiss', $event2))
+            ->assertOk();
+        $this->assertDatabaseHas('calendar_events', ['id' => $event2->id, 'status' => 'dismissed']);
+        $this->assertDatabaseHas('calendar_event_audit_entries', [
+            'calendar_event_id' => $event2->id, 'action' => 'dismissed', 'performed_by_user_id' => $admin->id,
+        ]);
+    }
+
+    /**
+     * The new guard must be private-event-specific: an ordinary (non-private)
+     * event must remain completable/dismissable by a same-agency non-creator,
+     * non-admin exactly as before this fix.
+     */
+    public function test_non_private_event_unaffected_by_the_new_guard(): void
+    {
+        [$agencyId, $creator] = $this->seedAgencyUser('agent');
+        $other = User::factory()->create(['agency_id' => $agencyId, 'branch_id' => $agencyId, 'role' => 'agent']);
+
+        DB::table('calendar_event_class_settings')->insert([
+            'agency_id' => null, 'event_class' => 'meeting', 'label' => 'Meeting',
+            'is_active' => true, 'event_nature' => 'informational', 'actor_role' => 'both',
+            'green_days' => 7, 'amber_days' => 2, 'red_days' => 0, 'show_days' => 365,
+            'green_visibility' => json_encode(['all']), 'amber_visibility' => json_encode(['all']),
+            'red_visibility' => json_encode(['all']), 'green_notifications' => json_encode([]),
+            'amber_notifications' => json_encode([]), 'red_notifications' => json_encode([]),
+            'daily_digest_enabled' => false, 'daily_digest_roles' => json_encode([]),
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $start = now()->addDays(2)->setTime(10, 0);
+        $eventId = DB::table('calendar_events')->insertGetId([
+            'user_id' => $creator->id, 'created_by_id' => $creator->id, 'event_type' => 'manual',
+            'category' => 'meeting', 'title' => 'Team standup', 'event_date' => $start,
+            'end_date' => $start->copy()->addHour(), 'all_day' => false, 'priority' => 'normal',
+            'status' => 'pending', 'source_type' => 'manual', 'agency_id' => $agencyId, 'branch_id' => $agencyId,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $event = CalendarEvent::withoutGlobalScopes()->findOrFail($eventId);
+
+        $this->actingAs($other)
+            ->postJson(route('command-center.calendar.complete', $event))
+            ->assertOk();
+        $this->assertDatabaseHas('calendar_events', ['id' => $event->id, 'status' => 'completed']);
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────
 
     private function seedAgencyUser(string $role): array

@@ -26,6 +26,7 @@ class ProfileUpdateRequest extends FormRequest
             ],
             'phone' => ['nullable', 'string', 'max:50'],
             'cell' => ['required', 'string', 'max:50'],
+            'whatsapp_number' => ['nullable', 'string', 'max:50', 'regex:' . User::SA_MOBILE_REGEX],
             'fax' => ['nullable', 'string', 'max:50'],
             'website' => ['nullable', 'string', 'max:255'],
             'ffc_number' => ['nullable', 'string', 'max:50'],

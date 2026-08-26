@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Database\Seeders;
 
 use App\Models\Docuperfect\DataDictionaryEntry;
+use App\Contracts\SyncableReferenceSeeder;
 use Illuminate\Database\Seeder;
 
 /**
@@ -16,7 +17,7 @@ use Illuminate\Database\Seeder;
  * NOT run on deploy — AT-162 / BUILD_STANDARD §8). Agencies override any key by inserting a
  * row with their agency_id set; the model resolver prefers the override.
  */
-class DataDictionarySeeder extends Seeder
+class DataDictionarySeeder extends Seeder implements SyncableReferenceSeeder
 {
     public const DICTIONARY_VERSION = 1;
 

@@ -72,6 +72,17 @@ class Dr1PipelineService
             );
         }
 
+        // STANDARDS Rule 17 (AT-253) — a null/unset deal->agency_id must never reach the
+        // deal_step_instances insert below: bound as-is it 1048s (NOT NULL) on a null
+        // deal->agency_id, or (via a caller's naive (int) cast elsewhere) 1452s on the
+        // invalid sentinel 0. Refuse loudly here with the canonical Rule-17 exception —
+        // IS-A RuntimeException so PipelineController::attach()'s existing catch still
+        // works, and it self-renders a friendly message even where uncaught (e.g. the
+        // best-effort auto-attach in DealRegisterController::store()'s catch(Throwable)).
+        if ((int) $deal->agency_id <= 0) {
+            throw new \App\Exceptions\MissingAgencyContextException("attaching a pipeline to deal {$deal->id}");
+        }
+
         $template = DealPipelineTemplate::with('steps.dependencies')->findOrFail($templateId);
         $fromDate = $opts['from_date'] ?? null;
 
@@ -176,7 +187,16 @@ class Dr1PipelineService
             };
             foreach ($deal->pipelineSteps as $instance) {
                 $due = $anchor->copy()->addDays($chainDays($instance->id));
-                $instance->update(['due_date' => $due, 'current_rag' => $this->calculateRag($instance, $due)]);
+                // Pipeline Dashboard Phase 1 — the timeline bar needs a START, not just a deadline.
+                // planned_start = due − the step's own offset = its primary predecessor's projected
+                // end, so bars cascade left→right along the chain; duration = days_offset. Clamped so
+                // a start never lands after its end (milestone/zero-offset ⇒ start == end, a diamond).
+                $plannedStart = $due->copy()->subDays(max(0, (int) $instance->days_offset));
+                $instance->update([
+                    'due_date'           => $due,
+                    'planned_start_date' => $plannedStart,
+                    'current_rag'        => $this->calculateRag($instance, $due),
+                ]);
             }
 
             // Activate the on-creation steps (their projected due_date is preserved by activateStep).
@@ -232,11 +252,30 @@ class Dr1PipelineService
             ? $step->due_date
             : $baseDate->copy()->addDays((int) $step->days_offset);
 
+        // Pipeline Dashboard Phase 1 — the planned START re-anchors to the REAL anchor at activation
+        // ($baseDate = the latest predecessor completion via dependencyReadiness, so it is
+        // fan-in-accurate the moment predecessors clear), unless an agent fixed it (planned_start_manual).
+        // due_date remains the planned END; duration = due_date − planned_start_date.
+        $plannedStart = ($step->planned_start_manual && $step->planned_start_date)
+            ? $step->planned_start_date
+            : $baseDate->copy();
+
+        // A tile must NEVER render inverted (start after due). This happens when the due is a
+        // MANUAL date EARLIER than the real activation anchor — e.g. a deposit captured as due
+        // in the past, activated off a later "Deal Signed" anchor. Keep the non-manual start
+        // duration-preserving: pin it to due − days_offset so the step stays a normal short bar
+        // ENDING on its due date (the same rule createPipeline uses), never a 1-day sliver. A
+        // manual start is the agent's explicit placement and is left exactly as set.
+        if (! ($step->planned_start_manual && $step->planned_start_date) && $plannedStart->gt($dueDate)) {
+            $plannedStart = $dueDate->copy()->subDays(max(0, (int) $step->days_offset));
+        }
+
         $step->update([
-            'status'       => 'active',
-            'activated_at' => now(),
-            'due_date'     => $dueDate,
-            'current_rag'  => $this->calculateRag($step, $dueDate),
+            'status'             => 'active',
+            'activated_at'       => now(),
+            'due_date'           => $dueDate,
+            'planned_start_date' => $plannedStart,
+            'current_rag'        => $this->calculateRag($step, $dueDate),
         ]);
 
         $this->logActivity($step->dr1Deal, $step, null, 'step_activated',
@@ -260,6 +299,14 @@ class Dr1PipelineService
         // kill a deal, it may never resurrect one.
         $this->lock->assertStepUnlocked($step, "Complete step \"{$step->name}\"");
 
+        // Feature 1 (enforce-at-grant) — the "Capture Bond Attorney" step cannot be ticked complete
+        // until the bond attorney is captured on the deal (Email Parties). Blocks the "step done"
+        // without a captured attorney; the R-gate in advanceAcceptedStatus is the backstop.
+        if ($step->condition_key === 'bond' && $step->name === 'Capture Bond Attorney'
+            && empty($step->dr1Deal?->bond_attorney_provider_id)) {
+            throw new \App\Exceptions\Deal\BondAttorneyRequiredException($step->dr1Deal);
+        }
+
         DB::transaction(function () use ($step, $userId, $completionData) {
             $step->update([
                 'status'          => 'completed',
@@ -269,15 +316,81 @@ class Dr1PipelineService
                 'current_rag'     => 'grey',
             ]);
 
+            $outcome    = $completionData['outcome'] ?? 'positive';
+            $isNegative = $outcome === 'negative';
+
+            $label = $isNegative ? (' — ' . ($step->negative_outcome_label ?: 'negative outcome')) : '';
             $notes = ! empty($completionData['notes']) ? " — {$completionData['notes']}" : '';
             $this->logActivity($step->dr1Deal, $step, $userId, 'step_completed',
-                "Step \"{$step->name}\" completed{$notes}");
+                "Step \"{$step->name}\" completed{$label}{$notes}");
 
-            $this->activateDownstreamSteps($step);
+            // AT-229 6b — a DECISION step fires its forward chain ONLY on the positive outcome.
+            // A negative outcome (e.g. "Bond Declined") completes the step and applies its
+            // negative status trigger, but never activates the positive-path successors.
+            if (! $isNegative) {
+                $this->activateDownstreamSteps($step);
+            }
 
-            // Sweep #2 — fire the step's configured status_trigger onto the deal's status.
-            $this->applyStatusTrigger($step, $userId);
+            // Sweep #2 — fire the step's configured status_trigger (positive or negative) onto the deal.
+            $this->applyStatusTrigger($step, $userId, $isNegative);
+
+            // Sweep #3 — composable-deal LIFECYCLE. Set-based (not per-step trigger): the deal
+            // grants when EVERY suspensive condition is complete, and registers when EVERY step is
+            // complete. Composable deals carry no status_trigger on their suspensive steps (the old
+            // template model did, on "Bond Approved"), so without this the Granted marker never met
+            // and the deal never left Pending even with all conditions done. Forward-only + idempotent.
+            if (! $isNegative) {
+                $this->syncDealStatus($step->dr1Deal, $userId);
+            }
+
+            // AT-229 §17 — trigger-driven supplier work orders. When the configured
+            // trigger step (default "Bond Granted") completes POSITIVELY, every pending
+            // work order that points at it is sent (PDF + AT-228 filing + email, agents
+            // CC'd). Never on a negative outcome. Each send is isolated so one bad
+            // recipient never rolls back the step completion.
+            if (! $isNegative) {
+                $this->fireSupplierWorkOrders($step, $userId);
+            }
         });
+    }
+
+    /** §17 — send every pending work order whose trigger step is the one just completed. */
+    private function fireSupplierWorkOrders(DealStepInstance $step, ?int $userId): void
+    {
+        // AT-329 — retry a previously-FAILED order too (e.g. once its supplier's email is
+        // added and the trigger fires again), not just untouched 'pending' ones. 'sent' orders
+        // are never re-sent.
+        $orders = \App\Models\DealV2\DealStepWorkOrder::where('trigger_step_instance_id', $step->id)
+            ->whereIn('status', ['pending', 'failed', 'awaiting_supplier'])->get();
+        if ($orders->isEmpty()) {
+            return;
+        }
+        $coc  = app(\App\Services\DealV2\CocWorkOrderService::class);
+        $user = $userId ? \App\Models\User::withoutGlobalScopes()->find($userId) : null;
+        foreach ($orders as $order) {
+            // AT-334 P3 — hold-until-assigned: a WO with no resolvable recipient is NOT failed at
+            // the trigger. It parks in 'awaiting_supplier' (drives the red warnings) and sends
+            // automatically once the agent assigns the supplier and saves (or via manual Send).
+            if (! $coc->hasRecipient($order)) {
+                $order->forceFill(['status' => 'awaiting_supplier', 'send_error' => null])->save();
+                continue;
+            }
+            try {
+                // send() sets status='sent' + clears send_error on success.
+                $coc->send($order, $user);
+            } catch (\Throwable $e) {
+                // AT-329 — NEVER swallow: record the failure ON this order (status='failed' +
+                // the reason, surfaced to the agent in the COC panel) and continue, so one
+                // order failing does NOT skip or abort the rest.
+                $order->forceFill([
+                    'status'     => 'failed',
+                    'send_error' => $e->getMessage(),
+                ])->save();
+                \Log::warning('AT-229 §17 trigger send failed', [
+                    'work_order_id' => $order->id, 'deal' => $step->dr1_deal_id, 'error' => $e->getMessage(),
+                ]);
+            }
+        }
     }
 
     /** DR2 status_trigger vocabulary → DR1 `accepted_status` code (the field the register reads). */
@@ -301,9 +414,11 @@ class Dr1PipelineService
      * downgrades a 'Registered' deal), 'D' (declined) always applies. Stamps granted_at /
      * registration_date on first reach. Audited to the deal timeline.
      */
-    private function applyStatusTrigger(DealStepInstance $step, ?int $userId): void
+    private function applyStatusTrigger(DealStepInstance $step, ?int $userId, bool $isNegative = false): void
     {
-        $trigger = $step->status_trigger;
+        // AT-229 6b — a negative outcome drives the deal by the step's NEGATIVE trigger
+        // (typically declined/cancelled → 'D'), never the positive one.
+        $trigger = $isNegative ? $step->negative_status_trigger : $step->status_trigger;
         $code    = $trigger ? (self::STATUS_TRIGGER_MAP[$trigger] ?? null) : null;
         $deal    = $step->dr1Deal;
         if (! $code || ! $deal) {
@@ -323,6 +438,11 @@ class Dr1PipelineService
             app(\App\Services\Deal\DealPropertyStatusService::class)->assertCanGrant($deal);
         }
 
+        // Feature 1 (enforce-at-grant) — block reaching Registered without a captured bond attorney.
+        if ($code === 'R') {
+            $this->assertBondAttorneyForRegistration($deal);
+        }
+
         $updates = ['accepted_status' => $code];
         if ($code === 'G' && empty($deal->granted_at)) {
             $updates['granted_at'] = now();
@@ -335,6 +455,130 @@ class Dr1PipelineService
         $label = ['P' => 'Pending', 'G' => 'Granted', 'R' => 'Registered', 'D' => 'Declined'][$code] ?? $code;
         $this->logActivity($deal, $step, $userId, 'deal_status_advanced',
             "Deal status → {$label} (pipeline step \"{$step->name}\" completed, trigger \"{$trigger}\")");
+    }
+
+    /**
+     * Composable-deal status LIFECYCLE — the SINGLE set-based mechanism for both flips:
+     *   Pending → GRANTED   when every SUSPENSIVE step is complete (or the deal has none → grants
+     *                       on signing). Also marks the Granted milestone MET and starts Stage 2.
+     *   Granted → REGISTERED when EVERY step in the pipeline is complete.
+     *
+     * Only runs for composable (new-model) deals — those carry a Granted marker; template-model
+     * deals keep their per-step status_trigger flow (applyStatusTrigger), untouched. Forward-only
+     * and idempotent, so it is safe to call after any completion (and to reconcile a deal whose
+     * conditions were completed before this rule existed). A completed OR skipped (N/A) step counts
+     * as done, so an excused step never blocks the flip.
+     */
+    public function syncDealStatus(?Deal $deal, ?int $userId = null): void
+    {
+        if (! $deal) {
+            return;
+        }
+        $steps = DealStepInstance::where('dr1_deal_id', $deal->id)->whereNull('deleted_at')->get();
+        $gate  = $steps->firstWhere('is_grant_marker', true);
+        if (! $gate) {
+            return; // template-model deal — not our concern here
+        }
+
+        $isDone     = fn (DealStepInstance $s) => in_array($s->status, ['completed', 'skipped'], true);
+        $worked     = $steps->where('is_grant_marker', false);        // every real step (the marker is met by convergence)
+        $suspensive = $worked->where('is_suspensive', true);
+
+        $granted    = $suspensive->isEmpty() || $suspensive->every($isDone);
+        if (! $granted) {
+            return; // still Pending — a suspensive condition is outstanding
+        }
+        $registered = $worked->isNotEmpty() && $worked->every($isDone);
+
+        // Mark the Granted milestone MET (idempotent). Grant date = the LATEST actual completion
+        // across the suspensive set (else now), matching the read-model's actual-aware grant date.
+        if ($gate->status !== 'completed') {
+            $grantDate = $suspensive
+                ->map(fn ($s) => $s->actual_date ?? $s->completed_at)
+                ->filter()
+                ->map(fn ($d) => \Carbon\Carbon::parse($d))
+                ->sortByDesc(fn ($c) => $c->getTimestamp())
+                ->first() ?? \Carbon\Carbon::now();
+            $gate->forceFill([
+                'status'          => 'completed',
+                'completed_at'    => $grantDate,
+                'actual_date'     => $grantDate->toDateString(),
+                'completed_by_id' => $userId,
+                'current_rag'     => 'grey',
+            ])->save();
+            $this->logActivity($deal, $gate, $userId, 'step_completed',
+                'Granted — all suspensive conditions met');
+            // Grant unblocks Stage 2 (Transfer & Registration): activate the steps that follow the
+            // marker, exactly as any other completion would.
+            $this->activateDownstreamSteps($gate);
+            // AUTO-SEND — the grant gate is the trigger for supplier work orders (composable deals anchor
+            // COC work orders to it). completeStep() fires these when a normal trigger step completes; the
+            // gate completes HERE (via convergence, not completeStep), so fire them too or the auto email
+            // to the supplier never happens on grant. Each send is isolated (records failure, never aborts).
+            $this->fireSupplierWorkOrders($gate, $userId);
+        }
+
+        // Advance the persisted register status (accepted_status — the truth the DR2 screen reads).
+        $this->advanceAcceptedStatus($deal, 'G', $userId, 'all suspensive conditions complete');
+        if ($registered) {
+            $this->advanceAcceptedStatus($deal, 'R', $userId, 'all pipeline steps complete');
+        }
+    }
+
+    /**
+     * Advance a deal's accepted_status forward-only (P→G→R), stamping granted_at / registration_date
+     * on first reach and honouring the Wave-2 single-grant-per-property guard. Never downgrades or
+     * re-fires. Shared by the composable lifecycle (syncDealStatus) so both flips run identically.
+     */
+    private function advanceAcceptedStatus(Deal $deal, string $code, ?int $userId, string $reason): void
+    {
+        $current = (string) $deal->accepted_status;
+        if ((self::ACCEPTED_STATUS_RANK[$code] ?? 0) <= (self::ACCEPTED_STATUS_RANK[$current] ?? 0)) {
+            return; // forward-only — never downgrade or re-fire
+        }
+        if ($code === 'G') {
+            app(\App\Services\Deal\DealPropertyStatusService::class)->assertCanGrant($deal);
+        }
+
+        // Feature 1 (enforce-at-grant) — block reaching Registered without a captured bond attorney.
+        if ($code === 'R') {
+            $this->assertBondAttorneyForRegistration($deal);
+        }
+
+        $updates = ['accepted_status' => $code];
+        if ($code === 'G' && empty($deal->granted_at)) {
+            $updates['granted_at'] = now();
+        }
+        if ($code === 'R' && empty($deal->registration_date)) {
+            $updates['registration_date'] = now()->toDateString();
+        }
+        $deal->forceFill($updates)->save();
+
+        $label = ['P' => 'Pending', 'G' => 'Granted', 'R' => 'Registered'][$code] ?? $code;
+        $this->logActivity($deal, null, $userId, 'deal_status_advanced', "Deal status → {$label} ({$reason})");
+    }
+
+    /**
+     * Feature 1 (enforce-at-grant) — a bonded deal whose pipeline carries the "Capture Bond Attorney"
+     * step cannot reach Registered until the bond attorney is captured on the deal (Email Parties).
+     * Scoped to pipelines that actually contain the step, so legacy/pre-feature deals are never gated.
+     * Throws inside completeStep()'s transaction → the completion / status advance rolls back and the
+     * controller surfaces the block to the agent.
+     */
+    private function assertBondAttorneyForRegistration(Deal $deal): void
+    {
+        if (! empty($deal->bond_attorney_provider_id)) {
+            return;
+        }
+        $needs = \App\Models\DealV2\DealStepInstance::where('dr1_deal_id', $deal->id)
+            ->where('condition_key', 'bond')
+            ->where('name', 'Capture Bond Attorney')
+            ->whereNull('deleted_at')
+            ->where('status', '!=', 'skipped')
+            ->exists();
+        if ($needs) {
+            throw new \App\Exceptions\Deal\BondAttorneyRequiredException($deal);
+        }
     }
 
     /**
@@ -535,6 +779,78 @@ class Dr1PipelineService
             $this->logActivity($deal, $step, $userId, 'step_added',
                 "Custom step \"{$name}\" added" . ($dueDate ? " (due {$dueDate})" : '')
                 . ($afterStep ? " after \"{$afterStep->name}\"" : ''));
+
+            return $step;
+        });
+    }
+
+    /**
+     * BUGFIX (Johan) — create a COC pipeline step on the COMPOSABLE (assemble) model for a ticked
+     * Supplier Work Order COC that has no step yet (e.g. Gas / Electric Fence / an agency-custom COC not
+     * in this deal's structure), so the COC appears as a step in the list/timeline — symmetric with
+     * un-ticking removing the step. Built from the SAME shape the catalog gives Electrical/Beetle COC
+     * steps (Dr2ConditionCatalog::baseSteps): follows "Attorneys Instructed" (+14d, document-upload
+     * completion), and wired as an AND-gate DEPENDENCY of "Deeds Office Lodgement" so the deal cannot
+     * lodge until the COC is in (Johan's call). Name = the COC's label. Returns the created step, or null
+     * when the deal has no "Attorneys Instructed" anchor (not a composable transfer pipeline) — the caller
+     * then falls back to anchoring the work order to the grant gate.
+     *
+     * @param  iterable  $steps  the deal's step instances (withTrashed), for anchor/lodgement lookup
+     */
+    public function addCocStep(Deal $deal, string $name, iterable $steps, ?int $userId): ?DealStepInstance
+    {
+        $this->lock->assertUnlocked($deal, "Add COC step \"{$name}\"");
+        $steps = collect($steps);
+
+        // Follow the SAME predecessor the deal's existing COC steps follow (Attorneys Instructed); fall
+        // back to the named base-spine step. No anchor → not a composable transfer pipeline → bail.
+        $siblingCoc = $steps->first(fn ($s) => ! $s->trashed() && in_array($s->name, ['Electrical COC', 'Beetle Certificate'], true));
+        $attorneys  = $steps->first(fn ($s) => ! $s->trashed() && $s->name === 'Attorneys Instructed');
+        $followsId  = $siblingCoc?->trigger_step_instance_id ?? $attorneys?->id;
+        if (! $followsId) {
+            return null;
+        }
+        $lodgement = $steps->first(fn ($s) => ! $s->trashed() && $s->name === 'Deeds Office Lodgement');
+
+        return DB::transaction(function () use ($deal, $name, $followsId, $lodgement, $userId) {
+            $position = (int) DealStepInstance::where('dr1_deal_id', $deal->id)->max('position') + 1;
+
+            $step = DealStepInstance::create([
+                'agency_id'                => $deal->agency_id,
+                'deal_id'                  => null,
+                'dr1_deal_id'              => $deal->id,
+                'name'                     => $name,
+                'position'                 => $position,
+                'is_custom'                => true,       // provenance: agent-added via the WO panel
+                'is_locked'                => false,
+                'is_milestone'             => false,
+                'is_suspensive'            => false,
+                'condition_key'            => null,
+                'completion_type'          => 'document_upload',
+                'status'                   => 'not_started',
+                'trigger_type'             => 'after_step',
+                'trigger_step_instance_id' => $followsId, // follows Attorneys Instructed
+                'days_offset'              => 14,
+                'rag_green_days'           => 14,
+                'rag_amber_days'           => 7,
+                'rag_red_days'             => 3,
+                'current_rag'              => 'grey',
+                'notify_agent'             => true,
+                'notify_bm'                => true,
+                'notify_admin'             => false,
+                'approval_status'          => 'not_required',
+            ]);
+
+            // AND-gate: Deeds Office Lodgement waits for this COC, exactly like Electrical/Beetle.
+            if ($lodgement) {
+                DB::table('deal_step_instance_dependencies')->updateOrInsert(
+                    ['deal_step_instance_id' => $lodgement->id, 'depends_on_step_instance_id' => $step->id],
+                    ['agency_id' => $deal->agency_id, 'created_at' => now(), 'updated_at' => now()],
+                );
+            }
+
+            $this->logActivity($deal, $step, $userId, 'step_added',
+                "COC step \"{$name}\" added (supplier work order)");
 
             return $step;
         });

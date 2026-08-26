@@ -358,6 +358,35 @@ class PermissionService
     }
 
     /**
+     * Deeds Capture screen data-visibility scope for a user (own | branch | all).
+     * Reads deeds_capture.view's scope; defaults to 'own' so a user who reaches
+     * the screen (gated separately by deeds_capture.access) never accidentally
+     * sees every scraped record in the agency. Johan, 2026-08-20: "own" = the
+     * user who scraped the record (tracked_properties.deeds_captured_by_user_id).
+     */
+    public static function deedsCaptureScope(User $user): string
+    {
+        return static::getDataScope($user, 'deeds_capture') ?? 'own';
+    }
+
+    /**
+     * DR2 Unfiled Emails data-visibility scope for a user (own | branch | all).
+     * Reads dr2_unfiled_emails.view's scope; defaults to 'own'. Deliberately a
+     * SEPARATE module key from 'communications' — the AT-118 reversal ceiling a
+     * few lines up (branch stored → forced down to 'own') is keyed on the literal
+     * string 'communications' and does NOT apply here, so a Branch Manager gets
+     * real branch-tier visibility for DR2 email filing, per Johan's explicit
+     * instruction (2026-08-21: "STANDARD SCOPE, same as everywhere else in CoreX:
+     * admin sees all, BM sees branch, agent sees own"). This does not loosen the
+     * Communications Archive's own stricter "BM requests access" rule — that rule
+     * lives entirely under the 'communications' module key, untouched.
+     */
+    public static function dr2UnfiledEmailsScope(User $user): string
+    {
+        return static::getDataScope($user, 'dr2_unfiled_emails') ?? 'own';
+    }
+
+    /**
      * Clamp a user-requested scope to a role-granted ceiling.
      * Breadth order: own (0) < branch (1) < all (2). A request wider than
      * the ceiling is pulled back to the ceiling, so the page's My/Branch/All

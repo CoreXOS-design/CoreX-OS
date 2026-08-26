@@ -1,0 +1,185 @@
+<?php
+
+namespace App\Services\DealV2;
+
+use App\Models\Deal;
+use App\Models\DealV2\DealCondition;
+use App\Models\DealV2\DealStepInstance;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
+
+/**
+ * AT-334 Phase 2 — assemble a deal's pipeline from its chosen suspensive conditions:
+ * base spine + each active condition's step pack + the Granted marker, with follows
+ * (trigger_step_instance_id) resolved and dates cascaded.
+ *
+ * GUARDRAIL: by default REFUSES to run on a deal that already has step instances, so
+ * existing (old-model) deals are never rewritten. $force is for Restructure (Phase 6),
+ * which recomposes deliberately (and preserves completed steps — handled there).
+ */
+class DealStructureAssembler
+{
+    public function __construct(
+        private readonly Dr2ConditionCatalog $catalog,
+        private readonly DealDateCascade $cascade,
+    ) {}
+
+    public function hasPipeline(Deal $deal): bool
+    {
+        // DR2 pipeline instances are DR1-anchored via dr1_deal_id (deal_id/deals_v2 stays null).
+        return DealStepInstance::where('dr1_deal_id', $deal->id)->whereNull('deleted_at')->exists();
+    }
+
+    /**
+     * @param array<string,array> $selections e.g. ['bond'=>['deposit'=>true],'cash'=>['payments'=>2]]
+     */
+    public function assemble(Deal $deal, array $selections, bool $force = false): void
+    {
+        if (! $force && $this->hasPipeline($deal)) {
+            throw new \DomainException('This deal already has a pipeline. Use Restructure to change it.');
+        }
+
+        $agencyId = (int) $deal->agency_id;                 // parent-derived (P1 lesson: never rely on auto-stamp)
+        if ($agencyId <= 0) {
+            // STANDARDS Rule 17 (AT-253) — a null/unset deal->agency_id must never be
+            // silently cast to the invalid sentinel 0 and inserted into deal_step_instances
+            // (NOT NULL, FK -> agencies). Refuse loudly with the canonical Rule-17
+            // exception — it self-renders a friendly message even though it isn't a
+            // \DomainException (so it won't hit saveStructure()'s existing catch; that's
+            // fine, Laravel's handler calls its render() instead) — never 1452 the DB.
+            throw new \App\Exceptions\MissingAgencyContextException("building the pipeline for deal {$deal->id}");
+        }
+        $userId   = Auth::id();
+        $defs     = $this->catalog->resolve($selections);
+
+        DB::transaction(function () use ($deal, $selections, $agencyId, $userId, $defs) {
+            // 1. Per-deal conditions (the audit-bearing state).
+            DealCondition::where('deal_id', $deal->id)->delete(); // soft-delete prior active set (fresh assemble)
+            foreach ($selections as $key => $opts) {
+                if (! array_key_exists($key, $this->catalog->conditions())) {
+                    continue;
+                }
+                DealCondition::create([
+                    'deal_id'   => $deal->id,
+                    'agency_id' => $agencyId,
+                    'key'       => $key,
+                    'status'    => 'active',
+                    'options'   => is_array($opts) ? $opts : [],
+                ]);
+            }
+
+            // 2. Step instances.
+            $keyToId = [];
+            $pos = 0;
+            foreach ($defs as $d) {
+                $isAnchor = ! empty($d['anchor']);
+                // A captured per-condition by-when date seeds the step's Due as a MANUAL due, so
+                // the cascade honours it (never overwrites) and propagates it downstream. Absent
+                // date → null, and the cascade computes the Due from the follows/offset chain.
+                $manualDue = ! empty($d['manual_due']) ? $d['manual_due'] : null;
+                $inst = DealStepInstance::create([
+                    'deal_id'          => null,          // DR1-anchored (legacy deals_v2 pointer stays null)
+                    'dr1_deal_id'      => $deal->id,
+                    'agency_id'        => $agencyId,
+                    'pipeline_step_id' => null,          // catalogue-driven, not a template row
+                    'name'             => $d['name'],
+                    'position'         => $pos += 10,
+                    // Agency-configured display sort order (falls back to pos when un-set). New deals
+                    // inherit it from the master; the read-model sorts each stage group by it.
+                    'display_priority' => (int) ($d['display_priority'] ?? ($pos)),
+                    'is_locked'        => false,
+                    'is_milestone'     => ! empty($d['milestone']),
+                    'is_custom'        => false,
+                    'is_suspensive'    => ! empty($d['suspensive']),
+                    'is_grant_marker'  => ! empty($d['grant_marker']),
+                    'condition_key'    => $d['condition'] ?? null,
+                    'completion_type'  => $d['completion'] ?? 'manual_tick',
+                    'status'           => $isAnchor ? 'completed' : 'not_started',
+                    'trigger_type'     => ! empty($d['follows']) ? 'after_step' : 'on_creation',
+                    'days_offset'      => (int) ($d['offset'] ?? 0),
+                    'rag_green_days'   => 14,
+                    'rag_amber_days'   => 7,
+                    'rag_red_days'     => 3,
+                    'current_rag'      => 'grey',
+                    'notify_agent'     => true,
+                    'notify_bm'        => true,
+                    'notify_admin'     => false,
+                    'status_trigger'   => $d['status_trigger'] ?? null,
+                    'requires_bm_approval' => false,
+                    'approval_status'  => 'not_required',
+                    // Anchor auto-completes from the Deal Register date — no re-capture.
+                    'completed_at'     => $isAnchor ? now() : null,
+                    'actual_date'      => $isAnchor ? $deal->deal_date : null,
+                    'completed_by_id'  => $isAnchor ? $userId : null,
+                    // Captured condition date → manual Due (cascade honours + propagates it).
+                    'due_date'         => $manualDue,
+                    'due_date_manual'  => $manualDue !== null,
+                ]);
+                $keyToId[$d['key']] = $inst->id;
+            }
+
+            // 3. Resolve follows → trigger_step_instance_id (the single primary predecessor).
+            foreach ($defs as $d) {
+                if (! empty($d['follows']) && isset($keyToId[$d['follows']], $keyToId[$d['key']])) {
+                    DealStepInstance::where('id', $keyToId[$d['key']])
+                        ->update(['trigger_step_instance_id' => $keyToId[$d['follows']]]);
+                }
+            }
+
+            // 3b. Resolve additional AND-gate predecessors (deps) → fan-in rows in the
+            // EXISTING deal_step_instance_dependencies table. These make convergence honest
+            // (Deeds Office waits on ALL COCs; Granted waits on ALL suspensive conditions).
+            // Only deps that resolved to a real instance in THIS deal are written; a dep on
+            // an unselected condition's step is simply skipped.
+            $depRows = [];
+            foreach ($defs as $d) {
+                if (empty($d['deps']) || ! isset($keyToId[$d['key']])) {
+                    continue;
+                }
+                foreach ((array) $d['deps'] as $depKey) {
+                    if ($depKey === ($d['follows'] ?? null) || ! isset($keyToId[$depKey])) {
+                        continue; // never duplicate the primary follows; skip absent deps
+                    }
+                    $depRows[] = [
+                        'agency_id'                   => $agencyId,
+                        'deal_step_instance_id'       => $keyToId[$d['key']],
+                        'depends_on_step_instance_id' => $keyToId[$depKey],
+                        'created_at'                  => now(),
+                        'updated_at'                  => now(),
+                    ];
+                }
+            }
+            if (! empty($depRows)) {
+                DB::table('deal_step_instance_dependencies')->insert($depRows);
+            }
+
+            // Point the deal at "no template" — new-model deals are catalogue-driven.
+            if ($deal->deal_pipeline_template_id !== null && $force) {
+                // leave existing template pointer alone on force/restructure
+            }
+        });
+
+        // 4. Kick the chain off. The anchor ("Deal Signed") is inserted ALREADY-completed (from the Deal
+        //    Register date) rather than through Dr1PipelineService::completeStep(), so
+        //    activateDownstreamSteps() never fired for it — the first step of every condition track would
+        //    otherwise sit stuck at 'not_started' and the pipeline would never start. Fire it now, through
+        //    the SAME activation choke point real completions use, so the anchor's ready successors go
+        //    Active immediately. Composable path only (this assembler never runs for template-model
+        //    deals); it activates only not_started steps whose predecessors are all resolved, so it is
+        //    safe on restructure too. Spec "LIST + PROGRESSION build 2026-07-28" §B.
+        $deal->refresh();
+        $anchor = DealStepInstance::where('dr1_deal_id', $deal->id)
+            ->whereNull('deleted_at')
+            ->where('status', 'completed')
+            ->whereNull('trigger_step_instance_id')
+            ->orderBy('position')->orderBy('id')
+            ->first();
+        if ($anchor) {
+            app(\App\Services\Deal\Dr1PipelineService::class)->activateDownstreamSteps($anchor);
+        }
+
+        // 5. Cascade the Due dates off the anchor + follows chain.
+        $deal->refresh();
+        $this->cascade->recompute($deal);
+    }
+}

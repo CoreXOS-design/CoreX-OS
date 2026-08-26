@@ -42,9 +42,16 @@
     <meta name="robots" content="noindex,nofollow">
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>Your Property Matches{{ !empty($agency) && $agency->name ? ' — ' . $agency->name : '' }}</title>
+    {{-- Brand the WhatsApp link-preview card as the sending agency, not CoreX
+         (Johan, 2026-08-20) — same pattern as seller-outreach/unsubscribe.blade.php. --}}
+    <meta property="og:site_name" content="{{ !empty($agency) && $agency->name ? $agency->name : 'Your Property Matches' }}">
+    <meta property="og:title" content="Your Property Matches{{ !empty($agency) && $agency->name ? ' — ' . $agency->name : '' }}">
+    <meta property="og:description" content="Your personalised property matches{{ !empty($agency) && $agency->name ? ' from ' . $agency->name : '' }}.">
+    @if($logoUrl)<meta property="og:image" content="{{ $logoUrl }}">@endif
+    <meta property="og:url" content="{{ url()->current() }}">
     <link rel="preconnect" href="https://fonts.bunny.net">
     <link href="https://fonts.bunny.net/css?family=figtree:400,500,600,700,800&display=swap" rel="stylesheet">
-    <script src="https://cdn.tailwindcss.com"></script>
+    @vite(['resources/css/app.css', 'resources/js/app.js'])
     <style>
         :root {
             --bg: #f4f6fb;

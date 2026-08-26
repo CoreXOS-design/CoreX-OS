@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Communication Archive index row (AT-32). Channel-agnostic; raw payload on
@@ -33,7 +34,7 @@ class Communication extends Model
 
     protected $fillable = [
         'agency_id', 'channel', 'direction', 'external_id', 'thread_key', 'wa_chat_id', 'counterpart_lid',
-        'from_identifier', 'participant_identifiers', 'occurred_at', 'captured_at',
+        'from_identifier', 'participant_identifiers', 'to_identifiers', 'cc_identifiers', 'occurred_at', 'captured_at',
         'provisional_at', 'subject', 'body_text', 'body_preview', 'body_display', 'body_status', 'raw_path',
         'has_attachments', 'content_hash', 'text_hash', 'source_ref',
         'owner_user_id', 'purged_at', 'purged_reason',
@@ -46,6 +47,8 @@ class Communication extends Model
 
     protected $casts = [
         'participant_identifiers' => 'array',
+        'to_identifiers'          => 'array',
+        'cc_identifiers'          => 'array',
         'occurred_at'            => 'datetime',
         'captured_at'            => 'datetime',
         'provisional_at'         => 'datetime',
@@ -415,5 +418,48 @@ class Communication extends Model
             ->pluck('communication_id')
             ->map(fn ($id) => (int) $id)
             ->unique()->values()->all();
+    }
+
+    /**
+     * CX-113 (Johan, 2026-08-21) — DR2's agent picker: "was $agent actually a party to
+     * this email" (owner_user_id === $agent, OR one of $agent's own mailbox addresses
+     * is in participant_identifiers). Deliberately narrower than scopeVisibleTo()'s
+     * 'own' tier — no thread-level widening (b2) and no AT-132 grants (c), both of
+     * which are properties of the REQUESTING user's own access, not "what this other
+     * named agent was on". Used only when an admin/BM explicitly picks one agent from
+     * the DR2 Unfiled Emails filter — never for a user's own default visibility.
+     */
+    public function scopeInvolvingAgent(Builder $query, User $agent): Builder
+    {
+        $mailboxAddresses = static::participantMailboxAddresses($agent);
+
+        return $query->where(function (Builder $q) use ($agent, $mailboxAddresses) {
+            $q->where('owner_user_id', $agent->id);
+            foreach ($mailboxAddresses as $addr) {
+                $q->orWhereRaw('JSON_CONTAINS(participant_identifiers, ?)', [json_encode($addr)]);
+            }
+        });
+    }
+
+    /**
+     * CX-113 Phase A (Johan's correction, 2026-08-21) — "the emails needs to match on
+     * buyer or seller or supplier that are involved in a dr2 deal." Restricts to
+     * communications where from_identifier OR any participant_identifiers entry is one
+     * of the given (already normalised lower/trim) email addresses. An empty $emails
+     * list matches nothing — never silently falls back to "everything" (a resolver
+     * returning [] means no deal parties exist yet, not "skip the filter").
+     */
+    public function scopeMatchingAnyEmail(Builder $query, array $emails): Builder
+    {
+        if (empty($emails)) {
+            return $query->whereRaw('1 = 0');
+        }
+
+        return $query->where(function (Builder $q) use ($emails) {
+            $q->whereIn(DB::raw('LOWER(TRIM(from_identifier))'), $emails);
+            foreach ($emails as $email) {
+                $q->orWhereRaw('JSON_CONTAINS(participant_identifiers, ?)', [json_encode($email)]);
+            }
+        });
     }
 }

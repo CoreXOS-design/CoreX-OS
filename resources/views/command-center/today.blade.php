@@ -192,6 +192,7 @@ function commandCentre() {
             if (card.card_id === 'active_buyer_pipeline') return card.items.map(i => i.value + ' ' + i.label.split(' ')[0].toLowerCase()).join(', ');
             if (card.card_id === 'esign_activity') return card.items.map(i => i.value + ' ' + i.label.toLowerCase()).join(' | ');
             if (card.card_id === 'prospecting_activity') return card.items.map(i => i.value + ' ' + i.label.toLowerCase()).join(' | ');
+            if (card.card_id === 'website_performance') return card.items.slice(0, 3).map(i => i.value + ' ' + i.label.toLowerCase()).join(' | ');
             if (card.card_id === 'listings_pending_marketing') return first.label + ': ' + (first.value || '');
             if (card.card_id === 'agency_health') return (first.agents ?? '') + ' agents, ' + (first.listings ?? '') + ' listings';
             if (card.card_id === 'branch_lost_value') return first.value_display || '';

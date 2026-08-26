@@ -39,16 +39,22 @@
         return $start;
     };
     // Lane-packing (identical geometry to the classic week overlay).
+    // AT-335 — completed/dismissed tiles never compete for a lane: excluded
+    // from clustering, always rendered full-width (lane 0 of 1).
     $layoutDayColumn = function ($events, int $gridStart, int $gridCount) {
         $gridMin = max(1, $gridCount * 60);
-        $items = collect($events)->filter()->map(function ($e) use ($gridStart, $gridMin) {
+        $toItem = function ($e) use ($gridStart, $gridMin) {
             $startMin = ($e->event_date->hour - $gridStart) * 60 + $e->event_date->minute;
             $endDt = ($e->end_date && $e->end_date->gt($e->event_date)) ? $e->end_date : $e->event_date->copy()->addMinutes(60);
             $endMin = $endDt->isSameDay($e->event_date) ? ($endDt->hour - $gridStart) * 60 + $endDt->minute : $gridMin;
             $s  = max(0, min($startMin, $gridMin));
             $en = max($s + 30, min($endMin, $gridMin));
             return ['e' => $e, 's' => $s, 'en' => $en, 'lane' => 0, 'lanes' => 1];
-        })->sortBy('s')->values()->all();
+        };
+        $isDone = fn ($e) => in_array($e->status, ['completed', 'dismissed'], true);
+        $filtered = collect($events)->filter();
+        $doneItems = $filtered->filter($isDone)->map($toItem)->values()->all();
+        $items = $filtered->reject($isDone)->map($toItem)->sortBy('s')->values()->all();
         $i = 0; $n = count($items);
         while ($i < $n) {
             $clusterEnd = $items[$i]['en']; $laneEnds = []; $j = $i;
@@ -62,7 +68,7 @@
             for ($k = $i; $k < $j; $k++) { $items[$k]['lanes'] = $laneCount; }
             $i = $j;
         }
-        return $items;
+        return array_merge($items, $doneItems);
     };
 
     $allDay = collect(); $timed = collect();

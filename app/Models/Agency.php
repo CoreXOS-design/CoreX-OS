@@ -28,6 +28,49 @@ class Agency extends Model
     }
 
     /**
+     * MIC speed round 3 (2026-08-23) — Agency::find($id) is called independently
+     * across ~30 unrelated call sites (services resolving "the current agency"),
+     * which measured as 56 identical single-row queries in one MIC page load.
+     * Memoised here at the resolver level so every existing call site benefits
+     * without being touched individually.
+     *
+     * Scope: only the bare Agency::find($id) shape (default $columns) is
+     * memoised — a caller requesting specific columns, or passing an array/
+     * Collection of ids, falls straight through unmemoised, identical to
+     * today's behaviour, so a column-restricted or bulk lookup can never be
+     * served a stale/wrong-shaped cached result.
+     *
+     * Lifetime: a plain static array needs no explicit reset for HTTP
+     * requests — PHP tears down all static state between requests under
+     * php-fpm — but a long-running `queue:work` worker does NOT reset
+     * between jobs, so forgetFindMemo() is wired to fire before every queued
+     * job via Queue::before() in AppServiceProvider::boot(). Without that
+     * reset, a worker could serve job #2 a stale Agency instance resolved
+     * for job #1 — exactly the leak this cache must not cause.
+     */
+    private static array $findMemo = [];
+
+    public static function find($id, $columns = ['*'])
+    {
+        if ($columns === ['*'] && (is_int($id) || is_string($id))) {
+            $key = (int) $id;
+            if (array_key_exists($key, self::$findMemo)) {
+                return self::$findMemo[$key];
+            }
+
+            return self::$findMemo[$key] = static::query()->find($id, $columns);
+        }
+
+        return static::query()->find($id, $columns);
+    }
+
+    /** Cleared before every queued job (AppServiceProvider::boot) — never across requests/jobs. */
+    public static function forgetFindMemo(): void
+    {
+        self::$findMemo = [];
+    }
+
+    /**
      * WhatsApp launch-mode constants per the 2026-05-14 hotfix. Controls how
      * the "Open WhatsApp" buttons hand off to the user's WhatsApp app:
      *
@@ -192,6 +235,7 @@ class Agency extends Model
         // Settings (unlike the flood-fill pixel thresholds above).
         'ad_bg_removal_api_enabled',
         'assistant_fica_required_default',
+        'adhoc_document_distribution_enabled', // Feature 2 — ad-hoc "Send docs to any email" on/off (default off)
         'show_prospected_badge',
         'properties_sort_mode',
         'properties_status_priority',
@@ -361,6 +405,7 @@ class Agency extends Model
         // Per-agency maintenance mode (AT-93).
         'maintenance_mode' => 'boolean',
         'deal_v2_bm_approval_enabled' => 'boolean', // AT-158 WS-R3
+        'adhoc_document_distribution_enabled' => 'boolean', // Feature 2 — ad-hoc distribution on/off
         'maintenance_started_at' => 'datetime',
         'ss_show_complex_section' => 'boolean',
         'privacy_policy_published_at' => 'datetime',

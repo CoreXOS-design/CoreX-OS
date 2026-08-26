@@ -37,7 +37,8 @@
     <h2 class="text-base font-semibold mb-1" style="color: var(--text-primary);">Your property</h2>
     <div class="text-sm" style="color: var(--text-secondary);">
         @php
-            $addr = trim(((string) ($property->street_number ?? '')) . ' ' . ((string) ($property->street_name ?? '')));
+            // AT-266 — canonical street line (unit + complex + street), then suburb.
+            $addr = $property->composeAddressFromParts();
         @endphp
         {{ $addr !== '' ? $addr : '(address)' }}{{ !empty($property->suburb) ? ', ' . $property->suburb : '' }}
     </div>

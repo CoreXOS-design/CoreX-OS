@@ -269,22 +269,60 @@ class ParseMarketReportJob implements ShouldQueue
                     break;
                 }
             }
+            $isZeroCompWithSummary = $compCount === 0 && $hasSummary;
 
-            if ($compCount === 0 && $hasSummary) {
+            // GUARDRAIL — unrecognised document. detect() always returns SOME
+            // parser (GenericFallbackParser's 0.1 floor guarantees a match),
+            // so an unsupported document is never rejected outright — it is
+            // silently accepted and parse_status still reads "parsed" with
+            // data_points_count=0, indistinguishable from a genuinely empty
+            // but valid CMA. 2026-08-25, Johan: "An import that extracts
+            // nothing must never look like an import that worked."
+            $isGenericFallback = $parser instanceof \App\Services\MarketReports\Parsers\GenericFallbackParser;
+
+            // GUARDRAIL — recognised but wholly empty. A real (non-generic)
+            // parser matched the document (it passed detection), yet nothing
+            // at all came out of it — not data points, not comp rows, not
+            // scheme owners. Broader than the summary-vs-comps guard above:
+            // this catches every other zero-yield shape, e.g. a parser that
+            // explicitly refuses to guess (CmaInfoMedianSalesAnalysisParser's
+            // own "variant undetermined" refusal) or a document whose table
+            // layout doesn't match the parser's extraction regex despite
+            // matching its detection signature — exactly the failure mode
+            // that silently swallowed BOTH of Johan's real Shelly Beach
+            // uploads before the 2026-08-25 parser fix.
+            $isRecognizedButEmpty = !$isGenericFallback && !$isZeroCompWithSummary
+                && count($result->dataPoints) === 0
+                && empty($result->compRows)
+                && empty($result->schemeOwners);
+
+            if ($isZeroCompWithSummary || $isGenericFallback || $isRecognizedButEmpty) {
+                $flaggedBy = $isZeroCompWithSummary
+                    ? 'zero_comp_with_summary_guard'
+                    : ($isGenericFallback ? 'unrecognized_document' : 'recognized_zero_data_points');
+
+                $note = match ($flaggedBy) {
+                    'zero_comp_with_summary_guard' => 'Parsed 0 comparable sales, but the report carries summary ranges (Lower / Middle / Upper / Average) implying sales exist — the sales-table layout was not recognised, so comparables did NOT import. Re-check the report format before relying on this presentation.',
+                    'unrecognized_document'        => 'This document was not recognised as any known CMA report format, so nothing was extracted from it. If this is meant to be a CMA/market report, its layout is not yet supported — please raise it. If it is not a CMA report, no action is needed.',
+                    default                         => 'This document was recognised as a CMA report but the parser could not extract any figures from it — the import produced nothing. This report needs review before it can be relied on.',
+                };
+
                 $report->update([
                     'spot_check_status'  => MarketReport::SPOT_FLAGGED,
                     'spot_check_results' => [
-                        'note'         => 'Parsed 0 comparable sales, but the report carries summary ranges (Lower / Middle / Upper / Average) implying sales exist — the sales-table layout was not recognised, so comparables did NOT import. Re-check the report format before relying on this presentation.',
-                        'comp_rows'    => 0,
-                        'has_summary'  => true,
-                        'flagged_by'   => 'zero_comp_with_summary_guard',
+                        'note'         => $note,
+                        'comp_rows'    => $compCount,
+                        'data_points'  => count($result->dataPoints),
+                        'has_summary'  => $hasSummary,
+                        'flagged_by'   => $flaggedBy,
                         'completed_at' => now()->toIso8601String(),
                     ],
                 ]);
-                Log::warning('ParseMarketReportJob: 0 comps parsed despite summary ranges — flagged for review', [
+                Log::warning('ParseMarketReportJob: zero-yield import — flagged for review', [
                     'report_id'   => $report->id,
                     'report_type' => $report->reportType?->key,
                     'file'        => $report->file_name,
+                    'flagged_by'  => $flaggedBy,
                 ]);
                 event(new \App\Events\MarketReports\MarketReportSpotCheckFlagged(
                     report: $report,

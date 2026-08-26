@@ -5,10 +5,10 @@
 @section('legal-body')
     <p>
         This page explains how to request deletion of data that <strong>CoreX OS</strong>
-        (operated by <strong>Home Finders Coastal</strong>) holds about you, including any data
-        obtained when you connect a Facebook or Instagram account to CoreX. We provide these
-        instructions in line with Meta's Platform requirements and the South African
-        <strong>Protection of Personal Information Act (POPIA)</strong>.
+        (owned and operated by <strong>R R Technologies (Pty) Ltd</strong>) holds about you,
+        including any data obtained when you connect a Facebook or Instagram account to CoreX.
+        We provide these instructions in line with Meta's Platform requirements and the South
+        African <strong>Protection of Personal Information Act (POPIA)</strong>.
     </p>
 
     <h2>What data the Facebook/Instagram connection stores</h2>

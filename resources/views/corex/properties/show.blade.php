@@ -1,6 +1,9 @@
 @extends('layouts.corex')
 
 @section('corex-content')
+@if($property->exists ?? false)
+    @include('corex.properties.partials._dead-end-warning', ['property' => $property])
+@endif
 @php
     $isNew = !$property->exists;
     // Saving a compliant, Active listing makes its portal copies stale that instant.
@@ -92,6 +95,45 @@
         </div>
     @endif
 
+    {{-- CX-102 part 2 (2026-08-19, Johan) — "the system must show its working
+         and let the agent overrule it." Only ever present for one request: an
+         agent tried to claim a MIC listing, MarketIntelligenceController::
+         claim() decided it's this property, and flashed the listing id that
+         got them here. The reason is read straight off the decision recorded
+         at match time — never recomputed here. --}}
+    @if($micClaimDecision ?? null)
+        <div class="mt-3 rounded-md border px-4 py-3 text-sm"
+             style="background:color-mix(in srgb, var(--ds-amber, #d97706) 10%, transparent); border-color:color-mix(in srgb, var(--ds-amber, #d97706) 35%, transparent); color:var(--text-primary);">
+            <div>
+                <strong style="color:var(--ds-amber, #d97706);">Why this listing matched this property:</strong>
+                {{ $micClaimDecision->reason }}
+            </div>
+            <details class="mt-1.5">
+                <summary class="cursor-pointer font-semibold text-xs" style="color:var(--ds-amber, #d97706);">
+                    Not the same property?
+                </summary>
+                <form method="POST"
+                      action="{{ route('market-intelligence.reject-claim-match') }}"
+                      class="mt-2 flex flex-wrap items-end gap-2"
+                      onsubmit="return confirm('Break this link? The listing goes straight back into your prospecting list — nothing is deleted.');">
+                    @csrf
+                    <input type="hidden" name="listing_id" value="{{ $micClaimListingId }}">
+                    <input type="hidden" name="property_id" value="{{ $property->id }}">
+                    <div class="flex-1" style="min-width: 12rem;">
+                        <label class="block text-[11px] font-semibold mb-1" style="color: var(--text-muted);">Why (optional):</label>
+                        <input type="text" name="reason" maxlength="500" placeholder="e.g. different building, wrong suburb"
+                               class="w-full rounded text-xs px-2 py-1.5" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                    </div>
+                    <button type="submit"
+                            class="text-xs font-semibold px-3 py-1.5 rounded"
+                            style="background: color-mix(in srgb, #dc2626 12%, transparent); color: #dc2626; border: 1px solid color-mix(in srgb, #dc2626 35%, transparent);">
+                        Not the same property
+                    </button>
+                </form>
+            </details>
+        </div>
+    @endif
+
     {{-- Readiness bar removed --}}
 
     {{-- Two-column layout on large screens --}}
@@ -111,6 +153,10 @@
             // be able to tell "we sold it" from "they sold it".
             'sold_by_3rd_party' => 'var(--ds-amber)',
             'withdrawn' => 'var(--ds-amber)',
+            // 2026-08-21 — Prospecting purple (matches the properties-list tile
+            // colour, so the two screens read as the same pool at a glance).
+            'prospecting' => 'var(--ds-purple, #7c3aed)',
+            'not_selling' => 'var(--text-muted)',
         ];
         $statusBadgeVariants = [
             'active'    => 'ds-badge-success',
@@ -118,6 +164,8 @@
             'sold'      => 'ds-badge-info',
             'sold_by_3rd_party' => 'ds-badge-warning',
             'withdrawn' => 'ds-badge-warning',
+            'prospecting' => 'ds-badge-info',
+            'not_selling' => 'ds-badge-default',
         ];
         $sc = $statusColors[$property->status] ?? 'var(--text-muted)';
         $scBadge = $statusBadgeVariants[$property->status] ?? 'ds-badge-default';
@@ -199,24 +247,17 @@
                         @endif
                     </div>
                     @php
-                        $sbAddrParts = [];
-                        if (!empty($property->unit_number)) $sbAddrParts[] = 'Unit ' . $property->unit_number;
-                        if (!empty($property->complex_name)) $sbAddrParts[] = $property->complex_name;
-                        if (!empty($property->street_number) && !empty($property->street_name)) {
-                            $sbAddrParts[] = $property->street_number . ' ' . $property->street_name;
-                        } elseif (!empty($property->street_name)) {
-                            $sbAddrParts[] = $property->street_name;
-                        } elseif (!empty($property->address)) {
-                            $sbAddrParts[] = $property->address;
-                        }
-                        if (!empty($property->suburb)) $sbAddrParts[] = $property->suburb;
-                        if (!empty($property->city) && strtolower($property->city) !== strtolower($property->suburb ?? '')) {
-                            $sbAddrParts[] = $property->city;
-                        }
+                        // AT-266 — one canonical display address (Property::buildDisplayAddress),
+                        // not an inline re-implementation. $sbAddr is the address string; it
+                        // falls back to title/'Unknown Property' internally, so $hasRealAddr
+                        // tells the two-line layout whether there is a real address to show
+                        // above the title.
+                        $sbAddr = $property->buildDisplayAddress();
+                        $hasRealAddr = $sbAddr !== '' && $sbAddr !== ($property->title ?? '') && $sbAddr !== 'Unknown Property';
                     @endphp
-                    @if(count($sbAddrParts))
+                    @if($hasRealAddr)
                         {{-- Address primary, heading small underneath --}}
-                        <div class="text-sm font-bold mt-1 leading-snug" style="color:var(--text-primary); display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;" title="{{ implode(', ', $sbAddrParts) }}">{{ implode(', ', $sbAddrParts) }}</div>
+                        <div class="text-sm font-bold mt-1 leading-snug" style="color:var(--text-primary); display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;" title="{{ $sbAddr }}">{{ $sbAddr }}</div>
                         @if($property->title)
                         <div class="text-[11px] mt-0.5 truncate" style="color:var(--text-muted);" title="{{ $property->title }}">{{ $property->title }}</div>
                         @endif
@@ -320,6 +361,22 @@
 
                 {{-- Presentations V2 — one-button generator (Phase 1) + coverage badge + asking-price modal (Phase 2) --}}
                 @if(auth()->user()->hasPermission('create_presentations'))
+                @php
+                    // Pre-generate accuracy warning (Johan, 2026-08-20 — relocated
+                    // from the review screen to here: "warns them BEFORE they
+                    // generate ... can fix it right there while they already
+                    // have the form open"). Same missingSoftInputs() helper the
+                    // comparable-stock cascade uses — treats beds/baths/price
+                    // of 0 as absent, same as a never-filled-in field, since the
+                    // columns are NOT NULL DEFAULT 0 and can't distinguish the two.
+                    // AGENT-ONLY: this whole block sits inside a
+                    // hasPermission('create_presentations') gate on
+                    // corex.properties.show, an authenticated agent route —
+                    // never reachable by a homeowner, who has no CoreX login at
+                    // all, let alone this permission.
+                    $_genMissing = app(\App\Services\Presentations\CompetitorStockMatchService::class)
+                        ->missingSoftInputs($property);
+                @endphp
                 <div x-data="presentationGenerator({
                         propertyId: {{ $property->id }},
                         coverageUrl: '{{ route('corex.properties.presentation-coverage', $property) }}',
@@ -389,6 +446,40 @@
                                            style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
                                            placeholder="e.g. 1500000">
                                 </div>
+
+                                @if(!empty($_genMissing))
+                                    @php
+                                        // Shared grammar helper (SubjectFieldCompleteness::joinNames)
+                                        // — same "a, b and c" join used by CmaCoverageService's
+                                        // merged badge sentence, not a separate copy.
+                                        $_genNamed   = $_genMissing;
+                                        $_genPronoun = count($_genNamed) === 1 ? 'this' : 'these';
+                                    @endphp
+                                    {{-- Johan, 2026-08-20: "make it more prominent ... its the
+                                         reason the presentation will be broken. so let them have
+                                         it." Consequence-first copy, real --ds-red (the app's own
+                                         danger token — used elsewhere at properties/show.blade.php's
+                                         SG-search error banner), solid border + heavier fill + icon +
+                                         bold heading, not a thin tinted strip. Still just a visible
+                                         warning, not a gate — no confirm step, Generate stays one click. --}}
+                                    <div class="mt-2 rounded-md px-3 py-2.5 text-[11px]"
+                                         style="background:color-mix(in srgb, var(--ds-red) 14%, transparent); border:1.5px solid var(--ds-red); color:var(--text-primary);">
+                                        <div class="flex items-start gap-2">
+                                            <span style="color:var(--ds-red); font-size:14px; line-height:1;">⚠</span>
+                                            <div>
+                                                <div class="font-bold uppercase tracking-wide" style="color:var(--ds-red); font-size:11px; margin-bottom:2px;">
+                                                    Your report will be inaccurate
+                                                </div>
+                                                <div>
+                                                    This property is missing {{ \App\Support\Presentations\SubjectFieldCompleteness::joinNames($_genNamed) }}.
+                                                    Comparable stock can only be matched on property type and suburb,
+                                                    so the report will show far fewer — or no — comparable properties.
+                                                    <a href="{{ route('corex.properties.show', $property) }}#edit" style="text-decoration:underline; font-weight:600;">Set {{ $_genPronoun }} on the property first</a> for a full report.
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                @endif
 
                                 {{-- Phase 3b — comp scope override at generation time --}}
                                 <div class="mt-4 pt-3" style="border-top:1px solid var(--border);">
@@ -916,6 +1007,35 @@
         {{-- RIGHT: tabs --}}
         <div class="flex-1 min-w-0" style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:clip;">
 
+        {{-- PROSPECTING banner (Johan, 2026-08-20/21, .ai/specs/2026-08-20-
+             property-status-prospecting.md) — deliberately the FIRST thing in
+             this column, mobile and desktop alike, not tucked in a dropdown:
+             the spec's own risk #3 is that if this move isn't obvious the
+             prospecting pile just grows. Two buttons, one click each. --}}
+        @if(!$isNew && $property->isProspecting())
+        <div class="p-4 flex items-center justify-between gap-3 flex-wrap" style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 12%, transparent); border-bottom: 1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 35%, transparent);">
+            <div class="text-sm" style="color: var(--text-primary);">
+                <strong>Prospecting</strong> — ingested stock, no mandate yet.
+            </div>
+            <div class="flex items-center gap-2 flex-shrink-0">
+                <form method="POST" action="{{ route('corex.properties.convert-from-prospecting', $property) }}"
+                      onsubmit="return confirm('Move this property to Draft — mandate won?');">
+                    @csrf
+                    <button type="submit" class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background: var(--ds-green, #059669); color:#fff;">
+                        Won the mandate — move to Draft
+                    </button>
+                </form>
+                <form method="POST" action="{{ route('corex.properties.mark-not-selling', $property) }}"
+                      onsubmit="return confirm('Mark this property Not selling? This closes it out of Prospecting.');">
+                    @csrf
+                    <button type="submit" class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                        Not selling
+                    </button>
+                </form>
+            </div>
+        </div>
+        @endif
+
         {{-- Mobile-only header strip --}}
         <div class="lg:hidden p-4" style="background:var(--surface-2); border-bottom:1px solid var(--border);">
             <div class="flex items-start gap-3">
@@ -939,7 +1059,14 @@
                                 'rental' => 'For Rent',
                                 default  => 'For Sale',
                             };
-                            $statusLabel2 = ucwords(str_replace('_', ' ', (string) ($property->status ?: 'Draft')));
+                            // 2026-08-21 — was a raw ucwords() of the status column,
+                            // which mislabelled 'not_selling' as "Not Selling" (Title
+                            // Case) instead of Johan's exact "Not selling" (sentence
+                            // case). statusBadge() is the model's own single source
+                            // of truth for this exact label everywhere else on this
+                            // page (the compact pill lower down uses it already) —
+                            // reusing it here instead of re-deriving.
+                            $statusLabel2 = $property->status ? $property->statusBadge() : 'Draft';
                             $brandPillStyle2 = 'background:var(--brand-default); color:#fff; border:none;';
                         @endphp
                         <span class="text-sm px-2.5 py-1 rounded-full font-semibold" style="{{ $brandPillStyle2 }}">{{ $listingTypeLabel2 }}</span>
@@ -1083,7 +1210,7 @@
                 $descPreview  = \Illuminate\Support\Str::limit(strip_tags($property->description ?? ''), 220);
                 $statusColor      = $statusColors[$property->status] ?? 'var(--text-muted)';
                 $statusBadgeClass = $statusBadgeVariants[$property->status] ?? 'ds-badge-default';
-                $statusLabel      = ucwords(str_replace('_', ' ', $property->status ?: 'draft'));
+                $statusLabel      = $property->status ? $property->statusBadge() : 'Draft';
                 $photoCount       = count($property->allImages());
             @endphp
 
@@ -4683,7 +4810,7 @@
 
             {{-- Create new contact and link --}}
             <div style="background:var(--surface-2); border:1px solid var(--border); border-radius:6px; padding:20px;"
-                 x-data="{ open: false }">
+                 x-data="{ open: false, kind: 'natural_person', idKind: 'sa_id' }">
                 <button type="button" @click="open = !open"
                         class="flex items-center gap-2 text-sm font-semibold"
                         style="color:var(--brand-icon); background:none; border:none; cursor:pointer; padding:0;">
@@ -4697,24 +4824,54 @@
                 <div x-show="open" x-cloak class="mt-5 space-y-4">
                     <form @submit.prevent="createAndLink($el, () => { open = false; })" class="space-y-4">
                         @csrf
+                        {{-- Contact Is: Natural person OR Entity (company / CC / trust). An entity owner
+                             must be capturable from the property record — not forced to a natural person.
+                             Entity swaps the name fields for registered name + reg number; the hidden
+                             contact_kind is what the createAndLink controller branches on. Reps/directors
+                             are added on the entity record afterward (Johan 2026-08-14). --}}
+                        <input type="hidden" name="contact_kind" :value="kind">
+                        <div>
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Contact Is <span class="prop-required">*</span></label>
+                            <div class="flex items-center gap-4 text-sm" style="color:var(--text-secondary);">
+                                <label class="inline-flex items-center gap-1.5 cursor-pointer"><input type="radio" name="contact_kind_toggle" value="natural_person" x-model="kind"> Natural person</label>
+                                <label class="inline-flex items-center gap-1.5 cursor-pointer"><input type="radio" name="contact_kind_toggle" value="entity" x-model="kind"> Entity <span style="color:var(--text-muted);">(company / CC / trust)</span></label>
+                            </div>
+                        </div>
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            <div>
+                            {{-- Natural-person name/phone --}}
+                            <div x-show="kind === 'natural_person'">
                                 <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">First Name <span class="prop-required">*</span></label>
-                                <input type="text" name="first_name" required
+                                <input type="text" name="first_name" :required="kind === 'natural_person'"
                                        class="w-full rounded-md px-3 py-2 text-sm"
                                        style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                             </div>
-                            <div>
+                            <div x-show="kind === 'natural_person'">
                                 <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Surname <span class="prop-required">*</span></label>
-                                <input type="text" name="last_name" required
+                                <input type="text" name="last_name" :required="kind === 'natural_person'"
                                        class="w-full rounded-md px-3 py-2 text-sm"
                                        style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                             </div>
-                            <div>
+                            <div x-show="kind === 'natural_person'">
                                 <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Phone <span class="prop-required">*</span></label>
-                                <input type="text" name="phone" required
+                                <input type="text" name="phone" :required="kind === 'natural_person'"
                                        class="w-full rounded-md px-3 py-2 text-sm"
                                        style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                            </div>
+                            {{-- Entity: registered name (required) + registration number --}}
+                            <div x-show="kind === 'entity'" x-cloak>
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Registered Name <span class="prop-required">*</span></label>
+                                <input type="text" name="entity_name" :required="kind === 'entity'" maxlength="255"
+                                       placeholder="e.g. Blue Horizon Trust"
+                                       class="w-full rounded-md px-3 py-2 text-sm"
+                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                            </div>
+                            <div x-show="kind === 'entity'" x-cloak>
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Registration Number <span style="font-weight:400;">(optional)</span></label>
+                                <input type="text" name="entity_reg_no" maxlength="100"
+                                       placeholder="e.g. 2019/123456/07"
+                                       class="w-full rounded-md px-3 py-2 text-sm"
+                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                <p class="mt-1 text-[11px]" style="color:var(--text-muted);">Add directors/representatives on the entity record afterward.</p>
                             </div>
                             <div>
                                 <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Email</label>
@@ -4743,15 +4900,35 @@
                                     @endforeach
                                 </select>
                             </div>
-                            {{-- A.2.5 — optional SA ID number with client-side hint. --}}
-                            <div class="sm:col-span-2">
-                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">ID number (optional)</label>
-                                <input type="text" name="id_number" inputmode="numeric" maxlength="13"
-                                       pattern="\d{13}" placeholder="e.g. 1234567890123"
-                                       title="13 digits — empty is fine"
+                            {{-- #17 — SA ID vs foreign passport (natural person only; an entity is keyed on
+                                 its registration number above). The SA path validates the 13-digit ID; a
+                                 foreign national enters a passport + a directly-entered Date of Birth (the
+                                 passport doesn't encode it). Same discriminator + rules as the main
+                                 contact form. Backward-compatible: absent id_type defaults to the SA path. --}}
+                            <div x-show="kind === 'natural_person'">
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">ID Type</label>
+                                <select name="id_type" x-model="idKind"
+                                        class="w-full rounded-md px-3 py-2 text-sm"
+                                        style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                    <option value="sa_id">South African ID</option>
+                                    <option value="passport">Foreign / Passport</option>
+                                </select>
+                            </div>
+                            <div x-show="kind === 'natural_person'">
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);"><span x-text="idKind === 'passport' ? 'Passport Number' : 'ID Number'"></span> <span style="font-weight:400;">(optional)</span></label>
+                                <input type="text" name="id_number"
+                                       :inputmode="idKind === 'passport' ? 'text' : 'numeric'"
+                                       :maxlength="idKind === 'passport' ? 50 : 13"
+                                       :placeholder="idKind === 'passport' ? 'e.g. AB1234567' : 'e.g. 7610025020081'"
                                        class="w-full rounded-md px-3 py-2 text-sm"
                                        style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                                <p class="mt-1 text-[11px]" style="color:var(--text-muted);">SA ID — 13 digits. Leave blank if not known.</p>
+                            </div>
+                            <div x-show="kind === 'natural_person'">
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Date of Birth <span style="font-weight:400;" x-show="idKind !== 'passport'">(optional)</span><span class="text-red-500" x-show="idKind === 'passport'" x-cloak>*</span></label>
+                                <input type="date" name="birthday"
+                                       :required="kind === 'natural_person' && idKind === 'passport'"
+                                       class="w-full rounded-md px-3 py-2 text-sm"
+                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                             </div>
                         </div>
                         <button type="submit"
@@ -5207,6 +5384,14 @@
                     @include('corex.properties.intelligence._portal-engagement-chart', [
                         'property' => $property,
                         'engagement' => $intel->getPortalEngagementSeries($property->id),
+                    ])
+                </div>
+
+                {{-- Website Performance — the agency's OWN site (AT-383).
+                     Spec: .ai/specs/website-listing-stats.md §5.1 --}}
+                <div x-show="!sellerPreview">
+                    @include('corex.properties.intelligence._website-performance', [
+                        'property' => $property,
                     ])
                 </div>
 

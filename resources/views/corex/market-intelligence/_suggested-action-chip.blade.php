@@ -8,10 +8,18 @@
     is null, renders a small inert "—" placeholder so the row stays balanced.
 
     Tier visual hierarchy (per Build E v2 spec §6.2):
-      CRITICAL → solid red, white text — R1 FLAG TO BM, R2 EXPIRING
-      ACTION   → teal background-mix, teal text + border — R4/R5/R6/R7
+      CRITICAL → solid red, white text — R1 FLAG TO BM
+      ACTION   → teal background-mix, teal text + border — R2/R4/R5/R6/R7 (Continue/Pitch)
       AWAIT    → amber background-mix, amber text + border — R3 LOG OUTCOME
       INFO     → outline only, slate text — R8/R9
+
+    2026-08-14 (Johan) — R2 ("claim expiring") and R4 ("claim stale, follow
+    up") used to make the warning text itself the (dead) click target. The
+    primary chip is now always a real, clickable "Continue" CTA in the same
+    slot PITCH NOW occupies; when the DTO carries statusBadgeLabel/Tier, a
+    small non-interactive text badge renders next to it so the original
+    warning ("CLAIM EXPIRES SOON" / "FOLLOW UP CLAIM") stays visible without
+    being the only — and previously broken — thing you could click.
 
     Spec: build-f-market-intelligence-redesign-spec.md §10;
           build-e-suggested-action-chips-spec.md §6.
@@ -47,7 +55,33 @@
             default       => '',
         };
 
-        $baseChipStyle = 'display: inline-flex; align-items: center; gap: 5px; padding: 5px 10px; font-size: 0.6875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; border-radius: 4px; text-decoration: none; cursor: pointer; white-space: nowrap;';
+        // Fixed at the COMPONENT level (Johan 2026-08-21: "fix the sizing at the
+        // component level, not per-variant") — every SuggestedAction (R1-R10:
+        // FLAG TO BM, Continue, LOG OUTCOME, PITCH NOW · HIGH, PITCH NOW,
+        // RE-PITCH STOCK, Pitched, etc.) shares this ONE style block, so they
+        // all render the same size regardless of which rule fired. min-width
+        // (not width) is sized to comfortably fit "PITCH NOW · HIGH" — the
+        // longest label an ordinary agent sees day to day — WITHOUT truncating
+        // the rarer, genuinely longer manager/edge-case labels ("RESOLVE
+        // COLLEAGUE CLAIM", "ALREADY EXISTS · OPEN PROPERTY"): those grow past
+        // it instead of clipping. justify-content:center keeps short labels
+        // ("Pitched", "Claim") centred in the shared width rather than hugging
+        // one edge. Padding/radius here MUST stay identical to the Claim
+        // button's in _listing-row.blade.php (same min-width value too) — the
+        // two are meant to square up into one block; if you change one, change
+        // the other.
+        $baseChipStyle = 'display: inline-flex; align-items: center; justify-content: center; gap: 5px; padding: 6px 12px; font-size: 0.6875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; border-radius: 5px; text-decoration: none; cursor: pointer; white-space: nowrap; min-width: 160px; box-sizing: border-box;';
+
+        // Small, non-interactive secondary badge — text-only (no chip
+        // background/border) so it reads as a status indicator rather than
+        // a second competing button next to the primary CTA.
+        $badgeColor = match($s->statusBadgeTier) {
+            'critical' => 'var(--ds-crimson, #dc2626)',
+            'action'   => 'var(--ds-green, #10b981)',
+            'await'    => 'var(--ds-amber, #f59e0b)',
+            'info'     => 'var(--text-secondary)',
+            default    => 'var(--text-muted)',
+        };
     @endphp
 
     @if($s->clickType === 'anchor')
@@ -86,5 +120,13 @@
             {!! $iconSvg !!}
             <span>{{ $s->label }}</span>
         </button>
+    @endif
+
+    @if($s->statusBadgeLabel)
+        <span data-rank="{{ $s->rank }}-status"
+              style="display: inline-flex; align-items: center; margin-left: 6px; font-size: 0.5625rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.02em; color: {{ $badgeColor }}; white-space: nowrap;"
+              title="{{ $tooltipText }}">
+            {{ $s->statusBadgeLabel }}
+        </span>
     @endif
 @endif

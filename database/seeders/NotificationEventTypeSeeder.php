@@ -2,6 +2,7 @@
 
 namespace Database\Seeders;
 
+use App\Contracts\SyncableReferenceSeeder;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
 
@@ -25,7 +26,7 @@ use Illuminate\Support\Facades\DB;
  * INCLUDING soft-deleted ones, so a toggle deliberately retired (e.g.
  * contact.fica_missing, killed during the 1.9M storm) stays retired.
  */
-class NotificationEventTypeSeeder extends Seeder
+class NotificationEventTypeSeeder extends Seeder implements SyncableReferenceSeeder
 {
     public function run(): void
     {
@@ -134,6 +135,18 @@ class NotificationEventTypeSeeder extends Seeder
             // The assignment's own `notify_on_action` defaults OFF, so this stays silent until an
             // agent explicitly asks for it.
             $this->row('assistant.acted_on_behalf', 'agent', 'My activity', 'My assistant added or changed something', 'none', null, null, null, 60, false, null, inApp: true, email: false, push: false),
+            // MIC funnel phase 2 (Johan 2026-08-13) — the agent on a pitched/claimed property is warned
+            // it is going stale (unworked past the agency's claim_warn_days) so they can react before it
+            // reaches BM/admin move-or-keep review. In-app + email; no push.
+            $this->row('prospecting.claim_stale_warning', 'agent', 'My activity', 'Your claimed property is going stale', 'none', null, null, null, 51, false, null, inApp: true, email: true, push: false),
+            // MIC funnel phase 2 — the losing agent is warned when a BM/admin reassigns a stale claim away.
+            $this->row('prospecting.claim_reassigned', 'agent', 'My activity', 'Your claimed property was reassigned', 'none', null, null, null, 52, false, null, inApp: true, email: true, push: false),
+            // Deeds-capture duplicate-match take rule (Johan, 2026-08-21) — a match in the
+            // approval band notifies admin/BM; the requesting agent is notified of the decision.
+            $this->row('deeds.duplicate_take_pending', 'agent', 'My activity', 'Duplicate-property take needs approval', 'none', null, null, null, 53, false, null, inApp: true, email: true, push: false),
+            $this->row('deeds.duplicate_take_decided', 'agent', 'My activity', 'Your duplicate-property take request was decided', 'none', null, null, null, 54, false, null, inApp: true, email: true, push: false),
+            // AT-373 inc7 — the 'esign.clause_flagged' event type was retired with the recipient
+            // clause-flag mechanism (recipients now amend via the wet-ink tool at their turn).
         ];
     }
 

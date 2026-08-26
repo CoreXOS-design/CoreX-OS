@@ -73,6 +73,136 @@
         display: none !important;
     }
 }
+
+/* PDF-MARK-CSS-START — everything from here to PDF-MARK-CSS-END is the UNIFORM MARK-RENDER
+   contract (signature line + initial box sizing, ink-image sizing). It is lifted VERBATIM into
+   the signed/filed PDF by SignaturePdfService::esignMarkRenderCss(), so a mark renders the SAME
+   in the PDF as on the signing/review screen (print == screen). Everything ABOVE this marker is
+   screen/page-layout only (.corex-a4-page etc.) and must NOT reach the PDF — it conflicts with
+   the PDF page shell (wrapHtmlForPdf @page / .corex-a4-page). Keep mark rules BELOW this line. */
+/* ═══ ESIGN-WETINK — FIT-TO-BLOCK ink render (Johan's locked spec) ═══
+   NOT "force every img to 56px" (that overflows a small marker box and makes
+   signatures collide). Instead: the MARKER BLOCK is the fixed, consistent container
+   (one standard size for signatures, one for initials), and the ink IMAGE scales to
+   FILL that block (width/height 100% + object-fit:contain) — a small drawn/typed
+   image scales UP to fill, a large one scales DOWN, both end at the block size, so
+   agent + recipient ink render the SAME size AT THE BLOCK LEVEL regardless of the
+   image's intrinsic pixels. overflow:hidden on the block guarantees ink NEVER bursts
+   its bounds (no collisions/overlap). Matches every ink node whether it lands in a
+   [data-marker-type] marker, a legacy .web-sig marker cell, or a class-less overlay
+   img (matched by its data-URI src; logos are URL-based, untouched). Same blocks on
+   ceremony, agent-review, print. Legal: a signature that renders tiny disappears on
+   print/scan — a filled block never does. */
+
+/* ═══ ESIGN-WETINK — UNIFORM, REALISTIC ink sizing ═══
+   Every party's ink renders at the SAME HEIGHT. The prior "img 100% + object-fit
+   contain in a fixed 200x54 box" made a LONG name fit-to-width → come out shorter
+   than a SHORT name (the "different sizes per signatory" bug), and filled the block
+   edge-to-edge (oversized). Instead ink is sized by a FIXED HEIGHT (~65-70% of the
+   line, with padding) and its width follows the tight-cropped glyph's aspect — so
+   EVERY signatory's signature is the same height, EVERY initial is the same height,
+   and both look like a real mark in the box, not bursting it. */
+
+/* signature LINE — accommodates the mark on one line; does NOT clip a wider name. */
+[data-marker-type="signature"],
+.web-sig-interactive[data-marker-type="signature"],
+.sig-inline-line,
+.sig-cell-line {
+    display: inline-block !important;
+    min-width: 120px !important;
+    min-height: 42px !important;
+    overflow: visible !important;
+    vertical-align: bottom !important;
+    white-space: nowrap !important;
+    text-align: center !important;
+}
+/* initial BOX — fixed, centred. */
+[data-marker-type="initial"],
+.corex-page-initials {
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    width: 84px !important;
+    max-width: 84px !important;
+    height: 40px !important;
+    max-height: 40px !important;
+    overflow: hidden !important;
+    vertical-align: bottom !important;
+}
+/* — TYPED-INITIAL / placeholder TEXT fills the initial block (kill the 9px speck) —
+   A page-break initial box (.corex-page-initials, [data-marker-type=initial]) that
+   holds TEXT (the party-label placeholder, or a typed initial rendered as glyphs)
+   was stuck at font-size:9px while the block is 84x40 → a 9px speck floating in the
+   box, next to a full-size image initial. Size the text to FILL the block height so
+   a typed initial matches an image initial and matches the agent. Image initials are
+   handled by the fill rule below; this only affects text content. */
+/* the BOX keeps its 84x40 block size (rule above); here we only center content
+   and kill the 9px so text content is sized by the span rule, not the box. */
+.corex-page-initials {
+    font-size: 24px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    line-height: 1 !important;
+}
+/* the TEXT content (placeholder label OR a typed-glyph initial) fills the block. */
+.initial-placeholder,
+[data-marker-type="initial"] .initial-placeholder {
+    font-size: 24px !important;
+    line-height: 1 !important;
+    font-weight: 600 !important;
+    letter-spacing: normal !important;
+    color: #1e293b !important;
+    text-align: center !important;
+    max-width: 100% !important;
+    max-height: 100% !important;
+    overflow: hidden !important;
+}
+
+/* — SIGNATURE INK — ONE height for EVERY signatory (~67% of the 54px line). Width
+   follows the tight-cropped glyph (long name = wider, not shorter). Capped generously
+   so an extreme name can't run away; that cap is the only case height can dip. — */
+[data-marker-type="signature"] img,
+.sig-inline-line img,
+.sig-cell-line img,
+[data-marker-type="signature"] img.web-sig-signed-img,
+[data-marker-type="signature"] img.corex-ink,
+img.corex-ink--signature {
+    height: 36px !important;
+    min-height: 36px !important;
+    max-height: 36px !important;
+    width: auto !important;
+    min-width: 0 !important;
+    max-width: 240px !important;
+    object-fit: contain !important;
+    object-position: center !important;
+    display: inline-block !important;
+    vertical-align: bottom !important;
+    margin: 0 auto !important;
+    padding: 0 !important;
+    transform: none !important;
+    box-sizing: content-box !important;
+}
+/* — INITIAL INK — ONE height for EVERY party (~65% of the 40px box). — */
+[data-marker-type="initial"] img,
+.corex-page-initials img,
+img.corex-ink--initial {
+    height: 26px !important;
+    min-height: 26px !important;
+    max-height: 26px !important;
+    width: auto !important;
+    min-width: 0 !important;
+    max-width: 76px !important;
+    object-fit: contain !important;
+    object-position: center !important;
+    display: inline-block !important;
+    vertical-align: middle !important;
+    margin: 0 auto !important;
+    padding: 0 !important;
+    transform: none !important;
+    box-sizing: content-box !important;
+}
+/* PDF-MARK-CSS-END */
 </style>
 <script>
 /**
@@ -101,6 +231,24 @@ function paginateDocument(container, parties) {
     // per-wrapper content, then rebuild and re-apply by key. No duplicate
     // rows, no lost applied values, orphaned rows dropped on shrink, and the
     // signature block follows the document's (possibly new) last page.
+    // Give every signature/initial marker a STABLE per-anchor sequence in
+    // document order per (party|type). The composed clause signatures carry NO
+    // data-marker-index (only the final attestation markers do), so without this
+    // _markerKey collapses all of a party's clause signatures onto one key
+    // "party|signature|" — the snapshot/re-apply below then overwrites them to the
+    // LAST one, re-collapsing the per-anchor signatures (seller l/m/n → all n)
+    // AFTER bakeInk had bound them correctly. Idempotent: assigned once, persists
+    // across re-pagination passes so snapshot and re-apply resolve the same key.
+    (function _ensureAnchorSeq() {
+        var seq = {};
+        container.querySelectorAll('[data-marker-type="signature"], [data-marker-type="initial"]').forEach(function (el) {
+            if (el.getAttribute('data-anchor-seq')) return; // already numbered
+            var kk = (el.getAttribute('data-marker-party') || '') + '|' + (el.getAttribute('data-marker-type') || '');
+            var n = seq[kk] || 0; seq[kk] = n + 1;
+            el.setAttribute('data-anchor-seq', String(n));
+        });
+    })();
+
     var applied = {};
     if (container.dataset.paginated === 'true') {
         container.querySelectorAll('[data-marker-type="initial"][data-signed="true"], [data-marker-type="signature"][data-signed="true"]').forEach(function (el) {
@@ -165,7 +313,9 @@ function paginateDocument(container, parties) {
 function _markerKey(el) {
     return (el.getAttribute('data-marker-party') || '') + '|' +
            (el.getAttribute('data-marker-type') || '') + '|' +
-           (el.getAttribute('data-marker-index') || '');
+           // Prefer the composed index; fall back to the per-anchor sequence so
+           // index-less clause signatures each keep a UNIQUE key (no collapse).
+           (el.getAttribute('data-marker-index') || el.getAttribute('data-anchor-seq') || '');
 }
 
 /** Pull each wrapper's body back out of its .corex-a4-page pages (drop the
@@ -197,8 +347,29 @@ function _dePaginate(container) {
  * element is retained so SignatureService::splitMergedHtml() still splits the
  * already-paginated DOM per document (§19.7). Page numbering restarts at 1 per
  * document; an initial slot is placed on every page where
- * pageIndex < lastPageIndex; the signature section is forced onto the last
+ * pageIndex < lastPageIndex; the signature section is kept on the last
  * page (§19.3) — a single-page document gets the signature block, no initial.
+ *
+ * MEASURE-AND-FIT (no magic constant). Instead of guessing a content-height
+ * budget (the old PAGE_CONTENT_HEIGHT ≈ 878px reserve — fragile: it held on one
+ * doc and spilled on others because the emailed PDF renders with SUBSTITUTE
+ * fonts that are TALLER than the signing browser's, so a box packed to the
+ * guessed budget overflowed one physical A4 sheet and its footer/initials strip
+ * spilled onto a near-blank next page), we measure the REAL rendered box in the
+ * CURRENT render environment:
+ *
+ *   1. Probe the exact one-physical-sheet height by measuring an empty
+ *      .corex-a4-page (min-height:297mm) here — so the threshold is whatever
+ *      297mm actually renders to in THIS browser/Chromium, not a derived px.
+ *   2. Fill a live .corex-a4-page box element node-by-node, and after each
+ *      append measure box.offsetHeight WITH the bottom initials strip appended
+ *      (the real furniture, not a 58px guess). The moment the box would exceed
+ *      one sheet, the last node starts the next page.
+ *
+ * Because pagination runs in the SAME engine that produces the PDF (Chromium,
+ * via SignaturePdfService::injectInitialsPagination), the measured height IS
+ * the rendered height — every logical page fits exactly one physical sheet:
+ * zero clipping, zero near-blank spill pages, for short, medium and long docs.
  */
 function _paginateWrapper(wrapper, docIdx, parties) {
     var doc = wrapper.ownerDocument;
@@ -207,78 +378,113 @@ function _paginateWrapper(wrapper, docIdx, parties) {
     var innerPage = wrapper.querySelector(':scope > .corex-page');
     if (innerPage) contentEl = innerPage;
 
+    // AT-373 — keep each change's INITIAL ROW glued to the change it belongs to. The wet-ink
+    // "Initial this change" row (.change-initial-row) is stored as the change block's NEXT SIBLING,
+    // so the height-packer below treats it as its OWN top-level child — and a page boundary falling
+    // between the change and its row strands the yellow row in the inter-page gap, detached from the
+    // change (BUG A). Wrap [change block + its .change-initial-row] in ONE keep-together unit BEFORE
+    // packing, so the pair always lands on the same page. Runs pre-detach on the live DOM; harmless
+    // when no changes exist. Only DIRECT children can be split by the packer (nested rows already ride
+    // inside their parent block), so scoping to contentEl's direct .change-initial-row children is exact.
+    Array.prototype.slice.call(contentEl.children).forEach(function (row) {
+        if (!row.classList || !row.classList.contains('change-initial-row')) return;
+        var prev = row.previousElementSibling;
+        if (!prev || (prev.classList && prev.classList.contains('change-initial-row'))) return;
+        if (prev.classList && prev.classList.contains('cir-keep')) { prev.appendChild(row); return; }
+        var keep = doc.createElement('div');
+        keep.className = 'cir-keep';
+        keep.style.cssText = 'break-inside:avoid;';
+        contentEl.insertBefore(keep, prev);
+        keep.appendChild(prev);
+        keep.appendChild(row);
+    });
+
     var children = Array.from(contentEl.children).filter(function (el) {
         return !(el.tagName === 'STYLE' || el.tagName === 'LINK');
     });
     if (children.length === 0) return;
 
-    // A4 content area: 210x297mm minus 20/25/18/18mm padding ≈ 658x ~1500px.
-    var PAGE_CONTENT_HEIGHT = 1500;
-    var PAGE_CONTENT_WIDTH = 658;
-    var MIN_CLAUSE_VISIBLE = 100;
+    // Keep the wrapper's own <style>/<link> so intra-document CSS survives.
+    var styleNodes = Array.from(contentEl.children).filter(function (el) {
+        return el.tagName === 'STYLE' || el.tagName === 'LINK';
+    });
 
+    // Detach every content node (references + order preserved) and clear the
+    // wrapper so we can build/measure fresh .corex-a4-page boxes inside it.
+    children.forEach(function (c) { if (c.parentNode) c.parentNode.removeChild(c); });
     var origW = wrapper.style.width, origMW = wrapper.style.maxWidth;
-    wrapper.style.width = PAGE_CONTENT_WIDTH + 'px';
-    wrapper.style.maxWidth = PAGE_CONTENT_WIDTH + 'px';
-    if (innerPage) {
-        innerPage.style.width = '100%'; innerPage.style.maxWidth = '100%';
-        innerPage.style.padding = '0'; innerPage.style.margin = '0'; innerPage.style.minHeight = 'auto';
+    wrapper.innerHTML = '';
+    // Let each .corex-a4-page own its 210mm A4 width (was pinned to 658px). The
+    // box's own CSS width is what the PDF prints at, so measuring inside it is
+    // the faithful width.
+    wrapper.style.width = '';
+    wrapper.style.maxWidth = '';
+
+    // (1) Probe the exact one-sheet height in THIS render environment.
+    var probe = doc.createElement('div');
+    probe.className = 'corex-a4-page';
+    probe.style.visibility = 'hidden';
+    wrapper.appendChild(probe);
+    var SHEET_PX = probe.offsetHeight;             // 297mm as it really renders (incl. padding)
+    wrapper.removeChild(probe);
+    if (!SHEET_PX || SHEET_PX < 200) {
+        SHEET_PX = Math.round(297 * 96 / 25.4);    // ultra-safe fallback: 297mm @96dpi ≈ 1123px
     }
 
-    var pages = [];
-    var cur = [];
-    var curH = 0;
-    var inSig = false;
+    // (2) Greedily fill live boxes, measuring the REAL rendered box (content +
+    //     the initials strip the non-last pages carry) so a page never exceeds
+    //     one physical sheet. A signature-section node marks the closing block:
+    //     once reached we keep it on the current/last page and break at most
+    //     once (to move an unbroken signature block onto a fresh last page).
+    var pageGroups = [];
+    var i = 0;
+    var sigMode = false;         // reached the signature/closing section
+    var sigBrokenOnce = false;   // allowed a single break to start the sig page
 
-    children.forEach(function (child, idx) {
-        if (child.nodeType !== 1) { cur.push(child); return; }
+    while (i < children.length) {
+        var box = doc.createElement('div');
+        box.className = 'corex-a4-page';
+        box.style.visibility = 'hidden';
+        wrapper.appendChild(box);
+        // The real furniture element (same one the assembler appends) — reused
+        // for every measurement on this page; reserved on non-last (non-sig) pages.
+        var strip = parties.length ? _buildInitialsRow(parties, 'measure') : null;
+        var group = [];
 
-        if (child.classList.contains('sig-section') ||
-            child.classList.contains('corex-signature-section')) {
-            inSig = true;
+        while (i < children.length) {
+            var child = children[i];
+            if (child.nodeType !== 1) { box.appendChild(child); group.push(child); i++; continue; }
+
+            if (!sigMode && (child.classList.contains('sig-section') ||
+                             child.classList.contains('corex-signature-section'))) {
+                sigMode = true;
+            }
+
+            box.appendChild(child);
+            var reserve = strip && !sigMode;                 // last (sig) page carries no strip
+            if (reserve) box.appendChild(strip);
+            var overflow = box.offsetHeight > SHEET_PX;
+            if (reserve && strip.parentNode === box) box.removeChild(strip);
+
+            if (overflow && group.length > 0 && !(sigMode && sigBrokenOnce)) {
+                box.removeChild(child);                      // this node starts the next page
+                if (sigMode) sigBrokenOnce = true;           // sig block now on its own fresh page
+                break;
+            }
+            group.push(child);
+            i++;
         }
 
-        var rect = child.getBoundingClientRect();
-        var cs = window.getComputedStyle(child);
-        var h = rect.height + (parseFloat(cs.marginTop) || 0) + (parseFloat(cs.marginBottom) || 0);
+        pageGroups.push(group);
+        wrapper.removeChild(box);                            // rebuilt cleanly below with furniture
+    }
 
-        var tag = child.tagName;
-        var isHeading = tag === 'H1' || tag === 'H2' || tag === 'H3' || tag === 'H4' ||
-                        child.classList.contains('corex-h1') ||
-                        child.classList.contains('corex-h2') ||
-                        child.classList.contains('corex-h3') ||
-                        child.classList.contains('corex-section-heading');
-        var groupH = h;
-        if (isHeading && idx + 1 < children.length && children[idx + 1].nodeType === 1) {
-            var nr = children[idx + 1].getBoundingClientRect();
-            var ns = window.getComputedStyle(children[idx + 1]);
-            groupH += nr.height + (parseFloat(ns.marginTop) || 0) + (parseFloat(ns.marginBottom) || 0);
-        }
-        var isClause = child.classList.contains('corex-clause') &&
-                       child.querySelector('.corex-clause-number');
-
-        if (inSig) {
-            cur.push(child); curH += h;
-        } else if (isHeading && curH + groupH > PAGE_CONTENT_HEIGHT && cur.length > 0) {
-            pages.push(cur); cur = [child]; curH = h;
-        } else if (curH + h > PAGE_CONTENT_HEIGHT && cur.length > 0) {
-            pages.push(cur); cur = [child]; curH = h;
-        } else if (isClause && curH + h > PAGE_CONTENT_HEIGHT - MIN_CLAUSE_VISIBLE && cur.length > 0) {
-            pages.push(cur); cur = [child]; curH = h;
-        } else {
-            cur.push(child); curH += h;
-        }
-    });
-    if (cur.length > 0) pages.push(cur);
-
-    wrapper.style.width = origW;
-    wrapper.style.maxWidth = origMW;
-
-    var total = pages.length;
+    var total = pageGroups.length;
 
     // Rebuild the wrapper in place (retained for split + per-doc identity).
     wrapper.innerHTML = '';
-    pages.forEach(function (pageChildren, p) {
+    styleNodes.forEach(function (s) { wrapper.appendChild(s); });
+    pageGroups.forEach(function (pageChildren, p) {
         var pageDiv = doc.createElement('div');
         pageDiv.className = 'corex-a4-page';
         pageDiv.setAttribute('data-doc-index', String(docIdx));
@@ -305,6 +511,9 @@ function _paginateWrapper(wrapper, docIdx, parties) {
             wrapper.appendChild(gap);
         }
     });
+
+    wrapper.style.width = origW;
+    wrapper.style.maxWidth = origMW;
 }
 
 /**
@@ -321,8 +530,13 @@ function _buildInitialsRow(parties, pageIdx) {
         box.setAttribute('data-marker-party', party.role);
         box.setAttribute('data-marker-type', 'initial');
         box.setAttribute('data-marker-index', pageIdx + '-' + pIdx);
-        box.style.cssText = 'width:60px;height:30px;border:1px solid #94a3b8;display:flex;align-items:center;justify-content:center;font-size:9px;color:#64748b;cursor:pointer;';
-        box.innerHTML = '<span class="initial-placeholder">' + (party.label || party.role) + '</span>';
+        // ESIGN-WETINK — the initial block + its TEXT fill at the standard size.
+        // Box 84x40; the placeholder/typed-glyph SPAN carries font-size:24px INLINE
+        // so it never depends on a stylesheet rule reaching the child (the conductor
+        // measured the span still tiny even with the .initial-placeholder rule — an
+        // inline size on the span itself is the bulletproof fix).
+        box.style.cssText = 'width:84px;height:40px;border:1px solid #94a3b8;display:flex;align-items:center;justify-content:center;font-size:24px;color:#334155;cursor:pointer;overflow:hidden;';
+        box.innerHTML = '<span class="initial-placeholder" style="font-size:24px;line-height:1;font-weight:600;display:flex;align-items:center;justify-content:center;width:100%;height:100%;">' + (party.label || party.role) + '</span>';
         row.appendChild(box);
     });
 
@@ -359,35 +573,53 @@ function restoreStoredInitials(container, storedInitials) {
     var allInitialEls = container.querySelectorAll('[data-marker-type="initial"]');
     if (allInitialEls.length === 0) return;
 
-    // Flatten all party initials into a lookup by party role
-    Object.keys(storedInitials).forEach(function(partyRole) {
-        var partyInitials = storedInitials[partyRole];
-        if (!partyInitials || typeof partyInitials !== 'object') return;
-
-        // Find all initial elements for this party
-        allInitialEls.forEach(function(el) {
-            var elParty = (el.getAttribute('data-marker-party') || '').toLowerCase();
-            if (elParty !== partyRole) return;
-
-            // Check if any stored initial data exists for this party
-            // Use the first available initial image (they're all the same for a party)
-            var firstInitialData = null;
-            for (var key in partyInitials) {
-                if (partyInitials[key]) {
-                    firstInitialData = partyInitials[key];
-                    break;
-                }
-            }
-
-            if (firstInitialData && !el.getAttribute('data-signed')) {
-                el.setAttribute('data-signed', 'true');
-                el.style.border = '2px solid #10b981';
-                el.style.background = 'rgba(16,185,129,0.06)';
-                el.style.cursor = 'default';
-                el.style.opacity = '1';
-                el.innerHTML = '<img src="' + firstInitialData + '" style="max-height:26px;max-width:56px;object-fit:contain;" alt="Initial">';
-            }
+    // AT-324/AT-325 — key each captured initial by the CANONICAL RECIPIENT KEY
+    // embedded in its sub-key ("seller_2-init-0" -> "seller_2"), NOT the base-role
+    // top-level group. signed_initials nests N same-role signers' initials under a
+    // base-role group ({ seller: { "seller_2-init-0": img } }); matching only the
+    // top-level role put the 2nd co-seller's ink in the 1st seller's page-break box
+    // (and left the 2nd's box empty). Building a per-recipient map and matching each
+    // box by its own data-marker-party places every signer's initials in THEIR box.
+    // recipientKey -> { list: [img@index], first: img }. PER-ANCHOR: keep every
+    // captured initial at its OWN document-order index ("seller_2-init-2" -> idx 2)
+    // so the k-th of a recipient's page-break boxes takes init-k — not init-0 for
+    // all boxes (which bled the first initial across every page and dropped the
+    // rest). Mirrors the per-anchor signature binding in CanonicalInkComposer.
+    var byRecipient = {};
+    Object.keys(storedInitials).forEach(function (topKey) {
+        var group = storedInitials[topKey];
+        if (!group || typeof group !== 'object') return;
+        Object.keys(group).forEach(function (subKey) {
+            var img = group[subKey];
+            if (!img) return;
+            var m = /^(.*)-init-(\d+)$/.exec(subKey);
+            var recipientKey = (m ? m[1] : (topKey || '')).toLowerCase();
+            var idx = m ? parseInt(m[2], 10) : 0;
+            if (!byRecipient[recipientKey]) byRecipient[recipientKey] = { list: [], first: img };
+            byRecipient[recipientKey].list[idx] = img;
         });
+    });
+
+    var seenByParty = {}; // recipientKey -> running box position (document order)
+    allInitialEls.forEach(function (el) {
+        var elParty = (el.getAttribute('data-marker-party') || '').toLowerCase();
+        var rec = byRecipient[elParty];
+        if (!rec) return; // this recipient captured no initial — leave their box empty
+        var k = seenByParty[elParty] || 0;
+        seenByParty[elParty] = k + 1; // advance even past a pre-inked box, to keep positions aligned
+        if (el.getAttribute('data-signed')) return; // already inked (baked canonical) — keep it
+        var img = rec.list[k] || rec.first; // this box's OWN initial, else adopt-once fallback
+        if (!img) return;
+
+        el.setAttribute('data-signed', 'true');
+        el.style.cursor = 'default';
+        el.style.opacity = '1';
+        // ESIGN-WETINK — render restored initials at the SAME uniform initial size
+        // as the baked canonical (was max-height:26px — the tiny-recipient-initial
+        // bug). No emerald box (BUG6 lineage). The .corex-ink--initial class also
+        // picks up the enforced ink spec above.
+        el.innerHTML = '<img src="' + img + '" class="corex-ink corex-ink--initial" '
+            + 'style="height:38px;max-height:38px;width:auto;object-fit:contain;" alt="Initial">';
     });
 }
 
@@ -506,7 +738,10 @@ function restoreStoredDisclosure(container, disclosureAnswers) {
                     phs.forEach(function (ph) {
                         var sel = ((ph.getAttribute('data-value') || '').trim().toLowerCase() === val);
                         ph.setAttribute('data-selected', sel ? 'true' : 'false');
-                        ph.textContent = sel ? '●' : '○';
+                        // Step 3 — government-form fidelity: the CHOSEN answer is a
+                        // real tick ✓; unchosen cells print BLANK (only ticks show,
+                        // exactly like the prescribed Mandatory Disclosure form).
+                        ph.textContent = sel ? '✓' : '';
                         ph.style.cursor = 'default';
                     });
                     return;
@@ -525,8 +760,9 @@ function restoreStoredDisclosure(container, disclosureAnswers) {
                 var tds = row.querySelectorAll('td');
                 var target = val === 'yes' ? col.yes : (val === 'no' ? col.no : col.na);
                 if (target === undefined || !tds[target]) return;
-                tds[target].textContent = '●';
+                tds[target].textContent = '✓';
                 tds[target].style.textAlign = 'center';
+                tds[target].style.fontWeight = '700';
                 row.querySelectorAll('input[type="radio"]').forEach(function (r) {
                     r.checked = ((r.value || '').trim().toLowerCase() === val);
                     r.disabled = true;

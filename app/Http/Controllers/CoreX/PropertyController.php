@@ -190,7 +190,13 @@ class PropertyController extends Controller
             $query->where('status', $status);
         }
         if ($listingType !== '')   $query->where('listing_type', $listingType);
-        if ($propertyType !== '')  $query->where('property_type', $propertyType);
+        if ($propertyType !== '') {
+            // 2026-08-20 audit — also match legacy/imported labels for the same
+            // type (Property::propertyTypeSynonyms), so older and P24-imported
+            // stock isn't invisible to today's exact settings-item name.
+            $typeValues = array_merge([$propertyType], Property::propertyTypeSynonyms($propertyType));
+            $query->whereIn('property_type', $typeValues);
+        }
         if ($category !== '')      $query->where('category', $category);
         if ($mandateType !== '')   $query->where('mandate_type', $mandateType);
         if ($branchFilter !== '' && $canPickAgent) $query->where('branch_id', (int) $branchFilter);
@@ -221,13 +227,19 @@ class PropertyController extends Controller
             "COUNT(*) as total,"
             . " SUM(CASE WHEN status NOT IN ($offMarketIn) THEN 1 ELSE 0 END) as active,"
             . " SUM(CASE WHEN status = 'draft' THEN 1 ELSE 0 END) as draft,"
-            . " SUM(CASE WHEN status = 'sold' THEN 1 ELSE 0 END) as sold"
+            . " SUM(CASE WHEN status = 'sold' THEN 1 ELSE 0 END) as sold,"
+            // PROSPECTING (Johan, 2026-08-20/21) — same clone-of-$query
+            // aggregate every other tile already uses, so this tile can never
+            // disagree with the filtered list: "whatever filters the list
+            // must also filter every count, badge and tile."
+            . " SUM(CASE WHEN status = '" . Property::STATUS_PROSPECTING . "' THEN 1 ELSE 0 END) as prospecting"
         )->first();
         $stats = [
-            'total'  => (int) ($agg->total ?? 0),
-            'active' => (int) ($agg->active ?? 0),
-            'draft'  => (int) ($agg->draft ?? 0),
-            'sold'   => (int) ($agg->sold ?? 0),
+            'total'       => (int) ($agg->total ?? 0),
+            'active'      => (int) ($agg->active ?? 0),
+            'draft'       => (int) ($agg->draft ?? 0),
+            'sold'        => (int) ($agg->sold ?? 0),
+            'prospecting' => (int) ($agg->prospecting ?? 0),
         ];
 
         // Sorting — whitelisted columns only
@@ -244,7 +256,34 @@ class PropertyController extends Controller
             case 'price_desc': $sort = 'price'; $dir = 'desc'; break;
             case 'newest':     $sort = 'created_at'; $dir = 'desc'; break;
         }
-        if ($sort === 'status_priority') {
+        // Website engagement (AT-383) — the "Views (30d)" column. The column and
+        // its sort exist only for an agency whose website actually reports stats;
+        // for everyone else it would be a column of dashes that trains people to
+        // ignore the table. Spec: .ai/specs/website-listing-stats.md §5.2
+        $websiteStats    = app(\App\Services\Website\WebsiteListingStatsReportService::class);
+        $statsAgencyId   = $user?->effectiveAgencyId();
+        $hasWebsiteStats = $websiteStats->agencyHasStats($statsAgencyId);
+
+        if ($sort === 'website_views' && $hasWebsiteStats) {
+            // Sorting has to happen in SQL (it orders the whole filtered set, not
+            // the page), so the 30-day view total joins in as a grouped subquery.
+            // Listings with no traffic COALESCE to 0 rather than dropping out.
+            $statsFrom = now()->startOfDay()
+                ->subDays(\App\Services\Website\WebsiteListingStatsReportService::WINDOW_DAYS - 1)
+                ->format('Y-m-d');
+
+            $viewsSub = \Illuminate\Support\Facades\DB::table('listing_website_stats')
+                ->select('property_id', \Illuminate\Support\Facades\DB::raw('SUM(metric_count) as views_30d'))
+                ->where('agency_id', $statsAgencyId)
+                ->where('metric', \App\Models\ListingWebsiteStat::METRIC_DETAIL_VIEW)
+                ->where('stat_date', '>=', $statsFrom)
+                ->groupBy('property_id');
+
+            $query->select('properties.*')
+                  ->leftJoinSub($viewsSub, 'lws_views', 'lws_views.property_id', '=', 'properties.id')
+                  ->orderByRaw('COALESCE(lws_views.views_30d, 0) ' . ($dir === 'asc' ? 'asc' : 'desc'))
+                  ->orderByDesc('properties.created_at');
+        } elseif ($sort === 'status_priority') {
             // Agency-defined status sequence: ranked statuses first (in order),
             // unranked last, newest within each. Names come from agency settings
             // (admin input) so they are bound, never interpolated.
@@ -273,10 +312,19 @@ class PropertyController extends Controller
         $perPage = $perPage > 0 ? min($perPage, 200) : 20;
         $properties = $query->paginate($perPage)->withQueryString();
 
+        // Website views for THIS page only — one grouped query for the whole page,
+        // never one per row. Display is page-scoped even when the sort above ran
+        // across the full set. (AT-383)
+        $pageWebsiteViews = $hasWebsiteStats
+            ? $websiteStats->viewsForProperties($properties->getCollection()->pluck('id')->all(), $statsAgencyId)
+            : [];
+
         // Compute marketing status per property (batch-friendly for Phase 1)
         $readinessSvc = app(\App\Services\Compliance\MarketingReadinessService::class);
         $authId = (int) ($user->id ?? 0);
         foreach ($properties as $p) {
+            $p->website_views_30d = (int) ($pageWebsiteViews[$p->id] ?? 0);
+
             // Is the current viewer the SECONDARY (co-listing) agent on this
             // listing rather than the primary? Drives the "Secondary" badge so a
             // co-listed property is clearly distinguished from one the agent owns.
@@ -356,7 +404,7 @@ class PropertyController extends Controller
             'properties', 'stats', 'scope', 'status', 'search',
             'filterAgentIds', 'agentList', 'selectedAgents', 'canPickAgent',
             'filterOptions', 'filters', 'currentSort', 'currentDir', 'agencySortMode',
-            'myDrafts'
+            'myDrafts', 'hasWebsiteStats'
         ));
     }
 
@@ -573,10 +621,27 @@ class PropertyController extends Controller
         // "Sold by 3rd Party" capture action while one is already standing.
         $thirdPartySale = $property->openThirdPartySale();
 
+        // CX-102 part 2 (2026-08-19, Johan) — "the system must show its
+        // working and let the agent overrule it." An agent who just landed
+        // here because MarketIntelligenceController::claim() decided this
+        // property IS a MIC listing they tried to claim gets the reason and
+        // a "Not the same property" control. Session-flashed (one redirect
+        // only — matches how 'success'/'error' already flash on this exact
+        // arrival), never a permanent panel on the property page.
+        $micClaimDecision = null;
+        $micClaimListingId = session('mic_claim_listing_id');
+        if ($micClaimListingId !== null && $property->exists) {
+            $micClaimDecision = app(\App\Services\Prospecting\PropertyMatchDecisionService::class)
+                ->current((int) $property->agency_id, 'mic_claim', 'listing:' . $micClaimListingId);
+            if ($micClaimDecision && ($micClaimDecision->isRejected() || (int) $micClaimDecision->matched_id !== (int) $property->id)) {
+                $micClaimDecision = null; // stale/superseded — nothing current to show
+            }
+        }
+
         return view('corex.properties.show', compact(
             'property', 'settingItems', 'branches', 'agents', 'activeTab', 'coreMatches', 'ppMissingFields', 'p24MissingFields', 'hfcMissingFields',
             'allDriveDocs', 'documentTypes', 'driveFolders', 'activityTimeline', 'fullAuditLog', 'includeSystem', 'readinessReport', 'complianceChecklist', 'propertyComplianceComplaints',
-            'aiImageSuggestions', 'propertyComms', 'canEdit', 'thirdPartySale'
+            'aiImageSuggestions', 'propertyComms', 'canEdit', 'thirdPartySale', 'micClaimDecision', 'micClaimListingId'
         ));
     }
 
@@ -735,7 +800,7 @@ class PropertyController extends Controller
             'condition_level_id' => 'nullable|integer|exists:property_setting_items,id',
             'mandate_type'     => 'nullable|string|max:50',
             'listing_type'     => 'nullable|string|in:sale,rental',
-            'status'           => 'nullable|string|max:100',
+            'status'           => ['nullable', 'string', 'max:100', new \App\Rules\AllowedPropertyStatus()], // AT-307 membership
             'status_label'     => 'nullable|string|max:50',
             'features'         => 'nullable|array',
             'features.*'       => 'string|max:100',
@@ -1118,7 +1183,7 @@ class PropertyController extends Controller
             'condition_level_id' => 'nullable|integer|exists:property_setting_items,id',
             'mandate_type'     => 'nullable|string|max:50',
             'listing_type'     => 'nullable|string|in:sale,rental',
-            'status'           => 'nullable|string|max:100',
+            'status'           => ['nullable', 'string', 'max:100', new \App\Rules\AllowedPropertyStatus()], // AT-307 membership
             'status_label'     => 'nullable|string|max:50',
             'features'         => 'nullable|array',
             'features.*'       => 'string|max:100',
@@ -1559,6 +1624,67 @@ class PropertyController extends Controller
         }
         $property->save();
 
+        return back()->with('success', $msg);
+    }
+
+    /**
+     * PROSPECTING → DRAFT (Johan, 2026-08-20/21 — .ai/specs/2026-08-20-
+     * property-status-prospecting.md): "the change from prospecting to draft
+     * happens manually by an agent whe[n] the[y] won the mandate." The spec's
+     * own risk #3: if this move isn't easy and obvious, the prospecting pile
+     * just grows instead of clearing — treated as a requirement, one click,
+     * same shape as publishToggle() above (auth, direct field update, JSON/
+     * back dual response), not a new mechanism.
+     */
+    public function convertFromProspecting(Request $request, Property $property)
+    {
+        $this->authorizeProperty($property);
+
+        if (! $property->isProspecting()) {
+            $msg = 'This property is not in Prospecting.';
+            if ($request->wantsJson() || $request->ajax()) {
+                return response()->json(['error' => $msg], 422);
+            }
+            return back()->with('error', $msg);
+        }
+
+        $property->status = 'draft';
+        $property->save();
+
+        $msg = 'Moved to Draft — mandate won.';
+        if ($request->wantsJson() || $request->ajax()) {
+            return response()->json(['success' => true, 'message' => $msg, 'status' => $property->status]);
+        }
+        return back()->with('success', $msg);
+    }
+
+    /**
+     * PROSPECTING → NOT SELLING (Johan, 2026-08-20/21, label confirmed
+     * verbatim): the one-click dead end for prospecting stock that will never
+     * convert — owner contacted, won't sell / not on market / lost. Only
+     * valid from Prospecting (mirrors convertFromProspecting() above); a
+     * draft or live listing has its own lifecycle (Archive, Withdraw) and
+     * isn't this button's job.
+     */
+    public function markNotSelling(Request $request, Property $property)
+    {
+        $this->authorizeProperty($property);
+
+        if (! $property->isProspecting()) {
+            $msg = 'Only a Prospecting property can be marked Not selling.';
+            if ($request->wantsJson() || $request->ajax()) {
+                return response()->json(['error' => $msg], 422);
+            }
+            return back()->with('error', $msg);
+        }
+
+        $property->status = Property::STATUS_NOT_SELLING;
+        $property->save();
+
+        $msg = 'Marked Not selling.';
+        if ($request->wantsJson() || $request->ajax()) {
+            return response()->json(['success' => true, 'message' => $msg, 'status' => $property->status]);
+        }
         return back()->with('success', $msg);
     }
 
@@ -2465,10 +2591,23 @@ class PropertyController extends Controller
 
     public function livePreview(Property $property, \Illuminate\Http\Request $request)
     {
-        // Public listing preview — gate by marketing readiness
+        // Public listing preview — gate by marketing readiness. Same shape
+        // of bug as the wishlist share link (Johan, 2026-08-24): this page
+        // is reachable from real WhatsApp/Email links agents already send
+        // clients (share-actions.blade.php), and a property sells, gets
+        // withdrawn, or drops out of compliance readiness far more often
+        // than a wishlist gets archived — a hard 404 here is the SAME dead
+        // end, just on a surface agents use more. Render a courteous page
+        // instead; a property ID that never existed at all still 404s via
+        // route-model-binding before this method even runs — nothing to be
+        // courteous about there.
         $svc = app(\App\Services\Compliance\MarketingReadinessService::class);
         if (!$svc->isMarketable($property)) {
-            abort(404);
+            $property->load('agency');
+
+            return response()->view('corex.properties.preview-unavailable', [
+                'agency' => $property->agency,
+            ], 404);
         }
         $property->load(['agent', 'branch', 'agency']);
 

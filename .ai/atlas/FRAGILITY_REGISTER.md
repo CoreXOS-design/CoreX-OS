@@ -16,7 +16,13 @@
 > is go-live-critical.** The only go-live-adjacent items are in `syndication-overview.md` (all P2, and
 > AT-81 verified the feeds read property *data*, not the editor taxonomy, so they are safe).
 >
-> Counts: **9 × P0 · 38 × P1 · 46 × P2** (93 total). Last updated: 2026-06-22.
+> Counts (original baseline): **9 × P0 · 38 × P1 · 46 × P2** (93 total). Last updated: **2026-07-14** (atlas sync AT-255).
+>
+> **2026-07-14 delta:** seven eras/items **died today** — see the **"RESOLVED — 2026-07-14"** ledger below
+> (fail-open permissions AT-265 · connection-light/double-listener AT-263 · two-source address AT-266 ·
+> DR2 due-date anchoring AT-216 · dual-OTP/splitter AT-254+AT-264 · FICA single-station AT-236 ·
+> notifications-bypass AT-235). **Six new fragilities** opened (P2-47/48 region data · **P1-39** FICA
+> referral-orphan · P2-49 FICA station-not-enforced · P2-50/51 notification gateway). All QA1-only.
 
 ---
 
@@ -133,6 +139,35 @@
 | P2-44 | Comms provisional-reconciliation gaps | communications-capture §9.4 | 48h window + edited-text hash mismatch can create a duplicate archive row (inflates the AT-59 tile). | no ticket |
 | P2-45 | Comms batch error swallowing / IMAP since-window | communications-capture §9.6-7 | A systematically failing message type is invisible; a >1-day poller outage can miss older messages. | no ticket |
 | P2-46 | MIC snapshot rows deleted+recreated per generate | presentations §9.8 · market-intelligence | Comp-row ids aren't stable across regenerations; the version's `included_comp_ids_json` whitelist is the durable record. | no ticket |
+
+---
+
+## RESOLVED — 2026-07-14 (atlas sync AT-255)
+
+Eras that **died today**, and the new fragilities found + closed in the same landings. All QA1-only
+(no host deploy tonight). Mark, don't delete: the history is the value.
+
+| Era / item | What it was | Fix | Ref |
+|---|-----------|-----|-----|
+| **Fail-open era (permissions)** | `PermissionService` failed **OPEN** — an empty `role_permissions` table granted everyone everything (2nd fail-open in `getDataScope()`). Trigger: `exists()` on a SoftDeletes table can't see trashed rows, so `corex:reconcile-role-grants` soft-deleting all grants read as "unseeded" → the platform **opened**. | Now fail-**CLOSED**: deny on servers; the posture is env-derived (allow-open only under `runningUnitTests()`, so the suite still rides). | **AT-265** |
+| **Double-listener era (connection light)** | The AT-220 header **light** was the only disconnect signal — poll-only, ~10-min lag, no browser `offline` event; and saves had **no** connectivity pre-flight (the "dino"). | Light **removed** (`corex-session-guard.js` retired → `corex-connection-guard.js`); browser `offline`-event popup + per-save pre-flight ping + **3 mutating-only, fail-open** save interceptors (capture-phase form-submit delegate · `window.fetch` wrap · `window.axios` request interceptor); "Back online ✓"; session keep-alive unchanged. | **AT-263** (Johan+Andre) |
+| **Fail-open era (save guard) — controlled** | Companion to the above: the guard is deliberately **fail-open on its own check error** (never the reason a save is lost) while **blocking confirmed-offline saves** — a *controlled* fail-open, documented, not a silent gap. | By design; opt-outs `data-noguard`/`target=_blank`/`X-CoreX-NoGuard`. | **AT-263** |
+| **Two-source address era** | Address lived in two sources (legacy `address` string + structured components) → drift/mis-match. Was **P2-40** (legacy `address` NULL / direct-read drift); overlaps **P1-5** (browser-autofill). | `address` is now a **derived column** (single truth = the structured parts, via `PropertyObserver` + `Property::composeAddressFromParts()`); `corex:reconcile-property-addresses` (`PropertyAddressReconciler`; report-first / `--apply` / `--rollback`, token-loss-safe → REVIEW) clears the historic drift. Caveat: a row never re-saved keeps its stale `address` until the reconciler touches it. P1-5 autofill is **mitigated** (AT-266 raises the leak stakes; structural split still open). → properties §9.6 | **AT-266** |
+| **DR2 pipeline due-date anchoring** | AND-gated steps kept the **attach-time projection** instead of re-anchoring to the latest completion (Lodgement showed `deal_date+12 = 03-13` vs `latest 03-25 + 7 = 04-01`). | `activateStep` re-anchors to the actual latest predecessor completion; new `due_date_manual` preserves genuine agent edits. → deals-commission §8.6 | **AT-216** |
+| **FICA single-station approval** | One flow: agent → a single CO approve, with no separation of duties or escalation. | **Two-station** review (RO Approvals `agent_approved` · CO Approvals `referred_to_co`) + a new `referred_to_co` state, self-approval separation (audit `self_approval_blocked`), `FicaReferralService` refer/return with an append-only `fica_status_history`. → compliance §3 | **AT-236** |
+| **Notifications-bypass-the-gate era** | Comms/lead alerts to users fired outside the preference/policy/ledger gates — each producer routed its own way. | A single **`NotificationDispatcher`** choke point (slices S0/S1/S2a/S2b): preference ∩ event-type ∩ class-render → open-hours → stable-key dedup → ledger dedup → cooldown → forced-channel fan-out (`database`/`mail`/`fcm`); CEILING-not-floor consent; frozen bypass allow-list (R7 build guard). → communications-capture §9 | **AT-235** |
+| **Dual OTP slug / splitter-off-canon** | Two OTP document slugs (`offer_to_purchase` + `otp`); the PDF splitter filed outside the canonical service; a public pack link minted an OTP per sub-document. | Consolidated to one `otp` + splitter routes through `DealDocumentService::fileClassifiedDocument` (**AT-254**); a pack link now issues **one OTP** per pack (**AT-264** — `Dr2DistributionSendService` / `SecureDocumentController::packShow/packRequestOtp`). → esign-docuperfect | **AT-254 · AT-264** |
+
+### New fragilities found today (open)
+
+| # | Fragility | From | One-line | Ticket |
+|---|-----------|------|----------|--------|
+| P2-47 | `p24_cities` / `towns` duplicate rows | market-intelligence (AT-246) | The half-landed region remodel left duplicate `p24_cities` (e.g. **2 "Durban North"**) and `towns` rows; the region read-through `keyBy('p24_city_id')` picks one, so it's benign for display but a data-dedup debt (m2's "duplicate build" cleanup). | AT-246-adjacent |
+| P2-48 | `p24_suburbs.region` is now vestigial | market-intelligence (AT-246) | Region is `towns.region` (town-level) read through `p24_city_id`; the old **suburb-level** `p24_suburbs.region` still holds stale values (e.g. Albersville = "Umzumbe") that the read-through ignores — a superseded column to backfill/drop later. | AT-246 |
+| **P1-39** | FICA referral orphans with no primary CO | compliance (AT-236) | `FicaReferralService::resolveRecipient()` falls back to `currentPrimary()`; if **no primary CO is appointed** it returns null → the referral fires no notification and the case sits in an invisible `co_queue`. **Compliance-correctness.** | AT-236-adjacent |
+| P2-49 | FICA CO-station ownership is visibility-only | compliance (AT-236) | The "CO Approvals" queue is scoped to the primary CO by *display*, but the approve/return actions gate on `isComplianceOfficer()` (any officer), not `isPrimaryComplianceOfficer()` — station separation is not action-enforced. | AT-236-adjacent |
+| P2-50 | Notification-gateway dedup keys are load-bearing | communications-capture (AT-235) | Double-registered listeners are made safe **only** by stable dedup keys (`threshold_hit_at` / ledger); a producer that emits an unstable key re-opens duplicate alerts. The stable-key discipline is now a silent invariant. | AT-235-adjacent |
+| P2-51 | Mailbox alert episode-marker stamped before send | communications-capture (AT-235 S2b) | `MailboxHealthRecorder` marks the failure episode before dispatching the alert — if the alert channel itself is down, that one alert is lost and the episode reads as "notified". (Pre-existing, surfaced by the S2b citizen review.) | no ticket |
 
 ---
 

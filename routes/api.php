@@ -156,6 +156,7 @@ Route::prefix('v1/client-auth')->group(function () {
         Route::post('/password/change', [ClientAuthController::class, 'changePassword'])->name('client-auth.password.change');
         Route::post('/agency/select',   [ClientAuthController::class, 'selectAgency'])->name('client-auth.agency.select');
         Route::post('/logout',          [ClientAuthController::class, 'logout'])->name('client-auth.logout');
+        Route::delete('/account',       [ClientAuthController::class, 'deleteAccount'])->name('client-auth.account.delete');
     });
 });
 
@@ -236,6 +237,14 @@ Route::prefix('v1/website')
         Route::middleware('website.scope:leads:write')->group(function () {
             Route::post('/leads', [\App\Http\Controllers\Api\V1\Website\LeadsController::class, 'store'])->name('v1.website.leads.store');
         });
+
+        // Inbound listing engagement counters (write). The website batches page
+        // views / impressions / contact clicks locally and POSTs them hourly —
+        // never per page view. Gated by stats:write.
+        // Spec: .ai/specs/website-listing-stats.md §3.1
+        Route::middleware('website.scope:stats:write')->group(function () {
+            Route::post('/listings/stats', [\App\Http\Controllers\Api\V1\Website\ListingStatsController::class, 'store'])->name('v1.website.listings.stats.store');
+        });
     });
 
 // ════════════════════════════════════════════════════════════════
@@ -278,6 +287,43 @@ Route::prefix('v1/demo-access')
     });
 
 // ════════════════════════════════════════════════════════════════
+// Webinars (AT-383) — the public registration front door.
+// SERVED BY PRIMARY. Called SERVER-TO-SERVER by the CoreX marketing website:
+// the registration page lives there (it owns the design and the funnel), CoreX
+// owns the credentials, the email and the record. A visitor's browser never
+// reaches these routes and never sees an access code.
+//
+// Authenticated by the UNIVERSAL SITE CONNECTOR (site.connector), a separate
+// credential from the demo connector on purpose. Reusing the demo's token would
+// hand a public brochure site the credential that opens demo SESSIONS (verify /
+// session / page-view). Two audiences, two credentials, two blast radii —
+// rotating one must never disturb the other.
+//
+// NOT an AgencyApiKey: that guard resolves an AGENCY as the tenant, and webinar
+// registrations are RR Technologies' sales data, not an agency's.
+//
+// PREFIX IS v1/webinars — v1/demo is the mobile demo-login group and
+// v1/demo-access is the demo host's control API. Neither is this.
+//
+// Spec: .ai/specs/webinar-registration.md §4
+// ════════════════════════════════════════════════════════════════
+Route::prefix('v1/webinars')
+    ->middleware(['site.connector', 'throttle:website-api'])
+    ->group(function () {
+        // Reachability probe — lets a freshly pasted token be proven on the admin
+        // connector card, rather than by a prospect hitting a form that 401s.
+        Route::get('/ping', [\App\Http\Controllers\Api\V1\WebinarApiController::class, 'ping'])->name('v1.webinars.ping');
+
+        // Public detail, so the website renders live copy instead of hard-coding it.
+        // Returns NO join_url — that is earned by registering.
+        Route::get('/{slug}', [\App\Http\Controllers\Api\V1\WebinarApiController::class, 'show'])->name('v1.webinars.show');
+
+        // The registration itself: row + demo grant on the webinar's fixed deadline
+        // + ONE email (confirmation, join link, .ics, credentials).
+        Route::post('/{slug}/register', [\App\Http\Controllers\Api\V1\WebinarApiController::class, 'register'])->name('v1.webinars.register');
+    });
+
+// ════════════════════════════════════════════════════════════════
 // Authenticated (sanctum) — canonical v1 routes
 // ════════════════════════════════════════════════════════════════
 // app_access: mobile "Delete my account" (Apple 5.1.1(v)) — rejects an
@@ -290,6 +336,12 @@ Route::middleware(['auth:sanctum', 'app_access'])->group(function () {
     // Canonical /api/v1/* surface
     // ─────────────────────────────────────────────────────────────
     Route::prefix('v1')->group(function () {
+
+        // AT-366 — interactive agency Performance & ROI report backend (read-only, agency-scoped).
+        Route::get('/performance/deal-breakdown', [\App\Http\Controllers\Api\V1\PerformanceDrilldownController::class, 'dealBreakdown'])
+            ->middleware('permission:view_performance')->name('v1.performance.deal-breakdown');
+        Route::get('/performance/drilldown', [\App\Http\Controllers\Api\V1\PerformanceDrilldownController::class, 'drilldown'])
+            ->middleware('permission:view_performance')->name('v1.performance.drilldown');
 
         // Session-authed "who am I" — fired automatically on every page
         // via resources/js/corex-api.js (see Non-Negotiable #7).
@@ -373,6 +425,16 @@ Route::middleware(['auth:sanctum', 'app_access'])->group(function () {
         // its own; an assistant may never bring a property onto the books by any path.
         Route::post('/prospecting/import',      [ProspectingApiController::class, 'import'])->middleware('deny_assistant_property_write')->name('v1.prospecting.import');
         Route::get('/prospecting/check-search', [ProspectingApiController::class, 'checkSearch'])->name('v1.prospecting.check-search');
+
+        // ── CMA / deeds capture (phase 1) — mirrors the portal-capture ingest. ──
+        Route::post('/deeds-capture', [\App\Http\Controllers\Api\DeedsCaptureController::class, 'store'])->name('v1.deeds-capture');
+
+        // ── TVA (The Virtual Agent) contact capture — mirrors deeds-capture. ──
+        Route::post('/tva-contact-capture', [\App\Http\Controllers\Api\TvaContactCaptureController::class, 'store'])->name('v1.tva-contact-capture');
+
+        // ── TVA company DIRECTORSHIP capture — directors → natural-person
+        //    contacts linked to the company entity contact (representatives). ──
+        Route::post('/tva-company-directors', [\App\Http\Controllers\Api\TvaCompanyDirectorsController::class, 'store'])->name('v1.tva-company-directors');
 
         // ── Properties — portal pull ───────────────────────────────
         // AT-267 — pulls a listing off a portal INTO a property. Same rule, same reason: no

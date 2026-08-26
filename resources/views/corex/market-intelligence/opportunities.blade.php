@@ -55,9 +55,17 @@
         </span>
     </div>
 
-    <div data-tour="mic-opportunities-list">
+    {{-- MIC property row comments — .ai/specs/mic-property-row-comments.md
+         fast-follow onto Opportunities. Same registered Alpine.data()
+         component and modal chrome as the Work tab (_comments-alpine.blade.php
+         / _comments-modal-shell.blade.php) — shared, not duplicated. Wraps
+         the row list so its chip buttons (in opportunities-list.blade.php)
+         and the modal share one component instance. --}}
+    <div data-tour="mic-opportunities-list" x-data="micRowComments()">
         @include('corex.market-intelligence.partials.opportunities-list')
+        @include('corex.market-intelligence._comments-modal-shell')
     </div>
+    @include('corex.market-intelligence._comments-alpine')
 
 </div>
 @endsection

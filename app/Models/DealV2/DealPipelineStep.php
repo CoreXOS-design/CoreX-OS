@@ -39,6 +39,10 @@ class DealPipelineStep extends Model
         'requires_bm_approval',
         'escalation_config',
         'required_before',
+        // AT-229 — per-step work-order config (set in pipeline setup, no hard setting).
+        'sends_work_order',
+        'work_order_service_type',
+        'work_order_trigger_point',
     ];
 
     protected $casts = [
@@ -72,6 +76,13 @@ class DealPipelineStep extends Model
     public function instances(): HasMany
     {
         return $this->hasMany(DealStepInstance::class, 'pipeline_step_id');
+    }
+
+    /** AT-229 — the work-order entries this step triggers (multi-supplier COCs, ordered). */
+    public function workOrders(): HasMany
+    {
+        return $this->hasMany(DealPipelineStepWorkOrder::class, 'pipeline_step_id')
+            ->orderBy('sort_order')->orderBy('id');
     }
 
     /**

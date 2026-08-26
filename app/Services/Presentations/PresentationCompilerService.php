@@ -125,6 +125,18 @@ class PresentationCompilerService
             ->orderByDesc('id')
             ->first();
 
+        // Most recent version regardless of ai_summary_text — the source for
+        // the agent's curated Active Competition / Sold Comps selection.
+        // Deliberately NOT the same lookup as $previousVersion above: an
+        // agent can curate on Review, then Compile, before any AI summary
+        // exists yet — that curation must still travel forward. Without
+        // this, every Compile silently reset the agent's tick/untick work
+        // to the auto-picker default (Johan, 2026-08-25 — Retha's case,
+        // presentation 144, version 324 lost 1 of 5 excluded duplicates).
+        $latestVersion = PresentationVersion::where('presentation_id', $presentation->id)
+            ->orderByDesc('id')
+            ->first();
+
         $createPayload = [
             'presentation_id'       => $presentation->id,
             'compiled_by'           => $compiledBy,
@@ -146,6 +158,11 @@ class PresentationCompilerService
             $createPayload['ai_summary_generated_at']    = $previousVersion->ai_summary_generated_at;
             $createPayload['ai_summary_model']           = $previousVersion->ai_summary_model;
             $createPayload['ai_summary_prompt_hash']     = $previousVersion->ai_summary_prompt_hash;
+        }
+
+        if ($latestVersion) {
+            $createPayload['included_competitor_ids_json'] = $latestVersion->included_competitor_ids_json;
+            $createPayload['included_comp_ids_json']        = $latestVersion->included_comp_ids_json;
         }
 
         return PresentationVersion::create($createPayload);

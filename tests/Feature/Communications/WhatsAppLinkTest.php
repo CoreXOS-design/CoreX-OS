@@ -98,6 +98,38 @@ class WhatsAppLinkTest extends TestCase
         $this->assertSoftDeleted('communication_wa_devices', ['id' => $id]);
     }
 
+    public function test_relink_after_unlink_restores_trashed_device_row(): void
+    {
+        // AT-156 regression: unlink SOFT-deletes the device row, but the
+        // comm_wa_session_uq unique index still holds its waha_session. A
+        // re-link (WAHA back to WORKING) previously blind-created a duplicate
+        // → 1062 → 500 on every status poll. The status check must instead
+        // RESTORE the trashed row and return 200 + linked.
+        $this->fakeWaha('WORKING', me: ['id' => '27821234567@c.us']);
+        $agent = $this->agent();
+
+        // link → creates row
+        $this->actingAs($agent)->getJson(route('communications.wa-link.status'))->assertOk();
+        $id = CommunicationWaDevice::where('user_id', $agent->id)->value('id');
+
+        // unlink → soft-delete
+        $this->actingAs($agent)->postJson(route('communications.wa-link.unlink'))->assertOk();
+        $this->assertSoftDeleted('communication_wa_devices', ['id' => $id]);
+
+        // re-link → WAHA WORKING again → 200 + linked, NOT a 1062/500
+        $this->actingAs($agent)
+            ->getJson(route('communications.wa-link.status'))
+            ->assertOk()->assertJsonPath('state', 'linked');
+
+        // the SAME row is restored — no duplicate, no trashed remnant
+        $device = CommunicationWaDevice::where('user_id', $agent->id)->first();
+        $this->assertNotNull($device);
+        $this->assertSame($id, $device->id);
+        $this->assertNull($device->deleted_at);
+        $this->assertSame(1, (int) $device->active);
+        $this->assertSame(1, CommunicationWaDevice::withTrashed()->where('user_id', $agent->id)->count());
+    }
+
     public function test_agency_toggle_off_reports_disabled(): void
     {
         $this->fakeWaha('NO_SESSION');

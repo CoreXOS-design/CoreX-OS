@@ -34,7 +34,26 @@ class ContactDuplicateService
     public function findDuplicates(array $data, int $agencyId): Collection
     {
         $settings = AgencyContactSettings::forAgency($agencyId);
-        $matchFields = $settings->duplicate_match_fields ?? ['phone', 'email', 'id_number'];
+        $matchFields = $settings->duplicate_match_fields ?? ['phone', 'email', 'id_number', 'entity_reg_no'];
+
+        // BUG FIX (2026-08-13, surfaced by entity create-on-the-fly, which is
+        // the first caller that can legitimately have NONE of the configured
+        // match fields populated): if every field is empty/absent, the
+        // where(function($q){...}) closure below adds zero conditions, and
+        // an empty nested where-group compiles to a no-op — the query then
+        // silently returns up to 5 ARBITRARY agency contacts as "duplicates"
+        // instead of none. Mirrors the guard already present in the sibling
+        // findDuplicatesForIdentifiers().
+        $hasAnyValue = false;
+        foreach ($matchFields as $field) {
+            if (!empty($data[$field] ?? null)) {
+                $hasAnyValue = true;
+                break;
+            }
+        }
+        if (!$hasAnyValue) {
+            return new Collection();
+        }
 
         $query = Contact::withoutGlobalScopes()
             ->where('agency_id', $agencyId)
@@ -95,13 +114,16 @@ class ContactDuplicateService
      * @param array<int,string> $emails raw incoming email strings
      * @return Collection<Contact>
      */
-    public function findDuplicatesForIdentifiers(array $phones, array $emails, ?string $idNumber, int $agencyId, ?int $ignoreContactId = null): Collection
+    public function findDuplicatesForIdentifiers(array $phones, array $emails, ?string $idNumber, int $agencyId, ?int $ignoreContactId = null, ?string $entityRegNo = null): Collection
     {
         $normPhones = collect($phones)->map(fn ($p) => $this->normalizePhone((string) $p))->filter()->unique()->values();
         $normEmails = collect($emails)->map(fn ($e) => strtolower(trim((string) $e)))->filter(fn ($e) => $e !== '')->unique()->values();
         $normId = $idNumber ? preg_replace('/[\s\-]/', '', $idNumber) : null;
+        // Entity foundation (.ai/specs/contact-entity-type.md §6.7) — an entity
+        // dedups on its registration number, same normalization as id_number.
+        $normEntityRegNo = $entityRegNo ? preg_replace('/[\s\-]/', '', $entityRegNo) : null;
 
-        if ($normPhones->isEmpty() && $normEmails->isEmpty() && empty($normId)) {
+        if ($normPhones->isEmpty() && $normEmails->isEmpty() && empty($normId) && empty($normEntityRegNo)) {
             return new Collection();
         }
 
@@ -114,7 +136,7 @@ class ContactDuplicateService
             $query->where('id', '!=', $ignoreContactId);
         }
 
-        $query->where(function ($q) use ($normPhones, $normEmails, $normId, $agencyId) {
+        $query->where(function ($q) use ($normPhones, $normEmails, $normId, $normEntityRegNo, $agencyId) {
             foreach ($normPhones as $norm) {
                 $q->orWhereRaw("RIGHT(REGEXP_REPLACE(COALESCE(phone, ''), '[^0-9]', ''), 9) = ?", [$norm]);
                 $q->orWhereIn('id', ContactPhone::query()->withoutGlobalScopes()
@@ -129,6 +151,9 @@ class ContactDuplicateService
             }
             if (! empty($normId)) {
                 $q->orWhereRaw("REPLACE(REPLACE(id_number, ' ', ''), '-', '') = ?", [$normId]);
+            }
+            if (! empty($normEntityRegNo)) {
+                $q->orWhereRaw("REPLACE(REPLACE(entity_reg_no, ' ', ''), '-', '') = ?", [$normEntityRegNo]);
             }
         });
 
@@ -186,6 +211,11 @@ class ContactDuplicateService
             'phone' => $this->normalizePhone($value),
             'email' => strtolower(trim($value)),
             'id_number' => preg_replace('/[\s\-]/', '', $value),
+            // Entity foundation (.ai/specs/contact-entity-type.md §6.7) — an
+            // entity dedups on its registration number, same normalization as
+            // id_number (strip whitespace/hyphens; CIPC's '/' separators are
+            // semantically meaningful and kept).
+            'entity_reg_no' => preg_replace('/[\s\-]/', '', $value),
             default => $value,
         };
     }
@@ -244,6 +274,7 @@ class ContactDuplicateService
             'phone' => "RIGHT(REGEXP_REPLACE(phone, '[^0-9]', ''), 9)",
             'email' => "LOWER(TRIM(email))",
             'id_number' => "REPLACE(REPLACE(id_number, ' ', ''), '-', '')",
+            'entity_reg_no' => "REPLACE(REPLACE(entity_reg_no, ' ', ''), '-', '')",
             default => $field,
         };
     }
@@ -254,7 +285,7 @@ class ContactDuplicateService
     public function identifyMatch(array $data, Contact $existing, int $agencyId): array
     {
         $settings = AgencyContactSettings::forAgency($agencyId);
-        $matchFields = $settings->duplicate_match_fields ?? ['phone', 'email', 'id_number'];
+        $matchFields = $settings->duplicate_match_fields ?? ['phone', 'email', 'id_number', 'entity_reg_no'];
 
         foreach ($matchFields as $field) {
             $attemptedValue = $data[$field] ?? null;

@@ -7,7 +7,7 @@ namespace App\Jobs;
 use App\Models\ContactMatch;
 use App\Services\PropertyMatchScoringService;
 use Illuminate\Bus\Queueable;
-use Illuminate\Contracts\Queue\ShouldBeUnique;
+use Illuminate\Contracts\Queue\ShouldBeUniqueUntilProcessing;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
@@ -39,8 +39,32 @@ use Throwable;
  * Failure isolation: per-contact errors are caught and logged; the job
  * continues with the remaining contacts. The finish-audit row records
  * the full error list.
+ *
+ * Chunking (2026-08-23): the agency-wide, truncate=false path (what
+ * PropertyObserver actually dispatches on every property save) never fit
+ * 380+ contacts in the 600s timeout at the measured ~10s/contact — see
+ * isChunkedAgencyRun() and AGENCY_REGEN_MAX_PER_RUN. Bounds each invocation
+ * and self-chains a continuation until every contact has been touched at
+ * least once for the rotation. Every other call shape (single-contact,
+ * cross-agency rebuild, explicit truncate=true) is unchanged.
+ *
+ * ShouldBeUniqueUntilProcessing, not plain ShouldBeUnique (2026-08-24 fix):
+ * the chunking design above needs the uniqueness lock released BEFORE
+ * handle() runs, because the last thing handle() does — inside its own
+ * finally block — is self::dispatch() a continuation under the SAME
+ * uniqueId. Plain ShouldBeUnique releases the lock only after handle()
+ * returns (confirmed in Laravel's own CallQueuedHandler::call(), not
+ * assumed), so that self-dispatch was trying to acquire a lock the very
+ * same execution still held, and Dispatchable::dispatch() silently no-ops
+ * when a unique lock can't be acquired — no exception, nothing in the
+ * logs. Shipped 2026-08-23 with the wrong interface; the continuation
+ * never reached the queue. See
+ * .ai/audits/2026-08-23-live-error-reduction-scan-deals-oversight-p24-buyer-matches.md
+ * for the full diagnosis. ShouldBeUniqueUntilProcessing releases the lock
+ * before processing starts, which is the semantic this was always
+ * designed around.
  */
-class RegenerateBuyerMatchesJob implements ShouldQueue, ShouldBeUnique
+class RegenerateBuyerMatchesJob implements ShouldQueue, ShouldBeUniqueUntilProcessing
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
@@ -61,11 +85,52 @@ class RegenerateBuyerMatchesJob implements ShouldQueue, ShouldBeUnique
         return 'regen-buyer-matches:' . ($this->agencyId ?? 'all') . ':' . ($this->contactId ?? 'all');
     }
 
+    /**
+     * 2026-08-23 — bounds each invocation of the agency-wide, truncate=false
+     * regenerate (the routine PropertyObserver-triggered path, and the ONLY
+     * path this bounds — see isChunkedAgencyRun() below) to this many
+     * contacts, self-chaining to a follow-up dispatch until every contact in
+     * the agency has been touched at least once for this rotation. Measured
+     * on staging: ~10s/contact (recomputeProspectingMatchesForBuyer's
+     * per-listing scoring loop dominates — see .ai/audits/2026-08-23-* for
+     * the full measurement), so 40 contacts is a ~400s budget inside the
+     * 600s job timeout, comfortable margin even for a slower run.
+     *
+     * Before this: 380-388 contacts x ~10s never fit in 600s, and — because
+     * truncate=false never wipes anything and every invocation started from
+     * buildContactIdQuery()'s natural (unordered-by-recency) order — whichever
+     * contacts sorted first got refreshed on EVERY trigger while the rest sat
+     * on stale-but-present matches indefinitely, with no way to ever reach
+     * them. Chunking does not introduce staleness that wasn't already there;
+     * it replaces "some contacts refreshed forever, the rest never" with
+     * "every contact refreshed within a few chained ticks."
+     */
+    public const AGENCY_REGEN_MAX_PER_RUN = 40;
+
+    /**
+     * Chunking only ever applies to the agency-wide, non-truncating path —
+     * the one PropertyObserver actually dispatches in production, and the
+     * only shape where "fetch once per agency" (see below) and "in-place,
+     * per-contact writes" are both already true. A single-contact dispatch
+     * (ContactMatchObserver) is already fast and untouched. An explicit
+     * truncate=true agency-wide rebuild (manual admin action via
+     * WishlistRegenerateMatches) is a deliberate full-wipe-and-rebuild the
+     * requester is presumably watching — chunking THAT would strand the
+     * agency in a wiped, holed state for however long the rotation takes,
+     * which is exactly the regression to avoid. It keeps today's unchunked
+     * behaviour unchanged.
+     */
+    private function isChunkedAgencyRun(): bool
+    {
+        return $this->contactId === null && $this->agencyId !== null && !$this->truncate;
+    }
+
     public function __construct(
         public readonly ?int $agencyId = null,
         public readonly ?int $contactId = null,
         public readonly bool $truncate = true,
         public readonly ?string $traceId = null,
+        public readonly ?\Illuminate\Support\Carbon $rotationStartedAt = null,
     ) {
         // 2026-08-05 incident (Johan, ca906ba4) — this job runs 10-15min per
         // invocation and was sharing the `default` queue with
@@ -78,6 +143,9 @@ class RegenerateBuyerMatchesJob implements ShouldQueue, ShouldBeUnique
 
     public function handle(PropertyMatchScoringService $scoring): void
     {
+        $chunked = $this->isChunkedAgencyRun();
+        $rotationStartedAt = $this->rotationStartedAt ?? now();
+
         Cache::put('corex.matches.regenerating', true, now()->addMinutes(15));
 
         $traceId = $this->traceId ?? Uuid::uuid4()->toString();
@@ -86,22 +154,66 @@ class RegenerateBuyerMatchesJob implements ShouldQueue, ShouldBeUnique
             'agency_id'  => $this->agencyId,
             'contact_id' => $this->contactId,
             'truncate'   => $this->truncate,
+            'chunked'    => $chunked,
         ]);
 
         $contactsProcessed = 0;
         $errors = [];
+        $chainContinuation = false;
 
         try {
             if ($this->truncate) {
                 $this->truncateScope();
             }
 
-            $contactIds = $this->buildContactIdQuery()->pluck('contact_id')->unique()->values();
+            $allContactIds = $this->buildContactIdQuery()->pluck('contact_id')->unique()->values();
+
+            if ($chunked) {
+                // STALE-FIRST + BOUNDED, self-chained until the whole agency is
+                // covered for this rotation — same idiom as
+                // Property24SyndicationService::syncAllActivations() (2026-08-23).
+                // truncate is always false on this path (enforced by
+                // isChunkedAgencyRun()), so a contact not yet reached this
+                // rotation simply keeps its existing, unchanged matches —
+                // exactly today's behaviour on this path, just now guaranteed
+                // to eventually reach every contact instead of restarting from
+                // the same front of the list every time.
+                $doneThisRotation = \App\Models\Contact::withoutGlobalScopes()
+                    ->whereIn('id', $allContactIds)
+                    ->where('buyer_matches_last_regenerated_at', '>=', $rotationStartedAt)
+                    ->pluck('id');
+                $remaining = $allContactIds->diff($doneThisRotation)->values();
+                $contactIds = $remaining->take(self::AGENCY_REGEN_MAX_PER_RUN)->values();
+                $chainContinuation = $remaining->count() > $contactIds->count();
+            } else {
+                $contactIds = $allContactIds;
+            }
+
+            // Fetch each agency-wide pool ONCE and share it across every contact
+            // below, instead of recomputeForBuyer()/recomputeProspectingMatchesForBuyer()
+            // each re-running their own agency-scoped query per contact — neither
+            // pool depends on contactId, only on agencyId, so per-contact refetching
+            // bought nothing. Measured on staging (agency 1, 380 contacts, same scale
+            // as live's 388): 32,972 active prospecting listings re-fetched fresh on
+            // every contact was the dominant cost. Only pre-fetches when this job is
+            // scoped to a single agency (the failing case in production, and the only
+            // shape where "fetch once per agency" is a bounded, known-size pool) —
+            // the null-agencyId cross-agency super-admin rebuild path is untouched.
+            $candidatePool = null;
+            $listingsPool  = null;
+            if ($this->agencyId !== null) {
+                $candidatePool = app(\App\Services\Matching\MatchingService::class)->matchableCandidatePool($this->agencyId);
+                $listingsPool  = \App\Models\ProspectingListing::withoutGlobalScopes()
+                    ->where('agency_id', $this->agencyId)
+                    ->where('is_active', 1)
+                    ->whereNull('deleted_at')
+                    ->get();
+            }
 
             foreach ($contactIds as $cid) {
                 try {
-                    $scoring->recomputeForBuyer((int) $cid);
-                    $scoring->recomputeProspectingMatchesForBuyer((int) $cid);
+                    $scoring->recomputeForBuyer((int) $cid, $candidatePool);
+                    $scoring->recomputeProspectingMatchesForBuyer((int) $cid, $listingsPool);
                     $contactsProcessed++;
                 } catch (Throwable $e) {
                     $errors[] = ['contact_id' => (int) $cid, 'error' => $e->getMessage()];
@@ -109,6 +221,16 @@ class RegenerateBuyerMatchesJob implements ShouldQueue, ShouldBeUnique
                         'contact_id' => $cid,
                         'error'      => $e->getMessage(),
                     ]);
+                } finally {
+                    if ($chunked) {
+                        // ATTEMPT cursor — stamped success or failure, same
+                        // reasoning as Property24's activation cursor: a
+                        // chronically-failing contact must still rotate away
+                        // rather than sorting first forever and blocking the
+                        // rest of the agency from ever completing.
+                        \App\Models\Contact::withoutGlobalScopes()->where('id', $cid)
+                            ->update(['buyer_matches_last_regenerated_at' => now()]);
+                    }
                 }
             }
 
@@ -124,10 +246,20 @@ class RegenerateBuyerMatchesJob implements ShouldQueue, ShouldBeUnique
                 'rows_written'       => $finalCounts ?? null,
                 'errors_count'       => count($errors),
                 'errors'             => $errors,
+                'chunked'            => $chunked,
+                'chain_continuation' => $chainContinuation,
                 'duration_seconds'   => (int) abs(now()->diffInSeconds($startedAt)),
                 'parent_event_id'    => $startEventId,
             ]);
             Cache::forget('corex.matches.regenerating');
+
+            if ($chainContinuation) {
+                // ShouldBeUniqueUntilProcessing's lock releases as soon as a
+                // job starts processing (before handle() runs) — dispatching
+                // our own continuation from inside handle() does not
+                // self-deadlock.
+                self::dispatch($this->agencyId, null, false, $this->traceId, $rotationStartedAt);
+            }
         }
     }
 

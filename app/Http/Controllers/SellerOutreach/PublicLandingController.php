@@ -55,8 +55,17 @@ final class PublicLandingController extends Controller
             ]);
         }
 
+        // Brand the WhatsApp link-preview card as the sending agency, not CoreX
+        // (same fix as PublicOptOutController/UnsubscribeController — Johan,
+        // 2026-08-20). og:image omitted entirely when the agency has no logo,
+        // never defaulted to CoreX.
+        $branding = \App\Models\Agency::publicBrandingFor($landingData->agencyId);
+
         return response()
-            ->view('seller-outreach.landing', ['ld' => $landingData])
+            ->view('seller-outreach.landing', [
+                'ld'             => $landingData,
+                'agencyLogoUrl'  => $branding['logoUrl'],
+            ])
             ->header('X-Robots-Tag', 'noindex, nofollow');
     }
 

@@ -1,6 +1,27 @@
 @extends('layouts.corex')
 
 @section('corex-content')
+
+{{-- AT-262 — near-miss marker warning. A marker-like sequence in the imported doc
+     that did NOT parse (wrong tilde count, stray ~, empty) is listed here with WHY,
+     so the agent can fix the source doc instead of wondering why a field is missing. --}}
+@if(session('cds_near_misses'))
+    <div class="mx-4 mt-3 rounded-md px-4 py-3 text-sm" style="background: color-mix(in srgb, var(--ds-amber) 10%, transparent); border: 1px solid color-mix(in srgb, var(--ds-amber) 35%, transparent); color: var(--text-primary);">
+        <p class="font-semibold mb-1" style="color: var(--ds-amber);">
+            {{ count(session('cds_near_misses')) }} marker-like {{ \Illuminate\Support\Str::plural('sequence', count(session('cds_near_misses'))) }} in your document {{ count(session('cds_near_misses')) === 1 ? 'was' : 'were' }} not recognised
+        </p>
+        <p class="mb-2" style="color: var(--text-muted);">These look like fields but did not parse. Fix them in Word and re-import:</p>
+        <ul class="space-y-1">
+            @foreach(session('cds_near_misses') as $miss)
+                <li class="flex items-start gap-2">
+                    <code class="font-mono px-1.5 py-0.5 rounded text-xs shrink-0" style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent); color: var(--brand-icon);">{{ $miss['raw'] }}</code>
+                    <span class="text-xs" style="color: var(--text-muted);">{{ $miss['reason'] }}</span>
+                </li>
+            @endforeach
+        </ul>
+    </div>
+@endif
+
 <div class="flex flex-col h-full overflow-hidden"
      x-data="cdsEditor()"
      x-init="init()">
@@ -348,62 +369,10 @@
                 </div>
 
                 {{-- ===== ES-9: INSERT BLOCK + CLAUSES ===== --}}
-                {{-- Insert insertable-block placeholders + insert from the clause library
-                     (data layer: GET /docuperfect/api/clauses, exists per CDS audit §1.6). --}}
-                <div class="mb-4 border border-gray-200 rounded-lg overflow-hidden">
-                    <button type="button" @click="insertBlockExpanded = !insertBlockExpanded"
-                            class="w-full flex items-center justify-between px-3 py-2.5 bg-gray-50 hover:bg-gray-100 transition-colors text-left">
-                        <span class="text-xs font-semibold text-gray-700 flex items-center gap-1.5">
-                            <span>&#10133;</span> Insertable Blocks &amp; Clauses
-                        </span>
-                        <span class="text-xs text-gray-500" x-text="insertBlockExpanded ? '&#9650;' : '&#9660;'"></span>
-                    </button>
-
-                    <div x-show="insertBlockExpanded" x-transition class="border-t border-gray-200 p-3 space-y-3">
-                        <div>
-                            <label class="text-[10px] font-semibold text-gray-500 uppercase block mb-1">Insert block placeholder</label>
-                            <p class="text-[10px] text-gray-400 mb-2">Click in the document where you want the block, then click an option.</p>
-                            <div class="flex flex-wrap gap-2">
-                                <button type="button" @click="insertBlockMarker('OTHER_CONDITIONS')"
-                                        class="text-[11px] px-2 py-1 rounded border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-800">
-                                    Other Conditions
-                                </button>
-                                <button type="button" @click="insertBlockMarker('INCLUDED_ITEMS')"
-                                        class="text-[11px] px-2 py-1 rounded border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-800">
-                                    Included Items
-                                </button>
-                                <button type="button" @click="insertBlockMarker('EXCLUDED_ITEMS')"
-                                        class="text-[11px] px-2 py-1 rounded border border-rose-300 bg-rose-50 hover:bg-rose-100 text-rose-800">
-                                    Excluded Items
-                                </button>
-                                <button type="button" @click="insertBlockMarker('CUSTOM')"
-                                        class="text-[11px] px-2 py-1 rounded border border-gray-300 bg-white hover:bg-gray-50 text-gray-700">
-                                    Custom Named…
-                                </button>
-                            </div>
-                        </div>
-
-                        <div class="border-t border-gray-100 pt-3">
-                            <label class="text-[10px] font-semibold text-gray-500 uppercase block mb-1">Clause library</label>
-                            <p class="text-[10px] text-gray-400 mb-2">Insert pre-approved clause text at cursor.</p>
-                            <input type="text" x-model="clauseSearch" @input.debounce.300ms="loadClauses()"
-                                   placeholder="Search clauses…"
-                                   class="w-full text-xs border border-gray-300 rounded px-2 py-1.5 bg-white mb-2">
-                            <div class="max-h-48 overflow-y-auto border border-gray-100 rounded">
-                                <template x-if="!clauseList.length">
-                                    <div class="text-[10px] text-gray-400 px-2 py-2" x-text="clausesLoading ? 'Loading…' : 'No clauses match.'"></div>
-                                </template>
-                                <template x-for="c in clauseList" :key="c.id">
-                                    <button type="button" @click="insertClauseAtCursor(c)"
-                                            class="w-full text-left text-xs px-2 py-1.5 hover:bg-teal-50 border-b border-gray-50 last:border-b-0">
-                                        <div class="font-semibold text-gray-700" x-text="c.name"></div>
-                                        <div class="text-[10px] text-gray-500 line-clamp-2" x-text="(c.text || '').substring(0, 90)"></div>
-                                    </button>
-                                </template>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+                {{-- Shared with edit-web.blade.php's Content tab (2026-08-20) —
+                     same partial, same mixin, one insertion mechanism. --}}
+                @include('docuperfect.templates._insertable-blocks-panel')
+                @include('docuperfect.templates._insertable-blocks-mixin')
 
                 {{-- ===== TAG TOOLS ===== --}}
                 <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Tag Tools</h3>
@@ -513,6 +482,12 @@
                                                class="w-full text-xs border border-gray-300 rounded px-2 py-1.5 mb-1.5 bg-white"
                                                :value="getMapping(tag.id).manualLabel"
                                                @input.debounce.300ms="setManualLabel(tag.id, $event.target.value)">
+                                    </template>
+
+                                    {{-- AT-177 (Johan) — binding chip shows party · attribute, not bare party --}}
+                                    <template x-if="bindingChip(tag.id)">
+                                        <span class="inline-flex items-center text-[10px] font-medium px-2 py-0.5 rounded-full bg-teal-50 text-teal-700 border border-teal-200"
+                                              x-text="bindingChip(tag.id)"></span>
                                     </template>
 
                                     {{-- Field group preview --}}
@@ -919,6 +894,11 @@
 <script>
 function cdsEditor() {
     return {
+        // Insertable Blocks & Clauses (2026-08-20) — shared with edit-web's
+        // Content tab via corexInsertableBlocksMixin() (see
+        // _insertable-blocks-mixin.blade.php); no longer defined inline here.
+        ...corexInsertableBlocksMixin(),
+
         activeTool: null,
         selectedTagId: null,
         tags: [],
@@ -989,72 +969,6 @@ function cdsEditor() {
         editingPartyId: null,
         addingParty: false,
         partiesUrl: @json(route('docuperfect.import.parties.index')),
-
-        // ES-9: Insert Block + Clauses panel state
-        insertBlockExpanded: false,
-        clauseSearch: '',
-        clauseList: [],
-        clausesLoading: false,
-        clausesUrl: @json(route('docuperfect.clauses.json')),
-
-        // Insert a `~~~~MARKER~~~~` placeholder at the current cursor position
-        // in the contenteditable doc. For CUSTOM, prompts for a label.
-        insertBlockMarker(purpose) {
-            let token = purpose;
-            if (purpose === 'CUSTOM') {
-                const label = (prompt('Block label (e.g. "Outstanding Repairs"):') || '').trim();
-                if (!label) return;
-                token = 'CUSTOM:' + label;
-            }
-            const marker = '~~~~' + token + '~~~~';
-            this._insertTextAtCursor(marker);
-        },
-
-        async loadClauses() {
-            this.clausesLoading = true;
-            try {
-                const url = this.clausesUrl + (this.clauseSearch ? '?q=' + encodeURIComponent(this.clauseSearch) : '');
-                const r = await fetch(url, { headers: { 'Accept': 'application/json' } });
-                if (r.ok) {
-                    const data = await r.json();
-                    this.clauseList = Array.isArray(data) ? data : (data.data || data.clauses || []);
-                } else {
-                    this.clauseList = [];
-                }
-            } catch (e) {
-                console.warn('Clause library fetch failed:', e);
-                this.clauseList = [];
-            }
-            this.clausesLoading = false;
-        },
-
-        insertClauseAtCursor(clause) {
-            // Insert the clause text into the document at the current cursor.
-            // The clause is plain text — agent can edit before saving template.
-            this._insertTextAtCursor(clause.text || clause.content || '');
-        },
-
-        _insertTextAtCursor(text) {
-            const container = document.getElementById('docContainer');
-            if (!container) return;
-            container.focus();
-            const sel = window.getSelection();
-            let range;
-            if (sel && sel.rangeCount > 0 && container.contains(sel.anchorNode)) {
-                range = sel.getRangeAt(0);
-            } else {
-                range = document.createRange();
-                range.selectNodeContents(container);
-                range.collapse(false);
-            }
-            range.deleteContents();
-            const node = document.createTextNode(text);
-            range.insertNode(node);
-            range.setStartAfter(node);
-            range.setEndAfter(node);
-            sel.removeAllRanges();
-            sel.addRange(range);
-        },
 
         // Undo stack for tag actions (max 20)
         undoStack: [],
@@ -1340,13 +1254,19 @@ function cdsEditor() {
 
                     // %%%% marker â†’ SIG tag
                     if (markerType === 'signature') {
+                        // AT-177 D4 — read any server-suggested roster/variant (from the
+                        // "____ / Signature" acknowledgement detector) BEFORE the element is
+                        // replaced, so the sig tag pre-binds to Seller + Agent, sig_only.
+                        const sigParties = (el.dataset.sigParties || '')
+                            .split(',').map(s => s.trim()).filter(Boolean);
+                        const sigVariant = el.dataset.sigVariant || 'sig_full';
                         const tag = this._createTagData('signature');
                         const span = this._createTagElement(tag);
                         el.replaceWith(span);
                         this.tags.push(tag);
                         this.mappings[tag.id] = {
-                            parties: [],
-                            variant: 'sig_full',
+                            parties: sigParties,
+                            variant: sigVariant,
                         };
                         return;
                     }
@@ -1378,6 +1298,18 @@ function cdsEditor() {
                     el.textContent = tag.label;
                     this._attachTagClickHandler(el, tag.id);
                     this.tags.push(tag);
+
+                    // AT-177 — DETERMINISTIC server binding wins. Johan's imports carry an
+                    // explicit "{Party} - {Attribute}" token convention, resolved server-side
+                    // by CdsBindingSuggester: identity token → field group (single I/We
+                    // clause), each attribute → its own column, editable_by populated. Only
+                    // when the server could not confidently resolve the token do we fall
+                    // through to the legacy substring best-match below.
+                    const serverBinding = (this.cdsFields[tag.parserIndex] || {}).binding;
+                    if (serverBinding) {
+                        this.mappings[tag.id] = this._mappingFromServerBinding(serverBinding, confidence);
+                        return;
+                    }
 
                     // Auto-suggest from context identification data attributes
                     if (fieldName) {
@@ -1676,6 +1608,29 @@ function cdsEditor() {
             return this.mappings[tagId] || this._emptyInputMapping(null);
         },
 
+        // AT-177 (Johan) — the binding chip shows the bound ATTRIBUTE, not just the party:
+        // "Seller · Address", not a bare "Seller". Party from the typeKey, attribute from the
+        // selected named field's name (its trailing word). Empty until a real binding exists.
+        bindingChip(tagId) {
+            const m = this.getMapping(tagId);
+            if (!m || !m.typeKey || m.typeKey === 'sf:manual' || m.mappingType !== 'named_field') return '';
+
+            const partyMap = {
+                'sf:contact_seller': 'Seller', 'sf:contact_buyer': 'Buyer',
+                'sf:contact_lessor': 'Lessor', 'sf:contact_lessee': 'Lessee',
+                'sf:property': 'Property', 'sf:agent': 'Agent',
+            };
+            const party = partyMap[m.typeKey] || '';
+            if (!m.namedFieldId) return party;
+
+            const nf = (this.getFieldsForType(m.typeKey) || []).find(f => String(f.id) === String(m.namedFieldId));
+            if (!nf) return party;
+
+            // "Seller Address" / "contact.address" → the attribute word.
+            let attr = (nf.name || '').replace(new RegExp('^' + party + '\\s*', 'i'), '').trim() || nf.name || '';
+            return party ? (party + ' · ' + attr) : attr;
+        },
+
         _emptyInputMapping(confidence) {
             return {
                 mappingType: '',
@@ -1696,6 +1651,25 @@ function cdsEditor() {
 
         _makeMapping(mappingType, overrides) {
             return Object.assign(this._emptyInputMapping(null), { mappingType }, overrides);
+        },
+
+        // AT-177 — build a builder mapping from a deterministic server binding suggestion
+        // (CdsBindingSuggester). Shapes are aligned; we normalise nulls and preserve the
+        // populated editable_by / field-group / party so the field shows bound out of the box.
+        _mappingFromServerBinding(b, confidence) {
+            return this._makeMapping(b.mappingType || 'named_field', {
+                typeKey: b.typeKey || '',
+                namedFieldId: b.namedFieldId ?? null,
+                fieldGroupId: b.fieldGroupId ?? null,
+                label: b.label || '',
+                manualLabel: b.manualLabel || '',
+                party: b.party || 'auto',
+                partyLocked: !!b.partyLocked,
+                sourceType: b.sourceType || '',
+                sourceContactType: b.sourceContactType || '',
+                editable_by: Array.isArray(b.editable_by) ? b.editable_by.slice() : [],
+                confidence: b.confidence || confidence || 'high',
+            });
         },
 
         // ===== Type dropdown handler =====

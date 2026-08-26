@@ -560,6 +560,20 @@ class CalendarController extends Controller
         ]);
     }
 
+    /**
+     * The right-panel resident Agenda list (JSON) — same builder as the initial page
+     * render (index()'s $shared['agenda']), so a client-side refresh always matches a
+     * fresh page load. Fired after an invitation response and on the existing poll
+     * timer, mirroring the Deck's refresh pattern above — the panel previously had no
+     * live-update path, so an accepted invitation only appeared after a full reload.
+     */
+    public function agendaPanel(Request $request)
+    {
+        return response()->json([
+            'agenda' => $this->tiles->panelAgenda($request->user()),
+        ]);
+    }
+
     /** AT-164 cockpit v2 — resolve the saved arrangement (code defaults, clamped). */
     private function resolveCockpit($pref): array
     {
@@ -783,6 +797,10 @@ class CalendarController extends Controller
             'colour' => $colour, 'category' => $calendarEvent->category,
             'class_label' => $cfg?->label ?? $calendarEvent->category,
             'event_type' => $calendarEvent->event_type, 'status' => $calendarEvent->status,
+            // 2026-08-19 (Johan) — surfaced on the panel whenever the event was
+            // dismissed with a reason; the blade shows this near the Activity
+            // timeline when status === 'dismissed' and this is non-null.
+            'dismissal_reason_label' => $calendarEvent->dismissalReasonLabel(),
             'source_type' => $calendarEvent->source_type,
             'source_link' => $this->resolveSourceLink($calendarEvent),
             'linked_records' => $this->buildLinkedRecords($calendarEvent, $user),
@@ -824,6 +842,24 @@ class CalendarController extends Controller
             'actor_role' => $cfg?->actor_role ?? 'both',
             'completion_behaviour' => $cfg?->completion_behaviour ?? 'freeform',
             'is_draggable' => $isManual && !$calendarEvent->is_recurring,
+            // 2026-08-18 (Johan) — per-type action-bar gate for viewing-pack buttons.
+            // Only 'viewing' events may ever have a real viewing pack — this stays a
+            // class-slug check (not derived from a column) because Johan scoped the
+            // viewing-pack UI to "viewing class only" explicitly; see the audit at
+            // .ai/audits/2026-08-18-calendar-action-buttons-by-event-type.md §3/§4.
+            'supports_viewing_pack' => in_array($calendarEvent->category, ['viewing', 'viewings'], true),
+            // 2026-08-18 (Johan) — the Capture-Feedback / Mark-Complete choice is
+            // driven ENTIRELY by completion_behaviour now (see index.blade.php's
+            // footer action bar): require_feedback -> Capture Feedback, freeform ->
+            // Mark Complete. This derives from the calendar_event_class_settings
+            // column so a newly configured class gets the right button with zero
+            // code change — no hardcoded class-slug list. The former
+            // 'supports_plain_complete' hardcoded array (meeting/other/private/task)
+            // is gone: completion_behaviour === 'freeform' already covers exactly
+            // those 4 classes on today's data (verified in the audit above) and
+            // needs no OR against is_actionable, since meeting/other/private being
+            // event_nature=informational never made their completion_behaviour
+            // anything but freeform.
             // AT-111 — the viewing pack linked to THIS appointment (if any), for the
             // event panel's "Open pack" + download buttons. When none exists, the
             // launch URL lets the panel start one from this event (reverse link).
@@ -844,6 +880,10 @@ class CalendarController extends Controller
                 ] : null;
             })(),
             'viewing_pack_launch_url' => route('corex.viewing-packs.from-event', $calendarEvent),
+            // Gate the panel's "Create viewing pack" button (Path B) to viewing-type
+            // events only — mirrors buildEventViewingPack()'s isViewing gate so a
+            // listing-presentation / meeting / other event no longer offers a pack.
+            'supports_viewing_pack' => in_array($calendarEvent->category, ['viewing', 'viewings'], true),
             'linked_property' => $calendarEvent->property_id ? [
                 'id' => $calendarEvent->property_id,
                 'address' => $calendarEvent->property?->address ?? ('Property #' . $calendarEvent->property_id),
@@ -994,7 +1034,7 @@ class CalendarController extends Controller
         if (! $pack && $isViewing && $user->hasPermission('viewing_packs.create')) {
             return [
                 'linked'     => false,
-                'launch_url' => route('command-center.calendar.viewing-pack.launch', $calendarEvent),
+                'launch_url' => route('corex.viewing-packs.from-event', $calendarEvent),
             ];
         }
 
@@ -1055,10 +1095,25 @@ class CalendarController extends Controller
         $feedbackMode = $cfg?->feedback_mode
             ?? ($calendarEvent->category === 'listing_presentation' ? 'per_property' : 'per_contact');
 
+        // 2026-08-18 (Johan) — feedback_mode controls GROUPING only (one block per
+        // property vs one per contact) and must stay exactly as configured: viewing
+        // needs per_property so a multi-stop trip gets one feedback block per
+        // property visited. WHICH OUTCOME VOCABULARY populates that block is a
+        // separate question — who the appointment is FOR — driven by actor_role
+        // (already correctly seeded: viewing=buyer_action, listing_presentation/
+        // property_evaluation=seller_action), never by feedback_mode. Before this
+        // fix both questions were conflated onto feedback_mode, which is exactly
+        // what let viewing (per_property) and listing_presentation (per_contact)
+        // silently swap vocabularies: a buyer viewing got the seller "Mandate
+        // signed / Lost" list, and a seller-facing listing presentation / property
+        // evaluation got the buyer "Interested / Made offer" list.
+        $isSellerFacing = ($cfg?->actor_role ?? null) === 'seller_action';
+        $outcomeCategory = $isSellerFacing ? 'lp_outcome' : 'outcome';
+
         $properties = $calendarEvent->linkedProperties;
 
         $outcomes = \App\Models\CommandCenter\AgencyFeedbackOption::withoutGlobalScopes()
-            ->where('category', 'outcome')
+            ->where('category', $outcomeCategory)
             ->where('is_active', true)
             ->where(fn ($q) => $q->whereNull('agency_id')->orWhere('agency_id', $agencyId))
             ->orderBy('sort_order')
@@ -1085,7 +1140,13 @@ class CalendarController extends Controller
                     'date'  => $calendarEvent->event_date->format('D, j M Y H:i'),
                 ],
                 'feedback_mode' => 'per_property',
-                'feedback_kind' => 'listing_presentation',
+                // CX-103 (Johan, 2026-08-19) — per_property grouping now also
+                // covers viewing (multi-stop trips), not just listing
+                // presentations. This was hardcoded to 'listing_presentation'
+                // for both, which is what made the buyer-pipeline feedback
+                // modal treat every viewing's feedback as a listing-
+                // presentation dead-end. Reflect the real class instead.
+                'feedback_kind' => $calendarEvent->category === 'viewing' ? 'viewing' : 'listing_presentation',
                 'items' => $properties->map(fn ($p) => [
                     'property_id'    => $p->id,
                     'label'          => method_exists($p, 'buildDisplayAddress') ? $p->buildDisplayAddress() : ($p->title ?? "Property #{$p->id}"),
@@ -1094,25 +1155,27 @@ class CalendarController extends Controller
                     'internal_notes' => optional($existing->get($p->id))->internal_notes,
                     'next_action'    => optional($existing->get($p->id))->next_action_notes,
                 ]),
-                // CAL-7 Class 4 — read lp_outcome + lp_mandate_type from the
-                // same agency_feedback_options table the per_contact mode
-                // uses (the seeder now seeds them). Empty seed -> empty
-                // array -> CAL-6 empty-state banner fires consistently
-                // across both feedback modes.
-                'lp_outcomes' => \App\Models\CommandCenter\AgencyFeedbackOption::withoutGlobalScopes()
-                    ->where('category', 'lp_outcome')
-                    ->where('is_active', true)
-                    ->where(fn ($q) => $q->whereNull('agency_id')->orWhere('agency_id', $agencyId))
-                    ->orderBy('sort_order')
-                    ->pluck('label')
-                    ->values(),
-                'lp_mandate_types' => \App\Models\CommandCenter\AgencyFeedbackOption::withoutGlobalScopes()
-                    ->where('category', 'lp_mandate_type')
-                    ->where('is_active', true)
-                    ->where(fn ($q) => $q->whereNull('agency_id')->orWhere('agency_id', $agencyId))
-                    ->orderBy('sort_order')
-                    ->pluck('label')
-                    ->values(),
+                // CAL-7 Class 4 — read from the SAME $outcomeCategory resolved
+                // above (lp_outcome for a seller-facing class, outcome for a
+                // buyer-facing one) so the per-property dropdown always shows
+                // the vocabulary that actually matches who the appointment is
+                // for — never hardcoded to lp_outcome regardless of class.
+                // Reuses $outcomes (already fetched, same category) rather than
+                // re-querying, so the two can never drift.
+                'lp_outcomes' => $outcomes->pluck('label')->values(),
+                // Mandate type has no meaning for a buyer-facing appointment
+                // (a viewing) — empty list, and the "Mandate type" field hides
+                // itself client-side when this is empty (see the x-show gate
+                // on that field in the blade).
+                'lp_mandate_types' => $isSellerFacing
+                    ? \App\Models\CommandCenter\AgencyFeedbackOption::withoutGlobalScopes()
+                        ->where('category', 'lp_mandate_type')
+                        ->where('is_active', true)
+                        ->where(fn ($q) => $q->whereNull('agency_id')->orWhere('agency_id', $agencyId))
+                        ->orderBy('sort_order')
+                        ->pluck('label')
+                        ->values()
+                    : collect(),
                 'lp_concerns' => $concerns,
                 'outcomes' => $outcomes,
                 'concerns' => $concerns,
@@ -1221,7 +1284,24 @@ class CalendarController extends Controller
             }
         }
 
-        DB::transaction(function () use ($data, $calendarEvent, $user, $feedbackKind) {
+
+        // 2026-08-18 (Johan, AT-calendar-buttons §C) — per-property feedback
+        // (viewing / property_evaluation / listing_presentation, now all
+        // feedback_mode=per_property) is keyed by property, but Johan also
+        // requires it stay visible from the linked CONTACT ("an agent looks in
+        // both places"). Only the buyer-facing class (viewing) has a single
+        // contact whose feedback belongs on their Contact page (buyer-
+        // perspective query joins calendar_event_feedback.contact_id); the
+        // seller-facing classes (property_evaluation, listing_presentation)
+        // already surface via property ownership, not contact_id, so they keep
+        // contact_id=null exactly as before. visibility mirrors what per-contact
+        // viewing feedback always used (public_to_seller — the seller may see
+        // a buyer's feedback on their property); seller-facing captures stay
+        // internal_only, unchanged.
+        $cfg = CalendarEventClassSetting::forAgencyAndClass($calendarEvent->agency_id, $calendarEvent->category);
+        $isBuyerFacing = ($cfg?->actor_role ?? null) === 'buyer_action';
+
+        DB::transaction(function () use ($data, $calendarEvent, $user, $feedbackKind, $isBuyerFacing) {
             // Cross-agent feedback notification (Defect 3): collect the properties
             // whose feedback was actually created or changed in this capture, so a
             // no-op re-save (which only bumps captured_at) does NOT notify. Purely
@@ -1238,8 +1318,8 @@ class CalendarController extends Controller
                             'feedback_kind'     => 'listing_presentation',
                         ],
                         [
-                            'contact_id'         => null,
-                            'visibility'         => 'internal_only',
+                            'contact_id'         => $isBuyerFacing ? $this->eventBuyerContactId($calendarEvent) : null,
+                            'visibility'         => $isBuyerFacing ? 'public_to_seller' : 'internal_only',
                             'kind_specific_data' => $row['kind_specific_data'] ?? [],
                             'internal_notes'     => $row['internal_notes'] ?? null,
                             'next_action_notes'  => $row['next_action_notes'] ?? null,
@@ -1314,32 +1394,36 @@ class CalendarController extends Controller
                 // above already rejects a cross-tenant contact_id, so the
                 // normal AgencyScope-scoped lookup is both correct and safe.
                 $contact = Contact::find($contactId);
-                if ($contact && $contact->is_buyer) {
-                    // calendar_events.agency_id is nullable — never stamp agency #1
-                    // on the fan-out write. buyer_activity_logs.agency_id is
-                    // NOT NULL, so an unresolvable agency means we skip the write
-                    // entirely (logged) rather than mis-attribute it.
-                    if ($calendarEvent->agency_id === null) {
-                        \Illuminate\Support\Facades\Log::warning('Skipped BuyerActivityLog write: calendar event has no agency_id', [
-                            'calendar_event_id' => $calendarEvent->id,
-                            'contact_id' => $contactId,
-                        ]);
-                    } else {
-                        \App\Models\BuyerActivityLog::create([
-                            'contact_id' => $contactId,
-                            'agency_id' => $calendarEvent->agency_id,
-                            'activity_type' => 'feedback_captured',
-                            'activity_date' => now(),
-                            'related_event_id' => $calendarEvent->id,
-                            'related_property_id' => $row['property_id'] ?? ($linkedPropertyIds[0] ?? null),
-                            'metadata' => [
-                                'event_title' => $calendarEvent->title,
-                                'outcome_id' => $row['outcome_id'] ?? null,
-                                'captured_by' => $user->name,
-                            ],
-                            'logged_by_user_id' => $user->id,
-                        ]);
-                    }
+                // AT-253 (STANDARDS Rule 17) — buyer_activity_logs.agency_id is NOT NULL, and the
+                // old `?? 1` filed this viewing feedback into AGENCY 1's buyer history whenever
+                // the event carried no tenant. Derive it from the domain: the EVENT owns the
+                // feedback, and failing that the CONTACT the feedback is about. With neither
+                // there is nothing honest to write, so the row is SKIPPED and logged rather than
+                // invented — an audit entry under the wrong tenant is worse than a missing one.
+                $logAgencyId = $calendarEvent->agency_id ?: ($contact->agency_id ?? null);
+
+                if ($contact && $contact->is_buyer && ! $logAgencyId) {
+                    \Log::warning('AT-253 buyer-activity (viewing feedback) skipped: no agency to derive from', [
+                        'calendar_event_id' => $calendarEvent->id,
+                        'contact_id'        => $contactId,
+                    ]);
+                }
+
+                if ($contact && $contact->is_buyer && $logAgencyId) {
+                    \App\Models\BuyerActivityLog::create([
+                        'contact_id' => $contactId,
+                        'agency_id' => $logAgencyId,
+                        'activity_type' => 'feedback_captured',
+                        'activity_date' => now(),
+                        'related_event_id' => $calendarEvent->id,
+                        'related_property_id' => $row['property_id'] ?? ($linkedPropertyIds[0] ?? null),
+                        'metadata' => [
+                            'event_title' => $calendarEvent->title,
+                            'outcome_id' => $row['outcome_id'] ?? null,
+                            'captured_by' => $user->name,
+                        ],
+                        'logged_by_user_id' => $user->id,
+                    ]);
 
                     // Sync buyer_property_views. Per-property rows record their own
                     // property; a property-less row (legacy single viewing / meeting)
@@ -1430,10 +1514,11 @@ class CalendarController extends Controller
                             || !$property->agent) {
                             continue;
                         }
-                        $addr = $property->address;
-                        if (blank($addr)) {
-                            $addr = trim(trim(($property->street_number ?? '') . ' ' . ($property->street_name ?? '')) . ', ' . ($property->suburb ?? ''), ' ,');
-                        }
+                        // AT-266 — canonical display address; buildDisplayAddress already
+                        // falls back to title, so no inline street/suburb re-compose.
+                        $addr = trim((string) $property->address) !== ''
+                            ? $property->address
+                            : $property->buildDisplayAddress();
                         $addr = $addr ?: ($property->title ?: ('Property #' . $property->id));
                         $buyer = $buyerByProperty[$pid] ?? null;
                         $dispatcher->fire(
@@ -1901,6 +1986,50 @@ class CalendarController extends Controller
 
     public function complete(Request $request, CalendarEvent $calendarEvent)
     {
+        // ITEM 4 gap fix, Johan 2026-08-19 — same isPrivateHiddenFrom() guard as
+        // show/update/destroy/reschedule: a non-creator may not complete someone
+        // else's private event. Unlike those four, admin/owner/super_admin MAY
+        // still act here — Johan's explicit call ("admin actions are still
+        // logged... so the audit will still show who did what") — because every
+        // branch below writes an unconditional CalendarEventAuditEntry naming
+        // performed_by_user_id, so the override is always attributable.
+        if ($calendarEvent->isPrivateHiddenFrom($request->user()) && !$this->canBypassPrivateEventGuard($request->user())) {
+            abort(403);
+        }
+
+        // AT-335 — recurring scope: "this" completes only the clicked occurrence
+        // (an exception child, series untouched); "all" completes the whole
+        // series (today's previous behaviour, now reachable only as an explicit
+        // choice). No "future" — pre-emptively marking unoccurred events done
+        // is not a real intent the way rescheduling/removing a future block is.
+        $scope = $request->input('recur_scope');
+        $occ   = $request->input('occurrence_date');
+        if ($calendarEvent->is_recurring && in_array($scope, ['this', 'all'], true)) {
+            $svc = app(\App\Services\CommandCenter\Calendar\RecurrenceEditService::class);
+            if ($scope === 'this' && $occ) {
+                $svc->completeOccurrence($calendarEvent, $occ, $request->user());
+            } else {
+                $svc->completeAll($calendarEvent);
+            }
+            // 2026-08-19 (Johan) — "admin actions are still logged... so the
+            // audit will still show who did what." Audited against the PARENT
+            // id regardless of scope, same convention destroy()'s recurring
+            // branch already uses just above.
+            \App\Models\CommandCenter\CalendarEventAuditEntry::create([
+                'calendar_event_id'    => $calendarEvent->id,
+                'action'               => 'completed',
+                'old_values'           => ['recur_scope' => $scope, 'occurrence_date' => $occ],
+                'new_values'           => ['status' => 'completed'],
+                'performed_by_user_id' => $request->user()->id,
+                'performed_at'         => now(),
+                'notes'                => "Recurring event completed (scope: {$scope})",
+            ]);
+
+            return $request->wantsJson()
+                ? response()->json(['ok' => true])
+                : back()->with('success', 'Event completed.');
+        }
+
         // Deal step bridge: if this calendar event is linked to a DealStepInstance,
         // complete the deal step instead (observer will cascade to calendar event)
         if ($calendarEvent->source_type === \App\Models\DealV2\DealStepInstance::class && $calendarEvent->source_id) {
@@ -1929,15 +2058,93 @@ class CalendarController extends Controller
 
         // Default: mark calendar event complete directly (non-deal events)
         $calendarEvent->markCompleted();
+
+        \App\Models\CommandCenter\CalendarEventAuditEntry::create([
+            'calendar_event_id'    => $calendarEvent->id,
+            'action'               => 'completed',
+            'new_values'           => ['status' => 'completed'],
+            'performed_by_user_id' => $request->user()->id,
+            'performed_at'         => now(),
+        ]);
+
         return $request->wantsJson()
             ? response()->json(['ok' => true])
             : back()->with('success', 'Event completed.');
     }
 
-    public function dismiss(CalendarEvent $calendarEvent)
+    public function dismiss(Request $request, CalendarEvent $calendarEvent)
     {
-        $calendarEvent->markDismissed();
+        // ITEM 4 gap fix, Johan 2026-08-19 — same guard as complete() above: a
+        // non-creator may not dismiss someone else's private event; admin/owner/
+        // super_admin may, because it is unconditionally audited below.
+        if ($calendarEvent->isPrivateHiddenFrom($request->user()) && !$this->canBypassPrivateEventGuard($request->user())) {
+            abort(403);
+        }
+
+        // 2026-08-19 (Johan) — the reason picker (index.blade.php's
+        // submitReasonPicker()) already sends these two fields for EVERY
+        // dismiss — the picker requires a code to be chosen before it will
+        // submit. Previously read by nothing; captured then thrown away.
+        // Deliberately NOT named completion_reason_code/completion_reason on
+        // the calendar_events row — those exact names already exist on
+        // calendar_event_class_settings and mean a different, unrelated
+        // thing (a per-class config field, unused by this flow).
+        $reasonCode  = $request->input('completion_reason_code');
+        $reasonNotes = $request->input('completion_reason');
+
+        // AT-335 — same this/all recurring-scope gate as complete() above; dismiss
+        // shares the identical gap (no scope prompt) and the identical fix shape.
+        $scope = $request->input('recur_scope');
+        $occ   = $request->input('occurrence_date');
+        if ($calendarEvent->is_recurring && in_array($scope, ['this', 'all'], true)) {
+            $svc = app(\App\Services\CommandCenter\Calendar\RecurrenceEditService::class);
+            if ($scope === 'this' && $occ) {
+                $svc->dismissOccurrence($calendarEvent, $occ, $request->user(), $reasonCode, $reasonNotes);
+            } else {
+                $svc->dismissAll($calendarEvent, $reasonCode, $reasonNotes);
+            }
+
+            \App\Models\CommandCenter\CalendarEventAuditEntry::create([
+                'calendar_event_id'    => $calendarEvent->id,
+                'action'               => 'dismissed',
+                'old_values'           => ['recur_scope' => $scope, 'occurrence_date' => $occ],
+                'new_values'           => ['status' => 'dismissed', 'dismissal_reason_code' => $reasonCode, 'dismissal_reason_notes' => $reasonNotes],
+                'performed_by_user_id' => $request->user()->id,
+                'performed_at'         => now(),
+                'notes'                => "Recurring event dismissed (scope: {$scope})",
+            ]);
+
+            return $request->wantsJson()
+                ? response()->json(['ok' => true])
+                : back()->with('success', 'Event dismissed.');
+        }
+
+        $calendarEvent->markDismissed($reasonCode, $reasonNotes);
+
+        \App\Models\CommandCenter\CalendarEventAuditEntry::create([
+            'calendar_event_id'    => $calendarEvent->id,
+            'action'               => 'dismissed',
+            'new_values'           => ['status' => 'dismissed', 'dismissal_reason_code' => $reasonCode, 'dismissal_reason_notes' => $reasonNotes],
+            'performed_by_user_id' => $request->user()->id,
+            'performed_at'         => now(),
+        ]);
+
         return back()->with('success', 'Event dismissed.');
+    }
+
+    /**
+     * ITEM 4 gap fix, Johan 2026-08-19 — the only role set allowed to complete
+     * or dismiss another user's private event. Same role list as
+     * sharedViewData()'s $isBypass (class-visibility bypass): super_admin,
+     * admin, owner. This is narrower than isPrivateHiddenFrom(), which is
+     * deliberately role-blind for VIEWING detail (show()) — this bypass only
+     * ever gates the complete/dismiss action, never detail visibility, and is
+     * only safe because both actions write an unconditional, attributed
+     * CalendarEventAuditEntry.
+     */
+    private function canBypassPrivateEventGuard($user): bool
+    {
+        return $user && in_array($user->role ?? null, ['super_admin', 'admin', 'owner'], true);
     }
 
     // ── Private helpers ──
@@ -2329,13 +2536,48 @@ class CalendarController extends Controller
 
     private function applyFilters(Collection $events, $user, array $typeFilter, array $categoryFilter, string $scope): Collection
     {
+        // 2026-08-19 (Johan) — same invitation carve-out as CalendarEvent::
+        // scopeVisibleTo(). This collection-level re-filter runs AFTER that
+        // SQL scope already let invited events through — without this, an
+        // event fetched because the invitee was invited to it gets silently
+        // re-excluded right back out here, and the SQL-level fix does
+        // nothing end to end. One query (not per-row), only when scope
+        // actually needs it.
+        //
+        // 2026-08-19 (cc6/Johan follow-up) — AT-267 identity fix. This whole
+        // method still compared against bare $user->id / $user->branch_id,
+        // never dataIdentityIds() / effectiveBranchId(), unlike
+        // scopeVisibleTo() (fixed earlier the same day). scopeVisibleTo()'s
+        // SQL widened the result set for an assistant (their agent's own
+        // events) and for a branch-switched multi-branch admin, but this
+        // in-memory re-filter then silently threw those rows straight back
+        // out — the SQL-level widening did nothing end to end. Pure
+        // widening: $identityIds is [$user->id] for any non-assistant and
+        // effectiveBranchId() equals $user->branch_id for anyone who has
+        // never used the branch switcher, so nobody who could see something
+        // before sees less now.
+        $identityIds = $user->dataIdentityIds();
+        $effectiveBranchId = $user->effectiveBranchId();
+
+        $invitedEventIds = in_array($scope, ['own', 'branch'], true)
+            ? DB::table('calendar_event_invitations')
+                ->whereIn('invitee_user_id', $identityIds)
+                ->whereIn('status', ['pending', 'accepted', 'tentative'])
+                ->pluck('event_id')
+                ->all()
+            : [];
+
         $filtered = $events
             ->when(!empty($typeFilter), fn ($c) => $c->whereIn('event_type', $typeFilter))
             ->when(!empty($categoryFilter), fn ($c) => $c->whereIn('category', $categoryFilter))
             // No explicit category filter → suppress birthdays/anniversaries by default.
             ->when(empty($categoryFilter), fn ($c) => $c->whereNotIn('category', self::HIDDEN_BY_DEFAULT_CATEGORIES))
-            ->when($scope === 'own', fn ($c) => $c->where('user_id', $user->id))
-            ->when($scope === 'branch' && $user->branch_id, fn ($c) => $c->where('branch_id', $user->branch_id));
+            ->when($scope === 'own', fn ($c) => $c->filter(
+                fn ($e) => in_array((int) $e->user_id, $identityIds, true) || in_array($e->id, $invitedEventIds, true)
+            )->values())
+            ->when($scope === 'branch' && $effectiveBranchId, fn ($c) => $c->filter(
+                fn ($e) => (int) $e->branch_id === $effectiveBranchId || in_array($e->id, $invitedEventIds, true)
+            )->values());
 
         $visible = $this->visibilityResolver->filterVisible($filtered, $user);
         $result = collect($visible)->map(function ($event) {
@@ -2347,7 +2589,7 @@ class CalendarController extends Controller
         $eventIds = $result->pluck('id')->toArray();
         if (!empty($eventIds)) {
             $invitationStatuses = DB::table('calendar_event_invitations')
-                ->where('invitee_user_id', $user->id)
+                ->whereIn('invitee_user_id', $identityIds)
                 ->whereIn('event_id', $eventIds)
                 ->pluck('status', 'event_id');
             foreach ($result as $event) {
@@ -2355,34 +2597,20 @@ class CalendarController extends Controller
             }
         }
 
-        // Conflict markers: mark events that overlap another appointment-type event for this user.
-        // Single sweep — no additional queries.
-        // Markers/reminders (occupies_time=false) never count as conflicts —
-        // reads the explicit flag (decoupled from actor_role). A category with no
-        // settings row is treated as an appointment (unchanged behaviour).
-        // SECURITY — agency-scope this the same way sharedViewData() does
-        // (~line 413); otherwise another agency's "occupies_time=false"
-        // classes bleed in and skew conflict detection.
-        $agencyId = method_exists($user, 'effectiveAgencyId') ? $user->effectiveAgencyId() : ($user->agency_id ?? null);
-        $nonOccupyingClasses = CalendarEventClassSetting::withoutGlobalScopes()
-            ->where('occupies_time', false)
-            ->where(fn ($q) => $q->where('agency_id', $agencyId)->orWhereNull('agency_id'))
-            ->pluck('event_class')->toArray();
-        $appointments = $result->filter(fn($e) => !in_array($e->category, $nonOccupyingClasses))
-            ->sortBy('event_date')->values();
-        $conflictIds = [];
-        for ($i = 0; $i < $appointments->count(); $i++) {
-            for ($j = $i + 1; $j < $appointments->count(); $j++) {
-                $a = $appointments[$i];
-                $b = $appointments[$j];
-                if ($b->event_date < ($a->end_date ?? $a->event_date)) {
-                    $conflictIds[$a->id] = true;
-                    $conflictIds[$b->id] = true;
-                } else {
-                    break; // sorted, no further overlaps for $i
-                }
-            }
-        }
+        // AT-335 — the $event->has_conflict sweep that used to live here was removed:
+        // it never checked status (would have flagged completed/dismissed events as
+        // conflicting, same bug as the lane-packing fix elsewhere in this ticket) AND
+        // was dead — nothing read $event->has_conflict anywhere in the app. A Staging-side
+        // $conflictIds sweep (agency-scoped, otherwise identical) was independently
+        // re-added later and hit the exact same dead-code problem — nothing read
+        // $conflictIds either — so it's removed here too rather than kept. The real,
+        // live conflict badges (self-conflict warning, attendee badge, invitations
+        // banner) all go through ConflictDetectionService::checkUserConflicts(), which
+        // already excludes completed/dismissed correctly. If a grid-level conflict
+        // badge is wanted later, wire it to that service rather than reintroducing a
+        // second, independent detector here.
+
+
         // Unacknowledged decline markers (batch lookup)
         $unackDeclines = [];
         if (!empty($eventIds)) {
@@ -2397,7 +2625,6 @@ class CalendarController extends Controller
         }
 
         foreach ($result as $event) {
-            $event->has_conflict = isset($conflictIds[$event->id]);
             $event->has_unack_decline = isset($unackDeclines[$event->id]);
             $event->unack_decline_count = $unackDeclines[$event->id] ?? 0;
             // AT-164 Gate 6 — authoritative layer classification, computed ONCE at the
@@ -2637,9 +2864,9 @@ class CalendarController extends Controller
         $toAttendeeRole = static function (?string $pivotRole): string {
             $r = strtolower(trim((string) $pivotRole));
             return match (true) {
-                in_array($r, ['seller', 'owner', 'landlord', 'lessor'], true) => 'seller_contact',
-                in_array($r, ['buyer', 'tenant', 'lessee'], true)             => 'buyer_contact',
-                default                                                       => 'attendee',
+                in_array($r, ['seller', 'owner', 'landlord', 'lessor'], true)                                => 'seller_contact',
+                in_array($r, CalendarEventLink::PROPERTY_PIVOT_BUYER_ROLES, true)                             => 'buyer_contact',
+                default                                                                                       => 'attendee',
             };
         };
 
@@ -2720,10 +2947,12 @@ class CalendarController extends Controller
             return response()->json([]);
         }
 
+        // AT-253 (STANDARDS Rule 17) — same leak, on a silent JSON endpoint: a null-agency user
+        // was served agency 1's contacts. effectiveAgencyId() (not the raw agency_id column)
+        // so a session agency-switch override is honoured; fail closed with no attendees
+        // rather than leaking agency #1's contacts/agents.
         $agencyId = $user->effectiveAgencyId();
         if ($agencyId === null) {
-            // No resolvable agency — fail closed with no attendees rather
-            // than leaking agency #1's contacts/agents.
             return response()->json([]);
         }
 

@@ -1,8 +1,10 @@
 {{--
   Core Matches / Wishlist form partial.
-  Usage:
-    include('corex.contacts._match-form', ['contact' => $contact, 'match' => null])
-    include('corex.contacts._match-form', ['contact' => $contact, 'match' => $match])
+  Usage (include directive omitted here — a literal "@" before a directive
+  name inside a Blade comment gets misparsed as a real directive; see
+  contact-details-phase4-and-blade-partial-bug memory):
+    include 'corex.contacts._match-form' with ['contact' => $contact, 'match' => null]
+    include 'corex.contacts._match-form' with ['contact' => $contact, 'match' => $match]
 
   Required outer-scope variables:
     $contact          App\Models\Contact
@@ -61,6 +63,16 @@
                       class="space-y-5">
                     @csrf
                     @if($isEdit) @method('PUT') @endif
+                    {{-- AT-CM-clear-fix — marks this as the FULL criteria form, so the server
+                         can tell "every item in a group was unchecked" (this form, group absent)
+                         apart from a genuine partial submit like the "Make Primary" mini-form
+                         (contacts/show.blade.php), which never renders this. Checkbox/chip
+                         groups (property_types, p24_suburb_ids, the three feature buckets)
+                         submit NOTHING when emptied — a plain text input still submits an empty
+                         string, which is why only these five fields need this. See
+                         ContactMatchController::validatePayload() / BuyerDetailController::
+                         validateWishlistPayload() for the server-side half. --}}
+                    <input type="hidden" name="criteria_groups_present" value="1">
 
                     {{-- AT-71 — countable-buyer indicator (non-blocking / absorb, BUILD_STANDARD §3).
                          The wishlist still SAVES while empty; this just warns the agent that an
@@ -81,7 +93,7 @@
                     <div>
                         <label class="block text-xs font-semibold mb-2" style="color:var(--text-muted);">Listing Type</label>
                         <input type="hidden" name="listing_type" :value="listingType">
-                        <div class="inline-flex rounded-md p-0.5 gap-0.5" style="background:var(--surface-2); border:1px solid var(--border);">
+                        <div class="inline-flex rounded-md p-0.5 gap-0.5" style="background:var(--surface); border:1px solid var(--border);">
                             <button type="button"
                                     @click="listingType = 'sale'"
                                     :class="listingType === 'sale' ? 'text-white' : ''"
@@ -104,12 +116,12 @@
                         <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Wishlist Name <span class="font-normal" style="color:var(--text-muted);">(optional)</span></label>
                         <input type="text" name="name" value="{{ $val('name') }}" placeholder='e.g. "3-bed Margate sale"' maxlength="120"
                                class="w-full rounded-md px-3 py-2 text-sm"
-                               style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                               style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                     </div>
 
                     {{-- Primary flag — only render when there are siblings to demote OR in edit mode --}}
                     @if($siblingCount > 0 || $isEdit)
-                    <div class="flex items-start gap-2 rounded-md p-3" style="background:var(--surface-2); border:1px solid var(--border);">
+                    <div class="flex items-start gap-2 rounded-md p-3" style="background:var(--surface); border:1px solid var(--border);">
                         <input type="checkbox" id="match_is_primary" name="is_primary" value="1"
                                @checked(old('is_primary', $isEdit ? (bool) $match->is_primary : false))
                                class="mt-0.5">
@@ -125,7 +137,7 @@
                         <div>
                             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Category</label>
                             <select name="category" class="w-full rounded-md px-3 py-2 text-sm"
-                                    style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                                    style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                                 <option value="">— Any —</option>
                                 @foreach($matchCategories as $cat)
                                 <option value="{{ $cat->name }}" @selected($val('category') === $cat->name)>{{ $cat->name }}</option>
@@ -141,7 +153,7 @@
                                 <button type="button"
                                         @click="selected.includes('{{ $type->name }}') ? selected = selected.filter(v => v !== '{{ $type->name }}') : selected.push('{{ $type->name }}')"
                                         :class="selected.includes('{{ $type->name }}') ? 'text-white' : ''"
-                                        :style="selected.includes('{{ $type->name }}') ? 'background:var(--brand-button, #0ea5e9); border-color:var(--brand-button, #0ea5e9);' : 'background:var(--surface-2); border:1px solid var(--border); color:var(--text-secondary);'"
+                                        :style="selected.includes('{{ $type->name }}') ? 'background:var(--brand-button, #0ea5e9); border-color:var(--brand-button, #0ea5e9);' : 'background:var(--surface); border:1px solid var(--border); color:var(--text-secondary);'"
                                         class="px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all duration-150">
                                     {{ $type->name }}
                                 </button>
@@ -171,14 +183,31 @@
                         <label class="block text-xs font-semibold mb-2" style="color:var(--text-muted);">Price Range (R)</label>
                         <div class="grid grid-cols-2 gap-3">
                             <div>
-                                <input type="number" name="price_min" value="{{ $val('price_min') }}" placeholder="Min price" min="0" step="50000"
+                                {{-- 2026-08-24 (Johan) — step="50000" removed. HTML5 step validation
+                                     rejects ANY value not a multiple of the step relative to min, for
+                                     every field on the form, not just ones the agent touches — so a
+                                     wishlist with a system-derived, non-round price (see
+                                     BuyerLeadCascadeService::deriveCriteria() — a listing price times
+                                     an agency's configured band fraction is essentially never a round
+                                     50000) silently blocked the ENTIRE form's submission client-side,
+                                     with the browser's native validation bubble appearing at this
+                                     field while the Update button sits at the bottom of a long form —
+                                     nothing visibly wrong, nothing reaches the server, and the agent
+                                     has no idea why. Server-side validation (ContactMatchController::
+                                     validatePayload() / BuyerDetailController::validateWishlistPayload())
+                                     has never required roundness — just integer|min:0 — so this was a
+                                     client-only constraint the producer of the data didn't honour.
+                                     Removing rather than rounding the generated values: price is a
+                                     free amount, not a stepped quantity, and rounding a derived search
+                                     band changes what an agent is searching for without telling them. --}}
+                                <input type="number" name="price_min" value="{{ $val('price_min') }}" placeholder="Min price" min="0"
                                        class="w-full rounded-md px-3 py-2 text-sm"
-                                       style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                             </div>
                             <div>
-                                <input type="number" name="price_max" value="{{ $val('price_max') }}" placeholder="Max price" min="0" step="50000"
+                                <input type="number" name="price_max" value="{{ $val('price_max') }}" placeholder="Max price" min="0"
                                        class="w-full rounded-md px-3 py-2 text-sm"
-                                       style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                             </div>
                         </div>
                     </div>
@@ -191,20 +220,20 @@
                                 <label class="block text-[10px] mb-1" style="color:var(--text-muted);">Min Bedrooms</label>
                                 <input type="number" name="beds_min" value="{{ $val('beds_min') }}" placeholder="Any" min="0" max="20"
                                        class="w-full rounded-md px-3 py-2 text-sm"
-                                       style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                             </div>
                             <div>
                                 <label class="block text-[10px] mb-1" style="color:var(--text-muted);">Max Bedrooms <span class="font-normal" style="color:var(--text-muted);">(leave blank for no limit)</span></label>
                                 <input type="number" name="bedrooms_max" value="{{ $val('bedrooms_max') }}" placeholder="Any" min="0" max="20"
                                        class="w-full rounded-md px-3 py-2 text-sm"
-                                       style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                             </div>
                             @foreach([['baths_min','Bathrooms'],['garages_min','Garages'],['parking_min','Parking']] as [$field,$label])
                             <div>
                                 <label class="block text-[10px] mb-1" style="color:var(--text-muted);">{{ $label }}</label>
                                 <input type="number" name="{{ $field }}" value="{{ $val($field) }}" placeholder="Any" min="0" max="20"
                                        class="w-full rounded-md px-3 py-2 text-sm"
-                                       style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                             </div>
                             @endforeach
                         </div>
@@ -217,10 +246,10 @@
                             <div class="grid grid-cols-2 gap-2">
                                 <input type="number" name="floor_size_min" value="{{ $val('floor_size_min') }}" placeholder="Min" min="0"
                                        class="w-full rounded-md px-3 py-2 text-sm"
-                                       style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                                 <input type="number" name="floor_size_max" value="{{ $val('floor_size_max') }}" placeholder="Max" min="0"
                                        class="w-full rounded-md px-3 py-2 text-sm"
-                                       style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                             </div>
                         </div>
                         <div>
@@ -228,10 +257,10 @@
                             <div class="grid grid-cols-2 gap-2">
                                 <input type="number" name="erf_size_min" value="{{ $val('erf_size_min') }}" placeholder="Min" min="0"
                                        class="w-full rounded-md px-3 py-2 text-sm"
-                                       style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                                 <input type="number" name="erf_size_max" value="{{ $val('erf_size_max') }}" placeholder="Max" min="0"
                                        class="w-full rounded-md px-3 py-2 text-sm"
-                                       style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                             </div>
                         </div>
                     </div>
@@ -308,7 +337,7 @@
                         <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Notes (optional)</label>
                         <textarea name="notes" rows="2" placeholder="Any additional requirements..."
                                   class="w-full rounded-md px-3 py-2 text-sm resize-none"
-                                  style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">{{ $val('notes') }}</textarea>
+                                  style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">{{ $val('notes') }}</textarea>
                     </div>
 
                     <div class="flex justify-end">

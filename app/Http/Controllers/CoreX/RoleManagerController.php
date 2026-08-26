@@ -120,6 +120,7 @@ class RoleManagerController extends Controller
             'ellie'            => 'Ellie AI',
             'p24'              => 'P24 Market Intel',
             'prospecting'      => 'Prospecting',
+            'deeds_capture'    => 'Deeds Capture',
             'evaluation'       => 'Evaluation',
             'pdf_splitter'     => 'PDF Splitter',
             'knowledge'        => 'Knowledge Base',

@@ -91,6 +91,17 @@ class AnalysisDataService
         $isSectional = ($presentation->property?->title_type === 'sectional_title')
             || ($fields->get('vicinity.property_type')?->final_value === 'sectional');
 
+        // Code-gate hardening (item 3) — the subject's Level-1 category,
+        // freshly derived (never trusting the cached title_type column — see
+        // the Uvonique root-cause report), used ONLY to hard-filter cross-type
+        // comps out of the rendered comparable-sales table below. Deliberately
+        // separate from $isSectional above (which drives the CMA valuation
+        // sizing basis and is left untouched here — a different, higher-risk
+        // surface that needs its own dedicated pass).
+        $subjectCategory = $presentation->property
+            ? app(\App\Services\TitleTypeClassifier::class)->forProperty($presentation->property)
+            : null;
+
         // Build 8a + tick-wire fix — CoreX's independent CMA compute engine
         // now honours the version's included_comp_ids_json whitelist so
         // the agent's tick UI flows into the computed bands. Mirrors the
@@ -124,11 +135,18 @@ class AnalysisDataService
         // cma.middle_range field directly, which produced a different
         // "vs CMA Evaluation (middle)" benchmark from the tile value.
         // STEP 2a — size-normalised median-floored blend. Computed ONCE here and
-        // shared by the headline (compileCmaValuation) and the STEP 2b guardrail
-        // so the two can never disagree about which value the seller sees.
+        // shared by the headline (compileCmaValuation), the review-screen tick
+        // (which needs the "would-lift" preview whether or not it's applied),
+        // and the STEP 2b guardrail — so none of the three can ever disagree
+        // about the underlying evidence.
+        //
+        // Johan (2026-08-21, size-lift ruling) — the size lift defaults OFF and
+        // is an agent opt-in, recorded on the presentation. Phase 1 hardcoded
+        // it off for everyone; Phase 2 (this) reads the agent's actual choice.
+        $applySizeLift = (bool) ($presentation->cma_size_lift_applied ?? false);
         $blend = $this->computeSizeNormalisedBlend($inPoolComps, $cmaComputed);
 
-        $cmaValuation = $this->compileCmaValuation($fields, $askingPrice, $cmaSelectedRange, $conditionContext, $cmaComputed, $blend);
+        $cmaValuation = $this->compileCmaValuation($fields, $askingPrice, $cmaSelectedRange, $conditionContext, $cmaComputed, $blend, $applySizeLift, $isSectional);
 
         // CMA VALUATION SANITY GUARDRAIL (STEP 2b) — additive, surfacing-only.
         // Flags when the headline STILL cannot be trusted after the blend: the
@@ -138,7 +156,7 @@ class AnalysisDataService
         // headline that now agrees with the size-normalised evidence (Harrison)
         // is clean. Injected into cma_valuation so it rides the existing
         // pass-through to the review screen — no controller change.
-        $cmaValuation['valuation_guardrail'] = $this->computeValuationGuardrail($blend);
+        $cmaValuation['valuation_guardrail'] = $this->computeValuationGuardrail($blend, $cmaValuation['cma_middle_baseline']);
 
         return [
             'subject_property'   => $this->compileSubjectProperty($presentation, $fields, $askingPrice),
@@ -159,6 +177,13 @@ class AnalysisDataService
                 // the agency's existing cma_compute_iqr_multiplier.
                 array_map('intval', $cmaComputed['outlier_excluded_comp_ids'] ?? []),
                 (bool) ($presentation->agency?->cma_hide_display_outliers ?? true),
+                // Code-gate hardening (item 3) — hard-exclude cross-type
+                // comps from the render unless the agent EXPLICITLY chose to
+                // include them (the raw whitelist, not $inPoolComps — a null
+                // whitelist means "no opinion yet", which must default to
+                // EXCLUDING cross-type junk, not including it).
+                $subjectCategory,
+                $whitelist,
             ),
             'cma_valuation'      => $cmaValuation,
             'cma_computed'       => $cmaComputed,
@@ -268,8 +293,20 @@ class AnalysisDataService
      *   Complex membership is SAME-SCHEME ONLY: a comp lands in the complex group
      *   iff its scheme_name matches this (case-insensitive, trimmed). A sectional
      *   comp from a DIFFERENT scheme is a vicinity sale, never a complex sale.
+     * @param  ?string  $subjectCategory  Code-gate hardening (item 3) — the
+     *   subject's freshly-derived Level-1 category (TitleTypeClassifier::TITLE_*).
+     *   A comp whose OWN category is known and differs is hard-excluded from
+     *   this render UNLESS its id appears in $explicitlyIncludedIds. Null
+     *   (unresolvable subject category) disables this filter entirely — same
+     *   fail-open-on-unknown posture as CompPoolBuilder's Stage A.1 gate.
+     * @param  ?array  $explicitlyIncludedIds  The version's raw
+     *   included_comp_ids_json (NOT the already-whitelist-filtered $soldComps).
+     *   Null means "the agent has no opinion yet" — cross-type comps are
+     *   excluded by default in that state, not included. A populated array is
+     *   the agent's own explicit tick list; a cross-type comp that's ID is in
+     *   it was a deliberate human choice and is honoured.
      */
-    private function compileComparableSales(Collection $soldComps, ?string $subjectAddress = null, bool $separateComplex = true, ?string $subjectScheme = null, array $excludedOutlierIds = [], bool $hideOutliers = true): array
+    private function compileComparableSales(Collection $soldComps, ?string $subjectAddress = null, bool $separateComplex = true, ?string $subjectScheme = null, array $excludedOutlierIds = [], bool $hideOutliers = true, ?string $subjectCategory = null, ?array $explicitlyIncludedIds = null): array
     {
         $groups = [
             'vicinity'     => [],
@@ -287,6 +324,16 @@ class AnalysisDataService
         $outlierSet     = ($hideOutliers && !empty($excludedOutlierIds)) ? array_flip($excludedOutlierIds) : [];
         $hiddenOutliers = 0;
 
+        // Code-gate hardening (item 3) — the explicit-inclusion allowlist for
+        // cross-type comps. Only a NON-null whitelist counts as "the agent has
+        // reviewed this" — see the docblock above for why null must exclude,
+        // not include.
+        $explicitCrossTypeAllow = $explicitlyIncludedIds !== null
+            ? array_flip(array_map('intval', $explicitlyIncludedIds))
+            : null;
+        $hiddenCrossType = 0;
+        $classifier      = app(\App\Services\TitleTypeClassifier::class);
+
         foreach ($soldComps as $comp) {
             if (!empty($outlierSet) && isset($outlierSet[(int) $comp->id])) {
                 $hiddenOutliers++;
@@ -295,6 +342,31 @@ class AnalysisDataService
             $raw    = is_string($comp->raw_row_json) ? json_decode($comp->raw_row_json, true) : ($comp->raw_row_json ?? []);
             $source = $raw['source'] ?? 'unknown';
             $sizeM2 = $comp->size_m2 ?: ($raw['extent_m2'] ?? null);
+
+            // Code-gate hardening (item 3) — the genuine HARD filter. Upstream
+            // gates (CompPoolBuilder, the deal-register gate) should already
+            // have kept cross-type rows out, but this is the actual final
+            // choke point before the client sees the table/PDF — nothing
+            // downstream re-checks type, so a row that slipped through any
+            // upstream gap (a future bug, a legacy pre-hardening row, manual
+            // upload) must not reach the render un-checked. Auto-excluded
+            // unless the agent explicitly re-included it.
+            if ($subjectCategory !== null) {
+                $compCategory = $classifier->categoryForComp(
+                    $comp->property_type ?? null,
+                    $raw['scheme_name'] ?? null,
+                    $raw['section_number'] ?? null,
+                );
+                $isCrossType = $compCategory !== null && $compCategory !== $subjectCategory;
+                if ($isCrossType) {
+                    $explicitlyIncluded = $explicitCrossTypeAllow !== null
+                        && isset($explicitCrossTypeAllow[(int) $comp->id]);
+                    if (!$explicitlyIncluded) {
+                        $hiddenCrossType++;
+                        continue;
+                    }
+                }
+            }
 
             // Build a never-blank display label so sectional comps with
             // scheme+section but no street address still identify on the
@@ -414,6 +486,11 @@ class AnalysisDataService
         if ($hiddenOutliers > 0) {
             \Illuminate\Support\Facades\Log::info('[PRES] hid valuation-outlier comps from display table', [
                 'hidden_count' => $hiddenOutliers,
+            ]);
+        }
+        if ($hiddenCrossType > 0) {
+            \Illuminate\Support\Facades\Log::info('[PRES] hid cross-type comps from display table (code-gate hardening)', [
+                'hidden_count' => $hiddenCrossType,
             ]);
         }
 
@@ -548,7 +625,7 @@ class AnalysisDataService
         ];
     }
 
-    private function compileCmaValuation(Collection $fields, ?int $askingPrice, string $cmaSelectedRange = 'middle', array $conditionContext = [], array $cmaComputed = [], array $blend = []): array
+    private function compileCmaValuation(Collection $fields, ?int $askingPrice, string $cmaSelectedRange = 'middle', array $conditionContext = [], array $cmaComputed = [], array $blend = [], bool $applySizeLift = false, bool $isSectional = false): array
     {
         // CMA Info benchmark — what the source PDF stated. Used as an
         // INTERNAL reference line on the review screen so the agent can
@@ -583,14 +660,18 @@ class AnalysisDataService
 
         $lowerBaseline  = $this->intOrNull($poolStats['p25']    ?? null);
         $upperBaseline  = $this->intOrNull($poolStats['p75']    ?? null);
-        // STEP 2a — the middle baseline is the size-normalised median-floored
-        // blend (computeSizeNormalisedBlend). It EQUALS the plain median unless
-        // the subject is a genuinely larger, same-basis stand than its comps, in
-        // which case it is lifted toward (median R/m² × extent). Falls back to
-        // the raw median if the blend was not supplied (defensive).
+        // STEP 2a — the middle baseline is the plain comp-median UNLESS the
+        // agent has explicitly opted into the size lift ($applySizeLift, read
+        // from presentations.cma_size_lift_applied). computeSizeNormalisedBlend
+        // always computes what the lifted value WOULD be (evidence the tick UI
+        // needs to show its real percentage before the agent ticks anything);
+        // this is the one place that decides whether that evidence is actually
+        // used as the headline. Falls back to the raw median if the blend
+        // wasn't supplied or isn't eligible (defensive).
         $medianRaw      = $this->intOrNull($methodMedian['raw'] ?? null);
-        $middleBaseline = array_key_exists('headline_baseline', $blend)
-            ? $this->intOrNull($blend['headline_baseline'])
+        $sizeLiftEligible = (bool) ($blend['lift_eligible'] ?? false);
+        $middleBaseline = ($applySizeLift && $sizeLiftEligible && array_key_exists('lifted_value', $blend))
+            ? $this->intOrNull($blend['lifted_value'])
             : $medianRaw;
 
         // PRES-CMA-REALFIX (Johan, 2026-06-16) — the recommended band is the
@@ -707,12 +788,22 @@ class AnalysisDataService
             // ticked (tiles fall to null).
             'compute_pool_n'            => (int) ($cmaComputed['pool_stats']['n_total'] ?? 0),
             // STEP 2a — 'median' when the headline is the plain comp-median,
-            // 'size_adjusted' when the size-normalised blend lifted it.
-            'compute_method'            => ($blend['lifted'] ?? false) ? 'size_adjusted' : 'median',
-            'headline_lifted'           => (bool) ($blend['lifted'] ?? false),
+            // 'size_adjusted' when the agent's opt-in lift is actually applied.
+            'compute_method'            => ($applySizeLift && $sizeLiftEligible) ? 'size_adjusted' : 'median',
+            'headline_lifted'           => $applySizeLift && $sizeLiftEligible,
             'headline_median_raw'       => $medianRaw,
             'size_normalised_value'     => $blend['rm2'] ?? null,
-            'headline_uplift_pct'       => $blend['uplift_applied_pct'] ?? null,
+            'headline_uplift_pct'       => ($applySizeLift && $sizeLiftEligible) ? ($blend['lift_pct'] ?? null) : null,
+            // Johan (2026-08-21, size-lift ruling) — review-screen tick box.
+            // Available whenever the evidence WOULD support a lift, regardless
+            // of whether it's currently applied — this is what gates the tick's
+            // visibility. lift_pct/size_diff_pct are the real, computed
+            // percentages the tick's label shows (never a fixed sentence).
+            'size_lift_available'       => $sizeLiftEligible,
+            'size_lift_applied'         => $applySizeLift && $sizeLiftEligible,
+            'size_lift_pct'             => $blend['lift_pct'] ?? null,
+            'size_diff_pct'             => $blend['size_diff_pct'] ?? null,
+            'size_lift_subject_noun'    => $isSectional ? 'unit' : 'erf',
         ];
     }
 
@@ -766,46 +857,62 @@ class AnalysisDataService
             && $basisRatio >= self::BLEND_TRUST_RATIO_MIN
             && $basisRatio <= self::BLEND_TRUST_RATIO_MAX;
 
-        // Median floor; lift only when trustworthy AND the size-normalised value
+        // Median floor; the LIFTED VALUE (what the headline would be if the
+        // lift is applied) is computed unconditionally here — this function
+        // is pure evidence, always telling the truth about what the size
+        // comparison says, whether trustworthy AND the size-normalised value
         // sits ABOVE the median (a larger-than-comps subject).
-        $headlineBaseline = $median;
-        $weight           = 0.0;
-        $lifted           = false;
+        //
+        // Johan (2026-08-21, size-lift ruling): "CMA has been in the game for
+        // a long time. I think they are better at it at this stage than
+        // CoreX." The lift is no longer automatic — it is an agent opt-in
+        // (presentations.cma_size_lift_applied), decided by the CALLER
+        // (compileCmaValuation), not here. This function only ever reports
+        // what the evidence supports — lift_eligible / lifted_value — so the
+        // review-screen tick can show the real percentage BEFORE the agent
+        // ticks anything, and the caller picks median vs lifted_value based
+        // on the recorded choice.
+        $liftedValue  = $median;
+        $weight       = 0.0;
+        $liftEligible = false;
         if ($trustworthy && $median !== null && $rm2 !== null && $rm2 > $median) {
             $span   = self::BLEND_LIFT_HIGH_PCT - self::BLEND_LIFT_LOW_PCT;
             $weight = $span > 0
                 ? max(0.0, min(1.0, (($upliftPct ?? 0) - self::BLEND_LIFT_LOW_PCT) / $span))
                 : (($upliftPct ?? 0) >= self::BLEND_LIFT_HIGH_PCT ? 1.0 : 0.0);
             if ($weight > 0) {
-                $headlineBaseline = (int) round($median + ($rm2 - $median) * $weight);
-                $lifted           = true;
+                $liftedValue  = (int) round($median + ($rm2 - $median) * $weight);
+                $liftEligible = true;
             }
         }
 
-        // Divergence of the size-normalised value from the value ACTUALLY shown
-        // (the blended headline). ≈0 once a headline has been lifted to meet it;
-        // large when the blend fell back to the median (the explosion cases).
-        $headlineDivergencePct = ($headlineBaseline && $rm2)
-            ? round(abs($rm2 - $headlineBaseline) / $headlineBaseline * 100, 1)
+        // The % the headline would actually MOVE BY if the lift is ticked on
+        // — this is the "Tick to lift the valuation by X%" figure. Distinct
+        // from $upliftPct (rm2 vs median, unweighted — what COULD lift).
+        $liftPct = ($median && $liftEligible)
+            ? round(($liftedValue - $median) / $median * 100, 1)
             : null;
 
+        // The % the subject's own extent is larger than the comps' typical
+        // size — the "This erf is X% larger than the comparable sales" figure.
+        $sizeDiffPct = $basisRatio !== null ? round(($basisRatio - 1) * 100, 1) : null;
+
         return [
-            'median'                  => $median,
-            'rm2'                     => $rm2,
-            'subject_extent_m2'       => $subjectExtent,
-            'median_comp_size_m2'     => $medComp,
-            'comp_price_min'          => $minPrice,
-            'comp_price_max'          => $maxPrice,
-            'basis_ratio'             => $basisRatio,
-            'basis_mismatch'          => $basisMismatch,
-            'trustworthy'             => $trustworthy,
-            'weight'                  => round($weight, 3),
-            'lifted'                  => $lifted,
-            'headline_baseline'       => $headlineBaseline,
-            'uplift_available_pct'    => $upliftPct,          // rm2 vs median (what COULD lift)
-            'uplift_applied_pct'      => ($median && $headlineBaseline)
-                ? round(($headlineBaseline - $median) / $median * 100, 1) : null,
-            'headline_divergence_pct' => $headlineDivergencePct, // rm2 vs shown headline
+            'median'              => $median,
+            'rm2'                 => $rm2,
+            'subject_extent_m2'   => $subjectExtent,
+            'median_comp_size_m2' => $medComp,
+            'comp_price_min'      => $minPrice,
+            'comp_price_max'      => $maxPrice,
+            'basis_ratio'         => $basisRatio,
+            'basis_mismatch'      => $basisMismatch,
+            'trustworthy'         => $trustworthy,
+            'weight'              => round($weight, 3),
+            'lift_eligible'       => $liftEligible,   // would a lift apply if ticked?
+            'lifted_value'        => $liftedValue,    // the headline IF ticked (== median when not eligible)
+            'lift_pct'            => $liftPct,        // % the headline would move BY if ticked
+            'size_diff_pct'       => $sizeDiffPct,     // % the erf/unit is larger than the comps
+            'uplift_available_pct' => $upliftPct,      // rm2 vs median, unweighted (what COULD lift)
         ];
     }
 
@@ -822,15 +929,21 @@ class AnalysisDataService
      *     size-normalised evidence (Harrison) has ≈0 residual divergence → clean.
      *
      * Silent when there is nothing to cross-check (no size / no extent).
+     *
+     * $headlineShown is the value ACTUALLY on the tile (median, or the
+     * lifted value when the agent's opt-in is on) — passed in explicitly
+     * rather than read off the blend, so this always compares the evidence
+     * against what the agent is really looking at, in either state.
      */
-    private function computeValuationGuardrail(array $blend): array
+    private function computeValuationGuardrail(array $blend, ?int $headlineShown): array
     {
         $rm2             = $blend['rm2'] ?? null;
         $median          = $blend['median'] ?? null;
-        $headlineShown   = $blend['headline_baseline'] ?? null;
         $basisRatio      = $blend['basis_ratio'] ?? null;
         $basisMismatch   = (bool) ($blend['basis_mismatch'] ?? false);
-        $divergencePct   = $blend['headline_divergence_pct'] ?? null;
+        $divergencePct   = ($headlineShown && $rm2)
+            ? round(abs($rm2 - $headlineShown) / $headlineShown * 100, 1)
+            : null;
 
         $divergesHard = $divergencePct !== null && $divergencePct > self::GUARDRAIL_DIVERGENCE_PCT;
         $flagged      = $divergesHard || $basisMismatch;
@@ -1138,7 +1251,7 @@ class AnalysisDataService
     {
         $property = $presentation->property;
         if (!$property) {
-            return ['matches' => [], 'included_ids' => null, 'visible' => [], 'display_cap' => null];
+            return ['matches' => [], 'included_ids' => null, 'visible' => [], 'display_cap' => null, 'missing_inputs' => [], 'has_low_confidence' => false];
         }
 
         $service = app(CompetitorStockMatchService::class);
@@ -1244,6 +1357,14 @@ class AnalysisDataService
         $canonicalPos = $this->rankPriceAgainstPool($askingPrice, $competingPrices);
         $canonicalBkt = $this->bracketPricesAgainstAsking($competingPrices, $askingPrice);
 
+        // Progressive relaxation (Johan, 2026-08-20) — "a message at the top
+        // of the report ... no silent fails". Named per missing SUBJECT
+        // field (not per candidate row) so the agent-facing warning can say
+        // exactly what to go fill in. Never affects matching itself — pure
+        // reporting, computed once, cheap (three column reads).
+        $missingInputs = $service->missingSoftInputs($property);
+        $hasLowConfidence = collect($visible)->contains(fn ($row) => !empty($row['low_confidence'] ?? false));
+
         return [
             'matches'      => $matches,
             'included_ids' => $whitelist,
@@ -1256,6 +1377,8 @@ class AnalysisDataService
             'competing_with_price'      => count($competingPrices),
             'price_position_canonical'  => $canonicalPos,
             'price_brackets_canonical'  => $canonicalBkt,
+            'missing_inputs'            => $missingInputs,
+            'has_low_confidence'        => $hasLowConfidence,
         ];
     }
 

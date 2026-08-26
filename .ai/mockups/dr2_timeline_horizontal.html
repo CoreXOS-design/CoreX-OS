@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DR2 Pipeline — Timeline tiles</title>
+<style>
+  :root{--blue:#2563eb;--navy:#0f172a;--ink:#1e293b;--muted:#64748b;--faint:#94a3b8;
+    --line:#e2e8f0;--card:#fff;--soft:#f7f9fc;--red:#ef4444;--amber:#f59e0b;--green:#22c55e;--done:#16a34a;--gold:#eab308;--indigo:#4f46e5;}
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0;background:#f4f6fa;color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-size:14px;line-height:1.4;display:flex;flex-direction:column;height:100vh;overflow:hidden}
+
+  header{background:#fff;border-bottom:1px solid var(--line);padding:12px 22px 0}
+  .htop{display:flex;align-items:center;gap:12px}
+  h1{font-size:17px;margin:0;color:var(--navy)}
+  .pill{font-size:11px;font-weight:700;padding:2px 9px;border-radius:20px;background:#eef2ff;color:var(--indigo);border:1px solid #dbe4ff}
+  .hsub{color:var(--muted);font-size:12.5px;margin:2px 0 10px}
+  .tabs{display:flex;gap:2px}
+  .tab{font-size:13px;padding:9px 15px;color:var(--muted);cursor:pointer;border:0;background:none;font-family:inherit;border-bottom:2.5px solid transparent;white-space:nowrap}
+  .tab:hover{color:var(--ink)}
+  .tab.on{color:var(--blue);border-bottom-color:var(--blue);font-weight:700}
+
+  .mid{flex:1;min-height:0;display:flex;flex-direction:column;background:#fff;margin:14px 22px 0;border:1px solid var(--line);
+    border-radius:14px 14px 0 0;box-shadow:0 1px 2px rgba(15,23,42,.04);overflow:hidden}
+  .midbar{display:flex;align-items:center;gap:14px;padding:10px 15px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+  .midbar .t{font-weight:700;color:var(--navy);font-size:13.5px}
+  .hint{font-size:11.5px;color:var(--muted)}
+  .hint b{color:var(--blue)}
+  .legend{display:flex;gap:13px;font-size:11px;color:var(--muted);align-items:center;margin-left:auto;flex-wrap:wrap}
+  .lg{display:flex;align-items:center;gap:5px}
+  .sw{width:16px;height:9px;border-radius:3px;display:inline-block}
+  .sw.done{background:var(--done)}.sw.active{background:var(--blue)}.sw.upcoming{background:#cbd5e1}
+  .dia{width:10px;height:10px;background:var(--gold);transform:rotate(45deg);display:inline-block}
+
+  .scroll{flex:1;min-height:0;overflow:auto;position:relative}
+  #canvas{position:relative}
+
+  /* stage bands (behind) */
+  .band{position:absolute;top:34px;bottom:0;z-index:0;border-left:1px dashed #dbe4ff;background:rgba(99,102,241,.03)}
+  .band:nth-child(even){background:rgba(37,99,235,.035)}
+  .band .bname{position:absolute;top:30px;left:12px;font-size:11px;font-weight:800;color:var(--indigo);text-transform:uppercase;letter-spacing:.03em;white-space:nowrap}
+
+  /* date axis */
+  .axis{position:sticky;top:0;height:34px;background:#fbfcfe;border-bottom:1px solid var(--line);z-index:5}
+  .tick{position:absolute;top:0;height:34px;border-left:1px solid #eef2f7;font-size:10.5px;color:var(--muted);font-weight:600;padding:9px 0 0 5px;white-space:nowrap}
+
+  /* milestone vertical gate */
+  .mile{position:absolute;z-index:2;width:2px;background:var(--gold);top:32px;bottom:0}
+  .mile .cap{position:absolute;top:3px;left:-8px;width:16px;height:16px;background:var(--gold);transform:rotate(45deg);border:2px solid #fff;border-radius:3px;box-shadow:0 1px 3px rgba(0,0,0,.2)}
+  .mile .txt{position:absolute;top:3px;left:12px;font-size:10px;font-weight:800;color:#a16207;white-space:nowrap}
+  .mile.done{background:var(--done)}.mile.done .cap{background:var(--done)}.mile.done .txt{color:var(--done)}
+  .mile.up{background:#cbd5e1}.mile.up .cap{background:#cbd5e1}.mile.up .txt{color:var(--muted)}
+
+  /* today line */
+  #today{position:absolute;width:2px;background:var(--red);z-index:4;top:34px;bottom:0}
+  #today .cap{position:absolute;top:-1px;left:4px;font-size:9px;font-weight:800;color:var(--red);background:#fff;padding:0 3px;border-radius:3px}
+
+  /* the TILE = the bar */
+  .ttile{position:absolute;z-index:3;background:#fff;border:1px solid var(--line);border-radius:10px;height:66px;
+    padding:6px 9px;display:flex;flex-direction:column;box-shadow:0 1px 3px rgba(15,23,42,.10);overflow:hidden;cursor:grab;user-select:none}
+  .ttile:active{cursor:grabbing}
+  .ttile.sel{border-color:#93c5fd;box-shadow:0 6px 16px rgba(37,99,235,.22)}
+  .ttile.dragging{box-shadow:0 10px 22px rgba(37,99,235,.30);z-index:9;opacity:.96}
+  .ttile::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;border-radius:10px 0 0 10px}
+  .ttile.active::before{background:var(--blue)}.ttile.done::before{background:var(--done)}.ttile.upcoming::before{background:#cbd5e1}
+  .th{display:flex;align-items:center;gap:6px}
+  .dot{width:8px;height:8px;border-radius:50%;flex:0 0 auto}
+  .dot.active{background:var(--blue)}.dot.done{background:var(--done)}.dot.upcoming{background:#cbd5e1}
+  .nm{font-weight:700;font-size:12px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ttile.done .nm{color:#8a97a8;text-decoration:line-through;text-decoration-color:#cbd5e1}
+  .star{color:var(--gold);flex:0 0 auto}
+  .sub{font-size:10.5px;color:var(--faint);margin:2px 0 0 14px}
+  .sub .d{color:var(--muted);font-weight:600}
+  .tacts{display:flex;gap:4px;margin-top:auto;flex-wrap:nowrap;overflow:hidden}
+  .tacts button{font-size:9.5px;line-height:1;padding:4px 6px;border:1px solid var(--line);border-radius:5px;background:#fff;color:var(--muted);cursor:pointer;font-family:inherit;white-space:nowrap}
+  .tacts button:hover{background:#f1f5f9}
+  .tacts .done-b{color:#065f46;border-color:#a7f3d0;background:#ecfdf5;font-weight:600}
+  .tacts .seq{color:var(--blue);border-color:#bfdbfe;font-weight:600}
+  .tacts .rm{color:#b91c1c;border-color:#fecaca}
+  .pin{position:absolute;top:-6px;right:-6px;width:16px;height:16px;border-radius:50%;background:#fff;border:1.5px solid var(--indigo);color:var(--indigo);font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;z-index:4}
+
+  /* comments-on-timeline track (always visible, positioned by date made) */
+  .ctrack-line{position:absolute;left:0;height:1px;background:var(--line);z-index:1}
+  .ctrack-lbl{position:absolute;left:12px;font-size:10px;font-weight:800;color:var(--faint);text-transform:uppercase;letter-spacing:.03em;z-index:2}
+  .cpin{position:absolute;width:22px;height:22px;border-radius:50%;background:#fff;border:1.6px solid var(--indigo);color:var(--indigo);
+    font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;z-index:3;cursor:pointer;transform:translateX(-11px);box-shadow:0 1px 3px rgba(0,0,0,.14)}
+  .cpin.step{border-color:var(--blue);color:var(--blue)}
+  .cpin .stem{position:absolute;bottom:100%;left:50%;width:1.5px;height:12px;background:currentColor;opacity:.35}
+
+  /* comments (bottom) */
+  footer{flex:0 0 200px;background:#fff;margin:0 22px 0;border:1px solid var(--line);border-top:0;border-radius:0 0 14px 14px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 1px 2px rgba(15,23,42,.04)}
+  .cbar{display:flex;align-items:center;gap:10px;padding:9px 15px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+  .cbar .t{font-weight:700;color:var(--navy);font-size:13px}
+  .scope{font-size:11px;color:var(--muted)}.scope b{color:var(--blue)}
+  .chip{font-size:11px;padding:3px 10px;border-radius:20px;border:1px solid var(--line);background:#fff;color:var(--muted);cursor:pointer;font-family:inherit}
+  .chip.on{background:var(--blue);color:#fff;border-color:var(--blue);font-weight:600}
+  .feed{flex:1;overflow-y:auto;padding:7px 15px}
+  .cm{display:flex;gap:9px;padding:6px 0;border-bottom:1px solid #f4f6fa}
+  .av{width:24px;height:24px;flex:0 0 24px;border-radius:50%;background:#dbe4ff;color:var(--indigo);font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center}
+  .cm .meta{font-size:11px;color:var(--muted)}.cm .meta b{color:var(--ink)}
+  .cm .tag{font-size:9.5px;font-weight:700;padding:1px 6px;border-radius:5px;margin-left:5px}
+  .tag.step{background:#eff6ff;color:var(--blue)}.tag.deal{background:#eef2ff;color:var(--indigo)}
+  .cm .txt{font-size:12px;color:var(--ink);margin-top:1px}
+  .cadd{display:flex;gap:8px;padding:8px 15px;border-top:1px solid var(--line);align-items:center}
+  .cadd select,.cadd input{font-family:inherit;font-size:12px;border:1px solid var(--line);border-radius:7px;padding:6px 9px;color:var(--ink)}
+  .cadd input{flex:1}
+  .cadd button{font-size:12px;font-weight:600;padding:6px 15px;border:0;border-radius:7px;background:var(--blue);color:#fff;cursor:pointer}
+
+  #toast{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);background:var(--navy);color:#fff;padding:9px 15px;border-radius:9px;font-size:12px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:20}
+  #toast.on{opacity:1}#toast .em{color:#fde68a;font-weight:700}
+</style>
+</head>
+<body>
+  <header>
+    <div class="htop"><h1>Deal 1811 — 380 Wilfred Street, Shelly Beach</h1><span class="pill">DR2 · In progress</span></div>
+    <div class="hsub">Seller: Anine Van der Westhuizen &amp; Andre Roets · Buyer: M. Dlamini · R1,900,000</div>
+    <div class="tabs">
+      <button class="tab">Overview</button><button class="tab">Structure</button>
+      <button class="tab on">Pipeline</button><button class="tab">Documents</button>
+      <button class="tab">Parties</button><button class="tab">Activity</button>
+    </div>
+  </header>
+
+  <div class="mid">
+    <div class="midbar">
+      <span class="t">Timeline</span>
+      <span class="hint">tiles stretch to their duration · overlapping tiles stack underneath · <b>grab a tile and slide it to reschedule</b> · 💬 marks comments on the date made</span>
+      <div class="legend">
+        <span class="lg"><span class="sw done"></span>Done</span>
+        <span class="lg"><span class="sw active"></span>Active</span>
+        <span class="lg"><span class="sw upcoming"></span>Upcoming</span>
+        <span class="lg"><span class="dia"></span>Milestone</span>
+      </div>
+    </div>
+    <div class="scroll">
+      <div id="canvas">
+        <div class="axis" id="axis"></div>
+        <div id="bands"></div>
+        <div id="miles"></div>
+        <div id="today"><span class="cap">TODAY</span></div>
+        <div id="tiles"></div>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    <div class="cbar">
+      <span class="t">Comments</span>
+      <span class="scope" id="scope">Showing: <b>all</b></span>
+      <span class="chip on" data-f="all" onclick="setFilter('all',this)">All</span>
+      <span class="chip" data-f="deal" onclick="setFilter('deal',this)">Deal-level</span>
+      <span class="chip" data-f="step" id="stepChip" onclick="setFilter('step',this)" style="display:none">This step</span>
+    </div>
+    <div class="feed" id="feed"></div>
+    <div class="cadd">
+      <select id="ctarget"><option value="deal">On: Deal 1811</option></select>
+      <input id="ctext" placeholder="Add a comment…">
+      <button onclick="addComment()">Add</button>
+    </div>
+  </footer>
+  <div id="toast"></div>
+
+<script>
+const DAYW=21, PADX=14, AXIS=34, ROWH=78, ROWTOP=88, TRACKH=52;
+const DAYS=72;                                  // 22 Jul (day0) .. ~ +72
+const BASE=new Date('2026-07-22'); const TODAY_DAY=5;
+const MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const x=d=>PADX+d*DAYW;
+const dstr=d=>{const t=new Date(BASE);t.setDate(t.getDate()+d);return t.getDate()+' '+MON[t.getMonth()];};
+
+const phases=[
+  {name:'Suspensive Conditions', from:0, to:30},
+  {name:'Certificates of Compliance', from:30, to:40},
+  {name:'Transfer & Registration', from:40, to:70},
+];
+const miles=[
+  {name:'Deal Signed', day:0, state:'done'},
+  {name:'Bond Granted', day:30, state:'up'},
+  {name:'Registered', day:65, state:'up'},
+];
+let tiles=[
+  {id:'t1', name:'Awaiting Bond Grant', start:0, dur:30, status:'active', star:true},
+  {id:'t2', name:'Sale of Property',    start:0, dur:30, status:'active'},
+  {id:'t3', name:'Electrical COC',      start:30, dur:10, status:'upcoming'},
+  {id:'t4', name:'Beetle / Entomologist COC', start:30, dur:10, status:'upcoming'},
+  {id:'t5', name:'Electric Fence COC',  start:30, dur:10, status:'upcoming'},
+  {id:'t6', name:'Attorney Instructed', start:40, dur:5,  status:'upcoming'},
+  {id:'t7', name:'Transfer Docs Signed',start:45, dur:7,  status:'upcoming'},
+  {id:'t8', name:'Lodged at Deeds Office',start:52, dur:7, status:'upcoming'},
+];
+// auto-stack: any tiles overlapping in time get their own row (first-fit by start; touching end==start shares a row)
+function assignRows(){
+  const order=[...tiles].sort((a,b)=>a.start-b.start || tiles.indexOf(a)-tiles.indexOf(b));
+  const laneEnd=[];
+  order.forEach(t=>{let r=0;while(r<laneEnd.length && laneEnd[r]>t.start)r++;t.row=r;laneEnd[r]=t.start+t.dur;});
+}
+let comments=[
+  {id:1, target:'t1', scope:'step', who:'Falan', when:'25 Jul', day:3, text:'Bank asked for an updated payslip — sent through, awaiting confirmation.'},
+  {id:2, target:'t2', scope:'step', who:'Falan', when:'24 Jul', day:2, text:"Buyer's flat is listed, show day this weekend."},
+  {id:3, target:'deal', scope:'deal', who:'Johan', when:'26 Jul', day:4, text:'Seller wants occupation on 1 Oct — confirm with buyer before we finalise.'},
+];
+const tileById={}; tiles.forEach(t=>tileById[t.id]=t);
+let selected=null, filter='all';
+
+function render(){
+  assignRows();
+  const W=x(DAYS)+40, maxRow=Math.max(...tiles.map(t=>t.row));
+  const bottom=ROWTOP+(maxRow+1)*ROWH+TRACKH+16;   // room for the comments track
+  const cv=document.getElementById('canvas'); cv.style.width=W+'px'; cv.style.height=bottom+'px';
+
+  // axis
+  const ax=document.getElementById('axis'); ax.style.width=W+'px'; ax.innerHTML='';
+  for(let d=0; d<=DAYS; d+=7){const t=document.createElement('div');t.className='tick';t.style.left=x(d)+'px';t.textContent=dstr(d);ax.appendChild(t);}
+
+  // bands
+  const bd=document.getElementById('bands'); bd.innerHTML='';
+  phases.forEach(p=>{const b=document.createElement('div');b.className='band';b.style.left=x(p.from)+'px';b.style.width=(p.to-p.from)*DAYW+'px';
+    b.innerHTML='<span class="bname">'+p.name+'</span>';bd.appendChild(b);});
+
+  // milestones
+  const ms=document.getElementById('miles'); ms.innerHTML='';
+  miles.forEach(m=>{const el=document.createElement('div');el.className='mile '+m.state;el.style.left=x(m.day)+'px';
+    el.innerHTML='<span class="cap"></span><span class="txt">★ '+m.name+' · '+dstr(m.day)+'</span>';ms.appendChild(el);});
+
+  // today
+  const td=document.getElementById('today'); td.style.left=x(TODAY_DAY)+'px';
+
+  // tiles
+  const tl=document.getElementById('tiles'); tl.innerHTML='';
+  tiles.forEach(t=>{
+    const cc=comments.filter(c=>c.target===t.id).length;
+    const el=document.createElement('div');
+    el.className='ttile '+t.status+(selected===t.id?' sel':'');
+    el.style.left=x(t.start)+'px'; el.style.width=(t.dur*DAYW-6)+'px'; el.style.top=(ROWTOP+t.row*ROWH)+'px';
+    el.dataset.id=t.id;
+    el.innerHTML=
+      '<div class="th"><span class="dot '+t.status+'"></span><span class="nm">'+t.name+'</span>'+(t.star?'<span class="star">★</span>':'')+'</div>'+
+      '<div class="sub"><span class="d">'+t.dur+'d</span> · '+dstr(t.start)+' → '+dstr(t.start+t.dur)+'</div>'+
+      '<div class="tacts">'+(t.status==='done'?'<button class="reopen">↺ Reopen</button>':'<button class="done-b">✓ Complete</button>')+
+        '<button>Edit dates</button><button class="seq">Sequence</button><button>Comments</button><button class="rm">Remove</button></div>'+
+      (cc?'<span class="pin">'+cc+'</span>':'');
+    tl.appendChild(el);
+    attachDrag(el, t);
+    el.querySelectorAll('button').forEach(b=>b.addEventListener('pointerdown',e=>e.stopPropagation()));
+    el.addEventListener('click',e=>{ if(!el._moved) select(t.id); });
+  });
+
+  // ---- comments track: always visible, positioned by the date each was made ----
+  const trackY=ROWTOP+(maxRow+1)*ROWH+4;
+  const line=document.createElement('div'); line.className='ctrack-line'; line.style.top=trackY+'px'; line.style.width=W+'px'; tl.appendChild(line);
+  const lbl=document.createElement('div'); lbl.className='ctrack-lbl'; lbl.style.top=(trackY+4)+'px'; lbl.textContent='💬 Comments'; tl.appendChild(lbl);
+  comments.forEach(c=>{
+    const pin=document.createElement('div'); pin.className='cpin '+(c.scope==='step'?'step':'deal');
+    pin.style.left=x(c.day)+'px'; pin.style.top=(trackY+20)+'px';
+    pin.innerHTML='<span class="stem"></span>'+c.who[0];
+    pin.title=c.who+' · '+c.when+(c.scope==='step'?' (on '+tileById[c.target].name+')':' (DR2)')+':\n'+c.text;
+    pin.onclick=()=>{ if(c.scope==='step'){select(c.target);} else {filter='deal';document.querySelectorAll('.chip').forEach(x=>x.classList.toggle('on',x.dataset.f==='deal'));renderFeed();} toast('Comment by <span class="em">'+c.who+'</span> · '+c.when+(c.scope==='step'?' on '+tileById[c.target].name:' on DR2')); };
+    tl.appendChild(pin);
+  });
+}
+
+/* ---- drag to reschedule ---- */
+function attachDrag(el, t){
+  el.addEventListener('pointerdown', e=>{
+    if(e.target.tagName==='BUTTON') return;
+    el._moved=false; el.classList.add('dragging'); el.setPointerCapture(e.pointerId);
+    const sx=e.clientX, origStart=t.start;
+    const move=ev=>{
+      const dd=Math.round((ev.clientX-sx)/DAYW);
+      if(dd!==0) el._moved=true;
+      const ns=Math.max(0, origStart+dd);
+      el.style.left=x(ns)+'px';
+      el._ns=ns;
+      el.querySelector('.sub').innerHTML='<span class="d">'+t.dur+'d</span> · '+dstr(ns)+' → '+dstr(ns+t.dur);
+    };
+    const up=ev=>{
+      el.classList.remove('dragging'); el.releasePointerCapture(e.pointerId);
+      el.removeEventListener('pointermove',move); el.removeEventListener('pointerup',up);
+      if(el._moved && el._ns!=null && el._ns!==origStart){
+        const delta=el._ns-origStart; t.start=el._ns;
+        toast('<span class="em">'+t.name+'</span> now starts '+dstr(t.start)+' ('+Math.abs(delta)+' day'+(Math.abs(delta)>1?'s':'')+' '+(delta<0?'earlier':'later')+')');
+        render();
+      }
+      setTimeout(()=>{el._moved=false;},60);
+    };
+    el.addEventListener('pointermove',move); el.addEventListener('pointerup',up);
+  });
+}
+
+function select(id){
+  selected=id; filter='step';
+  const chip=document.getElementById('stepChip'); chip.style.display=''; chip.classList.add('on');
+  document.querySelectorAll('.chip').forEach(c=>c.classList.toggle('on',c.dataset.f==='step'));
+  const sel=document.getElementById('ctarget');
+  sel.innerHTML='<option value="'+id+'">On: '+tileById[id].name+'</option><option value="deal">On: Deal 1811</option>';
+  render(); renderFeed();
+}
+function setFilter(f,el){filter=f;document.querySelectorAll('.chip').forEach(c=>c.classList.remove('on'));el.classList.add('on');renderFeed();}
+function renderFeed(){
+  const feed=document.getElementById('feed'), scope=document.getElementById('scope');
+  let list=comments.slice();
+  if(filter==='deal') list=list.filter(c=>c.scope==='deal');
+  else if(filter==='step'&&selected) list=list.filter(c=>c.target===selected);
+  scope.innerHTML='Showing: <b>'+(filter==='step'&&selected?tileById[selected].name:filter)+'</b>';
+  feed.innerHTML=list.length?'':'<div style="color:var(--faint);font-size:12px;padding:8px 0">No comments yet.</div>';
+  list.slice().reverse().forEach(c=>{
+    const on=c.scope==='deal'?'Deal 1811':tileById[c.target].name;
+    const cm=document.createElement('div');cm.className='cm';
+    cm.innerHTML='<div class="av">'+c.who[0]+'</div><div><div class="meta"><b>'+c.who+'</b> · '+c.when+
+      '<span class="tag '+c.scope+'">'+(c.scope==='deal'?'DR2':'step: '+on)+'</span></div><div class="txt">'+c.text+'</div></div>';
+    feed.appendChild(cm);
+  });
+}
+function addComment(){
+  const t=document.getElementById('ctext'), tgt=document.getElementById('ctarget').value;
+  if(!t.value.trim())return;
+  comments.push({id:Date.now(),target:tgt,scope:tgt==='deal'?'deal':'step',who:'You',when:'now',day:TODAY_DAY,text:t.value.trim()});
+  t.value='';render();renderFeed();toast('Comment added');
+}
+function toast(m){const t=document.getElementById('toast');t.innerHTML=m;t.classList.add('on');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('on'),2400);}
+
+render(); renderFeed();
+</script>
+</body>
+</html>

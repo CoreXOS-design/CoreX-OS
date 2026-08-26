@@ -243,7 +243,7 @@ To guarantee nothing breaks, the following stay exactly as they are:
 - `app/Console/Commands/CommandCenter/ProcessReminders.php` — keep 15-min cadence, keep `metadata->reminder_sent` dedup, keep `send_reminder` boolean read.
 - `app/Notifications/LeaseExpirationAlert.php` + `CheckLeaseExpiry.php` 06:00 daily.
 - `app/Notifications/SignatureActivityNotification.php`, `SignatureTeamAlert.php`, `SendSignatureReminders.php` — signing flows untouched.
-- `app/Notifications/AgentInviteNotification.php`, `OnboardingPortalInvitation.php` — onboarding untouched.
+- `OnboardingPortalInvitation.php` — onboarding untouched. (`AgentInviteNotification.php` no longer exists — 2026-08-15 fix moved agent invites to `App\Mail\UserInviteMail`, unrelated to this project.)
 - `app/Jobs/OversightDigestJob.php` — manager oversight untouched.
 - `UserDashboardSetting` columns — none renamed, none dropped. New table sits beside it.
 - `command_tasks.send_reminder`, `calendar_events.send_reminder` — still queried by ProcessReminders.

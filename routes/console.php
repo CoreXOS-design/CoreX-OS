@@ -45,6 +45,13 @@ Schedule::command('articles:scrape')->daily();
 // Signature reminders — runs daily at 08:00
 Schedule::command('signatures:send-reminders')->dailyAt('08:00');
 
+// AT-383 — pre-webinar reminders. HOURLY, deliberately: the lead time is set per
+// webinar in HOURS, so a daily job would fire hours early or late depending on what
+// time the webinar starts. The command is idempotent on reminder_sent_at, so an
+// overlapping or repeated run sends nothing twice.
+// Spec: .ai/specs/webinar-registration.md §6.4
+Schedule::command('webinars:send-reminders')->hourly()->withoutOverlapping();
+
 // Lease expiry checks — runs daily at 06:00
 Schedule::command('signatures:check-lease-expiry')->dailyAt('06:00');
 
@@ -87,6 +94,21 @@ Schedule::command('assistants:sync-matrix')->dailyAt('04:15')->withoutOverlappin
 Schedule::command('model:prune', ['--model' => [\App\Models\AssistantActivityLog::class]])
     ->dailyAt('04:30')->withoutOverlapping();
 
+// AT-72 — buyer pipeline auto-land safety net. Idempotent, agency-scoped; only
+// ever lands a contact with a countable wishlist and NO buyer_state yet onto
+// 'new' (audited via BuyerStateService::landOnPipeline() -> buyer_state_transitions).
+// Never touches a contact already in any state. Live's AT-72 observer hook
+// already keeps is_buyer honest for new wishlists (dry run 2026-08-20: 0
+// candidates, the 379-strong Buyers Pipeline is unaffected) — this exists so a
+// future gap in that hook (a bulk import, a raw UPDATE, anything that bypasses
+// the observer) can't silently strand a buyer off the pipeline indefinitely.
+// 04:45 — after buyers:recompute-states (04:00, line ~356: same domain, same
+// pattern) so the existing pipeline is settled first; clear of every other
+// window above (04:30 prune, 05:30 stale-claims). onOneServer() matches that
+// sibling job exactly — a buyer-state writer should never run concurrently
+// from two nodes.
+Schedule::command('buyers:autoland-pipeline')->dailyAt('04:45')->onOneServer()->withoutOverlapping();
+
 // AT-163 — voice-note transcription batch. Hourly; each run processes agencies
 // whose configured nightly time (default 22:00, clear of the 03:30 backup) matches
 // the current hour. CPU-nice'd inside the worker.
@@ -110,6 +132,8 @@ Schedule::command('webhooks:retry-due')->everyMinute()->withoutOverlapping();
 
 // Prospecting claim maintenance — runs hourly
 Schedule::command('prospecting:maintain-claims')->hourly();
+// MIC funnel phase 2 — warn agents when their pitched/claimed property goes stale (agency-configurable).
+Schedule::command('prospecting:warn-stale-claims')->dailyAt('05:30')->onOneServer()->withoutOverlapping();
 
 // Module 6 (M6.4) — auto-revoke stale provisional auto_calendar points
 // rows whose feedback never arrived inside the mapping's
@@ -482,3 +506,12 @@ Schedule::command('mandates:expire')->dailyAt('00:00')->onOneServer()->withoutOv
 Schedule::call(function () {
     \App\Models\FaultReport::where('last_seen_at', '<', now()->subDays(3))->delete();
 })->dailyAt('02:30')->name('fault-reports.prune')->onOneServer()->withoutOverlapping();
+
+// AT-284 — Chrome minion nightly P24 capture. DISABLED by default: the ->when() gate only
+// fires when at least one agency has flipped its master switch (minion_capture_settings.enabled)
+// on the setup page. Enabling that switch is Johan's explicit call. Per-agency cadence is a setting.
+Schedule::command('minion:capture --cycle --by=schedule')
+    ->dailyAt(config('minion_capture.run_at', '02:30'))
+    ->when(fn () => \App\Models\MinionCaptureSettings::where('enabled', true)->exists())
+    ->withoutOverlapping()
+    ->onOneServer();

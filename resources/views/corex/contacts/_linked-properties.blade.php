@@ -6,11 +6,28 @@
      ~2300-line show.blade.php, 500ing every contact page. Splitting it out
      (same technique as _recent-sends.blade.php / _assigned-agents.blade.php)
      resolves it. Reported to Johan; no logic changed here. --}}
+@php
+    // Display dedupe (entity model 2026-08-14): a property that is
+    // COMPANY-OWNED-VIA-DIRECTORSHIP shows ONLY in the flagged "Company
+    // Properties" group (Properties & Core Matches tab), NOT also here as a
+    // personal linked property. Exclude by canonical Property id AND normalized
+    // street address so the tracked-vs-promoted split of the SAME physical
+    // property is caught. The contact_property link itself is untouched —
+    // outreach still needs it; this is display-only.
+    $companyDedupe = $contact->companyPropertyDedupeKeys();
+    $linkedProps = $contact->properties->reject(function ($p) use ($companyDedupe) {
+        if (in_array((int) $p->id, $companyDedupe['ids'], true)) {
+            return true;
+        }
+        $addr = \App\Models\Contact::normalizePropertyStreet($p->street_number ?? null, $p->street_name ?? null);
+        return $addr !== '' && in_array($addr, $companyDedupe['addresses'], true);
+    })->values();
+@endphp
 <div>
     <h3 class="text-xs font-bold uppercase tracking-widest mb-3" style="color:var(--text-muted);">
-        Linked Properties ({{ $contact->properties->count() }})
+        Linked Properties ({{ $linkedProps->count() }})
     </h3>
-    @forelse($contact->properties as $prop)
+    @forelse($linkedProps as $prop)
     @php
     $propThumb = $prop->thumbFor($prop->gallery_images_json[0] ?? ($prop->dawn_images_json[0] ?? null));
     $propSc = [

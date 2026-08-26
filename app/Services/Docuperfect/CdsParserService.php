@@ -9,6 +9,85 @@ use DOMXPath;
 class CdsParserService
 {
     /**
+     * AT-262-marker — the ONE TRUTH for marker syntax.
+     *
+     * This list is the only place the accepted markers are defined. `detectMarkers()`
+     * COMPOSES its split regex from it, and the import screen RENDERS its guide from
+     * it. Neither can drift from the other, because there is nothing to drift from —
+     * they read the same array.
+     *
+     * The ticket suspected the UI taught a syntax the parser did not read. It does
+     * not (verified across every view, service and spec: the only marker guide in the
+     * product is the import screen, and it already matched the regex exactly). But the
+     * two WERE independently maintained — a hardcoded Blade list next to a hardcoded
+     * regex — which is the same two-copies-of-one-fact shape that has bitten us
+     * elsewhere. Structure it once so the drift is impossible rather than merely
+     * absent today.
+     *
+     * `order` matters: the tilde form is matched FIRST because it is the longest and
+     * must not be shredded by the shorter alternations.
+     */
+    public const ACCEPTED_MARKERS = [
+        [
+            'token'   => '~~~~NAME~~~~',
+            'delim'   => '~~~~',   // what the import guide must show for this family
+            // AT-262-charset — the NAME between the tildes may be any human-natural
+            // field name: letters, digits, spaces, and - / ( ) & ' . , : _
+            // (everything except the ~ delimiter). The old class was [A-Z_]+, which
+            // rejected the way agents actually name fields — "Seller - Full name",
+            // "Property - Erf / Scheme", "Asking price (Rand)" — at the FIRST lowercase
+            // letter. Teach the real syntax; don't force SHOUTING_SNAKE_CASE.
+            'pattern' => '~{4,}[A-Za-z0-9 _\/()&\'.,:-]+~{4,}',
+            'label'   => 'Insertable block',
+            'hint'    => 'A live, agent-editable area named however you like — e.g. ~~~~Seller - Full name~~~~, ~~~~Property - Erf / Scheme~~~~, ~~~~Asking price (Rand)~~~~, or the built-in ~~~~OTHER_CONDITIONS~~~~',
+            'example' => '~~~~Seller - Full name~~~~',
+        ],
+        [
+            'token'   => '@@@@',
+            'delim'   => '@@@@',
+            'pattern' => '@{4,}',
+            'label'   => 'Input field',
+            'hint'    => 'Where data is filled in (four or more @)',
+            'example' => '@@@@',
+        ],
+        [
+            'token'   => '%%%%',
+            'delim'   => '%%%%',
+            'pattern' => '%{4,}',
+            'label'   => 'Signature',
+            'hint'    => 'Where a party signs (four or more %)',
+            'example' => '%%%%',
+        ],
+        [
+            'token'   => '####',
+            'delim'   => '####',
+            'pattern' => '#{4,}',
+            'label'   => 'Initial',
+            'hint'    => 'Where a party initials (four or more #)',
+            'example' => '####',
+        ],
+    ];
+
+    /**
+     * Human-readable description of the characters an insertable-block NAME may
+     * contain. ONE truth — the on-screen teaching and the near-miss guard both read
+     * this, so what we accept and what we tell the agent can never drift.
+     */
+    public const INSERTABLE_NAME_HUMAN = "letters, digits, spaces, and - / ( ) & ' . , : _";
+
+    /** The accepted markers, for any surface that needs to TEACH them. */
+    public static function acceptedMarkers(): array
+    {
+        return self::ACCEPTED_MARKERS;
+    }
+
+    /** The split regex, composed from the one truth above — never hand-maintained. */
+    public static function markerSplitPattern(): string
+    {
+        return '/(' . implode('|', array_column(self::ACCEPTED_MARKERS, 'pattern')) . ')/';
+    }
+
+    /**
      * Parse a .docx file into CoreX Document Structure JSON.
      *
      * @param string $filePath Path to the .docx file
@@ -194,12 +273,309 @@ class CdsParserService
 
         // Marker-based field detection (NEW — @@@@ / %%%% / ####)
         $sections = $this->detectMarkers($sections);
+
+        // AT-304 OTP-1 — DOTTED-LEADER tokenizer. Real agency docs (the OTP) use dotted
+        // fill blanks ("Stand No: ......... in the Township of.........") instead of typed
+        // markers. Detect genuine leaders as fields — multiple per line — WITHOUT hand-markup,
+        // guarded so ordinary ellipses ("...", "….") are never tokenised. Runs before the
+        // context labeller so each detected blank gets a label from its surrounding words.
+        $sections = $this->detectDottedLeaderFields($sections);
+
         $sections = $this->identifyFieldsFromContext($sections);
+
+        // AT-359 (Johan, 2026-08-03) — assign the PARTY from an inline "(Lessor / Landlord)" /
+        // "(Lessee / tenant / Occupant)" / "(Seller)" / "(Purchaser / Buyer)" descriptor that a
+        // party line states AFTER the name blank. The importer otherwise only reads a party from a
+        // heading ABOVE a block, so a lease's inline-descriptor party fields (name/address/ID)
+        // collapsed to generic contact.* with no Lessor/Lessee discrimination. Runs after attribute
+        // identification (it refines the PARTY half only) and is strictly additive — see the method.
+        $sections = $this->assignPartyFromInlineDescriptor($sections);
+
+        // AT-304 OTP-4 — link amount-pairs (R<numeric> (<in-words>)) and name the 5.6
+        // agency-split fields (listing/selling agency name · share % · FFC).
+        $sections = $this->refineAmountPairsAndAgencySplit($sections);
 
         // Structural detection — signature sections stay (strips raw sig text at end of doc)
         $sections = $this->detectSignatureSections($sections);
 
+        // AT-177 D4 — the per-page "______ / Signature" acknowledgement lines a mandate
+        // carries between clauses are literal underscore text, not markers, so nothing above
+        // captures them. Convert each genuine pair into a shared signature placeholder the
+        // party AND the agent sign (sig_only), matching Johan's hand-fix. Runs AFTER the end
+        // signature_section is extracted, so the document's final block is untouched.
+        $sections = $this->detectUnderscoreSignatureLines($sections);
+
+        // AT-177 R2 (on-site 2026-07-18, was AT-290) — a professional-fee / commission
+        // percentage typed into the body ("a Professional Fee of 7.5% per centum") is a
+        // bindable input, not static text. Tokenise the FIRST such genuine commission
+        // percentage so it binds to property.commission_percent. Guarded to the commission
+        // keyword so ordinary percentages (VAT, interest) are never touched.
+        $sections = $this->detectCommissionField($sections);
+
         return $sections;
+    }
+
+    /**
+     * AT-177 R2 — tokenise a commission / professional-fee percentage typed into the body.
+     *
+     * GUARD: the percentage must sit within ~40 chars AFTER a commission keyword
+     * ("professional fee" / "commission"), and be an explicit "<number> %". Only the FIRST
+     * match in the document is tokenised (a mandate states its fee once). The number is
+     * replaced by an insertable field bound downstream to property.commission_percent; the
+     * surrounding "% per centum, plus VAT…" wording is preserved verbatim.
+     */
+    private function detectCommissionField(array $sections): array
+    {
+        $done = false;
+        foreach ($sections as &$section) {
+            if ($done) {
+                break;
+            }
+            if (empty($section['content']) || ! is_array($section['content'])) {
+                continue;
+            }
+            $newContent = [];
+            foreach ($section['content'] as $item) {
+                if ($done || ($item['type'] ?? '') !== 'text') {
+                    $newContent[] = $item;
+                    continue;
+                }
+                $text = (string) ($item['value'] ?? '');
+                // commission keyword, then up to 40 non-% chars, then <number> %
+                if (preg_match('/\b(?:professional\s+fee|commission)\b[^%]{0,40}?(\d+(?:\.\d+)?)\s*%/i', $text, $m, PREG_OFFSET_CAPTURE)) {
+                    $numStr = $m[1][0];
+                    $numOffset = (int) $m[1][1];
+                    $before = substr($text, 0, $numOffset);
+                    $after = substr($text, $numOffset + strlen($numStr));
+                    if ($before !== '') {
+                        $newContent[] = ['type' => 'text', 'value' => $before];
+                    }
+                    $newContent[] = [
+                        'type' => 'insertable_block_placeholder',
+                        'marker' => 'insertable_block',
+                        'purpose' => 'custom_named',
+                        'block_id' => 'document_commission_percentage',
+                        'raw_token' => 'Document - Commission percentage',
+                        'custom_label' => 'Document - Commission percentage',
+                    ];
+                    if ($after !== '') {
+                        $newContent[] = ['type' => 'text', 'value' => $after];
+                    }
+                    $done = true;
+                } else {
+                    $newContent[] = $item;
+                }
+            }
+            $section['content'] = $newContent;
+        }
+        unset($section);
+
+        return $sections;
+    }
+
+    /**
+     * AT-177 D4 — detect literal "underscore run" + "Signature" section pairs and replace
+     * each with a shared signature placeholder (party + agent, sig_only).
+     *
+     * GUARD (deliberately tight so it never tokenises ordinary underscored blanks elsewhere):
+     *   - the section's plain text must be a PURE underscore run (>=6 underscores, nothing
+     *     but underscores / dashes / whitespace), AND
+     *   - the very next section's plain text must be EXACTLY the word "signature".
+     * An underscored blank inside a sentence keeps its surrounding words → not a pure run;
+     * an underscore line not labelled "Signature" is left alone.
+     */
+    private function detectUnderscoreSignatureLines(array $sections): array
+    {
+        $role = $this->inferPrimaryContactRoleFromSections($sections);
+        $role = $role !== '' ? $role : 'Seller';
+        $parties = [
+            ['role' => strtolower($role), 'label' => ucfirst(strtolower($role))],
+            ['role' => 'agent', 'label' => 'Agent'],
+        ];
+
+        $result = [];
+        $count = count($sections);
+        for ($i = 0; $i < $count; $i++) {
+            $text = trim($this->contentToPlainText($sections[$i]['content'] ?? []));
+
+            $isUnderscoreRun = $text !== ''
+                && substr_count($text, '_') >= 6
+                && (bool) preg_match('/^[_\-\x{2013}\x{2014}\s]+$/u', $text);
+
+            if ($isUnderscoreRun && $i + 1 < $count) {
+                $nextText = strtolower(trim($this->contentToPlainText($sections[$i + 1]['content'] ?? [])));
+                if ($nextText === 'signature') {
+                    $result[] = [
+                        'type' => 'paragraph',
+                        'content' => [[
+                            'type' => 'signature_placeholder',
+                            'marker' => 'signature',
+                            'suggested_parties' => $parties,
+                            'suggested_variant' => 'sig_only',
+                        ]],
+                    ];
+                    $i++; // consume the "Signature" label section
+                    continue;
+                }
+            }
+
+            $result[] = $sections[$i];
+        }
+
+        return $result;
+    }
+
+    /**
+     * The document's primary counterparty role, inferred from the "{Party} - {Attribute}"
+     * insertable tokens present (dominant contact prefix wins). Used to assign the party
+     * that signs the mid-document acknowledgement lines.
+     */
+    private function inferPrimaryContactRoleFromSections(array $sections): string
+    {
+        $prefixes = [
+            'seller_' => 'Seller', 'buyer_' => 'Buyer', 'purchaser_' => 'Buyer',
+            'lessor_' => 'Lessor', 'landlord_' => 'Lessor', 'lessee_' => 'Lessee', 'tenant_' => 'Lessee',
+        ];
+        $counts = [];
+        foreach ($sections as $s) {
+            foreach ($s['content'] ?? [] as $item) {
+                if (($item['type'] ?? '') !== 'insertable_block_placeholder') {
+                    continue;
+                }
+                $bid = strtolower((string) ($item['block_id'] ?? ''));
+                foreach ($prefixes as $pfx => $r) {
+                    if (str_starts_with($bid, $pfx)) {
+                        $counts[$r] = ($counts[$r] ?? 0) + 1;
+                    }
+                }
+            }
+        }
+        if (empty($counts)) {
+            return '';
+        }
+        arsort($counts);
+        return (string) array_key_first($counts);
+    }
+
+    /**
+     * AT-359 (Johan, 2026-08-03) — PARTY-FROM-INLINE-DESCRIPTOR.
+     *
+     * A party line in a lease/OTP states the role in parentheses right AFTER the name blank and
+     * then lists that party's address / ID on the following short lines, e.g.
+     *
+     *     1. @@@@ (Lessor / Landlord)
+     *     Of (address) @@@@
+     *     ID/Passport/Registration No: @@@@
+     *     AND
+     *     2. @@@@ (Lessee / tenant / Occupant)
+     *     ...
+     *
+     * The importer only ever inferred a party from a HEADING ABOVE a block, so these fields
+     * collapsed to generic contact.* (address/ID) or, worse, the name blank mis-bound to
+     * deal.amount_words — with NO Lessor/Lessee discrimination. This pass reads the inline
+     * descriptor and prefixes each field in the block to the party (lessor_/lessee_/seller_/buyer_),
+     * which the CdsBindingSuggester already maps to the right contact role (:201-204).
+     *
+     * STRICTLY ADDITIVE — it changes a binding ONLY when ALL of these hold, so documents that
+     * import correctly today are untouched:
+     *   1. A descriptor parenthetical appears as a SHORT, TRAILING label on a party line
+     *      (`... (Lessor / Landlord)$`, line text < 80 chars). This is what excludes a mid-sentence
+     *      role mention like the EATS mandate's "...of the owner/s (Seller) of the..." — that is
+     *      neither trailing nor short, so no party is ever assigned there.
+     *   2. Only the descriptor line and up to 3 following SHORT lines (the address/ID rows), bounded
+     *      by an "AND" separator or the next descriptor, are considered part of the block.
+     *   3. Only a party-LESS contact-identity field is rewritten (unbound, the deal.amount_words
+     *      misfire, or contact.{full_names,address,id_number,phone,email}). A field already bound to
+     *      a party, or to a property / deal / signing / agency source, is never touched.
+     */
+    private function assignPartyFromInlineDescriptor(array $sections): array
+    {
+        // Ordered longest-first so multi-word roles win; value = canonical lessor_/lessee_ prefix.
+        $descriptors = [
+            '/\([^)]*\b(?:lessor|landlord)\b[^)]*\)\s*$/i'          => 'lessor',
+            '/\([^)]*\b(?:lessee|tenant|occupant)\b[^)]*\)\s*$/i'   => 'lessee',
+            '/\([^)]*\bseller\b[^)]*\)\s*$/i'                       => 'seller',
+            '/\([^)]*\b(?:purchaser|buyer)\b[^)]*\)\s*$/i'          => 'buyer',
+        ];
+
+        $currentParty = null;   // active block's prefix, or null outside a block
+        $sinceDescriptor = 0;   // lines consumed since the descriptor (window guard)
+
+        foreach ($sections as &$section) {
+            if (empty($section['content']) || ! is_array($section['content'])) {
+                continue;
+            }
+
+            $text = trim($this->contentToPlainText($section['content']));
+
+            // Block boundary — a standalone "AND" separates one party from the next.
+            if (preg_match('/^and$/i', $text)) {
+                $currentParty = null;
+                continue;
+            }
+
+            // A descriptor line opens (or re-opens) a block. Guarded: trailing + short.
+            $matchedParty = null;
+            if (mb_strlen($text) < 80) {
+                foreach ($descriptors as $rx => $prefix) {
+                    if (preg_match($rx, $text)) {
+                        $matchedParty = $prefix;
+                        break;
+                    }
+                }
+            }
+            if ($matchedParty !== null) {
+                $currentParty = $matchedParty;
+                $sinceDescriptor = 0;
+            }
+
+            // Inside an active block, within a short window of the descriptor, and only on short
+            // party lines — assign the party prefix to any party-less contact-identity field.
+            if ($currentParty !== null && $sinceDescriptor <= 3 && mb_strlen($text) < 80) {
+                foreach ($section['content'] as &$item) {
+                    if (($item['type'] ?? '') !== 'field_placeholder') {
+                        continue;
+                    }
+                    $new = $this->partyBindingForField((string) ($item['field_name'] ?? ''), $currentParty);
+                    if ($new !== null) {
+                        $item['field_name'] = $new;
+                        $item['source'] = 'contact';
+                    }
+                }
+                unset($item);
+                $sinceDescriptor++;
+            }
+        }
+        unset($section);
+
+        return $sections;
+    }
+
+    /**
+     * AT-359 — map a party-LESS contact-identity binding to its party-prefixed form, or null to
+     * leave the field untouched. Only unbound / the deal.amount_words misfire / generic contact.*
+     * identity attributes are eligible; property / deal / signing / agency sources and already-
+     * party-prefixed keys return null (never rewritten).
+     */
+    private function partyBindingForField(string $current, string $prefix): ?string
+    {
+        $c = strtolower(trim($current));
+
+        // Name / identity — an unbound blank, or the deal.amount_words false positive, or a bare
+        // contact name attribute, is the party's NAME field.
+        if ($c === ''
+            || $c === 'deal.amount_words'
+            || in_array($c, ['contact.full_names', 'contact.full_name', 'contact.name', 'contact.names'], true)) {
+            return $prefix . '_name';
+        }
+
+        return match ($c) {
+            'contact.address'   => $prefix . '_address',
+            'contact.id_number' => $prefix . '_id_number',
+            'contact.phone'     => $prefix . '_phone',
+            'contact.email'     => $prefix . '_email',
+            default             => null,
+        };
     }
 
     /**
@@ -734,18 +1110,83 @@ class CdsParserService
      *     Purpose tokens: OTHER_CONDITIONS, INCLUDED_ITEMS, EXCLUDED_ITEMS,
      *     or CUSTOM:<label>.
      */
+    /**
+     * AT-262 — merge consecutive text runs into single items so a marker Word split
+     * across runs is scanned as one string. Non-text items (placeholders, breaks) are
+     * pass-through boundaries — a run of text items between them is concatenated into
+     * one. Formatting flags are kept only when every merged run shared them (a marker
+     * is uniform plain text, so its fragments merge cleanly; genuinely mixed-format
+     * prose simply loses the intra-run flags on the merged span, which the CDS builder
+     * re-tags structurally anyway).
+     *
+     * @param  array<int,array<string,mixed>> $content
+     * @return array<int,array<string,mixed>>
+     */
+    private function coalesceTextRuns(array $content): array
+    {
+        $out = [];
+        $buf = null; // ['value'=>..., 'bold'=>?, 'italic'=>?, 'underline'=>?, 'mixed'=>bool]
+
+        $flush = function () use (&$buf, &$out) {
+            if ($buf === null) {
+                return;
+            }
+            $item = ['type' => 'text', 'value' => $buf['value']];
+            if (!$buf['mixed']) {
+                if (!empty($buf['bold'])) $item['bold'] = true;
+                if (!empty($buf['italic'])) $item['italic'] = true;
+                if (!empty($buf['underline'])) $item['underline'] = true;
+            }
+            $out[] = $item;
+            $buf = null;
+        };
+
+        foreach ($content as $item) {
+            if (($item['type'] ?? null) !== 'text') {
+                $flush();
+                $out[] = $item;
+                continue;
+            }
+
+            $fmt = [!empty($item['bold']), !empty($item['italic']), !empty($item['underline'])];
+            if ($buf === null) {
+                $buf = [
+                    'value' => (string) ($item['value'] ?? ''),
+                    'bold' => $fmt[0], 'italic' => $fmt[1], 'underline' => $fmt[2],
+                    'mixed' => false,
+                ];
+            } else {
+                $buf['value'] .= (string) ($item['value'] ?? '');
+                if ([$buf['bold'], $buf['italic'], $buf['underline']] !== $fmt) {
+                    $buf['mixed'] = true;
+                }
+            }
+        }
+        $flush();
+
+        return $out;
+    }
+
     private function detectMarkers(array $sections): array
     {
-        // Split pattern needs the insertable-block form FIRST because the
-        // tilde-bounded form is longer and overlaps with no other; the field
-        // markers come second.
-        $splitPattern = '/(~{4,}[A-Z_]+(?::[^~]+)?~{4,}|@{4,}|%{4,}|#{4,})/';
+        // Composed from ACCEPTED_MARKERS — the same array the import screen teaches
+        // from, so the syntax we read and the syntax we advertise cannot diverge.
+        // (The tilde form is first in that array precisely because it is the longest.)
+        $splitPattern = self::markerSplitPattern();
 
         foreach ($sections as &$section) {
             if (!isset($section['content'])) continue;
 
+            // AT-262 — reunite runs BEFORE marker detection. Word fragments typed text
+            // across many <w:r> runs (proofing marks, rsid boundaries), so a marker the
+            // agent typed as "~~~~Seller - Full name~~~~" arrives as separate items
+            // "~~~~" / "Seller - Full name" / "~~~~". Each item alone is not a complete
+            // marker, so scanning items individually found none. Coalescing consecutive
+            // text runs into one buffer makes the marker whole again.
+            $content = $this->coalesceTextRuns($section['content']);
+
             $newContent = [];
-            foreach ($section['content'] as $item) {
+            foreach ($content as $item) {
                 if ($item['type'] !== 'text') {
                     $newContent[] = $item;
                     continue;
@@ -754,8 +1195,12 @@ class CdsParserService
                 $parts = preg_split($splitPattern, $item['value'], -1, PREG_SPLIT_DELIM_CAPTURE);
 
                 foreach ($parts as $part) {
-                    if (preg_match('/^~{4,}([A-Z_]+(?::[^~]+)?)~{4,}$/', $part, $m)) {
-                        $newContent[] = $this->parseInsertableBlockMarker($m[1]);
+                    // Reuse the ONE insertable pattern from ACCEPTED_MARKERS (no second
+                    // charset copy to drift). A part that IS a full insertable token has
+                    // its tilde fences stripped to recover the human name.
+                    if (preg_match('/^' . self::ACCEPTED_MARKERS[0]['pattern'] . '$/', $part)) {
+                        $name = preg_replace('/^~{4,}|~{4,}$/', '', $part);
+                        $newContent[] = $this->parseInsertableBlockMarker($name);
                     } elseif (preg_match('/^@{4,}$/', $part)) {
                         $newContent[] = [
                             'type' => 'field_placeholder',
@@ -814,17 +1259,87 @@ class CdsParserService
             'INCLUDED_ITEMS'   => 'included_items',
             'EXCLUDED_ITEMS'   => 'excluded_items',
         ];
-        $purpose = $purposeMap[$token] ?? 'custom_named';
-        $blockId = strtolower($token);
+
+        // A built-in purpose token (all-caps snake) keeps its mapped purpose and a
+        // lower-cased block id. Any other name is a human-natural custom field
+        // ("Seller - Full name", "Asking price (Rand)"): carry the name verbatim as
+        // the label the builder shows, and derive a SAFE slug for the block id — never
+        // a raw id full of spaces and slashes.
+        $token = trim($token);
+        if (isset($purposeMap[$token])) {
+            return [
+                'type'         => 'insertable_block_placeholder',
+                'marker'       => 'insertable_block',
+                'block_id'     => strtolower($token),
+                'purpose'      => $purposeMap[$token],
+                'custom_label' => null,
+                'raw_token'    => $token,
+            ];
+        }
+
+        $blockId = \Illuminate\Support\Str::slug($token !== '' ? $token : 'unnamed', '_');
 
         return [
             'type'         => 'insertable_block_placeholder',
             'marker'       => 'insertable_block',
-            'block_id'     => $blockId,
-            'purpose'      => $purpose,
-            'custom_label' => null,
+            'block_id'     => $blockId !== '' ? $blockId : 'unnamed',
+            'purpose'      => 'custom_named',
+            'custom_label' => $token,
             'raw_token'    => $token,
         ];
+    }
+
+    /**
+     * AT-262 near-miss detection. Scans raw text for marker-LIKE sequences that did
+     * NOT parse — an agent's first real doc almost always has a few — and says WHY,
+     * so the low/zero-field guard can teach instead of silently dropping them.
+     *
+     * A near-miss is any run bounded by 2+ tildes that is not a valid insertable
+     * token. Two failure classes are named:
+     *   - wrong tilde count (~~Name~~ or ~~~Name~~~ — needs FOUR each side);
+     *   - a disallowed character in the name (only the ~ delimiter is disallowed now,
+     *     so this catches e.g. a stray ~ or a truly empty ~~~~~~~~).
+     *
+     * @return list<array{raw:string, name:string, reason:string}>
+     */
+    public function detectNearMissMarkers(string $text): array
+    {
+        $valid = '/^' . self::ACCEPTED_MARKERS[0]['pattern'] . '$/';
+        $nameClass = '[A-Za-z0-9 _\/()&\'.,:-]';
+
+        // Candidate: 2+ tildes, a (possibly empty) non-tilde run, 2+ tildes.
+        preg_match_all('/~{2,}[^~]{0,120}~{2,}/', $text, $cands);
+
+        $misses = [];
+        $seen = [];
+        foreach ($cands[0] as $raw) {
+            if (preg_match($valid, $raw)) {
+                continue; // a real, accepted marker
+            }
+            if (isset($seen[$raw])) {
+                continue;
+            }
+            $seen[$raw] = true;
+
+            $name = trim(preg_replace('/^~+|~+$/', '', $raw));
+            $lead = strlen($raw) - strlen(ltrim($raw, '~'));
+            $tail = strlen($raw) - strlen(rtrim($raw, '~'));
+
+            if ($lead < 4 || $tail < 4) {
+                $reason = "uses {$lead}/{$tail} tildes — a marker needs FOUR tildes on each side: ~~~~{$name}~~~~";
+            } elseif ($name === '') {
+                $reason = 'is empty — put a field name between the tildes, e.g. ~~~~Seller - Full name~~~~';
+            } else {
+                preg_match_all('/' . $nameClass . '/u', $name, $ok);
+                $bad = preg_replace('/' . $nameClass . '/u', '', $name);
+                $badChars = implode(' ', array_unique(preg_split('//u', $bad, -1, PREG_SPLIT_NO_EMPTY) ?: []));
+                $reason = "the name contains a character that isn't allowed ({$badChars}); allowed: " . self::INSERTABLE_NAME_HUMAN;
+            }
+
+            $misses[] = ['raw' => $raw, 'name' => $name, 'reason' => $reason];
+        }
+
+        return $misses;
     }
 
     /**
@@ -926,6 +1441,43 @@ class CdsParserService
      * Identify a field from surrounding text context.
      * Returns label, field_name, field_type, source, and confidence.
      */
+    /**
+     * AT-177 — bind a field's ATTRIBUTE from the words around it (Johan's importer rule, 2026-07-17).
+     *
+     * Broader than the anchored patterns in identifyField: it matches the attribute KEYWORD anywhere
+     * in the surrounding text, so real-document wordings ("Seller 1 - Telephone number:", "Email
+     * address:", "Physical address:", "ID / Passport number:") all bind to the right column instead
+     * of collapsing to the party name. Order is most-specific-first so "physical address" cannot be
+     * mis-read as a name. Returns null when no attribute keyword is present (leave it to the label /
+     * manual fallback). source is 'contact' here; the PARTY (Seller/Buyer) is attached downstream.
+     */
+    private function attributeFieldFromContext(string $context): ?array
+    {
+        $c = strtolower($context);
+
+        // Price / amount IN WORDS — bind to the words variable, not the figure.
+        if (preg_match('/\b(amount|price|sum)\b.*\bin\s*words\b|\bin\s*words\b/', $c)) {
+            return ['label' => 'Amount in words', 'field_name' => 'property.price_in_words', 'field_type' => 'text', 'source' => 'property', 'confidence' => 'high'];
+        }
+
+        // Email BEFORE address ("Email address" contains "address"); name LAST (most generic).
+        $map = [
+            '/\be-?mail\b/'                                  => ['email', 'Email', 'email', 'contact.email'],
+            '/\b(tel|telephone|phone|cell|mobile|contact\s*number|landline)\b/' => ['phone', 'Telephone', 'tel', 'contact.phone'],
+            '/\b(id|identity)\s*(number|no)?\b|passport|registration\s*number/' => ['id_number', 'ID Number', 'text', 'contact.id_number'],
+            '/\b(physical|residential|postal)?\s*address\b/' => ['address', 'Physical Address', 'text', 'contact.address'],
+            '/\b(full\s*name|surname|first\s*name|name)\b/'  => ['name', 'Name', 'text', 'contact.full_names'],
+        ];
+
+        foreach ($map as $rx => [$attr, $label, $ftype, $fieldName]) {
+            if (preg_match($rx, $c)) {
+                return ['label' => $label, 'field_name' => $fieldName, 'field_type' => $ftype, 'source' => 'contact', 'confidence' => 'medium'];
+            }
+        }
+
+        return null;
+    }
+
     private function identifyField(string $before, string $after, string $clause): array
     {
         $patterns = [
@@ -1008,7 +1560,21 @@ class CdsParserService
              'result' => ['label' => '% Commission', 'field_name' => 'deal.commission_percent', 'field_type' => 'number', 'source' => 'deal', 'confidence' => 'medium']],
 
             // FINANCIAL — Amount in words
+            //
+            // AT-359 (Johan, 2026-08-03) — GUARDED. A bare "(...)" after a field is NOT always the
+            // in-words counterpart of a currency amount. A party line states the role in parentheses
+            // right after the name blank — "@@@@ (Lessor / Landlord)", "@@@@ (Lessee / tenant /
+            // Occupant)" — which previously matched this pattern and mis-bound the NAME field to
+            // deal.amount_words. Two additive guards keep the genuine "R@@@@ (five hundred thousand
+            // rand)" idiom while rejecting the party-label false positive:
+            //   require_before — only fire in a genuine CURRENCY context (the words-blank follows an
+            //                    amount: text ends in R / names an amount/price/sum/rand/rental/deposit).
+            //   reject_after   — never fire when the parenthetical is a PARTY-ROLE descriptor.
+            // Both are optional keys honoured by the pattern loop below; every other pattern is
+            // untouched (no guard keys → identical behaviour).
             ['match' => '/^\s*\(/i', 'on' => 'after',
+             'require_before' => '/(?:\bR|\bamount|\bprice|\bsum|\brand|\brental|\bdeposit|\bpurchase)\b\s*[:.]?\s*$/i',
+             'reject_after'   => '/^\s*\([^)]*\b(?:lessor|lessee|landlord|tenant|seller|buyer|purchaser|occupant|agent|witness)\b/i',
              'result' => ['label' => 'Amount in Words', 'field_name' => 'deal.amount_words', 'field_type' => 'text', 'source' => 'deal', 'confidence' => 'medium']],
 
             // BANKING
@@ -1070,9 +1636,33 @@ class CdsParserService
                 default => $before,
             };
 
-            if (preg_match($p['match'], $target)) {
-                return $p['result'];
+            if (! preg_match($p['match'], $target)) {
+                continue;
             }
+
+            // AT-359 — optional additive guards (only the amount-words entry carries them).
+            // A pattern with `require_before` fires only when `before` also matches; one with
+            // `reject_after` is suppressed when `after` matches the rejection regex. Patterns
+            // without these keys behave exactly as before.
+            if (isset($p['require_before']) && ! preg_match($p['require_before'], $before)) {
+                continue;
+            }
+            if (isset($p['reject_after']) && preg_match($p['reject_after'], $after)) {
+                continue;
+            }
+
+            return $p['result'];
+        }
+
+        // AT-177 (Johan, 2026-07-17) — CONTEXT KEYWORD RESOLVER. The anchored patterns above are
+        // narrow (e.g. "Telephone number:" does not end in "tel:", so it slipped through and the
+        // marker fell to an unbound/name default). Johan's rule: the words AROUND the input guide the
+        // attribute. This reads the label/context — "Physical address", "Telephone number", "Email
+        // address", "ID number", "in words" — and binds the ATTRIBUTE. The PARTY (Seller/Buyer) is
+        // resolved separately, so this only fixes the attribute half that was defaulting to the name.
+        $ctxField = $this->attributeFieldFromContext($before . ' ' . $after);
+        if ($ctxField !== null) {
+            return $ctxField;
         }
 
         // Medium confidence — common label:field pattern
@@ -1105,6 +1695,154 @@ class CdsParserService
      * Post-process: detect underscore runs as field placeholders.
      * Lines of underscores (3+) become interactive field_placeholder items.
      */
+    /**
+     * AT-304 OTP-4 — amount-pair linkage + agency-split field naming.
+     *
+     * (a) AMOUNT PAIRS: an OTP states each amount as "R<numeric> (<amount in words>)". The two
+     *     blanks are ONE fact — link them: the bracketed field becomes the in-words counterpart
+     *     of the R-amount (field_name property.price_in_words for the purchase price, else
+     *     deal.amount_words) with `linked_to` pointing at the numeric field's field_name.
+     * (b) AGENCY SPLIT (clause 5.6): a line naming the listing AND selling agency with share %
+     *     and FFC — label its blanks in order: agency name · share % · FFC, per side.
+     */
+    private function refineAmountPairsAndAgencySplit(array $sections): array
+    {
+        foreach ($sections as &$section) {
+            $content = $section['content'] ?? null;
+            if (! is_array($content) || $content === []) {
+                continue;
+            }
+            $clause = strtolower($this->contentToPlainText($content));
+
+            // ── (b) agency split — relabel the run of blanks in order ──────────────
+            if (str_contains($clause, 'agency') && (str_contains($clause, 'ffc') || str_contains($clause, 'share'))
+                && str_contains($clause, 'listing') && str_contains($clause, 'selling')) {
+                $seq = ['listing' => ['Listing Agency', 'agency.listing_name'], 'share1' => ['Listing Share %', 'agency.listing_share'], 'ffc1' => ['Listing FFC', 'agency.listing_ffc'],
+                        'selling' => ['Selling Agency', 'agency.selling_name'], 'share2' => ['Selling Share %', 'agency.selling_share'], 'ffc2' => ['Selling FFC', 'agency.selling_ffc']];
+                $seq = array_values($seq);
+                $n = 0;
+                foreach ($content as &$it) {
+                    if (($it['type'] ?? '') === 'field_placeholder' && isset($seq[$n])) {
+                        [$lbl, $name] = $seq[$n];
+                        $it['label'] = $lbl;
+                        $it['field_name'] = $name;
+                        $it['field_type'] = str_contains($name, 'share') ? 'number' : 'text';
+                        $it['source'] = 'agency';
+                        $it['confidence'] = 'medium';
+                        $n++;
+                    }
+                }
+                unset($it);
+                $section['content'] = $content;
+                continue;
+            }
+
+            // ── (a) amount pairs — link R<numeric> ( <in-words> ) ──────────────────
+            $isPrice = str_contains($clause, 'purchase price') || preg_match('/\bprice\b/', $clause);
+            for ($i = 0; $i < count($content); $i++) {
+                if (($content[$i]['type'] ?? '') !== 'field_placeholder') {
+                    continue;
+                }
+                // Is this the R-amount? the nearest preceding text ends with "R".
+                $before = '';
+                for ($j = $i - 1; $j >= 0; $j--) {
+                    if (($content[$j]['type'] ?? '') === 'text') { $before = rtrim((string) $content[$j]['value']); break; }
+                }
+                if (! preg_match('/R\s*$/', $before)) {
+                    continue;
+                }
+                // The next field_placeholder whose preceding text opens a "(" is the in-words half.
+                for ($k = $i + 1; $k < count($content); $k++) {
+                    if (($content[$k]['type'] ?? '') !== 'field_placeholder') {
+                        continue;
+                    }
+                    $mid = '';
+                    for ($j = $k - 1; $j > $i; $j--) {
+                        if (($content[$j]['type'] ?? '') === 'text') { $mid .= (string) $content[$j]['value']; }
+                    }
+                    if (str_contains($mid, '(')) {
+                        $amtName = $isPrice ? 'property.price' : ($content[$i]['field_name'] ?? 'deal.amount');
+                        $content[$i]['label'] = $isPrice ? 'Purchase Price (R)' : ($content[$i]['label'] ?? 'Amount (R)');
+                        $content[$i]['field_name'] = $amtName;
+                        $content[$i]['field_type'] = 'currency';
+                        $content[$k]['label'] = 'Amount in words';
+                        $content[$k]['field_name'] = $isPrice ? 'property.price_in_words' : 'deal.amount_words';
+                        $content[$k]['field_type'] = 'text';
+                        $content[$k]['linked_to'] = $amtName;
+                        $content[$k]['source'] = $isPrice ? 'computed' : 'deal';
+                    }
+                    break;
+                }
+            }
+            $section['content'] = $content;
+        }
+        unset($section);
+
+        return $sections;
+    }
+
+    /**
+     * AT-304 OTP-1 — tokenise DOTTED-LEADER fill blanks into fields.
+     *
+     * A genuine fill leader is a run of >=5 dots (or >=2 unicode ellipses) — long enough that
+     * it can never be sentence punctuation ("..." = 3, "…." = ellipsis+stop). Splitting the
+     * text run yields MULTIPLE fields per line, each labelled downstream from its surrounding
+     * words by identifyFieldsFromContext.
+     *
+     * GUARD: signature-area sections (their text names signature/witness/signed) are left for
+     * the signature detectors — those dotted lines are sign-here surfaces, not input fields.
+     */
+    private function detectDottedLeaderFields(array $sections): array
+    {
+        foreach ($sections as &$section) {
+            if (empty($section['content']) || ! is_array($section['content'])) {
+                continue;
+            }
+            $plain = strtolower($this->contentToPlainText($section['content']));
+            if (preg_match('/\b(signature|witness|signed\s+at|as\s+witnesses|thus\s+done)\b/', $plain)) {
+                continue; // handled by the signature detectors
+            }
+
+            $newContent = [];
+            $changed = false;
+            foreach ($section['content'] as $item) {
+                if (($item['type'] ?? '') !== 'text') {
+                    $newContent[] = $item;
+                    continue;
+                }
+                $val = (string) ($item['value'] ?? '');
+                $parts = preg_split('/(\.{5,}|\x{2026}{2,})/u', $val, -1, PREG_SPLIT_DELIM_CAPTURE);
+                if ($parts === false || count($parts) <= 1) {
+                    $newContent[] = $item;
+                    continue;
+                }
+                foreach ($parts as $part) {
+                    if ($part === '') {
+                        continue;
+                    }
+                    if (preg_match('/^(\.{5,}|\x{2026}{2,})$/u', $part)) {
+                        $newContent[] = ['type' => 'field_placeholder', 'length' => mb_strlen($part), 'source_marker' => 'dotted_leader'];
+                        $changed = true;
+                    } else {
+                        $t = ['type' => 'text', 'value' => $part];
+                        foreach (['bold', 'italic', 'underline'] as $f) {
+                            if (! empty($item[$f])) {
+                                $t[$f] = true;
+                            }
+                        }
+                        $newContent[] = $t;
+                    }
+                }
+            }
+            if ($changed) {
+                $section['content'] = $newContent;
+            }
+        }
+        unset($section);
+
+        return $sections;
+    }
+
     private function detectFieldPlaceholders(array $sections): array
     {
         foreach ($sections as &$section) {
@@ -1399,6 +2137,7 @@ class CdsParserService
     private function extractPartyRoles(array $sections): array
     {
         $roles = [];
+        // Order matters — 'practitioner'/'co-sign' before the generic 'agent'.
         $roleKeywords = [
             'owner' => 'landlord',
             'landlord' => 'landlord',
@@ -1407,6 +2146,11 @@ class CdsParserService
             'seller' => 'seller',
             'purchaser' => 'buyer',
             'buyer' => 'buyer',
+            // AT-304 OTP-3 — an OTP sig page names the practitioner + a co-signatory + witnesses.
+            'property practitioner' => 'agent',
+            'practitioner' => 'agent',
+            'co-signatory' => 'co_signatory',
+            'co-sign' => 'co_signatory',
             'agent' => 'agent',
             'witness' => 'witness',
         ];
@@ -1420,18 +2164,23 @@ class CdsParserService
                     || (($c['type'] === 'text') && trim($c['value'] ?? '') === ''));
             if ($hasOnlyFields) continue;
 
+            // AT-304 OTP-3 — the "short label" length gate must ignore the dotted/underscore
+            // FILL leaders on the line ("As Witnesses: 1. ......... 2. .........") — otherwise
+            // the leaders inflate the length past 30 and the witness/practitioner roles are missed.
+            $label = strtolower(trim(preg_replace(['/[_.\x{2026}]{3,}/u', '/\s+/u'], ' ', $text)));
+
             // Check for role words in short label-like paragraphs
             foreach ($roleKeywords as $keyword => $role) {
-                if (str_contains($text, $keyword)
-                    && !str_contains($text, 'print name')
-                    && !str_contains($text, 'the ')
-                    && strlen($text) < 30) {
+                if (str_contains($label, $keyword)
+                    && !str_contains($label, 'print name')
+                    && !str_contains($label, 'the ')
+                    && strlen($label) < 34) {
                     // Count occurrences to handle "Owner Owner Agent"
-                    $count = substr_count($text, $keyword);
+                    $count = substr_count($label, $keyword);
                     for ($i = 0; $i < $count; $i++) {
                         $roles[] = [
                             'role' => $role,
-                            'label' => ucfirst($role),
+                            'label' => ucfirst(str_replace('_', ' ', $role)),
                         ];
                     }
                 }

@@ -170,7 +170,7 @@ final class PresentationReviewController extends Controller
         // first paint).
         $analysis        = (new AnalysisDataService())->compile($presentation, $version);
         $cmaValue        = $analysis['cma_valuation']    ?? [];
-        $competitorStock = $analysis['competitor_stock'] ?? ['matches' => [], 'included_ids' => null, 'visible' => []];
+        $competitorStock = $analysis['competitor_stock'] ?? ['matches' => [], 'included_ids' => null, 'visible' => [], 'missing_inputs' => [], 'has_low_confidence' => false];
 
         // Build 4 — section toggle state for Section 3 of the review.
         $sectionsCatalogue = PresentationVersion::SECTIONS_CATALOGUE;
@@ -481,6 +481,64 @@ final class PresentationReviewController extends Controller
     }
 
     /**
+     * Johan (2026-08-21, size-lift ruling) — the review-screen tick that opts
+     * a presentation into the CMA size-normalised lift. Defaults off; this is
+     * the only way it ever turns on. Recorded on the PRESENTATION (not the
+     * version) so it persists across regenerates, same as cma_selected_range.
+     *
+     * Refuses to enable when the current evidence doesn't support a lift
+     * (size_lift_available false) — the tick shouldn't be tickable-but-inert;
+     * if the comp pool changes later and eligibility appears, the agent ticks
+     * it then. Disabling is always allowed (reverting to the honest median
+     * is never wrong).
+     */
+    public function toggleSizeLift(Request $request, PresentationVersion $version): JsonResponse
+    {
+        $this->authoriseReviewer($request, $version);
+
+        $request->validate([
+            'applied' => 'required|boolean',
+        ]);
+
+        $presentation = $version->presentation;
+        $wantApplied  = (bool) $request->boolean('applied');
+        $wasApplied   = (bool) ($presentation->cma_size_lift_applied ?? false);
+
+        if ($wantApplied === $wasApplied) {
+            return response()->json(array_merge(
+                ['ok' => true, 'applied' => $wasApplied, 'no_op' => true],
+                $this->cmaPayload($version),
+            ));
+        }
+
+        if ($wantApplied) {
+            $analysis = (new AnalysisDataService())->compile($presentation, $version);
+            if (!($analysis['cma_valuation']['size_lift_available'] ?? false)) {
+                return response()->json(['error' => 'size_lift_not_available'], 422);
+            }
+        }
+
+        DB::transaction(function () use ($presentation, $wantApplied, $wasApplied, $version, $request) {
+            $presentation->forceFill(['cma_size_lift_applied' => $wantApplied])->save();
+
+            AgentOverride::create([
+                'agency_id'               => $version->agency_id,
+                'presentation_version_id' => $version->id,
+                'user_id'                 => $request->user()->id,
+                'override_type'           => AgentOverride::TYPE_SIZE_LIFT_TOGGLED,
+                'target_id'               => (string) $presentation->id,
+                'before_value'            => ['applied' => $wasApplied],
+                'after_value'             => ['applied' => $wantApplied],
+            ]);
+        });
+
+        return response()->json(array_merge(
+            ['ok' => true, 'applied' => $wantApplied],
+            $this->cmaPayload($version),
+        ));
+    }
+
+    /**
      * AT-22 — single CMA payload shape shared by the curation endpoints, so
      * the client's applyCmaUpdate() patches the valuation tiles identically
      * whether the change came from a single toggle, the slider/bulk set, or a
@@ -499,6 +557,20 @@ final class PresentationReviewController extends Controller
                 'middle_baseline' => $cma['cma_middle_baseline'] ?? null,
                 'upper'           => $cma['cma_upper']           ?? null,
                 'pool_n'          => $cma['compute_pool_n']      ?? 0,
+                // Johan (2026-08-21, size-lift ruling) — carried on every
+                // curation response (comp toggle, bulk set, condition
+                // change...) since any of those can change the comp pool
+                // and therefore whether/how much the size lift would move
+                // the headline. The tick's visibility and label stay
+                // correct after any edit, not just its own toggle.
+                'size_lift_available'    => $cma['size_lift_available']    ?? false,
+                'size_lift_applied'      => $cma['size_lift_applied']      ?? false,
+                'size_lift_pct'          => $cma['size_lift_pct']          ?? null,
+                'size_diff_pct'          => $cma['size_diff_pct']          ?? null,
+                'size_lift_subject_noun' => $cma['size_lift_subject_noun'] ?? 'erf',
+                'headline_uplift_pct'    => $cma['headline_uplift_pct']    ?? null,
+                'headline_median_raw'    => $cma['headline_median_raw']    ?? null,
+                'size_normalised_value'  => $cma['size_normalised_value']  ?? null,
             ],
         ];
     }

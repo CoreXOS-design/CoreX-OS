@@ -98,8 +98,13 @@ final class NotificationGatewayGuardTest extends TestCase
 
         // ── Misc ──
         'app/Jobs/MatchPropertyJob.php',
-        'app/Jobs/SendAgentInviteJob.php',
+        // SendAgentInviteJob.php — FIXED 2026-08-15: no longer calls ->notify(),
+        // sends UserInviteMail directly (Mail::to(), not the Notification layer).
         'app/Jobs/RcrDeadlineReminderJob.php',
+        // ImporterController.php stays listed: OnboardingPortalInvitation (a
+        // DIFFERENT notification, for the self-service onboarding portal link)
+        // still sends via Notification::route()->notify() here, unrelated to
+        // the agent-invite fix above.
         'app/Http/Controllers/Admin/ImporterController.php',
     ];
 
@@ -174,10 +179,11 @@ final class NotificationGatewayGuardTest extends TestCase
     public function test_the_bypass_debt_is_recorded(): void
     {
         $this->assertLessThanOrEqual(
-            18,
+            17,
             count(self::KNOWN_BYPASSES),
             'the bypass allow-list may only ever SHRINK — S2 empties it. '
-            . '23 -> 22 (proforma = citizen #1) -> 21 (false entry removed) -> 20 (Leads) -> 18 (Comms).'
+            . '23 -> 22 (proforma = citizen #1) -> 21 (false entry removed) -> 20 (Leads) -> 18 (Comms) '
+            . '-> 17 (SendAgentInviteJob moved to UserInviteMail).'
         );
     }
 

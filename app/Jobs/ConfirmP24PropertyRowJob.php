@@ -4,6 +4,7 @@ namespace App\Jobs;
 
 use App\Models\P24ImportRow;
 use App\Models\Property;
+use App\Services\P24\P24LocationResolver;
 use Illuminate\Bus\Batchable;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -102,6 +103,17 @@ class ConfirmP24PropertyRowJob implements ShouldQueue
                 $attrs['agent_id']  = $row->resolved_agent_id;
                 $attrs['agency_id'] = $run->agency_id;
 
+                // The P24 CSV carries no mandate/exclusivity field at all — P24
+                // only ever exports what's live on their platform, never the
+                // agency's private mandate terms with the seller (audit
+                // 2026-08-16: confirmed absent from all 68 export columns).
+                // Default imported stock to 'Open' rather than leaving
+                // mandate_type silently blank forever; never overwrite one a
+                // human has since set manually in CoreX.
+                if (empty($existing?->mandate_type)) {
+                    $attrs['mandate_type'] = 'Open';
+                }
+
                 // branch_id is NOT NULL with no default. This job runs on the
                 // queue with no auth user, so BelongsToBranch cannot auto-fill
                 // it — leaving it null 1364s the whole confirm. Source it from
@@ -126,29 +138,82 @@ class ConfirmP24PropertyRowJob implements ShouldQueue
                     }
                 }
 
-                // p24_suburb_id is FK-constrained to p24_suburbs. The CSV's raw
-                // P24 SuburbId only matches when that suburb is seeded locally
-                // (reference tables can be partial per environment); an unseeded
-                // id 1452s the whole confirm. Only set it when it resolves — the
-                // raw value is always preserved in features_json.p24_source_suburb_id.
-                if (!empty($attrs['p24_suburb_id'])
-                    && !DB::table('p24_suburbs')->where('id', $attrs['p24_suburb_id'])->exists()) {
-                    unset($attrs['p24_suburb_id']);
+                // `$attrs['p24_suburb_id']` at this point is still the CSV's raw
+                // value — Property24's EXTERNAL suburb id (`p24_suburbs.p24_id`),
+                // NOT our internal `p24_suburbs.id`. `properties.p24_suburb_id`
+                // is a FK to our internal id, so it must be resolved via the
+                // external id before it's usable — never stored as-is.
+                //
+                // P24 suburb-id import bug (2026-08-16), two issues found the same day on the same
+                // column:
+                //  1. The FK was stored raw with no suburb/city text ever
+                //     derived from it — every CSV import left suburb/city blank
+                //     (4,753/4,755 on the Demo Agency Test run of 2026-08-14).
+                //  2. The first fix for #1 still matched the raw external
+                //     SuburbId against `p24_suburbs.id` (our internal PK) —
+                //     resolveByP24Id() below is what that should have been all
+                //     along. Both external and internal ids are called "the P24
+                //     suburb id" throughout this codebase and are NOT
+                //     interchangeable — see P24LocationResolver's docblock. The
+                //     collision is silent: whenever a listing's external id
+                //     happened to also exist as an internal row id, the wrong
+                //     property landed on it as blocked-nothing/dropped-nothing
+                //     wrong-suburb data (100% of the 4,753 confirmed rows on
+                //     that run — every external SuburbId in a real P24 export is
+                //     large enough to always collide with SOME unrelated
+                //     internal row).
+                //
+                // Unverified or unseeded suburbs are never guessed — the FK (and
+                // suburb/city text) is simply left unset.
+                if (!empty($attrs['p24_suburb_id'])) {
+                    $resolved = P24LocationResolver::resolveByP24Id((int) $attrs['p24_suburb_id']);
+                    if ($resolved && $resolved['suburb']->p24_verified_at) {
+                        $attrs['p24_suburb_id']   = $resolved['suburb']->id;
+                        $attrs['p24_city_id']     = $resolved['city']->id;
+                        $attrs['p24_province_id'] = $resolved['province']?->id;
+                        $attrs['suburb']          = $resolved['suburb']->name;
+                        $attrs['city']            = $resolved['city']->name;
+                        if ($resolved['province']) {
+                            $attrs['province'] = $resolved['province']->name;
+                        }
+                    } else {
+                        unset($attrs['p24_suburb_id']);
+                    }
                 }
 
                 // Link the P24 listing number so a later push UPDATES the
                 // existing P24 listing instead of CREATING a duplicate. The
                 // syndication push (Property24ListingMapper::map) decides
                 // update-vs-create on p24_ref — NOT p24_listing_number — so the
-                // import MUST set p24_ref too, or every imported property pushes
-                // as a brand-new duplicate. This stock is, by definition,
-                // already live on P24 (it came from a P24 export), so reflect
-                // that with an 'active' syndication status / activation stamp.
+                // import MUST set p24_ref too, regardless of the listing's own
+                // status, or a later real push for this property creates a
+                // duplicate on P24.
                 if (is_numeric($listingNumber)) {
                     $attrs['p24_ref'] = (string) $listingNumber;
-                    if (empty($existing?->p24_syndication_status)) {
-                        $attrs['p24_syndication_status'] = 'active';
-                        $attrs['p24_activated_at'] = now();
+
+                    // The CSV is a point-in-time P24 export, not a feed of only
+                    // currently-live stock — most rows are historical
+                    // (Withdrawn/Expired/Sold/Cancelled/Rented). Unconditionally
+                    // stamping every row 'active' told every downstream consumer
+                    // (Property24SyndicationService's refresh loop, AdManager,
+                    // SellerOutreach's "advertised" check, the stats dashboard)
+                    // that sold/withdrawn stock was still being pushed live to
+                    // P24 — found in the 2026-08-16 import audit: 4,507/4,753
+                    // Demo Agency Test rows landed 'active' though only 232
+                    // actually carried status=Active. Gate on the listing's own
+                    // status instead, and only touch this when CoreX has never
+                    // made a REAL outbound push of its own
+                    // (p24_last_submitted_at) — once we've genuinely submitted,
+                    // our own syndication history is authoritative, not a
+                    // re-import of the original source export.
+                    if ($existing?->p24_last_submitted_at === null) {
+                        if (($attrs['status'] ?? null) === 'Active') {
+                            $attrs['p24_syndication_status'] = 'active';
+                            $attrs['p24_activated_at'] = $existing?->p24_activated_at ?? now();
+                        } else {
+                            $attrs['p24_syndication_status'] = null;
+                            $attrs['p24_activated_at'] = null;
+                        }
                     }
                 }
 

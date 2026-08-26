@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Commission;
 
 use App\Http\Controllers\Controller;
 use App\Models\CommissionSetting;
+use App\Models\CommissionSettingAuditEntry;
 use Illuminate\Http\Request;
 
 class CommissionSettingsController extends Controller
@@ -75,7 +76,28 @@ class CommissionSettingsController extends Controller
         }
 
         $settings = CommissionSetting::forAgency((int) $agencyId);
+        $before = $settings->getOriginal();
         $settings->update($validated);
+
+        // Money rules for the agency, changed with no record of who or when —
+        // flagged in the 2026-08-21 go-live audit as a real dispute risk.
+        // Only the fields that actually changed are recorded, keyed against
+        // their prior value, so a diff reads cleanly without a full snapshot.
+        $changed = $settings->getChanges();
+        unset($changed['updated_at']);
+        if (! empty($changed)) {
+            CommissionSettingAuditEntry::create([
+                'agency_id' => $agencyId,
+                'commission_setting_id' => $settings->id,
+                'action' => 'updated',
+                'old_values' => collect($changed)->keys()
+                    ->mapWithKeys(fn ($key) => [$key => $before[$key] ?? null])
+                    ->toArray(),
+                'new_values' => $changed,
+                'performed_by_user_id' => $user->id,
+                'performed_at' => now(),
+            ]);
+        }
 
         return redirect()->route('corex.settings', ['s' => 'commission'])
             ->with('success', 'Commission & Revenue Share settings saved.');

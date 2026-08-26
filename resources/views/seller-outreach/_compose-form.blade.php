@@ -63,7 +63,8 @@
                 style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
             @foreach($linkedProperties as $p)
                 @php
-                    $addr = trim(((string) ($p->street_number ?? '')) . ' ' . ((string) ($p->street_name ?? '')));
+                    // AT-266 — canonical street line (unit + complex + street); suburb appended below.
+                    $addr = $p->composeAddressFromParts();
                     $addr = $addr !== '' ? $addr : '(no address)';
                     $suburb = $p->suburb ?? '';
                     $price = ($p->price ?? 0) > 0 ? ' — R ' . number_format((float) $p->price, 0, '.', ',') : '';

@@ -51,12 +51,24 @@ class ConflictDetectionService
             $query->where('id', '!=', $excludeEventId);
         }
 
-        // Time overlap check
-        $conflicts = $query->where('event_date', '<', $endsAt)
-            ->where(function ($q) use ($startsAt) {
-                $q->where('end_date', '>', $startsAt)
-                  ->orWhereNull('end_date');
-            })
+        // Time overlap check. A NULL end_date is a ZERO-DURATION instant at
+        // event_date, not an open-ended occupation — the previous
+        // orWhereNull('end_date') matched any later slot regardless of how far
+        // away it was, since event_date < $endsAt is true for any future check.
+        // An event WITH an end_date uses the standard half-open overlap test;
+        // an event with NO end_date only conflicts if event_date itself falls
+        // inside the checked slot.
+        $conflicts = $query->where(function ($q) use ($startsAt, $endsAt) {
+            $q->where(function ($q2) use ($startsAt, $endsAt) {
+                $q2->whereNotNull('end_date')
+                   ->where('event_date', '<', $endsAt)
+                   ->where('end_date', '>', $startsAt);
+            })->orWhere(function ($q2) use ($startsAt, $endsAt) {
+                $q2->whereNull('end_date')
+                   ->where('event_date', '>=', $startsAt)
+                   ->where('event_date', '<', $endsAt);
+            });
+        })
             ->get(['id', 'title', 'event_date', 'end_date']);
 
         return $conflicts->map(fn($e) => [

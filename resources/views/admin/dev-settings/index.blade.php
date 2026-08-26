@@ -62,6 +62,7 @@
                 'label' => 'Alerts',
                 'items' => [
                     ['key'=>'queue_worker_emails', 'label'=>'Queue worker emails', 'type'=>'section', 'keywords'=>'supervisor worker down fatal stopped queue health alert email server health notification'],
+                    ['key'=>'queue_backlog_emails', 'label'=>'Queue backlog emails', 'type'=>'section', 'keywords'=>'queue backlog stall wedged critical alert email database jobs healthcheck'],
                 ],
             ],
         ];
@@ -124,6 +125,9 @@
                       queueEmails: {{ Js::from(array_values($queueWorkerAlertEmails)) }},
                       addQueueEmail() { this.queueEmails.push(''); },
                       removeQueueEmail(i) { this.queueEmails.splice(i, 1); },
+                      queueBacklogEmails: {{ Js::from(array_values($queueBacklogAlertEmails)) }},
+                      addQueueBacklogEmail() { this.queueBacklogEmails.push(''); },
+                      removeQueueBacklogEmail(i) { this.queueBacklogEmails.splice(i, 1); },
                   }">
                 @csrf
                 @method('PUT')
@@ -285,6 +289,50 @@
                             </template>
                             <div x-show="queueEmails.length === 0" class="text-sm" style="color: var(--text-muted);">No alert emails configured yet.</div>
                             <button type="button" @click="addQueueEmail()"
+                                    class="text-sm font-semibold mt-2" style="color: var(--brand-icon, #0ea5e9);">
+                                + Add email
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="flex justify-end pt-4" style="border-top: 1px solid var(--border);">
+                        <button type="submit" class="corex-btn-primary">Save Settings</button>
+                    </div>
+                </div>
+
+                {{-- ============================================================
+                     QUEUE BACKLOG EMAILS
+                     ============================================================ --}}
+                <div x-show="activeSection === 'queue_backlog_emails'" x-cloak class="p-6 space-y-6">
+                    <div>
+                        <h3 class="text-xs font-semibold uppercase tracking-wider mb-3" style="color:var(--text-muted);">Queue Backlog Emails</h3>
+                        <p class="text-sm mb-4" style="color: var(--text-secondary);">
+                            Every 5 minutes the scheduler checks whether the database queue is actually being drained.
+                            If the oldest waiting job is stalled past the threshold (worker down or wedged), every email
+                            below is notified.
+                        </p>
+
+                        @error('queue_backlog_alert_emails')
+                            <p class="text-xs mb-3" style="color: var(--ds-crimson, #c41e3a);">{{ $message }}</p>
+                        @enderror
+
+                        <div class="space-y-2" style="background:var(--surface-2); border:1px solid var(--border); border-radius:6px; padding:1rem;">
+                            <template x-for="(email, i) in queueBacklogEmails" :key="i">
+                                <div class="flex items-center gap-2">
+                                    <input type="email"
+                                           :name="'queue_backlog_alert_emails[' + i + ']'"
+                                           x-model="queueBacklogEmails[i]"
+                                           placeholder="name@homefinderscoastal.co.za"
+                                           class="flex-1 rounded-md px-3 py-2 text-sm"
+                                           style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                    <button type="button" @click="removeQueueBacklogEmail(i)"
+                                            class="p-2 rounded-md flex-shrink-0" style="color: var(--text-muted);" title="Remove">
+                                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
+                                    </button>
+                                </div>
+                            </template>
+                            <div x-show="queueBacklogEmails.length === 0" class="text-sm" style="color: var(--text-muted);">No alert emails configured yet.</div>
+                            <button type="button" @click="addQueueBacklogEmail()"
                                     class="text-sm font-semibold mt-2" style="color: var(--brand-icon, #0ea5e9);">
                                 + Add email
                             </button>

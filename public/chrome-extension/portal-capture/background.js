@@ -15,6 +15,33 @@
 // chrome.storage.local array queue that silently dropped batches on quota.
 importScripts('queue-idb.js');
 
+// Robust PP price read — mirrors ppPriceFrom in content-pp.js (same fix,
+// separate copy: this file runs in the service-worker parsing static HTML
+// via DOMParser, not as a content script, so it doesn't share scope with
+// content-pp.js). See content-pp.js for the full incident writeup — the old
+// `el.textContent.replace(/[^\d]/g, '')` here had the identical
+// no-bounds-check, no-grouping-check vulnerability.
+const PP_PRICE_PLAUSIBLE = (v) => Number.isFinite(v) && v >= 100000 && v <= 500000000;
+function ppPriceFrom(text) {
+  if (!text) return null;
+  const candidates = [];
+  const re = /R\s*([\d\s,]+)/g;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    const chunks = m[1].trim().split(/[\s,]+/).filter(Boolean);
+    if (chunks.length === 0 || chunks[0].length > 3) continue;
+    let digits = chunks[0];
+    for (let i = 1; i < chunks.length; i++) {
+      if (chunks[i].length !== 3) break;
+      digits += chunks[i];
+    }
+    if (digits.length < 4 || digits.length > 9) continue;
+    const v = parseInt(digits, 10);
+    if (PP_PRICE_PLAUSIBLE(v)) candidates.push(v);
+  }
+  return candidates.length > 0 ? Math.max(...candidates) : null;
+}
+
 // ── Capture state (in-memory, persisted to chrome.storage) ───
 let capture = defaultCaptureState();
 
@@ -128,6 +155,37 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   if (msg.action === 'pullProperty') {
     handlePullProperty(msg.apiUrl, msg.apiToken, msg.property)
+      .then(result => sendResponse(result))
+      .catch(err => sendResponse({ error: err.message }));
+    return true;
+  }
+
+  // CMA Info deeds capture — the ONE flow with no popup step (an on-page
+  // button on cmainfo.co.za messages here directly), so unlike every other
+  // handler above, apiUrl/apiToken are NOT relayed in msg — read them from
+  // chrome.storage.local ourselves, same source of truth the popup itself
+  // reads from.
+  if (msg.action === 'captureDeed') {
+    handleCaptureDeed(msg.payload)
+      .then(result => sendResponse(result))
+      .catch(err => sendResponse({ error: err.message }));
+    return true;
+  }
+
+  // TVA contact capture (2026-08-12) — same no-popup-step shape as
+  // captureDeed above; apiUrl/apiToken read from chrome.storage.local here.
+  if (msg.action === 'captureTvaContacts') {
+    handleCaptureTvaContacts(msg.payload)
+      .then(result => sendResponse(result))
+      .catch(err => sendResponse({ error: err.message }));
+    return true;
+  }
+
+  // TVA company DIRECTORSHIP capture (2026-08-14) — directors → natural-person
+  // contacts linked to the company entity contact. Same transport shape as
+  // captureTvaContacts above.
+  if (msg.action === 'captureTvaCompanyDirectors') {
+    handleCaptureTvaCompanyDirectors(msg.payload)
       .then(result => sendResponse(result))
       .catch(err => sendResponse({ error: err.message }));
     return true;
@@ -860,10 +918,11 @@ function extractPPListing(tile) {
   } catch (e) { /* */ }
 
   try {
-    const el = tile.querySelector('[class*="price"], [class*="Price"]');
-    if (el) {
-      const cleaned = el.textContent.replace(/[^\d]/g, '');
-      if (cleaned) listing.price = parseInt(cleaned, 10);
+    const preciseEl = tile.querySelector('.featured-listing__price');
+    listing.price = ppPriceFrom(preciseEl ? preciseEl.textContent : null);
+    if (!listing.price) {
+      const looseEl = tile.querySelector('[class*="price"], [class*="Price"]');
+      listing.price = ppPriceFrom(looseEl ? looseEl.textContent : null);
     }
   } catch (e) { /* */ }
 
@@ -1024,6 +1083,217 @@ async function handlePullProperty(apiUrl, apiToken, property) {
       iconUrl: 'icons/icon-128.png',
       title: 'CoreX: Property Pulled',
       message: (property.title || 'Property') + ' has been added to CoreX',
+      priority: 2,
+    });
+  } catch (e) { /* ignore */ }
+
+  return result;
+}
+
+// ── CMA Info deeds capture — send to CoreX ─────────────────
+// Mirrors handlePullProperty()'s shape (single-item POST, no durable queue —
+// this is a one-off capture, not a paginated bulk loop) with one deliberate
+// difference: this is the only capture flow with no popup step, so
+// apiUrl/apiToken are read from chrome.storage.local HERE rather than
+// relayed in the message.
+//
+// Endpoint + auth verified against cc1's actual shipped code (not just the
+// spec doc) — routes/api.php nests deeds-capture inside the
+// auth:sanctum + prefix('v1') group, so the full path is
+// /api/v1/deeds-capture (note the /v1/ — this endpoint is NOT under the
+// same bare /api/... path the older /api/prospecting/import uses). Same
+// Bearer-token flow as every other capture source. The response shape is
+// { ok, results: [{ source_ref, tracked_property_id, owner_contact_id,
+// created, error? }] } — a 200 does NOT guarantee success for every row
+// (batch never hard-fails on one bad row); content-cmainfo.js's
+// onCaptureClick() is what checks results[0].error, not this function —
+// this function's job stays limited to transport (auth, error-kind
+// distinction, endpoint), same separation as every other handler here.
+async function handleCaptureDeed(payload) {
+  const settings = await new Promise(resolve => {
+    chrome.storage.local.get(['apiUrl', 'apiToken'], resolve);
+  });
+
+  if (!settings.apiToken) {
+    throw new Error('Not connected — add your API token in the CoreX extension Settings.');
+  }
+
+  const apiUrl = (settings.apiUrl || 'https://www.corexos.co.za').replace(/\/+$/, '');
+  const url = apiUrl + '/api/v1/deeds-capture';
+
+  let response;
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type':  'application/json',
+        'Accept':        'application/json',
+        'Authorization': 'Bearer ' + settings.apiToken,
+      },
+      body: JSON.stringify(payload),
+    });
+  } catch (e) {
+    throw new Error('CoreX unreachable');
+  }
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    if (response.status === 401 || response.status === 419) {
+      throw new Error('Invalid API token. Check your extension Settings.');
+    }
+    if (response.status === 422) {
+      try {
+        const errors = JSON.parse(text);
+        const firstError = Object.values(errors.errors || {})[0];
+        throw new Error(firstError ? firstError[0] : 'Validation failed');
+      } catch (e) {
+        if (e.message && e.message !== 'Validation failed') throw e;
+        throw new Error('Validation failed: ' + text);
+      }
+    }
+    throw new Error('API error ' + response.status + ': ' + (text || 'Unknown error'));
+  }
+
+  const result = await response.json();
+
+  try {
+    chrome.notifications.create('deeds-capture-complete', {
+      type: 'basic',
+      iconUrl: 'icons/icon-128.png',
+      title: 'CoreX: Deed Captured',
+      message: 'Property + sale information sent to CoreX',
+      priority: 2,
+    });
+  } catch (e) { /* ignore */ }
+
+  return result;
+}
+
+// ── TVA (The Virtual Agent) contact capture — send to CoreX ────────────
+// Same shape and reasoning as handleCaptureDeed() directly above — no popup
+// step, reads apiUrl/apiToken from chrome.storage.local, /api/v1/ prefix.
+// Response shape: { ok, results: [{ id_number, tva_contact_capture_id,
+// tracked_property_id, matched_contact_id, items_count, error? }] } — same
+// per-row error semantics as deeds-capture; content-tva.js checks
+// results[0].error, this function stays limited to transport.
+async function handleCaptureTvaContacts(payload) {
+  const settings = await new Promise(resolve => {
+    chrome.storage.local.get(['apiUrl', 'apiToken'], resolve);
+  });
+
+  if (!settings.apiToken) {
+    throw new Error('Not connected — add your API token in the CoreX extension Settings.');
+  }
+
+  const apiUrl = (settings.apiUrl || 'https://www.corexos.co.za').replace(/\/+$/, '');
+  const url = apiUrl + '/api/v1/tva-contact-capture';
+
+  let response;
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type':  'application/json',
+        'Accept':        'application/json',
+        'Authorization': 'Bearer ' + settings.apiToken,
+      },
+      body: JSON.stringify(payload),
+    });
+  } catch (e) {
+    throw new Error('CoreX unreachable');
+  }
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    if (response.status === 401 || response.status === 419) {
+      throw new Error('Invalid API token. Check your extension Settings.');
+    }
+    if (response.status === 422) {
+      try {
+        const errors = JSON.parse(text);
+        const firstError = Object.values(errors.errors || {})[0];
+        throw new Error(firstError ? firstError[0] : 'Validation failed');
+      } catch (e) {
+        if (e.message && e.message !== 'Validation failed') throw e;
+        throw new Error('Validation failed: ' + text);
+      }
+    }
+    throw new Error('API error ' + response.status + ': ' + (text || 'Unknown error'));
+  }
+
+  const result = await response.json();
+
+  try {
+    chrome.notifications.create('tva-capture-complete', {
+      type: 'basic',
+      iconUrl: 'icons/icon-128.png',
+      title: 'CoreX: TVA Contacts Captured',
+      message: 'Contact numbers/emails sent to CoreX',
+      priority: 2,
+    });
+  } catch (e) { /* ignore */ }
+
+  return result;
+}
+
+// TVA company DIRECTORSHIP capture — same transport as handleCaptureTvaContacts.
+// POSTs { company:{registration_number,name}, directors:[{id_number,full_name,
+// gender}] } to /api/v1/tva-company-directors; the server creates the directors
+// as natural-person contacts linked to the company entity contact and returns
+// { ok, entity_contact_id, directors:[{id_number, contact_id, error? }] }.
+async function handleCaptureTvaCompanyDirectors(payload) {
+  const settings = await new Promise(resolve => {
+    chrome.storage.local.get(['apiUrl', 'apiToken'], resolve);
+  });
+
+  if (!settings.apiToken) {
+    throw new Error('Not connected — add your API token in the CoreX extension Settings.');
+  }
+
+  const apiUrl = (settings.apiUrl || 'https://www.corexos.co.za').replace(/\/+$/, '');
+  const url = apiUrl + '/api/v1/tva-company-directors';
+
+  let response;
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type':  'application/json',
+        'Accept':        'application/json',
+        'Authorization': 'Bearer ' + settings.apiToken,
+      },
+      body: JSON.stringify(payload),
+    });
+  } catch (e) {
+    throw new Error('CoreX unreachable');
+  }
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    if (response.status === 401 || response.status === 419) {
+      throw new Error('Invalid API token. Check your extension Settings.');
+    }
+    if (response.status === 422) {
+      try {
+        const errors = JSON.parse(text);
+        const firstError = Object.values(errors.errors || {})[0];
+        throw new Error(firstError ? firstError[0] : 'Validation failed');
+      } catch (e) {
+        if (e.message && e.message !== 'Validation failed') throw e;
+        throw new Error('Validation failed: ' + text);
+      }
+    }
+    throw new Error('API error ' + response.status + ': ' + (text || 'Unknown error'));
+  }
+
+  const result = await response.json();
+
+  try {
+    chrome.notifications.create('tva-directors-complete', {
+      type: 'basic',
+      iconUrl: 'icons/icon-128.png',
+      title: 'CoreX: Company Directors Captured',
+      message: 'Directors linked to the company in CoreX',
       priority: 2,
     });
   } catch (e) { /* ignore */ }

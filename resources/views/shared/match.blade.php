@@ -18,7 +18,7 @@
     <title>{{ 'Your Property Matches' . (!empty($agency) ? ' — ' . $agency->name : '') }}</title>
     <link rel="preconnect" href="https://fonts.bunny.net">
     <link href="https://fonts.bunny.net/css?family=figtree:400,500,600,700,800&display=swap" rel="stylesheet">
-    <script src="https://cdn.tailwindcss.com"></script>
+    @vite(['resources/css/app.css', 'resources/js/app.js'])
     <style>
         :root {
             --bg: #f4f6fb;
@@ -114,6 +114,8 @@
         summary { list-style: none; }
         summary::-webkit-details-marker { display: none; }
         summary::marker { content: ""; }
+        .match-group-chevron { transition: transform 150ms ease; }
+        details[open] > summary .match-group-chevron { transform: rotate(180deg); }
     </style>
 </head>
 <body>

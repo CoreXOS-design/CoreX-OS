@@ -69,8 +69,8 @@ Join key: `ListingNumber` → matches `Listings.ListingNumber`.
 - Role defaulted to `agent`.
 - Invites are **not** sent from the import flow. They are the **last step of onboarding** and are sent per-agency from the Property Review page — see §5.2 `review.blade.php` → *Agents*. Rationale (2026-07-17): an agent invited mid-import lands in a CoreX with no properties in it. Invites go out once the agency's stock is in, so the first thing an agent sees on login is their own listings.
 - Invite = signed email link → set-password screen → on completion `is_active` flips to true and `email_verified_at` is set.
-- Invites use Laravel's password-reset/`Notification` system with a custom `AgentInviteNotification` subject "Welcome to CoreX OS — set your password".
-- `users.invited_at` records the last invite sent. Stamped by `SendAgentInviteJob` **after** the notification is handed to the mailer — never at dispatch time, so a failed send does not mark an agent invited. It is the single choke point for both the bulk and per-agent paths, so the two can never disagree about who has been invited.
+- Invites are `App\Mail\UserInviteMail` — a `URL::temporarySignedRoute('account.setup', now()->addDays(7), ...)` link handled by `AccountSetupController`, the same 7-day signed-URL mechanism every other invite path in CoreX uses (admin "Resend Invite", agency-admin invite, assistant invite). **Changed 2026-08-15** (found live: Demo Agency Test): this used to be Laravel's password-reset broker via a custom `AgentInviteNotification`, a **60-minute** token — unrealistic for an invite someone opens hours (or the next day) after it's sent. `AgentInviteNotification` is deleted; `SendAgentInviteJob` now sends `UserInviteMail` directly via `Mail::to()`, not the Notification layer.
+- `users.invited_at` records the last invite sent. Stamped by `SendAgentInviteJob` **after** the mail is handed to the mailer — never at dispatch time, so a failed send does not mark an agent invited. It is the single choke point for both the bulk and per-agent paths, so the two can never disagree about who has been invited.
 - Agent invite state is derived, not stored: `is_active` → **Active**; `invited_at` set and inactive → **Invited**; neither → **Not invited**.
 - Agents must exist in `users` **before** the listings pass runs, so that listings can resolve `agent_id` by `p24_agent_id` lookup.
 
@@ -322,7 +322,7 @@ Sidebar entry gated by `@can('admin.importer')`. Route middleware `can:admin.imp
   - `sendAllInvites(P24ImportRun $run)` / route `admin.importer.invite.all` — **REMOVED 2026-07-17**, replaced by `sendAgencyInvites(Agency $agency)` / route `admin.importer.agency.invite-agents`.
 - `database/migrations/2026_07_17_120000_add_invited_at_to_users_table.php`
 - `tests/Feature/Importer/AgentInviteFromReviewTest.php` — invite move + skip logic + agency-switcher tenancy regression
-- `app/Notifications/AgentInviteNotification.php`
+- `app/Mail/UserInviteMail.php` — invite mail (7-day signed `account.setup` link). Replaced `app/Notifications/AgentInviteNotification.php` (deleted 2026-08-15 — see §4.1) as of this fix.
 - `app/Services/Importer/P24AgentsCsvParser.php`
 - `app/Services/Importer/P24ListingsCsvParser.php`
 - `app/Services/Importer/P24ImagesCsvParser.php`

@@ -147,43 +147,25 @@
                 <input type="date" name="deal_date" value="{{ old('deal_date', optional($deal->deal_date)->format('Y-m-d')) }}" required>
             </div>
 
-            {{-- (Enhancement 6) Deal Type — compulsory radios, NO default (silent default = silent wrong data) --}}
-            <div class="field-full">
-                <label class="ds-label block mb-1">Deal Type <span style="color:#dc2626;">*</span></label>
-                @php $dt = old('deal_type', $deal->deal_type); @endphp
-                <div class="flex flex-wrap gap-4 pt-1">
-                    @foreach(['bond' => 'Bond Sale', 'cash' => 'Cash Sale', 'sale_of_2nd' => 'Sale of 2nd Property'] as $val => $lbl)
-                    <label class="inline-flex items-center gap-2">
-                        <input type="radio" name="deal_type" value="{{ $val }}" {{ $dt === $val ? 'checked' : '' }} required>
-                        <span>{{ $lbl }}</span>
-                    </label>
-                    @endforeach
-                </div>
-            </div>
+            {{-- Deal Type radio removed — structure (and therefore the effective deal type) is
+                 now captured entirely on the Deal Structure tab after capture. deal_type is left
+                 null at creation and derived from the composed conditions. --}}
 
-            {{-- AT-216 V1.1 — Pipeline (auto-attached on save; defaults per deal type, changeable) --}}
+            {{-- AT-334 — Pipeline. Composition (Deal Structure) is now the DEFAULT: a new deal
+                 starts with NO template, so it lands with zero steps and the Deal Structure tab
+                 drives the build (pick conditions → Build). A standard template is an advanced/
+                 legacy choice — pick one here to attach it instead. --}}
             @if(($mode ?? 'create') === 'create' && isset($availableTemplates) && $availableTemplates->isNotEmpty())
             <div class="field-full">
                 <label class="ds-label block mb-1">Pipeline</label>
                 <select name="pipeline_template_id" id="dr2-pipeline-select" class="ds-input w-full">
-                    <option value="">— No pipeline (attach later) —</option>
+                    <option value="">— None — build from Deal Structure (default) —</option>
                     @foreach($availableTemplates as $tpl)
-                        <option value="{{ $tpl->id }}" {{ (string) old('pipeline_template_id', $defaultByType[$dt] ?? '') === (string) $tpl->id ? 'selected' : '' }}>{{ $tpl->name }} · {{ $tpl->deal_type }}{{ $tpl->is_default ? ' (default)' : '' }}</option>
+                        <option value="{{ $tpl->id }}" {{ (string) old('pipeline_template_id') === (string) $tpl->id ? 'selected' : '' }}>{{ $tpl->name }} · {{ $tpl->deal_type }}{{ $tpl->is_default ? ' (default)' : '' }}</option>
                     @endforeach
                 </select>
-                <p class="text-xs mt-1" style="color: var(--text-muted);">Defaults to your agency's template for the deal type — change it here or attach later from the deal's pipeline.</p>
+                <p class="text-xs mt-1" style="color: var(--text-muted);">Leave as “None” to build the pipeline from the Deal Structure tab (recommended). Or pick a standard template to attach one instead.</p>
             </div>
-            <script>
-            (function () {
-                var map = @json($defaultByType);
-                document.querySelectorAll('input[name=deal_type]').forEach(function (r) {
-                    r.addEventListener('change', function () {
-                        var s = document.getElementById('dr2-pipeline-select');
-                        if (s && map[this.value]) { s.value = String(map[this.value]); }
-                    });
-                });
-            })();
-            </script>
             @endif
 
             {{-- (Enhancement 1) Property — rich searchable picker matching the PDF splitter --}}
@@ -213,7 +195,7 @@
                  property↔contact SELLER link (one action, both records). --}}
             <div id="dr2-seller">
                 <label class="ds-label block mb-1">Seller</label>
-                <input type="hidden" name="seller_contact_ids" id="dr2_seller_ids" value="{{ old('seller_contact_ids') }}">
+                <input type="hidden" name="seller_contact_ids" id="dr2_seller_ids" value="{{ old('seller_contact_ids', collect($sellerParties ?? [])->pluck('id')->implode(',')) }}">
                 <input type="text" name="seller_name" id="dr2_seller_name" value="{{ old('seller_name', $deal->seller_name) }}" placeholder="Seller name(s)">
                 <div id="dr2_seller_tokens" class="mt-1 flex flex-wrap gap-1.5"></div>
                 <div style="position:relative;">
@@ -230,7 +212,7 @@
                  creates the property↔contact BUYER link. --}}
             <div id="dr2-buyer">
                 <label class="ds-label block mb-1">Buyer</label>
-                <input type="hidden" name="buyer_contact_ids" id="dr2_buyer_ids" value="{{ old('buyer_contact_ids') }}">
+                <input type="hidden" name="buyer_contact_ids" id="dr2_buyer_ids" value="{{ old('buyer_contact_ids', collect($buyerParties ?? [])->pluck('id')->implode(',')) }}">
                 <input type="text" name="buyer_name" id="dr2_buyer_name" value="{{ old('buyer_name', $deal->buyer_name) }}" placeholder="Buyer name(s)">
                 <div id="dr2_buyer_tokens" class="mt-1 flex flex-wrap gap-1.5"></div>
                 <div style="position:relative;">
@@ -267,6 +249,10 @@
                 </div>
                 <button type="button" id="dr2_bond_addnew" class="text-xs underline mt-1" style="color:var(--brand-icon)">+ Add a new bond originator (firm &amp; contact)</button>
             </div>
+
+            {{-- External Agency is captured PER SIDE in "Sides, Splits & Agents" below
+                 (each side has its own firm+contact picker). The old single top-level
+                 external-agency field was retired here — see the per-side pickers. --}}
 
             {{-- (Enhancement 7 / walk fix 1+2) Financials — commission with a VAT basis toggle
                  and live two-way % ↔ amount binding. Stored truth stays DR1's (Incl-VAT total);
@@ -399,9 +385,20 @@
                             <label class="ds-label block mb-1">Our Share %</label>
                             <input type="number" step="0.01" name="listing_our_share_percent" class="w-full" value="{{ old('listing_our_share_percent', $deal->listing_our_share_percent) }}" placeholder="Our Share %">
                         </div>
-                        <div>
+                        {{-- External Agency (firm & contact) — same searchable-supplier picker as
+                             attorney / bond-originator. The hidden name is the display label,
+                             persisted to listing_external_agency (unchanged); provider+contact ids
+                             make this side's agency an emailable party via Email Parties. --}}
+                        <div id="dr2-lext">
                             <label class="ds-label block mb-1">External Agency</label>
-                            <input type="text" name="listing_external_agency" class="w-full" placeholder="External agency name" value="{{ old('listing_external_agency', $deal->listing_external_agency) }}">
+                            <input type="hidden" name="listing_external_agency" id="dr2_lext_name" value="{{ old('listing_external_agency', $deal->listing_external_agency) }}">
+                            <input type="hidden" name="listing_external_agency_provider_id" id="dr2_lext_provider_id" value="{{ old('listing_external_agency_provider_id', $deal->listing_external_agency_provider_id) }}">
+                            <input type="hidden" name="listing_external_agency_contact_id" id="dr2_lext_contact_id" value="{{ old('listing_external_agency_contact_id', $deal->listing_external_agency_contact_id) }}">
+                            <div style="position:relative;">
+                                <input type="text" id="dr2_lext_search" class="w-full" autocomplete="off" placeholder="Search an external agency firm or contact…" value="{{ old('listing_external_agency', $deal->listing_external_agency) }}">
+                                <div id="dr2_lext_results" style="position:absolute;z-index:40;left:0;right:0;top:100%;background:#fff;border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 8px 24px rgba(0,0,0,.08);max-height:16rem;overflow:auto;display:none;"></div>
+                            </div>
+                            <button type="button" id="dr2_lext_addnew" class="text-xs text-blue-600 underline mt-1">+ Add a new external agency</button>
                         </div>
                     </div>
                 </div>
@@ -450,9 +447,17 @@
                             <label class="ds-label block mb-1">Our Share %</label>
                             <input type="number" step="0.01" name="selling_our_share_percent" class="w-full" value="{{ old('selling_our_share_percent', $deal->selling_our_share_percent) }}" placeholder="Our Share %">
                         </div>
-                        <div>
+                        {{-- External Agency (firm & contact) — same picker as the listing side. --}}
+                        <div id="dr2-sext">
                             <label class="ds-label block mb-1">External Agency</label>
-                            <input type="text" name="selling_external_agency" class="w-full" placeholder="External agency name" value="{{ old('selling_external_agency', $deal->selling_external_agency) }}">
+                            <input type="hidden" name="selling_external_agency" id="dr2_sext_name" value="{{ old('selling_external_agency', $deal->selling_external_agency) }}">
+                            <input type="hidden" name="selling_external_agency_provider_id" id="dr2_sext_provider_id" value="{{ old('selling_external_agency_provider_id', $deal->selling_external_agency_provider_id) }}">
+                            <input type="hidden" name="selling_external_agency_contact_id" id="dr2_sext_contact_id" value="{{ old('selling_external_agency_contact_id', $deal->selling_external_agency_contact_id) }}">
+                            <div style="position:relative;">
+                                <input type="text" id="dr2_sext_search" class="w-full" autocomplete="off" placeholder="Search an external agency firm or contact…" value="{{ old('selling_external_agency', $deal->selling_external_agency) }}">
+                                <div id="dr2_sext_results" style="position:absolute;z-index:40;left:0;right:0;top:100%;background:#fff;border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 8px 24px rgba(0,0,0,.08);max-height:16rem;overflow:auto;display:none;"></div>
+                            </div>
+                            <button type="button" id="dr2_sext_addnew" class="text-xs text-blue-600 underline mt-1">+ Add a new external agency</button>
                         </div>
                     </div>
                 </div>
@@ -623,6 +628,11 @@
                     }
                 }, { passive: false });
             });
+
+
+            // External-agency auto-tick now lives inside the per-side external-agency
+            // pickers (dr2_lext / dr2_sext): selecting or typing an agency ticks that
+            // side's "External agency handled this side" box. See the picker IIFE below.
         </script>
     </form>
 
@@ -671,6 +681,26 @@
     </div>
 </div>
 
+{{-- Note 2 — Add-new external agency modal (mirror of the attorney / bond add-new) --}}
+<div id="dr2_extagency_modal" style="display:none;position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.4);align-items:center;justify-content:center;">
+    <div style="background:#fff;border-radius:.75rem;max-width:34rem;width:92%;padding:1.5rem;">
+        <h3 class="font-bold mb-1" style="color:#0b2a4a">Add a new external agency</h3>
+        <p class="text-xs text-gray-500 mb-3">A firm can have several people — add the agency and the person you deal with.</p>
+        <div class="deal-grid">
+            <div class="field-full"><label class="ds-label block mb-1">Firm *</label><input type="text" id="dr2_nx_firm" class="w-full" placeholder="e.g. Seeff Hibiscus Coast"></div>
+            <div><label class="ds-label block mb-1">Agent</label><input type="text" id="dr2_nx_attorney" class="w-full" placeholder="the agent"></div>
+            <div><label class="ds-label block mb-1">Contact</label><input type="text" id="dr2_nx_contact" class="w-full" placeholder="assistant"></div>
+            <div class="field-full"><label class="ds-label block mb-1">Email</label><input type="email" id="dr2_nx_email" class="w-full"></div>
+            <div class="field-full"><label class="ds-label block mb-1">Address</label><input type="text" id="dr2_nx_address" class="w-full"></div>
+        </div>
+        <div id="dr2_nx_error" class="text-sm text-red-600 mt-2" style="display:none;"></div>
+        <div class="flex items-center justify-end gap-2 mt-4">
+            <button type="button" id="dr2_nx_cancel" class="corex-btn-secondary px-4 py-2 text-sm">Cancel</button>
+            <button type="button" id="dr2_nx_save" class="corex-btn-primary px-4 py-2 text-sm">Save external agency</button>
+        </div>
+    </div>
+</div>
+
 <script>
 (function () {
     const csrf = document.querySelector('input[name="_token"]')?.value
@@ -686,6 +716,14 @@
     const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
     const money = v => { const n = Number(v); return isNaN(n) ? '' : n.toLocaleString('en-ZA'); };
     const esc = s => String(s == null ? '' : s).replace(/"/g, '&quot;');
+
+    // AT-334 — mode + the deal's saved parties (edit), so the picker seeds tokens/hidden ids
+    // from deal_contacts and a create-deal auto-tokenizes the property's seller.
+    const DR2 = {
+        mode: @json($mode ?? 'create'),
+        sellerParties: @json($sellerParties ?? []),
+        buyerParties: @json($buyerParties ?? []),
+    };
 
     // ---------- Enhancement 1: property picker (splitter-parity rich rows) ----------
     const pSearch = document.getElementById('dr2_property_search');
@@ -828,6 +866,17 @@
         let tokens = [];   // [{id, name}] — contacts to link on save
         let offered = [];  // [{id, name}] — property's already-linked party (fast path)
 
+        // AT-334 — seed tokens from the hidden input's server value (old() ?? the saved deal's
+        // party ids). Names come from the saved party list; unknown ids (e.g. a search-picked
+        // contact on a validation-fail re-render) degrade to "Contact #id" but the id — the
+        // thing that drives the save — is always preserved. This is what stops an untouched
+        // edit save from posting empty ids and wiping deal_contacts.
+        const seedNames = {};
+        (DR2[kind + 'Parties'] || []).forEach(p => { seedNames[parseInt(p.id, 10)] = p.name; });
+        (idsEl.value || '').split(',').map(s => parseInt(s, 10)).filter(Boolean).forEach(id => {
+            if (!tokens.some(t => t.id === id)) tokens.push({ id, name: seedNames[id] || ('Contact #' + id) });
+        });
+
         const syncIds  = () => { idsEl.value = tokens.map(t => t.id).join(','); };
         const parts    = () => { const c = nameEl.value.trim(); return c ? c.split(/\s*,\s*/).filter(Boolean) : []; };
         const addName  = n => { const p = parts(); if (n && !p.includes(n)) { p.push(n); nameEl.value = p.join(', '); } };
@@ -946,8 +995,13 @@
             }).catch(() => { if (show) show('Network error — please retry.'); });
         }
 
+        // AT-334 — reflect any seeded tokens (edit-path) on load.
+        renderTokens();
+
         return {
             setOffer(list) { offered = (list || []).filter(o => o && o.id && o.name); renderOffer(); },
+            // AT-334 create-path: capture the property's seller id so "looks linked" == "is linked".
+            autoPickAll(list) { (list || []).forEach(o => { if (o && o.id && o.name) addToken(o.id, o.name); }); },
             openNew() { if (!formBuilt) buildForm(); newFormEl.style.display = newFormEl.style.display === 'none' ? '' : 'none'; },
         };
     }
@@ -967,6 +1021,13 @@
                 if (sellers.length && !sName.value.trim()) sName.value = sellers.map(s => s.name).filter(Boolean).join(', ');
                 sellerField.setOffer(sellers.map(s => ({ id: s.id, name: s.name })));
                 buyerField.setOffer(buyers.map(b => ({ id: b.id, name: b.name })));
+                // AT-334 create-path: auto-tokenize the property's SELLER so its id is captured
+                // on save (the "name auto-fills but id never posts" drop). Seller only — a seller
+                // is singular, so this is safe; BUYERS stay click-to-pick to preserve the
+                // 25c2d4a8 multi-offer phantom fix (never resurrect unpicked buyers).
+                if (DR2.mode === 'create') {
+                    sellerField.autoPickAll(sellers.map(s => ({ id: s.id, name: s.name })));
+                }
             }).catch(() => {});
     }
     if (pId.value) loadPropContacts(pId.value);
@@ -1095,6 +1156,105 @@
                 if (!ok) { nbErr.textContent = (j && j.message) || 'Could not save the bond originator.'; nbErr.style.display = 'block'; return; }
                 bSearch.value = j.label || firm; bProvId.value = j.provider_id || ''; bContactId.value = j.contact_id || ''; bModal.style.display = 'none';
             }).catch(() => { nbErr.textContent = 'Network error — please try again.'; nbErr.style.display = 'block'; })
+              .finally(() => { this.disabled = false; });
+        });
+    })();
+
+    // ---------- Per-side external agency = FIRM + contact (mirror of the attorney / bond-originator
+    //            picker), one per side. Both sides share ONE add-new modal (dr2_extagency_modal),
+    //            writing back into whichever side opened it. ----------
+    (function () {
+        const xModal = document.getElementById('dr2_extagency_modal');
+        if (!xModal) { return; }
+        const nxFirm = document.getElementById('dr2_nx_firm'), nxAtt = document.getElementById('dr2_nx_attorney');
+        const nxContact = document.getElementById('dr2_nx_contact'), nxEmail = document.getElementById('dr2_nx_email');
+        const nxAddress = document.getElementById('dr2_nx_address'), nxErr = document.getElementById('dr2_nx_error');
+        const SPEC = '&specialty=external_agency';
+        let active = null;
+
+        const fieldsFor = (side) => {
+            const p = side === 'listing' ? 'dr2_lext' : 'dr2_sext';
+            return {
+                box:     document.getElementById(side === 'listing' ? 'dr2-lext' : 'dr2-sext'),
+                search:  document.getElementById(p + '_search'),
+                name:    document.getElementById(p + '_name'),
+                prov:    document.getElementById(p + '_provider_id'),
+                contact: document.getElementById(p + '_contact_id'),
+                results: document.getElementById(p + '_results'),
+                addnew:  document.getElementById(p + '_addnew'),
+                chk:     document.getElementById(side + '_external'),
+            };
+        };
+
+        const wire = (side) => {
+            const f = fieldsFor(side);
+            if (!f.search) { return; }
+            const close = () => { f.results.style.display = 'none'; f.results.innerHTML = ''; };
+            const tick  = () => { if (f.chk && !f.chk.checked) { f.chk.checked = true; } };
+
+            // A free-typed name still persists (legacy behaviour) + marks the side external;
+            // a picked provider additionally sets the ids that make it an emailable party.
+            f.search.addEventListener('input', () => {
+                f.prov.value = ''; f.contact.value = ''; f.name.value = f.search.value;
+                if (f.search.value.trim() !== '') { tick(); }
+            });
+
+            const run = debounce(() => {
+                const q = f.search.value.trim();
+                if (q.length < 2) { close(); return; }
+                fetch(R.attorneySearch + '?q=' + encodeURIComponent(q) + SPEC, { headers: { Accept: 'application/json' } })
+                    .then(r => r.ok ? r.json() : { results: [] })
+                    .then(data => {
+                        const rows = (data && data.results) || [];
+                        if (!rows.length) { close(); return; }
+                        f.results.innerHTML = rows.map((row, i) => {
+                            const line1 = row.firm + (row.attorney ? ' — ' + row.attorney : '');
+                            const sub = [row.contact ? 'via ' + row.contact : '', row.email].filter(Boolean).join(' · ');
+                            return '<div class="dr2-xsrow" data-i="' + i + '" style="padding:.6rem .8rem;cursor:pointer;border-bottom:1px solid #f3f4f6;"><div style="font-weight:600;color:#0b2a4a;">' + esc(line1) + '</div>' + (sub ? '<div style="font-size:.78rem;color:#6b7280;">' + esc(sub) + '</div>' : '') + '</div>';
+                        }).join('');
+                        f.results.style.display = 'block';
+                        f.results.querySelectorAll('.dr2-xsrow').forEach(el => {
+                            const row = rows[parseInt(el.dataset.i, 10)];
+                            el.addEventListener('click', () => {
+                                f.search.value = row.label; f.name.value = row.label;
+                                f.prov.value = row.provider_id || ''; f.contact.value = row.contact_id || '';
+                                tick(); close();
+                            });
+                        });
+                    }).catch(close);
+            }, 220);
+            f.search.addEventListener('input', run);
+            f.search.addEventListener('focus', run);
+            document.addEventListener('click', e => { if (!e.target.closest('#' + f.box.id)) close(); });
+
+            f.addnew.addEventListener('click', () => {
+                active = f;
+                nxFirm.value = f.search.value.trim(); nxAtt.value = nxContact.value = nxEmail.value = nxAddress.value = '';
+                nxErr.style.display = 'none'; xModal.style.display = 'flex'; nxFirm.focus();
+            });
+        };
+
+        wire('listing');
+        wire('selling');
+
+        document.getElementById('dr2_nx_cancel').addEventListener('click', () => xModal.style.display = 'none');
+        xModal.addEventListener('click', e => { if (e.target === xModal) xModal.style.display = 'none'; });
+        document.getElementById('dr2_nx_save').addEventListener('click', function () {
+            if (!active) { return; }
+            const firm = nxFirm.value.trim();
+            if (!firm) { nxErr.textContent = 'A firm is required.'; nxErr.style.display = 'block'; return; }
+            this.disabled = true;
+            fetch(R.attorneyInline + '?specialty=external_agency', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'X-CSRF-TOKEN': csrf },
+                body: JSON.stringify({ specialty: 'external_agency', firm, attorney: nxAtt.value.trim() || null, contact: nxContact.value.trim() || null, email: nxEmail.value.trim() || null, address: nxAddress.value.trim() || null }),
+            }).then(r => r.json().then(j => ({ ok: r.ok, j }))).then(({ ok, j }) => {
+                if (!ok) { nxErr.textContent = (j && j.message) || 'Could not save the external agency.'; nxErr.style.display = 'block'; return; }
+                active.search.value = j.label || firm; active.name.value = j.label || firm;
+                active.prov.value = j.provider_id || ''; active.contact.value = j.contact_id || '';
+                if (active.chk && !active.chk.checked) { active.chk.checked = true; }
+                xModal.style.display = 'none';
+            }).catch(() => { nxErr.textContent = 'Network error — please try again.'; nxErr.style.display = 'block'; })
               .finally(() => { this.disabled = false; });
         });
     })();

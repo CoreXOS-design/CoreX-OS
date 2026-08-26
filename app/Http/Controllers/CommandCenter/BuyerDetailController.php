@@ -32,10 +32,20 @@ class BuyerDetailController extends Controller
 
         // Eager-load the contact's wishlists for the new tab. Sort primary
         // first so the card layout naturally puts the primary at the top.
-        $contact->load('agent');
+        // Notes tab (2026-08-20, Johan) — same relation, same rows
+        // contacts/show.blade.php already reads (contact_notes.user).
+        //
+        // reorder() is load-bearing (2026-08-24, found verifying the chevron
+        // fix) — Contact::matches() is hasMany(...)->latest(), so without
+        // clearing that first, the generated SQL was
+        // "order by created_at desc, is_primary desc, updated_at desc":
+        // created_at, not is_primary, was the real sort key, so the
+        // most-recently-created wishlist opened by default, not the primary
+        // one, on any buyer whose primary wasn't also their newest wishlist.
+        $contact->load(['agent', 'contactNotes.user']);
         $contact->setRelation(
             'matches',
-            $contact->matches()->orderByDesc('is_primary')->orderByDesc('updated_at')->get()
+            $contact->matches()->reorder()->orderByDesc('is_primary')->orderByDesc('updated_at')->get()
         );
 
         // AT-363 — per-wishlist match count badge + the default-expanded
@@ -283,6 +293,13 @@ class BuyerDetailController extends Controller
             'price_max'                 => 'nullable|integer|min:0',
             'beds_min'                  => 'nullable|integer|min:0|max:20',
             'bedrooms_max'              => 'nullable|integer|min:0|max:20',
+            'baths_min'                 => 'nullable|integer|min:0|max:20',
+            'garages_min'               => 'nullable|integer|min:0|max:20',
+            'parking_min'               => 'nullable|integer|min:0|max:20',
+            'floor_size_min'            => 'nullable|integer|min:0',
+            'floor_size_max'            => 'nullable|integer|min:0',
+            'erf_size_min'              => 'nullable|integer|min:0',
+            'erf_size_max'              => 'nullable|integer|min:0',
             'must_have_features'        => 'nullable|array',
             'must_have_features.*'      => 'string|max:60',
             'nice_to_have_features'     => 'nullable|array',
@@ -296,6 +313,11 @@ class BuyerDetailController extends Controller
             'preapproval_expires_at'    => 'nullable|date',
             'preapproval_institution'   => 'nullable|string|max:100',
             'name'                      => 'nullable|string|max:120',
+            // AT-CM-clear-fix — see ContactMatchController::validatePayload()'s
+            // identical marker. The full criteria form (_match-form.blade.php, shared
+            // with Core Matches) always renders this; only default a missing group to
+            // an explicit empty array below when it's present.
+            'criteria_groups_present'   => 'sometimes',
         ]);
 
         // Cross-field: bedrooms_max must be >= beds_min when both present (spec D4).
@@ -318,7 +340,23 @@ class BuyerDetailController extends Controller
             }
         });
 
-        return $validator->validate();
+        $data = $validator->validate();
+
+        // AT-CM-clear-fix — a browser submits NOTHING for a checkbox/chip group with
+        // every item unchecked, so validate() legitimately omits these keys, and
+        // extractMatchFields()/$match->update() correctly leave an omitted key
+        // untouched — right for a genuine partial submit, wrong here: the full form
+        // always renders all five groups, so absent means cleared, not unseen. Only
+        // default when the full-form marker is present.
+        if ($request->has('criteria_groups_present')) {
+            foreach (['property_types', 'p24_suburb_ids', 'must_have_features', 'nice_to_have_features', 'deal_breakers'] as $group) {
+                if (!isset($data[$group])) {
+                    $data[$group] = [];
+                }
+            }
+        }
+
+        return $data;
     }
 
     private function applyPreapproval(Contact $contact, array $validated): void
@@ -349,6 +387,8 @@ class BuyerDetailController extends Controller
         return array_intersect_key($validated, array_flip([
             'listing_type', 'category', 'property_type', 'property_types',
             'p24_suburb_ids', 'price_min', 'price_max', 'beds_min', 'bedrooms_max',
+            'baths_min', 'garages_min', 'parking_min',
+            'floor_size_min', 'floor_size_max', 'erf_size_min', 'erf_size_max',
             'must_have_features', 'nice_to_have_features', 'deal_breakers',
             'notes', 'is_primary', 'name',
         ]));

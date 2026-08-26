@@ -512,12 +512,16 @@ class PresentationPdfService
         }
 
         $logoBase64 = null;
-        // The presentation's own agency_id/agency relation (BelongsToAgency) is
-        // authoritative — never the creating agent's *current* agency, which may
-        // have changed since the presentation was created, and never a fallback
-        // to an arbitrary tenant (Agency::first()). If the presentation is
-        // somehow orphaned (no agency_id), skip branding gracefully.
-        $agency = $presentation->agency;
+        // Prefer the presentation's OWN agency_id (explicit withoutGlobalScopes()
+        // lookup — NOT the ->agency relation, which can be silently affected by
+        // whatever global-scope context is active on the calling request/queue
+        // worker rather than the presentation's own tenant), then the creating
+        // agent's agency — never Agency::first(), which silently picked agency 1
+        // (HFC) whenever $agent or $agent->agency was missing, stamping another
+        // tenant's PDF with HFC's real name/logo. If truly orphaned (no agency_id
+        // AND no resolvable agent agency), branding is skipped gracefully.
+        $agency = ($presentation->agency_id ? \App\Models\Agency::withoutGlobalScopes()->find($presentation->agency_id) : null)
+            ?? $agent?->agency;
         if (!$agency) {
             \Illuminate\Support\Facades\Log::warning('PresentationPdfService: presentation has no resolvable agency; skipping agency branding.', [
                 'presentation_id' => $presentation->id,
@@ -612,13 +616,17 @@ class PresentationPdfService
                 'version_id'      => $version->id,
                 'presentation_id' => $presentation->id,
             ]);
-            // Build 3 — pass the LATEST PUBLISHED version so the condition
-            // snapshot travels with the PDF; null falls back to property condition.
-            $latestPublished = $presentation->versions()
-                ->where('review_status', \App\Models\PresentationVersion::REVIEW_PUBLISHED)
-                ->orderByDesc('published_at')
-                ->first();
-            $data = (new AnalysisDataService())->compile($presentation, $latestPublished);
+            // 2026-08-25 fix (Johan — "respect what the agent selected") — this
+            // used to compile the LATEST PUBLISHED version instead of the one
+            // actually requested, so an unfrozen draft's PDF/preview could
+            // silently describe a different, earlier round of curation than
+            // what the agent is looking at right now. $version IS the correct
+            // source of truth here: it's the exact version buildHtml() was
+            // asked to build. Compiling it directly (instead of substituting
+            // a different row) is what makes the on-screen selection and the
+            // generated document agree — no broadening of anything else in
+            // this method, only which version this one fallback compiles.
+            $data = (new AnalysisDataService())->compile($presentation, $version);
         }
 
         // Build 4 — section toggles. Each PAGE block is wrapped with
@@ -790,10 +798,17 @@ class PresentationPdfService
         // alternatives shadow them with the same shape so existing
         // templates swap by reading a different key.
         //
-        // Fallback: legacy versions whose snapshot pre-dates Build 8
-        // have no competitor_stock data. When the canonical block has
-        // has_data=false, the templates fall through to the legacy
-        // price_position so seller-facing screens never go blank.
+        // Fallback: legacy versions whose snapshot pre-dates Build 8 have no
+        // competitor_stock data at all — that's the ONLY case that should
+        // fall through to the legacy, selection-blind price_position. The
+        // old condition checked has_data instead of key presence, which
+        // conflated "canonical was never computed" with "canonical was
+        // computed correctly and honestly found nothing" (no asking price,
+        // or the agent unticked every competitor) — the second case has_data
+        // is legitimately false, but that IS the agent-respecting answer;
+        // silently swapping in the dead legacy pipeline's numbers there
+        // undoes the whole point of the canonical block (Johan, 2026-08-25 —
+        // "respect what the agent selected", widened scope, item 6 of 6).
         $competitorStockCanonical = $data['competitor_stock'] ?? [];
         $competingCount           = (int) ($competitorStockCanonical['competing_count'] ?? 0);
         $pricePositionCanonical   = $competitorStockCanonical['price_position_canonical'] ?? ['has_data' => false];
@@ -801,10 +816,12 @@ class PresentationPdfService
 
         $pricePositionLegacy = $data['price_position'] ?? [];
         $priceBracketsLegacy = $data['price_brackets'] ?? [];
-        // Seller-facing tiles read the canonical first, fall back to
-        // legacy if the canonical block is absent (pre-Build-8 snapshots).
-        $pricePosition = !empty($pricePositionCanonical['has_data']) ? $pricePositionCanonical : $pricePositionLegacy;
-        $priceBrackets = !empty($priceBracketsCanonical['has_data']) ? $priceBracketsCanonical : $priceBracketsLegacy;
+        // Seller-facing tiles read the canonical first, fall back to legacy
+        // ONLY when the canonical block was genuinely never computed for
+        // this snapshot (pre-Build-8) — not merely when it honestly has
+        // nothing to report.
+        $pricePosition = array_key_exists('price_position_canonical', $competitorStockCanonical) ? $pricePositionCanonical : $pricePositionLegacy;
+        $priceBrackets = array_key_exists('price_brackets_canonical', $competitorStockCanonical) ? $priceBracketsCanonical : $priceBracketsLegacy;
 
         // Links for references
         $p24Links = $presentation->links->where('type', 'property24')->values();
@@ -1476,6 +1493,9 @@ a:hover { text-decoration: underline; }
       // PAGE 1 — COVER
       // ══════════════════════════════════════════════════════════════════════ ?>
 <div class="cover">
+    <?php // 2026-08-15 (Johan, HFC tenant-isolation fix) — $agency is
+          // already resolved above (line ~515); was never read for
+          // branding text, only for the logo file. ?>
     <?php if ($logoBase64): ?>
     <div class="cover-brand"><img src="<?= $logoBase64 ?>" alt="<?= $esc($agencyName) ?>" style="max-height:120px;width:auto;"></div>
     <?php else: ?>

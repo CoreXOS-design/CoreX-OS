@@ -103,7 +103,11 @@
                     Pitch
                 </a>
             @else
-                <a href="{{ route('seller-outreach.entry.from-prospecting', ['prospectingListingId' => $listing->id]) }}"
+                {{-- fresh=1 (2026-08-19) — marks this as a genuine fresh entry so the
+                     controller runs collision detection; a later browser refresh of
+                     the resulting (clean) URL will not carry this param, so it won't
+                     re-run and silently eject the agent mid-review. --}}
+                <a href="{{ route('seller-outreach.entry.from-prospecting', ['prospectingListingId' => $listing->id, 'fresh' => 1]) }}"
                    style="{{ $actionPrimary }}">
                     Pitch
                 </a>
@@ -123,8 +127,21 @@
             <span style="{{ $actionDisabled }}" title="No linked contact — pitch first">WhatsApp</span>
         @endif
 
-        @if($claim)
-            @if($claimedByMe)
+        @if($h['in_stock'] && !$claim)
+            {{-- Company/agency-owned stock (same canonical OnMarketStockService
+                 identity the server-side claim guard uses) is never claimable —
+                 show an inert state instead of a live Claim button. A pre-existing
+                 claim (e.g. predating this rule) still shows its own
+                 release/manager-release controls above, unchanged. --}}
+            <span style="{{ $actionDisabled }}" title="This is your agency's own stock — nothing to claim.">In stock</span>
+        @elseif($claim)
+            @if(!empty($claim['is_promoted']))
+                {{-- Already promoted to a Property — on the agency's books. No release
+                     path exists for this state (MarketIntelligenceController::release() /
+                     releaseAsManager() both reject it), so the control is hidden rather
+                     than offered and blocked. --}}
+                <span style="{{ $actionSecondary }} opacity:0.55; cursor:not-allowed;" title="Already promoted to a property — on the books, cannot be released.">On the books</span>
+            @elseif($claimedByMe)
                 <form method="POST" action="{{ route('market-intelligence.release', $listing->id) }}" style="display: inline; margin: 0;">
                     @csrf
                     <button type="submit" style="{{ $actionSecondary }}">Release claim</button>

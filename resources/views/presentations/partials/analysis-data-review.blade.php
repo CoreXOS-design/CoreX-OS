@@ -492,15 +492,21 @@
     {{-- ── PRICE POSITION & BRACKETS ─────────────────────────────────────── --}}
     @php
         // Build 8 — read canonical (competitor_stock-scored) verdict when
-        // present, fall back to legacy (active_competition-derived) for
-        // pre-Build-8 versions whose snapshot pre-dates the rewire.
+        // present, fall back to legacy (active_competition-derived) ONLY for
+        // pre-Build-8 versions whose snapshot pre-dates the rewire — i.e.
+        // when the canonical key is genuinely absent, not merely empty.
+        // 2026-08-25 fix — the old has_data check fell back to the dead
+        // legacy pipeline even when canonical correctly reported nothing
+        // (no asking price, or the agent unticked every competitor), which
+        // silently overrode the agent's own selection with numbers from an
+        // unrelated data source (Johan — "respect what the agent selected").
         $compStock      = $analysisData['competitor_stock'] ?? [];
         $pricePosCanon  = $compStock['price_position_canonical'] ?? ['has_data' => false];
         $priceBrkCanon  = $compStock['price_brackets_canonical'] ?? ['has_data' => false, 'brackets' => []];
         $pricePosLegacy = $analysisData['price_position'] ?? [];
         $priceBrkLegacy = $analysisData['price_brackets'] ?? [];
-        $pricePos = !empty($pricePosCanon['has_data']) ? $pricePosCanon : $pricePosLegacy;
-        $priceBrk = !empty($priceBrkCanon['has_data']) ? $priceBrkCanon : $priceBrkLegacy;
+        $pricePos = array_key_exists('price_position_canonical', $compStock) ? $pricePosCanon : $pricePosLegacy;
+        $priceBrk = array_key_exists('price_brackets_canonical', $compStock) ? $priceBrkCanon : $priceBrkLegacy;
     @endphp
     @if(!empty($pricePos['has_data']) || !empty($priceBrk['has_data']))
     <div class="ds-status-card mb-4" style="border-left-color: var(--ds-cyan);">

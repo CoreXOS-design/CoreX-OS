@@ -214,7 +214,10 @@ class TvController extends Controller
         $agencyName = \App\Models\Agency::find($agencyId)?->name;
 
         $period = Carbon::now()->format('Y-m');
-        $companyName = $agencyName ?: config('app.name', 'CoreX OS');
+        // White-label: the company TV display reads the code owner's own agency, never HFC.
+        // Reuses $agencyId/$agencyName resolved above (already fail-closed via
+        // effectiveAgencyId()) rather than a separate created_by lookup.
+        $companyName = $agencyName ?: 'Agency';
 
         // Company-wide rollup, scoped to this code's agency
         $rollup = $service->getPeriodRollup($period, $agencyId);

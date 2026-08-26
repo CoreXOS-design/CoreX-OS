@@ -57,7 +57,27 @@ class Property extends Model
     public const OFF_MARKET_STATUSES = [
         'sold', 'sold_by_3rd_party', 'transferred', 'withdrawn', 'expired',
         'cancelled', 'let_out', 'draft', 'archived', 'unavailable',
+        'prospecting', 'not_selling',
     ];
+
+    /**
+     * PROSPECTING / NOT SELLING (Johan, 2026-08-20/21 — .ai/specs/2026-08-20-
+     * property-status-prospecting.md). Prospecting = ingested-but-unmandated
+     * stock (deeds/MIC ingest), kept separate from 'draft' (agent-created,
+     * about to go live) so the two pools never dilute each other. We do NOT
+     * hold the mandate on a prospecting property -- it must be exactly as
+     * unsyndicatable as any other off-market status, which is why closing
+     * this gap meant pointing the ONE existing syndication guard
+     * (EnforcesMarketingReadiness::enforceListingNotDraft()) at
+     * OFF_MARKET_STATUSES generally (via isOnMarket()) rather than adding a
+     * second, prospecting-specific check beside it.
+     *
+     * Not selling = the one-click dead-end for prospecting stock that will
+     * never convert (owner contacted, won't sell / not on market / lost).
+     * Label confirmed verbatim by Johan: "Not selling".
+     */
+    public const STATUS_PROSPECTING = 'prospecting';
+    public const STATUS_NOT_SELLING = 'not_selling';
 
     /**
      * AT-350 — the listing sold, but ANOTHER agency sold it (typically under an
@@ -92,6 +112,56 @@ class Property extends Model
     public function isOnMarket(): bool
     {
         return ! in_array((string) $this->status, self::OFF_MARKET_STATUSES, true);
+    }
+
+    /**
+     * Most recent of the four portal submit/activate timestamps we hold — the
+     * "last advertised" signal for isStaleStock() below. Null when the property
+     * has never been synced to either portal (e.g. hand-captured stock).
+     */
+    public function lastAdvertisedAt(): ?\Carbon\Carbon
+    {
+        return collect([
+            $this->p24_last_submitted_at,
+            $this->pp_last_submitted_at,
+            $this->p24_activated_at,
+            $this->pp_activated_at,
+        ])->filter()->max();
+    }
+
+    /**
+     * CX-101 — Johan's stale-stock rule, verbatim (2026-08-19): "if a property
+     * is not active and being advertised, or has not been advertised in the
+     * last month, and has not been worked with for a week then it can be
+     * treated as available to prospect." Both halves must hold — a property
+     * worked on this week is NEVER stale, even if off-market.
+     *
+     * "Not active and being advertised" is answered by isOnMarket() alone —
+     * status is the authoritative "currently on the market" signal, not the
+     * portal submit/activate timestamps (lastAdvertisedAt() above). Verified
+     * against QA1's real data before shipping: p24/pp_last_submitted_at and
+     * _activated_at are ONE-TIME "when did this first go live" stamps, not a
+     * recurring "still live" refresh — a healthy listing that has sat
+     * unchanged for months has an old timestamp but is NOT stale. Gating on
+     * "last advertised > 30 days" independently of status flipped 190 of 200
+     * genuinely on-market QA1 properties to stale — the opposite of the
+     * established baseline (138 live properties should keep blocking). Status
+     * is kept as the sole "currently marketed" test to avoid that regression;
+     * lastAdvertisedAt() is kept as informational context for messaging, not
+     * as a gate.
+     *
+     * This is the ONE definition of "actively on our books right now." Every
+     * surface that answers the "already in stock" question (claim guard,
+     * promote path, compose screen, MIC list badge) calls this — none may
+     * re-derive it. See .ai/specs/2026-08-19-stale-stock-and-mic-resolution.md §3.1.
+     */
+    public function isStaleStock(): bool
+    {
+        $notCurrentlyMarketed = ! $this->isOnMarket();
+
+        $notWorkedRecently = \App\Support\HumanDiff::daysBetween($this->last_activity_at ?? $this->updated_at) > 7;
+
+        return $notCurrentlyMarketed && $notWorkedRecently;
     }
 
     /**
@@ -207,12 +277,27 @@ class Property extends Model
      * True when this property is still an unpublished draft. A draft is never
      * ready to be pushed to any portal/website — it must be set Active first.
      * Case-insensitive so 'Draft'/'DRAFT' are caught alongside the canonical
-     * lowercase 'draft'. The single source of truth for the syndication draft
-     * guard (EnforcesMarketingReadiness::enforceListingNotDraft()).
+     * lowercase 'draft'. EnforcesMarketingReadiness::enforceListingNotDraft()
+     * (2026-08-21) now gates on isOnMarket() generally rather than this
+     * method specifically, but isDraft() stays as the precise "is it exactly
+     * a draft" check other callers (canChangeType(), the properties-list
+     * marketing-status column) still need.
      */
     public function isDraft(): bool
     {
         return strtolower(trim((string) $this->status)) === 'draft';
+    }
+
+    /** True when this is ingested-but-unmandated stock (deeds/MIC ingest). */
+    public function isProspecting(): bool
+    {
+        return strtolower(trim((string) $this->status)) === self::STATUS_PROSPECTING;
+    }
+
+    /** True when an agent has closed this out as a dead end ("Not selling"). */
+    public function isNotSelling(): bool
+    {
+        return strtolower(trim((string) $this->status)) === self::STATUS_NOT_SELLING;
     }
 
     /**
@@ -740,6 +825,36 @@ class Property extends Model
     }
 
     /**
+     * 2026-08-20 properties-filter audit — the Property Type filter compares
+     * property_type by exact string, but ~2,600 live properties (mostly a P24
+     * bulk import batch and pre-PropertySettingItem manual entries) hold an
+     * older/shorter label for the same physical type instead of today's
+     * agency-configured PropertySettingItem name — 'Apartment' vs 'Apartment
+     * / Flat', 'VacantLand'/'Vacant Land' vs 'Vacant Land / Plot', 'Commercial'
+     * vs 'Commercial Property', 'Industrial' vs 'Industrial Property' — so
+     * selecting the current label hid every property still carrying the old
+     * one. This is the synonym set the filter matches ADDITIONALLY to the
+     * agency's own settings-item name; it never changes what's stored on the
+     * property, only what the filter recognises as "the same type". A small
+     * number of orphaned values ('sectional_title', 'Business', 'Land' — 5
+     * properties total) aren't included: they're ambiguous enough (e.g.
+     * sectional_title describes title type, not physical type) that guessing
+     * risks silently mis-bucketing them, so those need a human reclassifying
+     * the record rather than a synonym guess.
+     *
+     * @return string[]
+     */
+    public static function propertyTypeSynonyms(string $canonicalName): array
+    {
+        return [
+            'Apartment / Flat'    => ['Apartment'],
+            'Vacant Land / Plot'  => ['VacantLand', 'Vacant Land'],
+            'Commercial Property' => ['Commercial'],
+            'Industrial Property' => ['Industrial'],
+        ][$canonicalName] ?? [];
+    }
+
+    /**
      * AT-262/DR2 — the pivot roles that are the SELLER-SIDE party for a property of a
      * given listing type. On a SALE the seller-side is seller/owner; on a RENTAL it is
      * the landlord/lessor (same physical party, the "seller" column of a rental deal).
@@ -773,6 +888,41 @@ class Property extends Model
             'rental' => ['tenant', 'lessee'],
             default  => ['buyer'],
         };
+    }
+
+    /**
+     * Property-link roles that are explicitly NOT a party to a document on this property.
+     *
+     * A 'lead' is written by the portal/website lead services (P24, Private Property, the
+     * public site) for someone who ENQUIRED about the listing. They are linked to the
+     * property, and they are very often typed globally as a "Buyer" — but they are not a
+     * party to anything and must never be offered as a signing recipient.
+     */
+    public const PIVOT_NON_SIGNING_ROLES = ['lead'];
+
+    /**
+     * The e-sign role a contact holds ON THIS PROPERTY, derived from its property-link role.
+     *
+     * The property-link role is the authority for who a contact is to THIS document
+     * (esign-ceremony-v3 §2.1). The pivot vocabulary is the human-picked canon
+     * (PropertyContactController::LINK_ROLES) plus the legacy variants the backfills settled
+     * on; it is deliberately wider than the four e-sign roles it maps onto, because
+     * seller/owner and landlord/lessor are the same party under two names.
+     *
+     * Returns null when the link role is absent, unrecognised, or not a signing role at all
+     * (a lead) — the caller decides between falling back and excluding.
+     */
+    public static function esignRoleForPivotRole(?string $pivotRole): ?string
+    {
+        return [
+            'seller'   => 'seller',
+            'owner'    => 'seller',
+            'buyer'    => 'buyer',
+            'landlord' => 'lessor',
+            'lessor'   => 'lessor',
+            'tenant'   => 'lessee',
+            'lessee'   => 'lessee',
+        ][strtolower(trim((string) $pivotRole))] ?? null;
     }
 
     /**
@@ -1166,7 +1316,7 @@ class Property extends Model
     private const CONCLUDED_STATUSES = ['sold', self::STATUS_SOLD_BY_3RD_PARTY, 'transferred', 'rented', 'let_out'];
 
     /** Off-market, but not concluded — withdrawn, expired, never published, etc. */
-    private const INACTIVE_STATUSES = ['withdrawn', 'cancelled', 'expired', 'unavailable', 'archived', 'draft'];
+    private const INACTIVE_STATUSES = ['withdrawn', 'cancelled', 'expired', 'unavailable', 'archived', 'draft', self::STATUS_PROSPECTING, self::STATUS_NOT_SELLING];
 
     /**
      * THE single source of truth for reading `status`. ALWAYS compare against this,
@@ -1184,6 +1334,83 @@ class Property extends Model
     public function normalizedStatus(): string
     {
         return strtolower(trim((string) $this->status));
+    }
+
+    // ── AT-307 — server-side status-vocabulary guard ────────────────────────────
+    // properties.status is a free-text VARCHAR; the UI already picks from the
+    // settings-defined list, but non-UI paths (mobile API, imports, jobs, crafted
+    // requests) could persist any string (the 2903 mobile-withdraw class). These
+    // helpers are the ONE vocabulary, DERIVED from Settings so they never drift.
+
+    /** Per-agency memo of allowedStatuses() within a process (imports save many). */
+    private static array $allowedStatusCache = [];
+
+    /**
+     * The states CoreX code itself writes — lifecycle jobs (ExpireMandates→expired),
+     * deal listeners (under_offer/sold), importers (sold), the P24 sync (Active/Sold/
+     * Rented), publish/archive/clone (active/archived/draft). Built from the model's
+     * OWN existing status vocabularies so it can never drift from them; the four
+     * on-market pickers (active/for_sale/to_let/under_offer) that live in no other
+     * const are added explicitly. Always valid, for every agency.
+     */
+    public static function systemStatuses(): array
+    {
+        return array_values(array_unique(array_map('strtolower', array_merge(
+            self::OFF_MARKET_STATUSES,
+            self::CONCLUDED_STATUSES,
+            self::INACTIVE_STATUSES,
+            ['active', 'for_sale', 'to_let', 'under_offer'],
+        ))));
+    }
+
+    /**
+     * The full write-side vocabulary for an agency: systemStatuses() ∪ the agency's
+     * ACTIVE settings-defined property_status items (PropertySettingItem
+     * group='property_status'), each normalised to its stored form the same way the
+     * edit form maps a picker name → status (lower, spaces→underscores). DERIVES
+     * from Settings — a status an agency activates is accepted automatically; one it
+     * de-activates falls back to systemStatuses() (so lifecycle states never break).
+     */
+    public static function allowedStatuses(?int $agencyId): array
+    {
+        $key = $agencyId ?: 0;
+        if (isset(self::$allowedStatusCache[$key])) {
+            return self::$allowedStatusCache[$key];
+        }
+
+        $governance = [];
+        if ($agencyId) {
+            $governance = PropertySettingItem::withoutGlobalScopes()
+                ->where('agency_id', $agencyId)
+                ->where('group', PropertySettingItem::GROUP_STATUS)
+                ->where('active', true)
+                ->whereNull('deleted_at')
+                ->pluck('name')
+                ->map(fn ($n) => strtolower(str_replace(' ', '_', trim((string) $n))))
+                ->filter()
+                ->all();
+        }
+
+        return self::$allowedStatusCache[$key] = array_values(array_unique(
+            array_merge(self::systemStatuses(), $governance)
+        ));
+    }
+
+    /** Case-insensitive membership test. Empty/null is not out-of-vocab (nullable / DB default). */
+    public static function isAllowedStatus(?string $status, ?int $agencyId): bool
+    {
+        $status = strtolower(trim((string) $status));
+        if ($status === '') {
+            return true;
+        }
+
+        return in_array($status, self::allowedStatuses($agencyId), true);
+    }
+
+    /** Test/maintenance hook — drop the per-agency vocabulary memo. */
+    public static function clearAllowedStatusCache(): void
+    {
+        self::$allowedStatusCache = [];
     }
 
     /** A concluded listing (sold / sold by 3rd party / transferred / rented / let out). */
@@ -1254,6 +1481,12 @@ class Property extends Model
             // A concluded rental reads "Rented" / "Let Out" — never "To Let", which
             // would advertise a tenanted property as available.
             in_array($status, ['rented', 'let_out'], true)   => ucwords(str_replace('_', ' ', $status)),
+            // Exact labels (2026-08-21, Johan) — MUST precede the generic
+            // INACTIVE_STATUSES ucwords() fallback below: "Not selling" is
+            // sentence case, not Title Case, and ucwords() would badge it
+            // "Not Selling".
+            $status === self::STATUS_PROSPECTING => 'Prospecting',
+            $status === self::STATUS_NOT_SELLING => 'Not selling',
             in_array($status, self::INACTIVE_STATUSES, true) => ucwords(str_replace('_', ' ', $status)),
             $this->isRental()                                => 'To Let',
             default => 'For Sale',
@@ -1915,6 +2148,7 @@ class Property extends Model
 
         return [];
     }
+
 
     /**
      * The gallery tags DERIVED from the property's rooms — `spaces_json`

@@ -116,6 +116,18 @@ class AppServiceProvider extends ServiceProvider
         $this->app->singleton(\App\Services\SellerOutreach\SellerOutreachLandingService::class);
         $this->app->singleton(\App\Services\SellerOutreach\SellerOutreachOptOutService::class);
 
+        // Pipeline Dashboard Phase 1 — the event normalizer. PipelineEventService aggregates the
+        // registered PipelineEventSource list into one chronological stream. Comments are the live
+        // source today; email + WhatsApp sources plug in HERE later (add to the array) without any
+        // change to the DTO or the aggregator. Spec: .ai/specs/pipeline-dashboard.md §3.3
+        $this->app->singleton(\App\Services\Deal\Pipeline\PipelineEventService::class, function ($app) {
+            return new \App\Services\Deal\Pipeline\PipelineEventService([
+                $app->make(\App\Services\Deal\Pipeline\CommentEventSource::class),
+                // Phase 4 — email + WhatsApp (comms archive via communication_links → the DR2 twin).
+                $app->make(\App\Services\Deal\Pipeline\CommunicationEventSource::class),
+            ]);
+        });
+
         // MIC Phase B1 — Anthropic gateway + cost aggregator. Singletons so
         // the cache lookup, retry config, and pricing table resolve once per
         // request. The gateway is stateless; the cost aggregator is read-only.
@@ -147,6 +159,19 @@ class AppServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        // ── DESTRUCTIVE-SCHEMA GUARD (post-incident 2026-08-05: hfc_staging wiped by a
+        // migrate:fresh run directly against it) ────────────────────────────────────────
+        // Hard-block the destructive schema commands — migrate:fresh, migrate:refresh,
+        // migrate:reset, db:wipe — in PRODUCTION and STAGING. Laravel's native guard makes
+        // them THROW immediately (before any table is touched) regardless of --force, so an
+        // accidental or mistaken full-schema reset can never wipe a real database again.
+        // Deliberately NOT gated on local/qa/dev: migrate:fresh stays available for local
+        // dev and the QA1 rebuild. (Demo, if ever on this line, must run APP_ENV != production
+        // /staging so its migrate:fresh rebuild still works — flagged for the demo box.)
+        if ($this->app->environment(['production', 'staging'])) {
+            \Illuminate\Support\Facades\DB::prohibitDestructiveCommands();
+        }
+
         // AT-321 — attribute property writes made outside an HTTP request. Queue
         // jobs and console commands have no auth()->user(); stamp a clear source
         // label ("job:<Name>" / "console:<signature>") so every audit row — app
@@ -168,8 +193,17 @@ class AppServiceProvider extends ServiceProvider
         \Illuminate\Support\Facades\Queue::after(function () {
             try { \App\Support\Audit\PropertyAuditContext::pop(); } catch (\Throwable) {}
         });
-        \Illuminate\Support\Facades\Queue::failing(function () {
+        \Illuminate\Support\Facades\Queue::failing(function (\Illuminate\Queue\Events\JobFailed $event) {
             try { \App\Support\Audit\PropertyAuditContext::pop(); } catch (\Throwable) {}
+            \App\Support\Queue\QueueFailureAlerter::handle($event);
+        });
+        // MIC speed round 3 (2026-08-23) — Agency::find()'s per-request memo
+        // (App\Models\Agency::$findMemo) must never leak a stale Agency into
+        // the NEXT queued job on a long-running worker. Reset before every
+        // job starts; HTTP requests need no equivalent hook (php-fpm tears
+        // down all static state between requests).
+        \Illuminate\Support\Facades\Queue::before(function () {
+            \App\Models\Agency::forgetFindMemo();
         });
         if ($this->app->runningInConsole()) {
             \Illuminate\Support\Facades\Event::listen(
@@ -207,6 +241,7 @@ class AppServiceProvider extends ServiceProvider
             'corex.market-intelligence._listing-row',
             'corex.market-intelligence._slideover-buyer-row',
             'prospecting._buyer-matches-panel',
+            'command-center.buyers.detail',
         ], \App\View\Composers\OutreachWindowComposer::class);
 
         Agency::observe(AgencyObserver::class);
@@ -269,6 +304,12 @@ class AppServiceProvider extends ServiceProvider
             \App\Events\Contact\ContactLinkedToProperty::class,
             \App\Listeners\Contact\PromoteOwnerToSellerOnPropertyLink::class,
         );
+        // Buyer WON (Johan 2026-08-13) — a buyer linked to a property converts: mark buyer_state 'won'
+        // and move them into the pipeline's success section. Covers property-page links AND DR2 deals.
+        Event::listen(
+            \App\Events\Contact\ContactLinkedToProperty::class,
+            \App\Listeners\Contact\MarkBuyerWonOnPropertyLink::class,
+        );
         Event::listen(
             \App\Events\Mandate\MandateExpired::class,
             \App\Listeners\Mandate\DesyndicateExpiredMandate::class,
@@ -288,6 +329,12 @@ class AppServiceProvider extends ServiceProvider
         Event::listen(
             \App\Events\Demo\DemoAccessGranted::class,
             \App\Listeners\Demo\SendDemoAccessGrantEmail::class,
+        );
+        // E-sign supporting docs (Part B) — the PDF splitter filed a recipient batch it pulled in
+        // via intake-by-reference; flip those SignedDocumentVersion rows to filed (subset-safe).
+        Event::listen(
+            \App\Events\Docuperfect\SupportingBatchFiled::class,
+            \App\Listeners\Document\FileSupportingBatchOnSplitterCompletion::class,
         );
 
         // The domain-event logging family — every one of these was discovery-only.
@@ -436,6 +483,22 @@ class AppServiceProvider extends ServiceProvider
             Event::listen($micActivityEvent, \App\Listeners\Activity\LogAgentActivity::class);
         }
 
+        // 2026-08-25 — NotifyOnMarketReportParseFailure was written assuming
+        // Laravel's automatic listener discovery (its own docblock says so),
+        // but AT-261 above disabled discovery app-wide. It was never added to
+        // this explicit catalogue, so it has never actually run — a CMA
+        // report flagged spot_check_status='flagged' (zero-comp-with-summary,
+        // and as of this date also the unrecognised-document / recognised-
+        // zero-data-points guards) updated its own row correctly but never
+        // notified anyone. Found while wiring the two new guards; fixed here
+        // rather than filed separately since Johan's explicit ask — "the
+        // person who uploaded it must be told clearly" — depends on this
+        // actually firing.
+        Event::listen(
+            \App\Events\MarketReports\MarketReportSpotCheckFlagged::class,
+            \App\Listeners\MarketReports\NotifyOnMarketReportParseFailure::class,
+        );
+
         // ─────────────────────────────────────────────────────────────────
         // SPINE-2 — Activity Points instant-credit listener. Wires the
         // Phase-1 high-value existing-dispatch domain events into
@@ -463,6 +526,7 @@ class AppServiceProvider extends ServiceProvider
             \App\Events\PresentationGenerated::class                        => 'handlePresentationGenerated',
             \App\Events\Presentation\PresentationOutcomeRecorded::class     => 'handlePresentationOutcomeRecorded',
             \App\Events\SellerOutreach\PitchSent::class                     => 'handlePitchSent',
+            \App\Events\SellerOutreach\OutreachOutcomeUpdated::class        => 'handleOutreachOutcomeUpdated',
             \App\Events\Prospecting\TrackedPropertyPromotedToStock::class   => 'handleTrackedPropertyPromotedToStock',
             \App\Events\Compliance\RcrSubmissionSubmitted::class            => 'handleRcrSubmissionSubmitted',
             // SPINE-3 — FICA (outcome-independent reviewer credit + agent
@@ -476,6 +540,7 @@ class AppServiceProvider extends ServiceProvider
             \App\Events\Fica\FicaRejected::class                            => 'handleFicaRejectedReview',
             \App\Events\Prospecting\ClaimCreated::class                     => 'handleClaimCreated',
             \App\Events\Prospecting\ClaimReleased::class                    => 'handleClaimReleased',
+            \App\Events\Prospecting\ClaimFeedbackRecorded::class            => 'handleClaimFeedbackRecorded',
             \App\Events\Property\PropertyCaptured::class                    => 'handlePropertyCaptured',
             \App\Events\Property\PropertyPublished::class                   => 'handlePropertyPublished',
             \App\Events\Property\PropertyCompliancePassed::class            => 'handlePropertyCompliancePassed',
@@ -819,6 +884,19 @@ class AppServiceProvider extends ServiceProvider
             $by = ($key instanceof \App\Models\AgencyApiKey) ? ('key:' . $key->getKey()) : ('ip:' . $request->ip());
 
             return \Illuminate\Cache\RateLimiting\Limit::perMinute($perMinute)->by($by);
+        });
+
+        // "Ask my agent to set up a new list for me" on the expired-share-link
+        // page (Johan, 2026-08-24) — public, unauthenticated. One request per
+        // TOKEN per window is the real requirement (whoever holds one dead
+        // link shouldn't be able to spam that one buyer's re-engagement lead);
+        // IP is a secondary bound so the same visitor can't just reload past
+        // the token limit from one machine.
+        \Illuminate\Support\Facades\RateLimiter::for('reengage-shared-link', function (\Illuminate\Http\Request $request) {
+            return [
+                \Illuminate\Cache\RateLimiting\Limit::perMinutes(10, 1)->by('token:' . $request->route('token')),
+                \Illuminate\Cache\RateLimiting\Limit::perMinute(5)->by('ip:' . $request->ip()),
+            ];
         });
     }
 }

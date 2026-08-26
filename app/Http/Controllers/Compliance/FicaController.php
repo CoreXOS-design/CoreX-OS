@@ -150,11 +150,11 @@ class FicaController extends Controller
      */
     public function create()
     {
-        $contacts = Contact::orderBy('first_name')
-            ->orderBy('last_name')
-            ->get(['id', 'first_name', 'last_name', 'email', 'phone']);
-
-        return view('compliance.fica.create', compact('contacts'));
+        // Contacts are fetched on demand via searchContacts() (server-side type-ahead) — the
+        // picker no longer embeds the whole agency contact list. Agency 1 has ~9,000 contacts;
+        // rendering them all as Alpine x-show nodes made the page ~8MB and the search unusable
+        // ("returns nothing" — Retha, 2026-08-17).
+        return view('compliance.fica.create');
     }
 
     /**
@@ -164,12 +164,25 @@ class FicaController extends Controller
     {
         $validated = $request->validate([
             'contact_id' => 'required|exists:contacts,id',
+            // #11 — inline add-email: a contact with no email on file can be given one on the spot.
+            'email'      => 'nullable|email',
         ]);
 
         $contact = Contact::findOrFail($validated['contact_id']);
 
+        // #11 (compliance) — the contact must have an email to receive the secure verification link.
+        // If the selected contact has none, accept one supplied inline, PERSIST it to the contact
+        // (the ContactObserver mirror-syncs it into contact_emails as the primary identifier), then
+        // continue the send. No parallel record, no separate flow — the contact is simply enriched.
+        $inlineEmail = strtolower(trim((string) $request->input('email')));
+        if (! $contact->email && $inlineEmail !== '') {
+            $contact->email = $inlineEmail;
+            $contact->save();
+            $contact->refresh();
+        }
+
         if (! $contact->email) {
-            return back()->withErrors(['contact_id' => 'This contact does not have an email address.'])->withInput();
+            return back()->withErrors(['contact_id' => 'This contact has no email address. Add one below to send the FICA request.'])->withInput();
         }
 
         $agencyId = Auth::user()->effectiveAgencyId() ?? $contact->agency_id;
@@ -200,11 +213,37 @@ class FicaController extends Controller
      */
     public function createWetInk()
     {
-        $contacts = Contact::orderBy('first_name')
-            ->orderBy('last_name')
-            ->get(['id', 'first_name', 'last_name', 'email', 'phone', 'id_number']);
+        // Server-side type-ahead (searchContacts) instead of embedding all contacts — see create().
+        return view('compliance.fica.create-wet-ink');
+    }
 
-        return view('compliance.fica.create-wet-ink', compact('contacts'));
+    /**
+     * Type-ahead contact search for the FICA pickers (create + wet-ink).
+     * Scope-correct — `Contact::` honours the Agency/Branch/Contact global scopes — and capped
+     * at 25 so the page never ships thousands of nodes. Replaces the old embed-all-contacts
+     * client-side picker that became unusable at ~9,000 contacts.
+     */
+    public function searchContacts(Request $request)
+    {
+        $q = trim((string) $request->query('q', ''));
+        if (mb_strlen($q) < 2) {
+            return response()->json(['contacts' => []]);
+        }
+
+        $contacts = Contact::search($q)
+            ->orderBy('first_name')
+            ->orderBy('last_name')
+            ->limit(25)
+            ->get(['id', 'first_name', 'last_name', 'email', 'phone', 'id_number'])
+            ->map(fn ($c) => [
+                'id'        => $c->id,
+                'name'      => trim(($c->first_name ?? '') . ' ' . ($c->last_name ?? '')),
+                'email'     => $c->email ?: 'No email',
+                'phone'     => $c->phone ?: 'No phone',
+                'id_number' => $c->id_number ?: 'Not set',
+            ]);
+
+        return response()->json(['contacts' => $contacts]);
     }
 
     /**
@@ -569,6 +608,18 @@ class FicaController extends Controller
         // File FICA documents to the contact's document drive
         $this->fileDocumentsToContact($submission);
 
+        // FREEZE RULE: generate the completion report NOW, at the moment of
+        // approval, and store the file. downloadPdf() serves this stored
+        // snapshot forever after — never a live re-render — so later edits
+        // to the contact or submission can never change what was downloaded
+        // for this approval. Failure is logged, never blocks the approval
+        // that already committed above.
+        $submission->refresh();
+        $reportPath = app(\App\Services\Compliance\FicaCompletionReportService::class)->generate($submission);
+        if ($reportPath) {
+            $submission->update(['pdf_path' => $reportPath]);
+        }
+
         Log::info('FICA compliance officer approved', [
             'submission_id' => $submission->id,
             'co_id'         => Auth::id(),
@@ -829,17 +880,31 @@ class FicaController extends Controller
     }
 
     /**
-     * Download PDF certificate for an approved submission.
+     * Download the FICA Completion Report for an approved submission.
+     *
+     * FREEZE RULE: serves the stored snapshot generated at the moment of
+     * approval (FicaController::complianceApprove()), never a live
+     * re-render — the download must not change if the contact or
+     * submission is edited afterwards. The generate-on-demand fallback
+     * exists only for submissions approved before this feature shipped
+     * (pdf_path was never populated for them); once generated it is
+     * persisted the same way, so this only ever fires once per submission.
      */
     public function downloadPdf(FicaSubmission $submission)
     {
         $this->authorizeAgency($submission);
-        abort_unless($submission->status === 'approved', 404, 'PDF only available for approved submissions.');
+        abort_unless($submission->status === 'approved', 404, 'The completion report is only available once the FICA is approved.');
 
-        $submission->load(['contact', 'agency', 'requestedBy', 'agentVerifiedBy', 'coVerifiedBy', 'documents', 'linkedDocuments.documentType']);
+        if (! $submission->pdf_path || ! Storage::disk('local')->exists($submission->pdf_path)) {
+            $path = app(\App\Services\Compliance\FicaCompletionReportService::class)->generate($submission);
+            abort_if(! $path, 500, 'Could not generate the completion report. Try again or contact support.');
+            $submission->update(['pdf_path' => $path]);
+        }
 
-        // Return the HTML template as a printable page (Puppeteer rendering is a server-side concern)
-        return view('compliance.fica.pdf', compact('submission'));
+        $contactName = $submission->contact?->full_name ?? 'client';
+        $filename = 'FICA-Completion-' . \Illuminate\Support\Str::slug($contactName) . '-' . $submission->id . '.pdf';
+
+        return Storage::disk('local')->download($submission->pdf_path, $filename);
     }
 
     /**

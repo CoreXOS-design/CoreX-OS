@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Download Signed Document — Home Finders Coastal</title>
+    <title>Download Signed Document — {{ $template->creator?->agency?->name ?? 'Agency' }}</title>
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
@@ -62,6 +62,27 @@
                     Download Signed PDF
                 </a>
             </div>
+        @elseif(!empty($finalising))
+            {{-- All parties have signed — the PDF is being finalised, refresh to check again --}}
+            <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 mb-4">
+                <div class="p-3 rounded-xl bg-slate-50 border border-slate-100 mb-5">
+                    <div class="text-xs text-slate-400 uppercase tracking-wider font-semibold mb-1">Document</div>
+                    <div class="text-sm font-medium text-slate-700">{{ $document->name ?? 'Signed Document' }}</div>
+                </div>
+
+                <div class="flex items-start gap-3 p-3 rounded-xl bg-amber-50 border border-amber-100 mb-5">
+                    <svg class="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5 animate-spin" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    <div class="text-sm text-amber-800">All parties have signed. Your copy is being finalised — this usually takes a few seconds. Refresh this page shortly.</div>
+                </div>
+
+                <button type="button" onclick="window.location.reload()"
+                   class="block w-full text-center rounded-xl text-white font-semibold py-3 px-6 transition-all hover:opacity-90"
+                   style="background:#0b2a4a;">
+                    Check again
+                </button>
+            </div>
         @elseif(!empty($needsVerification))
             {{-- ID verification required --}}
             <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 mb-4">
@@ -101,7 +122,7 @@
         @endif
 
         <div class="text-center text-xs text-slate-400 mt-4">
-            Home Finders Coastal &mdash; Document Signing
+            {{ $template->creator?->agency?->name ?? 'Agency' }} &mdash; Document Signing
         </div>
     </div>
 </body>

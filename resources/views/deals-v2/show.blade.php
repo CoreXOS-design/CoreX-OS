@@ -540,6 +540,108 @@
                                         </form>
                                     @endif
 
+                                    {{-- AT-229 — OPTIONAL "Send work order" action (Non-neg #2 entry point).
+                                         Surfaces only when the pipeline step is configured to send a work
+                                         order and this step is at its trigger point. Skippable — never blocks. --}}
+                                    @php
+                                        $woStep = $step->pipelineStep;
+                                        $woTrigger = $woStep?->work_order_trigger_point ?: 'activated';
+                                        $showWorkOrder = $canEdit && $deal->status === 'active'
+                                            && $woStep?->sends_work_order
+                                            && (($isActive && $woTrigger === 'activated') || ($isCompleted && $woTrigger === 'completed'))
+                                            && auth()->user()?->hasPermission('deals_v2.distribute_documents');
+                                    @endphp
+                                    @if($showWorkOrder)
+                                        <div class="mt-2 pt-2" style="border-top: 1px solid var(--border);"
+                                             x-data="{
+                                                open:false, loading:false, sending:false, err:'', ok:'',
+                                                fields:{}, suppliers:[], supplierId:'', contactId:'',
+                                                newSupplier:{ name:'', company:'', email:'', phone:'' },
+                                                fieldKeys:['date','service_label','property_address','seller_name','seller_email','seller_tel','purchaser_name','purchaser_tel','attorneys','rep_name','rep_email','rep_tel','keys_name','keys_tel','payer','notes'],
+                                                labels:{date:'Date',service_label:'Service',property_address:'Property',seller_name:'Seller',seller_email:'Seller email',seller_tel:'Seller tel',purchaser_name:'Purchaser',purchaser_tel:'Purchaser tel',attorneys:'Attorneys',rep_name:'Representative',rep_email:'Rep email',rep_tel:'Rep tel',keys_name:'Keys held by',keys_tel:'Keys tel',payer:'Invoice payer',notes:'Notes'},
+                                                wide:['property_address','attorneys','notes'],
+                                                get chosen(){ return this.suppliers.find(s => String(s.id) === String(this.supplierId)); },
+                                                get contacts(){ return this.chosen?.service_contacts || []; },
+                                                async load(){
+                                                    this.open=true; this.loading=true; this.err=''; this.ok='';
+                                                    try {
+                                                        const r = await fetch('{{ route('deals-v2.work-order.form', [$deal, $step]) }}', { headers:{'Accept':'application/json'}, credentials:'same-origin' });
+                                                        const j = await r.json();
+                                                        this.fields = j.fields || {}; this.suppliers = j.suppliers || [];
+                                                    } catch(e){ this.err='Could not load the work order form.'; }
+                                                    this.loading=false;
+                                                },
+                                                async send(){
+                                                    this.sending=true; this.err='';
+                                                    const body = { ...this.fields };
+                                                    if (this.supplierId === '__new__'){ Object.assign(body, { supplier_name:this.newSupplier.name, supplier_company:this.newSupplier.company, supplier_email:this.newSupplier.email, supplier_phone:this.newSupplier.phone }); }
+                                                    else { body.service_provider_id = this.supplierId; body.service_provider_contact_id = this.contactId || null; }
+                                                    try {
+                                                        const r = await fetch('{{ route('deals-v2.work-order.send', [$deal, $step]) }}', { method:'POST', headers:{'Content-Type':'application/json','Accept':'application/json','X-CSRF-TOKEN':'{{ csrf_token() }}'}, credentials:'same-origin', body: JSON.stringify(body) });
+                                                        const j = await r.json();
+                                                        if (r.ok && j.ok){ this.ok = j.message || 'Work order sent.'; setTimeout(()=>{ this.open=false; window.location.reload(); }, 1200); }
+                                                        else { this.err = j.message || 'Send failed.'; }
+                                                    } catch(e){ this.err='Send failed.'; }
+                                                    this.sending=false;
+                                                }
+                                             }">
+                                            <button type="button" @click="load()" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium"
+                                                    style="background: rgba(45,212,191,0.12); color: #2dd4bf; border: 1px solid rgba(45,212,191,0.3);">
+                                                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25m19.5 0v.243a2.25 2.25 0 0 1-1.07 1.916l-7.5 4.615a2.25 2.25 0 0 1-2.36 0L3.32 8.91a2.25 2.25 0 0 1-1.07-1.916V6.75"/></svg>
+                                                Send work order{{ $woStep->work_order_service_type ? ' — '.$woStep->work_order_service_type : '' }}
+                                            </button>
+
+                                            <div x-show="open" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4" style="background: rgba(0,0,0,0.55);" @click.self="open=false">
+                                                <div class="w-full max-w-2xl rounded-xl" style="background: var(--surface); border: 1px solid var(--border); max-height: 90vh; display:flex; flex-direction:column;">
+                                                    <div class="px-4 py-3 flex items-center justify-between" style="border-bottom: 1px solid var(--border);">
+                                                        <h3 class="font-semibold text-sm" style="color: var(--text-primary);">Send work order — {{ $step->name }}</h3>
+                                                        <button type="button" @click="open=false" class="text-lg leading-none" style="color: var(--text-muted);">&times;</button>
+                                                    </div>
+                                                    <div class="px-4 py-4 overflow-y-auto" style="flex:1;">
+                                                        <div x-show="loading" class="text-sm" style="color: var(--text-muted);">Loading…</div>
+                                                        <div x-show="!loading" class="space-y-3">
+                                                            <div>
+                                                                <label class="block text-xs mb-1" style="color: var(--text-muted);">Supplier (chosen at send — never pre-selected)</label>
+                                                                <select x-model="supplierId" class="w-full rounded-md text-sm px-3 py-1.5" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                                                                    <option value="">— pick a supplier —</option>
+                                                                    <template x-for="s in suppliers" :key="s.id"><option :value="s.id" x-text="s.name + (s.specialty ? ' ('+s.specialty+')' : '')"></option></template>
+                                                                    <option value="__new__">+ Capture a new supplier</option>
+                                                                </select>
+                                                            </div>
+                                                            <div x-show="supplierId === '__new__'" class="grid grid-cols-2 gap-2">
+                                                                <input x-model="newSupplier.name" placeholder="Supplier name" class="rounded-md text-sm px-3 py-1.5" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                                                                <input x-model="newSupplier.company" placeholder="Company (optional)" class="rounded-md text-sm px-3 py-1.5" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                                                                <input x-model="newSupplier.email" type="email" placeholder="Email" class="rounded-md text-sm px-3 py-1.5" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                                                                <input x-model="newSupplier.phone" placeholder="Phone (optional)" class="rounded-md text-sm px-3 py-1.5" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                                                            </div>
+                                                            <div x-show="supplierId && supplierId !== '__new__' && contacts.length">
+                                                                <label class="block text-xs mb-1" style="color: var(--text-muted);">Send to contact (primary by default)</label>
+                                                                <select x-model="contactId" class="w-full rounded-md text-sm px-3 py-1.5" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                                                                    <option value="">Firm email</option>
+                                                                    <template x-for="c in contacts" :key="c.id"><option :value="c.id" x-text="((c.contact_person||c.attorney_name||'Contact')) + (c.email ? ' — '+c.email : '')"></option></template>
+                                                                </select>
+                                                            </div>
+                                                            <div class="grid grid-cols-2 gap-2 pt-1" style="border-top: 1px solid var(--border);">
+                                                                <template x-for="key in fieldKeys" :key="key">
+                                                                    <div :class="wide.includes(key) ? 'col-span-2' : ''">
+                                                                        <label class="block text-xs mb-1 mt-1" style="color: var(--text-muted);" x-text="labels[key]"></label>
+                                                                        <input x-model="fields[key]" class="w-full rounded-md text-sm px-3 py-1.5" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                                                                    </div>
+                                                                </template>
+                                                            </div>
+                                                            <div x-show="err" x-text="err" class="text-xs" style="color: #f87171;"></div>
+                                                            <div x-show="ok" x-text="ok" class="text-xs" style="color: #34d399;"></div>
+                                                        </div>
+                                                    </div>
+                                                    <div class="px-4 py-3 flex items-center justify-end gap-2" style="border-top: 1px solid var(--border);">
+                                                        <button type="button" @click="open=false" class="px-3 py-1.5 rounded-lg text-xs" style="background: var(--surface-2); color: var(--text-secondary); border: 1px solid var(--border);">Cancel</button>
+                                                        <button type="button" @click="send()" :disabled="sending || (!supplierId)" class="px-4 py-1.5 rounded-lg text-xs font-medium" style="background: #2dd4bf; color: #04121f;" x-text="sending ? 'Sending…' : 'Send work order'"></button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    @endif
+
                                     {{-- Not started info --}}
                                     @if($step->status === 'not_started')
                                         @php $blockedLabel = $step->blockedByLabel(); @endphp

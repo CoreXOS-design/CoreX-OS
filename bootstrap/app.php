@@ -126,6 +126,11 @@ return Application::configure(basePath: dirname(__DIR__))
                 // Demo Access Control (AT-230) — authenticates THE demo instance to
                 // primary with the single universal connector. Not agency-scoped.
                 'demo.connector' => \App\Http\Middleware\EnsureDemoConnector::class,
+                // Webinars (AT-383) — authenticates THE CoreX marketing website to
+                // primary. A SEPARATE credential from demo.connector on purpose: that
+                // one opens demo sessions, and a public brochure site has no business
+                // holding it. Not agency-scoped either.
+                'site.connector' => \App\Http\Middleware\EnsureSiteConnector::class,
         ]);
 
         $middleware->validateCsrfTokens(except: [
@@ -203,6 +208,49 @@ return Application::configure(basePath: dirname(__DIR__))
             return redirect()
                 ->route('dashboard')
                 ->with('warning', 'Your session expired — please sign in and continue.');
+        });
+
+        // 2026-08-24 (Johan) — public-link resilience: "even on any 404 to a
+        // client it should go - Shucks, the x you are looking for is not
+        // longer valid - visit website / contact company." Two audiences,
+        // two views, chosen HERE in PHP rather than with a conditional
+        // @extends inside the Blade file — a conditional @auth/@extends/
+        // @else/@endauth was tried first and reproducibly leaked the
+        // authenticated app shell into every guest response: @extends
+        // compiles to a call Blade hoists to the END of the compiled
+        // output UNCONDITIONALLY, regardless of which textual branch it
+        // sits in (confirmed by inspecting the compiled PHP directly).
+        // Same match-on-HttpException-then-check-status-code shape as the
+        // 419 handler above, so 500 and any other status keep the
+        // default handling.
+        $exceptions->render(function (\Symfony\Component\HttpKernel\Exception\HttpException $e, $request) {
+            $status = $e->getStatusCode();
+            if ($status !== 404 && $status !== 403 && $status !== 410) {
+                return null;
+            }
+            if ($request->expectsJson()) {
+                return null; // JSON callers keep Laravel's normal JSON error shape
+            }
+            $isAuthed = auth()->check();
+            if ($status === 404) {
+                return response()->view($isAuthed ? 'errors.404-app' : 'errors.404-guest', [], 404);
+            }
+            if ($status === 410) {
+                // 2026-08-25 (Johan) — a plain abort(410) (e.g. deals-v2's secure-
+                // doc link, deliberately conflating unknown-vs-revoked at its own
+                // resolve() choke point so a prober can't tell the two apart —
+                // see SecureDocumentController::resolve()) used to fall through to
+                // Laravel's raw, unbranded 410. The 404-guest/404-app copy is
+                // ALREADY generic enough to cover "used to exist, doesn't any
+                // more" honestly (matches 410's actual meaning better than 404's,
+                // if anything) — reuse it rather than author a fourth dialect.
+                // A caller that needs to name a SPECIFIC reason (revoked/sold/
+                // deceased-etc.) still returns its own response()->view(...) 410
+                // directly, which never reaches this callback at all (only a
+                // THROWN abort(410) does) — that path is untouched by this.
+                return response()->view($isAuthed ? 'errors.404-app' : 'errors.404-guest', [], 410);
+            }
+            return response()->view($isAuthed ? 'errors.403-app' : 'errors.403-guest', [], 403);
         });
 
         $exceptions->reportable(function (\Throwable $e) {

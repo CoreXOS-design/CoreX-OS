@@ -7,6 +7,7 @@ use App\Models\Property;
 use App\Models\Prospecting\TrackedProperty;
 use App\Support\MarketAnalytics\HaversineDistance;
 use App\Support\Presentations\CompFingerprint;
+use App\Support\Presentations\SubjectFieldCompleteness;
 use App\Support\Presentations\SubjectReportResolver;
 use App\Support\Presentations\SuburbMatcher;
 use Carbon\Carbon;
@@ -53,6 +54,14 @@ class CmaCoverageService
             periodMonths: $periodMonths,
             subjectIsDemo: (bool) ($property->is_demo ?? false),
             subjectAddress: (string) ($property->address ?? ''),
+            // 2026-08-20 — Johan: the badge and the pre-generate warning
+            // "must be incapable of disagreeing". Same
+            // SubjectFieldCompleteness the warning uses — not a second
+            // copy of the rule. TrackedProperty (scoreForTrackedProperty
+            // below) is deliberately NOT wired to this — it's a
+            // prospecting-stage record with different field semantics,
+            // out of scope for this fix.
+            missingSubjectInputs: SubjectFieldCompleteness::missingSoftInputs($property),
         );
     }
 
@@ -88,6 +97,7 @@ class CmaCoverageService
         ?int $periodMonths,
         bool $subjectIsDemo = false,
         string $subjectAddress = '',
+        array $missingSubjectInputs = [],
     ): array {
         $thresholds = $this->thresholdsForAgency($agencyId);
         $window     = $periodMonths ?? $thresholds['period_months'];
@@ -101,13 +111,32 @@ class CmaCoverageService
 
         $compCount = $this->countComps($suburb, $window, $thresholds['scope'], $thresholds['radius_m'], $subjectLat, $subjectLng, $subjectIsDemo, $agencyId, $subjectReportIds);
 
-        $state = match (true) {
+        $marketState = match (true) {
             $compCount === 0                       => self::STATE_NONE,
             $compCount >= $thresholds['rich']      => self::STATE_RICH,
             $compCount >= $thresholds['moderate']  => self::STATE_MODERATE,
             $compCount >= $thresholds['thin']      => self::STATE_THIN,
             default                                => self::STATE_NONE,
         };
+
+        // 2026-08-20 — Johan: "the state/label must NEVER read 'Strong'
+        // while missingSoftInputs() is non-empty. Cap the badge one tier
+        // down." comp_count itself is left untouched below — that number
+        // is real and useful (the surrounding MARKET has data) — only the
+        // STATE LABEL, which an agent reads as "will this presentation be
+        // good", gets capped when the SUBJECT's own record is incomplete.
+        // Never caps down to NONE (which would flip can_generate false) —
+        // that state means "zero market comps exist" and is unrelated to
+        // subject completeness; capping into it here would silently gate
+        // generation, which Johan was explicit must not happen.
+        $state = $marketState;
+        if (!empty($missingSubjectInputs)) {
+            $state = match ($marketState) {
+                self::STATE_RICH     => self::STATE_MODERATE,
+                self::STATE_MODERATE => self::STATE_THIN,
+                default              => $marketState, // thin/none already at the floor
+            };
+        }
 
         // AT-22 §1.5 — the robust market anchor for the Generate modal's
         // "Suggestion based on suburb data" field. This is the cleaned,
@@ -133,8 +162,12 @@ class CmaCoverageService
                 'moderate' => $thresholds['moderate'],
                 'thin'     => $thresholds['thin'],
             ],
+            // Never gated by subject completeness — a warning, not a gate
+            // (Johan, explicit). Only a genuine zero-market-comps state
+            // (unrelated to this fix) blocks generation.
             'can_generate'    => $state !== self::STATE_NONE,
-            'recommendation'  => $this->recommendation($state, $compCount, $thresholds),
+            'missing_subject_inputs' => $missingSubjectInputs,
+            'recommendation'  => $this->recommendation($state, $compCount, $thresholds, $missingSubjectInputs),
         ];
     }
 
@@ -470,11 +503,31 @@ class CmaCoverageService
         ];
     }
 
-    private function recommendation(string $state, int $compCount, array $thresholds): string
+    /**
+     * @param  string[]  $missingSubjectInputs
+     */
+    private function recommendation(string $state, int $compCount, array $thresholds, array $missingSubjectInputs = []): string
     {
         $scopeLabel = $thresholds['scope'] === self::SCOPE_RADIUS_ALL
             ? sprintf('within %dm', $thresholds['radius_m'])
             : 'suburb-only';
+
+        // 2026-08-20 — Johan: "merge both facts into ONE sentence rather
+        // than two that contradict each other." comp_count stays honest
+        // (the market fact); the subject's own incompleteness is named
+        // explicitly in the SAME sentence, not a second, separately-read
+        // banner the agent has to reconcile themselves.
+        if (!empty($missingSubjectInputs)) {
+            $fields = SubjectFieldCompleteness::joinNames($missingSubjectInputs);
+            return sprintf(
+                '%d comparable sale%s found nearby (%s), but this property is missing %s — the presentation will be far less accurate until %s set.',
+                $compCount,
+                $compCount === 1 ? '' : 's',
+                $scopeLabel,
+                $fields,
+                count($missingSubjectInputs) === 1 ? "it's" : "they're",
+            );
+        }
 
         return match ($state) {
             self::STATE_RICH     => sprintf('Strong data — %d recent comparable sales (%s).', $compCount, $scopeLabel),

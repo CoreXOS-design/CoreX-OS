@@ -41,8 +41,15 @@ class CdsRendererService
             'paragraph' => $this->renderParagraph($section),
             'table' => $this->renderTable($section),
             'title' => $this->renderTitle($section),
-            'company_header' => $this->renderTable($section), // Render as table — no separate @include needed
-            'signature_section' => $this->renderSignatureSection($section),
+            // AT-177 (on-site 2026-07-18) — STRIP the source doc's own letterhead and end
+            // signature block. CoreX ALWAYS frames the generated template with its own
+            // company-header and signature-block components (TemplateController::generateCdsBladeView
+            // lines 953 / 980), so rendering the source's here produced a DOUBLE header and a
+            // DOUBLE signature block. The source structural frame is replaced, never appended to.
+            // (Mid-document inline_signature blocks and the D4 "__ / Signature" acknowledgement
+            // placeholders are a DIFFERENT type and still render — only the whole-doc frame is stripped.)
+            'company_header' => '',
+            'signature_section' => '',
             'inline_signature' => $this->renderInlineSignature($section),
             'page_initials' => $this->renderPageInitials($section),
             'label_value_group' => $this->renderLabelValueGroup($section),
@@ -150,8 +157,24 @@ class CdsRendererService
 
             // signature_placeholder from markers (%%%%)
             if (($item['type'] ?? '') === 'signature_placeholder') {
+                // AT-177 D4 — carry a server-suggested party roster / variant (from the
+                // "____ / Signature" acknowledgement detector) so the builder pre-binds the
+                // sig tag to Seller + Agent, sig_only, out of the box.
+                $sigExtra = '';
+                if (! empty($item['suggested_parties']) && is_array($item['suggested_parties'])) {
+                    $labels = collect($item['suggested_parties'])
+                        ->map(fn ($p) => $p['label'] ?? $p['role'] ?? '')
+                        ->filter()
+                        ->implode(',');
+                    if ($labels !== '') {
+                        $sigExtra .= ' data-sig-parties="' . e($labels) . '"';
+                    }
+                }
+                if (! empty($item['suggested_variant'])) {
+                    $sigExtra .= ' data-sig-variant="' . e($item['suggested_variant']) . '"';
+                }
                 $html .= '<span class="corex-field" '
-                    . 'data-marker-type="signature" '
+                    . 'data-marker-type="signature"' . $sigExtra . ' '
                     . 'style="background:#fffbeb;border-color:#f59e0b;">'
                     . '<span class="corex-field-label">SIGNATURE</span>'
                     . '</span>';
@@ -165,6 +188,29 @@ class CdsRendererService
                     . 'style="background:#ecfdf5;border-color:#22c55e;">'
                     . '<span class="corex-field-label">INITIAL</span>'
                     . '</span>';
+                continue;
+            }
+
+            // AT-262 — a CUSTOM-NAMED insertable marker (~~~~Seller - Full name~~~~) is
+            // a bindable FIELD with a human label — that is the entire point of the
+            // named-marker syntax. Render it as a field chip so it appears on the
+            // canvas and can be bound, exactly like a @@@@ field_placeholder. Built-in
+            // insertable blocks (OTHER_CONDITIONS / INCLUDED_ITEMS / EXCLUDED_ITEMS)
+            // are agent-editable AREAS, not fields — their compile-time behaviour is
+            // left untouched (they are not rendered as a chip here).
+            if (($item['type'] ?? '') === 'insertable_block_placeholder') {
+                if (($item['purpose'] ?? '') === 'custom_named') {
+                    $label = $item['custom_label'] ?? $item['raw_token'] ?? 'FIELD';
+                    $fieldName = $item['block_id'] ?? '';
+                    $html .= '<span class="corex-field" '
+                        . 'data-field-name="' . e($fieldName) . '" '
+                        . 'data-field-type="text" '
+                        . 'data-field-label="' . e($label) . '" '
+                        . 'data-confidence="high" '
+                        . 'style="border-color:#22c55e;">'
+                        . '<span class="corex-field-label">' . e($label) . '</span>'
+                        . '</span>';
+                }
                 continue;
             }
 

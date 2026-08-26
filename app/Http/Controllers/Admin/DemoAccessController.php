@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\DemoAccessGrant;
 use App\Models\DemoConnector;
 use App\Models\DemoTncVersion;
+use App\Models\SiteConnector;
 use App\Services\Demo\DemoAccessService;
 use App\Support\DemoResetSchedule;
 use App\Support\Instance;
@@ -292,6 +293,11 @@ class DemoAccessController extends Controller
             'plainToken' => session('demo_connector_token'),
             'apiBase'    => rtrim(config('app.url'), '/'),
             'isDemoHost' => Instance::isDemo(),
+
+            // The SECOND credential on this page: the CoreX marketing website's
+            // (AT-383). Separate table, separate lifecycle — see SiteConnector.
+            'siteConnector'  => SiteConnector::current(),
+            'sitePlainToken' => session('site_connector_token'),
         ]);
     }
 
@@ -346,6 +352,61 @@ class DemoAccessController extends Controller
         $connector->revoke();
 
         return back()->with('status', 'Connector revoked. The demo can no longer reach this instance — nobody can sign in to the demo until a new connector is issued and pasted in.');
+    }
+
+    // ---- CoreX website connector (AT-383) ----------------------------------
+    //
+    // A SECOND credential, surfaced on the same page because "tokens other systems
+    // use to reach CoreX" is one job. It is a separate table and a separate lifecycle
+    // on purpose: the demo connector opens demo SESSIONS, and the public marketing
+    // site has no business holding that. Rotating one never disturbs the other.
+    //
+    // Spec: .ai/specs/webinar-registration.md §3.3
+
+    /**
+     * POST /admin/dev-settings/demo-access/site-connection
+     *
+     * Mint (or rotate) the website connector. The plaintext is shown ONCE — the row
+     * holds sha256 only, so it cannot be recovered afterwards.
+     *
+     * Rotation revokes the previous token in the same breath, which means webinar
+     * registration on the website breaks IMMEDIATELY until the new token is pasted in.
+     * That is the correct behaviour for a credential you are rotating because it
+     * leaked, and the page says so before you click.
+     */
+    public function mintSiteConnector(Request $request)
+    {
+        $this->assertOwner();
+
+        $data = $request->validate([
+            'name' => ['nullable', 'string', 'max:100'],
+        ]);
+
+        [$connector, $plaintext] = SiteConnector::mint(
+            $data['name'] ?? 'CoreX Website',
+            Auth::id()
+        );
+
+        return redirect()
+            ->route('admin.demo-access.connection')
+            ->with('site_connector_token', $plaintext)
+            ->with('status', "Website token '{$connector->name}' created. Send it to whoever runs the CoreX website — it is shown once.");
+    }
+
+    /** POST /admin/dev-settings/demo-access/site-connection/revoke */
+    public function revokeSiteConnector()
+    {
+        $this->assertOwner();
+
+        $connector = SiteConnector::current();
+
+        if (! $connector) {
+            return back()->withErrors(['site_connector' => 'There is no active website token to revoke.']);
+        }
+
+        $connector->revoke();
+
+        return back()->with('status', 'Website token revoked. The CoreX website can no longer take webinar registrations until a new token is issued and pasted in.');
     }
 
     // ---- Reset -------------------------------------------------------------

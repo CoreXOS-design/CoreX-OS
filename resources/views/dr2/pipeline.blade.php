@@ -41,20 +41,105 @@
        the other, and the page does not scroll the columns off. */
     .dr2-pipe-col { height: calc(100vh - 9.5rem); min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding-right: .35rem; }
 }
+/* AT-331 — tabbed right panel. Scoped here (no Tailwind, no CSS rebuild on qa1). */
+.dr2-tabbar { display:flex; gap:.25rem; padding:.3rem; background:var(--surface-2,#f0f2f8);
+    border:1px solid var(--border,rgba(0,0,0,.08)); border-radius:12px; margin-bottom:.85rem;
+    position:sticky; top:0; z-index:3; }
+.dr2-tab { flex:1; border:0; background:transparent; color:var(--text-muted,#6b7280);
+    font-family:inherit; font-size:.76rem; font-weight:600; line-height:1.15; padding:.5rem .3rem;
+    border-radius:9px; cursor:pointer; transition:background .15s,color .15s;
+    display:flex; align-items:center; justify-content:center; gap:.35rem; text-align:center; }
+.dr2-tab:hover { color:var(--text-primary,#111827); }
+.dr2-tab.corex-tab-active { background:var(--brand-button,#0ea5e9); color:#fff; box-shadow:0 1px 3px rgba(2,20,40,.18); }
+.dr2-tab:focus-visible { outline:2px solid var(--brand-button,#0ea5e9); outline-offset:2px; }
+/* Standard collapse/expand section header. */
+.dr2-sect-head { display:flex; align-items:center; gap:.5rem; width:100%; border:0; background:transparent;
+    color:var(--text-primary,#111827); font-family:inherit; cursor:pointer; padding:0; text-align:left; }
+.dr2-sect-title { font-size:.9rem; font-weight:700; text-transform:uppercase; letter-spacing:.05em; color:var(--text-muted,#6b7280); }
+.dr2-chev { transition:transform .2s; color:var(--text-muted,#9ca3af); font-size:.85rem; line-height:1; }
+.dr2-chev.dr2-chev-closed { transform:rotate(-90deg); }
+
+/* AT-334 concurrent-lane board (new-model deals). Scoped here — no Tailwind, no CSS rebuild on qa1. */
+.dr2-stage-h { margin:.9rem .15rem .35rem; font-size:.78rem; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:#374151; }
+.dr2-stage-h span { display:block; font-weight:400; text-transform:none; letter-spacing:0; font-size:.72rem; color:#9ca3af; }
+.dr2-tile { width:200px; min-height:172px; box-sizing:border-box; display:flex; flex-direction:column;
+    border:1px solid var(--corex-border,#e5e7eb); border-radius:10px; padding:.5rem .55rem; background:var(--surface,#fff); position:relative; }
+.dr2-tile--wide { width:100%; }
+.dr2-tile--gate { background:#fffbeb; border:1px solid #fcd34d; }
+.dr2-tile--done { opacity:.62; filter:grayscale(.3); }
+.dr2-tile--na { opacity:.6; }
+.dr2-tile--warn { border-left:3px solid #dc2626; background:#fef2f2; }
+.dr2-tile.dr2-drop-ok { outline:2px dashed #2563eb; outline-offset:2px; }
+.dr2-tile__head { display:flex; align-items:flex-start; gap:.35rem; }
+.dr2-tile__grip { cursor:grab; color:#cbd5e1; font-size:.8rem; line-height:1.1; user-select:none; }
+.dr2-tile__rag { flex:0 0 auto; width:.6rem; height:.6rem; border-radius:50%; margin-top:.18rem; }
+.dr2-tile__name { flex:1 1 auto; font-weight:700; font-size:.82rem; line-height:1.15; color:#111827; word-break:break-word; }
+.dr2-tile__name--done { font-weight:600; text-decoration:line-through; text-decoration-color:rgba(0,0,0,.28); color:#374151; }
+.dr2-tile__name--na { text-decoration:line-through; }
+.dr2-tile__check { color:#047857; font-weight:800; margin-right:.1rem; }
+.dr2-tile__tags { display:flex; flex-wrap:wrap; gap:.25rem; margin:.25rem 0 0; min-height:.9rem; }
+.dr2-tag { font-size:.66rem; padding:0 .3rem; border-radius:.5rem; line-height:1.4; }
+.dr2-tag--off { color:#9ca3af; background:#f3f4f6; }
+.dr2-tag--ms { color:#b45309; }
+.dr2-tag--custom { color:#2563eb; }
+.dr2-tile__meta { display:flex; align-items:center; justify-content:space-between; gap:.35rem; margin:.3rem 0 .1rem; }
+.dr2-tile__date { font-size:.72rem; color:#6b7280; white-space:nowrap; }
+.dr2-tile__badge { font-size:.66rem; padding:.1rem .45rem; border-radius:1rem; white-space:nowrap; }
+.dr2-tile__gatenote { font-size:.7rem; color:#92400e; margin:.15rem 0; }
+.dr2-tile__warnnote { font-size:.7rem; font-weight:600; color:#b91c1c; margin:.15rem 0; }
+.dr2-tile__sub { font-size:.7rem; color:#6b7280; margin:.15rem 0; }
+.dr2-tile__btns { margin-top:auto; display:grid; grid-template-columns:repeat(3,1fr); gap:.22rem; padding-top:.4rem; }
+.dr2-tile__btns form { display:block; margin:0; }
+.dr2-bt { display:block; width:100%; box-sizing:border-box; text-align:center; font-family:inherit; font-size:.68rem;
+    line-height:1.1; padding:.28rem .1rem; border:1px solid var(--corex-border,#e5e7eb); border-radius:6px;
+    background:#fff; color:#374151; cursor:pointer; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.dr2-bt:hover { background:#f9fafb; }
+.dr2-bt--go { color:#047857; border-color:#6ee7b7; }
+.dr2-bt--danger { color:#b91c1c; }
+.dr2-bt--dis { color:#c7cdd6; background:#fafbfc; cursor:not-allowed; }
+.dr2-band { margin:.4rem 0; border:1px dashed #cbd5e1; border-radius:10px; padding:.55rem .5rem; position:relative; }
+.dr2-band__tag { position:absolute; top:-.6rem; left:.7rem; background:var(--surface,#fff); padding:0 .35rem; font-size:.66rem; color:#94a3b8; letter-spacing:.03em; }
+.dr2-band__lanes { display:flex; gap:.5rem; overflow-x:auto; padding-bottom:.15rem; align-items:flex-start; }
+.dr2-lane { display:flex; flex-direction:column; align-items:stretch; gap:.15rem; flex:0 0 auto; }
+.dr2-lane__link { text-align:center; color:#cbd5e1; font-size:.7rem; line-height:.7; }
+.dr2-band__drop { font-size:.68rem; color:#94a3b8; border:1px dashed #d1d5db; border-radius:7px; padding:.25rem .5rem; margin-bottom:.4rem; text-align:center; }
+.dr2-band__drop.dr2-drop-ok { border-color:#2563eb; color:#2563eb; background:#eff6ff; }
+.dr2-tile.dr2-dragging { opacity:.5; }
+.dr2-tile__grip { cursor:grab; }
+.dr2-tile__grip:active { cursor:grabbing; }
+.dr2-seq { position:relative; padding-left:.55rem; margin:.4rem 0; }
+.dr2-seq__rail { position:absolute; left:0; top:.15rem; bottom:.15rem; width:4px; border-radius:3px; background:#2563eb; }
+.dr2-modal { position:fixed; inset:0; z-index:120; display:flex; align-items:center; justify-content:center; padding:1rem; }
+.dr2-modal__bg { position:absolute; inset:0; background:rgba(15,23,42,.4); }
+.dr2-modal__card { position:relative; z-index:1; background:var(--surface,#fff); border-radius:12px; padding:1rem 1.1rem; width:min(420px,92vw); box-shadow:0 10px 40px rgba(2,20,40,.28); }
+.dr2-modal__card--wide { width:min(560px,94vw); }
+.dr2-modal__h { margin:0 0 .7rem; font-size:.95rem; font-weight:700; color:#111827; }
+.dr2-modal__lb { display:block; font-size:.78rem; color:#374151; margin-bottom:.55rem; }
+.dr2-modal__row { display:flex; justify-content:flex-end; gap:.5rem; margin-top:.9rem; }
+.dr2-modal__cmform { display:flex; gap:.4rem; flex-wrap:wrap; margin-top:.5rem; }
+.dr2-modal__thread { max-height:38vh; overflow-y:auto; border:1px solid var(--corex-border,#e5e7eb); border-radius:8px; padding:.5rem; }
+.dr2-cmt { font-size:.8rem; margin-bottom:.35rem; color:#374151; }
+.dr2-cmt__by { color:#9ca3af; font-size:.72rem; }
+.dr2-cmt__empty { font-size:.78rem; color:#9ca3af; }
 </style>
-<div class="w-full corex-page dr2-pipeline">
-    <div class="rounded-md px-6 py-5 corex-page-banner">
-        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-            <div>
-                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Deal Pipeline</h1>
-                <p class="text-xs" style="color: var(--text-muted);">
-                    Deal {{ $deal->deal_no ?? $deal->id }}
-                    @if($deal->property_address) — {{ $deal->property_address }} @endif
-                </p>
+<div class="corex-page">
+    <div class="corex-page-header" style="display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;flex-wrap:wrap;">
+        <div>
+            <h1 class="corex-page-title">Deal Pipeline</h1>
+            <p class="corex-page-subtitle">
+                Deal {{ $deal->deal_no ?? $deal->id }}
+                @if($deal->property_address) — {{ $deal->property_address }} @endif
+            </p>
+        </div>
+        <div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;">
+            {{-- Pipeline Dashboard — view toggle. The board is the classic view; Timeline (Gantt) and
+                 List are the two new views over the same steps. Shown so every entry can reach them. --}}
+            <div style="display:inline-flex;border:1px solid var(--corex-border,#e5e7eb);border-radius:.5rem;overflow:hidden;font-size:.8rem;">
+                <span style="padding:.4rem .8rem;background:#111827;color:#fff;font-weight:600;">Board</span>
+                <a href="{{ route('deals-dr2.pipeline.timeline', $deal) }}" style="padding:.4rem .8rem;color:#374151;text-decoration:none;">Timeline</a>
+                <a href="{{ route('deals-dr2.pipeline.list', $deal) }}" style="padding:.4rem .8rem;color:#374151;text-decoration:none;">List</a>
             </div>
-            <div class="flex flex-wrap items-center gap-2">
-                <a href="{{ route('deals-dr2.index') }}" class="corex-btn-outline text-xs shrink-0">← DR2 Register</a>
-            </div>
+            <a href="{{ route('deals-dr2.index') }}" class="corex-btn-secondary">← DR2 Register</a>
         </div>
     </div>
 
@@ -155,123 +240,106 @@
                 <span x-show="hideDone" x-cloak style="font-size:.72rem;color:#6b7280;">({{ $completedCount }} hidden)</span>
             </div>
             @endif
-            @foreach($steps as $row)
-                @php($s = $row['model'])
-                @php($badge = $row['na'] ? ['N/A', '#6b7280', '#f3f4f6'] : ($statusStyles[$s->status] ?? [ucfirst($s->status), '#6b7280', '#f3f4f6']))
-                @php($terminal = in_array($s->status, ['completed', 'skipped'], true))
-                <div x-data="{ na:false, cm:false, due:false }"@if($terminal) x-show="!hideDone" x-cloak @endif style="border-bottom:1px solid var(--border);padding:.4rem .25rem;{{ $row['na'] ? 'opacity:.6;' : '' }}">
+            @php($rowById = $steps->keyBy(fn ($r) => (int) $r['model']->id))
+            @if(($isNewModel ?? false) && !empty($board) && ($board['gate'] || !empty($board['stage2']) || !empty($board['stage1']) || $board['anchor']))
+                {{-- AT-334 (concurrent-lanes rework) — CLEAN LANE BOARD (new-model deals):
+                     Anchor → Stage 1 condition lanes → Granted GATE (full-width bar) → Stage 2
+                     (full-width SEQUENCE POINTS + dashed CONCURRENT BANDS of vertical-chain
+                     lanes). Every step is a UNIFORM tile with the fixed 3×2 button grid.
+                     Segment structure comes from DealLaneComposer. --}}
+              <div id="dr2-lane-board">
+                @if($board['anchor'] && $rowById->has($board['anchor']->id))
+                    @include('dr2._pipeline-step-tile', ['row' => $rowById[$board['anchor']->id], 'variant' => 'wide'])
+                @endif
 
-                    {{-- ONE-LINER: dot · name(+tags) · due · badge · compact inline actions --}}
-                    <div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;">
-                        <span title="{{ ucfirst($row['rag']) }}" style="flex:0 0 auto;display:inline-block;width:.65rem;height:.65rem;border-radius:50%;background:{{ $row['colour'] }};"></span>
+                @if(!empty($board['stage1']))
+                    <div class="dr2-stage-h">Stage 1 · Suspensive Conditions<span>all must be met to grant · run in parallel</span></div>
+                    @include('dr2._pipeline-segments', ['segments' => $board['stage1'], 'rowById' => $rowById])
+                @endif
 
-                        <span style="flex:1 1 200px;min-width:0;{{ $row['na'] ? 'text-decoration:line-through;' : '' }}white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
-                            <strong style="font-size:.9rem;">{{ $s->name }}</strong>
-                            @if($s->is_milestone)<span title="Milestone" style="font-size:.7rem;color:#b45309;margin-left:.35rem;">◆ milestone</span>@endif
-                            @if($s->is_custom)<span title="Custom step" style="font-size:.7rem;color:#2563eb;margin-left:.35rem;">+ custom</span>@endif
-                        </span>
+                @if($board['gate'] && $rowById->has($board['gate']->id))
+                    @include('dr2._pipeline-step-tile', ['row' => $rowById[$board['gate']->id], 'variant' => 'gate'])
+                @endif
 
-                        <span style="flex:0 0 auto;font-size:.78rem;color:#6b7280;white-space:nowrap;">{{ $s->due_date ? \Illuminate\Support\Carbon::parse($s->due_date)->format('d M Y') : '—' }}</span>
+                @if(!empty($board['stage2']))
+                    <div class="dr2-stage-h">Stage 2 · Transfer &amp; Registration<span>runs once granted · sequence points span the width; concurrent work sits in lanes</span></div>
+                    @include('dr2._pipeline-segments', ['segments' => $board['stage2'], 'rowById' => $rowById])
+                @endif
+              </div>
+              @unless($locked)
+              {{-- AT-334 Stage D — native HTML5 drag-to-relink. Drag a tile by its ⠿ grip onto
+                   another tile (→ follows that step) or onto a band's concurrent strip (→ runs
+                   concurrently there). Posts the predecessor SET to the follows endpoint, which
+                   re-cascades dates + reorders, then the page reloads. No library. --}}
+              <script>
+              (function () {
+                  var board = document.getElementById('dr2-lane-board');
+                  if (!board) return;
+                  var dragged = null; // the tile element being dragged
 
-                        <span style="flex:0 0 auto;display:inline-block;padding:.12rem .5rem;border-radius:1rem;font-size:.7rem;color:{{ $badge[1] }};background:{{ $badge[2] }};">{{ $badge[0] }}</span>
-
-                        {{-- Compact inline actions (all functionality preserved) --}}
-                        <div style="flex:1 1 auto;display:inline-flex;gap:.3rem;flex-wrap:wrap;align-items:center;justify-content:flex-end;">
-                        @unless($locked)
-                        @if($s->status === 'active')
-                            @permission('view_deals')
-                            <form method="POST" action="{{ route('deals-dr2.pipeline.step.complete', [$deal, $s]) }}">@csrf
-                                <button type="submit" class="corex-btn-outline" style="padding:.12rem .5rem;font-size:.72rem;">Mark complete</button>
-                            </form>
-                            @endpermission
-                        @endif
-                        @unless($terminal)
-                            @permission('view_deals')
-                            <button type="button" class="corex-btn-outline" style="padding:.12rem .5rem;font-size:.72rem;" @click="na = !na">N/A</button>
-                            @endpermission
-                        @endunless
-                        @if($row['na'])
-                            @permission('view_deals')
-                            <form method="POST" action="{{ route('deals-dr2.pipeline.step.reinstate', [$deal, $s]) }}">@csrf
-                                <button type="submit" class="corex-btn-outline" style="padding:.12rem .5rem;font-size:.72rem;">Reinstate</button>
-                            </form>
-                            @endpermission
-                        @endif
-                        @permission('view_deals')
-                        <button type="button" class="corex-btn-outline" style="padding:.12rem .5rem;font-size:.72rem;" @click="due = !due">Edit due</button>
-                        @endpermission
-                        @permission('view_deals')
-                        <form method="POST" action="{{ route('deals-dr2.pipeline.step.remove', [$deal, $s]) }}" onsubmit="return confirm('Remove this step? It is archived, not deleted.');">@csrf
-                            <button type="submit" class="corex-btn-outline" style="padding:.12rem .5rem;font-size:.72rem;color:#b91c1c;">Remove</button>
-                        </form>
-                        @endpermission
-                        @endunless
-
-                        {{-- Comments survive the lock (history-keeping, not a transition). --}}
-                        @permission('view_deals')
-                        <button type="button" class="corex-btn-outline" style="padding:.12rem .5rem;font-size:.72rem;" @click="cm = !cm">Comments ({{ $s->comments->count() }})</button>
-                        @endpermission
-
-                        </div>{{-- /compact inline actions --}}
-                    </div>{{-- /one-liner --}}
-
-                    {{-- Secondary context (blocked reason / excused note) — only when present --}}
-                    @if($row['blocked'])<div style="font-size:.73rem;color:#6b7280;margin:.2rem 0 0 1.15rem;">{{ $row['blocked'] }}</div>@endif
-                    @if($row['na'] && $s->na_reason)<div style="font-size:.73rem;color:#6b7280;margin:.2rem 0 0 1.15rem;">Excused: {{ $s->na_reason }}</div>@endif
-
-                    {{-- N/A reason form --}}
-                    @unless($terminal || $locked)
-                    <div x-show="na" x-cloak style="margin:.4rem 0 0 1.15rem;">
-                        <form method="POST" action="{{ route('deals-dr2.pipeline.step.na', [$deal, $s]) }}" style="display:flex;gap:.4rem;flex-wrap:wrap;">@csrf
-                            <input type="text" name="reason" placeholder="Why is this step not applicable? (e.g. no gas on the property)" class="corex-input" style="flex:1 1 260px;font-size:.8rem;">
-                            <button type="submit" class="corex-btn-outline" style="padding:.2rem .7rem;font-size:.78rem;">Mark N/A</button>
-                        </form>
-                    </div>
-                    @endunless
-
-                    {{-- R2 — inline due-date edit (RAG recalcs off the edited date) --}}
-                    @unless($locked)
-                    @permission('view_deals')
-                    <div x-show="due" x-cloak style="margin:.4rem 0 0 1.15rem;">
-                        <form method="POST" action="{{ route('deals-dr2.pipeline.step.due', [$deal, $s]) }}" style="display:flex;gap:.4rem;flex-wrap:wrap;align-items:center;">@csrf
-                            <input type="date" name="due_date" value="{{ $s->due_date ? \Illuminate\Support\Carbon::parse($s->due_date)->format('Y-m-d') : '' }}" class="corex-input" style="font-size:.8rem;">
-                            <button type="submit" class="corex-btn-outline" style="padding:.2rem .7rem;font-size:.78rem;">Save due date</button>
-                        </form>
-                    </div>
-                    @endpermission
-                    @endunless
-
-                    {{-- Comment thread --}}
-                    <div x-show="cm" x-cloak style="margin:.5rem 0 0 1.15rem;">
-                        @forelse($s->comments as $c)
-                            <div style="font-size:.8rem;margin-bottom:.35rem;">
-                                <span style="color:var(--text-secondary);">{{ $c->body }}</span>
-                                <span style="color:var(--text-faint);font-size:.72rem;"> — {{ $c->user->name ?? 'Someone' }}, {{ $c->created_at?->format('d M H:i') }}</span>
-                            </div>
-                        @empty
-                            <div style="font-size:.78rem;color:var(--text-faint);margin-bottom:.35rem;">No comments yet.</div>
-                        @endforelse
-                        @permission('view_deals')
-                        <form method="POST" action="{{ route('deals-dr2.pipeline.step.comment', [$deal, $s]) }}" style="display:flex;gap:.4rem;flex-wrap:wrap;">@csrf
-                            <input type="text" name="body" placeholder="Add a note for this step…" required class="corex-input" style="flex:1 1 260px;font-size:.8rem;">
-                            <button type="submit" class="corex-btn-outline" style="padding:.2rem .7rem;font-size:.78rem;">Post</button>
-                        </form>
-                        {{-- AT-225/226 — attach a document to THIS step (gas CoC → gas step); files to deal+property+contacts too. --}}
-                        @unless($locked)
-                        <form method="POST" action="{{ route('deals-dr2.documents.store', $deal) }}" enctype="multipart/form-data" style="display:flex;gap:.4rem;flex-wrap:wrap;margin-top:.4rem;">@csrf
-                            <input type="hidden" name="pipeline_step_id" value="{{ $s->id }}">
-                            <input type="file" name="file" required class="corex-input" style="flex:1 1 240px;font-size:.78rem;">
-                            <button type="submit" class="corex-btn-outline" style="padding:.2rem .7rem;font-size:.78rem;">Attach document to this step</button>
-                        </form>
-                        @endunless
-                        @endpermission
-                    </div>
-                </div>
-            @endforeach
+                  board.addEventListener('mousedown', function (e) {
+                      var tile = e.target.closest('.dr2-tile');
+                      // Only the grip arms a tile for dragging (buttons/text stay selectable).
+                      board.querySelectorAll('.dr2-tile[draggable="true"]').forEach(function (t) { t.setAttribute('draggable', 'false'); });
+                      if (tile && e.target.closest('.dr2-tile__grip')) tile.setAttribute('draggable', 'true');
+                  });
+                  board.addEventListener('dragstart', function (e) {
+                      var tile = e.target.closest('.dr2-tile');
+                      if (!tile || tile.getAttribute('draggable') !== 'true') { e.preventDefault(); return; }
+                      dragged = tile;
+                      tile.classList.add('dr2-dragging');
+                      e.dataTransfer.effectAllowed = 'move';
+                      try { e.dataTransfer.setData('text/plain', tile.dataset.stepId); } catch (_) {}
+                  });
+                  board.addEventListener('dragover', function (e) {
+                      var t = e.target.closest('[data-drop-follows]');
+                      if (!t || !dragged) return;
+                      if (t.dataset.dropFollows === dragged.dataset.stepId) return; // no self
+                      e.preventDefault();
+                      e.dataTransfer.dropEffect = 'move';
+                      t.classList.add('dr2-drop-ok');
+                  });
+                  board.addEventListener('dragleave', function (e) {
+                      var t = e.target.closest('[data-drop-follows]');
+                      if (t) t.classList.remove('dr2-drop-ok');
+                  });
+                  board.addEventListener('drop', function (e) {
+                      var t = e.target.closest('[data-drop-follows]');
+                      if (!t || !dragged) return;
+                      e.preventDefault();
+                      t.classList.remove('dr2-drop-ok');
+                      var followsId = t.dataset.dropFollows;
+                      if (!followsId || followsId === dragged.dataset.stepId) return;
+                      var tokenEl = document.querySelector('input[name="_token"]');
+                      var f = document.createElement('form');
+                      f.method = 'POST';
+                      f.action = dragged.dataset.followsUrl;
+                      f.style.display = 'none';
+                      f.innerHTML =
+                          '<input type="hidden" name="_token" value="' + (tokenEl ? tokenEl.value : '') + '">' +
+                          '<input type="hidden" name="follows" value="' + followsId + '">' +
+                          '<input type="hidden" name="offset" value="' + (dragged.dataset.offset || 0) + '">' +
+                          '<input type="hidden" name="depends_on[]" value="' + followsId + '">';
+                      document.body.appendChild(f);
+                      f.submit();
+                  });
+                  board.addEventListener('dragend', function () {
+                      if (dragged) { dragged.classList.remove('dr2-dragging'); dragged.setAttribute('draggable', 'false'); }
+                      board.querySelectorAll('.dr2-drop-ok').forEach(function (t) { t.classList.remove('dr2-drop-ok'); });
+                      dragged = null;
+                  });
+              })();
+              </script>
+              @endunless
+            @else
+                @foreach($steps as $row)
+                    @include('dr2._pipeline-step-row', ['row' => $row])
+                @endforeach
+            @endif
 
             {{-- R2 — Removed steps (soft-deleted) with per-step Restore. No permanent stranding. --}}
             @if($removedSteps->isNotEmpty())
-            <div x-data="{ rm:false }" style="padding:.5rem .25rem;border-top:2px solid var(--border);">
+            <div x-data="{ rm:false }" style="padding:.5rem .25rem;border-top:2px solid var(--corex-border,#e5e7eb);">
                 <button type="button" class="corex-btn-outline" style="padding:.2rem .6rem;font-size:.78rem;color:#b45309;" @click="rm = !rm">Removed steps ({{ $removedSteps->count() }})</button>
                 <div x-show="rm" x-cloak style="margin-top:.5rem;">
                     @foreach($removedSteps as $rs)
@@ -319,12 +387,46 @@
     @endif
         </div>{{-- /LEFT --}}
 
-        {{-- ── RIGHT (≈40%): own scroll region — Documents · Send to a party · Proforma --}}
-        <div class="lg:col-span-2 space-y-4 min-w-0 dr2-pipe-col">
-            {{-- DR2 deal documents (AT-225/226) — upload + Send documents to a party --}}
-            @include('dr2._deal-documents', ['deal' => $deal])
-            {{-- Proforma Invoices (Accounting pillar) — generate from Granted onward --}}
-            @include('proforma._deal-section', ['deal' => $deal])
+        {{-- ── RIGHT (≈40%): own scroll region. AT-331 — the four sections are now TABS
+             (one visible at a time) instead of a single tall stack, so nothing (esp. the
+             "Email Parties" send action) is ever pushed off-screen. Layout-only: each pane
+             just holds the SAME partial as before; no controller/route/permission change.
+             Active tab persists per user via localStorage. --}}
+        <div class="lg:col-span-2 min-w-0 dr2-pipe-col"
+             x-data="{ tab: ({{ $hasPipeline ? 'true' : 'false' }} ? (window.localStorage.getItem('dr2_right_tab') || 'wo') : 'structure') }"
+             x-init="$watch('tab', v => window.localStorage.setItem('dr2_right_tab', v))"
+             @dr2-open-structure.window="tab='structure'">
+
+            <div class="dr2-tabbar" role="tablist" aria-label="Deal right panel">
+                <button type="button" class="dr2-tab" :class="tab==='structure' ? 'corex-tab-active' : ''" @click="tab='structure'" role="tab" :aria-selected="tab==='structure'">Deal Structure</button>
+                {{-- AT-334 P3 — turns RED when a work order is held awaiting a supplier. --}}
+                @php($woAtt = ($woNeedsAttention ?? false))
+                <button type="button" class="dr2-tab" :class="tab==='wo'    ? 'corex-tab-active' : ''" @click="tab='wo'"    role="tab" :aria-selected="tab==='wo'" style="{{ $woAtt ? 'color:#b91c1c;font-weight:700;' : '' }}" title="{{ $woAtt ? 'A work order is waiting for a supplier' : '' }}">Supplier Work Orders{!! $woAtt ? ' <span aria-hidden=&quot;true&quot; style=&quot;color:#dc2626&quot;>&#9679;</span>' : '' !!}</button>
+                <button type="button" class="dr2-tab" :class="tab==='docs'  ? 'corex-tab-active' : ''" @click="tab='docs'"  role="tab" :aria-selected="tab==='docs'">Documents</button>
+                <button type="button" class="dr2-tab" :class="tab==='email' ? 'corex-tab-active' : ''" @click="tab='email'" role="tab" :aria-selected="tab==='email'">Email Parties</button>
+                <button type="button" class="dr2-tab" :class="tab==='pi'    ? 'corex-tab-active' : ''" @click="tab='pi'"    role="tab" :aria-selected="tab==='pi'">Proforma Invoice</button>
+            </div>
+
+            {{-- AT-334 — Deal Structure: pick the suspensive conditions → assemble the pipeline. --}}
+            <div x-show="tab==='structure'" x-cloak role="tabpanel">
+                @include('dr2._deal-structure', ['deal' => $deal, 'conditionCatalog' => $conditionCatalog, 'dealConditions' => $dealConditions, 'hasPipeline' => $hasPipeline, 'locked' => $locked])
+            </div>
+            {{-- AT-229 §17 — Supplier Work Orders config (NOT a modal). Wrapped as a pane; no logic change. --}}
+            <div x-show="tab==='wo'" x-cloak role="tabpanel">
+                @include('dr2._supplier-work-orders', ['deal' => $deal, 'steps' => $steps, 'locked' => $locked])
+            </div>
+            {{-- DR2 deal documents (AT-225/226) — list + upload. --}}
+            <div x-show="tab==='docs'" x-cloak role="tabpanel">
+                @include('dr2._deal-documents', ['deal' => $deal])
+            </div>
+            {{-- AT-331 — Email Parties: the AT-228 party-first distribution block, now its own tab. --}}
+            <div x-show="tab==='email'" x-cloak role="tabpanel">
+                @include('dr2._email-parties', ['deal' => $deal])
+            </div>
+            {{-- Proforma Invoices (Accounting pillar) — generate from Granted onward. Wrapped as a pane; no logic change. --}}
+            <div x-show="tab==='pi'" x-cloak role="tabpanel">
+                @include('proforma._deal-section', ['deal' => $deal])
+            </div>
         </div>
     </div>{{-- /grid --}}
 </div>

@@ -54,7 +54,33 @@ list. There is no QA1/QA2 in this data at all: those run as separate systemd ser
   user Laravel/PHP-FPM/queue workers run as, across every environment on this host) has no
   other way to read process state.
 
-## Alerting
+## Alerting — queue backlog (`corex:queue-healthcheck`)
+
+**Added 2026-08-22**, from the go-live audit follow-up (`.ai/audits/2026-08-21-go-live-audit-followup.md`
+§4): `QueueHealthcheck` was already logging `Log::critical` correctly on every stalled-backlog
+detection (confirmed it was never broken), but `LOG_STACK=single` meant those critical logs only
+ever reached `storage/logs/laravel.log` — nobody was actually notified. Wired up the same
+best-effort-email doctrine already used by `QueueWorkerLivenessAlert` below, applied to
+`QueueHealthcheck` instead:
+
+- New key `queue_backlog_alert_emails` on `dev_settings` (JSON array of lowercased emails).
+  Helper: `DevSetting::queueBacklogAlertEmails(): array`.
+- `QueueHealthcheck::notify()` — same shape as `QueueWorkerLivenessAlert::notify()`: `Log::critical`
+  fires unconditionally every run (the guarantee); the email is throttled via
+  `Cache::add('queue-backlog-alert', ..., 15 min)` (one alert per stall, re-alerting every 15 min
+  while it persists) and wrapped in try/catch so a mail failure never masks the log.
+- Mailable: `app/Mail/QueueBacklogAlertMail.php` + `resources/views/emails/queue-backlog-alert.blade.php`.
+- Dev Settings — new "Queue backlog emails" section, same rail group ("Alerts"), same add/remove
+  email-row UI pattern as "Queue worker emails", submitted as `queue_backlog_alert_emails[]` in the
+  hub's shared form.
+- Deliberately a **separate** recipient list from `queue_worker_alert_emails`, not reused — a
+  worker-down and a backlog-stall are different failure modes an owner may want routed to
+  different people; the UI is right next to the other Alerts section either way.
+- No `app()->environment('production')` guard needed here (unlike the liveness alert): `QueueHealthcheck`
+  reads `DB::table('jobs')`, which is already environment-isolated by each deployment's own DB
+  connection — there's no shared-host double-detection risk like `SupervisorWorkerStatusService` has.
+
+## Alerting — worker liveness (`corex:queue-worker-liveness-alert`)
 
 `app/Console/Commands/QueueWorkerLivenessAlert.php` (`corex:queue-worker-liveness-alert`),
 scheduled `everyMinute()->withoutOverlapping()->onOneServer()` in `routes/console.php`,
@@ -152,13 +178,30 @@ agencies never see or configure it. This setting is the same category. Not a wiz
 - `.ai/specs/queue-worker-monitoring.md` (this file)
 - `/usr/local/bin/corex-supervisor-status.sh` (host, not in repo)
 - `/etc/sudoers.d/corex-supervisor-status` (host, not in repo)
+- `app/Mail/QueueBacklogAlertMail.php` (2026-08-22)
+- `resources/views/emails/queue-backlog-alert.blade.php` (2026-08-22)
+- `app/Support/Queue/QueueFailureAlerter.php` (2026-08-23) — real `Queue::failing()` alerting;
+  see `.ai/audits/2026-08-23-queue-failed-jobs-triage.md` for the full investigation.
+- `app/Mail/QueueJobFailureDigestMail.php` + `resources/views/emails/queue-job-failure-digest.blade.php` (2026-08-23)
+- `app/Mail/QueueFailedJobsGrowthAlertMail.php` + `resources/views/emails/queue-failed-jobs-growth-alert.blade.php` (2026-08-23)
 
 **Modified:**
 - `app/Services/System/ServerHealthService.php` — inject `SupervisorWorkerStatusService`,
   add `queue_workers` to the `corex()` snapshot.
-- `app/Models/DevSetting.php` — add `queueWorkerAlertEmails()` helper.
+- `app/Models/DevSetting.php` — add `queueWorkerAlertEmails()` helper (2026-08-22: also
+  `queueBacklogAlertEmails()`).
 - `app/Http/Controllers/Admin/DevSettingsController.php` — add `queue_worker_emails`
-  section, persist the email list on every `update()`.
-- `resources/views/admin/dev-settings/index.blade.php` — new rail group + pane.
+  section, persist the email list on every `update()` (2026-08-22: also `queue_backlog_emails`).
+- `resources/views/admin/dev-settings/index.blade.php` — new rail group + pane (2026-08-22: also
+  the "Queue backlog emails" pane).
 - `resources/views/admin/system-health/index.blade.php` — new "Queue Workers" panel.
+- `app/Console/Commands/QueueHealthcheck.php` (2026-08-22) — wire `notify()` to email
+  `queue_backlog_alert_emails` on a stalled backlog, throttled 15 min. (2026-08-23: added
+  `checkFailedJobsGrowth()` — a failing job is deleted from `jobs` the instant it fails, so
+  the oldest-waiting-job check alone reported a rapidly-failing queue as healthy. Tracks
+  failed_jobs COUNT growth between runs via a cached checkpoint, not the cumulative total.)
 - `routes/console.php` — schedule `corex:queue-worker-liveness-alert` every minute.
+- `app/Providers/AppServiceProvider.php` (2026-08-23) — `Queue::failing()` previously only
+  popped the audit-context stack; now also calls `QueueFailureAlerter::handle()`.
+- `app/Jobs/Syndication/DesyndicatePropertyFromPortalsJob.php` (2026-08-23) — added a
+  bulk-retry hazard warning to the class docblock (see the audit above, §3).

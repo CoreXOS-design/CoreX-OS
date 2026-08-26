@@ -19,7 +19,8 @@ class AgencyServiceProviderService
         return AgencyServiceProvider::query()
             ->withoutGlobalScopes()->where('agency_id', $agencyId)
             ->active()
-            ->when($specialty, fn ($q) => $q->forSpecialty($specialty))
+            ->when($specialty, fn ($q) => $q->capableOf($specialty)) // AT-364 — attorney pickers surface capability-flagged firms too
+
             ->when($term, function ($q) use ($term) {
                 $t = '%' . trim($term) . '%';
                 $q->where(fn ($w) => $w->where('name', 'like', $t)->orWhere('company', 'like', $t)->orWhere('email', 'like', $t));
@@ -70,6 +71,10 @@ class AgencyServiceProviderService
             'contact_id' => $data['contact_id'] ?? null,
             'name' => $name,
             'specialty' => $specialty,
+            // AT-364 — stamp the fixed attorney capability that matches the specialty at create time,
+            // so a directory-added transfer/bond attorney is immediately picker-visible.
+            'is_transfer_attorney' => $specialty === 'transfer_attorney',
+            'is_bond_attorney' => $specialty === 'bond_attorney',
             'company' => $data['company'] ?? null,
             'email' => $data['email'] ?? null,
             'phone' => $data['phone'] ?? null,
