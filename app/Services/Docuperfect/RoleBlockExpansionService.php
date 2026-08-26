@@ -2346,9 +2346,9 @@ final class RoleBlockExpansionService
      * before); this only ever adds an ID to a NATURAL-PERSON party's own
      * name, which was never possible before regardless of representation.
      */
-    public function composeEntityPartyText(Contact $entity, bool $includeRegNo = true, ?int $overrideProxyRepId = null): string
+    public function composeEntityPartyText(Contact $entity, bool $includeRegNo = true, ?int $overrideProxyRepId = null, ?array $orderContactIds = null): string
     {
-        $reps = $this->resolveDocumentRepresentatives($entity, 0, [], $overrideProxyRepId);
+        $reps = $this->resolveDocumentRepresentatives($entity, 0, [], $overrideProxyRepId, $orderContactIds);
 
         $name = (string) ($entity->entity_name ?: $entity->full_name);
         if ($entity->isEntity()) {
@@ -2416,7 +2416,7 @@ final class RoleBlockExpansionService
      *
      * @return array<int, array{0: Contact, 1: ?string, 2: bool, 3: array}> [rep, capacity, isProxy, nestedReps] per rep
      */
-    private function resolveDocumentRepresentatives(Contact $entity, int $depth = 0, array $seenIds = [], ?int $overrideProxyRepId = null): array
+    private function resolveDocumentRepresentatives(Contact $entity, int $depth = 0, array $seenIds = [], ?int $overrideProxyRepId = null, ?array $orderContactIds = null): array
     {
         if ($depth > self::MAX_REPRESENTATIVE_DEPTH) {
             throw UnresolvableRepresentativeChainException::tooDeep($entity, self::MAX_REPRESENTATIVE_DEPTH);
@@ -2426,14 +2426,15 @@ final class RoleBlockExpansionService
         }
         $seenIds[] = $entity->id;
 
-        // Johan, 2026-08-26 — the per-document proxy override (never written
-        // to the pivot) applies only at depth 0, the exact entity
+        // Johan, 2026-08-26 — the per-document proxy override AND the
+        // per-document representative order (both never written to the
+        // pivot) apply only at depth 0, the exact entity
         // composeEntityPartyText() was called on — same bound as
         // Contact::proxyAwareRepresentatives()'s own override, so the clause
-        // and the signer describe the same one-off choice, never a deeper
+        // describes the same one-off choices as the signer, never a deeper
         // level of the chain.
         $reps = $depth === 0
-            ? $this->resolveDirectRepresentatives($entity, $overrideProxyRepId)
+            ? $this->resolveDirectRepresentatives($entity, $overrideProxyRepId, $orderContactIds)
             : $this->resolveDirectRepresentatives($entity);
 
         if (empty($reps)) {
@@ -2499,9 +2500,16 @@ final class RoleBlockExpansionService
      *
      * @return array<int, array{0: Contact, 1: ?string, 2: bool}> [rep, capacity, isProxy] per rep
      */
-    private function resolveDirectRepresentatives(Contact $party, ?int $overrideProxyRepId = null): array
+    private function resolveDirectRepresentatives(Contact $party, ?int $overrideProxyRepId = null, ?array $orderContactIds = null): array
     {
         $reps = $party->representatives()->get();
+
+        // Johan, 2026-08-26 — "1st director - 1st signature position...
+        // the signing order needs to match this as well." Same rule the
+        // proxy pick already follows: per-document only, never written to
+        // the pivot. Contact::applyRepresentativeOrder() is the ONE
+        // ordering implementation — reused here, not re-sorted locally.
+        $reps = Contact::applyRepresentativeOrder($reps, $orderContactIds);
 
         // Johan, 2026-08-26 — the per-document proxy override, never written
         // to signs_as_proxy on the pivot. Everyone stays named either way

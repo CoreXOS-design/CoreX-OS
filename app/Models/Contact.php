@@ -709,6 +709,50 @@ class Contact extends Model
     }
 
     /**
+     * Johan, 2026-08-26 — "1st director - 1st signature position, 1
+     * address section, 1st recipient to sign." ONE ordering, every
+     * consumer of "this company's representatives, in order" reuses THIS
+     * — never re-sorted independently per consumer. Called from
+     * ESignWizardController::expandEntityRecipients() (address/email/phone
+     * sections, signing order, signature block position all derive from
+     * its output array order) and from
+     * RoleBlockExpansionService::resolveDirectRepresentatives() (clause
+     * wording order) — the same two existing resolvers the proxy pick
+     * already threads through, not a third.
+     *
+     * $orderContactIds is per-document only (the recipient's own
+     * step_data, never contact_representatives) — pass null/empty for
+     * "no order set, use whatever order this collection already has."
+     * A stale id (representative unlinked since the order was set) is
+     * simply skipped; any CURRENT representative not mentioned in the
+     * order (added since, or the order is just a proxy-first shorthand —
+     * see expandEntityRecipients()) is appended in the collection's own
+     * existing order, never dropped. Display order is not the
+     * legally-sensitive "who actually signed" question proxy identity is,
+     * so this never refuses on drift the way the proxy override does.
+     *
+     * @param \Illuminate\Support\Collection<int, \App\Models\Contact> $reps
+     * @return \Illuminate\Support\Collection<int, \App\Models\Contact>
+     */
+    public static function applyRepresentativeOrder(\Illuminate\Support\Collection $reps, ?array $orderContactIds): \Illuminate\Support\Collection
+    {
+        if (empty($orderContactIds)) {
+            return $reps;
+        }
+
+        $byId = $reps->keyBy('id');
+        $ordered = collect();
+        foreach ($orderContactIds as $id) {
+            if ($byId->has($id)) {
+                $ordered->push($byId->get($id));
+                $byId->forget($id);
+            }
+        }
+
+        return $ordered->concat($byId->values())->values();
+    }
+
+    /**
      * The representatives who should RECEIVE the e-sign / correspondence email
      * for this entity. Proxy-aware, same resolution as signingRepresentatives()
      * — the signer is the emailee (the person who must act gets the link). Kept

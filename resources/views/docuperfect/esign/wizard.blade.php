@@ -669,25 +669,38 @@
                                      representative stays NAMED on the document either way —
                                      picking one here only narrows who gets the SIGNING EMAIL. --}}
                                 <div x-show="r._is_entity && r._is_proxy" class="rounded-md px-3 py-2 text-xs space-y-2" style="background: color-mix(in srgb, var(--ds-amber,#f59e0b) 8%, transparent); border: 1px solid color-mix(in srgb, var(--ds-amber,#f59e0b) 25%, transparent); color: var(--text-secondary);">
-                                    <div>Every representative below still displays on the document. Pick the ONE who actually signs:</div>
+                                    <div>Every representative below still displays on the document. Pick the ONE who actually signs, and use the arrows to set the order they appear in — the clause, the address sections, the signature positions and the signing order all follow it:</div>
                                     <template x-if="!r._representation || !(r._representation.all_representatives || []).length">
                                         <div style="color: var(--ds-amber,#b45309);">No representatives linked yet — add one on this company's contact record first.</div>
                                     </template>
-                                    <template x-for="rep in (r._representation ? (r._representation.all_representatives || []) : [])" :key="rep.contact_id">
-                                        <label class="flex items-center gap-1.5 cursor-pointer select-none">
-                                            {{-- Johan, 2026-08-26 (bug found testing 913f2f102) — checked
-                                                 reflects THIS recipient's own pick only (r._entity_proxy_
-                                                 contact_id), never rep.is_proxy — that field can carry a
-                                                 permanent pivot value from outside this document entirely;
-                                                 trusting it here is exactly how a pick leaked onto the next,
-                                                 unrelated document. A brand-new pick on this document starts
-                                                 with nothing checked, full stop. --}}
-                                            <input type="radio" :name="'entity-proxy-' + ri" :checked="r._entity_proxy_contact_id === rep.contact_id"
-                                                   @change="setEntityProxyPick(ri, rep.contact_id)"
-                                                   style="accent-color: var(--ds-amber, #f59e0b); width: 13px; height: 13px;">
-                                            <span class="font-medium" style="color: var(--text-primary);" x-text="rep.name"></span>
-                                            <span x-show="rep.capacity" style="color: var(--text-muted);" x-text="'(' + rep.capacity + ')'"></span>
-                                        </label>
+                                    <template x-for="(rep, repIdx) in (r._representation ? (r._representation.all_representatives || []) : [])" :key="rep.contact_id">
+                                        <div class="flex items-center justify-between gap-2">
+                                            <label class="flex items-center gap-1.5 cursor-pointer select-none">
+                                                {{-- Johan, 2026-08-26 (bug found testing 913f2f102) — checked
+                                                     reflects THIS recipient's own pick only (r._entity_proxy_
+                                                     contact_id), never rep.is_proxy — that field can carry a
+                                                     permanent pivot value from outside this document entirely;
+                                                     trusting it here is exactly how a pick leaked onto the next,
+                                                     unrelated document. A brand-new pick on this document starts
+                                                     with nothing checked, full stop. --}}
+                                                <input type="radio" :name="'entity-proxy-' + ri" :checked="r._entity_proxy_contact_id === rep.contact_id"
+                                                       @change="setEntityProxyPick(ri, rep.contact_id)"
+                                                       style="accent-color: var(--ds-amber, #f59e0b); width: 13px; height: 13px;">
+                                                <span class="font-medium" style="color: var(--text-primary);" x-text="(repIdx + 1) + '. ' + rep.name"></span>
+                                                <span x-show="rep.capacity" style="color: var(--text-muted);" x-text="'(' + rep.capacity + ')'"></span>
+                                            </label>
+                                            {{-- "Lets find an easy way to do this" (Johan) — up/down on the
+                                                 same rows, no new screen. Disabled at the ends rather than
+                                                 hidden, so the row count never visibly jumps around. --}}
+                                            <div class="flex items-center gap-1 flex-shrink-0">
+                                                <button type="button" @click="moveEntityRep(ri, rep.contact_id, -1)" :disabled="repIdx === 0"
+                                                        :style="repIdx === 0 ? 'opacity:0.3;' : 'opacity:1; cursor:pointer;'"
+                                                        style="background:none; border:none; padding:2px;" title="Move up">▲</button>
+                                                <button type="button" @click="moveEntityRep(ri, rep.contact_id, 1)" :disabled="repIdx === (r._representation.all_representatives.length - 1)"
+                                                        :style="repIdx === (r._representation.all_representatives.length - 1) ? 'opacity:0.3;' : 'opacity:1; cursor:pointer;'"
+                                                        style="background:none; border:none; padding:2px;" title="Move down">▼</button>
+                                            </div>
+                                        </div>
                                     </template>
                                 </div>
                                 <div x-show="!r._is_entity && r._is_proxy" class="rounded-md px-3 py-2 text-xs" style="background: color-mix(in srgb, var(--ds-amber,#f59e0b) 8%, transparent); border: 1px solid color-mix(in srgb, var(--ds-amber,#f59e0b) 25%, transparent); color: var(--text-secondary);">
@@ -3384,6 +3397,10 @@ function esignWizard() {
                         // recipient list is a hand-picked whitelist, not a
                         // pass-through of the whole live object.
                         _entity_proxy_contact_id: r._entity_proxy_contact_id || null,
+                        // Johan, 2026-08-26 — "1st director - 1st signature
+                        // position." Same reason as the proxy pick above:
+                        // this whitelist drops anything not explicitly listed.
+                        _entity_rep_order: r._entity_rep_order || null,
                     })),
                 };
                 case 4: {
@@ -3720,6 +3737,10 @@ function esignWizard() {
             // seed this from the search result's representation.
             r._is_proxy = false;
             r._entity_proxy_contact_id = null;
+            // Same rule for order — "1st director, 1st signature position"
+            // is a document-scoped choice too. A brand-new document starts
+            // with no manual order, same as it starts with no proxy pick.
+            r._entity_rep_order = null;
 
             // Johan, 2026-08-25 — supplier vs contact recipient. A picked
             // supplier's own id lives in a DIFFERENT book (agency_service_
@@ -3828,7 +3849,13 @@ function esignWizard() {
                         'X-CSRF-TOKEN': csrfToken,
                         'Accept': 'application/json',
                     },
-                    body: JSON.stringify({ representative_contact_id: representativeContactId }),
+                    // Johan, 2026-08-26 — "changing the proxy after an order
+                    // has been manually set must not silently throw the
+                    // manual order away." Always send whatever manual order
+                    // this recipient already has; the server's own
+                    // precedence (manual order wins over proxy-first) keeps
+                    // it exactly where the agent left it.
+                    body: JSON.stringify({ representative_contact_id: representativeContactId, order: r._entity_rep_order || null }),
                 });
                 const result = await resp.json();
                 if (!resp.ok || !result.ok) {
@@ -3842,6 +3869,45 @@ function esignWizard() {
             } catch (e) {
                 console.error('setEntityProxyPick error:', e);
                 this.showToast('Could not reach the server to check the proxy pick.', 'error');
+            }
+        },
+
+        // Johan, 2026-08-26 — "1st director - 1st signature position... lets
+        // find an easy way to do this." Up/down on the rows already showing
+        // the directors, no new screen. Reorders THIS document's own
+        // _entity_rep_order (never the company/pivot) and re-previews so the
+        // clause/address/signing-order effect is visible immediately.
+        async moveEntityRep(recipientIndex, contactId, direction) {
+            const r = this.recipients[recipientIndex];
+            const all = (r._representation && r._representation.all_representatives) || [];
+            const currentOrder = (r._entity_rep_order && r._entity_rep_order.length)
+                ? r._entity_rep_order.slice()
+                : all.map(rep => rep.contact_id);
+            const idx = currentOrder.indexOf(contactId);
+            const swapWith = idx + direction;
+            if (idx === -1 || swapWith < 0 || swapWith >= currentOrder.length) return;
+            [currentOrder[idx], currentOrder[swapWith]] = [currentOrder[swapWith], currentOrder[idx]];
+            r._entity_rep_order = currentOrder;
+
+            try {
+                const resp = await fetch('/docuperfect/esign/api/entity/' + r._contact_id + '/proxy', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': csrfToken,
+                        'Accept': 'application/json',
+                    },
+                    body: JSON.stringify({ representative_contact_id: r._entity_proxy_contact_id || null, order: currentOrder }),
+                });
+                const result = await resp.json();
+                if (!resp.ok || !result.ok) {
+                    this.showToast(result.error || 'Could not reorder representatives.', 'error');
+                    return;
+                }
+                r._representation = result.representation;
+            } catch (e) {
+                console.error('moveEntityRep error:', e);
+                this.showToast('Could not reach the server to reorder representatives.', 'error');
             }
         },
 

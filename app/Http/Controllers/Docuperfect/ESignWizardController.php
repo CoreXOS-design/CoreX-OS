@@ -1215,7 +1215,25 @@ class ESignWizardController extends Controller
      * the chain work uses, factored out of searchContacts() below so there is
      * exactly one place this is computed, not a second copy.
      */
-    private function buildEntityRepresentationPreview(Contact $c, ?\App\Models\Docuperfect\EsignRecipientPreset $entityPreset, ?int $overrideProxyRepId = null): ?array
+    /**
+     * Johan, 2026-08-26 — the ONE place that decides "what order applies
+     * to this document's representatives" from a recipient row, so every
+     * caller (live pick, saved-flow reopen, generation) resolves the same
+     * precedence the same way: an agent's manual reorder always wins;
+     * failing that, a picked proxy goes first ("almost with certainty" —
+     * Johan) and the rest follow in whatever order the code returns today;
+     * with neither, today's order stands, untouched. This only decides
+     * WHICH id list to pass — the actual sort is
+     * Contact::applyRepresentativeOrder(), the one implementation.
+     */
+    private function resolveEffectiveRepOrder(array $r, ?int $overrideProxyRepId): ?array
+    {
+        $manualOrder = ! empty($r['_entity_rep_order']) ? array_map('intval', $r['_entity_rep_order']) : null;
+
+        return $manualOrder ?? ($overrideProxyRepId !== null ? [$overrideProxyRepId] : null);
+    }
+
+    private function buildEntityRepresentationPreview(Contact $c, ?\App\Models\Docuperfect\EsignRecipientPreset $entityPreset, ?int $overrideProxyRepId = null, ?array $orderContactIds = null): ?array
     {
         if (! $c->isEntity()) {
             return null;
@@ -1227,6 +1245,8 @@ class ESignWizardController extends Controller
         // means "no pick made on this document" — falls through to whatever
         // is permanently on file (usually nothing, for an ordinary company).
         $signers = $c->signingRepresentatives($overrideProxyRepId);
+        $signers = Contact::applyRepresentativeOrder($signers, $orderContactIds);
+        $allReps = Contact::applyRepresentativeOrder($c->representatives()->get(), $orderContactIds);
 
         return [
             'needs_representative' => $signers->isEmpty(),
@@ -1252,7 +1272,10 @@ class ESignWizardController extends Controller
             // THIS DOCUMENT's pick when one was made, never the permanent
             // pivot value in that case — the picker must show what's true
             // for this flow, not silently show a different document's pick.
-            'all_representatives' => $c->representatives()->get()->map(function ($rep) use ($overrideProxyRepId) {
+            // Ordered by the SAME applyRepresentativeOrder() every other
+            // consumer uses, so the reorder arrows sit on rows already in
+            // the order that's actually going onto the document.
+            'all_representatives' => $allReps->map(function ($rep) use ($overrideProxyRepId) {
                 return [
                     'contact_id' => $rep->id,
                     'name' => $rep->full_name,
@@ -1305,10 +1328,11 @@ class ESignWizardController extends Controller
             // non-entity, exactly as before.
             $r['_is_entity'] = $contact->isEntity();
             if ($contact->isEntity()) {
-                // Reopening a saved flow must show THIS flow's own pick
-                // (already sitting on the recipient row, never on the
+                // Reopening a saved flow must show THIS flow's own pick and
+                // order (already sitting on the recipient row, never on the
                 // contact) — not whatever the permanent pivot happens to say.
-                $r['_representation'] = $this->buildEntityRepresentationPreview($contact, $entityPreset, $r['_entity_proxy_contact_id'] ?? null);
+                $overrideProxyRepId = isset($r['_entity_proxy_contact_id']) ? (int) $r['_entity_proxy_contact_id'] : null;
+                $r['_representation'] = $this->buildEntityRepresentationPreview($contact, $entityPreset, $overrideProxyRepId, $this->resolveEffectiveRepOrder($r, $overrideProxyRepId));
             }
         }
         unset($r);
@@ -1741,9 +1765,18 @@ class ESignWizardController extends Controller
             // Nullable, not required — sending no id previews "nobody
             // chosen yet" (the wizard clears its own local pick either way).
             'representative_contact_id' => 'nullable|integer',
+            // Johan, 2026-08-26 — "1st director - 1st signature position."
+            // Optional ordered list of representative contact ids from the
+            // recipient's own manual reorder (up/down arrows); absent means
+            // "no manual order set on this document" — the caller (this
+            // same wizard) still applies the proxy-first default itself via
+            // buildEntityRepresentationPreview()'s existing precedence.
+            'order' => 'nullable|array',
+            'order.*' => 'integer',
         ]);
 
         $chosenId = $validated['representative_contact_id'] ?? null;
+        $order = $validated['order'] ?? null;
 
         if ($chosenId !== null && ! $contact->representatives()->get()->contains('id', (int) $chosenId)) {
             return response()->json([
@@ -1759,9 +1792,12 @@ class ESignWizardController extends Controller
             ? \App\Models\Docuperfect\EsignRecipientPreset::resolveFor($actingAgencyId, 'entity')
             : null;
 
+        $overrideProxyRepId = $chosenId !== null ? (int) $chosenId : null;
+        $effectiveOrder = $this->resolveEffectiveRepOrder(['_entity_rep_order' => $order], $overrideProxyRepId);
+
         return response()->json([
             'ok' => true,
-            'representation' => $this->buildEntityRepresentationPreview($contact, $entityPreset, $chosenId !== null ? (int) $chosenId : null),
+            'representation' => $this->buildEntityRepresentationPreview($contact, $entityPreset, $overrideProxyRepId, $effectiveOrder),
         ]);
     }
 
@@ -3300,6 +3336,13 @@ class ESignWizardController extends Controller
                         (int) $r['_entity_contact_id'],
                         $contactId,
                         (string) ($r['name'] ?? ''),
+                        // Johan, 2026-08-26 — this recompute must carry the
+                        // SAME per-document proxy/order choice expandEntity
+                        // Recipients() already resolved, or it silently falls
+                        // back to the permanent pivot's own state and undoes
+                        // both features right before the clause is frozen.
+                        isset($r['_entity_proxy_contact_id']) ? (int) $r['_entity_proxy_contact_id'] : null,
+                        $r['_entity_rep_order'] ?? null,
                     );
                 }
 
@@ -4029,15 +4072,32 @@ class ESignWizardController extends Controller
      * isEntity() is kept, not replaced — an entity with ZERO representatives
      * linked must still enter expansion so the existing
      * _entity_needs_representative prompt still fires (unchanged, pre-
-     * existing behaviour). representatives()->exists() is ADDED alongside
-     * it so a natural person who genuinely has a representative link also
-     * enters expansion; an ordinary natural-person recipient with no
-     * representative link (the overwhelming majority of every document)
-     * still takes the simple pass-through, exactly as before.
+     * existing behaviour).
+     *
+     * Flow 509 (Johan, 2026-08-26) — representatives()->exists() ALONE is no
+     * longer sufficient for a natural person. ensureChainRelationshipsExist()
+     * (cffa56c49, this morning) made "Replace this party" write a real,
+     * PERMANENT contact_representatives row every time an agent picks a
+     * representative — correctly, that record is the guard's backing
+     * evidence and must survive. But this gate then read that same
+     * permanent row as "this person is represented, always" — so Anine,
+     * picked with two DIFFERENT executors on two EARLIER, separate,
+     * legitimate documents, came up "herein represented by [both]" on a
+     * THIRD, brand-new document where Johan had ticked nothing at all.
+     * $isDocumentRepresented is per-recipient, from THIS document's own
+     * step_data (_is_deceased) — the same per-document-flag mechanism cc3
+     * just used for the proxy pick (_entity_proxy_contact_id, dce9ec0c2),
+     * not a second invention. A natural person's stored relationships stay
+     * exactly where they are; they just stop being sufficient on their own
+     * to decide what THIS document prints.
      */
-    private function partyNeedsRepresentativeExpansion(Contact $contact): bool
+    private function partyNeedsRepresentativeExpansion(Contact $contact, bool $isDocumentRepresented = false): bool
     {
-        return $contact->isEntity() || $contact->representatives()->exists();
+        if ($contact->isEntity()) {
+            return true;
+        }
+
+        return $isDocumentRepresented && $contact->representatives()->exists();
     }
 
     /**
@@ -4066,7 +4126,7 @@ class ESignWizardController extends Controller
      *
      * @throws \Illuminate\Validation\ValidationException
      */
-    private function resolveFreshPartyClauseText(int $entityContactId, ?int $contactId, string $recipientName): ?string
+    private function resolveFreshPartyClauseText(int $entityContactId, ?int $contactId, string $recipientName, ?int $overrideProxyRepId = null, ?array $orderContactIds = null): ?string
     {
         $entityContact = Contact::withoutGlobalScopes()->find($entityContactId);
         if (! $entityContact) {
@@ -4099,7 +4159,7 @@ class ESignWizardController extends Controller
             ]);
         }
 
-        return app(\App\Services\Docuperfect\RoleBlockExpansionService::class)->composeEntityPartyText($entityContact);
+        return app(\App\Services\Docuperfect\RoleBlockExpansionService::class)->composeEntityPartyText($entityContact, true, $overrideProxyRepId, $orderContactIds);
     }
 
     /**
@@ -4276,7 +4336,20 @@ class ESignWizardController extends Controller
         }
 
         $contacts = Contact::withoutGlobalScopes()->whereIn('id', $contactIds)->get()->keyBy('id');
-        if (! $contacts->contains(fn (Contact $c) => $this->partyNeedsRepresentativeExpansion($c))) {
+        // Flow 509 — per-recipient now (not per-contact): whether a natural
+        // person needs expansion depends on THIS document's own _is_deceased
+        // flag, so the early-exit must look at each recipient row, not just
+        // the distinct contact set. An entity is still unconditional.
+        $needsExpansion = false;
+        foreach ($recipients as $r) {
+            $cid = $r['_contact_id'] ?? null;
+            $c = $cid ? ($contacts[$cid] ?? null) : null;
+            if ($c && $this->partyNeedsRepresentativeExpansion($c, ! empty($r['_is_deceased']))) {
+                $needsExpansion = true;
+                break;
+            }
+        }
+        if (! $needsExpansion) {
             return $recipients; // no entities, and nothing else has a representative linked → nothing to expand
         }
 
@@ -4305,7 +4378,7 @@ class ESignWizardController extends Controller
             // rows instead of one. Leave an already-bound recipient alone
             // entirely; it is not this pass's row to touch.
             $alreadyBoundByChain = ! empty($r['_slot_bindings']) || ! empty($r['_recipient_template_id']);
-            if (! $contact || $alreadyBoundByChain || ! $this->partyNeedsRepresentativeExpansion($contact)) {
+            if (! $contact || $alreadyBoundByChain || ! $this->partyNeedsRepresentativeExpansion($contact, ! empty($r['_is_deceased']))) {
                 $r['order'] = ++$order;
                 $out[] = $r;
                 continue;
@@ -4319,11 +4392,17 @@ class ESignWizardController extends Controller
             // contact_representatives for this purpose.
             $overrideProxyRepId = isset($r['_entity_proxy_contact_id']) ? (int) $r['_entity_proxy_contact_id'] : null;
 
+            // Johan, 2026-08-26 — "1st director - 1st signature position, 1
+            // address section, 1st recipient to sign." Same per-document,
+            // never-on-the-contact rule as the proxy pick itself.
+            $effectiveOrder = $this->resolveEffectiveRepOrder($r, $overrideProxyRepId);
+
             // Proxy-narrowed (who signs) unless this call is explicitly for
             // display, in which case every representative renders its own
             // address/phone/email — a proxy pick must never make the other
             // representatives' details disappear from the document.
             $signers = $forDisplay ? $contact->representatives()->get() : $contact->signingRepresentatives($overrideProxyRepId);
+            $signers = Contact::applyRepresentativeOrder($signers, $effectiveOrder);
             if ($signers->isEmpty()) {
                 $r['order']                        = ++$order;
                 $r['_entity_contact_id']           = (int) $contact->id;
@@ -4354,7 +4433,7 @@ class ESignWizardController extends Controller
                 // below). A wording template edited after this point must
                 // never change what an already-sent document says.
                 $partyClauseText = app(\App\Services\Docuperfect\RoleBlockExpansionService::class)
-                    ->composeEntityPartyText($contact, true, $overrideProxyRepId);
+                    ->composeEntityPartyText($contact, true, $overrideProxyRepId, $effectiveOrder);
 
                 $out[] = [
                     'order'                 => ++$order,
@@ -4388,6 +4467,14 @@ class ESignWizardController extends Controller
                     '_signature_caption'    => $caption,
                     '_party_clause_text'    => $partyClauseText,
                     '_matched_signing_setup_index' => $r['_matched_signing_setup_index'] ?? null,
+                    // Johan, 2026-08-26 — must survive expansion: prepareSigning()'s
+                    // own "recompute fresh right before freezing" step (Flow 409)
+                    // reruns composeEntityPartyText() a second time later using
+                    // ONLY what's still on this row — without these, that recompute
+                    // would silently drop back to the permanent pivot's own order/
+                    // proxy state and undo everything just set above.
+                    '_entity_proxy_contact_id' => $overrideProxyRepId,
+                    '_entity_rep_order'     => $effectiveOrder,
                     'bank_name'             => $rep->bank_name ?? '',
                     'bank_account_name'     => $rep->bank_account_name ?? '',
                     'bank_account_number'   => $rep->bank_account_number ?? '',
