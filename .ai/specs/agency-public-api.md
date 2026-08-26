@@ -128,10 +128,13 @@ Records each webhook send attempt: `agency_api_key_id`, `event_name`, `payload` 
 | `agents:read` | public agent profile fields |
 | `agency:read` | agency branding/contact (name, logo, colours, address) |
 | `branches:read` | branches (offices) with trading identity + their public agents + listing counts |
-| `leads:write` | submit inbound website leads/enquiries (`POST /website/leads`, §9) — the one write scope |
+| `leads:write` | submit inbound website leads/enquiries (`POST /website/leads`, §9) |
+| `stats:write` | submit listing engagement counters (`POST /website/listings/stats`) — spec [`website-listing-stats.md`](website-listing-stats.md) |
 | `webhooks:receive` | eligible to receive listing/agent webhook events |
 
-`leads:write` (added 2026-07-06) is the only write scope. All other scopes remain read/receive.
+`leads:write` (added 2026-07-06) and `stats:write` (added 2026-08-26, AT-383) are the only write
+scopes. All other scopes remain read/receive. Neither is granted implicitly to an existing key —
+someone ticks it on the key.
 
 ### 3.4 No change to `agencies` table
 
@@ -168,6 +171,7 @@ Reuse the constant-time-compare + HMAC discipline already proven in `PpWebhookCo
 | GET | `/api/v1/website/branches` | `v1.website.branches.index` | `branches:read` |
 | GET | `/api/v1/website/branches/{id}` | `v1.website.branches.show` | `branches:read` |
 | POST | `/api/v1/website/leads` | `v1.website.leads.store` | `leads:write` (§9) |
+| POST | `/api/v1/website/listings/stats` | `v1.website.listings.stats.store` | `stats:write` — spec [`website-listing-stats.md`](website-listing-stats.md) |
 | GET | `/api/v1/website/ping` | `v1.website.ping` | (any valid key) |
 
 Responses use dedicated **public API Resources** (`app/Http/Resources/WebsiteApi/*`) so the external contract is decoupled from internal model shape — we can refactor models without breaking agency sites. PII not meant for the public web (owner contact, internal notes) is **never** included.

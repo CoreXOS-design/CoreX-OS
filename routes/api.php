@@ -237,6 +237,14 @@ Route::prefix('v1/website')
         Route::middleware('website.scope:leads:write')->group(function () {
             Route::post('/leads', [\App\Http\Controllers\Api\V1\Website\LeadsController::class, 'store'])->name('v1.website.leads.store');
         });
+
+        // Inbound listing engagement counters (write). The website batches page
+        // views / impressions / contact clicks locally and POSTs them hourly —
+        // never per page view. Gated by stats:write.
+        // Spec: .ai/specs/website-listing-stats.md §3.1
+        Route::middleware('website.scope:stats:write')->group(function () {
+            Route::post('/listings/stats', [\App\Http\Controllers\Api\V1\Website\ListingStatsController::class, 'store'])->name('v1.website.listings.stats.store');
+        });
     });
 
 // ════════════════════════════════════════════════════════════════

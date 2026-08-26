@@ -1818,6 +1818,24 @@ CREATE TABLE `buyer_activity_log` (
   CONSTRAINT `buyer_activity_log_related_property_id_foreign` FOREIGN KEY (`related_property_id`) REFERENCES `properties` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `buyer_client_page_links`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `buyer_client_page_links` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `contact_id` bigint unsigned NOT NULL,
+  `slug` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `buyer_client_page_links_contact_id_unique` (`contact_id`),
+  UNIQUE KEY `buyer_client_page_links_slug_unique` (`slug`),
+  KEY `buyer_client_page_links_agency_id_foreign` (`agency_id`),
+  CONSTRAINT `buyer_client_page_links_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `buyer_client_page_links_contact_id_foreign` FOREIGN KEY (`contact_id`) REFERENCES `contacts` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `buyer_lost_records`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -7711,6 +7729,47 @@ CREATE TABLE `listing_targets` (
   CONSTRAINT `listing_targets_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `listing_website_stat_totals`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `listing_website_stat_totals` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `site` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `property_id` bigint unsigned NOT NULL,
+  `metric` varchar(40) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `reported_total` bigint unsigned NOT NULL DEFAULT '0',
+  `reported_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `lwst_natural_uq` (`agency_id`,`site`,`property_id`,`metric`),
+  KEY `lwst_property_metric_idx` (`property_id`,`metric`),
+  CONSTRAINT `listing_website_stat_totals_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `listing_website_stat_totals_property_id_foreign` FOREIGN KEY (`property_id`) REFERENCES `properties` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `listing_website_stats`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `listing_website_stats` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `site` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `property_id` bigint unsigned NOT NULL,
+  `stat_date` date NOT NULL,
+  `metric` varchar(40) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `metric_count` bigint unsigned NOT NULL DEFAULT '0',
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `lws_natural_uq` (`agency_id`,`site`,`property_id`,`stat_date`,`metric`),
+  KEY `lws_agency_date_metric_idx` (`agency_id`,`stat_date`,`metric`),
+  KEY `lws_property_metric_date_idx` (`property_id`,`metric`,`stat_date`),
+  CONSTRAINT `listing_website_stats_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `listing_website_stats_property_id_foreign` FOREIGN KEY (`property_id`) REFERENCES `properties` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `login_histories`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -9154,7 +9213,7 @@ DROP TABLE IF EXISTS `portal_leads`;
 CREATE TABLE `portal_leads` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `agency_id` bigint unsigned NOT NULL,
-  `portal` enum('p24','pp','website') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `portal` enum('p24','pp','website','shared_link') COLLATE utf8mb4_unicode_ci NOT NULL,
   `lead_type` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `listing_id` bigint unsigned DEFAULT NULL,
   `listing_portal_ref` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -11223,6 +11282,8 @@ CREATE TABLE `prospecting_listings` (
   KEY `prosp_listings_linked_deed_idx` (`linked_deed_tracked_property_id`),
   KEY `prosp_listings_pitched_idx` (`pitched_at`),
   KEY `pl_possible_property_idx` (`agency_id`,`possible_property_id`),
+  KEY `prospecting_listings_agency_deleted_last_seen_idx` (`agency_id`,`deleted_at`,`last_seen_at`),
+  KEY `prospecting_listings_agency_deleted_first_seen_idx` (`agency_id`,`deleted_at`,`first_seen_at`),
   CONSTRAINT `prospecting_listings_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
   CONSTRAINT `prospecting_listings_branch_id_foreign` FOREIGN KEY (`branch_id`) REFERENCES `branches` (`id`) ON DELETE SET NULL,
   CONSTRAINT `prospecting_listings_captured_by_user_id_foreign` FOREIGN KEY (`captured_by_user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
@@ -12807,6 +12868,52 @@ CREATE TABLE `staff_take_on_records` (
   CONSTRAINT `staff_take_on_records_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `suburb_municipalities`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `suburb_municipalities` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `p24_suburb_id` bigint unsigned NOT NULL,
+  `suburb_name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `municipality` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `confidence` enum('confirmed','needs_review') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'needs_review',
+  `source` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `suburb_municipalities_p24_suburb_id_unique` (`p24_suburb_id`),
+  KEY `suburb_municipalities_municipality_index` (`municipality`),
+  CONSTRAINT `suburb_municipalities_p24_suburb_id_foreign` FOREIGN KEY (`p24_suburb_id`) REFERENCES `p24_suburbs` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `suburb_reports`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `suburb_reports` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `p24_suburb_id` bigint unsigned NOT NULL,
+  `suburb_name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `municipality` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `municipality_confirmed` tinyint(1) NOT NULL,
+  `agency_name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `generated_by_user_id` bigint unsigned DEFAULT NULL,
+  `generated_at` timestamp NOT NULL,
+  `current_year_at_generation` smallint unsigned NOT NULL,
+  `layer_a_json` json NOT NULL,
+  `layer_a_source_vintage` date DEFAULT NULL,
+  `layer_b_json` json NOT NULL,
+  `layer_b_as_at` timestamp NOT NULL,
+  `layer_c_json` json NOT NULL,
+  `layer_c_as_at` timestamp NOT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `suburb_reports_agency_id_p24_suburb_id_index` (`agency_id`,`p24_suburb_id`),
+  KEY `suburb_reports_generated_at_index` (`generated_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `suggested_action_thresholds`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -13968,6 +14075,34 @@ CREATE TABLE `web_packs` (
   KEY `web_packs_created_by_foreign` (`created_by`),
   CONSTRAINT `web_packs_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
   CONSTRAINT `web_packs_created_by_foreign` FOREIGN KEY (`created_by`) REFERENCES `users` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `website_stat_batches`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `website_stat_batches` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `agency_api_key_id` bigint unsigned DEFAULT NULL,
+  `site` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `batch_id` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `source` varchar(32) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'website',
+  `listing_count` int unsigned NOT NULL DEFAULT '0',
+  `accepted_count` int unsigned NOT NULL DEFAULT '0',
+  `skipped_count` int unsigned NOT NULL DEFAULT '0',
+  `skipped_listing_ids` json DEFAULT NULL,
+  `metric_row_count` int unsigned NOT NULL DEFAULT '0',
+  `generated_at` timestamp NULL DEFAULT NULL,
+  `received_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `wsb_agency_site_batch_uq` (`agency_id`,`site`,`batch_id`),
+  KEY `website_stat_batches_agency_api_key_id_foreign` (`agency_api_key_id`),
+  KEY `wsb_agency_site_received_idx` (`agency_id`,`site`,`received_at`),
+  CONSTRAINT `website_stat_batches_agency_api_key_id_foreign` FOREIGN KEY (`agency_api_key_id`) REFERENCES `agency_api_keys` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `website_stat_batches_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `wet_ink_inspections`;
@@ -15398,3 +15533,9 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1191,'2026_08_29_0
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1192,'2026_08_29_000005_create_property_take_requests_table',281);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1193,'2026_08_29_000006_add_deeds_duplicate_fields_to_property_match_decisions',281);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1194,'2026_08_29_000007_add_possible_match_to_prospecting_listings',281);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1195,'2026_08_22_120000_add_recency_sort_indexes_to_prospecting_listings',282);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1196,'2026_08_25_090001_create_suburb_municipalities_table',282);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1197,'2026_08_25_100001_create_suburb_reports_table',282);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1198,'2026_08_29_000008_add_shared_link_to_portal_leads_portal_enum',282);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1199,'2026_08_29_000009_create_buyer_client_page_links_table',282);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1200,'2026_08_29_000010_create_website_listing_stats_tables',282);

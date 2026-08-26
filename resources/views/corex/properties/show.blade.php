@@ -5387,6 +5387,14 @@
                     ])
                 </div>
 
+                {{-- Website Performance — the agency's OWN site (AT-383).
+                     Spec: .ai/specs/website-listing-stats.md §5.1 --}}
+                <div x-show="!sellerPreview">
+                    @include('corex.properties.intelligence._website-performance', [
+                        'property' => $property,
+                    ])
+                </div>
+
                 {{-- Section A: Performance Dashboard --}}
                 <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
                     <div class="rounded-md p-4 text-center" style="background: var(--surface-2); border: 1px solid var(--border);">

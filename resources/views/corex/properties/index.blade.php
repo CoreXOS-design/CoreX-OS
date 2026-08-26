@@ -921,6 +921,13 @@
                     ['key' => 'marketing_status',  'label' => 'Marketing', 'align' => 'text-center', 'hide' => 'hidden md:table-cell'],
                     ['key' => 'status',            'label' => 'Status',    'align' => 'text-center', 'hide' => ''],
                 ];
+                // AT-383 — website engagement, only for an agency whose site actually
+                // reports it. Spec: .ai/specs/website-listing-stats.md §5.2
+                if ($hasWebsiteStats ?? false) {
+                    array_splice($sortCols, 6, 0, [
+                        ['key' => 'website_views', 'label' => 'Views (30d)', 'align' => 'text-right', 'hide' => 'hidden lg:table-cell'],
+                    ]);
+                }
             @endphp
             <thead>
                 <tr style="background: var(--surface-2);">
@@ -998,6 +1005,14 @@
                     </td>
                     <td class="px-4 py-2.5 text-xs text-center hidden md:table-cell" style="color:var(--text-secondary);">{{ $property->beds ?? '—' }}</td>
                     <td class="px-4 py-2.5 text-xs text-center hidden md:table-cell" style="color:var(--text-secondary);">{{ $property->baths ?? '—' }}</td>
+                    @if($hasWebsiteStats ?? false)
+                    @php $rowWebViews = (int) ($property->website_views_30d ?? 0); @endphp
+                    <td class="px-4 py-2.5 text-xs text-right tabular-nums hidden lg:table-cell"
+                        style="color:{{ $rowWebViews > 0 ? 'var(--text-primary)' : 'var(--text-faint)' }};"
+                        title="Detail-page views on the agency website over the last 30 days">
+                        {{ $rowWebViews > 0 ? number_format($rowWebViews) : '—' }}
+                    </td>
+                    @endif
                     <td class="px-4 py-2.5 text-xs hidden lg:table-cell" style="color:var(--text-muted);">
                         <div>{{ $property->agent?->name ?? '—' }}</div>
                         @if($property->secondAgent)
