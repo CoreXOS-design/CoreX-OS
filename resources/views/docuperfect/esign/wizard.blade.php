@@ -3411,6 +3411,24 @@ function esignWizard() {
                         // position." Same reason as the proxy pick above:
                         // this whitelist drops anything not explicitly listed.
                         _entity_rep_order: r._entity_rep_order || null,
+                        // Johan, 2026-08-26 — root cause of the executor-loses-
+                        // its-company bug, chased across the modal, the
+                        // recipient card and the document all day: this exact
+                        // whitelist already dropped two other fields today for
+                        // the identical reason (_entity_proxy_contact_id,
+                        // _entity_rep_order, both above). bindSlotToSupplier()
+                        // builds a recipient carrying its firm correctly; this
+                        // whitelist is what silently threw it away the moment
+                        // the agent left this step, so the persisted row (and
+                        // everything the document renders from) never had a
+                        // company at all. The modal's own live preview reads
+                        // the UNSAVED in-memory recipient, which is why it was
+                        // right while the saved document stayed wrong.
+                        _recipient_source: r._recipient_source || null,
+                        _supplier_contact_id: r._supplier_contact_id || null,
+                        _supplier_firm_id: r._supplier_firm_id || null,
+                        _supplier_firm_name: r._supplier_firm_name || '',
+                        _supplier_firm_registration_number: r._supplier_firm_registration_number || '',
                     })),
                 };
                 case 4: {
