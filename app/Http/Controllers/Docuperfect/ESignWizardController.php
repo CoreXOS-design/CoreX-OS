@@ -3936,7 +3936,21 @@ class ESignWizardController extends Controller
             $cid     = $r['_contact_id'] ?? null;
             $contact = $cid ? ($contacts[$cid] ?? null) : null;
 
-            if (! $contact || ! $this->partyNeedsRepresentativeExpansion($contact)) {
+            // cc3's finding, cc2 2026-08-26 (Johan scenario 5, live regression
+            // caught minutes before landing) — a recipient already carrying
+            // _slot_bindings/_recipient_template_id is already spoken for by
+            // resolveChainBindings() (the deceased-substitute / "Replace this
+            // party" mechanism). Once that binding is legitimately backed by
+            // a real contact_representatives row (as tonight's identity guard
+            // now requires), this generic entity-expansion pass would ALSO
+            // fire on the same contact and silently consume/rewrite the
+            // deceased party's own row before the slot-binding pass ever
+            // runs — losing is_deceased and the row's own recipient_local_key,
+            // and leaving the executor with two separate SignatureRequest
+            // rows instead of one. Leave an already-bound recipient alone
+            // entirely; it is not this pass's row to touch.
+            $alreadyBoundByChain = ! empty($r['_slot_bindings']) || ! empty($r['_recipient_template_id']);
+            if (! $contact || $alreadyBoundByChain || ! $this->partyNeedsRepresentativeExpansion($contact)) {
                 $r['order'] = ++$order;
                 $out[] = $r;
                 continue;
