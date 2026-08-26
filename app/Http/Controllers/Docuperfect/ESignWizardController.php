@@ -4798,6 +4798,13 @@ class ESignWizardController extends Controller
             // is the value that actually freezes onto the clause at send time.
             'supplier_firm_name' => $firm->company ?: $firm->name,
             'supplier_firm_registration_number' => $firm->registration_number,
+            // Johan, 2026-08-27 — cc4 gave suppliers a real business address
+            // (AgencyServiceProvider->address, same plain-string shape as
+            // Contact->address, 1407ef455). A supplier-sourced recipient has
+            // no linked Contact, so the domicilium address block had no
+            // source at all until now — frozen here the same way the firm
+            // name/reg number already are.
+            'supplier_firm_address' => $firm->address,
         ]);
     }
 
@@ -6370,6 +6377,23 @@ class ESignWizardController extends Controller
             // representative in the preview looked like a signer.
             $req->is_proxy    = (bool) ($r['_is_proxy'] ?? false);
             $req->is_deceased = (bool) ($r['_is_deceased'] ?? false);
+            // Johan, 2026-08-27 — a supplier-sourced recipient (an executor
+            // standing in from the supplier directory) has no linked Contact,
+            // so its domicilium address block resolves from
+            // supplier_firm_address (mutateCloneForInstance()'s no-Contact
+            // fallback) the same way the real, sent SignatureRequest row
+            // does — see stampSupplierFirmIfAny(). Without this the preview
+            // shows blank while the sent document (once frozen) would not,
+            // the exact "steps screen wrong, agent screen right" divergence
+            // this task exists to close. Live-looked-up, not trusted from
+            // the wizard's own payload — same discipline as
+            // stampSupplierFirmIfAny().
+            if (($r['_recipient_source'] ?? null) === 'supplier' && !empty($r['_supplier_firm_id'])) {
+                $firm = \App\Models\DealV2\AgencyServiceProvider::withoutGlobalScopes()->find((int) $r['_supplier_firm_id']);
+                if ($firm !== null) {
+                    $req->supplier_firm_address = $firm->address;
+                }
+            }
             $out->push($req);
         }
         return $out;

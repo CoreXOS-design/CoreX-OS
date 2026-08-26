@@ -2086,9 +2086,10 @@ final class RoleBlockExpansionService
                 // stating one party's address as two other people's addresses
                 // stuck together. Resolve from the Contact when one exists;
                 // otherwise fall through to this recipient's OWN SignatureRequest
-                // fields (name/email/ID — the only three it can carry without a
-                // linked Contact; phone/address have no such column and
-                // correctly resolve to blank, never another party's value).
+                // fields (name/email/ID/address — see the address fallback
+                // below for a supplier-sourced recipient; phone has no such
+                // column and correctly resolves to blank, never another
+                // party's value).
                 $value = $contact !== null
                     ? $this->resolveContactValue($contact, $parsed['sub_name'], $recipient)
                     : null;
@@ -2116,6 +2117,25 @@ final class RoleBlockExpansionService
                     && in_array($parsed['sub_name'], ['name', 'full_name', 'first_name+last_name'], true)
                 ) {
                     $value = $this->blankToNull($recipient->signer_name);
+                }
+                // Johan, 2026-08-27 — cc4 gave suppliers a real, firm-level
+                // business address (AgencyServiceProvider->address, same
+                // plain-string shape as Contact->address, 1407ef455). A
+                // supplier-sourced recipient (an executor standing in from the
+                // supplier directory) has no linked Contact, so this domicilium
+                // block had NO address source at all — "steps screen missing
+                // address" / "typed value doesn't carry to agent signing" was
+                // this gap, not a separate plumbing bug. supplier_firm_address
+                // is frozen onto the recipient's own SignatureRequest row at
+                // generation time (stampSupplierFirmIfAny(), same contract as
+                // supplier_firm_name/supplier_firm_registration_number) — read
+                // it back here exactly like the no-Contact id/email/name
+                // fallbacks above, never a second resolution path.
+                if ($value === null
+                    && $recipient !== null
+                    && in_array($parsed['sub_name'], ['address', 'address_1', 'address_line_1', 'physical_address'], true)
+                ) {
+                    $value = $this->blankToNull($recipient->supplier_firm_address);
                 }
                 // Johan, 2026-08-26 — a null here used to SKIP
                 // replaceTextContent() entirely, silently leaving whatever

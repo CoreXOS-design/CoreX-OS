@@ -23,6 +23,7 @@ class SignatureRequest extends Model
         'party_clause_text',
         'supplier_firm_name',
         'supplier_firm_registration_number',
+        'supplier_firm_address',
         'is_deceased',
         'is_proxy',
         'recipient_local_key',

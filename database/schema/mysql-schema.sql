@@ -829,7 +829,7 @@ CREATE TABLE `agency_service_providers` (
   `agency_id` bigint unsigned NOT NULL,
   `contact_id` bigint unsigned DEFAULT NULL,
   `name` varchar(191) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `specialty` enum('electrician','entomologist','plumber','gas','electric_fence','transfer_attorney','bond_attorney','conveyancer','bond_originator','external_agency','other') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'other',
+  `specialty` varchar(50) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'other',
   `is_transfer_attorney` tinyint(1) NOT NULL DEFAULT '0',
   `is_bond_attorney` tinyint(1) NOT NULL DEFAULT '0',
   `company` varchar(191) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -12575,6 +12575,7 @@ CREATE TABLE `signature_requests` (
   `party_clause_text` text COLLATE utf8mb4_unicode_ci,
   `supplier_firm_name` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `supplier_firm_registration_number` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `supplier_firm_address` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `is_deceased` tinyint(1) NOT NULL DEFAULT '0',
   `is_proxy` tinyint(1) NOT NULL DEFAULT '0',
   `recipient_local_key` varchar(40) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -15497,3 +15498,5 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1209,'2026_08_29_0
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1210,'2026_08_29_000007_add_id_number_to_agency_service_provider_contacts_table',286);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1211,'2026_08_29_000008_add_supplier_firm_to_signature_requests_table',287);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1212,'2026_08_29_000009_add_asserted_by_to_contact_representatives',288);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1213,'2026_08_29_000010_widen_specialty_to_varchar_on_agency_service_providers',289);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1214,'2026_08_29_000011_add_supplier_firm_address_to_signature_requests_table',290);
