@@ -32,10 +32,25 @@ use App\Models\DemoAccessGrant;
  */
 class DemoAccessGranted extends AbstractDomainEvent
 {
+    /**
+     * $deliverInvitationEmail is a DELIVERY INSTRUCTION, not a fact about the grant —
+     * which is why it rides on the event rather than living in a column.
+     *
+     * It is false when the caller is sending its own mail carrying this same code:
+     * a webinar registration sends ONE combined email (confirmation + join link +
+     * credentials), and without this flag SendDemoAccessGrantEmail would post a
+     * second, near-identical mail with the same code moments later.
+     *
+     * Appended AFTER $traceId deliberately, so every existing call site — which
+     * passes two or three positional arguments — keeps working untouched.
+     *
+     * Spec: .ai/specs/webinar-registration.md §6.2 (decision D7)
+     */
     public function __construct(
         public readonly DemoAccessGrant $grant,
         public readonly string $plaintextCode,
         ?string $traceId = null,
+        public readonly bool $deliverInvitationEmail = true,
     ) {
         parent::__construct($traceId);
     }

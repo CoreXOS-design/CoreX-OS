@@ -45,6 +45,13 @@ Schedule::command('articles:scrape')->daily();
 // Signature reminders — runs daily at 08:00
 Schedule::command('signatures:send-reminders')->dailyAt('08:00');
 
+// AT-383 — pre-webinar reminders. HOURLY, deliberately: the lead time is set per
+// webinar in HOURS, so a daily job would fire hours early or late depending on what
+// time the webinar starts. The command is idempotent on reminder_sent_at, so an
+// overlapping or repeated run sends nothing twice.
+// Spec: .ai/specs/webinar-registration.md §6.4
+Schedule::command('webinars:send-reminders')->hourly()->withoutOverlapping();
+
 // Lease expiry checks — runs daily at 06:00
 Schedule::command('signatures:check-lease-expiry')->dailyAt('06:00');
 

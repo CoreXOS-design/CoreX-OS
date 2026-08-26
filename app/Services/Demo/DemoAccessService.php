@@ -45,12 +45,40 @@ class DemoAccessService
      * The plaintext code exists exactly here, in the emailed copy, and in the
      * one-time confirmation screen. It is NEVER persisted and NEVER logged.
      *
-     * expires_at is deliberately left NULL — the clock starts at first login,
-     * not at issue. A prospect who opens the mail four days later still gets
-     * their full trial.
+     * ══ TWO CLOCKS, AND A GRANT CARRIES EXACTLY ONE ══
+     *
+     * ROLLING (the default, and what the admin form issues) — expires_at is left
+     * NULL and the clock starts at FIRST LOGIN. A prospect who opens the mail four
+     * days later still gets their full trial.
+     *
+     * FIXED (pass $data['expires_at']) — an absolute deadline, written here at issue.
+     * Nothing moves it afterwards, and the grant expires on that date whether or not
+     * it is ever used. This is what a webinar cohort needs: everyone who registered
+     * through one link loses access at the same moment.
+     *
+     * expiry_hours is the mode flag: NULL means "fixed, read expires_at". Passing
+     * BOTH is a programming error — a grant with two clocks has no defined behaviour
+     * — so it throws here, at the call site, rather than resolving silently in favour
+     * of whichever the model happens to check first.
+     *
+     * Spec: .ai/specs/webinar-registration.md §5.2
+     *
+     * @param  array{company_name:string, contact_email:string, contact_name?:?string,
+     *               contact_id?:?int, expiry_hours?:?int, expires_at?:\DateTimeInterface|string|null,
+     *               notes?:?string, deliver_email?:bool}  $data
+     * @return array{0:DemoAccessGrant, 1:string}
      */
     public function issue(array $data, int $issuedByUserId): array
     {
+        $fixedExpiry = $data['expires_at'] ?? null;
+
+        if ($fixedExpiry !== null && ($data['expiry_hours'] ?? null) !== null) {
+            throw new \InvalidArgumentException(
+                'A demo grant runs on ONE clock: pass expires_at for an absolute deadline '
+                . 'OR expiry_hours for a trial that starts at first login, never both.'
+            );
+        }
+
         $code = DemoAccessGrant::mintCode();
 
         $grant = DemoAccessGrant::create([
@@ -61,7 +89,10 @@ class DemoAccessService
             'credential_hash'   => DemoAccessGrant::hashCode($code),
             // COPIED, not referenced. Changing the default setting later must not
             // retroactively shorten a trial we already sold.
-            'expiry_hours'      => (int) ($data['expiry_hours'] ?? self::defaultExpiryHours()),
+            'expiry_hours'      => $fixedExpiry !== null
+                ? null
+                : (int) ($data['expiry_hours'] ?? self::defaultExpiryHours()),
+            'expires_at'        => $fixedExpiry !== null ? Carbon::parse($fixedExpiry) : null,
             'issued_by_user_id' => $issuedByUserId,
             'notes'             => isset($data['notes']) ? trim((string) $data['notes']) ?: null : null,
         ]);
@@ -72,7 +103,17 @@ class DemoAccessService
         // The plaintext rides on the event because this is the only moment it
         // exists (the DB holds bcrypt(code) alone). The event redacts it from its
         // audit payload — see DemoAccessGranted::payloadSnapshot().
-        DemoAccessGranted::dispatch($grant, $code);
+        //
+        // deliver_email = false when the CALLER is sending its own mail carrying this
+        // same code (webinar registration sends one combined email — spec §6.2).
+        // The event still fires either way: suppressing it would erase the grant from
+        // the audit trail, which is the opposite of what this system is for.
+        DemoAccessGranted::dispatch(
+            $grant,
+            $code,
+            null,
+            (bool) ($data['deliver_email'] ?? true),
+        );
 
         return [$grant, $code];
     }

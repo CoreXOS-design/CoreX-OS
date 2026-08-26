@@ -329,12 +329,17 @@ The initial catalogue. Each row: event name, when it fires, payload, who emits i
 | `Demo\DemoTncAccepted` | A prospect accepts a specific, immutable T&C version | `grant`, `version` | `DemoAccessService::acceptTnc()`, only on `wasRecentlyCreated` | audit |
 | `Demo\DemoAccessRevoked` | An owner withdraws a grant | `grant` | `DemoAccessService::revoke()`, once on the not-revoked → revoked transition | audit |
 | `Demo\DemoAccessExpired` | The gate turns away a grant whose trial has run out | `grant` | `DemoAccessService::verify()` / `checkSession()` — **observed, not scheduled** | audit |
+| `Webinars\WebinarRegistered` | Someone registered for a webinar through the public form on the CoreX website | `registration`, `wasReissue` | `WebinarRegistrationService::register()` (PRIMARY only), **after commit**, not fired inside the cooldown | audit only — see note 4 |
+| `Webinars\WebinarReminderSent` | A registrant's pre-webinar reminder was queued | `registration` | `SendWebinarReminders`, immediately after `reminder_sent_at` is stamped | audit |
 
-**Demo events — three things that differ from the rest of the catalogue** (spec: `.ai/specs/demo-access-control.md` §7):
+**Demo and Webinar events — four things that differ from the rest of the catalogue** (specs: `.ai/specs/demo-access-control.md` §7, `.ai/specs/webinar-registration.md` §6.5):
 
 1. **`agencyId` is null.** These are system-owner events about RR Technologies' own sales process, not tenant events. They are not agency-scoped and must never be.
 2. **`DemoAccessGranted` redacts its payload.** It carries the plaintext access code (the listener needs it to send the email — it is the only moment it exists), so it overrides `payloadSnapshot()` to write `[REDACTED]`. A credential in `domain_event_log` is a credential in every backup and log ship of that table, forever.
 3. **`DemoAccessExpired` can fire repeatedly for one grant.** There is no cron that expires grants — status is *derived*, never stored — so the event fires when the gate *notices*, i.e. each time the prospect tries again. Every emission is a distinct, true fact ("a prospect was turned away at this instant"). Nothing downstream may treat it as a once-per-grant transition.
+4. **The Webinar events have NO listeners, deliberately.** Both mails are queued directly by the service and the command, because they carry a plaintext access code whose lifetime is the transaction that mints it — routing a live credential through an extra hop buys nothing. The events exist so a registration lands in `domain_event_log` like every other fact, and so anything that later needs to react to a signup has a named contract instead of its own query path. Any listener added later must be registered **explicitly** in `AppServiceProvider::boot()` (auto-discovery is off) and stay **synchronous**, queueing a Mailable rather than itself.
+
+**A webinar grant expires on an absolute date, so `DemoAccessFirstLogin` no longer implies a clock started.** Webinar registration issues its grant with `expires_at` already set and `expiry_hours` NULL; `stampFirstLogin()` COALESCEs and leaves that deadline alone. The event still fires on first sign-in — it is still true that the prospect signed in for the first time — but for these grants it marks *use*, not the start of a countdown. Nothing downstream may infer `expires_at = first_login_at + expiry_hours`. Spec: `.ai/specs/webinar-registration.md` §5.2.
 
 This catalogue is **not exhaustive**. As new features ship, new events are added per E9.
 

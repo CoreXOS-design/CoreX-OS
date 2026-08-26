@@ -126,6 +126,11 @@ return Application::configure(basePath: dirname(__DIR__))
                 // Demo Access Control (AT-230) — authenticates THE demo instance to
                 // primary with the single universal connector. Not agency-scoped.
                 'demo.connector' => \App\Http\Middleware\EnsureDemoConnector::class,
+                // Webinars (AT-383) — authenticates THE CoreX marketing website to
+                // primary. A SEPARATE credential from demo.connector on purpose: that
+                // one opens demo sessions, and a public brochure site has no business
+                // holding it. Not agency-scoped either.
+                'site.connector' => \App\Http\Middleware\EnsureSiteConnector::class,
         ]);
 
         $middleware->validateCsrfTokens(except: [

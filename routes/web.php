@@ -3113,6 +3113,12 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/connection',        [\App\Http\Controllers\Admin\DemoAccessController::class, 'mintConnector'])->name('connection.mint');
         Route::post('/connection/revoke', [\App\Http\Controllers\Admin\DemoAccessController::class, 'revokeConnector'])->name('connection.revoke');
 
+        // The CoreX marketing website's own token (AT-383). Surfaced on the same
+        // page — one place to look for "what can reach CoreX" — but a separate
+        // credential with a separate lifecycle. Spec: webinar-registration.md §3.3
+        Route::post('/site-connection',        [\App\Http\Controllers\Admin\DemoAccessController::class, 'mintSiteConnector'])->name('site-connection.mint');
+        Route::post('/site-connection/revoke', [\App\Http\Controllers\Admin\DemoAccessController::class, 'revokeSiteConnector'])->name('site-connection.revoke');
+
         Route::post('/reset', [\App\Http\Controllers\Admin\DemoAccessController::class, 'reset'])->name('reset');
 
         Route::get('/',       [\App\Http\Controllers\Admin\DemoAccessController::class, 'index'])->name('index');
@@ -3126,6 +3132,32 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/{grant}/restore',  [\App\Http\Controllers\Admin\DemoAccessController::class, 'restore'])->whereNumber('grant')->name('restore');
         // "Delete" archives. The row is never removed (non-negotiable #1).
         Route::delete('/{grant}',        [\App\Http\Controllers\Admin\DemoAccessController::class, 'destroy'])->whereNumber('grant')->name('destroy');
+    });
+
+    // ── Webinars (AT-383) — the registration links published on the CoreX
+    // marketing website, and the list of who signed up.
+    //
+    // Owner-only for the same reason as Demo Access, which it sits beside: this is
+    // RR Technologies' sales data, and a permission key would be grantable to an
+    // agency admin. Every action also calls abort_unless($user->isOwnerRole(), 403).
+    //
+    // The registration PAGE is not here — it lives on the marketing website and
+    // posts to /api/v1/webinars/{slug}/register.
+    //
+    // Spec: .ai/specs/webinar-registration.md §7.2
+    Route::middleware('owner_only')->prefix('admin/dev-settings/webinars')->name('admin.webinars.')->group(function () {
+        // /create must come BEFORE /{webinar} or it is swallowed by the binding.
+        Route::get('/',       [\App\Http\Controllers\Admin\WebinarController::class, 'index'])->name('index');
+        Route::get('/create', [\App\Http\Controllers\Admin\WebinarController::class, 'create'])->name('create');
+        Route::post('/',      [\App\Http\Controllers\Admin\WebinarController::class, 'store'])->name('store');
+
+        Route::get('/{webinar}',          [\App\Http\Controllers\Admin\WebinarController::class, 'show'])->whereNumber('webinar')->name('show');
+        Route::get('/{webinar}/edit',     [\App\Http\Controllers\Admin\WebinarController::class, 'edit'])->whereNumber('webinar')->name('edit');
+        Route::put('/{webinar}',          [\App\Http\Controllers\Admin\WebinarController::class, 'update'])->whereNumber('webinar')->name('update');
+        Route::get('/{webinar}/export',   [\App\Http\Controllers\Admin\WebinarController::class, 'export'])->whereNumber('webinar')->name('export');
+        Route::post('/{webinar}/restore', [\App\Http\Controllers\Admin\WebinarController::class, 'restore'])->whereNumber('webinar')->name('restore');
+        // "Delete" archives. The row is never removed (non-negotiable #1).
+        Route::delete('/{webinar}',       [\App\Http\Controllers\Admin\WebinarController::class, 'destroy'])->whereNumber('webinar')->name('destroy');
     });
 
     // ── Demo Connection (AT-230) — the DEMO side of the link. ──

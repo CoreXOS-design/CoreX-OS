@@ -224,7 +224,7 @@ CREATE TABLE `agencies` (
   `communication_failure_alert_threshold` smallint unsigned DEFAULT NULL,
   `outreach_queue_expiry_hours` smallint unsigned DEFAULT NULL,
   `outreach_queue_daily_cap_per_agent` smallint unsigned DEFAULT NULL,
-  `restrict_consent_outreach_to_full_status` tinyint(1) NOT NULL DEFAULT '0' COMMENT 'AT-142 — when on, only full-status practitioners/principals may send consent-outreach templates',
+  `restrict_consent_outreach_to_full_status` tinyint(1) NOT NULL DEFAULT '0' COMMENT 'AT-142 â€” when on, only full-status practitioners/principals may send consent-outreach templates',
   `ai_monthly_budget_zar` decimal(10,2) NOT NULL DEFAULT '1000.00',
   `ai_budget_warning_pct` tinyint unsigned NOT NULL DEFAULT '80',
   `ai_budget_hard_cap_pct` tinyint unsigned NOT NULL DEFAULT '110',
@@ -254,36 +254,36 @@ CREATE TABLE `agencies` (
   `presentations_default_show_inflow_absorption` tinyint(1) NOT NULL DEFAULT '1',
   `presentations_default_show_holding_cost` tinyint(1) NOT NULL DEFAULT '1',
   `presentations_default_show_pricing_strategy` tinyint(1) NOT NULL DEFAULT '1',
-  `presentations_freshness_days` smallint unsigned NOT NULL DEFAULT '90' COMMENT 'Build 5 — public view shows a "request revised analysis" CTA when the snapshot is older than this many days.',
-  `cma_compute_recency_months` smallint unsigned DEFAULT '36' COMMENT 'Build 8b — recency window (months) for CmaComputeService input pool. Decoupled from presentations_default_period_months which drives the hydrator + coverage badge. Null falls back to service constant.',
-  `cma_compute_iqr_multiplier` decimal(4,2) DEFAULT '1.50' COMMENT 'Build 8b — IQR multiplier for R/m² lower-bound outlier fence (median − multiplier × IQR). 1.5 is Tukey standard. Null falls back to service constant.',
-  `comp_price_band_pct` decimal(5,2) DEFAULT '25.00' COMMENT 'AT-22 §1 — comp price band ± % around the cleaned-pool CMA anchor (not asking). Null → CompPoolBuilder constant.',
-  `comp_erf_band_pct` decimal(5,2) DEFAULT '30.00' COMMENT 'AT-22 §1 — erf-size proximity ± % used as a ranking factor (not a hard drop). Null → constant.',
-  `comp_radius_m` smallint unsigned DEFAULT '300' COMMENT 'AT-22 §1 — initial comp radius (m). Default 300 (the prior presentations_default_radius_m 1000 was too wide). Null → constant.',
-  `comp_radius_widen_steps` varchar(120) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT '300,600,1000,1500,3000' COMMENT 'AT-22 §1 — CSV widen ladder for the radius when comps are thin. Null → constant ladder.',
-  `comp_radius_max_m` smallint unsigned DEFAULT '3000' COMMENT 'AT-22 §1 — hard ceiling for the radius widen ladder. Default 3000 (rural mandates must resolve). Null → constant.',
-  `comp_min_count` smallint unsigned DEFAULT '10' COMMENT 'AT-22 §1 — minimum comps before the widen ladder stops expanding. Default 10 (round-1: auto-widen 300→600→1000m to catch on-profile comps just outside 300m). Null → constant.',
-  `comp_max_count` smallint unsigned DEFAULT '15' COMMENT 'AT-22 §1 — max comps shortlisted after ranking (PRES 87 curated 13; do not force-drop). Null → constant.',
-  `anchor_divergence_pct` decimal(5,2) DEFAULT '25.00' COMMENT 'AT-22 §1.5 — widen the radius when the cleaned-pool estimate diverges from the vicinity average by more than this %. Null → constant.',
-  `range_lower_pct` tinyint unsigned DEFAULT '25' COMMENT 'AT-22 §5 — lower percentile for the recommended range. Default 25 (P25). Null → constant.',
-  `range_upper_pct` tinyint unsigned DEFAULT '75' COMMENT 'AT-22 §5 — upper percentile for the recommended range. Default 75 (P75). Null → constant.',
-  `cma_band_lower_pct` decimal(5,2) DEFAULT '10.00' COMMENT 'PRES-CMA-REALFIX — recommended-band LOWER half-width: lower = middle × (1 − pct/100). Null → constant 7.',
-  `cma_band_upper_pct` decimal(5,2) DEFAULT '13.00' COMMENT 'PRES-CMA-REALFIX — recommended-band UPPER half-width: upper = middle × (1 + pct/100). Null → constant 7.',
+  `presentations_freshness_days` smallint unsigned NOT NULL DEFAULT '90' COMMENT 'Build 5 â€” public view shows a "request revised analysis" CTA when the snapshot is older than this many days.',
+  `cma_compute_recency_months` smallint unsigned DEFAULT '36' COMMENT 'Build 8b â€” recency window (months) for CmaComputeService input pool. Decoupled from presentations_default_period_months which drives the hydrator + coverage badge. Null falls back to service constant.',
+  `cma_compute_iqr_multiplier` decimal(4,2) DEFAULT '1.50' COMMENT 'Build 8b â€” IQR multiplier for R/mÂ² lower-bound outlier fence (median âˆ’ multiplier Ã— IQR). 1.5 is Tukey standard. Null falls back to service constant.',
+  `comp_price_band_pct` decimal(5,2) DEFAULT '25.00' COMMENT 'AT-22 Â§1 â€” comp price band Â± % around the cleaned-pool CMA anchor (not asking). Null â†’ CompPoolBuilder constant.',
+  `comp_erf_band_pct` decimal(5,2) DEFAULT '30.00' COMMENT 'AT-22 Â§1 â€” erf-size proximity Â± % used as a ranking factor (not a hard drop). Null â†’ constant.',
+  `comp_radius_m` smallint unsigned DEFAULT '300' COMMENT 'AT-22 Â§1 â€” initial comp radius (m). Default 300 (the prior presentations_default_radius_m 1000 was too wide). Null â†’ constant.',
+  `comp_radius_widen_steps` varchar(120) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT '300,600,1000,1500,3000' COMMENT 'AT-22 Â§1 â€” CSV widen ladder for the radius when comps are thin. Null â†’ constant ladder.',
+  `comp_radius_max_m` smallint unsigned DEFAULT '3000' COMMENT 'AT-22 Â§1 â€” hard ceiling for the radius widen ladder. Default 3000 (rural mandates must resolve). Null â†’ constant.',
+  `comp_min_count` smallint unsigned DEFAULT '10' COMMENT 'AT-22 Â§1 â€” minimum comps before the widen ladder stops expanding. Default 10 (round-1: auto-widen 300â†’600â†’1000m to catch on-profile comps just outside 300m). Null â†’ constant.',
+  `comp_max_count` smallint unsigned DEFAULT '15' COMMENT 'AT-22 Â§1 â€” max comps shortlisted after ranking (PRES 87 curated 13; do not force-drop). Null â†’ constant.',
+  `anchor_divergence_pct` decimal(5,2) DEFAULT '25.00' COMMENT 'AT-22 Â§1.5 â€” widen the radius when the cleaned-pool estimate diverges from the vicinity average by more than this %. Null â†’ constant.',
+  `range_lower_pct` tinyint unsigned DEFAULT '25' COMMENT 'AT-22 Â§5 â€” lower percentile for the recommended range. Default 25 (P25). Null â†’ constant.',
+  `range_upper_pct` tinyint unsigned DEFAULT '75' COMMENT 'AT-22 Â§5 â€” upper percentile for the recommended range. Default 75 (P75). Null â†’ constant.',
+  `cma_band_lower_pct` decimal(5,2) DEFAULT '10.00' COMMENT 'PRES-CMA-REALFIX â€” recommended-band LOWER half-width: lower = middle Ã— (1 âˆ’ pct/100). Null â†’ constant 7.',
+  `cma_band_upper_pct` decimal(5,2) DEFAULT '13.00' COMMENT 'PRES-CMA-REALFIX â€” recommended-band UPPER half-width: upper = middle Ã— (1 + pct/100). Null â†’ constant 7.',
   `cma_hide_display_outliers` tinyint(1) NOT NULL DEFAULT '1',
-  `competitor_stock_default_beds_tolerance` tinyint unsigned NOT NULL DEFAULT '1' COMMENT 'Competitor Stock — ± beds window for synthetic ContactMatch (Core Matches scorer).',
-  `competitor_stock_default_price_tolerance_pct` tinyint unsigned NOT NULL DEFAULT '20' COMMENT 'Competitor Stock — ± percent price band for synthetic match (e.g. 20 = ±20%).',
-  `competitor_stock_min_score` tinyint unsigned NOT NULL DEFAULT '50' COMMENT 'Competitor Stock — minimum match score (Core Matches 0-100) to include in section. 50 = Approximate tier floor.',
+  `competitor_stock_default_beds_tolerance` tinyint unsigned NOT NULL DEFAULT '1' COMMENT 'Competitor Stock â€” Â± beds window for synthetic ContactMatch (Core Matches scorer).',
+  `competitor_stock_default_price_tolerance_pct` tinyint unsigned NOT NULL DEFAULT '20' COMMENT 'Competitor Stock â€” Â± percent price band for synthetic match (e.g. 20 = Â±20%).',
+  `competitor_stock_min_score` tinyint unsigned NOT NULL DEFAULT '50' COMMENT 'Competitor Stock â€” minimum match score (Core Matches 0-100) to include in section. 50 = Approximate tier floor.',
   `presentations_default_comp_scope` enum('radius_all','suburb_only') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'radius_all',
   `presentations_default_radius_m` smallint unsigned NOT NULL DEFAULT '1000',
   `ss_show_complex_section` tinyint(1) NOT NULL DEFAULT '1' COMMENT 'Show the dedicated sectional/complex sales section on presentations when such comps exist.',
   `presentations_default_rates_per_million_zar` int unsigned NOT NULL DEFAULT '800' COMMENT 'Monthly municipal rates per R1M of property value.',
-  `presentations_default_levies_sectional_per_m2_zar` smallint unsigned NOT NULL DEFAULT '25' COMMENT 'Monthly body-corporate levies per m² for sectional title only.',
+  `presentations_default_levies_sectional_per_m2_zar` smallint unsigned NOT NULL DEFAULT '25' COMMENT 'Monthly body-corporate levies per mÂ² for sectional title only.',
   `presentations_default_insurance_per_million_zar` smallint unsigned NOT NULL DEFAULT '200' COMMENT 'Monthly building insurance per R1M of property value.',
   `presentations_default_utilities_zar` smallint unsigned NOT NULL DEFAULT '1200' COMMENT 'Flat monthly utilities estimate.',
   `presentations_default_opportunity_cost_pct` decimal(5,2) NOT NULL DEFAULT '8.00' COMMENT 'Annual % return on net equity; divided by 12 for monthly opportunity cost.',
-  `presentations_default_garden_zar` smallint unsigned NOT NULL DEFAULT '800' COMMENT 'Freehold garden service — Tier 2 default monthly Rands.',
-  `presentations_default_pool_zar` smallint unsigned NOT NULL DEFAULT '600' COMMENT 'Freehold pool service — Tier 2 default monthly Rands.',
-  `presentations_default_security_zar` smallint unsigned NOT NULL DEFAULT '1500' COMMENT 'Freehold security/estate fees — Tier 2 default monthly Rands.',
+  `presentations_default_garden_zar` smallint unsigned NOT NULL DEFAULT '800' COMMENT 'Freehold garden service â€” Tier 2 default monthly Rands.',
+  `presentations_default_pool_zar` smallint unsigned NOT NULL DEFAULT '600' COMMENT 'Freehold pool service â€” Tier 2 default monthly Rands.',
+  `presentations_default_security_zar` smallint unsigned NOT NULL DEFAULT '1500' COMMENT 'Freehold security/estate fees â€” Tier 2 default monthly Rands.',
   `snapshot_link_default_expiry_days` smallint unsigned NOT NULL DEFAULT '21' COMMENT 'Default expiry window for /p/{token} share links.',
   `snapshot_link_ip_masking` tinyint(1) NOT NULL DEFAULT '1' COMMENT 'When true, store IPs masked to /24 (POPIA-respectful). Opt-out only when fraud investigation requires it.',
   `presentation_staleness_days` smallint unsigned NOT NULL DEFAULT '21' COMMENT 'Days after issue before public viewer shows the data-may-be-dated banner. Range 7-90 enforced in app layer.',
@@ -322,8 +322,8 @@ CREATE TABLE `agencies` (
   `whistleblow_tier_recipients` json DEFAULT NULL,
   `pp_locations_synced_at` timestamp NULL DEFAULT NULL,
   `pp_locations_last_error` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
-  `competitor_stock_min_same_type` tinyint unsigned NOT NULL DEFAULT '5' COMMENT 'Competitor Stock — minimum exact-property-type matches before stepping up to same-family-other-type. Level 1 (FH/SS) is never crossed.',
-  `competitor_stock_default_display_count` tinyint unsigned NOT NULL DEFAULT '10' COMMENT 'Competitor Stock — top-N display cap on the review screen + auto-tick floor. Rest live in the manual-picker modal.',
+  `competitor_stock_min_same_type` tinyint unsigned NOT NULL DEFAULT '5' COMMENT 'Competitor Stock â€” minimum exact-property-type matches before stepping up to same-family-other-type. Level 1 (FH/SS) is never crossed.',
+  `competitor_stock_default_display_count` tinyint unsigned NOT NULL DEFAULT '10' COMMENT 'Competitor Stock â€” top-N display cap on the review screen + auto-tick floor. Rest live in the manual-picker modal.',
   `competitor_stock_weights` json DEFAULT NULL,
   `presentations_map_provider` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'svg_radial' COMMENT 'Presentation PDF map renderer: svg_radial (polar diagram, self-contained) or static_image (Google Static Maps PNG, requires API key).',
   `website_enabled` tinyint(1) NOT NULL DEFAULT '0',
@@ -945,7 +945,7 @@ CREATE TABLE `agent_activity_events` (
   `event_type` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'e.g. claim.created, pitch.sent, whatsapp.sent, feedback.recorded, property.created, mandate.signed',
   `subject_type` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `subject_id` bigint unsigned DEFAULT NULL,
-  `payload` json DEFAULT NULL COMMENT 'Event-specific data. Schema varies by event_type — interpret per the listener.',
+  `payload` json DEFAULT NULL COMMENT 'Event-specific data. Schema varies by event_type â€” interpret per the listener.',
   `occurred_at` timestamp NOT NULL,
   `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
@@ -1356,7 +1356,7 @@ CREATE TABLE `ai_narrative_cache` (
   `agency_id` bigint unsigned DEFAULT NULL,
   `narrative_type` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'weekly_brief | tile_copy | listing_tooltip | suburb_pocket | audit_finding',
   `cache_key` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'Composed deterministically, e.g. weekly_brief:agency:1:week:2026-21',
-  `input_hash` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'sha256 of the input data — mismatch forces regeneration.',
+  `input_hash` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'sha256 of the input data â€” mismatch forces regeneration.',
   `prompt_version` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'Track prompt evolution for A/B comparison.',
   `model` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'e.g. claude-haiku-4-5, claude-sonnet-4-6',
   `input_tokens` int NOT NULL DEFAULT '0',
@@ -1383,8 +1383,8 @@ CREATE TABLE `ai_usage_events` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `agency_id` bigint unsigned DEFAULT NULL,
   `user_id` bigint unsigned DEFAULT NULL,
-  `source` varchar(40) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'Stable surface key — mic_narrative | mobile_voice | image_analysis | docuperfect_* | marketing_copy | presentation_evidence',
-  `surface_ref` varchar(120) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'Correlation handle for drill-down — cache_key, analysis_id, template_id, etc.',
+  `source` varchar(40) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'Stable surface key â€” mic_narrative | mobile_voice | image_analysis | docuperfect_* | marketing_copy | presentation_evidence',
+  `surface_ref` varchar(120) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'Correlation handle for drill-down â€” cache_key, analysis_id, template_id, etc.',
   `model` varchar(60) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'Resolved model id, e.g. claude-haiku-4-5-20251001. " (fallback)" suffix mirrors the cache convention.',
   `input_tokens` int unsigned NOT NULL DEFAULT '0',
   `output_tokens` int unsigned NOT NULL DEFAULT '0',
@@ -1400,7 +1400,7 @@ CREATE TABLE `ai_usage_events` (
   KEY `idx_aue_occurred` (`occurred_at`),
   CONSTRAINT `ai_usage_events_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE SET NULL,
   CONSTRAINT `ai_usage_events_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Append-only AI cost ledger — one row per Anthropic call, every surface. Source of truth for spend + budget.';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Append-only AI cost ledger â€” one row per Anthropic call, every surface. Source of truth for spend + budget.';
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `amendment_acceptances`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
@@ -1825,7 +1825,7 @@ CREATE TABLE `buyer_client_page_links` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `agency_id` bigint unsigned NOT NULL,
   `contact_id` bigint unsigned NOT NULL,
-  `slug` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `slug` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
@@ -3328,7 +3328,7 @@ CREATE TABLE `communications` (
   `subject` varchar(1024) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `body_text` mediumtext CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
   `body_preview` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `body_display` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci COMMENT 'AT-182 derived display body (email quote stripped); raw body_text untouched. Null → use body_text.',
+  `body_display` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci COMMENT 'AT-182 derived display body (email quote stripped); raw body_text untouched. Null â†’ use body_text.',
   `body_status` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `transcript_text` mediumtext CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
   `transcript_preview` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -3429,11 +3429,11 @@ CREATE TABLE `compiled_templates` (
   `source_template_id` bigint unsigned DEFAULT NULL,
   `family` varchar(120) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'document family e.g. 116/117/119, otp_sale, mandate_sole',
   `version` int unsigned NOT NULL DEFAULT '1' COMMENT 'monotonic per (agency_id, family)',
-  `content_hash` char(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'sha256 of the structural CDS; set at publish; the §5 pin',
+  `content_hash` char(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'sha256 of the structural CDS; set at publish; the Â§5 pin',
   `data_dictionary_version` int unsigned NOT NULL DEFAULT '1' COMMENT 'pins the dictionary version bindings resolve against',
   `legal_class` varchar(60) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'general' COMMENT 'resolved from family; drives L7 e-sign legality',
   `delivery_modes` json NOT NULL COMMENT 'enabled modes: web_esign/pdf_wetink/download',
-  `structure` json NOT NULL COMMENT 'the immutable CDS v2 tree — the SOLE runtime truth',
+  `structure` json NOT NULL COMMENT 'the immutable CDS v2 tree â€” the SOLE runtime truth',
   `render_parity` json DEFAULT NULL COMMENT 'web/pdf parity hashes, written after L6',
   `lint_report` json DEFAULT NULL COMMENT 'auditable L1-L7 lint output attached to this version',
   `lint_status` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'pending' COMMENT 'pending|passed|failed',
@@ -5251,7 +5251,7 @@ CREATE TABLE `deals` (
   `managed_by_user_id` bigint unsigned DEFAULT NULL,
   `period` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `deal_date` date NOT NULL,
-  `deal_type` enum('bond','cash','sale_of_2nd') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'DR2 capture: cash/bond/sale-of-2nd. Nullable — legacy DR1 rows stay NULL.',
+  `deal_type` enum('bond','cash','sale_of_2nd') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'DR2 capture: cash/bond/sale-of-2nd. Nullable â€” legacy DR1 rows stay NULL.',
   `property_address` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `seller_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `buyer_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -5386,7 +5386,7 @@ CREATE TABLE `demo_access_grants` (
   `contact_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `contact_id` bigint unsigned DEFAULT NULL,
   `credential_hash` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `expiry_hours` int unsigned NOT NULL,
+  `expiry_hours` int unsigned DEFAULT NULL,
   `first_login_at` timestamp NULL DEFAULT NULL,
   `expires_at` timestamp NULL DEFAULT NULL,
   `revoked_at` timestamp NULL DEFAULT NULL,
@@ -7735,9 +7735,9 @@ DROP TABLE IF EXISTS `listing_website_stat_totals`;
 CREATE TABLE `listing_website_stat_totals` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `agency_id` bigint unsigned NOT NULL,
-  `site` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `site` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `property_id` bigint unsigned NOT NULL,
-  `metric` varchar(40) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `metric` varchar(40) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `reported_total` bigint unsigned NOT NULL DEFAULT '0',
   `reported_at` timestamp NULL DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
@@ -7755,10 +7755,10 @@ DROP TABLE IF EXISTS `listing_website_stats`;
 CREATE TABLE `listing_website_stats` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `agency_id` bigint unsigned NOT NULL,
-  `site` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `site` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `property_id` bigint unsigned NOT NULL,
   `stat_date` date NOT NULL,
-  `metric` varchar(40) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `metric` varchar(40) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `metric_count` bigint unsigned NOT NULL DEFAULT '0',
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
@@ -7880,7 +7880,7 @@ CREATE TABLE `market_data_discrepancies` (
   CONSTRAINT `market_data_discrepancies_data_point_id_foreign` FOREIGN KEY (`data_point_id`) REFERENCES `market_data_points` (`id`) ON DELETE CASCADE,
   CONSTRAINT `market_data_discrepancies_report_id_foreign` FOREIGN KEY (`report_id`) REFERENCES `market_reports` (`id`) ON DELETE SET NULL,
   CONSTRAINT `market_data_discrepancies_resolved_by_user_id_foreign` FOREIGN KEY (`resolved_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='AI spot-check diffs vs deterministic parser output. ≥medium severity notifies super-admin.';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='AI spot-check diffs vs deterministic parser output. â‰¥medium severity notifies super-admin.';
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `market_data_points`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
@@ -7896,9 +7896,9 @@ CREATE TABLE `market_data_points` (
   `metric_value_numeric` decimal(15,2) DEFAULT NULL,
   `metric_value_date` date DEFAULT NULL,
   `metric_value_string` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
-  `metric_date` date NOT NULL COMMENT 'The date the metric applies to (e.g. "Q1 2026" → 2026-01-01).',
+  `metric_date` date NOT NULL COMMENT 'The date the metric applies to (e.g. "Q1 2026" â†’ 2026-01-01).',
   `confidence` enum('low','medium','high','verified') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'medium',
-  `source_type` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'Mirrors market_reports.source_type but allows API origins (lightstone_api, deeds_api, …).',
+  `source_type` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'Mirrors market_reports.source_type but allows API origins (lightstone_api, deeds_api, â€¦).',
   `source_ref` varchar(200) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `is_superseded` tinyint(1) NOT NULL DEFAULT '0' COMMENT 'Newer report invalidates this point.',
   `superseded_by_id` bigint unsigned DEFAULT NULL,
@@ -7916,7 +7916,7 @@ CREATE TABLE `market_data_points` (
   CONSTRAINT `market_data_points_report_id_foreign` FOREIGN KEY (`report_id`) REFERENCES `market_reports` (`id`) ON DELETE SET NULL,
   CONSTRAINT `market_data_points_superseded_by_id_foreign` FOREIGN KEY (`superseded_by_id`) REFERENCES `market_data_points` (`id`) ON DELETE SET NULL,
   CONSTRAINT `market_data_points_tracked_property_id_foreign` FOREIGN KEY (`tracked_property_id`) REFERENCES `tracked_properties` (`id`) ON DELETE SET NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Normalised market data warehouse. SHARED-POOL: agency_id is audit-only, default reads union across agencies (spec §13).';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Normalised market data warehouse. SHARED-POOL: agency_id is audit-only, default reads union across agencies (spec Â§13).';
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `market_report_comp_rows`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
@@ -7972,7 +7972,7 @@ CREATE TABLE `market_report_types` (
   `key` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'Stable identifier, e.g. cma_info_market_analysis',
   `display_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'Human-readable, e.g. "CMA Info Market Analysis"',
   `parser_class` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'FQCN of the parser, e.g. App\\Services\\MarketReports\\Parsers\\CmaInfoMarketAnalysisParser',
-  `expected_fields_json` json NOT NULL COMMENT 'What the parser yields — used for validation + spot-check.',
+  `expected_fields_json` json NOT NULL COMMENT 'What the parser yields â€” used for validation + spot-check.',
   `auto_approve` tinyint(1) NOT NULL DEFAULT '0' COMMENT 'If true, skip manual review when spot-check passes.',
   `sample_file_path` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'Path to a representative sample for parser regression tests.',
   `created_at` timestamp NULL DEFAULT NULL,
@@ -9213,7 +9213,7 @@ DROP TABLE IF EXISTS `portal_leads`;
 CREATE TABLE `portal_leads` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `agency_id` bigint unsigned NOT NULL,
-  `portal` enum('p24','pp','website','shared_link') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `portal` enum('p24','pp','website','shared_link') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `lead_type` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `listing_id` bigint unsigned DEFAULT NULL,
   `listing_portal_ref` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -10016,11 +10016,11 @@ CREATE TABLE `presentation_versions` (
   `included_comp_ids_json` json DEFAULT NULL,
   `included_competitor_ids_json` json DEFAULT NULL,
   `condition_level_id` bigint unsigned DEFAULT NULL,
-  `condition_adjustment_pct` decimal(5,2) DEFAULT NULL COMMENT 'Snapshot at review/publish — defends historic PDF against later setting drift.',
+  `condition_adjustment_pct` decimal(5,2) DEFAULT NULL COMMENT 'Snapshot at review/publish â€” defends historic PDF against later setting drift.',
   `condition_label` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `enabled_sections_json` json DEFAULT NULL COMMENT 'Build 4 — per-version snapshot of which report sections render. Null means "use agency defaults at compile time".',
-  `snapshot_payload` json DEFAULT NULL COMMENT 'Build 5 — full compiled report payload frozen at publish. Public view reads from this; live compile is fallback only.',
-  `snapshot_taken_at` timestamp NULL DEFAULT NULL COMMENT 'Build 5 — when snapshot_payload was last frozen. Drives the freshness window calc.',
+  `enabled_sections_json` json DEFAULT NULL COMMENT 'Build 4 â€” per-version snapshot of which report sections render. Null means "use agency defaults at compile time".',
+  `snapshot_payload` json DEFAULT NULL COMMENT 'Build 5 â€” full compiled report payload frozen at publish. Public view reads from this; live compile is fallback only.',
+  `snapshot_taken_at` timestamp NULL DEFAULT NULL COMMENT 'Build 5 â€” when snapshot_payload was last frozen. Drives the freshness window calc.',
   `hydration_summary_json` json DEFAULT NULL,
   `ai_variant_id` smallint unsigned DEFAULT NULL,
   `ai_summary_text` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
@@ -10285,15 +10285,15 @@ CREATE TABLE `properties` (
   `floor_number` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `unit_section_block` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `property_type` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'house',
-  `title_type` enum('full_title','sectional_title','vacant_land','other') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'Keystone — derived from property_type by TitleTypeClassifier on every save. Source of truth for comp-filter and review-screen badge.',
-  `condition_level_id` bigint unsigned DEFAULT NULL COMMENT 'Build 3 — FK to property_setting_items where group=condition_level. Nullable: property may have no recorded condition.',
+  `title_type` enum('full_title','sectional_title','vacant_land','other') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'Keystone â€” derived from property_type by TitleTypeClassifier on every save. Source of truth for comp-filter and review-screen badge.',
+  `condition_level_id` bigint unsigned DEFAULT NULL COMMENT 'Build 3 â€” FK to property_setting_items where group=condition_level. Nullable: property may have no recorded condition.',
   `category` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `mandate_type` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `listing_type` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `listing_type_pending` tinyint(1) NOT NULL DEFAULT '0',
   `status` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'draft',
   `pre_deal_offer_status` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'Wave 2: the on-market status held before a deal flagged this property under-offer; restored on decline/lapse.',
-  `status_label` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'Optional sub-label banner on a base status (e.g. "Reduced Price", "Pending"). Two-tier P24/Propcon model — see AT-P24.',
+  `status_label` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'Optional sub-label banner on a base status (e.g. "Reduced Price", "Pending"). Two-tier P24/Propcon model â€” see AT-P24.',
   `images_json` json DEFAULT NULL,
   `gallery_expected_count` int unsigned NOT NULL DEFAULT '0',
   `gallery_stored_count` int unsigned NOT NULL DEFAULT '0',
@@ -10743,7 +10743,7 @@ CREATE TABLE `property_match_decisions` (
   CONSTRAINT `property_match_decisions_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
   CONSTRAINT `property_match_decisions_confirmed_by_user_id_foreign` FOREIGN KEY (`confirmed_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
   CONSTRAINT `property_match_decisions_rejected_by_user_id_foreign` FOREIGN KEY (`rejected_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='CX-102 — recorded reason for every "same property" match, and any agent rejection of it.';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='CX-102 â€” recorded reason for every "same property" match, and any agent rejection of it.';
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `property_notes`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
@@ -10908,8 +10908,8 @@ CREATE TABLE `property_setting_items` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `group` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `title_type` enum('full_title','sectional_title','vacant_land','other') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'other' COMMENT 'Comp-selection discipline: houses do not compare to apartments. See .ai/specs/presentation-data-lineage.md §3-A.',
-  `adjustment_pct` decimal(5,2) DEFAULT NULL COMMENT 'Build 3 — % adjustment applied to CMA Middle band when this condition_level is selected. Null for non-condition rows.',
+  `title_type` enum('full_title','sectional_title','vacant_land','other') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'other' COMMENT 'Comp-selection discipline: houses do not compare to apartments. See .ai/specs/presentation-data-lineage.md Â§3-A.',
+  `adjustment_pct` decimal(5,2) DEFAULT NULL COMMENT 'Build 3 â€” % adjustment applied to CMA Middle band when this condition_level is selected. Null for non-condition rows.',
   `sort_order` smallint unsigned NOT NULL DEFAULT '0',
   `is_default` tinyint(1) NOT NULL DEFAULT '0',
   `active` tinyint(1) NOT NULL DEFAULT '1',
@@ -11234,7 +11234,7 @@ CREATE TABLE `prospecting_listings` (
   `normalized_address` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `property_group_id` bigint unsigned DEFAULT NULL,
   `suburb` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `latitude` decimal(10,7) DEFAULT NULL COMMENT 'Resolved by AddressResolverService — building-level when street parts present, suburb_centroid as last resort. Indexed for radius queries.',
+  `latitude` decimal(10,7) DEFAULT NULL COMMENT 'Resolved by AddressResolverService â€” building-level when street parts present, suburb_centroid as last resort. Indexed for radius queries.',
   `longitude` decimal(10,7) DEFAULT NULL,
   `district` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `price` int DEFAULT NULL,
@@ -11247,7 +11247,7 @@ CREATE TABLE `prospecting_listings` (
   `agent_name` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `agency_name` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `thumbnail_path` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `thumbnail_source_url` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'Original portal image URL the thumbnail was downloaded from — enables prospecting:rehydrate-thumbnails to re-fetch without a re-capture (AT-22 item 7).',
+  `thumbnail_source_url` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'Original portal image URL the thumbnail was downloaded from â€” enables prospecting:rehydrate-thumbnails to re-fetch without a re-capture (AT-22 item 7).',
   `thumbnail_blocked_reason` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'Why this thumbnail is blocked from seller surfaces (e.g. brand:remax, graphic). Set by ListingImageValidator content inspection. Null = not blocked (AT-22 item 2).',
   `first_seen_at` datetime NOT NULL,
   `last_seen_at` datetime NOT NULL,
@@ -12683,8 +12683,8 @@ CREATE TABLE `signature_templates` (
   `is_candidate_flow` tinyint(1) NOT NULL DEFAULT '0',
   `supervisor_user_id` bigint unsigned DEFAULT NULL,
   `completed_at` timestamp NULL DEFAULT NULL,
-  `legal_deadline_at` timestamp NULL DEFAULT NULL COMMENT 'Track C — the LEGAL last-valid-signature date (mandate expiry / OTP irrevocable). A mark after this is void. Distinct from the 14-day link TTL.',
-  `deadline_source` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'Track C — where legal_deadline_at came from: mandate_expiry | otp_irrevocable | manual.',
+  `legal_deadline_at` timestamp NULL DEFAULT NULL COMMENT 'Track C â€” the LEGAL last-valid-signature date (mandate expiry / OTP irrevocable). A mark after this is void. Distinct from the 14-day link TTL.',
+  `deadline_source` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'Track C â€” where legal_deadline_at came from: mandate_expiry | otp_irrevocable | manual.',
   `rejected_at` timestamp NULL DEFAULT NULL,
   `rejection_reason` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
   `cancellation_reason` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
@@ -12807,6 +12807,26 @@ CREATE TABLE `signed_document_versions` (
   CONSTRAINT `signed_document_versions_signature_request_id_foreign` FOREIGN KEY (`signature_request_id`) REFERENCES `signature_requests` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `site_connectors`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `site_connectors` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'Site connector',
+  `key_prefix` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `secret_hash` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `last_used_at` timestamp NULL DEFAULT NULL,
+  `revoked_at` timestamp NULL DEFAULT NULL,
+  `created_by` bigint unsigned DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `site_connectors_key_prefix_unique` (`key_prefix`),
+  KEY `site_connectors_revoked_idx` (`revoked_at`),
+  KEY `site_connectors_creator_fk` (`created_by`),
+  CONSTRAINT `site_connectors_creator_fk` FOREIGN KEY (`created_by`) REFERENCES `users` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `soft_delete_restorations`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -12874,10 +12894,10 @@ DROP TABLE IF EXISTS `suburb_municipalities`;
 CREATE TABLE `suburb_municipalities` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `p24_suburb_id` bigint unsigned NOT NULL,
-  `suburb_name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `municipality` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `confidence` enum('confirmed','needs_review') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'needs_review',
-  `source` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `suburb_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `municipality` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `confidence` enum('confirmed','needs_review') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'needs_review',
+  `source` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
@@ -12893,10 +12913,10 @@ CREATE TABLE `suburb_reports` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `agency_id` bigint unsigned NOT NULL,
   `p24_suburb_id` bigint unsigned NOT NULL,
-  `suburb_name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `municipality` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `suburb_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `municipality` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `municipality_confirmed` tinyint(1) NOT NULL,
-  `agency_name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `agency_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `generated_by_user_id` bigint unsigned DEFAULT NULL,
   `generated_at` timestamp NOT NULL,
   `current_year_at_generation` smallint unsigned NOT NULL,
@@ -13115,7 +13135,7 @@ CREATE TABLE `tracked_properties` (
   `erf_number` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `title_deed_number` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `cadastral_extent` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `section_extent_m2` decimal(10,2) DEFAULT NULL COMMENT 'Sectional title unit registered extent (cmainfo "Section extent") — NEVER the same value as cadastral_extent or erf_size_m2. .ai/specs/deeds-capture.md §6.',
+  `section_extent_m2` decimal(10,2) DEFAULT NULL COMMENT 'Sectional title unit registered extent (cmainfo "Section extent") â€” NEVER the same value as cadastral_extent or erf_size_m2. .ai/specs/deeds-capture.md Â§6.',
   `municipal_valuation` decimal(15,2) DEFAULT NULL,
   `municipal_valuation_year` smallint unsigned DEFAULT NULL,
   `last_known_asking_price` decimal(15,2) DEFAULT NULL,
@@ -13183,7 +13203,7 @@ CREATE TABLE `tracked_property_addresses` (
   `agency_id` bigint unsigned NOT NULL,
   `tracked_property_id` bigint unsigned NOT NULL,
   `street_number` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `street_name` varchar(200) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'Normalised on write (St→Street, Rd→Road, …) — see TrackedPropertyMatchOrCreateService::normaliseStreetName().',
+  `street_name` varchar(200) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'Normalised on write (Stâ†’Street, Rdâ†’Road, â€¦) â€” see TrackedPropertyMatchOrCreateService::normaliseStreetName().',
   `unit_number` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `complex_name` varchar(200) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `suburb` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -13195,7 +13215,7 @@ CREATE TABLE `tracked_property_addresses` (
   `longitude` decimal(10,7) DEFAULT NULL,
   `source_type` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'p24 | pp | chrome_capture | cmainfo | manual_agent | manual_admin | deeds_office',
   `source_ref` varchar(200) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'The originating record ID (portal listing id, presentation id, capture id, etc).',
-  `confidence` enum('low','medium','high','verified') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'low' COMMENT 'verified = agent-confirmed; promotes to primary per spec §3.2.1.',
+  `confidence` enum('low','medium','high','verified') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'low' COMMENT 'verified = agent-confirmed; promotes to primary per spec Â§3.2.1.',
   `is_primary` tinyint(1) NOT NULL DEFAULT '0',
   `verified_by_user_id` bigint unsigned DEFAULT NULL,
   `verified_at` timestamp NULL DEFAULT NULL,
@@ -14077,6 +14097,58 @@ CREATE TABLE `web_packs` (
   CONSTRAINT `web_packs_created_by_foreign` FOREIGN KEY (`created_by`) REFERENCES `users` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `webinar_registrations`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `webinar_registrations` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `webinar_id` bigint unsigned NOT NULL,
+  `name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `email` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `company_name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `phone` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `demo_access_grant_id` bigint unsigned DEFAULT NULL,
+  `confirmation_sent_at` timestamp NULL DEFAULT NULL,
+  `reminder_sent_at` timestamp NULL DEFAULT NULL,
+  `last_issued_at` timestamp NULL DEFAULT NULL,
+  `ip_address` varchar(45) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `user_agent` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `source` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'website',
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `webinar_registrations_person_unq` (`webinar_id`,`email`),
+  KEY `webinar_registrations_listing_idx` (`webinar_id`,`created_at`),
+  KEY `webinar_registrations_email_idx` (`email`),
+  KEY `webinar_registrations_grant_fk` (`demo_access_grant_id`),
+  CONSTRAINT `webinar_registrations_grant_fk` FOREIGN KEY (`demo_access_grant_id`) REFERENCES `demo_access_grants` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `webinar_registrations_webinar_fk` FOREIGN KEY (`webinar_id`) REFERENCES `webinars` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `webinars`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `webinars` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `slug` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `title` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `description` text COLLATE utf8mb4_unicode_ci,
+  `starts_at` datetime NOT NULL,
+  `duration_minutes` int unsigned DEFAULT NULL,
+  `join_url` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `access_ends_days_after` int unsigned NOT NULL DEFAULT '3',
+  `reminder_hours_before` int unsigned NOT NULL DEFAULT '24',
+  `created_by_user_id` bigint unsigned NOT NULL,
+  `archived_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `webinars_slug_unique` (`slug`),
+  KEY `webinars_open_idx` (`archived_at`,`starts_at`),
+  KEY `webinars_creator_fk` (`created_by_user_id`),
+  CONSTRAINT `webinars_creator_fk` FOREIGN KEY (`created_by_user_id`) REFERENCES `users` (`id`) ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `website_stat_batches`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -14084,9 +14156,9 @@ CREATE TABLE `website_stat_batches` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `agency_id` bigint unsigned NOT NULL,
   `agency_api_key_id` bigint unsigned DEFAULT NULL,
-  `site` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `batch_id` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `source` varchar(32) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'website',
+  `site` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `batch_id` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `source` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'website',
   `listing_count` int unsigned NOT NULL DEFAULT '0',
   `accepted_count` int unsigned NOT NULL DEFAULT '0',
   `skipped_count` int unsigned NOT NULL DEFAULT '0',
@@ -15539,3 +15611,7 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1197,'2026_08_25_1
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1198,'2026_08_29_000008_add_shared_link_to_portal_leads_portal_enum',282);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1199,'2026_08_29_000009_create_buyer_client_page_links_table',282);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1200,'2026_08_29_000010_create_website_listing_stats_tables',282);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1201,'2026_08_30_000001_create_webinars_table',283);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1202,'2026_08_30_000002_create_webinar_registrations_table',283);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1203,'2026_08_30_000003_create_site_connectors_table',283);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1204,'2026_08_30_000004_make_expiry_hours_nullable_on_demo_access_grants_table',283);
