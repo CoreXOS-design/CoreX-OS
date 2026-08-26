@@ -57,6 +57,22 @@
     $sideChip = fn (string $kind) => $kind === 'agency'
         ? '<span style="font-family:monospace; font-size:0.62rem; font-weight:700; letter-spacing:0.03em; padding:0.15rem 0.5rem; border-radius:99px; background:#e6ede9; color:#2f6b45;">' . strtoupper(e($agencyName)) . '</span>'
         : '<span style="font-family:monospace; font-size:0.62rem; font-weight:700; letter-spacing:0.03em; padding:0.15rem 0.5rem; border-radius:99px; background:#f3ead2; color:#96660a;">PROPERTY24 &amp; PRIVATE PROPERTY</span>';
+    // 2026-08-26 (Johan) — "freehold and sectional title must be two
+    // separate indicators... a blended number describes neither." One
+    // plain-English sub-line per agency figure, built from
+    // SuburbReportDataService::titleTypeBreakdown() — spelled out in full
+    // ("freehold" / "sectional title"), never abbreviated, matching the
+    // warmer pass. A property with no title_type recorded is named
+    // explicitly, never silently folded into either side.
+    $titleTypeLine = function (array $b) {
+        if ($b['total'] === 0) return null;
+        $parts = [];
+        if ($b['full_title'] > 0) $parts[] = $b['full_title'] . ' freehold';
+        if ($b['sectional_title'] > 0) $parts[] = $b['sectional_title'] . ' sectional title';
+        if ($b['vacant_land'] > 0) $parts[] = $b['vacant_land'] . ' vacant land';
+        if ($b['not_recorded'] > 0) $parts[] = $b['not_recorded'] . ' with no title type recorded';
+        return implode(', ', $parts);
+    };
     $suburbName = $data['suburb']['name'] ?? 'this suburb';
 @endphp
 
@@ -176,6 +192,10 @@
     @if($sections['stock']['agency'] && $stockListings->isNotEmpty())
     <div style="margin-bottom:1rem;">
         <p style="font-size:0.95rem; color:#1b2a2c; margin:0 0 0.6rem; line-height:1.5;">{{ $agencyName }} currently has <strong>{{ number_format($stockListings->count()) }}</strong> {{ $stockListings->count() === 1 ? 'home' : 'homes' }} for sale in {{ $suburbName }}.</p>
+        @php $stockBreakdownLine = $titleTypeLine($layerB['stock_on_market']['title_type_breakdown'] ?? ['total' => 0]); @endphp
+        @if($stockBreakdownLine)
+        <p style="font-size:0.78rem; color:#5c6c6d; margin:0 0 0.6rem;">{{ $stockBreakdownLine }}</p>
+        @endif
         <div style="margin-bottom:0.5rem;">{!! $sideChip('agency') !!}</div>
         <div style="overflow-x:auto;">
             <table style="width:100%; border-collapse:collapse; font-size:0.82rem;">
@@ -245,6 +265,10 @@
     @if($sections['sales']['agency'])
     <div style="margin-bottom:{{ $sections['sales']['market'] ? '1rem' : '0' }};">
         <p style="font-size:0.95rem; color:#1b2a2c; margin:0 0 0.6rem; line-height:1.5;">{{ $agencyName }} has sold <strong>{{ number_format(count($sold)) }}</strong> {{ count($sold) === 1 ? 'home' : 'homes' }} in {{ $suburbName }}.</p>
+        @php $soldBreakdownLine = $titleTypeLine($layerB['sales_activity']['sold_title_type_breakdown'] ?? ['total' => 0]); @endphp
+        @if($soldBreakdownLine)
+        <p style="font-size:0.78rem; color:#5c6c6d; margin:0 0 0.6rem;">{{ $soldBreakdownLine }}</p>
+        @endif
         <div style="margin-bottom:0.5rem;">{!! $sideChip('agency') !!}</div>
         @include('corex.market-intelligence._suburb-report-stat-row', ['stats' => [
             ['label' => 'Sold', 'value' => number_format(count($sold)), 'color' => '#2f6b45'],
@@ -296,6 +320,16 @@
         <p style="font-size:0.95rem; color:#1b2a2c; margin:0 0 0.6rem; line-height:1.5;">Homes like this one in {{ $suburbName }} are selling in about <strong>{{ number_format($daysToSell) }} days</strong>.</p>
         @else
         <p style="font-size:0.95rem; color:#1b2a2c; margin:0 0 0.6rem; line-height:1.5;">{{ $agencyName }} has <strong>{{ number_format(count($sold)) }}</strong> sold and <strong>{{ number_format(count($underOffer)) }}</strong> under offer in {{ $suburbName }}.</p>
+        @endif
+        @php
+            $soldUoSoldLine = count($sold) > 0 ? $titleTypeLine($layerB['sales_activity']['sold_title_type_breakdown'] ?? ['total' => 0]) : null;
+            $soldUoUnderOfferLine = count($underOffer) > 0 ? $titleTypeLine($layerB['sales_activity']['under_offer_title_type_breakdown'] ?? ['total' => 0]) : null;
+        @endphp
+        @if($soldUoSoldLine)
+        <p style="font-size:0.78rem; color:#5c6c6d; margin:0;">Sold: {{ $soldUoSoldLine }}</p>
+        @endif
+        @if($soldUoUnderOfferLine)
+        <p style="font-size:0.78rem; color:#5c6c6d; margin:0 0 0.6rem;">Under offer: {{ $soldUoUnderOfferLine }}</p>
         @endif
         <div style="margin-bottom:0.5rem;">{!! $sideChip('agency') !!}</div>
         <p style="font-size:0.72rem; color:#8a9697; margin:0 0 0.5rem;">"Sold" means the deal is registered; "under offer" means an offer has been accepted but not yet registered.</p>
@@ -397,6 +431,16 @@
     @if($sections['price_reductions']['agency'] && count($priceReductions) > 0)
     <div style="margin-bottom:{{ $sections['price_reductions']['market'] ? '1rem' : '0' }};">
         <p style="font-size:0.95rem; color:#1b2a2c; margin:0 0 0.6rem; line-height:1.5;"><strong>{{ number_format(count($priceReductions)) }}</strong> of {{ $agencyName }}'s own {{ count($priceReductions) === 1 ? 'listing has' : 'listings have' }} had a price cut in {{ $suburbName }}{{ $avgReductionPct !== null ? ', averaging ' . number_format(abs($avgReductionPct), 1) . '% down' : '' }}.</p>
+        {{-- 2026-08-26 (Johan) — freehold/sectional breakdown asked for on
+             every agency figure. This one genuinely isn't reachable today:
+             price reductions come from p24_price_changes/p24_listings, which
+             carries no link back to properties (no property_id, and
+             properties.p24_listing_number does exist but resolves 0 of 125
+             real Uvongo rows when tried — checked directly, not assumed).
+             Rather than force a join that doesn't work, or silently show a
+             breakdown that would read "0 freehold, 0 sectional, all not
+             recorded" for every suburb, saying so plainly here. --}}
+        <p style="font-size:0.72rem; color:#8a9697; margin:0 0 0.6rem;">Not split by freehold or sectional title — this figure isn't currently linked back to a property record.</p>
         <div style="margin-bottom:0.5rem;">{!! $sideChip('agency') !!}</div>
         @if(!empty($reductionCols))
         <div style="font-size:0.7rem; font-weight:600; text-transform:uppercase; letter-spacing:0.04em; color:#8a9697; margin-bottom:0.3rem;">Price cuts per month, last 12 months</div>
