@@ -729,14 +729,53 @@ class WebTemplateDataService
      * SignatureRequest and signing link; it is excluded only from the
      * VIEWS that enumerate "every {role}" for display.
      *
+     * 2026-08-26 fix — this used to trust `_deceased_substitute_for`, a flag
+     * wizard.blade.php's JavaScript stamps onto a row only when an agent
+     * goes through the "Replace this party" picker. The server never
+     * verified it was actually present, so a document built the way cc1
+     * (and this audit's own real endpoint tests) build one — supplying the
+     * recipients array directly rather than clicking through that specific
+     * UI step — carried no such flag, and the exclusion silently never
+     * fired. Same underlying fact, tracked two ways: the `_slot_bindings`
+     * on the DECEASED party's own row already names this recipient, by
+     * `_recipient_local_key`, as their bound executor — the exact data
+     * assertDeceasedRecipientsHaveSubstituteSigner() already walks to prove
+     * a substitute exists at all. Deriving the answer from that same,
+     * authoritative binding — instead of a second, unverified flag — means
+     * there is only one place "is this recipient someone else's substitute"
+     * can ever be answered, and it can't go stale or go missing.
+     *
      * @param  list<array<string,mixed>>  $recipients
      * @return list<array<string,mixed>>
      */
     private function excludeSubstituteOnlyRecipients(array $recipients): array
     {
+        $boundAsSubstitute = [];
+        foreach ($recipients as $r) {
+            $bindings = $r['_slot_bindings'] ?? null;
+            if (!is_array($bindings)) {
+                continue;
+            }
+            foreach ($bindings as $binding) {
+                if (!is_array($binding) || ($binding['type'] ?? null) !== 'recipient') {
+                    continue;
+                }
+                $boundKey = $binding['recipient_local_key'] ?? null;
+                if ($boundKey !== null) {
+                    $boundAsSubstitute[$boundKey] = true;
+                }
+            }
+        }
+
         return array_values(array_filter(
             $recipients,
-            fn (array $r) => empty($r['_deceased_substitute_for'])
+            function (array $r) use ($boundAsSubstitute) {
+                if (!empty($r['_deceased_substitute_for'])) {
+                    return false;
+                }
+                $ownKey = $r['_recipient_local_key'] ?? null;
+                return $ownKey === null || empty($boundAsSubstitute[$ownKey]);
+            }
         ));
     }
 
