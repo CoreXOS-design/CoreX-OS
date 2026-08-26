@@ -209,7 +209,7 @@
                 <tbody>
                     @foreach($stockListings->take(15) as $listing)
                     <tr style="border-bottom:1px solid #f0ece0;">
-                        <td style="padding:0.4rem 0.5rem 0.4rem 0; color:#1b2a2c;">{{ $listing->address ?? $listing->street_name ?? '—' }}</td>
+                        <td style="padding:0.4rem 0.5rem 0.4rem 0; color:#1b2a2c;">{{ $listing->address ?? $listing->street_name ?? 'No address' }}</td>
                         <td style="padding:0.4rem 0.5rem; text-align:right; color:#1b2a2c; font-weight:600;">{{ $listing->price ? $moneyFmt($listing->price) : '—' }}</td>
                         <td style="padding:0.4rem 0 0.4rem 0.5rem; text-align:right; color:#5c6c6d;">{{ $listing->listed_date ? \Illuminate\Support\Carbon::parse($listing->listed_date)->format('d M Y') : '—' }}</td>
                     </tr>
@@ -367,7 +367,7 @@
                 <tbody>
                     @foreach(array_merge($sold, $underOffer) as $deal)
                     <tr style="border-bottom:1px solid #f0ece0;">
-                        <td style="padding:0.4rem 0.5rem 0.4rem 0; color:#1b2a2c;">{{ $deal['address'] ?? '—' }}</td>
+                        <td style="padding:0.4rem 0.5rem 0.4rem 0; color:#1b2a2c;">{{ $deal['address'] ?? 'No address' }}</td>
                         <td style="padding:0.4rem 0.5rem; text-align:right; color:#1b2a2c; font-weight:600;">{{ $moneyFmt($deal['price']) }}</td>
                         <td style="padding:0.4rem 0.5rem; color:#5c6c6d;">
                             @if($deal['comparable'])

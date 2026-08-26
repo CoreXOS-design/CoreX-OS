@@ -59,7 +59,7 @@
         : null;
 
     // Address truncation — keep it tight on the primary line.
-    $addressShort = \Illuminate\Support\Str::limit($listing->address ?? '—', 50);
+    $addressShort = $listing->address ? \Illuminate\Support\Str::limit($listing->address, 50) : 'No address';
     $priceLabel = $listing->price ? ('R ' . number_format($listing->price)) : '—';
 
     $metaParts = array_filter([
