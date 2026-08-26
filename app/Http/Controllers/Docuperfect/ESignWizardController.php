@@ -3573,8 +3573,16 @@ class ESignWizardController extends Controller
             return null; // no signer resolved yet (e.g. deferred) — nothing to verify against.
         }
 
-        $currentRepIds = $entityContact->representatives()->pluck('contacts.id');
-        if (! $currentRepIds->contains($contactId)) {
+        // cc2, 2026-08-26 — reuses SignatureRequest::assertSignerIsCurrentRepresentative()
+        // directly rather than re-walking the chain here. Two membership
+        // checks against the same relationship is the identical two-
+        // implementations shape as the clause/signer split this whole task
+        // exists to close, one level down — a one-hop check here would have
+        // refused Anna's genuinely correct multi-hop chain (Ben → Chris)
+        // exactly the way cc4 caught it doing.
+        try {
+            \App\Models\Docuperfect\SignatureRequest::assertSignerIsCurrentRepresentative($contactId, $entityContactId);
+        } catch (\App\Exceptions\PartyClauseSignerMismatchException $e) {
             // entity_name is only populated for an actual entity — a
             // represented NATURAL PERSON (Anna's own case) has none, so
             // fall back to full_name the same way composeEntityPartyText()

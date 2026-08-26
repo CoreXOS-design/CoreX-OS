@@ -147,18 +147,25 @@ class SignatureRequest extends Model
     }
 
     /**
-     * THE single guard (cc2, 2026-08-25 — Flow 409, corrected same night by
-     * cc4's real reproduction, row 1506): "who represents this party" must
-     * be ONE answer read twice — and an answer is a Contact's id, never a
-     * name string. The original version of this guard checked whether the
-     * signer's NAME appeared inside the clause text. cc4 broke it in one
-     * try: a clause naming "Christopher TestBentley" and a signer literally
-     * named "Chris" passes a substring check ("Chris" IS a substring of
-     * "Christopher") while being exactly Flow 409's defect wearing a name
-     * that happens to overlap the right one. Two records are the same
-     * party because they ARE the same record — checked here by primary key
-     * against the live `contact_representatives` relationship — never
-     * because one person's name happens to appear inside another's.
+     * THE single guard (cc2, 2026-08-25 — Flow 409, corrected twice the same
+     * night). First correction, by cc4's reproduction (row 1506): the
+     * original version compared the signer's NAME against clause TEXT — a
+     * substring match ("Chris" inside "Christopher") let a wrong person
+     * through. Fixed to compare Contact identity via the live
+     * `contact_representatives` relationship.
+     *
+     * Second correction, by cc4's regression (Anna → Ben → Chris): checking
+     * only the DIRECT link (Contact::representatives(), one hop) refused a
+     * genuinely correct multi-hop chain — Chris is Anna's real, ultimate
+     * signer via Ben, and a one-hop check can never see past Ben. "Who
+     * represents this party" is not this guard's own question to answer a
+     * second way; Contact::signingRepresentatives() is ALREADY the one place
+     * that question is resolved correctly for the whole codebase (full
+     * recursive chain, natural-person intermediaries included, proxy
+     * collapse applied) — reused here directly rather than re-walked. If
+     * this guard and the recompute in ESignWizardController each did their
+     * own walk, that would be the exact two-implementations problem tonight
+     * exists to close, one level down.
      *
      * No-ops when $representedContactId is null — a plain party with no
      * representative (the overwhelming majority of rows) never reaches
@@ -177,8 +184,8 @@ class SignatureRequest extends Model
             return; // dangling reference — nothing to check identity against.
         }
 
-        $currentRepIds = $party->representatives()->pluck('contacts.id');
-        if (! $currentRepIds->contains($signerContactId)) {
+        $currentSignerIds = $party->signingRepresentatives()->pluck('id');
+        if (! $currentSignerIds->contains($signerContactId)) {
             $signer = \App\Models\Contact::withoutGlobalScopes()->find($signerContactId);
             throw \App\Exceptions\PartyClauseSignerMismatchException::forParty(
                 $signer?->full_name ?? "contact #{$signerContactId}",

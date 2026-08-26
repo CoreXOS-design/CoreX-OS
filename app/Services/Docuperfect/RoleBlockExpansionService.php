@@ -2436,7 +2436,23 @@ final class RoleBlockExpansionService
 
         return array_map(function (array $repTuple) use ($depth, $seenIds) {
             [$r, $capacity, $isProxy] = $repTuple;
-            $nested = $r->isEntity()
+            // cc2, 2026-08-26 — gating recursion on isEntity() alone silently
+            // truncated a natural-person-only multi-hop chain (Anna
+            // represented by Ben represented by Chris — no entity anywhere
+            // in it) at the FIRST hop: the clause said "represented by Ben"
+            // while Contact::signingRepresentatives() — the ALREADY-CORRECT
+            // resolution for who actually signs, fixed for this exact shape
+            // by Job 1 fast-follow (Johan/cc1, 2026-08-26) — resolved all
+            // the way through to Chris. Two different answers to "who
+            // represents this party" from two separate walks of the same
+            // relationship is the identical disease last night's guard fix
+            // exists to prevent, found one level deeper: in the clause
+            // composer itself, not just its callers. Same gate as
+            // proxyAwareRepresentatives() now uses — recurse whenever the
+            // rep has ANY representative of their own, not only when
+            // they're an entity — so the clause and the signer are
+            // guaranteed to describe the same chain.
+            $nested = ($r->isEntity() || $r->representatives()->exists())
                 ? $this->resolveDocumentRepresentatives($r, $depth + 1, $seenIds)
                 : [];
 

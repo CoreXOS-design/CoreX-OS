@@ -243,7 +243,7 @@ class EsignRecipientPreset extends Model
     }
 
     /**
-     * @param array<int, array{0: Contact, 1: ?string, 2: bool, 3?: array}> $nestedReps this rep's OWN representatives, if it is itself an entity
+     * @param array<int, array{0: Contact, 1: ?string, 2: bool, 3?: array}> $nestedReps this rep's OWN representatives — an entity rep's by requirement, a natural-person rep's when they are themselves represented by someone else
      */
     private static function formatRepresentativeEntry(Contact $rep, ?string $capacity, bool $isProxy, array $nestedReps = []): string
     {
@@ -280,7 +280,20 @@ class EsignRecipientPreset extends Model
             $cap !== '' ? $cap : null,
         ]));
 
-        $entry = $bracket !== '' ? "{$name} ({$bracket})" : $name;
+        $label = $bracket !== '' ? "{$name} ({$bracket})" : $name;
+
+        // cc2, 2026-08-26 (Anna → Ben → Chris) — a natural-person rep with
+        // their OWN representative (RoleBlockExpansionService::
+        // resolveDocumentRepresentatives() now resolves this chain past Ben,
+        // matching Contact::signingRepresentatives()'s already-correct
+        // reach) must print the FULL chain here too, or the clause silently
+        // undercounts at exactly the hop the resolver just fixed — a clause
+        // saying "represented by Ben" while the actual, correctly-resolved
+        // signer is Chris is the same disagreement last night's guard exists
+        // to prevent, just moved into the text itself. A natural person with
+        // no representative of their own (the ordinary case) is unaffected
+        // — $nestedReps is empty and this is exactly the prior behaviour.
+        $entry = empty($nestedReps) ? $label : self::composePartyClause($label, $nestedReps);
 
         return $isProxy ? "{$entry}, duly authorised representative" : $entry;
     }
