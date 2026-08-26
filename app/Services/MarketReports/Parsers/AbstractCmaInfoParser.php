@@ -201,7 +201,22 @@ abstract class AbstractCmaInfoParser implements MarketReportParser
      *     Analysis, Indexed Value, Comparative Market Analysis)
      *   - "Sectional Title sales" header (in-scheme + radius variants)
      *   - "Sectional Title Scheme Owners List" header
-     *   - "ST Residential Sales Analysis" header (Median Sales Analysis)
+     *   - "ST Residential Sales Analysis" header (Median/Average Sales Analysis, sectional title)
+     *   - "Residential Sales Analysis" header, WITHOUT the "ST " prefix (Median/
+     *     Average Sales Analysis, FULL title — 2026-08-25 widening. Real cause of
+     *     Johan's "Shelly median.pdf" being rejected entirely and falling through
+     *     to GenericFallbackParser: the full-title variant of this exact report
+     *     carries no "ST" prefix anywhere in its extracted text, so the narrower
+     *     check never matched it and looksLikeCmaInfo() returned false — zero
+     *     score across every real parser, GenericFallbackParser's 0.1 floor won
+     *     by default. New rule: any document containing the phrase "Residential
+     *     Sales Analysis" (with or without the "ST " prefix) passes this initial
+     *     gate. This does not by itself accept the document — canParse()'s own
+     *     scoring (page count, annual-change column, year×sales×median row
+     *     pattern) still has to clear the bar below GenericFallbackParser's floor
+     *     for GenericFallbackParser to lose, so a document that merely contains
+     *     this phrase in passing without the surrounding table structure still
+     *     will not be force-accepted as a CMA.)
      *   - "PROPERTY INFORMATION" + "SALE INFORMATION" block (Property Valuation)
      *
      * Returns true if any of these markers appear. Returns false for
@@ -220,7 +235,9 @@ abstract class AbstractCmaInfoParser implements MarketReportParser
         if (preg_match('/\bCMA\s*-\s*/i', $text)) return true;
         if (stripos($text, 'Sectional Title sales') !== false) return true;
         if (stripos($text, 'Sectional Title Scheme Owners List') !== false) return true;
-        if (stripos($text, 'ST Residential Sales Analysis') !== false) return true;
+        // Covers both "ST Residential Sales Analysis" (sectional title) and the
+        // plain "Residential Sales Analysis" (full title) — see docblock above.
+        if (stripos($text, 'Residential Sales Analysis') !== false) return true;
         // Vicinity Sales family — Residential freehold + Vacant land variants.
         // Added 2026-05-28 alongside CmaInfoVicinitySaleParser. Additive
         // only; existing parsers ignore these markers in their per-class

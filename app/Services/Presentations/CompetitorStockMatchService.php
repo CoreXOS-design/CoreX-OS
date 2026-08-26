@@ -945,6 +945,28 @@ final class CompetitorStockMatchService
             ->where('is_active', 1)
             ->whereNull('deleted_at');
 
+        // Subject self-exclusion (Johan, 2026-08-25 — "cannot show a client
+        // their property as competition"). A property advertised by several
+        // agencies produces one prospecting_listings row PER ADVERT, all
+        // resolving through tracked_property_id -> tracked_properties.
+        // promoted_to_property_id to the SAME underlying Property — the
+        // Universal Match-or-Create identity chain (CLAUDE.md #10), stronger
+        // than CompPoolBuilder::isSubjectSelf()'s address/GPS heuristic since
+        // it's exact property identity, not a fuzzy proxy for it. A row with
+        // no tracked_property_id can't be resolved either way and is kept —
+        // absence of a match is not evidence it's the subject.
+        $subjectPropertyId = $criteria['subject']?->id ?? null;
+        if ($subjectPropertyId !== null) {
+            $query->where(function ($q) use ($subjectPropertyId) {
+                $q->whereNull('tracked_property_id')
+                  ->orWhereNotIn('tracked_property_id', function ($sub) use ($subjectPropertyId) {
+                      $sub->select('id')
+                          ->from('tracked_properties')
+                          ->where('promoted_to_property_id', $subjectPropertyId);
+                  });
+            });
+        }
+
         // Price band — NULL-permissive, skipped when the subject has no price
         // (progressive relaxation, Johan 2026-08-20 — same shape as beds below).
         if (isset($criteria['price_min']) && $criteria['price_min'] !== null) {
