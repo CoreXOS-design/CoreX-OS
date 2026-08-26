@@ -4546,7 +4546,7 @@ function esignWizard() {
             return (t.party_slots || []).every(slot => !!this.replaceModal.bindings[slot.key]);
         },
 
-        confirmReplace() {
+        async confirmReplace() {
             if (!this.replaceModalCanConfirm()) return;
             const ri = this.replaceModal.recipientIndex;
             const r = this.recipients[ri];
@@ -4554,6 +4554,20 @@ function esignWizard() {
             r._slot_bindings = JSON.parse(JSON.stringify(this.replaceModal.bindings));
             r._replace_preview = this.replacePreviewText();
             this.closeReplaceModal();
+            // cc5's find, 2026-08-26 — Step 3's own document preview
+            // (loadTemplatePreview() -> the real templatePages() endpoint)
+            // renders from the SAVED flow, not this in-memory recipients
+            // array; nothing here previously told it anything had changed,
+            // so it kept showing the pre-binding placeholder text until the
+            // agent reloaded the page (which happens to autosave-then-load
+            // on mount). Save this step's data now — the same call
+            // saveDraft() already makes on demand elsewhere — then reload
+            // the preview immediately, same pairing autosave-fields already
+            // does for step 5's live refresh.
+            if (this.previewRenderType === 'web' && this.flowId && serverTemplateId) {
+                await this.saveDraft();
+                await this.loadTemplatePreview(serverTemplateId);
+            }
         },
 
         clearReplacement(ri) {
