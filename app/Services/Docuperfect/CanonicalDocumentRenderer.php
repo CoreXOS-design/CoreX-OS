@@ -224,7 +224,29 @@ class CanonicalDocumentRenderer
             // this document at all). Only an ENTITY has multiple
             // representatives who are all genuinely parties; gate the
             // expansion on that.
-            $reps = ($entity && $entity->isEntity()) ? $entity->representatives()->get() : collect();
+            //
+            // Johan, 2026-08-28 (conductor escalation) — isEntity() alone
+            // is a single, mistaggable enum column (contact_kind), and
+            // reproduced live: flip ONE natural person's contact_kind to
+            // 'entity' — a completely mundane, keyboard-only CRM data
+            // mistake, no devtools, no page-state hacking required — and
+            // this guard opens right back up, expanding her deceased-chain
+            // executor link into every contact EVER linked as her
+            // "representative" (stale test data included) as phantom
+            // sellers carrying THEIR real phone/email. is_entity is
+            // exactly the class of "trust one tag" mistake Johan corrected
+            // in the Domicilium rule itself — same fix here: require a
+            // SECOND, structurally-independent signal a mistagged natural
+            // person would essentially never also have — a populated
+            // entity_name. A genuine company contact always has one (it is
+            // how the company itself is named); nothing about mistagging
+            // contact_kind touches this separate field. Belt-and-braces,
+            // not a replacement for fixing contact_kind data quality — but
+            // this code must not trust a single classification field for a
+            // question this consequential.
+            $reps = ($entity && $entity->isEntity() && trim((string) ($entity->entity_name ?? '')) !== '')
+                ? $entity->representatives()->get()
+                : collect();
             if ($reps->isEmpty()) {
                 // Nothing to expand against — keep the real row rather than dropping the party.
                 $out->push($req);
