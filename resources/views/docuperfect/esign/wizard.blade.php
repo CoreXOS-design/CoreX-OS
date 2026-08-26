@@ -821,6 +821,31 @@
                                         </div>
                                     </div>
 
+                                    {{-- Johan, 2026-08-26 — "EXECUTOR TAKES A CONTACT OR A SUPPLIER.
+                                         Two search boxes in that slot: one for contacts, one for
+                                         suppliers... Put them back, properly bound." A supplier's own
+                                         id lives in a different book (agency_service_provider_contacts,
+                                         not contacts) so it needs its own box and its own bind path —
+                                         bindSlotToSupplier() below, not bindSlotToContact(). --}}
+                                    <div class="relative mt-1.5">
+                                        <input type="text" placeholder="Or search a supplier by name or firm…"
+                                               class="w-full rounded-md px-2.5 py-1.5 text-xs"
+                                               style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);"
+                                               :value="replaceModal.supplierSlotSearch[slot.key]?.query || ''"
+                                               @input="searchSlotSupplier(slot.key, $event.target.value)">
+                                        <div x-show="replaceModal.supplierSlotSearch[slot.key]?.open && (replaceModal.supplierSlotSearch[slot.key]?.results || []).length > 0"
+                                             class="absolute z-30 w-full mt-1 rounded-md max-h-40 overflow-y-auto"
+                                             style="background: var(--surface); border: 1px solid var(--border); box-shadow: 0 8px 24px rgba(0,0,0,0.2);">
+                                            <template x-for="supplier in (replaceModal.supplierSlotSearch[slot.key]?.results || [])" :key="supplier.id">
+                                                <button type="button" @click="bindSlotToSupplier(slot.key, supplier)"
+                                                        class="w-full text-left px-3 py-2 text-xs" style="border-top: 1px solid var(--border); color: var(--text-primary);">
+                                                    <span x-text="supplier.full_name"></span>
+                                                    <span x-show="supplier.supplier_firm_name" style="color: var(--text-muted);" x-text="' — ' + supplier.supplier_firm_name"></span>
+                                                </button>
+                                            </template>
+                                        </div>
+                                    </div>
+
                                     <div x-show="replaceModal.bindings[slot.key]" class="mt-2 text-xs" style="color: var(--ds-green,#16a34a);">
                                         ✓ <span x-text="replaceModal.bindings[slot.key]?.label"></span>
                                     </div>
@@ -3807,7 +3832,8 @@ function esignWizard() {
             templates: [],
             selectedTemplate: null,
             bindings: {},        // slotKey -> { type: 'self'|'recipient'|'contact', recipient_local_key?, contact_id?, label }
-            slotSearch: {},      // slotKey -> { query, results, open }
+            slotSearch: {},      // slotKey -> { query, results, open } — contacts
+            supplierSlotSearch: {}, // slotKey -> { query, results, open } — suppliers (own box, own book)
             // Johan, 2026-08-25 (cc4's finding) — catch a missing supplier
             // registration number HERE, at bind time, not only at Send. Set
             // by bindSlotToRecipient() when the chosen recipient is a
@@ -3827,6 +3853,7 @@ function esignWizard() {
             this.replaceModal.selectedTemplate = null;
             this.replaceModal.bindings = {};
             this.replaceModal.slotSearch = {};
+            this.replaceModal.supplierSlotSearch = {};
             this.replaceModal.blockedSupplier = null;
 
             // Restore a prior selection so re-opening to edit doesn't lose it.
@@ -4014,6 +4041,86 @@ function esignWizard() {
             } catch (e) {
                 console.error('Slot contact search failed', e);
             }
+        },
+
+        // Johan, 2026-08-26 — the supplier half of "EXECUTOR TAKES A CONTACT
+        // OR A SUPPLIER". Same shared search endpoint as searchSlotContact()
+        // (it already returns both books, discriminated by `source`), own
+        // box, own results list — filtered to suppliers only.
+        async searchSlotSupplier(slotKey, query) {
+            this.replaceModal.supplierSlotSearch[slotKey] = this.replaceModal.supplierSlotSearch[slotKey] || { query: '', results: [], open: false };
+            this.replaceModal.supplierSlotSearch[slotKey].query = query;
+            if ((query || '').length < 2) {
+                this.replaceModal.supplierSlotSearch[slotKey].results = [];
+                return;
+            }
+            try {
+                const resp = await fetch('/docuperfect/esign/api/contacts?q=' + encodeURIComponent(query), {
+                    headers: { 'Accept': 'application/json' },
+                });
+                const data = await resp.json();
+                this.replaceModal.supplierSlotSearch[slotKey].results = Array.isArray(data) ? data.filter(c => c.source === 'supplier') : [];
+                this.replaceModal.supplierSlotSearch[slotKey].open = true;
+            } catch (e) {
+                console.error('Slot supplier search failed', e);
+            }
+        },
+
+        // A supplier's own id lives in a DIFFERENT book (agency_service_
+        // provider_contacts), never in contacts — cannot be bound as
+        // type:'contact' (RecipientTemplate resolves that against the Contact
+        // model). Same "promote to a real recipient, bind as type:'recipient'"
+        // pattern bindSlotToContact() already uses for a deceased row's
+        // replacement, built from the supplier field shape selectContact()
+        // already knows (source==='supplier' branch) rather than the contact
+        // shape. Reuses an already-added recipient for this same supplier
+        // contact if one exists, so picking the same person twice doesn't
+        // create a duplicate row. bindSlotToRecipient() below already runs
+        // the missing-registration/ID block for a supplier-sourced row —
+        // nothing extra needed here to get that check for free.
+        bindSlotToSupplier(slotKey, supplier) {
+            const ri = this.replaceModal.recipientIndex;
+            const r = this.recipients[ri];
+
+            let target = this.recipients.find((rr, rri) => rri !== ri && rr._supplier_contact_id === supplier.supplier_contact_id);
+            if (!target) {
+                target = {
+                    order: this.recipients.length + 1,
+                    role: r.role,
+                    name: supplier.full_name || '',
+                    first_name: supplier.first_name || '',
+                    last_name: supplier.last_name || '',
+                    id_number: supplier.id_number || '',
+                    email: supplier.email || '',
+                    cell: supplier.phone || '',
+                    address: supplier.address || '',
+                    readonly: false,
+                    _contact_id: null,
+                    _recipient_source: 'supplier',
+                    _supplier_contact_id: supplier.supplier_contact_id,
+                    _supplier_firm_id: supplier.supplier_firm_id || null,
+                    _supplier_firm_name: supplier.supplier_firm_name || '',
+                    _searchQuery: supplier.full_name || '', _searchResults: [], _searchOpen: false, _searching: false, _searchIdx: 0,
+                    _is_deceased: false,
+                    _is_proxy: false,
+                    bank_name: '', bank_account_name: '', bank_account_number: '', bank_branch_name: '',
+                    _recipient_local_key: (crypto.randomUUID ? crypto.randomUUID() : ('r' + Date.now() + Math.random())),
+                    // Same cleanup contract as the contact-promotion path in
+                    // bindSlotToContact() — reconciled away in
+                    // closeReplaceModal() if cancelled or rebound. Always
+                    // tagged (unlike bindSlotToContact's deceased-only gate)
+                    // because a supplier has no display-only type:'contact'
+                    // equivalent — every supplier bind creates a real
+                    // recipient here, whether or not this modal's own row
+                    // happens to be the deceased one, so every one of them
+                    // needs the same abandon-cleanup safety net.
+                    _deceased_substitute_for: r._recipient_local_key,
+                };
+                this.recipients.push(target);
+                this.recipients.forEach((rr, i) => rr.order = i + 1);
+            }
+            this.bindSlotToRecipient(slotKey, target);
+            this.replaceModal.supplierSlotSearch[slotKey] = { query: target.name || '', results: [], open: false };
         },
 
         bindSlotToContact(slotKey, contact) {
