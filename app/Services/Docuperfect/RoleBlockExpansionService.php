@@ -341,22 +341,23 @@ final class RoleBlockExpansionService
             return $this->stampIdentities($html, $recipients, $template?->id);
         }
         $xpath = new DOMXPath($dom);
-        // Johan, 2026-08-27 (Elize/conveyancing ruling) — "a deceased party
-        // gets no address, telephone or email block at all." The Domicilium
-        // (and every other per-recipient data-role-block segment) is built
-        // from the SIGNING-ELIGIBLE parties, not from every party named in
-        // the clause: the deceased is named ONLY in the clause at the top
-        // ("Late Estate of X, herein represented by Y") — composed
-        // separately from a fixed, frozen party_clause_text — and must never
-        // get a role-block instance of their own here. This is the same
-        // display-vs-signing question the proxy fix answers at the top of
-        // the priority list, just the other direction: a proxy's un-chosen
-        // co-representatives still get a Domicilium entry because they COULD
-        // sign; a deceased party gets none because they cannot sign at all.
-        // Excluding here — the one place that builds the per-role recipient
-        // set every data-role-block segment loops over — means every
-        // consumer (address, contact, and the legacy clustering path below)
-        // agrees without a special case bolted onto any one of them.
+        // Johan, 2026-08-27 (Elize/conveyancing ruling, corrected same day —
+        // "the Domicilium section is built from the signing parties" was
+        // WRONG and nearly broke the proxy flow, which lists all three
+        // representatives despite only one signing). The real rule is NOT
+        // about signing at all: Domicilium lists every LIVING PARTY to the
+        // agreement. A proxy's un-chosen co-representatives are still
+        // parties (any of them could have been the one nominated to sign)
+        // so they still get their own entry. A deceased person is not a
+        // party at all — the ESTATE is, acting through the executor — so
+        // the deceased is named ONLY in the clause at the top ("Late Estate
+        // of X, herein represented by Y") and gets no Domicilium entry.
+        // is_deceased is therefore the ONLY predicate this excludes on —
+        // never is_proxy/signing status. Excluding here — the one place
+        // that builds the per-role recipient set every data-role-block
+        // segment loops over — means every consumer (address, contact, and
+        // the legacy clustering path below) agrees without a special case
+        // bolted onto any one of them.
         $recipsByRole   = $this->groupRecipientsByRole(
             $recipients->reject(fn (SignatureRequest $r) => (bool) $r->is_deceased)
         );
