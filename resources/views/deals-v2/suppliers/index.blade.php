@@ -62,7 +62,7 @@
                         class="w-full rounded-md px-3 py-2 text-sm"
                         style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                     @foreach($specialties as $s)
-                        <option value="{{ $s }}">{{ ucwords(str_replace('_', ' ', $s)) }}</option>
+                        <option value="{{ $s->code }}">{{ $s->label }}</option>
                     @endforeach
                 </select>
             </div>
@@ -279,6 +279,7 @@
                                             @if($c->contact_person)<span> (via {{ $c->contact_person }})</span>@endif
                                             @if($c->email)<span class="text-[11px]" style="color: var(--text-muted);"> · {{ $c->email }}</span>@endif
                                             @if($c->phone)<span class="text-[11px]" style="color: var(--text-muted);"> · {{ $c->phone }}</span>@endif
+                                            @if($c->id_number)<span class="text-[11px]" style="color: var(--text-muted);"> · ID {{ $c->id_number }}</span>@endif
                                         </span>
                                         <form method="POST" action="{{ route('deals-v2.suppliers.contacts.deactivate', $c) }}" class="inline"
                                               onsubmit="return confirm('Remove this contact? Historic deals keep resolving.');">
@@ -295,6 +296,7 @@
                                     <input type="text" name="contact_person" placeholder="Contact (assistant/paralegal)" class="text-xs rounded-md px-2 py-1" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
                                     <input type="email" name="email" placeholder="Email" class="text-xs rounded-md px-2 py-1" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
                                     <input type="text" name="phone" placeholder="Phone" class="text-xs rounded-md px-2 py-1" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                    <input type="text" name="id_number" placeholder="ID number" maxlength="20" class="text-xs rounded-md px-2 py-1" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
                                     <button type="submit" class="text-xs font-semibold no-underline hover:underline" style="color: var(--brand-icon);">+ Add contact</button>
                                 </form>
                             </td>

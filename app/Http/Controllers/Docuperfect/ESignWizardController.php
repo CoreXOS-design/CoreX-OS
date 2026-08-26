@@ -1351,12 +1351,19 @@ class ESignWizardController extends Controller
         // rather than an error, same as a Contact with none on file).
         // Address/phone fall back to the FIRM's when the specific working
         // contact has none of their own — AgencyServiceProviderContact has
-        // no address field at all, only the firm does. id_number likewise
-        // borrows the FIRM's registration_number (2026-08-25, Johan: "so
-        // add a registration field on suppliers") — this is what makes the
-        // existing "herein represented by X, ID/registration NNN" wording
-        // engine print a supplier's number with no wording-engine changes;
-        // it reads this same generic id_number field for a Contact.
+        // no address field at all, only the firm does.
+        //
+        // Johan, 2026-08-26 — id_number now reads the REPRESENTATIVE's own
+        // id_number (new 2026_08_29_000007), not the firm's
+        // registration_number. Previously it borrowed the firm's number
+        // (2026-08-25) as a stand-in for both concepts; now that the two
+        // are genuinely separate fields, this is the one that belongs on a
+        // PERSON — the firm's own registration_number is checked
+        // separately, alongside this, by
+        // assertSupplierRepresentativesHaveRegistrationNumber(). No
+        // backfill exists for this field yet (see the migration's
+        // docblock) — existing representatives show blank here until an
+        // agent adds it on the supplier directory screen.
         $supplierResults = $suppliers->map(function (\App\Models\DealV2\AgencyServiceProviderContact $sc) {
             $firm = $sc->firm;
             $name = trim((string) ($sc->attorney_name ?: $sc->contact_person ?: ($firm->name ?? '')));
@@ -1375,7 +1382,7 @@ class ESignWizardController extends Controller
                 'agent'               => null,
                 'email'               => $sc->email ?: '',
                 'phone'               => $sc->phone ?: ($firm->phone ?? ''),
-                'id_number'           => $firm->registration_number ?? '',
+                'id_number'           => $sc->id_number ?? '',
                 'address'             => $firm->address ?? '',
                 'contact_type'        => 'Supplier',
                 'esign_role'          => null,
@@ -1393,6 +1400,14 @@ class ESignWizardController extends Controller
                 'supplier_contact_id' => $sc->id,
                 'supplier_firm_id'    => $firm->id ?? null,
                 'supplier_firm_name'  => $firm->name ?? '',
+                // The company half of the three-part clause chain (Johan,
+                // 2026-08-26) — cached on the picked recipient client-side
+                // for the live document preview
+                // (RecipientTemplate::resolveBoundTextFromArray()); the
+                // authoritative copy frozen at Send is looked up live from
+                // this same firm record (stampSupplierFirmIfAny()), never
+                // trusted from this cached value.
+                'supplier_firm_registration_number' => $firm->registration_number ?? '',
                 'supplier_role'       => $sc->role ?? '',
             ];
         });
@@ -1445,7 +1460,8 @@ class ESignWizardController extends Controller
                 'email'               => $m['contact']->email,
                 'phone'               => $m['contact']->phone,
                 'address'             => $m['contact']->firm->address ?? '',
-                'id_number'           => $m['contact']->firm->registration_number ?? '',
+                'id_number'           => $m['contact']->id_number ?? '',
+                'firm_registration_number' => $m['contact']->firm->registration_number ?? '',
                 'reasons'             => $m['reasons'],
             ])->values(),
         ]);
@@ -1503,15 +1519,19 @@ class ESignWizardController extends Controller
             'email'               => $contact->email ?? '',
             'phone'               => $contact->phone ?: ($firm->phone ?? ''),
             'address'             => $firm->address ?? '',
-            // The registration/ID number just captured above, if any — a
-            // brand-new firm reusing an EXISTING match via findOrCreate()
-            // keeps whatever that firm already had on file (a match is
-            // never silently overwritten by this quick-add's own input).
-            'id_number'           => $firm->registration_number ?? '',
+            // Johan, 2026-08-26 — this quick-add screen only ever captures
+            // the FIRM's registration number, never a representative's own
+            // ID (that field lives on the Deal Register supplier screen,
+            // added after this contact exists). id_number here is the
+            // REPRESENTATIVE's own field (blank on a brand-new contact,
+            // same as any other optional field) — the firm's registration
+            // number is carried separately below.
+            'id_number'           => $contact->id_number ?? '',
             'contact_type'        => 'Supplier',
             'supplier_contact_id' => $contact->id,
             'supplier_firm_id'    => $firm->id,
             'supplier_firm_name'  => $firm->name,
+            'supplier_firm_registration_number' => $firm->registration_number ?? '',
         ]);
     }
 
@@ -2281,6 +2301,7 @@ class ESignWizardController extends Controller
         // place. "Certain problem = hard block, not a warning."
         $this->assertDeceasedRecipientsHaveSubstituteSigner($recipients);
         $this->assertSupplierRepresentativesHaveRegistrationNumber($recipients);
+        $this->assertChainPartiesHaveIdNumbers($recipients);
 
         // GENERATED-DOCUMENT BODY (Johan, 2026-08-25 — cc1's finding on
         // 93a10b6a2): the document actually going out must read the SAME
@@ -3140,6 +3161,8 @@ class ESignWizardController extends Controller
                     // null for the ordinary plain party.
                     representedContactId: isset($r['_entity_contact_id']) ? (int) $r['_entity_contact_id'] : null,
                 );
+
+                $this->stampSupplierFirmIfAny($sigReq, $r);
 
                 // "Replace this party" (Johan, 2026-08-24) — a recipient whose party is
                 // being replaced (e.g. deceased, represented by a chain) carries a
@@ -4180,21 +4203,29 @@ class ESignWizardController extends Controller
 
     /**
      * HARD BLOCK (Johan, 2026-08-25 — "so add a registration field on
-     * suppliers"): a supplier bound as someone's representative via a
-     * type:'recipient' slot binding (the same "Replace this party" chain
+     * suppliers"; split 2026-08-26 — "split registration and ID into two
+     * fields on supplier... a company registration number, and the
+     * representative's ID number. The clause needs both"): a supplier
+     * bound as someone's representative via a type:'recipient' slot
+     * binding (the same "Replace this party" chain
      * assertDeceasedRecipientsHaveSubstituteSigner() above checks) must
-     * carry a registration/ID number, because that number is what prints
-     * in the "herein represented by X, registration NNN" clause. Johan's
-     * words: "it must not silently print a representative with no
-     * identifying number — that was the whole reason Johan asked for
-     * this." An ordinary supplier recipient who is NOT standing in as
-     * anyone's representative is untouched — existing suppliers with no
-     * number on file are fine right up until the moment one is actually
-     * used this way, per Johan's explicit "not required retrospectively"
-     * instruction.
+     * carry BOTH numbers — the FIRM's registration number
+     * (AgencyServiceProvider::registration_number) and the REPRESENTATIVE's
+     * own ID number (AgencyServiceProviderContact::id_number, new
+     * 2026_08_29_000007) — because the clause names both: the company by
+     * its registration, the person signing by their own ID. Checked
+     * against the real, current DB records (not the wizard's own
+     * flattened recipient-array snapshot, which only ever carried one
+     * borrowed value) so a number added moments ago on the supplier
+     * directory screen is picked up immediately. An ordinary supplier
+     * recipient who is NOT standing in as anyone's representative is
+     * untouched — existing suppliers with no number on file are fine
+     * right up until the moment one is actually used this way, per
+     * Johan's explicit "not required retrospectively" instruction.
      *
-     * The message names the specific supplier and tells the agent exactly
-     * what to add and where, per Johan's "if you block, say so" steer.
+     * The message names the specific supplier, which number(s) are
+     * missing, and where to add them, per Johan's "if you block, say so"
+     * steer.
      */
     private function assertSupplierRepresentativesHaveRegistrationNumber(array $recipients): void
     {
@@ -4224,18 +4255,160 @@ class ESignWizardController extends Controller
                 if ($bound === null || ($bound['_recipient_source'] ?? null) !== 'supplier') {
                     continue;
                 }
-                if (trim((string) ($bound['id_number'] ?? '')) !== '') {
+
+                $supplierContactId = $bound['_supplier_contact_id'] ?? null;
+                $representative = $supplierContactId
+                    ? \App\Models\DealV2\AgencyServiceProviderContact::withoutGlobalScopes()->with('firm')->find($supplierContactId)
+                    : null;
+
+                $supplierName = trim((string) ($bound['name'] ?? '')) ?: 'This supplier';
+                $firmName = trim((string) ($bound['_supplier_firm_name'] ?? ($representative->firm->name ?? '')));
+                $where = $firmName !== '' ? "the supplier directory entry for {$firmName}" : 'the supplier directory';
+
+                $missingCompanyReg = $representative === null || trim((string) ($representative->firm->registration_number ?? '')) === '';
+                $missingRepId = $representative === null || trim((string) ($representative->id_number ?? '')) === '';
+
+                if (! $missingCompanyReg && ! $missingRepId) {
                     continue;
                 }
 
-                $supplierName = trim((string) ($bound['name'] ?? '')) ?: 'This supplier';
-                $firmName = trim((string) ($bound['_supplier_firm_name'] ?? ''));
-                $where = $firmName !== '' ? "the supplier directory entry for {$firmName}" : 'the supplier directory';
+                $missing = array_filter([
+                    $missingCompanyReg ? 'the company registration number' : null,
+                    $missingRepId ? "{$supplierName}'s own ID number" : null,
+                ]);
+                $missingText = implode(' and ', $missing);
+
                 throw \Illuminate\Validation\ValidationException::withMessages([
-                    'recipients' => "{$supplierName} is standing in as a representative on this document but has no registration or ID number on file. Add it in {$where} (Deal Register \u{2192} Suppliers) before sending.",
+                    'recipients' => "{$supplierName} is standing in as a representative on this document but {$missingText} " . (count($missing) > 1 ? 'are' : 'is') . " missing. Add " . (count($missing) > 1 ? 'them' : 'it') . " in {$where} (Deal Register \u{2192} Suppliers) before sending.",
                 ]);
             }
         }
+    }
+
+    /**
+     * HARD BLOCK (Johan, 2026-08-26 — correcting an earlier, wrong
+     * self-answer): "the ruling is BLOCK... Silent degradation is exactly
+     * the failure pattern we have spent this whole night removing. So:
+     * BLOCK when the deceased contact has no ID. Same for the person
+     * signing on the executor side. The refusal names which person is
+     * missing an ID and where to add it." Deliberately NOT
+     * RecipientTemplate::withIdSuffix()'s existing graceful-degradation
+     * pattern (omit the suffix, never block) — that pattern is correct
+     * for an ordinary party's optional ID; it is the wrong pattern here,
+     * because the clause's whole legal purpose is naming who died and who
+     * stands for them, by ID.
+     *
+     * Checks every slot of a chain-bound recipient's template (not just
+     * "deceased"/"executor" by name — whatever the template declares),
+     * skipping only: an entity/company contact (its ID concept is a
+     * registration number, a different check, not this one) and a
+     * supplier-sourced binding (already fully covered, correctly, by
+     * assertSupplierRepresentativesHaveRegistrationNumber() just above —
+     * checking it again here would risk a second, differently-worded
+     * block on the exact same missing number).
+     */
+    private function assertChainPartiesHaveIdNumbers(array $recipients): void
+    {
+        $byLocalKey = [];
+        foreach ($recipients as $r) {
+            $key = $r['_recipient_local_key'] ?? null;
+            if ($key !== null) {
+                $byLocalKey[$key] = $r;
+            }
+        }
+
+        foreach ($recipients as $r) {
+            if (empty($r['_recipient_template_id']) || empty($r['_slot_bindings']) || ! is_array($r['_slot_bindings'])) {
+                continue;
+            }
+
+            $recipientTemplate = \App\Models\RecipientTemplate::find($r['_recipient_template_id']);
+            if ($recipientTemplate === null) {
+                continue;
+            }
+
+            foreach ($recipientTemplate->party_slots ?? [] as $slot) {
+                $slotKey = $slot['key'] ?? null;
+                $slotLabel = $slot['label'] ?? $slotKey;
+                if ($slotKey === null) {
+                    continue;
+                }
+                $binding = $r['_slot_bindings'][$slotKey] ?? null;
+                if (! is_array($binding)) {
+                    continue; // dangling bindings are blocked elsewhere (resolveChainBindings)
+                }
+
+                $type = $binding['type'] ?? null;
+                $name = null;
+                $idNumber = null;
+                $where = 'on the recipient';
+
+                if ($type === 'self') {
+                    $name = trim((string) ($r['name'] ?? '')) ?: 'This party';
+                    $idNumber = $r['id_number'] ?? null;
+                } elseif ($type === 'contact') {
+                    $contact = Contact::withoutGlobalScopes()->find($binding['contact_id'] ?? null);
+                    if ($contact === null || $contact->isEntity()) {
+                        continue; // dangling handled elsewhere; a company has no personal ID to check here
+                    }
+                    $name = $contact->full_name;
+                    $idNumber = $contact->id_number;
+                    $where = 'on their contact record';
+                } elseif ($type === 'recipient') {
+                    $bound = $byLocalKey[$binding['recipient_local_key'] ?? null] ?? null;
+                    if ($bound === null || ($bound['_recipient_source'] ?? null) === 'supplier') {
+                        continue; // dangling, or already covered above
+                    }
+                    $name = trim((string) ($bound['name'] ?? '')) ?: 'This party';
+                    $idNumber = $bound['id_number'] ?? null;
+                } else {
+                    continue;
+                }
+
+                if (trim((string) $idNumber) !== '') {
+                    continue;
+                }
+
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'recipients' => "{$name} is named as \"{$slotLabel}\" in this document's clause but has no ID number on file. Add it {$where} before sending.",
+                ]);
+            }
+        }
+    }
+
+    /**
+     * Johan, 2026-08-26 — the three-part clause chain's middle piece: when
+     * $r is a supplier-sourced recipient (standing in as someone's
+     * representative), freeze the FIRM's name and registration number onto
+     * $sigReq's own row at the moment it's created — see
+     * 2026_08_29_000008_add_supplier_firm_to_signature_requests_table.
+     * RecipientTemplate::resolveSlotDisplayName()'s type:'recipient' branch
+     * reads these back later to build "Firm (Reg: NNN) represented by
+     * Person (ID: NNN)" instead of just the person.
+     *
+     * Looked up LIVE from the real AgencyServiceProvider row via
+     * _supplier_firm_id, never trusted from the wizard's own
+     * _supplier_firm_name/_supplier_firm_registration_number — same
+     * live-DB-over-client-payload discipline
+     * assertSupplierRepresentativesHaveRegistrationNumber() already uses,
+     * so what freezes onto a legal document's clause is never something the
+     * browser merely claimed.
+     */
+    private function stampSupplierFirmIfAny(\App\Models\Docuperfect\SignatureRequest $sigReq, array $r): void
+    {
+        if (($r['_recipient_source'] ?? null) !== 'supplier' || empty($r['_supplier_firm_id'])) {
+            return;
+        }
+
+        $firm = \App\Models\DealV2\AgencyServiceProvider::withoutGlobalScopes()->find((int) $r['_supplier_firm_id']);
+        if ($firm === null) {
+            return;
+        }
+
+        $sigReq->update([
+            'supplier_firm_name' => $firm->name,
+            'supplier_firm_registration_number' => $firm->registration_number,
+        ]);
     }
 
     /**
@@ -6320,6 +6493,7 @@ class ESignWizardController extends Controller
         // the e-sign path — see assertDeceasedRecipientsHaveSubstituteSigner().
         $this->assertDeceasedRecipientsHaveSubstituteSigner($recipients);
         $this->assertSupplierRepresentativesHaveRegistrationNumber($recipients);
+        $this->assertChainPartiesHaveIdNumbers($recipients);
 
         // GENERATED-DOCUMENT BODY — same reasoning as prepareSigning()
         // (ESignWizardController.php ~2035-2050): the printed document must
@@ -6610,6 +6784,7 @@ class ESignWizardController extends Controller
                     representedContactId: isset($r['_entity_contact_id']) ? (int) $r['_entity_contact_id'] : null,
                 );
                 $sigReq->update(['signing_method' => 'wet_ink']);
+                $this->stampSupplierFirmIfAny($sigReq, $r);
 
                 if (! empty($r['_recipient_template_id']) && ! empty($r['_slot_bindings'])) {
                     $chainBindings[] = [

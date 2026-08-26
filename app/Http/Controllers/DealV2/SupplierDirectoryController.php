@@ -19,12 +19,31 @@ use Illuminate\Http\Request;
  */
 class SupplierDirectoryController extends Controller
 {
-    // Public so the DR2 pipeline's inline "＋ Add supplier" (WorkOrderController::cocConfigPanel)
-    // offers the SAME supplier-type list as this directory add-form — incl. the attorney types.
-    public const SPECIALTIES = [
-        'electrician', 'entomologist', 'plumber', 'gas', 'electric_fence',
-        'transfer_attorney', 'bond_attorney', 'conveyancer', 'bond_originator', 'external_agency', 'other',
-    ];
+    /**
+     * Johan, 2026-08-26 — "the specialty list must read from the real
+     * service-types settings at /deals-v2/settings/service-types, not a
+     * hardcoded list." He added "Executor" in Settings and it never
+     * appeared here — this was exactly why. Replaced everywhere by
+     * AgencyServiceType::active() (the SAME agency-configurable list the
+     * per-supplier tick boxes already use — one list, not two); see
+     * liveSpecialtyTypes()/liveSpecialtyCodes() below.
+     */
+    private function liveSpecialtyTypes()
+    {
+        // Deliberately no explicit agency_id filter — matches the existing
+        // $serviceTypes lookup in index() exactly (AgencyScope / acting-
+        // agency session switcher already scopes this correctly for every
+        // user, including an un-switched owner; adding effectiveAgencyId()
+        // here would resolve to 0 for that user and silently empty the list).
+        return AgencyServiceType::active()
+            ->orderBy('sort_order')->orderBy('id')
+            ->get(['code', 'label']);
+    }
+
+    private function liveSpecialtyCodes(): array
+    {
+        return $this->liveSpecialtyTypes()->pluck('code')->all();
+    }
 
     /** deal_v2_contacts provider roles (the roles a provider can fill on a deal). */
     private const PROVIDER_ROLES = [
@@ -47,18 +66,18 @@ class SupplierDirectoryController extends Controller
             ->orderByDesc('is_active')->orderBy('specialty')->orderByDesc('is_preferred')->orderBy('name')
             ->get();
 
-        // AT-319 — the agency's active, configurable service types drive the per-supplier tick boxes.
-        // Resolve the SAME way Settings → COC/Service Types does (AgencyScope / acting-agency session
-        // switcher) so the tick list is guaranteed identical to what the agency configured — for every
-        // user, including an un-switched owner. (The old `effectiveAgencyId() ?? 0` resolved to agency 0
-        // for owner/no-agency users → empty list → the ticks looked hard-coded AND a save validated
-        // against an empty set and wiped them.)
-        $serviceTypes = AgencyServiceType::active()
-            ->orderBy('sort_order')->orderBy('id')->get(['code', 'label']);
+        // AT-319 — the agency's active, configurable service types drive the per-supplier tick boxes
+        // AND (2026-08-26, Johan) the Specialty dropdown itself — one live, agency-configurable list
+        // for both, not a tick-list plus a second hardcoded one. Resolve the SAME way Settings →
+        // COC/Service Types does (AgencyScope / acting-agency session switcher) so both are guaranteed
+        // identical to what the agency configured — for every user, including an un-switched owner.
+        // (The old `effectiveAgencyId() ?? 0` resolved to agency 0 for owner/no-agency users → empty
+        // list → the ticks looked hard-coded AND a save validated against an empty set and wiped them.)
+        $serviceTypes = $this->liveSpecialtyTypes();
 
         return view('deals-v2.suppliers.index', [
             'providers' => $providers,
-            'specialties' => self::SPECIALTIES,
+            'specialties' => $serviceTypes,
             'serviceTypes' => $serviceTypes,
         ]);
     }
@@ -205,7 +224,7 @@ class SupplierDirectoryController extends Controller
     {
         return $request->validate([
             'name' => 'required|string|max:191',
-            'specialty' => 'required|string|in:' . implode(',', self::SPECIALTIES),
+            'specialty' => 'required|string|in:' . implode(',', $this->liveSpecialtyCodes()),
             'company' => 'nullable|string|max:191',
             'registration_number' => 'nullable|string|max:100',
             'email' => 'nullable|email|max:191',
@@ -281,6 +300,11 @@ class SupplierDirectoryController extends Controller
             'role'           => 'nullable|string|max:100',
             'email'          => 'nullable|email|max:191',
             'phone'          => 'nullable|string|max:50',
+            // Optional here, same as the firm's own registration_number
+            // (2026_08_25_150000) — required only at the point this
+            // representative is actually bound as a signing party for
+            // e-sign (assertSupplierRepresentativesHaveRegistrationNumber()).
+            'id_number'      => 'nullable|string|max:20',
         ]);
 
         if (empty($data['attorney_name']) && empty($data['contact_person'])) {
