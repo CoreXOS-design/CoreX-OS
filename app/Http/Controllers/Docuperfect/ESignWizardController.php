@@ -704,6 +704,24 @@ class ESignWizardController extends Controller
             $propertySource = $stepData['property']['_property_source'] ?? 'properties';
 
             foreach ($sorted as &$r) {
+                // Johan, 2026-08-26 — property 6060, Piet Begrafnis wrongly
+                // linked as "Owner". This block (2026-03-31, ea1858bdf) exists
+                // to auto-create a Contact + link them to the property when an
+                // agent TYPES IN a brand-new person's name/email/ID directly on
+                // the recipients screen — it reads an empty _contact_id as "no
+                // record exists yet for this person". A supplier-sourced
+                // recipient (bindSlotToSupplier()) deliberately ALSO carries
+                // _contact_id: null — their identity lives in
+                // agency_service_provider_contacts, a different book — which
+                // this block cannot tell apart from "brand new person", so it
+                // matched Piet to his real Contact via duplicate-detection and
+                // linked THAT contact to the property as an owner. A supplier
+                // standing in as a representative (or any deceased-party
+                // substitute signer — _deceased_substitute_for) is never a
+                // title-holder; this block was never meant to reach them.
+                if (($r['_recipient_source'] ?? null) === 'supplier' || !empty($r['_deceased_substitute_for'])) {
+                    continue;
+                }
                 // Skip agents and recipients that already have a contact linked
                 if (($r['role'] ?? '') === 'agent' || ($r['readonly'] ?? false)) {
                     continue;
@@ -1487,7 +1505,16 @@ class ESignWizardController extends Controller
                 // deal can pick it up too).
                 'supplier_contact_id' => $sc->id,
                 'supplier_firm_id'    => $firm->id ?? null,
-                'supplier_firm_name'  => $firm->name ?? '',
+                // Johan, 2026-08-26 — "company leads, person underneath, and
+                // where there is no company the person leads." $firm->name is
+                // the firm's own required identifier and is NOT necessarily
+                // the trading name an agent typed for a real company (a
+                // sole-practitioner firm often has the PERSON's own name in
+                // this field, e.g. "Piet Begrafnis" as both the firm's name
+                // AND the contact's own name) — $firm->company is the actual
+                // company name when one was captured; that's what belongs
+                // here, never the raw firm identifier.
+                'supplier_firm_name'  => ($firm->company ?: $firm->name) ?? '',
                 // The company half of the three-part clause chain (Johan,
                 // 2026-08-26) — cached on the picked recipient client-side
                 // for the live document preview
@@ -1618,7 +1645,9 @@ class ESignWizardController extends Controller
             'contact_type'        => 'Supplier',
             'supplier_contact_id' => $contact->id,
             'supplier_firm_id'    => $firm->id,
-            'supplier_firm_name'  => $firm->name,
+            // Johan, 2026-08-26 — company leads over the firm's own raw
+            // identifier, same rule as the picker (see searchContacts()).
+            'supplier_firm_name'  => ($firm->company ?: $firm->name) ?? '',
             'supplier_firm_registration_number' => $firm->registration_number ?? '',
         ]);
     }
