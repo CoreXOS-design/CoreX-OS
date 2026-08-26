@@ -256,7 +256,7 @@
                   // The listing header above this component's own x-data scope is plain
                   // server-rendered Blade (not reactive) — selecting/unlinking a deed still
                   // has to update it, so we do it directly rather than leaving the address
-                  // stuck on its page-load value (or "(no address)") after the deed changes it.
+                  // stuck on its page-load value (or '(no address)') after the deed changes it.
                   const headerEl = document.getElementById('listing-header-address');
                   if (headerEl) {
                       headerEl.textContent = (this.linkedDeed && this.linkedDeed.address)
