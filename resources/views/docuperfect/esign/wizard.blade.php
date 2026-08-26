@@ -587,18 +587,40 @@
                                            :style="r.readonly ? 'background: var(--surface); border: 1px solid var(--border); color: var(--text-muted);' : 'background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);'">
                                 </div>
 
-                                {{-- Johan, 2026-08-26 — "selected executor. shows as Piet
-                                     Begrafnis - full names Piet Begrafnis???? the firm is gone."
-                                     A supplier-sourced recipient carries its firm name and
-                                     registration number (bindSlotToSupplier()) but nothing showed
-                                     it on this card — the person's own Full Name field is all an
-                                     agent ever saw. Shown here, read-only context, same shape as
-                                     the entity-representation box below it. --}}
-                                <template x-if="r._recipient_source === 'supplier' && r._supplier_firm_name">
-                                    <div class="rounded-md p-2.5 text-xs" style="background: var(--surface-2); border: 1px solid var(--border);">
-                                        <div class="font-semibold" style="color: var(--text-primary);" x-text="r._supplier_firm_name"></div>
-                                        <div style="color: var(--text-muted);" x-show="r._supplier_firm_registration_number" x-text="'Reg: ' + r._supplier_firm_registration_number"></div>
-                                        <div style="color: var(--text-muted);">Represented by <span x-text="r.name"></span></div>
+                                {{-- Johan, 2026-08-26 — "nothing has been done about the recipient
+                                     insert screen. thats the fault." The template's four executor
+                                     fields ({executor_company}, {executor_company_reg},
+                                     {executor_representative}, {executor_representative_id}) print
+                                     EXACTLY what this recipient holds — Representative Name/ID are
+                                     the Full Name/ID Number fields above; Company/Company Reg live
+                                     here. Shown for any recipient standing in as someone else's
+                                     representative (_deceased_substitute_for is set the same way
+                                     whether picked via supplier search or contact search — see
+                                     bindSlotToSupplier()/bindSlotToContact()), not only a
+                                     supplier-sourced one: a plain contact can just as validly need
+                                     a company added or corrected by hand. Editable, not display-only
+                                     — the agent sees exactly what will print and can fix it here,
+                                     no other place changes it. Left empty (never auto-composed) when
+                                     there is no company; the template's own empty-collapse rules
+                                     handle that in the printed clause. --}}
+                                <template x-if="r._deceased_substitute_for">
+                                    <div class="rounded-md p-2.5 text-xs space-y-2" style="background: var(--surface-2); border: 1px solid var(--border);">
+                                        <div class="text-[10px] uppercase tracking-wide font-semibold" style="color: var(--text-muted);">Company represented (leave blank if none)</div>
+                                        <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                            <div>
+                                                <label class="block text-[10px] font-medium mb-0.5" style="color: var(--text-muted);">Company</label>
+                                                <input type="text" x-model="r._supplier_firm_name" placeholder="e.g. Deceased Estate Executors"
+                                                       class="w-full rounded-md px-2 py-1.5 text-xs"
+                                                       style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                            </div>
+                                            <div>
+                                                <label class="block text-[10px] font-medium mb-0.5" style="color: var(--text-muted);">Company registration number</label>
+                                                <input type="text" x-model="r._supplier_firm_registration_number" placeholder="e.g. 2020/020202/2158"
+                                                       class="w-full rounded-md px-2 py-1.5 text-xs"
+                                                       style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                            </div>
+                                        </div>
+                                        <div style="color: var(--text-muted);">Representative: <span x-text="r.name || '(unnamed)'"></span><span x-show="r.id_number" x-text="' (ID: ' + r.id_number + ')'"></span></div>
                                     </div>
                                 </template>
 
