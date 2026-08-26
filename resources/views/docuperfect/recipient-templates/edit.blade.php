@@ -65,15 +65,33 @@
             <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Fields (click to insert into the text below)</label>
             <div class="space-y-2">
                 <template x-for="(slot, i) in party_slots" :key="i">
-                    <div class="flex items-center gap-2">
-                        <input type="text" x-model="slot.key" placeholder="field_key" pattern="[a-z0-9_]+"
-                               class="rounded-md px-2 py-1.5 text-xs rt-input" style="width: 140px; background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);"
-                               :name="'party_slots[' + i + '][key]'">
-                        <input type="text" x-model="slot.label" placeholder="Label shown to the agent"
-                               class="flex-1 rounded-md px-2 py-1.5 text-xs rt-input" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);"
-                               :name="'party_slots[' + i + '][label]'">
-                        <button type="button" @click="insertToken(slot.key)" class="text-xs px-2 py-1.5 rounded-md" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--brand-icon,#2563eb);">Insert</button>
-                        <button type="button" @click="party_slots.splice(i, 1)" class="text-xs" style="color: var(--ds-red,#dc2626);">×</button>
+                    <div class="space-y-1">
+                        <div class="flex items-center gap-2">
+                            <input type="text" x-model="slot.key" placeholder="field_key" pattern="[a-z0-9_]+"
+                                   class="rounded-md px-2 py-1.5 text-xs rt-input" style="width: 140px; background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);"
+                                   :name="'party_slots[' + i + '][key]'">
+                            <input type="text" x-model="slot.label" placeholder="Label shown to the agent"
+                                   class="flex-1 rounded-md px-2 py-1.5 text-xs rt-input" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);"
+                                   :name="'party_slots[' + i + '][label]'">
+                            <button type="button" @click="insertToken(slot.key)" class="text-xs px-2 py-1.5 rounded-md" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--brand-icon,#2563eb);">Insert</button>
+                            <button type="button" @click="party_slots.splice(i, 1)" class="text-xs" style="color: var(--ds-red,#dc2626);">×</button>
+                        </div>
+                        {{-- 2026-08-26 — a field bound to another recipient can be a supplier's
+                             representative standing in for their firm ("the executor chain").
+                             {field} alone welds company+person into one fixed wording; these 4
+                             insert on their own so a template can name the company, its
+                             registration number, and the person separately, in any order or
+                             wording — empty ones simply don't print (no dangling "represented
+                             by" or stray brackets). Blank when the field has no key yet. --}}
+                        <div class="flex items-center gap-2 flex-wrap pl-1" x-show="slot.key" x-cloak>
+                            <span class="text-[10px] uppercase tracking-wide" style="color: var(--text-muted);">If standing in for someone else:</span>
+                            <template x-for="part in ['company', 'company_reg', 'representative', 'representative_id']" :key="part">
+                                <button type="button" @click="insertToken(slot.key + '_' + part)"
+                                        class="text-[11px] px-1.5 py-1 rounded"
+                                        style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-secondary);"
+                                        x-text="'{' + slot.key + '_' + part + '}'"></button>
+                            </template>
+                        </div>
                     </div>
                 </template>
             </div>

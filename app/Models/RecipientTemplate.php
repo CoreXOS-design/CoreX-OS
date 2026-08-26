@@ -54,6 +54,11 @@ class RecipientTemplate extends Model
         'is_default' => 'boolean',
     ];
 
+    /** Every slot's default component-token values (see resolveBoundTextTokens()'s docblock). */
+    private const EMPTY_SUB_TOKENS = [
+        'company' => '', 'company_reg' => '', 'representative' => '', 'representative_id' => '',
+    ];
+
     public function agency(): BelongsTo
     {
         return $this->belongsTo(Agency::class);
@@ -115,11 +120,34 @@ class RecipientTemplate extends Model
         return $pick(null);
     }
 
-    /** Substitute named tokens into a template string; collapse a dangling "()" left by a missing token. */
+    /**
+     * Substitute named tokens into a template string; collapse a dangling
+     * "()" left by a missing token.
+     *
+     * 2026-08-26 — the {key}_company / {key}_company_reg /
+     * {key}_representative / {key}_representative_id component tokens (see
+     * resolveBoundTextTokens()) are raw, independently-placed values, by
+     * design: a template author can freely wrap them in their own literal
+     * punctuation ("(Reg: {executor_company_reg})") rather than getting a
+     * single pre-built string. withRegSuffix()/withIdSuffix() never needed
+     * this — they always built the label+parens together WITH the value, so
+     * an empty value meant no parens were ever written. A raw token has no
+     * such guard, so two narrow, explicit rules cover the same ground the
+     * existing bare-"()" collapse already established, extended only as far
+     * as this feature actually needs:
+     *   - a parenthetical left holding nothing but its own label ("(Reg: )",
+     *     "(ID: )") collapses the same as a bare "()".
+     *   - "represented by" immediately followed by another "represented by"
+     *     (the company-then-person chain, with the company half now empty)
+     *     collapses to the LAST one — the chain still reads correctly
+     *     against whoever remains.
+     */
     public static function substitute(string $template, array $tokens): string
     {
         $out = strtr($template, $tokens);
         $out = preg_replace('/\(\s*\)/', '', $out);
+        $out = preg_replace('/\(\s*[A-Za-z][A-Za-z \t]*:\s*\)/', '', $out);
+        $out = preg_replace('/\brepresented by\s+(?=represented by\b)/i', '', $out);
 
         return trim(preg_replace('/\s{2,}/', ' ', $out));
     }
@@ -148,7 +176,8 @@ class RecipientTemplate extends Model
     {
         return $this->resolveBoundTextTokens(
             $slotBindings,
-            fn (string $key, string $label, array $binding) => $this->resolveSlotDisplayName($selfRecipient, $key, $label, $binding)
+            fn (string $key, string $label, array $binding) => $this->resolveSlotDisplayName($selfRecipient, $key, $label, $binding),
+            fn (array $binding) => $this->resolveSlotSubTokens($selfRecipient, $binding)
         );
     }
 
@@ -399,11 +428,34 @@ class RecipientTemplate extends Model
     {
         return $this->resolveBoundTextTokens(
             $slotBindings,
-            fn (string $key, string $label, array $binding) => $this->resolveSlotDisplayNameFromArray($selfRecipient, $allRecipients, $key, $label, $binding)
+            fn (string $key, string $label, array $binding) => $this->resolveSlotDisplayNameFromArray($selfRecipient, $allRecipients, $key, $label, $binding),
+            fn (array $binding) => $this->resolveSlotSubTokensFromArray($selfRecipient, $allRecipients, $binding)
         );
     }
 
-    private function resolveBoundTextTokens(array $slotBindings, \Closure $resolveSlot): string
+    /**
+     * Johan, 2026-08-26 — "having them as 2 entry fields means the next
+     * agency can go 'I want to say represented by contact from supplier'
+     * and we can do it." {executor} alone welds the whole "Company (Reg)
+     * represented by Person (ID)" chain into ONE placeholder, hardcoding our
+     * wording and ordering for every agency forever. Every slot ALSO gets
+     * 4 component tokens a template author can place independently, in
+     * whatever wording/order they choose:
+     *   {key}_company             — the supplier firm's company name (empty
+     *                                if this slot isn't a supplier-sourced
+     *                                recipient, or the firm has no company)
+     *   {key}_company_reg         — that firm's registration number (empty
+     *                                under the same conditions)
+     *   {key}_representative      — the bound party's own name, whoever/
+     *                                however they're bound (self/contact/
+     *                                recipient) — always populated
+     *   {key}_representative_id   — that party's ID/registration number
+     *                                (empty if they have none on file)
+     * {executor} itself is UNCHANGED — still the single convenience
+     * placeholder that welds the full chain, for every template written
+     * before this existed.
+     */
+    private function resolveBoundTextTokens(array $slotBindings, \Closure $resolveSlot, ?\Closure $resolveSubTokens = null): string
     {
         $tokens = [];
 
@@ -417,6 +469,12 @@ class RecipientTemplate extends Model
             }
 
             $tokens['{' . $key . '}'] = $resolveSlot($key, $label, $binding);
+
+            $sub = $resolveSubTokens ? $resolveSubTokens($binding) : self::EMPTY_SUB_TOKENS;
+            $tokens['{' . $key . '_company}'] = $sub['company'];
+            $tokens['{' . $key . '_company_reg}'] = $sub['company_reg'];
+            $tokens['{' . $key . '_representative}'] = $sub['representative'];
+            $tokens['{' . $key . '_representative_id}'] = $sub['representative_id'];
         }
 
         return self::substitute($this->text_template, $tokens);
@@ -509,6 +567,60 @@ class RecipientTemplate extends Model
         throw DanglingSlotBindingException::forSlot($key, $label);
     }
 
+    /**
+     * The {key}_company / {key}_company_reg / {key}_representative /
+     * {key}_representative_id raw component values for one binding — see
+     * resolveBoundTextTokens()'s docblock. Mirrors resolveSlotDisplayName()'s
+     * own type branches exactly (same lookups, same dangling-binding
+     * exception) but returns the UNCOMPOSED parts instead of one welded
+     * string, so a template author can place them independently.
+     *
+     * @return array{company: string, company_reg: string, representative: string, representative_id: string}
+     */
+    private function resolveSlotSubTokens(SignatureRequest $selfRecipient, array $binding): array
+    {
+        $type = $binding['type'] ?? null;
+
+        if ($type === 'self') {
+            return [
+                'company' => '', 'company_reg' => '',
+                'representative' => (string) $selfRecipient->signer_name,
+                'representative_id' => (string) ($selfRecipient->signer_id_number ?? ''),
+            ];
+        }
+
+        if ($type === 'contact') {
+            $contact = \App\Models\Contact::withoutGlobalScopes()->find($binding['contact_id'] ?? null);
+            if ($contact === null) {
+                return self::EMPTY_SUB_TOKENS; // resolveSlotDisplayName() already threw for this binding.
+            }
+
+            return [
+                'company' => '', 'company_reg' => '',
+                'representative' => (string) ($contact->entity_name ?: $contact->full_name),
+                'representative_id' => (string) ($contact->isEntity() ? '' : ($contact->id_number ?? '')),
+            ];
+        }
+
+        if ($type === 'recipient') {
+            $recipient = SignatureRequest::where('signature_template_id', $selfRecipient->signature_template_id)
+                ->where('recipient_local_key', $binding['recipient_local_key'] ?? null)
+                ->first();
+            if ($recipient === null) {
+                return self::EMPTY_SUB_TOKENS; // resolveSlotDisplayName() already threw for this binding.
+            }
+
+            return [
+                'company' => (string) ($recipient->supplier_firm_name ?? ''),
+                'company_reg' => (string) ($recipient->supplier_firm_registration_number ?? ''),
+                'representative' => (string) $recipient->signer_name,
+                'representative_id' => (string) ($recipient->signer_id_number ?? ''),
+            ];
+        }
+
+        return self::EMPTY_SUB_TOKENS;
+    }
+
     private static function displayNameFromRecipientArray(array $recipient): string
     {
         $full = trim(($recipient['first_name'] ?? '') . ' ' . ($recipient['last_name'] ?? ''));
@@ -567,5 +679,55 @@ class RecipientTemplate extends Model
         }
 
         throw DanglingSlotBindingException::forSlot($key, $label);
+    }
+
+    /** Array-shape twin of resolveSlotSubTokens() — see that method's docblock; must never drift from it. */
+    private function resolveSlotSubTokensFromArray(array $selfRecipient, array $allRecipients, array $binding): array
+    {
+        $type = $binding['type'] ?? null;
+
+        if ($type === 'self') {
+            return [
+                'company' => '', 'company_reg' => '',
+                'representative' => trim(($selfRecipient['first_name'] ?? '') . ' ' . ($selfRecipient['last_name'] ?? '')) ?: (string) ($selfRecipient['name'] ?? ''),
+                'representative_id' => (string) ($selfRecipient['id_number'] ?? ''),
+            ];
+        }
+
+        if ($type === 'contact') {
+            $contact = \App\Models\Contact::withoutGlobalScopes()->find($binding['contact_id'] ?? null);
+            if ($contact === null) {
+                return self::EMPTY_SUB_TOKENS;
+            }
+
+            return [
+                'company' => '', 'company_reg' => '',
+                'representative' => (string) ($contact->entity_name ?: $contact->full_name),
+                'representative_id' => (string) ($contact->isEntity() ? '' : ($contact->id_number ?? '')),
+            ];
+        }
+
+        if ($type === 'recipient') {
+            $localKey = $binding['recipient_local_key'] ?? null;
+            $match = null;
+            foreach ($allRecipients as $r) {
+                if (($r['_recipient_local_key'] ?? null) === $localKey) {
+                    $match = $r;
+                    break;
+                }
+            }
+            if ($match === null) {
+                return self::EMPTY_SUB_TOKENS;
+            }
+
+            return [
+                'company' => (string) ($match['_supplier_firm_name'] ?? ''),
+                'company_reg' => (string) ($match['_supplier_firm_registration_number'] ?? ''),
+                'representative' => trim(($match['first_name'] ?? '') . ' ' . ($match['last_name'] ?? '')) ?: (string) ($match['name'] ?? ''),
+                'representative_id' => (string) ($match['id_number'] ?? ''),
+            ];
+        }
+
+        return self::EMPTY_SUB_TOKENS;
     }
 }
