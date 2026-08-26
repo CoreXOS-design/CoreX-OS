@@ -2246,7 +2246,8 @@ class ESignWizardController extends Controller
         // the frontend actually built signing_setup from.
         $signingSetupRaw = $stepData['signing_setup'] ?? [];
         $signingSetup = isset($signingSetupRaw['parties']) ? $signingSetupRaw['parties'] : $signingSetupRaw;
-        $recipients = $this->attachSigningSetupMatch($recipients, $signingSetup);
+        $unmatchedSigningSetup = [];
+        $recipients = $this->attachSigningSetupMatch($recipients, $signingSetup, $unmatchedSigningSetup);
         // Fault 3, round 5 (Johan, 2026-08-24) — the ACTUAL blocker: this raw
         // array is what the SignatureRequest-creation loop below reads
         // directly, and an entity recipient here is still the COMPANY
@@ -2265,6 +2266,13 @@ class ESignWizardController extends Controller
         // — same expansion, no dedup: signing genuinely needs one row per
         // actual signer, unlike the preview body's single mention.
         $recipients = $this->expandEntityRecipients($recipients, $user);
+        // Flow 480 (Johan, 2026-08-29) — an entity's signing_setup entries
+        // name its representatives (step 6's own preview shows expanded
+        // names, "Fault 3, round 5" above), so they can never match the
+        // pre-expansion array above. Retry any still-unmatched entries now
+        // that expansion has happened; this is where entity rows actually
+        // resolve.
+        $recipients = $this->matchUnmatchedSigningSetupPostExpansion($recipients, $unmatchedSigningSetup);
         // Sort recipients by SA signing convention: Agent → Tenant/Buyer → Landlord/Seller → Witness
         $recipients = $this->sortRecipientsBySigningOrder($recipients);
         // HARD BLOCK (Johan, 2026-08-25): a deceased party never signs
@@ -3879,8 +3887,33 @@ class ESignWizardController extends Controller
      * flow 330's silent chain-advance stop: a legal signing chain must
      * never drop a participant without telling anyone.
      */
-    private function attachSigningSetupMatch(array $recipients, array $signingSetup): array
+    /**
+     * cc2, 2026-08-26 (Johan's real case, flow 480 — a company represented
+     * by three parties) — "Job 1" (a07e0927f) assumed signing_setup is
+     * ALWAYS built from the pre-expansion (original party) name. True for
+     * the natural-person-chain case it reproduced; false for an entity:
+     * step 6's own preview (ESignWizardController.php ~L616-630, "Fault 3,
+     * round 5", 2026-08-24 — OLDER than Job 1) already shows the EXPANDED
+     * representative names for an entity, so signing_setup for a company
+     * genuinely contains each representative's own name — which can never
+     * match the entity's single pre-expansion row, for ANY entity, always,
+     * not only when it has multiple representatives. Confirmed directly
+     * against Johan's real flow 480 data before writing this.
+     *
+     * Rather than re-deciding match timing globally (bigger, riskier
+     * change under the clock), this stays additive: try the pre-expansion
+     * match first (unchanged — still the fix for the natural-person-chain
+     * case Job 1 targeted), and hand back whatever DIDN'T match instead of
+     * throwing immediately. The caller retries those specific entries
+     * against the expanded array (matchUnmatchedSigningSetupPostExpansion(),
+     * right after expandEntityRecipients()) before giving up for real.
+     * Anything that matched here before still matches here, unchanged.
+     *
+     * @param array<int, array> $unmatched OUT param — signing_setup entries this pass could not place.
+     */
+    private function attachSigningSetupMatch(array $recipients, array $signingSetup, array &$unmatched = []): array
     {
+        $unmatched = [];
         if (empty($signingSetup)) {
             return $recipients;
         }
@@ -3890,6 +3923,54 @@ class ESignWizardController extends Controller
         foreach ($signingSetup as $ssIndex => $ss) {
             if (($ss['role'] ?? '') === 'agent') continue;
 
+            $matched = false;
+            foreach ($recipients as $i => &$r) {
+                if ($consumed[$i]) continue;
+                if (($r['role'] ?? '') === ($ss['role'] ?? '') && ($r['name'] ?? '') === ($ss['name'] ?? '')) {
+                    $r['_matched_signing_setup_index'] = $ssIndex;
+                    $consumed[$i] = true;
+                    $matched = true;
+                    break;
+                }
+            }
+            unset($r);
+
+            if (! $matched) {
+                $unmatched[$ssIndex] = $ss;
+            }
+        }
+
+        return $recipients;
+    }
+
+    /**
+     * The fallback pass — see attachSigningSetupMatch()'s docblock. Matches
+     * whatever didn't resolve pre-expansion against the NOW-expanded array
+     * (an entity's real representative rows exist here), by the same
+     * role+name rule. Still throws, still names the specific party, if a
+     * signing_setup entry genuinely matches nothing anywhere — a real
+     * data-entry mismatch must never vanish a party silently.
+     *
+     * @param array<int, array> $unmatched from attachSigningSetupMatch()'s out param, keyed by original signing_setup index
+     */
+    private function matchUnmatchedSigningSetupPostExpansion(array $recipients, array $unmatched): array
+    {
+        if (empty($unmatched)) {
+            return $recipients;
+        }
+
+        $consumed = array_fill(0, count($recipients), false);
+        foreach ($recipients as $i => $r) {
+            // Already matched pre-expansion — index 0 is a valid match, so
+            // check the value, not truthiness. expandEntityRecipients()
+            // pre-populates every row (including unmatched ones) with this
+            // key set to null, so array_key_exists() alone wrongly marks
+            // every expanded row as already consumed (flow 480: threw here).
+            $consumed[$i] = array_key_exists('_matched_signing_setup_index', $r)
+                && $r['_matched_signing_setup_index'] !== null;
+        }
+
+        foreach ($unmatched as $ssIndex => $ss) {
             $matched = false;
             foreach ($recipients as $i => &$r) {
                 if ($consumed[$i]) continue;
@@ -6216,7 +6297,8 @@ class ESignWizardController extends Controller
         // (pre-expansion) names.
         $signingSetupRaw = $stepData['signing_setup'] ?? [];
         $signingSetup = isset($signingSetupRaw['parties']) ? $signingSetupRaw['parties'] : $signingSetupRaw;
-        $recipients = $this->attachSigningSetupMatch($recipients, $signingSetup);
+        $unmatchedSigningSetup = [];
+        $recipients = $this->attachSigningSetupMatch($recipients, $signingSetup, $unmatchedSigningSetup);
         // Entity/company expansion (Johan, 2026-08-25 — cc1's finding on
         // 93a10b6a2, and the same "an entity never signs" rule prepareSigning()
         // already applies at ESignWizardController.php:2028). Missing here
@@ -6226,6 +6308,10 @@ class ESignWizardController extends Controller
         // person who actually signs. Same call, same place in the pipeline,
         // as the e-sign path.
         $recipients = $this->expandEntityRecipients($recipients, $user);
+        // Flow 480 (Johan, 2026-08-29) — see prepareSigning() for full
+        // rationale: entity signing_setup entries name representatives, so
+        // they can only match after expansion.
+        $recipients = $this->matchUnmatchedSigningSetupPostExpansion($recipients, $unmatchedSigningSetup);
         $recipients = $this->sortRecipientsBySigningOrder($recipients);
         // HARD BLOCK (Johan, 2026-08-25) — the MORE dangerous of the two send
         // paths: wet-ink puts a physical document in someone's hand to sign
