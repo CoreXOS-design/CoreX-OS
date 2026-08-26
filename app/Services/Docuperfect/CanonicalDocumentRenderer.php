@@ -470,8 +470,23 @@ class CanonicalDocumentRenderer
             // Candidate keys: the exact data-field first (covers base vars and explicit
             // "{var}__r{n}" per-recipient instances), then the base var — for a single-recipient
             // contact field that expansion stamped "{var}__r1" while the overlay holds "{var}".
+            //
+            // Johan, 2026-08-26 — "up to esign its fine, but as soon as you click back it
+            // renders it wrong." A company with 3 representatives: the base-var fallback below
+            // was firing for EVERY instance ("__r1", "__r2", "__r3" alike), not just the single-
+            // recipient case its own docblock describes. The Fill & Review left panel has ONE
+            // editable seller_address/phone/email input (not one per representative) — the agent
+            // never touched recipient 2/3's fields, so the overlay only ever holds the BASE key
+            // (recipient 1's value, saved unsuffixed). On first render there is no overlay yet,
+            // so each of the 3 blocks correctly reads its own Contact record — right once. The
+            // moment ANY overlay exists (Next to step 6, or back to step 5), this fallback
+            // matched "__r2"/"__r3" against the base key too and stamped recipient 1's address
+            // onto recipients 2 and 3 — permanently, since the overlay itself then gets
+            // re-saved from what's now on screen. Restricting the fallback to __r1 keeps the
+            // single-recipient case working exactly as documented while leaving an untouched
+            // __r2+/__r3+ instance to resolve from its own Contact record, same as first render.
             $candidates = [$raw];
-            if (preg_match('/^(.*)__r\d+$/', $raw, $m) && $m[1] !== '') {
+            if (preg_match('/^(.*)__r(\d+)$/', $raw, $m) && $m[1] !== '' && (int) $m[2] === 1) {
                 $candidates[] = $m[1];
             }
 
