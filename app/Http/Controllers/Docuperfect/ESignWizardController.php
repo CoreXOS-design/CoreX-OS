@@ -2293,6 +2293,7 @@ class ESignWizardController extends Controller
         // place. "Certain problem = hard block, not a warning."
         $this->assertDeceasedRecipientsHaveSubstituteSigner($recipients);
         $this->assertSupplierRepresentativesHaveRegistrationNumber($recipients);
+        $this->assertChainPartiesHaveIdNumbers($recipients);
 
         // GENERATED-DOCUMENT BODY (Johan, 2026-08-25 — cc1's finding on
         // 93a10b6a2): the document actually going out must read the SAME
@@ -4198,6 +4199,97 @@ class ESignWizardController extends Controller
 
                 throw \Illuminate\Validation\ValidationException::withMessages([
                     'recipients' => "{$supplierName} is standing in as a representative on this document but {$missingText} " . (count($missing) > 1 ? 'are' : 'is') . " missing. Add " . (count($missing) > 1 ? 'them' : 'it') . " in {$where} (Deal Register \u{2192} Suppliers) before sending.",
+                ]);
+            }
+        }
+    }
+
+    /**
+     * HARD BLOCK (Johan, 2026-08-26 — correcting an earlier, wrong
+     * self-answer): "the ruling is BLOCK... Silent degradation is exactly
+     * the failure pattern we have spent this whole night removing. So:
+     * BLOCK when the deceased contact has no ID. Same for the person
+     * signing on the executor side. The refusal names which person is
+     * missing an ID and where to add it." Deliberately NOT
+     * RecipientTemplate::withIdSuffix()'s existing graceful-degradation
+     * pattern (omit the suffix, never block) — that pattern is correct
+     * for an ordinary party's optional ID; it is the wrong pattern here,
+     * because the clause's whole legal purpose is naming who died and who
+     * stands for them, by ID.
+     *
+     * Checks every slot of a chain-bound recipient's template (not just
+     * "deceased"/"executor" by name — whatever the template declares),
+     * skipping only: an entity/company contact (its ID concept is a
+     * registration number, a different check, not this one) and a
+     * supplier-sourced binding (already fully covered, correctly, by
+     * assertSupplierRepresentativesHaveRegistrationNumber() just above —
+     * checking it again here would risk a second, differently-worded
+     * block on the exact same missing number).
+     */
+    private function assertChainPartiesHaveIdNumbers(array $recipients): void
+    {
+        $byLocalKey = [];
+        foreach ($recipients as $r) {
+            $key = $r['_recipient_local_key'] ?? null;
+            if ($key !== null) {
+                $byLocalKey[$key] = $r;
+            }
+        }
+
+        foreach ($recipients as $r) {
+            if (empty($r['_recipient_template_id']) || empty($r['_slot_bindings']) || ! is_array($r['_slot_bindings'])) {
+                continue;
+            }
+
+            $recipientTemplate = \App\Models\RecipientTemplate::find($r['_recipient_template_id']);
+            if ($recipientTemplate === null) {
+                continue;
+            }
+
+            foreach ($recipientTemplate->party_slots ?? [] as $slot) {
+                $slotKey = $slot['key'] ?? null;
+                $slotLabel = $slot['label'] ?? $slotKey;
+                if ($slotKey === null) {
+                    continue;
+                }
+                $binding = $r['_slot_bindings'][$slotKey] ?? null;
+                if (! is_array($binding)) {
+                    continue; // dangling bindings are blocked elsewhere (resolveChainBindings)
+                }
+
+                $type = $binding['type'] ?? null;
+                $name = null;
+                $idNumber = null;
+                $where = 'on the recipient';
+
+                if ($type === 'self') {
+                    $name = trim((string) ($r['name'] ?? '')) ?: 'This party';
+                    $idNumber = $r['id_number'] ?? null;
+                } elseif ($type === 'contact') {
+                    $contact = Contact::withoutGlobalScopes()->find($binding['contact_id'] ?? null);
+                    if ($contact === null || $contact->isEntity()) {
+                        continue; // dangling handled elsewhere; a company has no personal ID to check here
+                    }
+                    $name = $contact->full_name;
+                    $idNumber = $contact->id_number;
+                    $where = 'on their contact record';
+                } elseif ($type === 'recipient') {
+                    $bound = $byLocalKey[$binding['recipient_local_key'] ?? null] ?? null;
+                    if ($bound === null || ($bound['_recipient_source'] ?? null) === 'supplier') {
+                        continue; // dangling, or already covered above
+                    }
+                    $name = trim((string) ($bound['name'] ?? '')) ?: 'This party';
+                    $idNumber = $bound['id_number'] ?? null;
+                } else {
+                    continue;
+                }
+
+                if (trim((string) $idNumber) !== '') {
+                    continue;
+                }
+
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'recipients' => "{$name} is named as \"{$slotLabel}\" in this document's clause but has no ID number on file. Add it {$where} before sending.",
                 ]);
             }
         }
@@ -6315,6 +6407,7 @@ class ESignWizardController extends Controller
         // the e-sign path — see assertDeceasedRecipientsHaveSubstituteSigner().
         $this->assertDeceasedRecipientsHaveSubstituteSigner($recipients);
         $this->assertSupplierRepresentativesHaveRegistrationNumber($recipients);
+        $this->assertChainPartiesHaveIdNumbers($recipients);
 
         // GENERATED-DOCUMENT BODY — same reasoning as prepareSigning()
         // (ESignWizardController.php ~2035-2050): the printed document must
