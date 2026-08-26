@@ -3754,6 +3754,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/{contact}/representatives/link',  [\App\Http\Controllers\CoreX\ContactRepresentativeController::class, 'link'])->name('representatives.link');
         Route::post('/{contact}/representatives/create-and-link', [\App\Http\Controllers\CoreX\ContactRepresentativeController::class, 'createAndLinkRepresentative'])->name('representatives.create-and-link');
         Route::delete('/{contact}/representatives/{representative}', [\App\Http\Controllers\CoreX\ContactRepresentativeController::class, 'unlink'])->name('representatives.unlink');
+        Route::post('/{contact}/representatives/{representative}/move', [\App\Http\Controllers\CoreX\ContactRepresentativeController::class, 'move'])->name('representatives.move');
         // Mirror direction — a NATURAL PERSON's "Linked Entities" panel. Same
         // pivot, same link()/unlink() above (called with the entity as
         // {contact}); these two are the person-side search + create-on-the-fly.
