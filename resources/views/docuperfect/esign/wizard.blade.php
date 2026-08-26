@@ -587,6 +587,21 @@
                                            :style="r.readonly ? 'background: var(--surface); border: 1px solid var(--border); color: var(--text-muted);' : 'background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);'">
                                 </div>
 
+                                {{-- Johan, 2026-08-26 — "selected executor. shows as Piet
+                                     Begrafnis - full names Piet Begrafnis???? the firm is gone."
+                                     A supplier-sourced recipient carries its firm name and
+                                     registration number (bindSlotToSupplier()) but nothing showed
+                                     it on this card — the person's own Full Name field is all an
+                                     agent ever saw. Shown here, read-only context, same shape as
+                                     the entity-representation box below it. --}}
+                                <template x-if="r._recipient_source === 'supplier' && r._supplier_firm_name">
+                                    <div class="rounded-md p-2.5 text-xs" style="background: var(--surface-2); border: 1px solid var(--border);">
+                                        <div class="font-semibold" style="color: var(--text-primary);" x-text="r._supplier_firm_name"></div>
+                                        <div style="color: var(--text-muted);" x-show="r._supplier_firm_registration_number" x-text="'Reg: ' + r._supplier_firm_registration_number"></div>
+                                        <div style="color: var(--text-muted);">Represented by <span x-text="r.name"></span></div>
+                                    </div>
+                                </template>
+
                                 {{-- Entity recipient preview — how this company expands into its
                                      signing representative(s) (from the agency's recipient preset). --}}
                                 <template x-if="r._is_entity && r._representation">
@@ -834,10 +849,16 @@
                                         <div x-show="replaceModal.slotSearch[slot.key]?.open && (replaceModal.slotSearch[slot.key]?.results || []).length > 0"
                                              class="absolute z-30 w-full mt-1 rounded-md max-h-40 overflow-y-auto"
                                              style="background: var(--surface); border: 1px solid var(--border); box-shadow: 0 8px 24px rgba(0,0,0,0.2);">
+                                            {{-- Johan, 2026-08-26 — "make it obvious whether the
+                                                 result is a SUPPLIER or an ordinary CONTACT." Every
+                                                 result here comes from searchSlotContact() (Contacts
+                                                 only), so the badge is fixed — kept visible anyway so
+                                                 the two lists read consistently at a glance. --}}
                                             <template x-for="contact in (replaceModal.slotSearch[slot.key]?.results || [])" :key="contact.id">
                                                 <button type="button" @click="bindSlotToContact(slot.key, contact)"
-                                                        class="w-full text-left px-3 py-2 text-xs" style="border-top: 1px solid var(--border); color: var(--text-primary);"
-                                                        x-text="contact.full_name">
+                                                        class="w-full text-left px-3 py-2 text-xs" style="border-top: 1px solid var(--border); color: var(--text-primary);">
+                                                    <span x-text="contact.full_name"></span>
+                                                    <span class="ml-1.5 text-[9px] font-bold uppercase tracking-wider px-1 py-0.5 rounded" style="background: var(--surface-2); color: var(--text-muted);">Contact</span>
                                                 </button>
                                             </template>
                                         </div>
@@ -858,11 +879,31 @@
                                         <div x-show="replaceModal.supplierSlotSearch[slot.key]?.open && (replaceModal.supplierSlotSearch[slot.key]?.results || []).length > 0"
                                              class="absolute z-30 w-full mt-1 rounded-md max-h-40 overflow-y-auto"
                                              style="background: var(--surface); border: 1px solid var(--border); box-shadow: 0 8px 24px rgba(0,0,0,0.2);">
+                                            {{-- Johan, 2026-08-26 — "search for executor shows a thin
+                                                 list ... enhance that you can see supplier and
+                                                 contact." Same rule as the directory row: the company
+                                                 leads where there is one, the person sits underneath;
+                                                 no company falls back to the person leading, exactly
+                                                 as before. A "Supplier" badge marks it as distinct from
+                                                 an ordinary Contact result above. --}}
                                             <template x-for="supplier in (replaceModal.supplierSlotSearch[slot.key]?.results || [])" :key="supplier.id">
                                                 <button type="button" @click="bindSlotToSupplier(slot.key, supplier)"
                                                         class="w-full text-left px-3 py-2 text-xs" style="border-top: 1px solid var(--border); color: var(--text-primary);">
-                                                    <span x-text="supplier.full_name"></span>
-                                                    <span x-show="supplier.supplier_firm_name" style="color: var(--text-muted);" x-text="' — ' + supplier.supplier_firm_name"></span>
+                                                    <template x-if="supplier.supplier_firm_name">
+                                                        <div>
+                                                            <div>
+                                                                <span x-text="supplier.supplier_firm_name"></span>
+                                                                <span class="ml-1.5 text-[9px] font-bold uppercase tracking-wider px-1 py-0.5 rounded" style="background: var(--surface-2); color: var(--text-muted);">Supplier</span>
+                                                            </div>
+                                                            <div style="color: var(--text-muted);" x-text="supplier.full_name"></div>
+                                                        </div>
+                                                    </template>
+                                                    <template x-if="!supplier.supplier_firm_name">
+                                                        <div>
+                                                            <span x-text="supplier.full_name"></span>
+                                                            <span class="ml-1.5 text-[9px] font-bold uppercase tracking-wider px-1 py-0.5 rounded" style="background: var(--surface-2); color: var(--text-muted);">Supplier</span>
+                                                        </div>
+                                                    </template>
                                                 </button>
                                             </template>
                                         </div>
