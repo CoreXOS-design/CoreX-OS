@@ -628,10 +628,10 @@
                                      slots. Deceased now opens the Replace modal directly instead
                                      of leaving him to find the button below on his own. --}}
                                 <div class="flex flex-wrap items-center gap-x-5 gap-y-1.5 -mt-1">
-                                    <label class="flex items-center gap-1.5 text-xs cursor-pointer select-none" style="color: var(--text-secondary);">
-                                        <input type="checkbox" x-model="r._is_deceased"
-                                               @change="if (r._is_deceased) { r._is_proxy = false; openReplaceModal(ri); }"
-                                               class="rounded" style="accent-color: var(--ds-red, #dc2626); width: 14px; height: 14px;">
+                                    <label class="flex items-center gap-1.5 text-xs select-none" :class="r._is_entity ? 'cursor-not-allowed' : 'cursor-pointer'" style="color: var(--text-secondary);">
+                                        <input type="checkbox" x-model="r._is_deceased" :disabled="r._is_entity"
+                                               @change="if (r._is_deceased) { if (r._is_entity) { r._is_deceased = false; return; } r._is_proxy = false; openReplaceModal(ri); }"
+                                               class="rounded" :style="r._is_entity ? 'accent-color: var(--ds-red, #dc2626); width: 14px; height: 14px; opacity: 0.4;' : 'accent-color: var(--ds-red, #dc2626); width: 14px; height: 14px;'">
                                         Deceased — replace this party
                                     </label>
                                     <label class="flex items-center gap-1.5 text-xs cursor-pointer select-none" style="color: var(--text-secondary);">
@@ -639,6 +639,9 @@
                                                class="rounded" style="accent-color: var(--ds-amber, #f59e0b); width: 14px; height: 14px;">
                                         Proxy — signs on behalf of the others in this role
                                     </label>
+                                </div>
+                                <div x-show="r._is_entity" class="rounded-md px-3 py-2 text-xs" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-muted);">
+                                    A company can't be marked deceased. If this company can no longer act (deregistered, liquidated, in business rescue), replace it as a party manually.
                                 </div>
                                 <div x-show="r._is_deceased" class="rounded-md px-3 py-2 text-xs" style="background: color-mix(in srgb, var(--ds-red,#dc2626) 8%, transparent); border: 1px solid color-mix(in srgb, var(--ds-red,#dc2626) 25%, transparent); color: var(--text-secondary);">
                                     Still displays on the document with full details. Never receives a signing request.
