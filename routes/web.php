@@ -3612,6 +3612,12 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::get('/active/{layerId}',       [\App\Http\Controllers\Map\MapController::class, 'activeCard'])->name('active');
         Route::get('/mic-subject/{report}',   [\App\Http\Controllers\Map\MapController::class, 'micSubjectCard'])->name('mic-subject');
         Route::get('/scheme-owner/{owner}',   [\App\Http\Controllers\Map\MapController::class, 'schemeOwnerCard'])->name('scheme-owner');
+        // Johan, 2026-08-30 — "expand the scheme tick so an agent can start a Pitch
+        // Now directly from there." Reuses the SAME Pitch Now entry point the map's
+        // T-pins already use (seller-outreach.entry.from-tracked-property) — this
+        // route only bridges a SchemeOwner row to a TrackedProperty first (a scheme
+        // unit has no Property/TrackedProperty of its own yet), never a second flow.
+        Route::get('/scheme-owner/{owner}/pitch', [\App\Http\Controllers\Map\MapController::class, 'pitchSchemeOwner'])->name('scheme-owner.pitch');
         // Phase A.2 — activity log endpoint for map-launched actions.
         Route::post('/activity/log',          [\App\Http\Controllers\Map\MapActivityController::class, 'log'])->name('activity.log');
         // Phase A.3.2 — per-user saved searches CRUD.
