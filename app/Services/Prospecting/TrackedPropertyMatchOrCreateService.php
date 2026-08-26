@@ -31,6 +31,9 @@ use Throwable;
  *   1. Source-ref match — exact match in tracked_property_external_refs
  *   2. GPS proximity match — within ~5m on cma_gps_lat/lng OR lat/lng
  *   3. Erf number + suburb match
+ *   3b. Scheme identity + section/unit number match (sectional title's own
+ *       legal identity — erf does not identify a unit, every unit in a
+ *       scheme shares one)
  *   4. Normalised address match (street_number + street_name + suburb_normalised)
  *   5. Token-overlap address match (loose, last resort)
  *
@@ -550,6 +553,53 @@ final class TrackedPropertyMatchOrCreateService
             }
         }
 
+        // Strategy 3b: Scheme identity + section/unit number (2026-08-27,
+        // Johan/cc3's finding — a sectional-title re-capture with no erf
+        // number created a duplicate instead of finding the existing unit).
+        // Erf number does NOT identify a sectional-title unit (strategy 3's
+        // own comment above: every unit in a scheme shares one erf) — a
+        // capture that has no street address yet either (address geocoding
+        // not run, or the deed itself carries no physical address, both
+        // real and common) then had no strategy left that could ever find
+        // it: strategy 4 needs street_number/street_name, strategy 5 needs
+        // street_name/address, strategy 2 needs GPS. Every one of them
+        // silently required an identifier a bare sectional-title deed does
+        // not carry. The one identifier it DOES always carry is its own
+        // legal identity: scheme (name or the deeds-office scheme_number)
+        // plus section number — the exact SA sectional-title analogue of
+        // erf+suburb for freehold, same "structural identity, not address"
+        // tier, so it sits right after strategy 3. scheme_number, being the
+        // registered legal number, is preferred over the free-text scheme/
+        // complex name when both are available. section_number is CMA/deed-
+        // reliable (numbersConflict()'s own comment); unit_number is the
+        // fallback when section_number wasn't captured on this pass.
+        // numbersConflict() still runs — a genuinely different unit that
+        // happens to share a scheme is vetoed exactly as strategy 3 is.
+        $schemeNumber = trim((string) ($facts['scheme_number'] ?? ''));
+        $schemeName   = trim((string) ($facts['complex_name'] ?? $facts['scheme_name'] ?? ''));
+        $unitKey      = trim((string) ($facts['section_number'] ?? $facts['unit_number'] ?? ''));
+        if ($unitKey !== '' && ($schemeNumber !== '' || $schemeName !== '')) {
+            $schemeQuery = TrackedProperty::queryWithoutAgencyScope()
+                ->where('agency_id', $agencyId)
+                ->whereNull('deleted_at')
+                ->where(function ($w) use ($unitKey) {
+                    $w->where('section_number', $unitKey)
+                        ->orWhere('unit_number', $unitKey);
+                });
+            if ($schemeNumber !== '') {
+                $schemeQuery->whereRaw('LOWER(TRIM(scheme_number)) = ?', [mb_strtolower($schemeNumber)]);
+            } else {
+                $schemeQuery->where(function ($w) use ($schemeName) {
+                    $w->whereRaw('LOWER(TRIM(complex_name)) = ?', [mb_strtolower($schemeName)])
+                        ->orWhereRaw('LOWER(TRIM(scheme_name)) = ?', [mb_strtolower($schemeName)]);
+                });
+            }
+            $schemeMatch = $schemeQuery->first();
+            if ($schemeMatch && ! $this->numbersConflict($facts, $schemeMatch) && $this->acceptCandidate($agencyId, $source, $schemeMatch, '3b_scheme_section')) {
+                return $schemeMatch;
+            }
+        }
+
         // Strategy 4: Normalised structured address.
         if (!empty($facts['street_number']) && !empty($facts['street_name']) && !empty($facts['suburb'])) {
             $addressMatch = TrackedProperty::queryWithoutAgencyScope()
@@ -787,6 +837,7 @@ final class TrackedPropertyMatchOrCreateService
             '1_source_ref' => 'Same source reference as a previous capture of this property.',
             '2_gps_cma', '2_gps_latlng' => 'GPS is within about 5 metres of this property\'s known location.',
             '3_erf_suburb' => 'Same erf number (' . trim((string) ($facts['erf_number'] ?? '?')) . ') and suburb.',
+            '3b_scheme_section' => 'Same sectional scheme and section/unit number (' . trim((string) ($facts['section_number'] ?? $facts['unit_number'] ?? '?')) . ').',
             '4_normalised_address' => 'Street number, street name and suburb all match exactly.',
             '5_token_overlap' => 'Address is a close text match on this street and suburb — no other property on this street was a candidate.',
             '5_token_overlap_gps_tiebreak' => 'Address is a close text match; more than one property on this street was possible, and GPS confirmed this one.',
