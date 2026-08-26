@@ -153,6 +153,24 @@ class AgencyServiceProviderService
 
         $matches = collect();
         foreach ($candidates as $candidate) {
+            // Johan, 2026-08-26 — "one supplier record = one company + one
+            // representative, and duplicates are by design... we can have
+            // 5 VDS attorneys each with their own representative." Only
+            // ever flag when the COMPANY and the REPRESENTATIVE both
+            // match — same firm, different person, goes through silently.
+            // Matches how DR2 itself already treats this:
+            // SupplierDirectoryController::storeContact() (the real "add
+            // a representative under this firm" screen) adds a new
+            // representative with NO duplicate check at all — a
+            // different person at the same firm has never been flagged
+            // there. Gating every signal below on same-firm-first is the
+            // same rule, not a second one.
+            $candidateFirm = $candidate->firm ? strtolower(trim(preg_replace('/\s+/', ' ', $candidate->firm->name))) : null;
+            $sameFirm = $normalizedFirm !== null && $candidateFirm === $normalizedFirm;
+            if (! $sameFirm) {
+                continue;
+            }
+
             $reasons = [];
 
             if ($normalizedEmail && $candidate->email && strtolower(trim($candidate->email)) === $normalizedEmail) {
@@ -176,15 +194,11 @@ class AgencyServiceProviderService
             }
 
             $candidateName = strtolower(trim(preg_replace('/\s+/', ' ', (string) ($candidate->attorney_name ?: $candidate->contact_person ?: ''))));
-            if ($candidateName !== '' && $normalizedName !== '') {
-                $candidateFirm = $candidate->firm ? strtolower(trim(preg_replace('/\s+/', ' ', $candidate->firm->name))) : null;
-                $sameFirm = $normalizedFirm !== null && $candidateFirm === $normalizedFirm;
-                if ($sameFirm && (
-                    $candidateName === $normalizedName
-                    || levenshtein($candidateName, $normalizedName) <= 2
-                )) {
-                    $reasons[] = 'similar name at the same firm';
-                }
+            if ($candidateName !== '' && $normalizedName !== '' && (
+                $candidateName === $normalizedName
+                || levenshtein($candidateName, $normalizedName) <= 2
+            )) {
+                $reasons[] = 'similar name at the same firm';
             }
 
             if (! empty($reasons)) {
