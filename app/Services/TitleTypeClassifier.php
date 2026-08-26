@@ -57,6 +57,19 @@ final class TitleTypeClassifier
     public const VACANT_KEYWORDS    = ['vacant', 'plot', 'stand', 'erf'];
 
     /**
+     * Words confident enough to call freehold outright — 2026-08-25 fix.
+     * Deliberately narrow and evidence-based (checked against the real
+     * distinct property_type values in `properties` and
+     * `market_report_comp_rows`). "Residence"/"Residential" are NOT here:
+     * that is the exact ambiguous CMA-Info word (used for both freehold and
+     * sectional stock) that caused the misclassification bug this list
+     * fixes — see fromPropertyType() below. "Commercial"/"Industrial"/
+     * "Business" are NOT here either: those describe land USE, not title
+     * TENURE, and tell you nothing about freehold vs sectional.
+     */
+    public const FULL_KEYWORDS = ['house', 'farm', 'freehold'];
+
+    /**
      * Canonical heuristic — classify a free-text property_type string.
      *
      * Lifted verbatim from the duplicate bodies at
@@ -88,7 +101,19 @@ final class TitleTypeClassifier
             // other phrase that already matched above.
             return self::TITLE_VACANT;
         }
-        return self::TITLE_FULL;
+        foreach (self::FULL_KEYWORDS as $kw) {
+            if (str_contains($t, $kw)) {
+                return self::TITLE_FULL;
+            }
+        }
+        // 2026-08-25 fix: previously fell through to TITLE_FULL here for ANY
+        // unrecognized text — including "Residence"/"Residential", the exact
+        // ambiguous CMA-Info word used for both freehold and sectional stock,
+        // and "Commercial"/"Industrial"/"Business", which describe land use
+        // and say nothing about title tenure. Guessing freehold silently
+        // misclassified sectional-title properties. Every caller of this
+        // method has been audited to handle a genuine null correctly.
+        return null;
     }
 
     /**
@@ -108,6 +133,59 @@ final class TitleTypeClassifier
             return self::TITLE_SECTIONAL;
         }
         return $this->fromPropertyType($propertyType);
+    }
+
+    /**
+     * 2026-08-24 — code-gate hardening, round 4. Lifted verbatim from
+     * CompPoolBuilder::category(), which duplicated this exact "trust the
+     * passed value, or re-derive from property_type" decision as its own
+     * private copy. This is the ONE place that decision now lives — both
+     * of CompPoolBuilder::category()'s call sites (subject and candidate)
+     * delegate here instead of keeping their own logic in sync by hand.
+     *
+     * Two real, DIFFERENT trust postures share this one function via
+     * $trustPassedValue, because the correct answer depends on what kind
+     * of value the caller is passing in, not on which caller it is:
+     *
+     *   $trustPassedValue = true  — the passed $titleType was computed
+     *     THIS REQUEST from strong per-row signal (categoryForComp()'s
+     *     scheme_name/section_number check, run upstream by
+     *     MicSnapshotHydrator::deriveCompTitleType() before the candidate
+     *     ever reaches here) — trust it unconditionally over a re-read of
+     *     generic property_type text. This is the CANDIDATE/comp posture:
+     *     CompPoolBuilder::select()'s per-candidate category() call.
+     *
+     *   $trustPassedValue = false (default) — the passed $titleType may be
+     *     a STALE CACHED column (properties.title_type, which only
+     *     self-heals on save and can silently drift from the live
+     *     property_type) — re-derive from property_type first, falling
+     *     back to the cached value only when property_type itself is
+     *     unclassifiable. This is the SUBJECT posture:
+     *     CompPoolBuilder::select()'s one subject category() call.
+     *
+     * Bug history this exists to stop recurring a 4th time: 2026-06-18
+     * (a55a4c617, gather stage), 2026-08-03 (0271614f8, flipped this
+     * exact priority for the subject caller — correctly — but the fix
+     * lived only in CompPoolBuilder::category(), so nothing stopped a
+     * later change to that one function from silently applying the wrong
+     * posture to the OTHER caller too), 2026-08-24 (1a3939047, exactly
+     * that: the subject-side stale-cache fix had been applied unscoped to
+     * the candidate caller as well, re-breaking sectional CMA-Info comps
+     * stamped property_type='Residence'). Each fix landed in the same
+     * single function; what was missing was making the two postures
+     * impossible to conflate rather than merely documenting the
+     * difference in a comment next to the boolean.
+     */
+    public function resolveCategory(?string $titleType, ?string $propertyType, bool $trustPassedValue = false): ?string
+    {
+        if ($trustPassedValue && $titleType !== null && $titleType !== '') {
+            return $titleType;
+        }
+        $fresh = $this->fromPropertyType($propertyType);
+        if ($fresh !== null) {
+            return $fresh;
+        }
+        return ($titleType !== null && $titleType !== '') ? $titleType : null;
     }
 
     /**

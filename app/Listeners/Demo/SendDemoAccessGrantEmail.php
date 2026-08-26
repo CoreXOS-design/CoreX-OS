@@ -43,6 +43,20 @@ class SendDemoAccessGrantEmail
 {
     public function handle(DemoAccessGranted $event): void
     {
+        // The caller is mailing this code itself, in an email of its own — a webinar
+        // registration sends ONE combined mail (confirmation + join link + the same
+        // credentials). Sending the standard invitation as well would put two emails
+        // carrying one access code in the prospect's inbox, which reads as a system
+        // that has lost track of itself.
+        //
+        // Only DELIVERY is skipped. The event still fired, so the grant is in the
+        // domain-event log exactly as any other.
+        //
+        // Spec: .ai/specs/webinar-registration.md §6.2
+        if (! $event->deliverInvitationEmail) {
+            return;
+        }
+
         // Belt and braces. Grants are only ever issued on primary, so this should
         // be unreachable — but if it ever isn't, the demo host's mailer is Mailpit
         // and the prospect would get NOTHING, with no error anywhere. Refusing

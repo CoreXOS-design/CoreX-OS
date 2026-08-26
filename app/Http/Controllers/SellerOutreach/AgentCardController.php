@@ -39,18 +39,19 @@ final class AgentCardController extends Controller
             ->whereNull('deleted_at')
             ->find($user);
 
-        if (!$agent) {
-            abort(404);
-        }
+        // 2026-08-25 (Johan) — this endpoint is consumed as image bytes
+        // (an <img> tag, WhatsApp's og:image crawler), never as a page a
+        // human navigates to directly. An abort(404) here used to hand
+        // that consumer a full branded HTML error page (once the generic
+        // 404 handler started branding everything) — a broken-image icon
+        // in an email or a shared card, not a graceful failure. Both
+        // failure points below now serve the agency-neutral fallback JPEG
+        // instead: correct content-type, correct 1200x630 dimensions,
+        // cached identically to a real card. Never HTML.
+        $path = $agent ? $this->cards->resolve($agent) : null;
 
-        $path = $this->cards->resolve($agent);
-
-        // Defensive: if the card could not be written (e.g. the cache dir is not
-        // writable), degrade to a clean 404 instead of a 500 stack trace to the
-        // public crawler. The OG pre-warm path already falls back to the agency
-        // logo, so a missing card never breaks the preference page itself.
-        if (!is_file($path)) {
-            abort(404);
+        if (!$path || !is_file($path)) {
+            $path = $this->cards->resolveFallback();
         }
 
         $response = (new BinaryFileResponse($path))

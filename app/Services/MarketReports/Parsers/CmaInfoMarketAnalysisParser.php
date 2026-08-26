@@ -160,6 +160,30 @@ final class CmaInfoMarketAnalysisParser extends AbstractCmaInfoParser
         $rowIndex = 0;
         if (preg_match_all('/(\d{1,4})\s+([A-Z][A-Za-z\' ]{2,40})[,\s]+([A-Z][A-Za-z\' ]{2,30}).{0,40}R\s*([\d ,]+)\s+(\d{4}[-\/]\d{2}[-\/]\d{2})/m', $text, $matches, PREG_SET_ORDER)) {
             foreach ($matches as $row) {
+                // 2026-08-26 (Johan) — "a row whose address is a fragment of
+                // a label is not a sale." This regex assumes a real table row
+                // sits on one physical line (street number, name, suburb,
+                // price, date all together, exactly like the -layout text
+                // this parser reads). Real report 264 has NO row shaped that
+                // way — its comparables list scheme name first, price AFTER
+                // the date, on lines the regex can't match at all — so the
+                // only "match" it ever found was the tail digits of "R 1 143
+                // 000" (Middle Range's own value) bleeding across five blank
+                // lines into "Upper Range: R 1 277 000" and picking up the
+                // report's OWN date stamp from the next page. Confirmed this
+                // is not a one-off: every real document parsed by this class
+                // (reports 18, 84, 85, 86, 224, 264) produced the identical
+                // "000 Upper" / suburb "range" row. Two independent guards,
+                // either one alone would have caught this real case:
+                //   1. A genuine one-line row never contains a newline —
+                //      this match spanned five.
+                //   2. The label vocabulary these summary lines use
+                //      (Range/Upper/Lower/Middle/Average/Median/Value) never
+                //      appears in a real scheme name or suburb.
+                if (!$this->isPlausibleCompRow($row[0], $row[2], $row[3])) {
+                    continue;
+                }
+
                 $price = $this->parsePrice($row[4]);
                 $date  = $this->parseDate($row[5]);
                 $addr  = trim($row[1]) . ' ' . trim($row[2]);
@@ -204,6 +228,43 @@ final class CmaInfoMarketAnalysisParser extends AbstractCmaInfoParser
             subjectMeta:       $subjectMeta,
             compRows:          $compRows,
         );
+    }
+
+    /**
+     * A price-band summary line ("Lower/Middle/Upper Range: R X",
+     * "Average"/"Median"/"Recommended"/"Suggested" value) must never be
+     * recorded as a comparable sale. Two independent checks — either one
+     * failing is enough to reject the row:
+     *
+     *   1. A real one-line table row never contains a newline. This
+     *      parser's own regex spans blank lines when it accidentally
+     *      stitches together unrelated page fragments (confirmed: every
+     *      real "000 Upper"/suburb "range" false row on file spans 5+
+     *      embedded newlines — a genuine comp row spans zero).
+     *   2. The captured street-name/suburb token is not, itself, one of
+     *      the label words these summary lines are built from. A real
+     *      scheme name or suburb is never literally "Range" or "Upper".
+     */
+    private function isPlausibleCompRow(string $fullMatch, string $streetName, string $suburb): bool
+    {
+        if (str_contains($fullMatch, "\n")) {
+            return false;
+        }
+
+        $labelWords = [
+            'range', 'upper', 'lower', 'middle', 'average', 'median',
+            'value', 'price', 'recommended', 'suggested', 'comparative',
+            'analysis', 'indexed', 'total', 'sales', 'sale',
+        ];
+        $streetLower = mb_strtolower(trim($streetName));
+        $suburbLower = mb_strtolower(trim($suburb));
+        foreach ($labelWords as $word) {
+            if ($streetLower === $word || $suburbLower === $word) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private function parseAddressLine(string $line): ?array

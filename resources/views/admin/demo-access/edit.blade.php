@@ -41,7 +41,13 @@
         </svg>
         <div class="flex-1">
             <strong>Access length and access code cannot be changed.</strong>
-            The length ({{ number_format($grant->expiry_hours) }} hours) was fixed when the grant was issued —
+            @if ($grant->hasFixedDeadline())
+                This grant ends on a set date
+                ({{ $grant->expires_at?->format('j M Y') ?? 'not set' }}), fixed when it was
+                issued —
+            @else
+                The length ({{ number_format($grant->expiry_hours) }} hours) was fixed when the grant was issued —
+            @endif
             editing it would move a deadline the prospect was already told. The code is stored
             only as a hash, so there is nothing to reveal or re-send.
             For either, <a href="{{ route('admin.demo-access.create') }}" class="font-semibold" style="color: var(--brand-icon, #0ea5e9);">issue a new grant</a>.

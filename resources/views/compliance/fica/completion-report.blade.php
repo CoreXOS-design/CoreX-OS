@@ -177,14 +177,40 @@
                 @endif
             </div>
             @if(!empty($submission->agent_verification_data))
+            @php
+                // Real question wording, taken verbatim from the agent's own
+                // verification screen (compliance/fica/show.blade.php,
+                // "Verification Checklist" card) — never re-worded here, so
+                // this can never drift from what the agent actually saw.
+                // Johan, 2026-08-25: the raw array key ("is_vip", "tfs_screening")
+                // is a database column name, never something written for a
+                // human to read, and previously rendered as-is with no answer
+                // shown at all — on a compliance document a "no" must appear
+                // as "no", not vanish or read as a bare, unanswered label.
+                $agentChecklistLabels = [
+                    'identity_docs' => 'Identity document(s) proving IDENTITY provided?',
+                    'address_docs'  => 'Document(s) proving ADDRESS provided?',
+                    'authority_docs' => 'Document proving AUTHORITY provided?',
+                    'is_vip'        => 'Is the client a VIP / PEP?',
+                    'suspicious'    => 'Anything suspicious or unusual?',
+                    'consistent'    => 'Transaction consistent with knowledge of client?',
+                ];
+                $yna = fn ($v) => match ((string) $v) { 'yes' => 'Yes', 'no' => 'No', 'na' => 'N/A', default => (string) $v };
+            @endphp
             <div style="margin-top: 8px;">
                 <div class="field-label">Checklist</div>
-                <ul style="margin: 4px 0 0 16px; font-size: 10px;">
-                    @foreach($submission->agent_verification_data as $item => $checked)
-                        @if($checked)
-                        <li>{{ str_replace('_', ' ', ucfirst((string) $item)) }}</li>
+                <ul style="margin: 4px 0 0 0; font-size: 10px; list-style: none; padding-left: 0;">
+                    @foreach($agentChecklistLabels as $item => $label)
+                        @if(array_key_exists($item, $submission->agent_verification_data) && $submission->agent_verification_data[$item] !== null && $submission->agent_verification_data[$item] !== '')
+                        <li style="display:flex; justify-content:space-between; gap:8px; padding:2px 0 2px 16px;">
+                            <span>{{ $label }}</span>
+                            <strong>{{ $yna($submission->agent_verification_data[$item]) }}</strong>
+                        </li>
                         @endif
                     @endforeach
+                    @if(($submission->agent_verification_data['suspicious'] ?? null) === 'yes' && !empty($submission->agent_verification_data['suspicious_details']))
+                    <li style="padding:2px 0 2px 16px;">Suspicious activity — details: {{ $submission->agent_verification_data['suspicious_details'] }}</li>
+                    @endif
                 </ul>
             </div>
             @endif
@@ -205,14 +231,46 @@
                 <div class="field"><div class="field-label">Status</div><div class="field-value"><span class="status-badge status-approved">APPROVED</span></div></div>
             </div>
             @if(!empty($submission->co_verification_data))
+            @php
+                // Real question wording, taken verbatim from the Compliance
+                // Officer's own verification screen (compliance/fica/
+                // compliance-review.blade.php's "Compliance Checklist" array,
+                // plus tfs-panel.blade.php's "TFS Screening Completed?") — a
+                // genuinely different question set from the agent's own
+                // checklist above (delegating_docs and tfs_screening only
+                // exist here), by design, not a filtered copy of it.
+                // Johan, 2026-08-25: this list previously showed ONLY items
+                // literally equal to 'yes' — a "no" or "N/A" the officer
+                // recorded (e.g. authority_docs: N/A, is_vip: no) vanished
+                // from the compliance record entirely rather than showing as
+                // a "no"/"N/A" answer. Fixed to show every answered
+                // question with its real answer, same as the agent block.
+                $coChecklistLabels = [
+                    'identity_docs'   => 'Identity document verified?',
+                    'address_docs'    => 'Address proof verified (< 2 months)?',
+                    'authority_docs'  => 'Authority document verified?',
+                    'delegating_docs' => 'Delegating authority verified?',
+                    'is_vip'          => 'Client is VIP/PEP?',
+                    'suspicious'      => 'Suspicious or unusual activity?',
+                    'consistent'      => 'Transaction consistent with knowledge of client?',
+                    'tfs_screening'   => 'TFS Screening Completed?',
+                ];
+                $coYna = fn ($v) => match ((string) $v) { 'yes' => 'Yes', 'no' => 'No', 'na' => 'N/A', default => (string) $v };
+            @endphp
             <div style="margin-top: 8px;">
                 <div class="field-label">Checklist</div>
-                <ul style="margin: 4px 0 0 16px; font-size: 10px;">
-                    @foreach($submission->co_verification_data as $item => $value)
-                        @if($value === true || $value === 'yes')
-                        <li>{{ str_replace('_', ' ', ucfirst((string) $item)) }}</li>
+                <ul style="margin: 4px 0 0 0; font-size: 10px; list-style: none; padding-left: 0;">
+                    @foreach($coChecklistLabels as $item => $label)
+                        @if(array_key_exists($item, $submission->co_verification_data) && $submission->co_verification_data[$item] !== null && $submission->co_verification_data[$item] !== '')
+                        <li style="display:flex; justify-content:space-between; gap:8px; padding:2px 0 2px 16px;">
+                            <span>{{ $label }}</span>
+                            <strong>{{ $coYna($submission->co_verification_data[$item]) }}</strong>
+                        </li>
                         @endif
                     @endforeach
+                    @if(($submission->co_verification_data['suspicious'] ?? null) === 'yes' && !empty($submission->co_verification_data['suspicious_details']))
+                    <li style="padding:2px 0 2px 16px;">Suspicious activity — details: {{ $submission->co_verification_data['suspicious_details'] }}</li>
+                    @endif
                 </ul>
             </div>
             @endif

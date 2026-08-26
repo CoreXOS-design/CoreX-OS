@@ -43,6 +43,7 @@ class AgencyApiKey extends Model implements Authenticatable
     public const SCOPE_TESTIMONIALS_READ = 'testimonials:read';
     public const SCOPE_ARTICLES_READ     = 'articles:read';
     public const SCOPE_LEADS_WRITE       = 'leads:write';
+    public const SCOPE_STATS_WRITE       = 'stats:write';
     public const SCOPE_WEBHOOKS_RECEIVE = 'webhooks:receive';
 
     // NOTE (AT-230): there are deliberately NO demo:* scopes here.
@@ -62,6 +63,7 @@ class AgencyApiKey extends Model implements Authenticatable
         self::SCOPE_TESTIMONIALS_READ  => 'Read published testimonials',
         self::SCOPE_ARTICLES_READ      => 'Read published agent articles',
         self::SCOPE_LEADS_WRITE        => 'Submit website leads (enquiries)',
+        self::SCOPE_STATS_WRITE        => 'Submit listing statistics (views, hits, contact clicks)',
         self::SCOPE_WEBHOOKS_RECEIVE   => 'Receive webhook events',
     ];
 

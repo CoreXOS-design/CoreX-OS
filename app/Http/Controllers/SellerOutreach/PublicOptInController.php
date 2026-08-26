@@ -76,9 +76,13 @@ final class PublicOptInController extends Controller
     }
 
     /**
-     * 2026-08-25 (Johan) — nullable, not firstOrFail()+abort(404): an
-     * archived contact now gets the shared rich "link expired" page (see
-     * renderArchived() below), matching PublicOptOutController's own fix.
+     * 2026-08-24 (Johan) — public-link resilience audit item #5: mirrors
+     * PublicOptOutController's fix. An archived contact is a valid-but-dead
+     * link (the token already resolved above), so it's nullable, not
+     * firstOrFail()+abort(404) — it renders the shared rich "link expired"
+     * page (see renderArchived() below) rather than the same bare 404 an
+     * unrecognised token gets (resolveSend() aborts 404 first for that
+     * case, unchanged).
      */
     private function resolveContact(SellerOutreachSend $send): ?Contact
     {

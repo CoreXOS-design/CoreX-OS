@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Compliance;
 use App\Http\Controllers\Controller;
 use App\Models\Agency;
 use App\Models\Compliance\SellerInfoShareLink;
+use App\Services\PublicLinks\PublicLinkUnavailableResponder;
 
 class SellerInfoPublicController extends Controller
 {
@@ -12,8 +13,18 @@ class SellerInfoPublicController extends Controller
     {
         $link = SellerInfoShareLink::where('token', $token)->firstOrFail();
 
+        // 2026-08-25 (Johan) — a real, resolved link (the token DID exist,
+        // hence reaching this line at all) used to get a plain abort(410)
+        // with no agency branding and no way back to a human, despite the
+        // link's own agency_id being right there. Same shared piece as
+        // every other "valid link, dead resource" case fixed today.
         if ($link->isExpired()) {
-            abort(410, 'This link has expired.');
+            return app(PublicLinkUnavailableResponder::class)->respond(
+                $link->agency_id,
+                'This link has expired',
+                'The link you followed is no longer active. Your agent can send you an up-to-date one.',
+                $link->sentBy,
+            );
         }
 
         $link->recordAccess();

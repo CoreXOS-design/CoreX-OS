@@ -305,11 +305,22 @@
         });
       } catch (e) { /* ignore */ }
 
-      // Thumbnail
+      // Thumbnail — confirmed live against a real, currently-used PP search
+      // page (2026-08-24 MIC photo investigation). The old broad
+      // img[src*="privateproperty"] alternative also matches PP's own
+      // site-chrome agency LOGO image (hosted at
+      // helium.privateproperty.co.za, which contains the substring
+      // "privateproperty"), and on promoted "featured-listing" cards that
+      // logo <img> appears BEFORE the real photo in the DOM — querySelector
+      // returned the agency logo instead of the listing's photo on 5/5
+      // promoted cards tested. images.pp.co.za is confirmed the actual photo
+      // CDN for every card type seen (main-image, small-image, and the
+      // plain listing-result__image); the class-based match is tried first
+      // as the more specific signal, src-substring as a fallback only.
       let thumbnail = null;
       try {
-        const thumbImg = card.querySelector('img[src*="images.prop24"], img[src*="images.pp.co.za"], img[src*="privateproperty"]');
-        if (thumbImg) thumbnail = thumbImg.getAttribute('src') || null;
+        const photoImg = card.querySelector('.featured-listing__main-image, .listing-result__image, img[src*="images.prop24"], img[src*="images.pp.co.za"]');
+        if (photoImg) thumbnail = photoImg.getAttribute('src') || null;
         if (!thumbnail) {
           const anyImg = card.querySelector('img[src]');
           if (anyImg) thumbnail = anyImg.getAttribute('src') || null;

@@ -162,10 +162,24 @@ class SellerLinkController extends Controller
      * Core Matches tab uses — real demand, not a fabricated count. Collapsed
      * here into counts by tier only; no buyer name, id, or contact path ever
      * leaves this method — that data is agent-authenticated-only.
+     *
+     * 2026-08-25 (Johan) — "someone who only ever asked about a rental is
+     * not a buyer and must never be counted as one on a page a seller
+     * reads." matchesForProperty()'s own hard filter already requires a
+     * wishlist's listing_type to equal the subject's (or be null) before it
+     * can match at all — verified against every active sale property on
+     * staging, no currently-matched wishlist relies on the null branch — but
+     * that null branch exists precisely so an ambiguous wishlist isn't
+     * silently dropped elsewhere, which means it is NOT a guarantee against
+     * a rental-only wishlist reaching this seller-facing count. Belt and
+     * braces: drop anything explicitly typed 'rental' here, at the one
+     * place this number is assembled for a seller to read, without touching
+     * the shared matching engine other features rely on.
      */
     private function buildBuyerDemand(int $propertyId, PropertyIntelligenceService $intel): array
     {
-        $signals = $intel->getBuyerInterestSignals($propertyId);
+        $signals = $intel->getBuyerInterestSignals($propertyId)
+            ->reject(fn (array $s) => ($s['listing_type'] ?? null) === 'rental');
 
         return [
             'total'  => $signals->count(),

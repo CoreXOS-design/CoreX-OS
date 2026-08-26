@@ -83,7 +83,8 @@
             <div class="text-[10px] uppercase tracking-wider font-semibold mb-1" style="color: var(--text-muted);">
                 Listing from {{ strtoupper((string) ($listing->portal_source ?? 'portal')) }}
             </div>
-            <div class="font-semibold text-sm" style="color: var(--text-primary);">
+            <div id="listing-header-address" class="font-semibold text-sm" style="color: var(--text-primary);"
+                 data-original-address="{{ $listing->address ?? '(no address)' }}{{ !empty($listing->suburb) ? ', ' . $listing->suburb : '' }}">
                 {{ $listing->address ?? '(no address)' }}{{ !empty($listing->suburb) ? ', ' . $listing->suburb : '' }}
             </div>
             <div class="text-xs mt-1" style="color: var(--text-muted);">
@@ -238,6 +239,16 @@
                   if (d.property_id) this.propertyId = d.property_id;
                   if ('linked_deed' in d) this.linkedDeed = d.linked_deed;
                   if ('removed' in d) this.removed = d.removed || [];
+                  // The listing header above this component's own x-data scope is plain
+                  // server-rendered Blade (not reactive) — selecting/unlinking a deed still
+                  // has to update it, so we do it directly rather than leaving the address
+                  // stuck on its page-load value (or "(no address)") after the deed changes it.
+                  const headerEl = document.getElementById('listing-header-address');
+                  if (headerEl) {
+                      headerEl.textContent = (this.linkedDeed && this.linkedDeed.address)
+                          ? this.linkedDeed.address
+                          : headerEl.dataset.originalAddress;
+                  }
               },
               isSellerLinked(owner) {
                   if (!owner) return false;

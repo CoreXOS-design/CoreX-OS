@@ -13,6 +13,7 @@ use App\Models\Docuperfect\SignatureTemplate;
 use App\Models\SalesDocumentRecipient;
 use App\Models\SalesDocumentSend;
 use App\Services\Docuperfect\DocumentFlattener;
+use App\Services\PublicLinks\PublicLinkUnavailableResponder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
@@ -249,6 +250,38 @@ class SalesDocumentController extends Controller
     }
 
     /**
+     * 2026-08-25 (Johan) — 'sales-documents.expired'/'already-returned' were
+     * two more per-controller pages with "Home Finders Coastal" HARDCODED
+     * into the title/footer (a real multi-tenant bug the moment a second
+     * agency uses this flow) and no route back to a human at all — just
+     * static prose. Both reasons are genuinely real-record cases (the
+     * recipient token itself resolved via firstOrFail() above, in every
+     * caller, before this is ever reached), so both are safe to brand
+     * specifically via the shared responder, same as everywhere else fixed
+     * today. 'returned' isn't an error (nothing went wrong), so it renders
+     * 200, not 410 — the shared responder's own $status param handles that.
+     */
+    private function salesDocumentUnavailable(SalesDocumentRecipient $recipient, string $reason)
+    {
+        $send = $recipient->documentSend;
+
+        $title = $reason === 'returned'
+            ? 'Already returned'
+            : 'This link has expired';
+        $body = $reason === 'returned'
+            ? 'This document has already been returned. No further action is needed.'
+            : 'This upload link has expired. Please contact your agent to request a new link.';
+
+        return app(PublicLinkUnavailableResponder::class)->respond(
+            $send?->agency_id,
+            $title,
+            $body,
+            $send?->sender,
+            status: $reason === 'returned' ? 200 : 410,
+        );
+    }
+
+    /**
      * Public page — show upload form for returning signed document.
      */
     public function showUploadPage(string $token)
@@ -257,11 +290,11 @@ class SalesDocumentController extends Controller
         $send = $recipient->documentSend;
 
         if ($recipient->isExpired()) {
-            return view('sales-documents.expired');
+            return $this->salesDocumentUnavailable($recipient, 'expired');
         }
 
         if ($recipient->isReturned()) {
-            return view('sales-documents.already-returned');
+            return $this->salesDocumentUnavailable($recipient, 'returned');
         }
 
         // Identity verification gate — only if recipient has an ID number on file
@@ -287,7 +320,7 @@ class SalesDocumentController extends Controller
         $send = $recipient->documentSend;
 
         if ($recipient->isExpired()) {
-            return view('sales-documents.expired');
+            return $this->salesDocumentUnavailable($recipient, 'expired');
         }
 
         // Must pass ID verification first
@@ -314,7 +347,7 @@ class SalesDocumentController extends Controller
         $recipient = SalesDocumentRecipient::where('token', $token)->firstOrFail();
 
         if ($recipient->isExpired()) {
-            return view('sales-documents.expired');
+            return $this->salesDocumentUnavailable($recipient, 'expired');
         }
 
         $request->validate([
@@ -342,11 +375,11 @@ class SalesDocumentController extends Controller
         $send = $recipient->documentSend;
 
         if ($recipient->isExpired()) {
-            return view('sales-documents.expired');
+            return $this->salesDocumentUnavailable($recipient, 'expired');
         }
 
         if ($recipient->isReturned()) {
-            return view('sales-documents.already-returned');
+            return $this->salesDocumentUnavailable($recipient, 'returned');
         }
 
         $request->validate([

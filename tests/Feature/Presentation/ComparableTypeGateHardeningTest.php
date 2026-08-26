@@ -243,6 +243,64 @@ class ComparableTypeGateHardeningTest extends TestCase
         $this->assertTrue($comps->contains(fn ($c) => $c->property_type === 'Apartment / Flat'), 'the apartment deal comp must have been materialised');
     }
 
+    /**
+     * Round 4 proof (Johan, 2026-08-24) — the exact Marina Glen shape: a
+     * sectional-title subject whose own same-subject market report's comp
+     * rows carry property_type='Residence' (CMA-Info's generic PDF usage
+     * word — NOT classifiable sectional from text alone) plus a real
+     * scheme_name/section_number signal. Every one of the three historical
+     * recurrences (2026-06-18 a55a4c617, 2026-08-03 0271614f8, 2026-08-24
+     * 1a3939047) failed on precisely this input shape, each at a different
+     * pipeline stage. hydrateForPresentation() runs the REAL end-to-end
+     * pipeline — collectMatchedRows()'s SS-SECTIONAL-GATE-FIX gate (skipped
+     * here since these are same-subject-report comps, matching how the
+     * live incident actually reached CompPoolBuilder untouched) AND
+     * CompPoolBuilder::select()'s type hard-gate, both now delegating to
+     * TitleTypeClassifier::resolveCategory() — so this proves the fix at
+     * both stages together, not one function in isolation.
+     */
+    public function test_end_to_end_sectional_subject_hydrates_cma_info_residence_comp_via_scheme_signal(): void
+    {
+        $agencyId = $this->seedAgency();
+        $userId = User::factory()->create(['agency_id' => $agencyId, 'branch_id' => $agencyId])->id;
+        $propertyId = $this->seedProperty($agencyId, 'Sectional Title', 'sectional_title', 'Marina Beach');
+        $presentation = $this->makePresentation($agencyId, $propertyId, 'Sectional Title', 'Marina Beach');
+        $presentation->update(['property_address' => '19 Marina Glen Holiday Resort']);
+
+        $reportId = (int) DB::table('market_reports')->insertGetId([
+            'agency_id' => $agencyId, 'uploaded_by_user_id' => $userId,
+            'file_path' => 'reports/' . Str::random(10) . '.pdf', 'file_name' => Str::random(8) . '.pdf',
+            'file_hash' => Str::random(40), 'report_date' => now()->toDateString(),
+            'subject_address' => '19 Marina Glen Holiday Resort', 'source_suburb' => 'Marina Beach',
+            'parse_status' => 'parsed', 'is_demo' => 0,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        for ($i = 1; $i <= 3; $i++) {
+            DB::table('market_report_comp_rows')->insert([
+                'agency_id' => $agencyId, 'market_report_id' => $reportId, 'row_index' => $i, 'row_type' => 'comp',
+                'address' => "Unit {$i}, Marina Glen Holiday Resort", 'suburb_normalised' => 'marina beach',
+                // The generic CMA-Info usage word — deliberately NOT "Sectional
+                // Title" or "Apartment". Only scheme_name/section_number below
+                // can correctly classify this row.
+                'property_type' => 'Residence',
+                'scheme_name' => 'Marina Glen Holiday Resort',
+                'section_number' => (string) $i,
+                'sale_date' => now()->subMonths($i)->toDateString(), 'sale_price' => 1_200_000 + ($i * 50_000),
+                'is_demo' => 0, 'created_at' => now(), 'updated_at' => now(),
+            ]);
+        }
+
+        (new MicSnapshotHydrator())->hydrateForPresentation($presentation->fresh(['property']));
+
+        $comps = PresentationSoldComp::where('presentation_id', $presentation->id)->get();
+
+        $this->assertGreaterThan(0, $comps->count(),
+            'a sectional subject\'s own same-subject-report comps, carrying only the generic '
+            . 'property_type="Residence" plus scheme/section signal, must still hydrate — this is '
+            . 'the exact shape all three historical recurrences failed on');
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────
 
     private function seedAgency(): int

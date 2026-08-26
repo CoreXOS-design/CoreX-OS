@@ -9,6 +9,7 @@ use App\Models\ContactMatch;
 use App\Models\ContactMatchFeedback;
 use App\Models\Property;
 use App\Models\Scopes\AgencyScope;
+use App\Models\User;
 use App\Services\Leads\SharedLinkReengagementService;
 use App\Services\Matching\MatchingService;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
@@ -105,8 +106,45 @@ class SharedMatchController extends Controller
         $agency = $match->agency_id
             ? Agency::withoutGlobalScope(AgencyScope::class)->find($match->agency_id)
             : null;
+        $agent = $this->resolveDisplayAgent($request, $match->createdBy, (int) $match->agency_id);
 
-        return view('shared.match', compact('match', 'contact', 'matchGroups', 'token', 'agency'));
+        return view('shared.match', compact('match', 'contact', 'matchGroups', 'token', 'agency', 'agent'));
+    }
+
+    /**
+     * 2026-08-25 (Johan) — "who's currently covering this client" override,
+     * same mechanism as PropertyController::livePreview() (the numeric
+     * agent id is baked into the URL AT SHARE TIME, not resolved against
+     * the current viewer's session — copying the FIXED version of that
+     * pattern: livePreview's own history records that a session-relative
+     * `agent=me` broke the moment the link was opened by anyone else or
+     * while logged out, which is exactly why it resolves a numeric id
+     * instead). Defaults to whoever the caller says today (the wishlist's
+     * own creator on the live page, the contact's current agent on the
+     * expired page) when no override is present or the override doesn't
+     * resolve.
+     *
+     * PRIVACY/SECURITY — same guard as livePreview(): an override id is
+     * only ever honoured when it belongs to THIS wishlist's own agency.
+     * This is a public page reachable by a forwarded link, so resolving
+     * past AgencyScope without this guard would let an override name (and
+     * thereby expose contact details for) a user in a completely different
+     * agency.
+     */
+    private function resolveDisplayAgent(Request $request, ?User $default, int $agencyId): ?User
+    {
+        $override = $request->query('agent');
+        if ($override !== null && ctype_digit((string) $override) && $agencyId > 0) {
+            $overridden = User::withoutGlobalScope(AgencyScope::class)
+                ->where('id', (int) $override)
+                ->where('agency_id', $agencyId)
+                ->first();
+            if ($overridden) {
+                return $overridden;
+            }
+        }
+
+        return $default;
     }
 
     private function criteriaOverridesFromRequest(Request $request): array
@@ -159,8 +197,9 @@ class SharedMatchController extends Controller
             ? Agency::withoutGlobalScope(AgencyScope::class)->find($buyerLink->agency_id)
             : null;
         $token = $buyerLink->slug;
+        $agent = $this->resolveDisplayAgent($request, $anchor->createdBy, (int) $buyerLink->agency_id);
 
-        return view('shared.match', ['match' => $anchor] + compact('contact', 'matchGroups', 'token', 'agency'));
+        return view('shared.match', ['match' => $anchor, 'agent' => $agent] + compact('contact', 'matchGroups', 'token', 'agency'));
     }
 
     /**
@@ -180,15 +219,87 @@ class SharedMatchController extends Controller
         $agentService = app(SharedLinkReengagementService::class);
         $currentAgent = $contact->agent;
         $showAgent = $currentAgent && $currentAgent->is_active && $currentAgent->deleted_at === null;
+        $agent = $showAgent ? $currentAgent : null;
         $fallbackContact = $agency ? $agentService->agencyFallbackContact($agency) : ['phone' => null, 'email' => null];
 
+        // PRIVACY (non-negotiable): both queries below are plain public-stock
+        // lookups, agnostic of the closed wishlist — nothing here ever reads
+        // $contact's criteria, price band, or matched properties. "My newest
+        // stock" — same query shape as AgentPreviewController::agentPageData(),
+        // just limit(2) instead of 120, so the two here are always a subset of
+        // what the "See all" link (the agent's own public profile) shows.
+        // "Latest from {agency}" mirrors PublicAgencyPropertiesController's
+        // own status filter for the same reason. Johan, 2026-08-24: absent
+        // (not an empty-state placeholder) when there's nothing to show.
+        $agentListings = $agent
+            ? Property::withoutGlobalScope(AgencyScope::class)
+                ->where('agent_id', $agent->id)
+                ->whereNull('deleted_at')
+                ->whereIn('status', ['active', 'pending', 'under_offer', 'sold'])
+                ->orderByRaw("FIELD(status, 'active', 'pending', 'under_offer', 'sold')")
+                ->latest('published_at')
+                ->limit(2)
+                ->get()
+            : collect();
+
+        $agencyListings = $agency
+            ? Property::withoutGlobalScope(AgencyScope::class)
+                ->where('agency_id', $agency->id)
+                ->whereNull('deleted_at')
+                ->whereIn('status', ['Active', 'NewListing', 'Reduced', 'active', 'new_listing', 'reduced'])
+                ->orderByDesc('id')
+                ->limit(2)
+                ->get()
+            : collect();
+
+        // Resolve each card's photo here rather than in the view — the view
+        // has no controller access, and this keeps listingImageUrl() the one
+        // place that knows about the gallery/dawn/noon/dusk fallback order.
+        foreach ($agentListings as $property) {
+            $property->display_image_url = $this->listingImageUrl($property);
+        }
+        foreach ($agencyListings as $property) {
+            $property->display_image_url = $this->listingImageUrl($property);
+        }
+
         return response()->view('shared.match-expired', [
-            'reengageToken' => $reengageToken,
-            'agency'        => $agency,
-            'agent'         => $showAgent ? $currentAgent : null,
-            'fallbackPhone' => $fallbackContact['phone'],
-            'fallbackEmail' => $fallbackContact['email'],
+            'reengageToken'      => $reengageToken,
+            'agency'             => $agency,
+            'agencyStockUrl'     => $agency ? url($agency->slug . '/properties') : null,
+            'agent'              => $agent,
+            'agentCardUrl'       => $agent ? $agent->publicProfileUrl() : null,
+            'fallbackPhone'      => $fallbackContact['phone'],
+            'fallbackEmail'      => $fallbackContact['email'],
+            'agentListings'      => $agentListings,
+            'agencyListings'     => $agencyListings,
         ], 404);
+    }
+
+    /**
+     * Best on-hand photo for a listing card — same resolution order AND path
+     * handling as AgentPreviewController's live-preview page (gallery → dawn
+     * → noon → dusk; bare "properties/…" paths need the storage/ prefix
+     * prepended, already-rooted ones don't, or it dead-ends on
+     * /storage/storage/…), so a listing looks the same wherever it's shown.
+     */
+    private function listingImageUrl(Property $property): ?string
+    {
+        $img = collect(array_merge(
+            $property->gallery_images_json ?? [],
+            $property->dawn_images_json ?? [],
+            $property->noon_images_json ?? [],
+            $property->dusk_images_json ?? [],
+        ))->filter()->first();
+
+        if (!$img) {
+            return null;
+        }
+        if (str_starts_with($img, 'http://') || str_starts_with($img, 'https://')) {
+            return $img;
+        }
+        $img = ltrim($img, '/');
+
+        return str_starts_with($img, 'storage/') ? asset($img) : asset('storage/' . $img);
     }
 
     /**

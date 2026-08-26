@@ -13,7 +13,7 @@
     $synOpenOnLoad = !$isNew && session('open_syndication');
 @endphp
 <div class="w-full space-y-4 corex-props-v2"
-     x-data="{ activeTab: '{{ $isNew ? 'info' : $activeTab }}', synOpen: {{ $synOpenOnLoad ? 'true' : 'false' }}, synStep: 'main', sbCollapsed: (localStorage.getItem('hfc.propSidebar.collapsed') === '1'), wbReportOpen: false, complianceModalOpen: false, contactRequiredModalOpen: false }"
+     x-data="{ activeTab: '{{ $isNew ? 'info' : $activeTab }}', synOpen: {{ $synOpenOnLoad ? 'true' : 'false' }}, synStep: 'main', sbCollapsed: (localStorage.getItem('hfc.propSidebar.collapsed') === '1'), wbReportOpen: false, complianceModalOpen: false, contactRequiredModalOpen: false, notSellingModalOpen: false }"
      @corex:contact-required.window="contactRequiredModalOpen = true"
      @corex:contact-added.window="contactRequiredModalOpen = false; activeTab = 'info';"
      @corex:switch-tab.window="activeTab = $event.detail"
@@ -1025,13 +1025,10 @@
                         Won the mandate — move to Draft
                     </button>
                 </form>
-                <form method="POST" action="{{ route('corex.properties.mark-not-selling', $property) }}"
-                      onsubmit="return confirm('Mark this property Not selling? This closes it out of Prospecting.');">
-                    @csrf
-                    <button type="submit" class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
-                        Not selling
-                    </button>
-                </form>
+                <button type="button" @click="notSellingModalOpen = true"
+                        class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                    Not selling
+                </button>
             </div>
         </div>
         @endif
@@ -1152,6 +1149,46 @@
         </template>
     @endif
 
+    {{-- Not selling — reason prompt (Johan, 2026-08-29): "ask the agent for a
+         reason we can file under the contact and property." The reason is
+         OPTIONAL — Confirm submits with or without text, so the status change
+         is never lost behind an unfilled field. Only the X/backdrop is a true
+         cancel (nothing happens, same as the confirm() dialog this replaces). --}}
+    @if(!$isNew && $property->isProspecting())
+        <template x-teleport="body">
+            <div x-show="notSellingModalOpen" x-cloak
+                 class="fixed inset-0 z-[9999] flex items-start justify-center p-4 overflow-y-auto"
+                 x-transition.opacity>
+                <div class="absolute inset-0" style="background:rgba(0,0,0,0.5);" @click="notSellingModalOpen = false"></div>
+                <div class="relative w-full max-w-md mt-24"
+                     x-transition:enter="transition ease-out duration-150"
+                     x-transition:enter-start="opacity-0 scale-95"
+                     x-transition:enter-end="opacity-100 scale-100">
+                    <button type="button" @click="notSellingModalOpen = false"
+                            class="absolute top-2 right-2 z-10 rounded p-1"
+                            style="color:var(--text-muted); background:var(--surface); border:1px solid var(--border);"
+                            title="Close">
+                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12"/></svg>
+                    </button>
+                    <div class="rounded-md p-5" style="background:var(--surface); border:1px solid var(--border);">
+                        <div class="text-sm font-semibold mb-1" style="color:var(--text-primary);">Mark this property Not selling?</div>
+                        <div class="text-xs mb-3" style="color:var(--text-muted);">This closes it out of Prospecting. Tell us why (optional) — it's filed against this property and the contact.</div>
+                        <form method="POST" action="{{ route('corex.properties.mark-not-selling', $property) }}">
+                            @csrf
+                            <textarea name="reason" rows="3" placeholder="e.g. Owner decided to rent it out instead"
+                                      class="w-full rounded-md px-3 py-2 text-sm mb-3"
+                                      style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);"></textarea>
+                            <div class="flex items-center justify-end gap-2">
+                                <button type="button" @click="notSellingModalOpen = false" class="corex-btn-outline text-xs">Cancel</button>
+                                <button type="submit" class="corex-btn-primary text-xs">Confirm — mark Not selling</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </template>
+    @endif
+
     {{-- Tab bar (shared) --}}
         <div class="flex overflow-x-auto" style="border-bottom:1px solid var(--border);">
             @foreach([
@@ -1200,7 +1237,11 @@
         <div x-show="activeTab === 'overview'" x-cloak class="p-6 space-y-6">
 
             @php
-                $coverImage   = ($property->gallery_images_json[0] ?? ($property->dawn_images_json[0] ?? null));
+                // Resolved once so the @if gate below checks the same value
+                // the <img src> uses — a missing original now correctly falls
+                // through to the placeholder instead of an empty src
+                // (2026-08-25, same root cause as the MIC photo fix).
+                $coverImage   = $property->thumbFor($property->gallery_images_json[0] ?? ($property->dawn_images_json[0] ?? null));
                 $ownerRoles   = ['seller', 'landlord', 'owner'];
                 $owner        = $property->contacts->first(fn($c) => in_array(strtolower($c->pivot->role ?? ''), $ownerRoles))
                                 ?? $property->contacts->first();
@@ -1226,7 +1267,7 @@
                                  full-resolution original (up to 6.5MB on this property). This
                                  tab is active by default, so it was the first thing downloaded
                                  on every page load. --}}
-                            <img src="{{ $property->thumbFor($coverImage) }}" alt="" class="w-full h-full object-cover absolute inset-0">
+                            <img src="{{ $coverImage }}" alt="" class="w-full h-full object-cover absolute inset-0">
                         @else
                             <div class="w-full h-full absolute inset-0 flex items-center justify-center" style="color:var(--text-muted);">
                                 <svg class="w-12 h-12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.41a2.25 2.25 0 013.182 0l2.909 2.91m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5z"/></svg>
@@ -5384,6 +5425,14 @@
                     @include('corex.properties.intelligence._portal-engagement-chart', [
                         'property' => $property,
                         'engagement' => $intel->getPortalEngagementSeries($property->id),
+                    ])
+                </div>
+
+                {{-- Website Performance — the agency's OWN site (AT-383).
+                     Spec: .ai/specs/website-listing-stats.md §5.1 --}}
+                <div x-show="!sellerPreview">
+                    @include('corex.properties.intelligence._website-performance', [
+                        'property' => $property,
                     ])
                 </div>
 

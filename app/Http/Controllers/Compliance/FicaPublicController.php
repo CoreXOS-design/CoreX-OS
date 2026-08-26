@@ -5,6 +5,8 @@ namespace App\Http\Controllers\Compliance;
 use App\Http\Controllers\Controller;
 use App\Models\FicaDocument;
 use App\Models\FicaSubmission;
+use App\Services\PublicLinks\PublicLinkUnavailableResponder;
+use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 
@@ -247,7 +249,26 @@ class FicaPublicController extends Controller
     {
         $submission = FicaSubmission::where('token', $token)->firstOrFail();
 
-        abort_if($submission->isExpired(), 410, 'This FICA form link has expired. Please contact your agent for a new link.');
+        // 2026-08-25 (Johan) — a real, resolved submission (firstOrFail()
+        // above already passed) used to get a plain abort(410, message) —
+        // Laravel discards the custom message on a 410/404/403 in favour of
+        // the generic branded page (bootstrap/app.php), which is right for
+        // an UNRESOLVABLE token but throws away real agency context this
+        // route already has. HttpResponseException carries a fully-built
+        // Response past the exception pipeline untouched, so this helper
+        // (called from four different public methods) can hand back the
+        // shared, agency-branded page without changing its own return type
+        // or every caller.
+        if ($submission->isExpired()) {
+            throw new HttpResponseException(
+                app(PublicLinkUnavailableResponder::class)->respond(
+                    $submission->agency_id,
+                    'This link has expired',
+                    'This FICA form link has expired. Please contact your agent for a new link.',
+                    $submission->requestedBy,
+                )
+            );
+        }
 
         return $submission;
     }

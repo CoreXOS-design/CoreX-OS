@@ -183,8 +183,19 @@ final class MicSnapshotHydrator
                     'parser_version'  => self::SOURCE_TAG,
                 ]);
                 $soldInserted++;
-            } catch (\Throwable) {
-                // Skip; don't break the rest.
+            } catch (\Throwable $e) {
+                // Skip; don't break the rest. LOGGED (2026-08-24) — this catch
+                // used to be silent, which is exactly what made a Marina-Glen-
+                // shaped incident (real candidates, zero hydrated, nothing in
+                // any log explaining why) indistinguishable from the type gate
+                // legitimately finding nothing. Behaviour unchanged — still
+                // skip-and-continue — only the visibility changed.
+                \Illuminate\Support\Facades\Log::warning('presentation sold-comp insert failed, skipped', [
+                    'presentation_id' => $presentation->id,
+                    'comp_row_id'     => $row->id ?? null,
+                    'address'         => $row->address ?? null,
+                    'err'             => $e->getMessage(),
+                ]);
             }
         }
 
@@ -228,8 +239,14 @@ final class MicSnapshotHydrator
                     'last_seen_at'      => now(),
                 ]);
                 $listingInserted++;
-            } catch (\Throwable) {
-                // Skip
+            } catch (\Throwable $e) {
+                // Skip. LOGGED (2026-08-24) — see the sold-comp catch above for why.
+                \Illuminate\Support\Facades\Log::warning('presentation active-listing insert failed, skipped', [
+                    'presentation_id' => $presentation->id,
+                    'comp_row_id'     => $row->id ?? null,
+                    'address'         => $row->address ?? null,
+                    'err'             => $e->getMessage(),
+                ]);
             }
         }
 
@@ -470,8 +487,14 @@ final class MicSnapshotHydrator
                     'parser_version'  => self::SOURCE_TAG_DEAL,
                 ]);
                 $added++;
-            } catch (\Throwable) {
-                // Skip; don't break the rest.
+            } catch (\Throwable $e) {
+                // Skip; don't break the rest. LOGGED (2026-08-24) — see the
+                // sold-comp catch in hydrateForPresentation() for why.
+                \Illuminate\Support\Facades\Log::warning('presentation deal-comp insert failed, skipped', [
+                    'presentation_id'  => $presentation->id,
+                    'deal_property_id' => $r->deal_property_id ?? null,
+                    'err'              => $e->getMessage(),
+                ]);
             }
         }
 

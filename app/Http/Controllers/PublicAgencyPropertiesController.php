@@ -35,32 +35,58 @@ class PublicAgencyPropertiesController extends Controller
         return view('public.agency-properties.index', compact('agency', 'properties'));
     }
 
-    public function show(string $agencySlug, Property $property)
+    public function show(string $agencySlug, string $property)
     {
         $agency = Agency::where('slug', $agencySlug)->firstOrFail();
-        if ($property->agency_id !== $agency->id) {
+
+        // 2026-08-24 (Johan) — public-link resilience: 167 non-marketable
+        // properties agency-wide plain-404'd here with no agency context,
+        // despite the URL already carrying the agency slug (audit item #4,
+        // .ai/audits/2026-08-24-public-link-resilience-audit.md). Same shape
+        // of bug as the seller-live-link and property-preview fixes done
+        // earlier today — a sold/withdrawn/deleted property looks the same
+        // as a link that never existed. Fetch unscoped so we control the
+        // not-found/wrong-agency/deleted case ourselves instead of letting
+        // implicit route-model-binding throw before this method runs.
+        $propertyModel = Property::withoutGlobalScopes()->withTrashed()->with('agent')->find($property);
+
+        if (!$propertyModel || $propertyModel->deleted_at !== null || (int) $propertyModel->agency_id !== (int) $agency->id) {
+            // Unknown/wrong-agency property id — nothing to derive an agent
+            // from, agency-only branding (matches the "what we actually
+            // know" rule: never promise a personal contact the data can't
+            // support).
             return $this->showUnavailable($agency);
         }
 
         // Public listing — must be compliance-ready
         $svc = app(\App\Services\Compliance\MarketingReadinessService::class);
-        if (!$svc->isMarketable($property)) {
-            return $this->showUnavailable($agency, $property->agent);
+        if (!$svc->isMarketable($propertyModel)) {
+            // A real (if now dead) property IS resolvable here — offer its
+            // own listing agent, same as the seller-live-link page does for
+            // the same "sold/withdrawn" reason.
+            return $this->showUnavailable($agency, $propertyModel->agent);
         }
 
-        $property->load('agent');
+        $propertyModel->load('agent');
 
-        return view('public.agency-properties.show', compact('agency', 'property'));
+        return view('public.agency-properties.show', ['agency' => $agency, 'property' => $propertyModel]);
     }
 
     /**
-     * 2026-08-25 (Johan) — route-model-binding kept exactly as it was
-     * (this is production-facing code, no rewrite of what's already
-     * proven); the only change is where a dead-end used to plain-404, it
-     * now routes to the shared "no longer available" page instead. Never
-     * distinguishes wrong-agency / soft-deleted / not-marketable on the
-     * page itself — the standing rule is a dead link must never reveal
-     * why it died, so all three land on the same message.
+     * 2026-08-25 (Johan) — delegates to the shared PublicLinkUnavailableResponder
+     * (same one SellerLinkController uses) rather than its own
+     * public.agency-properties.unavailable view — one shared page, not two
+     * near-identical ones. Status moved 404 → 410: the agency and its slug
+     * are genuinely real here (that's how we got an agency to brand with at
+     * all) — "gone" fits better than "not found" for a property that used to
+     * be listed and now isn't, matching the convention used everywhere else
+     * fixed today. Route-model-binding on the caller's side is kept exactly
+     * as it was elsewhere (this is production-facing code, no rewrite of
+     * what's already proven); the only change is where a dead-end used to
+     * plain-404, it now routes here instead. Never distinguishes wrong-
+     * agency / soft-deleted / not-marketable on the page itself — the
+     * standing rule is a dead link must never reveal why it died, so all
+     * three land on the same message.
      */
     private function showUnavailable(Agency $agency, $agent = null)
     {

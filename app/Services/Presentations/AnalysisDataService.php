@@ -1236,6 +1236,18 @@ class AnalysisDataService
     // ── 6. HOLDING COST ──────────────────────────────────────────────────
 
     /**
+     * Public entry point onto compileCompetitorStock() for callers outside
+     * compile() itself — currently AiSummaryService::gatherFacts(), which
+     * needs the exact same scored+curated competitor set the Analysis
+     * screen renders (2026-08-25, Johan: the AI narrative must never quote
+     * a different competition count than the tile sitting above it).
+     */
+    public function competitorStockBlock(Presentation $presentation, ?PresentationVersion $version): array
+    {
+        return $this->compileCompetitorStock($presentation, $version);
+    }
+
+    /**
      * Competitor Stock — scored Active Competition section. Reuses
      * Core Matches' PropertyMatchScoringService via a thin
      * synthetic-ContactMatch adapter (see CompetitorStockMatchService).

@@ -5,7 +5,9 @@ namespace App\Http\Controllers\CoreX;
 use App\Http\Controllers\Controller;
 use App\Models\Branch;
 use App\Models\ContactMatch;
+use App\Models\ContactNote;
 use App\Models\Property;
+use App\Models\PropertyNote;
 use App\Models\PropertyAdTemplate;
 use App\Models\DocumentType;
 use App\Models\PropertySettingItem;
@@ -256,7 +258,34 @@ class PropertyController extends Controller
             case 'price_desc': $sort = 'price'; $dir = 'desc'; break;
             case 'newest':     $sort = 'created_at'; $dir = 'desc'; break;
         }
-        if ($sort === 'status_priority') {
+        // Website engagement (AT-383) — the "Views (30d)" column. The column and
+        // its sort exist only for an agency whose website actually reports stats;
+        // for everyone else it would be a column of dashes that trains people to
+        // ignore the table. Spec: .ai/specs/website-listing-stats.md §5.2
+        $websiteStats    = app(\App\Services\Website\WebsiteListingStatsReportService::class);
+        $statsAgencyId   = $user?->effectiveAgencyId();
+        $hasWebsiteStats = $websiteStats->agencyHasStats($statsAgencyId);
+
+        if ($sort === 'website_views' && $hasWebsiteStats) {
+            // Sorting has to happen in SQL (it orders the whole filtered set, not
+            // the page), so the 30-day view total joins in as a grouped subquery.
+            // Listings with no traffic COALESCE to 0 rather than dropping out.
+            $statsFrom = now()->startOfDay()
+                ->subDays(\App\Services\Website\WebsiteListingStatsReportService::WINDOW_DAYS - 1)
+                ->format('Y-m-d');
+
+            $viewsSub = \Illuminate\Support\Facades\DB::table('listing_website_stats')
+                ->select('property_id', \Illuminate\Support\Facades\DB::raw('SUM(metric_count) as views_30d'))
+                ->where('agency_id', $statsAgencyId)
+                ->where('metric', \App\Models\ListingWebsiteStat::METRIC_DETAIL_VIEW)
+                ->where('stat_date', '>=', $statsFrom)
+                ->groupBy('property_id');
+
+            $query->select('properties.*')
+                  ->leftJoinSub($viewsSub, 'lws_views', 'lws_views.property_id', '=', 'properties.id')
+                  ->orderByRaw('COALESCE(lws_views.views_30d, 0) ' . ($dir === 'asc' ? 'asc' : 'desc'))
+                  ->orderByDesc('properties.created_at');
+        } elseif ($sort === 'status_priority') {
             // Agency-defined status sequence: ranked statuses first (in order),
             // unranked last, newest within each. Names come from agency settings
             // (admin input) so they are bound, never interpolated.
@@ -285,10 +314,19 @@ class PropertyController extends Controller
         $perPage = $perPage > 0 ? min($perPage, 200) : 20;
         $properties = $query->paginate($perPage)->withQueryString();
 
+        // Website views for THIS page only — one grouped query for the whole page,
+        // never one per row. Display is page-scoped even when the sort above ran
+        // across the full set. (AT-383)
+        $pageWebsiteViews = $hasWebsiteStats
+            ? $websiteStats->viewsForProperties($properties->getCollection()->pluck('id')->all(), $statsAgencyId)
+            : [];
+
         // Compute marketing status per property (batch-friendly for Phase 1)
         $readinessSvc = app(\App\Services\Compliance\MarketingReadinessService::class);
         $authId = (int) ($user->id ?? 0);
         foreach ($properties as $p) {
+            $p->website_views_30d = (int) ($pageWebsiteViews[$p->id] ?? 0);
+
             // Is the current viewer the SECONDARY (co-listing) agent on this
             // listing rather than the primary? Drives the "Secondary" badge so a
             // co-listed property is clearly distinguished from one the agent owns.
@@ -368,7 +406,7 @@ class PropertyController extends Controller
             'properties', 'stats', 'scope', 'status', 'search',
             'filterAgentIds', 'agentList', 'selectedAgents', 'canPickAgent',
             'filterOptions', 'filters', 'currentSort', 'currentDir', 'agencySortMode',
-            'myDrafts'
+            'myDrafts', 'hasWebsiteStats'
         ));
     }
 
@@ -1642,8 +1680,43 @@ class PropertyController extends Controller
             return back()->with('error', $msg);
         }
 
+        // Johan, 2026-08-29 — "ask the agent for a reason... file it under the
+        // contact and property." The reason is OPTIONAL, never a condition on
+        // the status change itself — dismissing the reason prompt (or leaving
+        // it blank) still marks the property Not selling. The note is filed
+        // either way so the record of WHEN/WHO/WHY exists even without a
+        // reason typed.
+        $reason = trim((string) $request->input('reason', ''));
+
         $property->status = Property::STATUS_NOT_SELLING;
         $property->save();
+
+        $actor = $request->user()?->name ?? 'Unknown user';
+        $when = now()->format('j M Y, H:i');
+        $reasonText = $reason !== '' ? $reason : 'No reason given.';
+
+        PropertyNote::create([
+            'agency_id' => $property->agency_id,
+            'property_id' => $property->id,
+            'user_id' => $request->user()?->id,
+            'content' => "Marked Not selling on {$when} by {$actor}. Reason: {$reasonText}",
+        ]);
+
+        // "file under the contact and property" — the seller/owner-side
+        // contact only (same resolver the PDF Splitter already trusts for
+        // "which contact does this property's paperwork belong to"); when
+        // that's ambiguous or there's no linked contact, the property's own
+        // note above is still the record — no orphaned/guessed note.
+        if ($contact = $property->sellerOwnerContact()) {
+            $propertyLabel = $property->buildDisplayAddress() ?: ($property->title ?: 'This property');
+            ContactNote::create([
+                'agency_id' => $property->agency_id,
+                'contact_id' => $contact->id,
+                'user_id' => $request->user()?->id,
+                'type' => 'Not Selling',
+                'body' => "{$propertyLabel} was marked Not selling on {$when} by {$actor}. Reason: {$reasonText}",
+            ]);
+        }
 
         $msg = 'Marked Not selling.';
         if ($request->wantsJson() || $request->ajax()) {

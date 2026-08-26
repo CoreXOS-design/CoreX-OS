@@ -130,9 +130,18 @@
 
     {{-- Facts — §3.2 KPI tiles. --}}
     <div class="corex-kpi-grid">
-        <x-corex-kpi-card title="Access length" :value="number_format($grant->expiry_hours) . ' hours'" />
+        {{-- A grant runs on one of two clocks and this tile has to say WHICH, because
+             number_format(null) renders a confident "0 hours" — wrong and plausible,
+             which is the worst thing a fact tile can be. A webinar grant carries a
+             fixed end date instead of a length. Spec: webinar-registration.md §5.3 --}}
+        <x-corex-kpi-card title="Access length"
+                          :value="$grant->hasFixedDeadline()
+                              ? 'Fixed end date'
+                              : number_format($grant->expiry_hours) . ' hours'" />
         <x-corex-kpi-card title="First sign-in" :value="$grant->first_login_at?->format('j M Y, H:i') ?? 'Not used yet'" />
-        <x-corex-kpi-card title="Expires" :value="$grant->expires_at?->format('j M Y, H:i') ?? 'Starts at first sign-in'" />
+        <x-corex-kpi-card title="Expires"
+                          :value="$grant->expires_at?->format('j M Y, H:i')
+                              ?? ($grant->hasFixedDeadline() ? '—' : 'Starts at first sign-in')" />
         <x-corex-kpi-card title="Issued by" :value="$grant->issuer?->name ?? '—'" />
     </div>
 

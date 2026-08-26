@@ -411,7 +411,7 @@ final class MapController extends Controller
         ];
         if ($viewMode === 'agent') {
             $card['sensitive_facts'] = array_filter([
-                $property->agent_id ? ['label' => 'Listing agent', 'value' => 'Agent #' . $property->agent_id] : null,
+                $property->agent?->name ? ['label' => 'Listing agent', 'value' => $property->agent->name] : null,
             ]);
         }
         return response()->json($card);
