@@ -168,10 +168,15 @@
               },
               async pollDeed() {
                   if (document.hidden) return;   // don't poll a backgrounded tab
+                  const seqAtStart = this._stateSeq;
                   try {
                       const res = await fetch(this.deedPollUrl, { headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' } });
                       if (!res.ok) return;
                       const d = await res.json();
+                      // A mutation (link/unlink seller, pick/unlink deed, dead-end, ...) completed
+                      // while this poll was in flight — its result is newer than this snapshot.
+                      // Applying it now would clobber the newer state with a stale one.
+                      if (this._stateSeq !== seqAtStart) return;
                       this.deed.owners = d.owners || [];
                       this.deed.candidates = d.candidates || [];
                       if (Array.isArray(d.deeds)) this.deeds = d.deeds;
@@ -199,6 +204,14 @@
               removed: @js($sellerState['removed'] ?? []),
               tvaPicks: {},
               sellerBusy: false,
+              // Bumped by every applySellerState() call (link/unlink seller, pick/unlink deed,
+              // dead-end, primary, tva, numbers). pollDeed() below snapshots this before its
+              // fetch and refuses to apply a response that arrives after a mutation already
+              // landed — otherwise a poll that was in flight before a fast remove-then-re-add
+              // click sequence resolves afterward and silently reverts the re-add (Johan
+              // 2026-08-26, MIC contact screen: removed a contact, re-added it, it did not come
+              // back).
+              _stateSeq: 0,
               // When sellers are already linked, the manual seller-contact form is collapsed and
               // NOT a required gate — continue runs off the linked sellers.
               showManualForm: false,
@@ -234,6 +247,7 @@
                            'X-CSRF-TOKEN': document.querySelector('meta[name=csrf-token]')?.content || '' };
               },
               applySellerState(d) {
+                  this._stateSeq++;
                   this.sellers = d.sellers || [];
                   this.tva = d.tva || {};
                   if (d.property_id) this.propertyId = d.property_id;
