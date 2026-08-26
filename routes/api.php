@@ -237,6 +237,14 @@ Route::prefix('v1/website')
         Route::middleware('website.scope:leads:write')->group(function () {
             Route::post('/leads', [\App\Http\Controllers\Api\V1\Website\LeadsController::class, 'store'])->name('v1.website.leads.store');
         });
+
+        // Inbound listing engagement counters (write). The website batches page
+        // views / impressions / contact clicks locally and POSTs them hourly —
+        // never per page view. Gated by stats:write.
+        // Spec: .ai/specs/website-listing-stats.md §3.1
+        Route::middleware('website.scope:stats:write')->group(function () {
+            Route::post('/listings/stats', [\App\Http\Controllers\Api\V1\Website\ListingStatsController::class, 'store'])->name('v1.website.listings.stats.store');
+        });
     });
 
 // ════════════════════════════════════════════════════════════════
@@ -276,6 +284,43 @@ Route::prefix('v1/demo-access')
 
         // Telemetry.
         Route::post('/page-view', [\App\Http\Controllers\Api\V1\DemoAccessApiController::class, 'pageView'])->name('v1.demo-access.page-view');
+    });
+
+// ════════════════════════════════════════════════════════════════
+// Webinars (AT-383) — the public registration front door.
+// SERVED BY PRIMARY. Called SERVER-TO-SERVER by the CoreX marketing website:
+// the registration page lives there (it owns the design and the funnel), CoreX
+// owns the credentials, the email and the record. A visitor's browser never
+// reaches these routes and never sees an access code.
+//
+// Authenticated by the UNIVERSAL SITE CONNECTOR (site.connector), a separate
+// credential from the demo connector on purpose. Reusing the demo's token would
+// hand a public brochure site the credential that opens demo SESSIONS (verify /
+// session / page-view). Two audiences, two credentials, two blast radii —
+// rotating one must never disturb the other.
+//
+// NOT an AgencyApiKey: that guard resolves an AGENCY as the tenant, and webinar
+// registrations are RR Technologies' sales data, not an agency's.
+//
+// PREFIX IS v1/webinars — v1/demo is the mobile demo-login group and
+// v1/demo-access is the demo host's control API. Neither is this.
+//
+// Spec: .ai/specs/webinar-registration.md §4
+// ════════════════════════════════════════════════════════════════
+Route::prefix('v1/webinars')
+    ->middleware(['site.connector', 'throttle:website-api'])
+    ->group(function () {
+        // Reachability probe — lets a freshly pasted token be proven on the admin
+        // connector card, rather than by a prospect hitting a form that 401s.
+        Route::get('/ping', [\App\Http\Controllers\Api\V1\WebinarApiController::class, 'ping'])->name('v1.webinars.ping');
+
+        // Public detail, so the website renders live copy instead of hard-coding it.
+        // Returns NO join_url — that is earned by registering.
+        Route::get('/{slug}', [\App\Http\Controllers\Api\V1\WebinarApiController::class, 'show'])->name('v1.webinars.show');
+
+        // The registration itself: row + demo grant on the webinar's fixed deadline
+        // + ONE email (confirmation, join link, .ics, credentials).
+        Route::post('/{slug}/register', [\App\Http\Controllers\Api\V1\WebinarApiController::class, 'register'])->name('v1.webinars.register');
     });
 
 // ════════════════════════════════════════════════════════════════

@@ -2340,6 +2340,25 @@
                 </svg>
                 <span>Demo Access</span>
             </a>
+
+            {{-- Webinars (AT-383) — the registration links published on the CoreX
+                 marketing website, and who signed up through them.
+
+                 Sits beside Demo Access because it is the same job (knowing who is
+                 evaluating CoreX) and it issues the same demo grants. Owner-only for
+                 the same reason, and deliberately NOT permission-gated: a key would
+                 be grantable to an agency admin, who would then be reading the list
+                 of their own competitors.
+
+                 PRIMARY ONLY — inside the @else above. Registrations and their grants
+                 are durable records; the demo box's database is wiped every 3 days.
+                 Spec: .ai/specs/webinar-registration.md §7.1 --}}
+            <a href="{{ route('admin.webinars.index') }}" class="corex-nav-item {{ request()->routeIs('admin.webinars.*') ? 'active' : '' }}">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 10.5l4.72-4.72a.75.75 0 0 1 1.28.53v11.38a.75.75 0 0 1-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 0 0 2.25-2.25v-9a2.25 2.25 0 0 0-2.25-2.25h-9A2.25 2.25 0 0 0 2.25 7.5v9a2.25 2.25 0 0 0 2.25 2.25Z" />
+                </svg>
+                <span>Webinars</span>
+            </a>
         @endif
 
         {{-- Integration (slide-panel group: Meta config + public legal pages) --}}

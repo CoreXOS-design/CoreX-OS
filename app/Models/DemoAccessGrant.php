@@ -110,11 +110,25 @@ class DemoAccessGrant extends Model
     /**
      * The single source of truth for "can this grant be used".
      *
-     * ORDER MATTERS. The first_login_at === null branch MUST come before any
-     * expires_at comparison: expires_at is NULL until first login, and
-     * `null->isPast()` would fatal while `NULL > NOW()` is falsy in SQL. Either
-     * way, a naive expiry check locks out every grant we just emailed. This is
-     * the bug the spec calls out at §11 R4.
+     * ══ THE EXPIRY CHECK COMES FIRST, AND THE NULL GUARD IS WHAT MAKES THAT SAFE ══
+     *
+     * It used to come second, so that a never-used grant (expires_at NULL) could not
+     * be caught by a naive expiry test — `null->isPast()` fatals, and `NULL > NOW()`
+     * is falsy in SQL, either of which locks out every grant we just emailed
+     * (demo-access-control.md §11 R4).
+     *
+     * Fixed-deadline grants (webinar cohorts — expiry_hours NULL, expires_at written
+     * at issue) need the opposite: a grant nobody ever logged into MUST expire on the
+     * date, or the cohort's access never ends. Johan's rule is "anyone that doesn't
+     * use the login just loses access".
+     *
+     * Both hold at once because the guard is now the EXPLICIT `!== null` rather than
+     * a lucky ordering. A rolling grant's expires_at is NULL for exactly as long as it
+     * is pending, so the new first branch cannot fire for one — it falls through to
+     * PENDING precisely as before. Behaviour for rolling grants is unchanged; that is
+     * asserted directly by WebinarExpiryModelTest.
+     *
+     * Spec: .ai/specs/webinar-registration.md §5.2
      */
     public function status(): string
     {
@@ -126,16 +140,30 @@ class DemoAccessGrant extends Model
             return self::STATUS_REVOKED;
         }
 
-        // Issued but never used. NULL expires_at is NOT expired.
-        if ($this->first_login_at === null) {
-            return self::STATUS_PENDING;
-        }
-
+        // A deadline that has passed ends the grant whether or not it was ever used.
+        // NULL is not a deadline — see the docblock.
         if ($this->expires_at !== null && $this->expires_at->isPast()) {
             return self::STATUS_EXPIRED;
         }
 
+        // Issued but never used, and no deadline has bitten.
+        if ($this->first_login_at === null) {
+            return self::STATUS_PENDING;
+        }
+
         return self::STATUS_ACTIVE;
+    }
+
+    /**
+     * Does this grant run on an absolute deadline rather than a clock that starts
+     * at first login?
+     *
+     * expiry_hours NULL is the mode flag — see the migration docblock for why the
+     * mode is encoded in this column rather than a second one it could disagree with.
+     */
+    public function hasFixedDeadline(): bool
+    {
+        return $this->expiry_hours === null;
     }
 
     public function statusLabel(): string
@@ -169,19 +197,42 @@ class DemoAccessGrant extends Model
      * exactly one writer wins and the loser is told so by the affected-row count.
      *
      * Spec §6.2 step 6 / §11 R5.
+     *
+     * ══ COALESCE PROTECTS A FIXED DEADLINE ══
+     *
+     * A webinar grant already carries its expires_at, written at issue (§5.2). This
+     * method used to overwrite expires_at unconditionally, which would have handed
+     * every webinar registrant a fresh window starting whenever they happened to log
+     * in — silently converting an absolute cohort deadline back into the rolling
+     * clock it was designed to replace, with nothing raised.
+     *
+     * COALESCE(expires_at, ?) writes the rolling value ONLY into a column that is
+     * still NULL. For a fixed grant the binding is NULL as well, so the expression
+     * reduces to expires_at and the deadline is left exactly as issued.
+     *
+     * Still ONE statement. The two-tab race guard (WHERE first_login_at IS NULL) is
+     * untouched and still decides the winner by affected-row count.
+     *
+     * Spec: .ai/specs/webinar-registration.md §5.2
      */
     public function stampFirstLogin(?Carbon $now = null): bool
     {
         $now = $now ? $now->copy() : Carbon::now();
 
-        $won = DB::table($this->getTable())
-            ->where('id', $this->getKey())
-            ->whereNull('first_login_at')          // ← the guard IS the fix
-            ->update([
-                'first_login_at' => $now,
-                'expires_at'     => $now->copy()->addHours($this->expiry_hours),
-                'updated_at'     => $now,
-            ]);
+        // NULL for a fixed-deadline grant — there is no rolling value to fall back on,
+        // and addHours(null) would quietly mean "expires now".
+        $rollingExpiry = $this->expiry_hours !== null
+            ? $now->copy()->addHours($this->expiry_hours)->toDateTimeString()
+            : null;
+
+        $won = DB::update(
+            'UPDATE ' . $this->getTable() . '
+                SET first_login_at = ?,
+                    expires_at     = COALESCE(expires_at, ?),
+                    updated_at     = ?
+              WHERE id = ? AND first_login_at IS NULL',   // ← the guard IS the fix
+            [$now->toDateTimeString(), $rollingExpiry, $now->toDateTimeString(), $this->getKey()]
+        );
 
         // Either way, this instance must reflect what is actually in the DB —
         // the loser needs the WINNER's expires_at, not its own would-be value.

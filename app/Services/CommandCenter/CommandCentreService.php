@@ -71,6 +71,11 @@ class CommandCentreService
         $card = $this->listingsNeedingAttention($userId);
         if ($card['count'] > 0) $cards[] = $card;
 
+        // A6b — Website Performance (AT-383): how the agency's own website is
+        // working the listings THIS agent owns, over the last 30 days.
+        $card = $this->websitePerformance($user, $agencyId);
+        if ($card['count'] > 0) $cards[] = $card;
+
         // A7 — E-Sign Activity (unified: approval + awaiting signatures + awaiting others)
         $card = $this->esignActivity($userId);
         if ($card['count'] > 0) $cards[] = $card;
@@ -435,6 +440,48 @@ class CommandCentreService
                 'days_on_market' => \App\Support\HumanDiff::daysBetween($p->created_at),
             ])->toArray(),
             'view_all_url' => '/corex/command-center/properties',
+        ];
+    }
+
+    /**
+     * Website Performance (AT-383) — the agent's 30-day engagement totals across
+     * every listing they own (primary or co-listing), plus the listings pulling
+     * the most traffic.
+     *
+     * Snapshot urgency: this is not an action queue, it is the answer to "is the
+     * website working my stock". The card disappears entirely when there is no
+     * traffic, so an agency with no site on the API never sees a row of zeros.
+     *
+     * Spec: .ai/specs/website-listing-stats.md §5.3
+     */
+    private function websitePerformance(User $user, int $agencyId): array
+    {
+        $totals = app(\App\Services\Website\WebsiteListingStatsReportService::class)
+            ->agentTotals((int) $user->id, $agencyId ?: null);
+
+        $items = [
+            ['label' => 'Views',          'value' => $totals['views']],
+            ['label' => 'Enquiries',      'value' => $totals['enquiries']],
+            ['label' => 'Impressions',    'value' => $totals['impressions']],
+            ['label' => 'Contact clicks', 'value' => $totals['contact_clicks']],
+        ];
+
+        foreach ($totals['top'] as $listing) {
+            $items[] = [
+                'label' => \Illuminate\Support\Str::limit($listing['title'], 32),
+                'value' => $listing['views'],
+                'url'   => '/corex/properties/' . $listing['id'],
+            ];
+        }
+
+        return [
+            'card_id'      => 'website_performance',
+            'title'        => 'Website Performance (30d)',
+            'icon'         => 'bar-chart',
+            'urgency'      => 'low',
+            'count'        => (int) $totals['views'],
+            'items'        => $items,
+            'view_all_url' => '/corex/properties?sort=website_views&dir=desc',
         ];
     }
 

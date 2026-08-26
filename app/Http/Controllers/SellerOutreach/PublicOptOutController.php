@@ -165,8 +165,9 @@ final class PublicOptOutController extends Controller
      * TOKEN was real (resolveSend() already succeeded, above), so this is a
      * valid-but-dead link and may say so specifically; an unrecognised token
      * never reaches this line at all (resolveSend() aborts 404 first, and
-     * stays generic). Null return lets the caller render the branded
-     * "nothing to manage" page instead of a bare error.
+     * stays generic). Nullable, not firstOrFail()+abort(404) — null return
+     * lets the caller render the shared rich "link expired" page (see
+     * renderArchived() below) instead of a bare error.
      */
     private function resolveContact(SellerOutreachSend $send): ?Contact
     {

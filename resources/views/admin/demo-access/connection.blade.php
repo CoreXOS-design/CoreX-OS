@@ -249,5 +249,80 @@
             </div>
         </div>
     @endif
+
+    {{-- ── CoreX Website connector (AT-383) ────────────────────────────────────
+         A SECOND, SEPARATE credential — for the marketing website, not the demo.
+
+         It lives on this page because "the tokens other systems use to reach CoreX"
+         is one job and one place to look. It is a different row in a different table
+         on purpose: the demo token opens demo SESSIONS (verify / session / page-view),
+         and a public brochure site has no business holding that. Rotating one must
+         never disturb the other.
+         Spec: .ai/specs/webinar-registration.md §3.3, §7.2 --}}
+    <div class="space-y-3 max-w-4xl">
+        <h2 class="text-lg font-semibold" style="color: var(--text-primary);">CoreX website connector</h2>
+
+        @if ($sitePlainToken)
+            <div role="status" class="rounded-md p-4"
+                 style="background: color-mix(in srgb, var(--ds-emerald) 10%, transparent);
+                        border: 1px solid color-mix(in srgb, var(--ds-emerald) 30%, transparent);">
+                <p class="text-sm font-semibold mb-1" style="color: var(--text-primary);">
+                    Copy this now — it is shown once and cannot be recovered.
+                </p>
+                <p class="font-mono text-xs break-all rounded-md px-3 py-2 mt-2"
+                   style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">{{ $sitePlainToken }}</p>
+                <p class="text-xs mt-2" style="color: var(--text-secondary);">
+                    Give this to whoever runs the CoreX website. Their server sends it with every
+                    webinar registration. We only keep a fingerprint of it, so nobody — including
+                    us — can read it back.
+                </p>
+            </div>
+        @endif
+
+        <div class="rounded-md p-5" style="background: var(--surface); border: 1px solid var(--border);">
+            @if ($siteConnector)
+                <div class="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                        <p class="text-sm font-medium" style="color: var(--text-primary);">
+                            <span class="font-mono">{{ $siteConnector->key_prefix }}</span> &middot; {{ $siteConnector->name }}
+                        </p>
+                        <p class="text-xs mt-0.5" style="color: var(--text-muted);">
+                            Issued {{ $siteConnector->created_at->format('j M Y') }}
+                            @if ($siteConnector->creator) by {{ $siteConnector->creator->name }} @endif
+                            &middot;
+                            {{ $siteConnector->last_used_at
+                                ? 'last used ' . $siteConnector->last_used_at->diffForHumans()
+                                : 'never used' }}
+                        </p>
+                    </div>
+                    <form method="POST" action="{{ route('admin.demo-access.site-connection.revoke') }}"
+                          onsubmit="return confirm('Revoke the website connector? Webinar registration on the CoreX website stops working immediately, and stays broken until a new token is issued and pasted in.');">
+                        @csrf
+                        <button type="submit" class="corex-btn-outline text-xs">Revoke</button>
+                    </form>
+                </div>
+            @else
+                <p class="text-sm" style="color: var(--text-primary);">No website connector yet.</p>
+                <p class="text-xs mt-1" style="color: var(--text-muted);">
+                    Until one is issued, the CoreX website cannot take webinar registrations —
+                    every attempt is turned away.
+                </p>
+            @endif
+
+            <form method="POST" action="{{ route('admin.demo-access.site-connection.mint') }}" class="mt-4 flex flex-wrap items-end gap-2"
+                  onsubmit="return confirm('{{ $siteConnector ? 'Issue a new website token? The current one stops working the moment this is created, so registration is down until the new token is pasted into the website.' : 'Issue the website token?' }}');">
+                @csrf
+                <div>
+                    <label for="site_name" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Label</label>
+                    <input id="site_name" name="name" type="text" value="CoreX Website" maxlength="100"
+                           class="rounded-md px-3 py-2 text-sm"
+                           style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                </div>
+                <button type="submit" class="corex-btn-primary text-xs">
+                    {{ $siteConnector ? 'Issue a new token' : 'Issue token' }}
+                </button>
+            </form>
+        </div>
+    </div>
 </div>
 @endsection

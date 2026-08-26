@@ -80,7 +80,13 @@ class PublicAgencyPropertiesController extends Controller
      * are genuinely real here (that's how we got an agency to brand with at
      * all) — "gone" fits better than "not found" for a property that used to
      * be listed and now isn't, matching the convention used everywhere else
-     * fixed today.
+     * fixed today. Route-model-binding on the caller's side is kept exactly
+     * as it was elsewhere (this is production-facing code, no rewrite of
+     * what's already proven); the only change is where a dead-end used to
+     * plain-404, it now routes here instead. Never distinguishes wrong-
+     * agency / soft-deleted / not-marketable on the page itself — the
+     * standing rule is a dead link must never reveal why it died, so all
+     * three land on the same message.
      */
     private function showUnavailable(Agency $agency, $agent = null)
     {
