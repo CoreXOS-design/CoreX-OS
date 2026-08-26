@@ -2616,9 +2616,16 @@ class ESignWizardController extends Controller
         $isPdfPack = !empty($stepData['is_pdf_pack']);
         $docName = $stepData['document_name'] ?? null;
         if (empty($docName)) {
+            // Johan, 2026-08-27 (found on the late-estate walkthrough) — a
+            // deceased party is not a party to the agreement (Elize's
+            // ruling); naming the document, and therefore the "Please sign"
+            // email subject, after the deceased ("...— Anine Van der
+            // Westhuizen") instead of a living owner or the executor reads
+            // as a genuine error on an executed legal document, not a
+            // cosmetic one.
             $firstRecipientName = '';
             foreach ($recipients as $r) {
-                if (($r['role'] ?? '') !== 'agent' && !empty($r['name'])) {
+                if (($r['role'] ?? '') !== 'agent' && empty($r['_is_deceased']) && !empty($r['name'])) {
                     $firstRecipientName = $r['name'];
                     break;
                 }
@@ -5250,10 +5257,10 @@ class ESignWizardController extends Controller
                 $dbContact = Contact::find($contactId);
                 if ($dbContact) {
                     $r = array_merge($r, [
-                        'bank_name'           => $r['bank_name'] ?: ($dbContact->bank_name ?? ''),
-                        'bank_account_name'   => $r['bank_account_name'] ?: ($dbContact->bank_account_name ?? ''),
-                        'bank_account_number' => $r['bank_account_number'] ?: ($dbContact->bank_account_number ?? ''),
-                        'bank_branch_name'    => $r['bank_branch_name'] ?: ($dbContact->bank_branch_name ?? ''),
+                        'bank_name'           => ($r['bank_name'] ?? '') ?: ($dbContact->bank_name ?? ''),
+                        'bank_account_name'   => ($r['bank_account_name'] ?? '') ?: ($dbContact->bank_account_name ?? ''),
+                        'bank_account_number' => ($r['bank_account_number'] ?? '') ?: ($dbContact->bank_account_number ?? ''),
+                        'bank_branch_name'    => ($r['bank_branch_name'] ?? '') ?: ($dbContact->bank_branch_name ?? ''),
                     ]);
                 }
             }
@@ -6719,9 +6726,11 @@ class ESignWizardController extends Controller
         $recipients = $stepData['recipients']['recipients'] ?? [];
         $propertyAddress = $stepData['property']['address'] ?? $stepData['property']['title'] ?? '';
 
+        // Johan, 2026-08-27 — a deceased party is not a party to the
+        // agreement; never name the document after them.
         $firstRecipientName = '';
         foreach ($recipients as $r) {
-            if (($r['role'] ?? '') !== 'agent' && !empty($r['name'])) {
+            if (($r['role'] ?? '') !== 'agent' && empty($r['_is_deceased']) && !empty($r['name'])) {
                 $firstRecipientName = $r['name'];
                 break;
             }
@@ -6951,9 +6960,11 @@ class ESignWizardController extends Controller
 
         $propertyAddress = $stepData['property']['address'] ?? $stepData['property']['title'] ?? '';
 
+        // Johan, 2026-08-27 — a deceased party is not a party to the
+        // agreement; never name the document after them.
         $firstRecipientName = '';
         foreach ($recipients as $r) {
-            if (($r['role'] ?? '') !== 'agent' && !empty($r['name'])) {
+            if (($r['role'] ?? '') !== 'agent' && empty($r['_is_deceased']) && !empty($r['name'])) {
                 $firstRecipientName = $r['name'];
                 break;
             }

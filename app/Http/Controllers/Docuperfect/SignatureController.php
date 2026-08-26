@@ -1895,8 +1895,14 @@ class SignatureController extends Controller
         $this->authorizeDocument($user, $document);
 
         $template = SignatureTemplate::where('document_id', $document->id)->firstOrFail();
-        $templateType = $document->template?->template_type ?? 'rentals';
-        $isSales = $templateType === 'sales';
+        // Johan, 2026-08-27 (found on the late-estate walkthrough) — raw
+        // template_type is a builder-set free-text category ('cds' here),
+        // never the string 'sales'/'rentals'; every dashboard-redirect
+        // decision keyed off it directly picked "rental" for THIS exact
+        // sales document ("EXCLUSIVE AUTHORITY TO SELL"). isSalesDocument()
+        // is the layered detector already trusted elsewhere in this file
+        // (line ~351) for exactly this question.
+        $isSales = (bool) $document->template?->isSalesDocument();
 
         // If template is awaiting a party, send to that party
         $awaitingStatuses = [
@@ -2517,8 +2523,8 @@ class SignatureController extends Controller
         if ($request->boolean('auto_approve')) {
             $this->signatureService->approveUploadOnBehalf($signingRequest, $request->user());
 
-            $templateType = $document->template?->template_type ?? 'rentals';
-            $dashboardRoute = $templateType === 'sales' ? 'docuperfect.sales' : 'docuperfect.rental';
+            // See the ~line 1900 comment — isSalesDocument(), never raw template_type.
+            $dashboardRoute = $document->template?->isSalesDocument() ? 'docuperfect.sales' : 'docuperfect.rental';
 
             return redirect()->route($dashboardRoute)
                 ->with('status', 'Uploaded and approved for ' . $signingRequest->signer_name . '. Signing advanced.');
@@ -2565,8 +2571,8 @@ class SignatureController extends Controller
             : "Rejection sent to {$signingRequest->signer_name} with instructions to re-sign.";
 
         // Redirect to the appropriate dashboard based on template type
-        $templateType = $document->template?->template_type ?? 'rentals';
-        $dashboardRoute = $templateType === 'sales' ? 'docuperfect.sales' : 'docuperfect.rental';
+        // (isSalesDocument(), never raw template_type — see ~line 1900).
+        $dashboardRoute = $document->template?->isSalesDocument() ? 'docuperfect.sales' : 'docuperfect.rental';
 
         return redirect()->route($dashboardRoute)
             ->with('status', $message);
@@ -3070,8 +3076,8 @@ class SignatureController extends Controller
             SignatureTemplate::STATUS_AWAITING_SUPERVISOR_FINAL,
         ];
         if (!in_array($template->status, $reviewableStatuses)) {
-            $templateType = $document->template?->template_type ?? 'rentals';
-            $dashboardRoute = $templateType === 'sales' ? 'docuperfect.sales' : 'docuperfect.rental';
+            // isSalesDocument(), never raw template_type — see ~line 1900.
+            $dashboardRoute = $document->template?->isSalesDocument() ? 'docuperfect.sales' : 'docuperfect.rental';
             return redirect()->route($dashboardRoute)
                 ->with('error', 'This document is not pending approval.');
         }
@@ -3090,8 +3096,13 @@ class SignatureController extends Controller
 
         $result = $this->signatureService->approveAndAdvance($template);
 
-        $templateType = $document->template?->template_type ?? 'rentals';
-        $dashboardRoute = $templateType === 'sales' ? 'docuperfect.sales' : 'docuperfect.rental';
+        // Johan, 2026-08-27 (found on the late-estate walkthrough — approving
+        // THIS exact "EXCLUSIVE AUTHORITY TO SELL" document landed the agent
+        // on the RENTAL dashboard) — isSalesDocument(), never raw
+        // template_type: this template's template_type is 'cds', a builder
+        // category, never the string 'sales'/'rentals' the crude check
+        // expected. See ~line 1900 for the same fix's first occurrence.
+        $dashboardRoute = $document->template?->isSalesDocument() ? 'docuperfect.sales' : 'docuperfect.rental';
 
         if ($result['action'] === 'sent') {
             $nextName = $result['next_name'] ?? ucfirst($result['next_party']);
@@ -3263,8 +3274,8 @@ class SignatureController extends Controller
 
         $result = $this->signatureService->returnToCandidate($template, $request->input('notes'), $user);
 
-        $templateType = $document->template?->template_type ?? 'rentals';
-        $dashboardRoute = $templateType === 'sales' ? 'docuperfect.sales' : 'docuperfect.rental';
+        // isSalesDocument(), never raw template_type — see ~line 1900.
+        $dashboardRoute = $document->template?->isSalesDocument() ? 'docuperfect.sales' : 'docuperfect.rental';
 
         return redirect()->route($dashboardRoute)
             ->with('status', "Document returned to {$result['candidate_name']} with your notes.");
@@ -3895,8 +3906,8 @@ class SignatureController extends Controller
             $request->signer_cell
         );
 
-        $templateType = $document->template?->template_type ?? 'rentals';
-        $dashboardRoute = $templateType === 'sales' ? 'docuperfect.sales' : 'docuperfect.rental';
+        // isSalesDocument(), never raw template_type — see ~line 1900.
+        $dashboardRoute = $document->template?->isSalesDocument() ? 'docuperfect.sales' : 'docuperfect.rental';
 
         return redirect()->route($dashboardRoute)
             ->with('status', "Signing resumed — {$request->signer_name} will be sent the document for signing.");

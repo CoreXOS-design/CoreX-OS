@@ -207,7 +207,24 @@ class CanonicalDocumentRenderer
                 continue;
             }
             $entity = \App\Models\Contact::withoutGlobalScopes()->find($entityId);
-            $reps = $entity ? $entity->representatives()->get() : collect();
+            // Johan, 2026-08-27 (found on the late-estate walkthrough) —
+            // represented_contact_id is stamped for TWO different
+            // relationships that must not be conflated: an entity
+            // represented by its directors (1-to-N — every current
+            // representative is a party, expand them all for display), and
+            // a deceased natural person represented by their executor
+            // (1-to-1 — the "Replace this party" chain already resolved
+            // and froze the ONE correct executor onto this recipient's own
+            // row). Expanding the natural-person case here pulled every
+            // contact EVER linked as an "Executor" representative of that
+            // deceased contact — including stale test/reassigned links —
+            // onto one document as phantom co-executors (reproduced: a doc
+            // for Anine/Andre/Koos also rendered "Seller - Piet Begrafnis"
+            // and "Seller - Elize Reichel" blocks, neither of them party to
+            // this document at all). Only an ENTITY has multiple
+            // representatives who are all genuinely parties; gate the
+            // expansion on that.
+            $reps = ($entity && $entity->isEntity()) ? $entity->representatives()->get() : collect();
             if ($reps->isEmpty()) {
                 // Nothing to expand against — keep the real row rather than dropping the party.
                 $out->push($req);
