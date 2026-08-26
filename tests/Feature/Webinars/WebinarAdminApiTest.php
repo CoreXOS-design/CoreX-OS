@@ -149,6 +149,28 @@ class WebinarAdminApiTest extends TestCase
         $this->assertDatabaseHas('webinars', ['slug' => 'corex-os-september-principals-session']);
     }
 
+    /**
+     * The real-world create, and the one that broke in production.
+     *
+     * `slug` is nullable, so validate() omits the KEY when the caller sends no
+     * slug at all — which the website does not: its "Link name" box is blank by
+     * design, ConvertEmptyStringsToNull turns that into null, and it drops nulls
+     * before posting. Sending `slug => ''` (as the test above does) is a
+     * different shape: the key arrives present-but-null and hides this entirely.
+     */
+    public function test_a_webinar_can_be_created_when_the_caller_omits_the_slug_key(): void
+    {
+        $this->api()->postJson('/api/v1/webinars', [
+            'title'                  => 'CoreX OS — October principals session',
+            // no 'slug' key at all
+            'starts_at'              => Carbon::now()->addDays(14)->setTime(14, 0)->toIso8601String(),
+            'access_ends_days_after' => 3,
+            'reminder_hours_before'  => 24,
+        ])
+            ->assertStatus(201)
+            ->assertJsonPath('webinar.slug', 'corex-os-october-principals-session');
+    }
+
     public function test_creating_a_webinar_returns_field_keyed_errors(): void
     {
         $this->api()->postJson('/api/v1/webinars', ['title' => '', 'join_url' => 'not-a-url'])

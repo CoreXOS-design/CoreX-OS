@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
+use App\Models\Role;
 use App\Models\User;
 use App\Models\Webinar;
 use App\Models\WebinarRegistration;
@@ -210,9 +211,16 @@ class WebinarApiController extends Controller
             ], 409);
         }
 
+        // `slug` is nullable, so validate() omits the key entirely when the caller
+        // did not send one — and the website does not: its "Link name" field is
+        // blank by design, ConvertEmptyStringsToNull turns that into null, and it
+        // drops nulls before posting. Reading $data['slug'] directly is therefore
+        // an undefined key on the single most common create there is.
+        $slugSource = trim((string) ($data['slug'] ?? '')) ?: $data['title'];
+
         $webinar = Webinar::create([
             ...$data,
-            'slug'               => Webinar::uniqueSlug($data['slug'] ?: $data['title']),
+            'slug'               => Webinar::uniqueSlug($slugSource),
             'created_by_user_id' => $creatorId,
         ]);
 
@@ -472,11 +480,22 @@ class WebinarApiController extends Controller
             return (int) $mintedBy;
         }
 
-        return User::query()
+        // Resolved by query, NOT via User::isOwnerRole(). That method goes through
+        // effectiveAgencyId(), which reads session('active_agency_id') — and this
+        // is a server-to-server request with no session and no logged-in user.
+        // Owner roles are global (agency_id NULL), which is what makes this a
+        // straight lookup rather than an agency-scoped one.
+        $ownerRoles = Role::whereNull('agency_id')
+            ->where('is_owner', true)
+            ->pluck('name');
+
+        if ($ownerRoles->isEmpty()) {
+            return null;
+        }
+
+        return User::whereIn('role', $ownerRoles)
             ->orderBy('id')
-            ->get(['id', 'role', 'agency_id'])
-            ->first(fn (User $u) => $u->isOwnerRole())
-            ?->id;
+            ->value('id');
     }
 
     /**
