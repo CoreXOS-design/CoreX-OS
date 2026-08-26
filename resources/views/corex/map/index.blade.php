@@ -218,10 +218,18 @@
             </div>
 
             {{-- Phase A.3.1 — compact layer icon row. Each icon is a toggle;
-                 hover shows the layer name + count. --}}
+                 hover shows the layer name + count.
+                 2026-08-27 — 8 buttons at 30px + 6px gaps (~282px) never fit the
+                 235px sidebar at ANY window width (confirmed 1024px through
+                 1920px) — the last icon (Tracked) was rendering fully outside
+                 the sidebar's clipped bounds, invisible and unclickable, while
+                 the "Truncated: ..." notice below still (correctly) reported it
+                 as hidden. flex-wrap lets the row spill onto a second line
+                 within the existing sidebar width instead of overflowing past
+                 it — same buttons, same size, same order, no redesign. --}}
             <div style="margin-bottom: 12px;">
                 <div style="font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); font-weight: 600; margin-bottom: 6px;">Layers</div>
-                <div id="layer-list" data-tour="re-map-layers" style="display: flex; gap: 6px;">
+                <div id="layer-list" data-tour="re-map-layers" style="display: flex; flex-wrap: wrap; gap: 6px;">
                     @php
                         // Layer-chip palette MUST stay in sync with PIN_STYLES
                         // and LAYER_COLOURS in the JS section below. Otherwise
