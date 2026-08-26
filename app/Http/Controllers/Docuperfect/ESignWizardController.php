@@ -1840,9 +1840,29 @@ class ESignWizardController extends Controller
             // expansion service has the same shape it sees at signing
             // time.
             if ($flow) {
+                // Johan, 2026-08-26 — "company esign still blocks on only
+                // rendering 1 seller address, tel, email" — a company
+                // represented by three parties. step_data['recipients'] is
+                // the PRE-expansion array (deliberately: see
+                // prepareRecipientsForMerge()'s docblock, that array is what
+                // gets edited/saved as "the recipient" and must never
+                // silently become someone's representative instead) — for an
+                // entity seller that is ONE row, the company itself, not its
+                // representatives. Passing that straight into
+                // buildTransientSignatureRequestsForPreview() built exactly
+                // one transient SignatureRequest (the company), so
+                // expandWithLooping() below correctly cloned the
+                // data-role-block ONE time — there was only ever one
+                // "seller" in what it was given. Expanding here — the same
+                // expandEntityRecipients() every other consumer of this
+                // array already runs before using it downstream — gives the
+                // preview the real three representatives (Elize Reichel, HA
+                // Pretorius, Steve Jobs), so the address/tel/email block
+                // clones once per person, same as the clause and signing
+                // order already correctly do.
                 $wizardRecipients = $this->buildTransientSignatureRequestsForPreview(
                     $flow,
-                    $stepData['recipients']['recipients'] ?? [],
+                    $this->expandEntityRecipients($stepData['recipients']['recipients'] ?? [], $user),
                 );
                 if ($wizardRecipients->isNotEmpty()) {
                     // AT-295 — stamp the data-role-block contract onto the raw
@@ -3263,7 +3283,7 @@ class ESignWizardController extends Controller
             // chain might point AT, which may have been created later in the loop
             // above than the recipient whose party is being replaced). Shared with
             // prepareWetInk() — see resolveChainBindings().
-            $this->resolveChainBindings($chainBindings);
+            $this->resolveChainBindings($chainBindings, $user->id);
 
             // No supervisor_final request (confirmed model, 2026-08-03) — the authoriser co-signs ONCE
             // at the initial 'supervisor' review; the candidate's final approval completes the doc.
@@ -4506,7 +4526,7 @@ class ESignWizardController extends Controller
      * A dangling binding (a slot's recipient/contact no longer resolves)
      * blocks the send entirely rather than freezing a half-built clause.
      */
-    private function resolveChainBindings(array $chainBindings): void
+    private function resolveChainBindings(array $chainBindings, ?int $assertingUserId = null): void
     {
         foreach ($chainBindings as $binding) {
             $sigReq = \App\Models\Docuperfect\SignatureRequest::find($binding['signature_request_id']);
@@ -4550,6 +4570,14 @@ class ESignWizardController extends Controller
                 ]);
             }
 
+            // Johan, 2026-08-26 — "picking someone in 'Replace this party'
+            // CREATES the relationship." Run BEFORE the identity check
+            // below: an agent binding a slot (deceased→executor, etc.) IS
+            // the real-world assertion of that relationship, not a claim
+            // that one must already exist on file. This only ever fills a
+            // gap (firstOrCreate) — an already-legitimate pair is untouched.
+            $recipientTemplate->ensureChainRelationshipsExist($sigReq, $binding['slot_bindings'], $assertingUserId);
+
             // cc2, 2026-08-26 (cc4's stranger-rebind finding, corrected
             // twice the same night — cc4's real reproduction, document 959
             // / signature_request 1578, proved the first version wrong: it
@@ -4562,6 +4590,11 @@ class ESignWizardController extends Controller
             // FULL chain, not one position — using the same canonical
             // identity check the create path already uses
             // (SignatureRequest::assertSignerIsCurrentRepresentative()).
+            // Still runs unconditionally: a signer bound to a slot that was
+            // NOT resolved through this chain at all (never went through
+            // ensureChainRelationshipsExist() above) is still refused here
+            // exactly as before — this only ever adds a record, it never
+            // substitutes for the check.
             try {
                 $recipientTemplate->assertChainIsLegitimate($sigReq, $binding['slot_bindings']);
             } catch (\App\Exceptions\DanglingSlotBindingException $e) {
@@ -6881,7 +6914,7 @@ class ESignWizardController extends Controller
             // body does (Johan, 2026-08-25) — resolves "Late Estate of {X}
             // herein represented by {Y}" onto party_clause_text before this
             // document is ever handed over to be signed on paper.
-            $this->resolveChainBindings($chainBindings);
+            $this->resolveChainBindings($chainBindings, $user->id);
 
             // No markers or zones needed — wet ink is signed on paper
 

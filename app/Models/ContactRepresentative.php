@@ -44,6 +44,7 @@ class ContactRepresentative extends Pivot
         'is_primary',
         'capacity',
         'signs_as_proxy',
+        'asserted_by_user_id',
     ];
 
     protected $casts = [

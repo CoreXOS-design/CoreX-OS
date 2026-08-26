@@ -214,6 +214,93 @@ class RecipientTemplate extends Model
     }
 
     /**
+     * Johan, 2026-08-26 — "picking someone in 'Replace this party' CREATES
+     * the relationship." assertChainIsLegitimate() demanded a
+     * contact_representatives row that no screen in the product could ever
+     * create — Johan marked Anine deceased, picked Elize, and was refused
+     * for exactly that reason (Elize genuinely does hold executorship; there
+     * was just nowhere to record it). The agent binding a slot here IS the
+     * real-world act of asserting that relationship — a letter of
+     * executorship, a POA, a director appointment — so this records it,
+     * using the SAME adjacent-slot-pair walk assertChainIsLegitimate() uses
+     * (never a second way of deciding who represents whom). The caller MUST
+     * still run assertChainIsLegitimate() immediately after this — the
+     * ordinary identity check keeps running, it now just passes because the
+     * record genuinely exists, not because it was skipped.
+     *
+     * firstOrCreate is deliberate: an already-legitimate pair (relinking the
+     * same executor a second time, or any pair that already has a real
+     * link) creates nothing new and asserted_by_user_id on an existing row
+     * is left untouched — this only ever fills a gap, never overwrites who
+     * originally asserted a relationship that's already on file.
+     *
+     * Also persists represented_contact_id onto the REPRESENTATIVE'S own
+     * SignatureRequest row for each pair (found separately, see below) — the
+     * row that actually opens a link and signs, not just $selfRecipient's.
+     */
+    public function ensureChainRelationshipsExist(SignatureRequest $selfRecipient, array $slotBindings, ?int $assertingUserId): void
+    {
+        $slots = $this->party_slots ?? [];
+        if (count($slots) < 2) {
+            return;
+        }
+
+        $resolved = [];
+        foreach ($slots as $slot) {
+            $key = $slot['key'] ?? null;
+            $label = $slot['label'] ?? $key;
+            if ($key === null) {
+                continue;
+            }
+            $binding = $slotBindings[$key] ?? null;
+            if ($binding === null) {
+                continue; // dangling — assertChainIsLegitimate() (called right after) reports this properly.
+            }
+            try {
+                $resolved[$key] = $this->resolveSlotContactId($selfRecipient, $key, (string) $label, $binding);
+            } catch (DanglingSlotBindingException) {
+                $resolved[$key] = null;
+            }
+        }
+
+        for ($i = 0; $i < count($slots) - 1; $i++) {
+            $partyId = $resolved[$slots[$i]['key'] ?? null] ?? null;
+            $repId = $resolved[$slots[$i + 1]['key'] ?? null] ?? null;
+            $capacity = $slots[$i + 1]['label'] ?? null;
+
+            if ($partyId === null || $repId === null || $partyId === $repId) {
+                continue;
+            }
+
+            if (! \App\Models\Contact::query()->whereKey($partyId)->exists()
+                || ! \App\Models\Contact::query()->whereKey($repId)->exists()) {
+                continue; // dangling contact id — nothing genuine to record.
+            }
+
+            \App\Models\ContactRepresentative::firstOrCreate(
+                ['entity_contact_id' => $partyId, 'representative_contact_id' => $repId],
+                ['capacity' => $capacity, 'asserted_by_user_id' => $assertingUserId]
+            );
+
+            // Pre-existing gap, found while proving "revoke after send still
+            // refuses" for Johan's real case: resolveChainBindings() in
+            // ESignWizardController only ever persists represented_contact_id
+            // onto $selfRecipient's OWN row (the deceased party's row here) —
+            // never onto the representative's OWN SignatureRequest row, which
+            // is the one that actually opens a link and signs. Without this,
+            // SignatureRequest::authorityRevoked() re-checks against a NULL
+            // represented_contact_id and never refuses anyone — proven false
+            // on document 959/signature_request 1578, a case that predates
+            // tonight. Same document, found by contact identity (never by
+            // name) — the representative may be $selfRecipient itself (the
+            // deceased row, harmless no-op) or a sibling recipient row.
+            \App\Models\Docuperfect\SignatureRequest::where('signature_template_id', $selfRecipient->signature_template_id)
+                ->where('contact_id', $repId)
+                ->update(['represented_contact_id' => $partyId]);
+        }
+    }
+
+    /**
      * Who $selfRecipient represents, for persisting onto
      * SignatureRequest::represented_contact_id (so
      * SignatureRequest::isSigningBlocked() has something to re-check at

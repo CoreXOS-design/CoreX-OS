@@ -790,6 +790,7 @@ CREATE TABLE `agency_service_provider_contacts` (
   `role` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `email` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `phone` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `id_number` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `default_delivery_mode` enum('secure_link','direct_attachment') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `default_channel` enum('email','whatsapp') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `is_active` tinyint(1) NOT NULL DEFAULT '1',
@@ -3903,6 +3904,7 @@ CREATE TABLE `contact_representatives` (
   `is_primary` tinyint(1) NOT NULL DEFAULT '0',
   `capacity` varchar(40) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `signs_as_proxy` tinyint(1) NOT NULL DEFAULT '0',
+  `asserted_by_user_id` bigint unsigned DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   `deleted_at` timestamp NULL DEFAULT NULL,
@@ -3910,6 +3912,8 @@ CREATE TABLE `contact_representatives` (
   UNIQUE KEY `contact_representatives_unique` (`entity_contact_id`,`representative_contact_id`),
   KEY `contact_representatives_representative_contact_id_foreign` (`representative_contact_id`),
   KEY `contact_reps_entity_proxy_idx` (`entity_contact_id`,`signs_as_proxy`),
+  KEY `contact_representatives_asserted_by_user_id_foreign` (`asserted_by_user_id`),
+  CONSTRAINT `contact_representatives_asserted_by_user_id_foreign` FOREIGN KEY (`asserted_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
   CONSTRAINT `contact_representatives_entity_contact_id_foreign` FOREIGN KEY (`entity_contact_id`) REFERENCES `contacts` (`id`) ON DELETE CASCADE,
   CONSTRAINT `contact_representatives_representative_contact_id_foreign` FOREIGN KEY (`representative_contact_id`) REFERENCES `contacts` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -12569,6 +12573,8 @@ CREATE TABLE `signature_requests` (
   `signer_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `signer_caption` text COLLATE utf8mb4_unicode_ci,
   `party_clause_text` text COLLATE utf8mb4_unicode_ci,
+  `supplier_firm_name` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `supplier_firm_registration_number` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `is_deceased` tinyint(1) NOT NULL DEFAULT '0',
   `is_proxy` tinyint(1) NOT NULL DEFAULT '0',
   `recipient_local_key` varchar(40) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -12599,6 +12605,7 @@ CREATE TABLE `signature_requests` (
   `signing_method` enum('electronic','wet_ink') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `fica_required` tinyint(1) NOT NULL DEFAULT '0',
   `contact_id` bigint unsigned DEFAULT NULL,
+  `represented_contact_id` bigint unsigned DEFAULT NULL,
   `fica_submission_id` bigint unsigned DEFAULT NULL,
   `wet_ink_upload_path` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `wet_ink_upload_method` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -12623,10 +12630,12 @@ CREATE TABLE `signature_requests` (
   KEY `sigreq_template_role_index_idx` (`signature_template_id`,`party_role`,`role_index`),
   KEY `sig_req_group_order_idx` (`signature_template_id`,`signing_group`,`signing_order`),
   KEY `signature_requests_recipient_template_id_foreign` (`recipient_template_id`),
+  KEY `signature_requests_represented_contact_id_foreign` (`represented_contact_id`),
   CONSTRAINT `signature_requests_authorised_by_foreign` FOREIGN KEY (`authorised_by`) REFERENCES `users` (`id`) ON DELETE SET NULL,
   CONSTRAINT `signature_requests_contact_id_foreign` FOREIGN KEY (`contact_id`) REFERENCES `contacts` (`id`) ON DELETE SET NULL,
   CONSTRAINT `signature_requests_fica_submission_id_foreign` FOREIGN KEY (`fica_submission_id`) REFERENCES `fica_submissions` (`id`) ON DELETE SET NULL,
   CONSTRAINT `signature_requests_recipient_template_id_foreign` FOREIGN KEY (`recipient_template_id`) REFERENCES `recipient_templates` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `signature_requests_represented_contact_id_foreign` FOREIGN KEY (`represented_contact_id`) REFERENCES `contacts` (`id`) ON DELETE SET NULL,
   CONSTRAINT `signature_requests_reviewed_by_foreign` FOREIGN KEY (`reviewed_by`) REFERENCES `users` (`id`) ON DELETE SET NULL,
   CONSTRAINT `signature_requests_sent_by_foreign` FOREIGN KEY (`sent_by`) REFERENCES `users` (`id`) ON DELETE SET NULL,
   CONSTRAINT `signature_requests_signature_template_id_foreign` FOREIGN KEY (`signature_template_id`) REFERENCES `signature_templates` (`id`) ON DELETE CASCADE
@@ -15484,3 +15493,7 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1205,'2026_08_25_0
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1206,'2026_08_25_090001_create_suburb_municipalities_table',283);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1207,'2026_08_25_100001_create_suburb_reports_table',283);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1208,'2026_08_25_150000_add_registration_number_to_agency_service_providers_table',284);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1209,'2026_08_29_000004_add_represented_contact_id_to_signature_requests',285);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1210,'2026_08_29_000007_add_id_number_to_agency_service_provider_contacts_table',286);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1211,'2026_08_29_000008_add_supplier_firm_to_signature_requests_table',287);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1212,'2026_08_29_000009_add_asserted_by_to_contact_representatives',288);
