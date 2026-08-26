@@ -94,7 +94,7 @@ class RetranscribeVoiceNotes extends Command
                     'model_before' => $before, 'model_after' => $target, 'lang' => $result['lang'] ?? null,
                 ]);
                 $this->line("  #{$comm->id}: {$before} → {$target}  (lang " . ($result['lang'] ?? '?') . ')');
-            } elseif (in_array($status, ['skipped', 'disabled'], true)) {
+            } elseif (in_array($status, ['skipped', 'disabled', 'deferred'], true)) {
                 $skipped++;
             } else {
                 $failed++;
