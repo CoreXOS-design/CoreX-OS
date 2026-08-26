@@ -5,7 +5,9 @@ namespace App\Http\Controllers\CoreX;
 use App\Http\Controllers\Controller;
 use App\Models\Branch;
 use App\Models\ContactMatch;
+use App\Models\ContactNote;
 use App\Models\Property;
+use App\Models\PropertyNote;
 use App\Models\PropertyAdTemplate;
 use App\Models\DocumentType;
 use App\Models\PropertySettingItem;
@@ -1642,8 +1644,43 @@ class PropertyController extends Controller
             return back()->with('error', $msg);
         }
 
+        // Johan, 2026-08-29 — "ask the agent for a reason... file it under the
+        // contact and property." The reason is OPTIONAL, never a condition on
+        // the status change itself — dismissing the reason prompt (or leaving
+        // it blank) still marks the property Not selling. The note is filed
+        // either way so the record of WHEN/WHO/WHY exists even without a
+        // reason typed.
+        $reason = trim((string) $request->input('reason', ''));
+
         $property->status = Property::STATUS_NOT_SELLING;
         $property->save();
+
+        $actor = $request->user()?->name ?? 'Unknown user';
+        $when = now()->format('j M Y, H:i');
+        $reasonText = $reason !== '' ? $reason : 'No reason given.';
+
+        PropertyNote::create([
+            'agency_id' => $property->agency_id,
+            'property_id' => $property->id,
+            'user_id' => $request->user()?->id,
+            'content' => "Marked Not selling on {$when} by {$actor}. Reason: {$reasonText}",
+        ]);
+
+        // "file under the contact and property" — the seller/owner-side
+        // contact only (same resolver the PDF Splitter already trusts for
+        // "which contact does this property's paperwork belong to"); when
+        // that's ambiguous or there's no linked contact, the property's own
+        // note above is still the record — no orphaned/guessed note.
+        if ($contact = $property->sellerOwnerContact()) {
+            $propertyLabel = $property->buildDisplayAddress() ?: ($property->title ?: 'This property');
+            ContactNote::create([
+                'agency_id' => $property->agency_id,
+                'contact_id' => $contact->id,
+                'user_id' => $request->user()?->id,
+                'type' => 'Not Selling',
+                'body' => "{$propertyLabel} was marked Not selling on {$when} by {$actor}. Reason: {$reasonText}",
+            ]);
+        }
 
         $msg = 'Marked Not selling.';
         if ($request->wantsJson() || $request->ajax()) {
