@@ -286,6 +286,13 @@
             <strong>{{ number_format($row['count']) }}</strong> area sales in {{ $row['year'] }} — <span style="color:#5c6c6d;">{{ $row['report_type'] }}</span>
         </div>
         @endforeach
+        {{-- 2026-08-26 (Johan) — this figure and the property page's own
+             "Strong data — N comparable sales" can legitimately disagree for
+             the same suburb: this one comes from a suburb-summary report
+             (named above, per row); that one counts individual deals and
+             uploaded valuation/comp reports instead. Naming the source here
+             so the two read as different counts, not a contradiction. --}}
+        <p style="font-size:0.72rem; color:#8a9697; margin:0.4rem 0 0;">From the market report{{ count($cmaSalesRows) === 1 ? '' : 's' }} named above — a different figure from a property page's own comparable-sales count, which draws from deals and uploaded valuation reports instead.</p>
         @else
         <div style="margin-bottom:0.5rem;">{!! $sideChip('market') !!}</div>
         <p style="font-size:0.8rem; color:#8a9697; margin:0;">No area-wide sales figure is available for {{ $suburbName }} yet.</p>

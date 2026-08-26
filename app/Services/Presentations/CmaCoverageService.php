@@ -539,11 +539,22 @@ class CmaCoverageService
             );
         }
 
+        // 2026-08-26 — this count and the suburb report's own "N area sales"
+        // figures draw from genuinely different upload types (this one:
+        // your own deals + uploaded valuation/comp reports; the suburb
+        // report: suburb-summary reports like "CMA Info — Median Sales
+        // Analysis") and can legitimately disagree for the same suburb.
+        // Naming the source here so that disagreement reads as "these are
+        // two different counts" rather than the system contradicting
+        // itself — the actual reconciliation of the two stores is separate,
+        // larger work, not this label.
+        $sourceNote = 'from your deals and uploaded comparable-sale reports';
+
         return match ($state) {
-            self::STATE_RICH     => sprintf('Strong data — %d recent comparable sales (%s).', $compCount, $scopeLabel),
-            self::STATE_MODERATE => sprintf('Moderate data — %d recent comparable sales (%s). Stronger comps available with more uploads.', $compCount, $scopeLabel),
-            self::STATE_THIN     => sprintf('Thin data — %d recent comparable sale%s (%s). Upload more CMAs to strengthen.', $compCount, $compCount === 1 ? '' : 's', $scopeLabel),
-            default              => sprintf('No comparable sales found (%s). Upload CMAs first?', $scopeLabel),
+            self::STATE_RICH     => sprintf('Strong data — %d recent comparable sales %s (%s).', $compCount, $sourceNote, $scopeLabel),
+            self::STATE_MODERATE => sprintf('Moderate data — %d recent comparable sales %s (%s). Stronger comps available with more uploads.', $compCount, $sourceNote, $scopeLabel),
+            self::STATE_THIN     => sprintf('Thin data — %d recent comparable sale%s %s (%s). Upload more CMAs to strengthen.', $compCount, $compCount === 1 ? '' : 's', $sourceNote, $scopeLabel),
+            default              => sprintf('No comparable sales found %s (%s). Upload CMAs first?', $sourceNote, $scopeLabel),
         };
     }
 }
