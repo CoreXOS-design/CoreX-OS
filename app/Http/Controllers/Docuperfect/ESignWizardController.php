@@ -4604,7 +4604,15 @@ class ESignWizardController extends Controller
         }
 
         $sigReq->update([
-            'supplier_firm_name' => $firm->name,
+            // Johan, 2026-08-26 — company leads, person underneath, and where
+            // there is no company the person leads. $firm->name is the firm's
+            // own required identifier and is often the PERSON's own name for
+            // a sole-practitioner firm (e.g. "Piet Begrafnis" as both the
+            // firm's name and the contact's own name) — $firm->company is the
+            // real company name when one was captured. Same rule as the
+            // picker/search fix in searchContacts()/addSupplier() above; this
+            // is the value that actually freezes onto the clause at send time.
+            'supplier_firm_name' => $firm->company ?: $firm->name,
             'supplier_firm_registration_number' => $firm->registration_number,
         ]);
     }
