@@ -152,6 +152,26 @@ final class MapPinService
 
         $locations = $this->grouper()->group($allRecords);
 
+        // Badge count — single source of truth fix. Previously layer_counts
+        // was summed from each layer's raw $pins BEFORE grouping, but
+        // LocationGrouper can remove a record from a location's records[]
+        // without it becoming its own pin (the Q3 M-collapse step folds a
+        // mic_subjects record into a sibling pin's cma_info when they share
+        // an address with a non-CMA peer, instead of drawing it as its own
+        // marker). That left the M badge counting records the map never
+        // draws — reported 2026-08-27 ("M badge: 1, zero M pins on screen").
+        // Recomputing from $locations — the exact same structure returned
+        // as `locations` below — means the badge and the drawn pins can
+        // never diverge again: one array, read twice, not two computations.
+        $layerCounts = array_fill_keys(array_keys($layerCounts), 0);
+        foreach ($locations as $loc) {
+            foreach ($loc['records'] as $r) {
+                $cat = $r['category'] ?? null;
+                if ($cat === null || !array_key_exists($cat, $layerCounts)) continue;
+                $layerCounts[$cat] += (int) ($r['aggregate_count'] ?? 1);
+            }
+        }
+
         return [
             'bounds'        => [
                 'north' => $req->north, 'south' => $req->south,
