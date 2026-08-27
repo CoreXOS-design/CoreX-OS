@@ -426,6 +426,96 @@ situation on both sides — safe to reconcile, not a destructive collision.
 
 ---
 
+## EXECUTION LOG — Part 2, 2026-08-27, landed on Staging
+
+**Commit:** `8db7fe4fc620aaeafee07319883debf3b575b1ea`, on top of `fe6c89998` (Part 1's tip),
+pushed to `origin/Staging`, fast-forward, no conflicts.
+
+**What this is, precisely:** not a history replay. QA1's own commit history for e-sign
+stays on QA1 permanently, per Johan's ruling. This is QA1's current end-state for every
+file the full 113-commit e-sign set touches (the 110 tagged `feat`/`fix(esign...)`, plus
+`618cab0a6` — untagged as esign but a hard dependency every proxy-signing commit needs —
+plus two more, `586722646`/`115e924e2`, that used `refactor(esign)`/`docs(esign)` tag
+prefixes a first-pass classification missed).
+
+**103 files touched. Proven complete, not assumed:**
+- 88 identical to QA1, taken wholesale.
+- 15 hand-merged because Staging had independent work on the same file since the fork —
+  named in the commit message, each with the reasoning.
+- 0 unexplained differences — checked file by file against QA1, twice (once caught 4
+  genuinely missing files and one migration-ordering bug; the second pass, after fixing
+  both, came back clean).
+
+**Two real defects found by actually running this, not by reading it:**
+1. `2026_08_25_000001_add_is_system_to_esign_recipient_presets.php` — a genuine
+   ordering bug **on QA1 itself**: dated before the migration that creates the table it
+   alters, so it fails on any clean migration run. Renamed to
+   `2026_08_26_000002z_...` here to unblock this move. **QA1's own copy is still broken —
+   assigned to cc5 to fix on QA1, not done here.**
+2. Four files missing from the first classification pass entirely (a contracts interface
+   + 3 migrations, including the one that creates `party_clause_text`) — a gap in this
+   lane's own process (two commits used non-standard tag prefixes), not a QA1 defect.
+   Found, copied, closed.
+
+**Migrations run against Staging's real database (`hfc_staging`), one file at a time,
+17 of 17 succeeded — none failed:**
+```
+2026_08_25_150000_add_registration_number_to_agency_service_providers_table      DONE
+2026_08_26_000001_add_capacity_and_proxy_to_contact_representatives              DONE
+2026_08_26_000002_create_esign_recipient_presets_table                           DONE
+2026_08_26_000002z_add_is_system_to_esign_recipient_presets (renamed, see above) DONE
+2026_08_26_000003_add_signer_caption_to_signature_requests                       DONE
+2026_08_27_000001_add_proxy_wording_to_esign_recipient_presets                   DONE
+2026_08_28_000001_add_entity_shape_to_contacts                                   DONE
+2026_08_28_000002_create_recipient_templates_table                               DONE
+2026_08_28_000003_add_party_clause_text_to_signature_requests                    DONE
+2026_08_29_000001_add_participation_flags_to_signature_requests                  DONE
+2026_08_29_000002_add_not_required_status_to_signature_requests                  DONE
+2026_08_29_000003_add_recipient_template_binding_to_signature_requests           DONE
+2026_08_29_000004_add_represented_contact_id_to_signature_requests               DONE
+2026_08_29_000008_add_supplier_firm_to_signature_requests_table                  DONE
+2026_08_29_000009_add_asserted_by_to_contact_representatives                     DONE
+2026_08_29_000011_add_supplier_firm_address_to_signature_requests_table          DONE
+2026_08_29_000012_add_signer_phone_and_address_to_signature_requests_table       DONE
+```
+One unrelated migration (`2026_08_30_000003_add_join_link_sent_at_to_webinar_registrations`,
+from Part 1's webinar feature) was also pending on Staging's database — never run here,
+left pending, flagged separately; it has nothing to do with e-sign.
+
+**Caches cleared** (view/route/config/app). **Mail config, WAHA config, and every queue
+worker left untouched**, exactly as instructed.
+
+**Verified on Staging by loading real pages under a real staff account (not Johan),
+reading data only — nothing submitted:**
+- A real entity contact with 3 representatives (`TEST RepSort Company CC`, id 17697) —
+  confirmed **both features rendering together in the same row**, with byte-level proof
+  (not a loose grep): the raw HTML contains the literal `title="Move up"`/`title="Move
+  down"` buttons with real, working form actions
+  (`/corex/contacts/17697/representatives/17698/move`), AND the capacity/proxy editor
+  (`name="capacity"` select with all 5 real options, `name="signs_as_proxy"` checkbox)
+  for every representative in the same row. An earlier check using the wrong marker (the
+  Laravel route *name* instead of the rendered URL) briefly read as a false failure —
+  re-verified against the actual rendered bytes before concluding anything, per instruction
+  not to guess at what "should" be there.
+- Supplier Directory — the address field (last night's work) and the Company Registration
+  Number field (tonight's lift) both present on the same form.
+- The e-sign wizard entry point and my-documents screen both load (200).
+- The two new settings screens (recipient-templates, e-sign recipient-presets) could
+  **not** be verified — the permission they require (`esign.settings`) is brand new
+  tonight and no Staging account has been granted it yet. Not granting it myself — that's
+  account modification, permanently off-limits. Needs a real admin action separately.
+
+**Cleanup, confirmed complete:**
+- Scratch database `esign_lift_verify_scratch` — dropped, confirmed gone.
+- Both scratch worktrees (`wt-esign-lift`, and the earlier `wt-esign-cherrypick-test` /
+  `wt-esign-synthetic` from the investigation phase) — removed, confirmed gone from
+  `git worktree list`.
+- Temp branches (`esign-synthetic-temp`, `main-ff-temp`) — confirmed gone.
+
+Live-testing, live, QA1, and every user account were untouched by this step.
+
+---
+
 ## Appendix — 28-commit snapshot, Staging not yet on live-testing (taken earlier tonight — see the moving-target note above; re-derive at execution time)
 
 ```
