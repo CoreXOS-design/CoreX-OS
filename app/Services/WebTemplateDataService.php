@@ -96,15 +96,17 @@ class WebTemplateDataService
         $hasSellerId = $this->hasField($templateId, 'seller_id_number');
         $hasBuyerId  = $this->hasField($templateId, 'buyer_id_number');
 
-        // Clean names — never append ID number to name fields
-        $lessorName  = trim(($lessor['first_name'] ?? '') . ' ' . ($lessor['last_name'] ?? '')) ?: ($lessor['name'] ?? '');
-        $lessor2Name = trim(($lessor2['first_name'] ?? '') . ' ' . ($lessor2['last_name'] ?? '')) ?: ($lessor2['name'] ?? '');
-        $lesseeName  = trim(($lessee['first_name'] ?? '') . ' ' . ($lessee['last_name'] ?? '')) ?: ($lessee['name'] ?? '');
-        $lessee2Name = trim(($lessee2['first_name'] ?? '') . ' ' . ($lessee2['last_name'] ?? '')) ?: ($lessee2['name'] ?? '');
-        $sellerName  = trim(($seller['first_name'] ?? '') . ' ' . ($seller['last_name'] ?? '')) ?: ($seller['name'] ?? '');
-        $seller2Name = trim(($seller2['first_name'] ?? '') . ' ' . ($seller2['last_name'] ?? '')) ?: ($seller2['name'] ?? '');
-        $buyerName   = trim(($buyer['first_name'] ?? '') . ' ' . ($buyer['last_name'] ?? '')) ?: ($buyer['name'] ?? '');
-        $buyer2Name  = trim(($buyer2['first_name'] ?? '') . ' ' . ($buyer2['last_name'] ?? '')) ?: ($buyer2['name'] ?? '');
+        // Clean names — never append ID number to name fields.
+        // resolvedPartyName() prefers a bound "Replace this party" clause
+        // over the raw name (fault B) — see its docblock.
+        $lessorName  = $this->resolvedPartyName($lessor, $recipients);
+        $lessor2Name = $this->resolvedPartyName($lessor2, $recipients);
+        $lesseeName  = $this->resolvedPartyName($lessee, $recipients);
+        $lessee2Name = $this->resolvedPartyName($lessee2, $recipients);
+        $sellerName  = $this->resolvedPartyName($seller, $recipients);
+        $seller2Name = $this->resolvedPartyName($seller2, $recipients);
+        $buyerName   = $this->resolvedPartyName($buyer, $recipients);
+        $buyer2Name  = $this->resolvedPartyName($buyer2, $recipients);
 
         // Property values
         $address    = $property['address'] ?? $property['title'] ?? '';
@@ -678,10 +680,18 @@ class WebTemplateDataService
 
     /**
      * Bug 1: resolve a single contact column across EVERY recipient of a role,
-     * joined with ' and ' — the exact join resolveFieldGroupValue uses (so a
-     * plain "Seller ID" field renders "3112 and 6789", consistent with the
-     * field-grouped name field). One recipient → single value, no separator.
-     * Zero matching recipients → '' (caller falls back as before).
+     * joined with Johan's join rule (joinPartiesWithAnd — comma between,
+     * "and" before the last) — the exact join resolveFieldGroupValue uses (so
+     * a plain "Seller ID" field renders "3112, 6789 and 9999", consistent
+     * with the field-grouped name field). One recipient → single value, no
+     * separator. Zero matching recipients → '' (caller falls back as before).
+     *
+     * excludeSubstituteOnlyRecipients() — same reason as resolveFieldGroupValue()
+     * below: a row that exists solely as another party's substitute signer
+     * (e.g. a deceased seller's executor) already appears inside that party's
+     * own resolved clause; without this exclusion every plain joined field
+     * (ID, address, phone) would ALSO double-count them as an independent
+     * third seller, not just the name clause.
      */
     private function resolveContactColumnAllRecipients(?string $contactType, string $column, array $recipients): string
     {
@@ -692,17 +702,129 @@ class WebTemplateDataService
         $role = $norm($role);
 
         $parts = [];
-        foreach ($recipients as $r) {
+        foreach ($this->excludeSubstituteOnlyRecipients($recipients) as $r) {
             if ($norm(strtolower($r['role'] ?? '')) !== $role) {
                 continue;
             }
-            $val = trim((string) $this->resolveContactFromKey($column, $r));
+            $val = trim((string) $this->resolveContactFromKey($column, $r, $recipients));
             if ($val !== '') {
                 $parts[] = $val;
             }
         }
 
-        return implode(' and ', $parts);
+        return $this->joinPartiesWithAnd($parts);
+    }
+
+    /**
+     * Johan, 2026-08-25 (cc1's finding on 49d8de43b) — a recipient promoted
+     * to an ordinary SignatureRequest solely so a deceased party's slot
+     * binding has someone real to point at (ESignWizardController's
+     * bindSlotToContact(), wizard.blade.php) already appears — by name and
+     * full ID — INSIDE the party they represent's own resolved clause
+     * ("Late Estate of X herein represented by Y"). Listing them again in a
+     * role's plain "every recipient" join names the same person twice: once
+     * correctly as the representative, once more as though they were an
+     * independent co-party. Display-only — this never touches the
+     * recipients array itself, so the promoted row still gets its own real
+     * SignatureRequest and signing link; it is excluded only from the
+     * VIEWS that enumerate "every {role}" for display.
+     *
+     * 2026-08-26 fix — this used to trust `_deceased_substitute_for`, a flag
+     * wizard.blade.php's JavaScript stamps onto a row only when an agent
+     * goes through the "Replace this party" picker. The server never
+     * verified it was actually present, so a document built the way cc1
+     * (and this audit's own real endpoint tests) build one — supplying the
+     * recipients array directly rather than clicking through that specific
+     * UI step — carried no such flag, and the exclusion silently never
+     * fired. Same underlying fact, tracked two ways: the `_slot_bindings`
+     * on the DECEASED party's own row already names this recipient, by
+     * `_recipient_local_key`, as their bound executor — the exact data
+     * assertDeceasedRecipientsHaveSubstituteSigner() already walks to prove
+     * a substitute exists at all. Deriving the answer from that same,
+     * authoritative binding — instead of a second, unverified flag — means
+     * there is only one place "is this recipient someone else's substitute"
+     * can ever be answered, and it can't go stale or go missing.
+     *
+     * @param  list<array<string,mixed>>  $recipients
+     * @return list<array<string,mixed>>
+     */
+    private function excludeSubstituteOnlyRecipients(array $recipients): array
+    {
+        $boundAsSubstitute = [];
+        foreach ($recipients as $r) {
+            $bindings = $r['_slot_bindings'] ?? null;
+            if (!is_array($bindings)) {
+                continue;
+            }
+            foreach ($bindings as $binding) {
+                if (!is_array($binding) || ($binding['type'] ?? null) !== 'recipient') {
+                    continue;
+                }
+                $boundKey = $binding['recipient_local_key'] ?? null;
+                if ($boundKey !== null) {
+                    $boundAsSubstitute[$boundKey] = true;
+                }
+            }
+        }
+
+        return array_values(array_filter(
+            $recipients,
+            function (array $r) use ($boundAsSubstitute) {
+                if (!empty($r['_deceased_substitute_for'])) {
+                    return false;
+                }
+                $ownKey = $r['_recipient_local_key'] ?? null;
+                return $ownKey === null || empty($boundAsSubstitute[$ownKey]);
+            }
+        ));
+    }
+
+    /**
+     * Johan's join rule (2026-08-24, per RecipientTemplate.php's own
+     * .ai history): comma between, "and" before the last one. Plain
+     * `implode(' and', ...)` (this function's prior body, and
+     * resolveFieldGroupValue()'s) reads "A and B and C" for 3+ items —
+     * wrong per spec, and exactly what cc1 flagged in the rendered body.
+     * Self-contained here rather than calling EsignRecipientPreset's
+     * private equivalent (a different file, not touched by this change).
+     *
+     * Johan, 2026-08-26 (Anine/Piet/Andre flow) — a resolved multi-party
+     * clause ("Late Estate of Anine ... herein represented by Piet
+     * Begrafnis (ID: ...)") already ends in its OWN "represented by"
+     * phrase. Joining the next seller with the bare word "and" — the
+     * plain-name rule above — reads as if that next seller is ALSO a
+     * representative in the same chain ("...represented by Piet
+     * Begrafnis and Andre Roets"), which is exactly the fault Johan
+     * reported: "Andre Roets should not be in that clause at all." $isClause
+     * (parallel to $items, from hasResolvedPartyClause()) marks which
+     * entries are such a clause. Whenever any are, every item is
+     * separated with "; " instead of ", " — a plain comma-and-"and" list
+     * reads as one continuous enumeration; semicolons give each party,
+     * clause or plain name, its own clearly bounded sentence segment.
+     */
+    private function joinPartiesWithAnd(array $items, array $isClause = []): string
+    {
+        $filtered = [];
+        $filteredIsClause = [];
+        foreach ($items as $i => $item) {
+            if (trim((string) $item) === '') {
+                continue;
+            }
+            $filtered[] = $item;
+            $filteredIsClause[] = $isClause[$i] ?? false;
+        }
+        if (count($filtered) === 0) {
+            return '';
+        }
+        if (count($filtered) === 1) {
+            return $filtered[0];
+        }
+
+        $last = array_pop($filtered);
+        $hasClause = in_array(true, $filteredIsClause, true);
+        $separator = $hasClause ? '; ' : ', ';
+
+        return implode($separator, $filtered) . ($hasClause ? '; and ' : ' and ') . $last;
     }
 
     /**
@@ -743,6 +865,86 @@ class WebTemplateDataService
             'expiry_date'        => $details['expiry_date'] ?? $details['mandate_expiry'] ?? '',
             default              => $property[$attr] ?? '',
         };
+    }
+
+    /**
+     * Johan, 2026-08-24 (fault B) — "the resolved clause must appear
+     * EVERYWHERE the party appears, from the moment it's set... resolve
+     * once, render everywhere." This is that one resolution, called by
+     * every place in this service that would otherwise build a party's
+     * plain first+last name — the wizard preview (steps 3-5) and the final
+     * generated document body both merge through this same service, so
+     * fixing it here reaches both without either re-deriving it.
+     *
+     * Mirrors RoleBlockExpansionService::renderEntityParty()'s "snapshot
+     * first" contract but for the pre-generation case: no SignatureRequest
+     * exists yet at wizard time, so there is nothing frozen to read —
+     * RecipientTemplate::resolveBoundTextFromArray() resolves live against
+     * the wizard's own in-memory recipients array instead. A dangling slot
+     * (still mid-edit) falls back to the raw name rather than breaking the
+     * preview; only generation-time resolution (ESignWizardController) hard
+     * -fails on that.
+     *
+     * Fault 3 (Johan, 2026-08-24) — a SECOND representation system exists
+     * alongside RecipientTemplate: an entity/company Contact expanded by
+     * ESignWizardController::expandEntityRecipients() into its natural-
+     * person representative(s), each row already carrying the resolved
+     * "entity, herein represented by rep (capacity)" clause as
+     * _party_clause_text — the SAME value the recipient panel shows
+     * (searchContacts()'s `representation`). That resolution is checked
+     * FIRST, before falling through to raw name / RecipientTemplate: an
+     * expanded row's first_name/last_name are deliberately the
+     * REPRESENTATIVE's own (needed elsewhere — signing, notification), so
+     * building a display name from them here would render the
+     * representative as if signing in their own right and drop the company
+     * entirely, exactly the bug this fixes.
+     */
+    private function resolvedPartyName(array $recipient, array $allRecipients): string
+    {
+        $rawName = trim(($recipient['first_name'] ?? '') . ' ' . ($recipient['last_name'] ?? ''));
+        $rawName = $rawName !== '' ? $rawName : (string) ($recipient['name'] ?? '');
+
+        $entityClause = trim((string) ($recipient['_party_clause_text'] ?? ''));
+        if ($entityClause !== '') {
+            return $entityClause;
+        }
+
+        $templateId = $recipient['_recipient_template_id'] ?? null;
+        $bindings   = $recipient['_slot_bindings'] ?? null;
+        if (!$templateId || !is_array($bindings) || empty($bindings)) {
+            return $rawName;
+        }
+
+        $template = \App\Models\RecipientTemplate::find($templateId);
+        if (!$template) {
+            return $rawName;
+        }
+
+        try {
+            return $template->resolveBoundTextFromArray($recipient, $allRecipients, $bindings);
+        } catch (\App\Exceptions\DanglingSlotBindingException $e) {
+            return $rawName;
+        }
+    }
+
+    /**
+     * True when resolvedPartyName() will return an already-composed clause
+     * (entity representation or a bound RecipientTemplate) rather than a
+     * bare name. resolveFieldGroupValue() uses this to skip appending its
+     * own trailing "(ID: xxx)" — a resolved clause is a complete sentence
+     * (matching the recipient panel's own reference text, which carries no
+     * ID number), not a name meant to be decorated further.
+     */
+    private function hasResolvedPartyClause(array $recipient): bool
+    {
+        if (trim((string) ($recipient['_party_clause_text'] ?? '')) !== '') {
+            return true;
+        }
+
+        $templateId = $recipient['_recipient_template_id'] ?? null;
+        $bindings   = $recipient['_slot_bindings'] ?? null;
+
+        return (bool) $templateId && is_array($bindings) && !empty($bindings);
     }
 
     /**
@@ -894,13 +1096,13 @@ class WebTemplateDataService
         return $recipients;
     }
 
-    private function resolveContactFromKey(string $attr, array $contact)
+    private function resolveContactFromKey(string $attr, array $contact, array $allRecipients = [])
     {
         return match ($attr) {
             'surname', 'last_name'    => $contact['last_name'] ?? '',
             'first_name'              => $contact['first_name'] ?? '',
             'full_name', 'name', 'full_names', 'first_name+last_name'
-                => trim(($contact['first_name'] ?? '') . ' ' . ($contact['last_name'] ?? '')) ?: ($contact['name'] ?? ''),
+                => $this->resolvedPartyName($contact, $allRecipients),
             'id_number'               => $contact['id_number'] ?? '',
             'email'                   => $contact['email'] ?? '',
             'phone', 'cell', 'tel'    => $contact['cell'] ?? $contact['phone'] ?? '',
@@ -1100,10 +1302,16 @@ class WebTemplateDataService
 
         if (empty($contactType) || empty($memberColumns)) return '';
 
-        // Collect ALL recipients matching this role (supports multiple per role)
+        // Collect ALL recipients matching this role (supports multiple per role) —
+        // EXCEPT a recipient that exists solely as another party's substitute
+        // signer (Johan, 2026-08-25, cc1's finding). That row already appears,
+        // in full, inside the party they represent's own resolved clause below
+        // (resolvedPartyName() reads the UNFILTERED $recipients to find them by
+        // local key); listing them again here as a plain party would name the
+        // same person twice — see excludeSubstituteOnlyRecipients().
         $roleLookup = strtolower($contactType);
         $contacts = [];
-        foreach ($recipients as $r) {
+        foreach ($this->excludeSubstituteOnlyRecipients($recipients) as $r) {
             if (strtolower($r['role'] ?? '') === $roleLookup) {
                 $contacts[] = $r;
             }
@@ -1111,12 +1319,24 @@ class WebTemplateDataService
 
         if (empty($contacts)) return '';
 
-        // Format each contact: "FirstName LastName (ID: xxx)"
+        // Format each contact: "FirstName LastName (ID: xxx)" — or, when a
+        // "Replace this party" clause is bound (fault B), the resolved
+        // clause text in place of the raw name. A field group's member
+        // columns are per-column (first_name, last_name, ...), so a plain
+        // concatenation would silently re-derive the raw name and skip the
+        // same resolution resolveContactFromKey() already applies; route
+        // any name-ish member column through resolvedPartyName() instead.
         $displayParts = [];
+        $isClauseFlags = [];
         foreach ($contacts as $contact) {
             $nameParts = [];
             $idNumber = '';
+            $hasNameColumn = false;
             foreach ($memberColumns as $col) {
+                if (in_array($col, ['first_name', 'last_name', 'full_name', 'name'], true)) {
+                    $hasNameColumn = true;
+                    continue;
+                }
                 $val = $contact[$col] ?? '';
                 if (empty($val)) continue;
                 if ($col === 'id_number') {
@@ -1125,16 +1345,18 @@ class WebTemplateDataService
                     $nameParts[] = $val;
                 }
             }
-            $line = implode(' ', $nameParts);
-            if (!empty($idNumber)) {
+            $isClause = $this->hasResolvedPartyClause($contact);
+            $line = $hasNameColumn ? $this->resolvedPartyName($contact, $recipients) : implode(' ', $nameParts);
+            if (!empty($idNumber) && !$isClause) {
                 $line .= ' (ID: ' . $idNumber . ')';
             }
             if (!empty(trim($line))) {
                 $displayParts[] = trim($line);
+                $isClauseFlags[] = $isClause;
             }
         }
 
-        return implode(' and ', $displayParts);
+        return $this->joinPartiesWithAnd($displayParts, $isClauseFlags);
     }
 
     /**
@@ -1173,13 +1395,13 @@ class WebTemplateDataService
         $seller2 = $secondContactByRole['seller'] ?? [];
         $buyer  = $contactsByRole['buyer'] ?? [];
 
-        $lessorName  = trim(($lessor['first_name'] ?? '') . ' ' . ($lessor['last_name'] ?? '')) ?: ($lessor['name'] ?? '');
-        $lessor2Name = trim(($lessor2['first_name'] ?? '') . ' ' . ($lessor2['last_name'] ?? '')) ?: ($lessor2['name'] ?? '');
-        $lesseeName  = trim(($lessee['first_name'] ?? '') . ' ' . ($lessee['last_name'] ?? '')) ?: ($lessee['name'] ?? '');
-        $lessee2Name = trim(($lessee2['first_name'] ?? '') . ' ' . ($lessee2['last_name'] ?? '')) ?: ($lessee2['name'] ?? '');
-        $sellerName  = trim(($seller['first_name'] ?? '') . ' ' . ($seller['last_name'] ?? '')) ?: ($seller['name'] ?? '');
-        $seller2Name = trim(($seller2['first_name'] ?? '') . ' ' . ($seller2['last_name'] ?? '')) ?: ($seller2['name'] ?? '');
-        $buyerName   = trim(($buyer['first_name'] ?? '') . ' ' . ($buyer['last_name'] ?? '')) ?: ($buyer['name'] ?? '');
+        $lessorName  = $this->resolvedPartyName($lessor, $recipients);
+        $lessor2Name = $this->resolvedPartyName($lessor2, $recipients);
+        $lesseeName  = $this->resolvedPartyName($lessee, $recipients);
+        $lessee2Name = $this->resolvedPartyName($lessee2, $recipients);
+        $sellerName  = $this->resolvedPartyName($seller, $recipients);
+        $seller2Name = $this->resolvedPartyName($seller2, $recipients);
+        $buyerName   = $this->resolvedPartyName($buyer, $recipients);
         $suburb     = $property['suburb'] ?? $property['town'] ?? $property['city'] ?? ''; // B1
         $address    = $property['address'] ?? $property['title'] ?? '';
         $suburb     = $property['suburb'] ?? '';

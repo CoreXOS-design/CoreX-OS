@@ -43,11 +43,23 @@ class ContactRepresentative extends Pivot
         'representative_contact_id',
         'is_primary',
         'sort_order',
+        'capacity',
+        'signs_as_proxy',
+        'asserted_by_user_id',
     ];
 
     protected $casts = [
-        'is_primary' => 'boolean',
+        'is_primary'     => 'boolean',
+        'signs_as_proxy' => 'boolean',
     ];
+
+    /**
+     * Fixed capacity vocabulary for v1 (Johan: agency-editable later). 'Other'
+     * is the free-form escape hatch. The label is stored verbatim in
+     * contact_representatives.capacity and rendered in the esign "herein
+     * represented by {rep} ({capacity})" phrasing.
+     */
+    public const CAPACITIES = ['Director', 'Executor', 'Trustee', 'Member', 'Other'];
 
     public function entityContact(): BelongsTo
     {

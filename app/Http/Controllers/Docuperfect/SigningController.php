@@ -45,21 +45,26 @@ class SigningController extends Controller
             ->with(['template.document', 'template.markers.signatures', 'template.creator'])
             ->firstOrFail();
 
-        // Expired
-        if ($signingRequest->isSigningBlocked()) {
-            return view('docuperfect.signatures.external.expired', [
-                'request' => $signingRequest,
-            ]);
-        }
-
-        // Already completed — show enhanced summary
-        // Phase 1B.7 (FIX H) — BUT bypass this early-return when the
-        // parent template is in an amendment-initialing cascade. The
-        // recipient previously signed; an amendment was raised and the
-        // agent approved it; the recipient must now initial the changed
-        // regions. Falling through to the show() body lets the existing
-        // showInitialingView() switch (Phase 1B.5) route them into the
-        // focused initialing view.
+        // Already completed — show enhanced summary.
+        // Johan, 2026-08-24 — checked BEFORE isSigningBlocked() now (was
+        // after). A recipient's own completion is the most specific, most
+        // personal truth about their link and must win regardless of what
+        // happened to the token or the ceremony afterwards: the request's
+        // own token TTL lapsing later (the common case — anyone reopening a
+        // signed link weeks on), or the agent cancelling the wider ceremony
+        // after this recipient's own part was already done (cancelDocument()
+        // only cancels the STILL-PENDING requests, so an individually-
+        // completed one keeps status=completed even once its template is
+        // cancelled). Either way: "you already signed this," never
+        // "expired" — an already-signed recipient is not told anything that
+        // could read as an invitation to start again.
+        //
+        // Phase 1B.7 (FIX H) — bypassed when the parent template is in an
+        // amendment-initialing cascade. The recipient previously signed; an
+        // amendment was raised and the agent approved it; the recipient must
+        // now initial the changed regions. Falling through to the show()
+        // body lets the existing showInitialingView() switch (Phase 1B.5)
+        // route them into the focused initialing view.
         if ($signingRequest->status === SignatureRequest::STATUS_COMPLETED
             && optional($signingRequest->template)->status !== SignatureTemplate::STATUS_AMENDMENT_INITIALING
         ) {
@@ -86,10 +91,22 @@ class SigningController extends Controller
 
         // Declined
         if ($signingRequest->status === SignatureRequest::STATUS_DECLINED) {
-            return view('docuperfect.signatures.external.expired', [
-                'request' => $signingRequest,
-                'declined' => true,
-            ]);
+            return $this->renderUnavailable($signingRequest, 'declined');
+        }
+
+        // cc6's public-link audit, escalated by Johan 2026-08-24 — cancelled,
+        // lapsed (legal deadline passed) and expired (14-day link TTL) all
+        // route to the SAME no-identity-leak page now. isSigningBlocked()
+        // covers all three (see its docblock); a cancelled ceremony gets its
+        // own reason string so the recipient is told plainly rather than
+        // generically "expired." Every write action past this point
+        // (verify/consent/capture/complete/...) — and every OTHER entry
+        // point that can land here directly (gateway/showConsent/
+        // wetInkPortal/amendmentReview, a bookmarked mid-flow URL) — already
+        // gates on this SAME isSigningBlocked() call, so a cancelled
+        // ceremony cannot be reached from anywhere, not just this one route.
+        if ($signingRequest->isSigningBlocked()) {
+            return $this->renderUnavailable($signingRequest, $this->unavailableReason($signingRequest));
         }
 
         // Not yet their turn — sequential signing gate
@@ -670,7 +687,11 @@ class SigningController extends Controller
             'reacceptanceMode' => $reacceptanceMode,       // AT-373 inc5 — second mandatory ECT-Act tick
             'reacceptanceReason' => $reacceptanceReason,   // AT-373 inc5 — why the amendment was rejected
             'currentRecipient' => $signingRequest,        // B1 — alias for the loop-engine downstream layers
-            'currentRoleIdentity' => $signingRequest->role_identity,  // B1 — '{party_role}_{role_index}'
+            // Johan, 2026-08-27 — attestationIdentity(), not role_identity: the
+            // client matches this against data-recipient-identity, which is
+            // DOM-position-compacted (excludes deceased same-role siblings),
+            // not raw role_index. See SignatureRequest::attestationIdentity().
+            'currentRoleIdentity' => $signingRequest->attestationIdentity(),
             'template' => $template,
             'document' => $document,
             'docTemplate' => $docTemplate,                // B3 info panel — isSalesDocument() / role labelling
@@ -779,9 +800,7 @@ class SigningController extends Controller
             ->firstOrFail();
 
         if ($signingRequest->isSigningBlocked()) {
-            return view('docuperfect.signatures.external.expired', [
-                'request' => $signingRequest,
-            ]);
+            return $this->renderUnavailable($signingRequest, $this->unavailableReason($signingRequest));
         }
 
         // Already completed — redirect to already-signed
@@ -821,9 +840,7 @@ class SigningController extends Controller
             ->firstOrFail();
 
         if ($signingRequest->isSigningBlocked()) {
-            return view('docuperfect.signatures.external.expired', [
-                'request' => $signingRequest,
-            ]);
+            return $this->renderUnavailable($signingRequest, $this->unavailableReason($signingRequest));
         }
 
         // Must be verified first
@@ -1049,6 +1066,54 @@ class SigningController extends Controller
     }
 
     /**
+     * Shared by every isSigningBlocked() render site — see
+     * renderUnavailable(). authorityRevoked() checked FIRST — cc4's
+     * finding, cc2 2026-08-26: this recipient's own relationship having
+     * changed is a specific, personal fact about THEIR link, distinct from
+     * the ceremony being cancelled or lapsed generally, and deserves its
+     * own clear wording — "your authority has changed," not a generic
+     * "no longer available" that reads like a broken page.
+     */
+    private function unavailableReason(SignatureRequest $signingRequest): string
+    {
+        if ($signingRequest->authorityRevoked()) {
+            return 'authority_changed';
+        }
+
+        return optional($signingRequest->template)->status === SignatureTemplate::STATUS_CANCELLED
+            ? 'cancelled'
+            : 'expired';
+    }
+
+    /**
+     * cc6's public-link audit, escalated by Johan 2026-08-24 — the ONE dead-
+     * token page for cancelled / declined / expired-or-lapsed, copying the
+     * pattern the rest of the product already converged on
+     * (PublicPresentationController::renderUnavailable(),
+     * SharedMatchController): a reason-driven page with agency branding and
+     * a route back to the agent, and nothing else. Deliberately does NOT
+     * pass the document, property, or any party detail to the view — a
+     * signing link goes to a named individual about a specific contract and
+     * gets forwarded, so a stranger who finds a dead one must learn nothing
+     * from this page beyond "get in touch with the agency."
+     */
+    private function renderUnavailable(SignatureRequest $signingRequest, string $reason)
+    {
+        $branding = $this->getAgencyBranding($signingRequest);
+        $creator = $signingRequest->template->creator ?? null;
+
+        return response()->view('docuperfect.signatures.external.unavailable', [
+            'reason' => $reason,
+            'agentName' => $creator->name ?? null,
+            'agentEmail' => $creator->email ?? null,
+            'agentPhone' => $creator->phone ?? $creator->cell ?? null,
+            'agencyName' => $branding['name'],
+            'agencyLogo' => $branding['logo'],
+            'agencyColor' => $branding['color'],
+        ], 410);
+    }
+
+    /**
      * Parse user agent into structured device info.
      */
     private function parseDeviceInfo(string $ua): array
@@ -1153,9 +1218,7 @@ class SigningController extends Controller
             ->firstOrFail();
 
         if ($signingRequest->isSigningBlocked()) {
-            return view('docuperfect.signatures.external.expired', [
-                'request' => $signingRequest,
-            ]);
+            return $this->renderUnavailable($signingRequest, $this->unavailableReason($signingRequest));
         }
 
         if ($signingRequest->status === SignatureRequest::STATUS_COMPLETED) {
@@ -1487,7 +1550,10 @@ class SigningController extends Controller
         array $fieldMappingsRaw,
     ): array {
         $partyRole       = strtolower((string) $signingRequest->party_role);
-        $viewerIdentity  = strtolower((string) $signingRequest->role_identity);
+        // Johan, 2026-08-27 — attestationIdentity(), not role_identity: this
+        // is matched against the field's data-recipient-identity, which is
+        // DOM-position-compacted. See SignatureRequest::attestationIdentity().
+        $viewerIdentity  = strtolower($signingRequest->attestationIdentity());
         $isAgent         = $partyRole === 'agent';
 
         $roleToEditableBy = [
@@ -3966,9 +4032,7 @@ CSS;
             ->firstOrFail();
 
         if ($signingRequest->isSigningBlocked()) {
-            return view('docuperfect.signatures.external.expired', [
-                'request' => $signingRequest,
-            ]);
+            return $this->renderUnavailable($signingRequest, $this->unavailableReason($signingRequest));
         }
 
         $template = $signingRequest->template;

@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace App\Services\Docuperfect;
 
+use App\Exceptions\UnresolvableRepresentativeChainException;
 use App\Models\Contact;
+use App\Models\Docuperfect\EsignRecipientPreset;
 use App\Models\Docuperfect\SignatureRequest;
 use App\Models\Docuperfect\Template;
 use DOMDocument;
@@ -339,7 +341,26 @@ final class RoleBlockExpansionService
             return $this->stampIdentities($html, $recipients, $template?->id);
         }
         $xpath = new DOMXPath($dom);
-        $recipsByRole   = $this->groupRecipientsByRole($recipients);
+        // Johan, 2026-08-27 (Elize/conveyancing ruling, corrected same day —
+        // "the Domicilium section is built from the signing parties" was
+        // WRONG and nearly broke the proxy flow, which lists all three
+        // representatives despite only one signing). The real rule is NOT
+        // about signing at all: Domicilium lists every LIVING PARTY to the
+        // agreement. A proxy's un-chosen co-representatives are still
+        // parties (any of them could have been the one nominated to sign)
+        // so they still get their own entry. A deceased person is not a
+        // party at all — the ESTATE is, acting through the executor — so
+        // the deceased is named ONLY in the clause at the top ("Late Estate
+        // of X, herein represented by Y") and gets no Domicilium entry.
+        // is_deceased is therefore the ONLY predicate this excludes on —
+        // never is_proxy/signing status. Excluding here — the one place
+        // that builds the per-role recipient set every data-role-block
+        // segment loops over — means every consumer (address, contact, and
+        // the legacy clustering path below) agrees without a special case
+        // bolted onto any one of them.
+        $recipsByRole   = $this->groupRecipientsByRole(
+            $recipients->reject(fn (SignatureRequest $r) => (bool) $r->is_deceased)
+        );
         $isSales        = $template?->isSalesDocument() ?? true;
         $structuralLog  = [];
 
@@ -433,8 +454,46 @@ final class RoleBlockExpansionService
         // done and signed by the Seller/s (A), (B) … on this __ day of __ at __")
         // into ONE complete block PER recipient. Runs after role-block expansion,
         // fail-safe (leaves the block untouched on any anomaly).
+        //
+        // Johan, 2026-08-26 (escalation of cc5's 547863fbb) — $recipients here
+        // may now carry entity-representative rows added purely for the
+        // address/domicilium DISPLAY looping above (CanonicalDocumentRenderer::
+        // expandRepresentedEntitiesForDisplay(), same shape as the wizard
+        // preview's transient-request rows) — never for signing. A place TO
+        // SIGN is not a display of the party (Flow 330 Finding A — same rule
+        // ESignWizardController::filterToSigningParticipants() already applies
+        // to the wizard's own array-shaped recipients): a non-signing
+        // representative must never get her own blank, unexecutable "Thus
+        // done and signed" line.
+        //
+        // Deliberately NOT SignatureRequest::isSigningParticipant() — that
+        // predicate's "does this role already have a proxy" check queries the
+        // DB by signature_template_id, which only ever finds a PERSISTED
+        // sibling row. Both the display rows added above and the wizard
+        // preview's own transient rows (buildTransientSignatureRequestsForPreview())
+        // are unsaved, so a DB lookup would silently find nothing and treat
+        // every representative as a signer. Checking the IN-MEMORY collection
+        // this method actually received — the array-shape twin of
+        // filterToSigningParticipants() — works identically whether the rows
+        // are real, transient, or synthetic-for-display.
         try {
-            $this->expandAttestationBlocksPerRecipient($dom, $recipients);
+            $proxyRoles = [];
+            foreach ($recipients as $r) {
+                if (! empty($r->is_proxy)) {
+                    $proxyRoles[strtolower((string) $r->party_role)] = true;
+                }
+            }
+            $signingOnly = $recipients->filter(function (SignatureRequest $r) use ($proxyRoles) {
+                if (! empty($r->is_deceased)) {
+                    return false;
+                }
+                $role = strtolower((string) $r->party_role);
+                if (! empty($proxyRoles[$role]) && empty($r->is_proxy)) {
+                    return false; // collapsed by a proxy elsewhere in this same role group
+                }
+                return true;
+            })->values();
+            $this->expandAttestationBlocksPerRecipient($dom, $signingOnly);
         } catch (\Throwable $e) {
             Log::warning('RoleBlockExpansionService: attestation split failed (non-fatal, block left shared)', [
                 'template_id' => $template?->id,
@@ -474,7 +533,16 @@ final class RoleBlockExpansionService
         if ($blocks === false || $blocks->length === 0) {
             return;
         }
-        $byRole = $this->groupRecipientsByRole($recipients);
+        // Johan, 2026-08-26 (Anine/Elize flow) — a deceased party is named in
+        // the document body (unaffected: that uses the OUTER $recipsByRole
+        // grouping in expandWithLooping(), a separate call) but never signs
+        // and must never get an attestation block of her own — an empty
+        // "Thus done and signed by the Seller at ___" line is exactly what a
+        // conveyancer rejects. Filtered ONLY for this local grouping, not the
+        // shared groupRecipientsByRole() method itself.
+        $byRole = $this->groupRecipientsByRole(
+            $recipients->reject(fn (SignatureRequest $r) => (bool) $r->is_deceased)
+        );
 
         // Snapshot to a plain array — we mutate the DOM while iterating.
         $blockEls = [];
@@ -899,7 +967,11 @@ final class RoleBlockExpansionService
         }
 
         $viewerRole     = strtolower((string) ($viewer->party_role ?? ''));
-        $viewerIdentity = strtolower((string) ($viewer->role_identity ?? ''));
+        // Johan, 2026-08-27 — attestationIdentity(), not role_identity: this
+        // is matched against data-recipient-identity, which is DOM-position-
+        // compacted (excludes deceased same-role siblings). See
+        // SignatureRequest::attestationIdentity().
+        $viewerIdentity = strtolower($viewer->attestationIdentity());
         $isAgent        = $viewerRole === 'agent';
         $editableByRole = self::CANONICAL_FOR_VIEWER[$viewerRole] ?? $viewerRole;
 
@@ -1395,8 +1467,28 @@ final class RoleBlockExpansionService
             }
         }
         // Sort each bucket by role_index so duplication respects ordering.
+        //
+        // Elize's rule (conveyancer, via Johan/conductor, 2026-08-27) — on the
+        // seller clause, the living party ALWAYS displays first, then the
+        // deceased. This is a legal convention, not a per-document
+        // preference: an agency should not have to remember it and should
+        // not be able to get it wrong by accident. Applied HERE — the one
+        // grouping every role-block clause/Domicilium loop (expandViaContract()
+        // via expandWithLooping()) reads from, for both the canonical
+        // compose() pipeline and its wizard-preview twin (templatePages()) —
+        // so every screen inherits the same order without composing its own.
+        // Living-vs-deceased is the PRIMARY key; role_index (the agent's own
+        // order among recipients who are equally living, or equally
+        // deceased) is preserved as the secondary key, so this only ever
+        // moves a deceased party past a living one, never re-orders two
+        // living parties against each other or two deceased parties against
+        // each other.
         foreach ($byRole as $role => $col) {
-            $byRole[$role] = $col->sortBy(fn(SignatureRequest $r) => $r->role_index ?? 1)->values();
+            $byRole[$role] = $col->sortBy(fn(SignatureRequest $r) => sprintf(
+                '%d_%05d',
+                ((bool) ($r->is_deceased ?? false)) ? 1 : 0,
+                (int) ($r->role_index ?? 1),
+            ))->values();
         }
         return $byRole;
     }
@@ -1828,6 +1920,7 @@ final class RoleBlockExpansionService
         string $role,
         int $instanceIndex,
         ?Contact $contact,
+        ?SignatureRequest $recipient = null,
     ): void {
         $origName = $fieldNode->getAttribute('data-field');
         // Strip any pre-existing __r{n} suffix (cloned nodes carry the
@@ -1842,7 +1935,7 @@ final class RoleBlockExpansionService
         $fieldNode->setAttribute('data-recipient-identity', $role . '_' . $instanceIndex);
         $fieldNode->setAttribute('data-role-token', $role);
         if ($contact !== null && $parsed['sub_name'] !== null) {
-            $value = $this->resolveContactValue($contact, $parsed['sub_name']);
+            $value = $this->resolveContactValue($contact, $parsed['sub_name'], $recipient);
             if ($value !== null) {
                 $this->replaceTextContent($fieldNode, $value);
             }
@@ -2016,23 +2109,119 @@ final class RoleBlockExpansionService
             // Stamp identity.
             $f->setAttribute('data-recipient-identity', $role . '_' . $instanceIndex);
             $f->setAttribute('data-role-token', $role);
-            // Pre-fill from contact if mapping recognised.
-            if ($contact !== null && $parsed['sub_name'] !== null) {
-                $value = $this->resolveContactValue($contact, $parsed['sub_name']);
-                // AT-292 — headline couple's-mandate fix. When the matched
-                // Contact has no id_number, fall back to the ID the signer
-                // typed in the wizard (persisted on the SignatureRequest) so
-                // the second seller still renders their ID even on historical
-                // data where the span was never baked with it.
+            // Pre-fill if this field's mapping is recognised.
+            if ($parsed['sub_name'] !== null) {
+                // cc3, 2026-08-26 (cc5's find) — the $contact !== null guard this
+                // used to sit behind meant a recipient with NO linked Contact at
+                // all (a supplier-sourced representative like an executor —
+                // _contact_id is null, resolveContact() returns null) skipped
+                // this entire block for every field, so the "always write"
+                // fix below never ran for them: their clone kept whatever the
+                // un-cloned source held, which — per the comment this replaces —
+                // is WebTemplateDataService::resolveContactColumnAllRecipients()'s
+                // JOIN of every OTHER recipient sharing the role. On real data
+                // this printed the executor's Domicilium as the OTHER TWO
+                // sellers' addresses concatenated with "and" — a legal document
+                // stating one party's address as two other people's addresses
+                // stuck together. Resolve from the Contact when one exists;
+                // otherwise fall through to this recipient's OWN SignatureRequest
+                // fields (name/email/ID/address/phone — see the fallback
+                // blocks below) rather than another party's value.
+                $value = $contact !== null
+                    ? $this->resolveContactValue($contact, $parsed['sub_name'], $recipient)
+                    : null;
+                // AT-292 — headline couple's-mandate fix, and now also the
+                // no-Contact-at-all case above. When there is no id_number to
+                // read (Contact has none, or there is no Contact), fall back
+                // to the ID the signer typed in the wizard (persisted on THIS
+                // recipient's own SignatureRequest.signer_id_number) so this
+                // party still renders their own ID rather than nothing.
                 if ($value === null
                     && $recipient !== null
                     && in_array($parsed['sub_name'], ['id', 'id_number'], true)
                 ) {
                     $value = $this->blankToNull($recipient->signer_id_number);
                 }
-                if ($value !== null) {
-                    $this->replaceTextContent($f, $value);
+                // Same reasoning for email and name — SignatureRequest carries
+                // its own signer_email/signer_name regardless of whether a
+                // Contact is linked; a Contact's version wins when present
+                // (already resolved above), this is only the no-Contact case.
+                if ($value === null && $recipient !== null && $parsed['sub_name'] === 'email') {
+                    $value = $this->blankToNull($recipient->signer_email);
                 }
+                if ($value === null
+                    && $recipient !== null
+                    && in_array($parsed['sub_name'], ['name', 'full_name', 'first_name+last_name'], true)
+                ) {
+                    $value = $this->blankToNull($recipient->signer_name);
+                }
+                // Johan, 2026-08-27 — cc4 gave suppliers a real, firm-level
+                // business address (AgencyServiceProvider->address, same
+                // plain-string shape as Contact->address, 1407ef455). A
+                // supplier-sourced recipient (an executor standing in from the
+                // supplier directory) has no linked Contact, so this domicilium
+                // block had NO address source at all — "steps screen missing
+                // address" / "typed value doesn't carry to agent signing" was
+                // this gap, not a separate plumbing bug. supplier_firm_address
+                // is frozen onto the recipient's own SignatureRequest row at
+                // generation time (stampSupplierFirmIfAny(), same contract as
+                // supplier_firm_name/supplier_firm_registration_number) — read
+                // it back here exactly like the no-Contact id/email/name
+                // fallbacks above, never a second resolution path.
+                if ($value === null
+                    && $recipient !== null
+                    && in_array($parsed['sub_name'], ['address', 'address_1', 'address_line_1', 'physical_address'], true)
+                ) {
+                    $value = $this->blankToNull($recipient->supplier_firm_address);
+                }
+                // Johan, 2026-08-28 (conductor escalation) — the recipient
+                // card's phone/address fields are ALWAYS editable, whether
+                // or not the agent ever selected a Contact via search (a
+                // search that can itself fail to find a real, imperfectly-
+                // tagged seller — a separate, open question). An agent who
+                // types a phone number and physical address into fields
+                // they can see on screen must see them on the document.
+                // Before this, id/email/name had a no-Contact fallback
+                // (signer_id_number/signer_email/signer_name) but phone and
+                // address did not — the SAME class of "screen shows one
+                // thing, the document shows another" fault as the
+                // empty-field concatenation bug, this time a silent full
+                // omission instead of a wrong value. signer_address is the
+                // GENERIC no-Contact fallback (any manually-typed
+                // recipient); supplier_firm_address above stays checked
+                // first since it is more specific to that one case.
+                if ($value === null
+                    && $recipient !== null
+                    && in_array($parsed['sub_name'], ['address', 'address_1', 'address_line_1', 'physical_address'], true)
+                ) {
+                    $value = $this->blankToNull($recipient->signer_address);
+                }
+                if ($value === null
+                    && $recipient !== null
+                    && in_array($parsed['sub_name'], ['phone', 'cell', 'cell_phone', 'mobile'], true)
+                ) {
+                    $value = $this->blankToNull($recipient->signer_phone);
+                }
+                // Johan, 2026-08-26 — a null here used to SKIP
+                // replaceTextContent() entirely, silently leaving whatever
+                // this clone inherited from the node it was cloneNode()'d
+                // from (duplicateBlockForRecipients() / duplicateUnitGroupFor
+                // Recipients() / duplicateSubtreeForIndices() all clone from
+                // the SAME un-cloned source, never from a prior recipient's
+                // clone). For a multi-recipient role, that source's data-field
+                // span was populated ONCE, before any cloning, by
+                // WebTemplateDataService::resolveContactColumnAllRecipients() —
+                // which JOINS every recipient sharing the role into ONE flat
+                // value ("Anna's address and Ben's address"). "Leave it"
+                // therefore never preserved THIS recipient's own typed value —
+                // it printed every OTHER recipient's address, phone and ID
+                // verbatim on a party who captured none of their own. A
+                // privacy and document-integrity defect, not a display
+                // nicety: one client's home address and mobile number on
+                // another client's signed legal document. Always write —
+                // blank is the correct empty state for this party; another
+                // party's data is not.
+                $this->replaceTextContent($f, $value ?? '');
             }
         }
         // Header gating — single-unit paths (duplicateBlockForRecipients,
@@ -2181,7 +2370,7 @@ final class RoleBlockExpansionService
      * Map a field's sub-name to a contact column. Returns null when the
      * sub-name isn't recognised — caller leaves the original span text.
      */
-    private function resolveContactValue(Contact $contact, string $subName): ?string
+    private function resolveContactValue(Contact $contact, string $subName, ?SignatureRequest $recipient = null): ?string
     {
         $key = strtolower($subName);
         // AT-292 — return null (NOT '') whenever the Contact column is empty so
@@ -2202,8 +2391,14 @@ final class RoleBlockExpansionService
             // The composite full-name column the CDS generator really emits for a party's
             // name blank — without this the seller's name simply never prefills.
             case 'first_name+last_name':
+                if ($contact->isEntity()) {
+                    return $this->blankToNull($this->renderEntityParty($contact, includeRegNo: false, recipient: $recipient));
+                }
                 return $this->blankToNull(($contact->first_name ?? '') . ' ' . ($contact->last_name ?? ''));
             case 'name_surname_id':
+                if ($contact->isEntity()) {
+                    return $this->blankToNull($this->renderEntityParty($contact, includeRegNo: true, recipient: $recipient));
+                }
                 $full = trim(($contact->first_name ?? '') . ' ' . ($contact->last_name ?? ''));
                 $id = trim((string) ($contact->id_number ?? ''));
                 return $this->blankToNull($id !== '' ? ($full . ' (ID: ' . $id . ')') : $full);
@@ -2224,6 +2419,272 @@ final class RoleBlockExpansionService
                 return $this->blankToNull($contact->address);
         }
         return null;
+    }
+
+    /**
+     * Entity-rep body-text rendering (Johan, 2026-08-24 — the piece §6.2 of
+     * .ai/specs/contact-entity-type.md flagged as pipeline-gated and never
+     * built when the rest of the entity-rep foundation shipped, THEN
+     * redesigned same day into a data-driven wording library once Elize's
+     * standard-wordings requirement landed — see composeEntityPartyText()).
+     *
+     * SNAPSHOT FIRST ("the part I care most about" — Johan, 2026-08-24): once
+     * a SignatureRequest exists and carries a resolved party_clause_text, it
+     * is returned VERBATIM, never recomputed. A wording template edited after
+     * a document has been generated must not retroactively change what that
+     * document says — same failure class as an unconditional signed-PDF
+     * overwrite, except silent and permanent if left undesigned. Live
+     * composition only happens pre-generation (no SignatureRequest yet, i.e.
+     * wizard preview) or as the ONE-TIME computation that becomes the
+     * snapshot (see SignatureService::createSigningRequest() caller in
+     * ESignWizardController::expandEntityRecipients()).
+     */
+    private function renderEntityParty(Contact $entity, bool $includeRegNo, ?SignatureRequest $recipient = null): string
+    {
+        if ($recipient !== null && filled($recipient->party_clause_text)) {
+            return $recipient->party_clause_text;
+        }
+
+        return $this->composeEntityPartyText($entity, $includeRegNo);
+    }
+
+    /**
+     * Live composition — reads EsignRecipientPreset. Public because
+     * ESignWizardController calls this ONCE at generation time to compute
+     * the value that gets frozen into SignatureRequest::party_clause_text;
+     * nothing should ever call this a second time for an already-generated
+     * request.
+     *
+     * SUPERSEDED DESIGN NOTE (2026-08-24): an earlier same-day pass wired
+     * this to an entity_shape-keyed RepresentativeWordingTemplate lookup,
+     * on the assumption that a Contact's own shape determined the wording.
+     * Johan's clarified spec (party slots + recipient-screen binding,
+     * signer always a natural person, named-only vs signing slots declared
+     * per template) supersedes that: which wording applies is a per-DOCUMENT
+     * choice bound to a role field via RecipientTemplate + resolved slot
+     * bindings (deceased→Contact, executor→recipient row) — NOT something
+     * inferable from the Contact alone. That binding-storage layer
+     * (recipient template selection + slot bindings on the wizard's
+     * step_data, with dangling-reference validation at generation time) is
+     * not yet built. Until it is, this stays on the pre-existing
+     * EsignRecipientPreset-driven rendering below — "exactly what renders
+     * today" (Johan's own fallback rule), not a half-wired path that looks
+     * like it consumes the new library without actually being bound to
+     * anything. RecipientTemplate/party_slots (app/Models/RecipientTemplate.php,
+     * database/seeders/RecipientTemplateSeeder.php) are built and seeded,
+     * ready for that binding layer to call resolveFor()/substitute() —
+     * deliberately not wired into this method until the binding exists.
+     */
+    /**
+     * Fault 3, round 5 (Johan, 2026-08-24) — "display and signing are not
+     * being treated as separate questions." DISPLAY names every
+     * representative, always, regardless of proxy — a proxy flag changes
+     * only who SIGNS (Contact::signingRepresentatives()), never who is
+     * NAMED. This used to pick exactly ONE representative to name (the
+     * proxy if any, else primary, else first) — correct for "who signs,"
+     * wrong for "who is named," and the two are different questions with
+     * different answers whenever more than one representative exists.
+     *
+     * Nested representatives (Johan, 2026-08-25 — "Piet herein represented
+     * by Estate Pty Ltd, herein represented by Koos, and Sannie"): a
+     * representative can itself be an entity, recursed via
+     * resolveDocumentRepresentatives(). Depth-limited and cycle-guarded
+     * there; see that method's docblock for the exact bound and why.
+     *
+     * Party's own ID (Johan, 2026-08-25 — "every party displays in full,
+     * name, surname, ID, at every level"): building the Piet case surfaced
+     * that a NATURAL-PERSON party's own name never carried an ID here —
+     * only entity_reg_no was ever appended, which is empty for a natural
+     * person, so a party like Piet (or a plain natural-person party with
+     * no representatives at all) rendered bare. Same gap flagged for the
+     * POA/Minor presets two rounds ago (EsignRecipientPreset's
+     * {party_id_number} token), same fix — Contact::idNumberSuffix() — now
+     * applied here too, at the ONE place a party's own display name is
+     * built, so this clause and that token can never print a party
+     * differently. An ENTITY party is unaffected (uses entity_reg_no, as
+     * before); this only ever adds an ID to a NATURAL-PERSON party's own
+     * name, which was never possible before regardless of representation.
+     */
+    public function composeEntityPartyText(Contact $entity, bool $includeRegNo = true, ?int $overrideProxyRepId = null, ?array $orderContactIds = null): string
+    {
+        $reps = $this->resolveDocumentRepresentatives($entity, 0, [], $overrideProxyRepId, $orderContactIds);
+
+        $name = (string) ($entity->entity_name ?: $entity->full_name);
+        if ($entity->isEntity()) {
+            if ($includeRegNo) {
+                $reg = trim((string) ($entity->entity_reg_no ?? ''));
+                if ($reg !== '') {
+                    $name .= ' (Reg: ' . $reg . ')';
+                }
+            }
+        } else {
+            $name .= $entity->idNumberSuffix();
+        }
+        if (empty($reps)) {
+            return $name;
+        }
+
+        // A separate composer from EsignRecipientPreset::substitute()
+        // deliberately — that one is single-representative (still correct,
+        // still used, for the recipient-search preview and each expanded
+        // signer's own individual label/caption). This clause names
+        // EVERYONE, so it needs its own list-join, not a single-slot
+        // template token.
+        return EsignRecipientPreset::composePartyClause($name, $reps);
+    }
+
+    /**
+     * Maximum representative-chain depth before resolution refuses rather
+     * than hangs. Johan's own proof case (natural person → entity →
+     * natural person) is depth 2; a genuinely deeper real SA conveyancing
+     * chain (e.g. trust → company → estate → executor) might reach 3-4.
+     * 5 gives comfortable headroom above any real document while still
+     * failing fast — the cycle guard below catches a true loop (A
+     * represents B represents A) immediately regardless of this limit;
+     * this is the backstop for a long-but-non-cyclic malformed chain (a
+     * representative linked to the wrong entity by mistake).
+     */
+    private const MAX_REPRESENTATIVE_DEPTH = 5;
+
+    /**
+     * EVERY representative to NAME in the document body clause — no
+     * filtering by proxy status, no picking "the one." Natural join order
+     * (pivot creation order), matching how an agent added them.
+     *
+     * Recursive (Johan, 2026-08-25): Contact::representatives() has no
+     * contact_kind filter, so a representative can itself be an entity
+     * (Piet, a natural person, represented by Estate Pty Ltd, itself
+     * represented by Koos). Previously gated on `! $entity->isEntity()` —
+     * WRONG, since that also blocked a natural-person PARTY (e.g. Piet
+     * himself, or a POA grantor, or a minor) from ever having their own
+     * representative resolved here at all; removed. Each representative
+     * that isEntity() recurses one level; a natural-person representative
+     * is always a leaf (they cannot themselves be represented for THIS
+     * clause's purposes — Johan's rule: the signer/named party at the
+     * bottom of any chain is always a natural person, and a natural
+     * person has nothing further to recurse into).
+     *
+     * $depth / $seenIds are internal recursion state — always called with
+     * their defaults from composeEntityPartyText(); a caller never needs
+     * to pass them.
+     *
+     * @throws UnresolvableRepresentativeChainException chain too deep, a
+     *   cycle (A represents B represents A), or a nested entity
+     *   representative with no representative of its own — Johan's rule
+     *   is refuse, never silently render a bare company name or truncate.
+     *
+     * @return array<int, array{0: Contact, 1: ?string, 2: bool, 3: array}> [rep, capacity, isProxy, nestedReps] per rep
+     */
+    private function resolveDocumentRepresentatives(Contact $entity, int $depth = 0, array $seenIds = [], ?int $overrideProxyRepId = null, ?array $orderContactIds = null): array
+    {
+        if ($depth > self::MAX_REPRESENTATIVE_DEPTH) {
+            throw UnresolvableRepresentativeChainException::tooDeep($entity, self::MAX_REPRESENTATIVE_DEPTH);
+        }
+        if (in_array($entity->id, $seenIds, true)) {
+            throw UnresolvableRepresentativeChainException::cycleDetected($entity, $entity);
+        }
+        $seenIds[] = $entity->id;
+
+        // Johan, 2026-08-26 — the per-document proxy override AND the
+        // per-document representative order (both never written to the
+        // pivot) apply only at depth 0, the exact entity
+        // composeEntityPartyText() was called on — same bound as
+        // Contact::proxyAwareRepresentatives()'s own override, so the clause
+        // describes the same one-off choices as the signer, never a deeper
+        // level of the chain.
+        $reps = $depth === 0
+            ? $this->resolveDirectRepresentatives($entity, $overrideProxyRepId, $orderContactIds)
+            : $this->resolveDirectRepresentatives($entity);
+
+        if (empty($reps)) {
+            // A NESTED entity representative (depth > 0) with nobody
+            // representing IT is the state Johan's rule refuses — the
+            // chain has no natural person at its end. The TOP-LEVEL party
+            // (depth 0) having no representative yet is a normal,
+            // pre-existing, non-error state (the recipient screen already
+            // prompts an agent to link one; see expandEntityRecipients()'s
+            // _entity_needs_representative) — unchanged here.
+            if ($entity->isEntity() && $depth > 0) {
+                throw UnresolvableRepresentativeChainException::entityWithNoRepresentative($entity);
+            }
+
+            return [];
+        }
+
+        return array_map(function (array $repTuple) use ($depth, $seenIds) {
+            [$r, $capacity, $isProxy] = $repTuple;
+            // cc2, 2026-08-26 — gating recursion on isEntity() alone silently
+            // truncated a natural-person-only multi-hop chain (Anna
+            // represented by Ben represented by Chris — no entity anywhere
+            // in it) at the FIRST hop: the clause said "represented by Ben"
+            // while Contact::signingRepresentatives() — the ALREADY-CORRECT
+            // resolution for who actually signs, fixed for this exact shape
+            // by Job 1 fast-follow (Johan/cc1, 2026-08-26) — resolved all
+            // the way through to Chris. Two different answers to "who
+            // represents this party" from two separate walks of the same
+            // relationship is the identical disease last night's guard fix
+            // exists to prevent, found one level deeper: in the clause
+            // composer itself, not just its callers. Same gate as
+            // proxyAwareRepresentatives() now uses — recurse whenever the
+            // rep has ANY representative of their own, not only when
+            // they're an entity — so the clause and the signer are
+            // guaranteed to describe the same chain.
+            $nested = ($r->isEntity() || $r->representatives()->exists())
+                ? $this->resolveDocumentRepresentatives($r, $depth + 1, $seenIds) // override never inherited past depth 0
+                : [];
+
+            return [$r, $capacity, $isProxy, $nested];
+        }, $reps);
+    }
+
+    /**
+     * Pluggable seam (Johan, 2026-08-25): "who represents this party" —
+     * resolved through ONE named method, not $entity->representatives()
+     * called inline inside the recursion above. Today the only source is
+     * Contact's belongsToMany (with capacity/signs_as_proxy on its pivot);
+     * Johan is evaluating moving the MIDDLE of a chain (an executor's
+     * estate/company) onto the Supplier model Dr2 already uses, pending
+     * another lane confirming whether a supplier can even hold an ID
+     * number for its contact person. Until that lands, this stays
+     * Contact-only. Swapping or adding a source later means changing the
+     * BODY of THIS method (and this method alone) — the recursion, the
+     * depth/cycle guard above, and every render in EsignRecipientPreset.php
+     * never touch ->representatives() or ->pivot at all; they only see the
+     * plain [Contact, capacity, isProxy] tuples this method already
+     * produces. Not built as an injectable interface with a second
+     * implementation — that's real cost for a source (Supplier) whose
+     * shape isn't settled yet; a single well-named method is the amount of
+     * indirection that's actually earned right now, and promoting it to an
+     * interface later is a small, contained change to this one seam.
+     *
+     * @return array<int, array{0: Contact, 1: ?string, 2: bool}> [rep, capacity, isProxy] per rep
+     */
+    private function resolveDirectRepresentatives(Contact $party, ?int $overrideProxyRepId = null, ?array $orderContactIds = null): array
+    {
+        $reps = $party->representatives()->get();
+
+        // Johan, 2026-08-26 — "1st director - 1st signature position...
+        // the signing order needs to match this as well." Same rule the
+        // proxy pick already follows: per-document only, never written to
+        // the pivot. Contact::applyRepresentativeOrder() is the ONE
+        // ordering implementation — reused here, not re-sorted locally.
+        $reps = Contact::applyRepresentativeOrder($reps, $orderContactIds);
+
+        // Johan, 2026-08-26 — the per-document proxy override, never written
+        // to signs_as_proxy on the pivot. Everyone stays named either way
+        // (this method names ALL representatives regardless of proxy); the
+        // override only changes which ONE renders with the proxy wording,
+        // matching whichever one actually receives the signing request.
+        if ($overrideProxyRepId !== null) {
+            if (! $reps->contains('id', $overrideProxyRepId)) {
+                $pickedName = optional(Contact::withoutGlobalScopes()->find($overrideProxyRepId))->full_name ?? 'That person';
+                throw UnresolvableRepresentativeChainException::overrideNotLinked($party, $pickedName);
+            }
+            return $reps->map(fn (Contact $r) => [$r, $r->pivot->capacity, $r->id === $overrideProxyRepId])->all();
+        }
+
+        return $reps->map(fn (Contact $r) => [$r, $r->pivot->capacity, (bool) ($r->pivot->signs_as_proxy ?? false)])
+            ->all();
     }
 
     /**

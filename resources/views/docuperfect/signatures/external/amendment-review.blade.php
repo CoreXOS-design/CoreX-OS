@@ -5,9 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Review Amendments — {{ $agencyName ?? 'Agency' }}</title>
     <meta name="csrf-token" content="{{ csrf_token() }}">
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/signature_pad@4.1.7/dist/signature_pad.umd.min.js"></script>
+    @vite(['resources/css/app.css', 'resources/js/app.js', 'resources/js/esign-signature-pad.js'])
     <style>[x-cloak] { display: none !important; }</style>
 </head>
 <body class="bg-gray-50 min-h-screen">

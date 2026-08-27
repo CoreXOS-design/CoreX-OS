@@ -477,114 +477,32 @@ class ESignWizardController extends Controller
             $stepData['details'] = $propDefaults;
         }
 
-        // Recipients from step data — handle double-nested structure
-        // Must run BEFORE autoFillFields so contact-sourced fields can resolve
-        $recipientsData = $stepData['recipients'] ?? [];
-        $recipients = isset($recipientsData['recipients']) && is_array($recipientsData['recipients'])
-            ? $recipientsData['recipients']
-            : (is_array($recipientsData) && !empty($recipientsData) && isset($recipientsData[0]) ? $recipientsData : []);
-
-        // Auto-populate linked contacts from property if no non-agent recipients exist
-        $hasNonAgent = collect($recipients)->contains(fn($r) => ($r['role'] ?? '') !== 'agent');
-        if (!$hasNonAgent && $step >= 3) {
-            $propertyId = $stepData['property']['property_id'] ?? null;
-            $propertySource = $stepData['property']['_property_source'] ?? null;
-
-            // Load contacts from properties table (rental_properties has no contacts relationship)
-            if ($propertyId && $propertySource === 'properties') {
-                $prop = Property::with(['contacts' => fn($q) => $q->withPivot('role')])->find($propertyId);
-                if ($prop) {
-                    // Determine correct fallback role from template signing_parties, then document context
-                    $signingParties = $template->signing_parties ?? [];
-                    $defaultOwnerRole = collect($signingParties)->first(fn($r) => $r !== 'agent' && $r !== 'creator')
-                        ?? ($template->isSalesDocument($propertySource) ? 'seller' : 'landlord');
-
-                    // Build allowed esign_roles from template's signing_parties
-                    $allowedEsignRoles = $this->buildAllowedEsignRoles($signingParties);
-
-                    // Agent is always first recipient (added by JS), so just add linked contacts
-                    foreach ($prop->contacts as $contact) {
-                        $recipientRole = $this->resolveLinkedContactRole($contact, $allowedEsignRoles, $defaultOwnerRole);
-                        if ($recipientRole === null) {
-                            continue; // Not a party this document needs.
-                        }
-
-                        $recipients[] = [
-                            'order'       => count($recipients) + 1,
-                            'role'        => $recipientRole,
-                            'name'        => $contact->first_name . ' ' . $contact->last_name,
-                            'first_name'  => $contact->first_name ?? '',
-                            'last_name'   => $contact->last_name ?? '',
-                            'id_number'   => $contact->id_number ?? '',
-                            'email'       => $contact->email ?? '',
-                            'cell'        => $contact->phone ?? '',
-                            'address'     => $contact->address ?? '',
-                            '_contact_id' => $contact->id,
-                            'bank_name'           => $contact->bank_name ?? '',
-                            'bank_account_name'   => $contact->bank_account_name ?? '',
-                            'bank_account_number' => $contact->bank_account_number ?? '',
-                            'bank_branch_name'    => $contact->bank_branch_name ?? '',
-                            'bank_branch_code'    => $contact->bank_branch_code ?? '',
-                            'bank_account_type'   => $contact->bank_account_type ?? '',
-                        ];
-                    }
-                }
-            }
-            // BL-3: rental/letting docs select a rental_properties row, which
-            // has NO contact_property pivot and NO contacts relationship —
-            // only the denormalised landlord_name/landlord_email/landlord_phone
-            // scalars (no tenant data exists on that table). Before this branch
-            // the block above was gated on source==='properties', so letting
-            // e-sign started with zero recipients. Synthesise the landlord
-            // recipient from those scalars, gated by the template's allowed
-            // esign roles, in the same shape as the sales branch. Tenant cannot
-            // be auto-resolved from rental_properties — manual-add covers it.
-            elseif ($propertyId && $propertySource === 'rental_properties') {
-                $rentalProp = RentalProperty::find($propertyId);
-                if ($rentalProp && (!empty($rentalProp->landlord_name) || !empty($rentalProp->landlord_email))) {
-                    $signingParties = $template->signing_parties ?? [];
-                    $defaultOwnerRole = collect($signingParties)->first(fn($r) => $r !== 'agent' && $r !== 'creator')
-                        ?? ($template->isSalesDocument($propertySource) ? 'seller' : 'landlord');
-                    $allowedEsignRoles = $this->buildAllowedEsignRoles($signingParties);
-
-                    // The landlord maps to esign_role 'lessor'. Skip only if the
-                    // template explicitly restricts roles and excludes lessor.
-                    $landlordAllowed = empty($allowedEsignRoles) || in_array('lessor', $allowedEsignRoles, true);
-                    if ($landlordAllowed) {
-                        $name = trim($rentalProp->landlord_name ?? '');
-                        $nameParts = $name !== '' ? preg_split('/\s+/', $name, 2) : ['', ''];
-                        $recipients[] = [
-                            'order'       => count($recipients) + 1,
-                            'role'        => $defaultOwnerRole,
-                            'name'        => $name,
-                            'first_name'  => $nameParts[0] ?? '',
-                            'last_name'   => $nameParts[1] ?? '',
-                            'id_number'   => '',
-                            'email'       => $rentalProp->landlord_email ?? '',
-                            'cell'        => $rentalProp->landlord_phone ?? '',
-                            'address'     => $rentalProp->full_address ?? '',
-                            '_contact_id' => null,
-                        ];
-                    }
-                }
-            }
-        }
-
-        // Update stepData recipients so autoFillFields can see auto-populated contacts
-        if (!empty($recipients)) {
-            $stepData['recipients'] = ['recipients' => $recipients];
-        }
+        // Recipients: auto-populate from the property — the ONE shared
+        // pipeline every body/preview render must go through (see
+        // prepareRecipientsForMerge() docblock — fault 3, round 2:
+        // templatePages() was computing the body from raw, un-prepared
+        // step_data, so a live-refreshed preview could show different text
+        // than the page's own initial load — the "two systems will drift"
+        // trap Johan named, just one level up from the party-name
+        // resolution itself). $stepData stays RAW/un-expanded from here on —
+        // it feeds the recipients step's own editable form ('recipients'
+        // view var below) and gets returned to the client; $mergeStepData is
+        // the ONLY thing that ever sees an entity substituted for its
+        // representative (fault 3, round 3 — see expandRecipientsForMerge()
+        // docblock for why that substitution must never reach the form).
+        $stepData = $this->prepareRecipientsForMerge($stepData, $template, $request->user(), $step);
+        $mergeStepData = $this->expandRecipientsForMerge($stepData, $request->user());
 
         // Auto-fill fields from wizard step data (property, recipients, details)
         // Contact fields with multiple contacts of the same role (e.g., 2 lessors)
         // are concatenated with ' & ' (e.g., "Koos Kombuis & Lienkie Kombuis")
-        $fields = $this->autoFillFields($fields, $stepData);
+        $fields = $this->autoFillFields($fields, $mergeStepData);
 
         // Pre-fill field values from WebTemplateDataService (resolved from step_data)
         $resolvedValues = [];
         if ($template && ($template->render_type ?? 'pdf') === 'web') {
             $resolvedValues = app(WebTemplateDataService::class)
-                ->resolve($template->id, $stepData, $request->user());
+                ->resolve($template->id, $mergeStepData, $request->user());
         }
 
         // Build unified ordered field list for step 5 (document order, no party grouping)
@@ -677,21 +595,43 @@ class ESignWizardController extends Controller
         }
 
         // Auto-fill field group display values from recipients
-        $allWizardFields = $this->autoFillFieldGroupDisplays($allWizardFields, $stepData);
+        $allWizardFields = $this->autoFillFieldGroupDisplays($allWizardFields, $mergeStepData);
 
         // E-sign walk-fix FIX 1 + FIX 2 — expand role-bound fields per
         // recipient so a 3-seller session renders N inputs (each
         // pre-filled from THAT specific recipient's contact), not one
         // concatenated " and "-joined value. Mirrors B2.5/B3's recipient
         // loop engine on the recipient signing surface — same loop,
-        // same identity convention, same chip labels.
-        $expandedWizardFields = $this->expandWizardFieldsPerRecipient($allWizardFields, $stepData);
+        // same identity convention, same chip labels. Uses $mergeStepData
+        // (expanded) — an entity's representative is who actually fills
+        // these fields in, not the entity itself.
+        $expandedWizardFields = $this->expandWizardFieldsPerRecipient($allWizardFields, $mergeStepData);
 
         $contactTypes = DB::table('contact_types')
             ->where('is_active', true)
             ->orderBy('sort_order')
             ->orderBy('name')
             ->get(['id', 'name']);
+
+        // Fault 3, round 5 (Johan, 2026-08-24) — step 6's "Signing Order" list
+        // (wizard.blade.php) iterates this SAME `recipients` array and is
+        // where an agent sets each signer's email/order/skip before sending.
+        // It must show who will actually SIGN — an entity's representative(s),
+        // never the entity itself, which cannot sign and routinely has no
+        // email (Johan's exact "Deferred, details not yet known, undeliverable"
+        // finding). Steps 1-5 keep the RAW form (the company as one editable
+        // row — see prepareRecipientsForMerge()'s docblock for why); only at
+        // step 6, once recipient editing is done, does the view get the
+        // signing-expanded array — the SAME expansion prepareSigning() now
+        // uses to actually create the SignatureRequest rows, so what the
+        // agent confirms here is exactly what gets created.
+        $recipientsForView = $step === 6
+            ? $this->expandEntityRecipients($stepData['recipients']['recipients'] ?? [], $request->user(), signersOnly: true)
+            // Flow 480 (Johan, 2026-08-29) — the raw recipient rows shown on
+            // steps 1-5 need _is_entity/_representation recomputed on every
+            // load, not just carried from a fresh client-side pick, or the
+            // "Signs via its representative(s)" preview vanishes on reopen.
+            : $this->attachEntityRepresentationPreview($stepData['recipients']['recipients'] ?? [], $request->user());
 
         return view('docuperfect.esign.wizard', [
             'flow'           => $flow,
@@ -703,7 +643,7 @@ class ESignWizardController extends Controller
             'allWizardFields' => $allWizardFields,
             'expandedWizardFields' => $expandedWizardFields,
             'pageImages'     => $pageImages,
-            'recipients'     => $recipients,
+            'recipients'     => $recipientsForView,
             'stepData'       => $stepData,
             'templates'      => $templates,
             'documentTypes'  => $documentTypes,
@@ -764,6 +704,24 @@ class ESignWizardController extends Controller
             $propertySource = $stepData['property']['_property_source'] ?? 'properties';
 
             foreach ($sorted as &$r) {
+                // Johan, 2026-08-26 — property 6060, Piet Begrafnis wrongly
+                // linked as "Owner". This block (2026-03-31, ea1858bdf) exists
+                // to auto-create a Contact + link them to the property when an
+                // agent TYPES IN a brand-new person's name/email/ID directly on
+                // the recipients screen — it reads an empty _contact_id as "no
+                // record exists yet for this person". A supplier-sourced
+                // recipient (bindSlotToSupplier()) deliberately ALSO carries
+                // _contact_id: null — their identity lives in
+                // agency_service_provider_contacts, a different book — which
+                // this block cannot tell apart from "brand new person", so it
+                // matched Piet to his real Contact via duplicate-detection and
+                // linked THAT contact to the property as an owner. A supplier
+                // standing in as a representative (or any deceased-party
+                // substitute signer — _deceased_substitute_for) is never a
+                // title-holder; this block was never meant to reach them.
+                if (($r['_recipient_source'] ?? null) === 'supplier' || !empty($r['_deceased_substitute_for'])) {
+                    continue;
+                }
                 // Skip agents and recipients that already have a contact linked
                 if (($r['role'] ?? '') === 'agent' || ($r['readonly'] ?? false)) {
                     continue;
@@ -1028,6 +986,22 @@ class ESignWizardController extends Controller
         }
 
         $stepData = $flow->step_data ?? [];
+
+        // Johan/conductor, 2026-08-27 (Elize's ordering rule) — saveStep()
+        // (the Next-button save) already runs recipients through
+        // sortRecipientsBySigningOrder() so living parties sort before
+        // deceased within a role. saveDraft() is the SEPARATE save path
+        // "Replace this party"'s confirmReplace() uses (and any other
+        // explicit Save Draft) — it was writing $data straight through with
+        // no sort at all, so a deceased party ticked/bound via that flow
+        // kept whatever position she was ADDED in, disagreeing with the
+        // Domicilium (which already read the array in existing order) the
+        // moment she happened to have been added before the living seller.
+        // Reuse the SAME method rather than a second copy of the rule.
+        if ($stepKey === 'recipients' && !empty($data['recipients'])) {
+            $data['recipients'] = $this->sortRecipientsBySigningOrder($data['recipients']);
+        }
+
         $stepData[$stepKey] = $data;
 
         // Merge field values and party overrides for fill_review
@@ -1217,6 +1191,172 @@ class ESignWizardController extends Controller
     }
 
     /**
+     * API: the recipient templates available for the "Replace this party"
+     * modal (Johan, 2026-08-24 — stage 2). Agency-scoped: the agent's own
+     * agency's templates plus CoreX's NULL-agency defaults for the role, via
+     * RecipientTemplate::availableFor() — no interface path to see another
+     * agency's templates or write agency_id from the client.
+     */
+    public function listRecipientTemplates(Request $request)
+    {
+        $role = trim((string) $request->input('role', ''));
+        if ($role === '') {
+            return response()->json([]);
+        }
+
+        $agencyId = $request->user()->effectiveAgencyId();
+
+        $templates = \App\Models\RecipientTemplate::availableFor($agencyId, $role)
+            ->map(fn ($t) => [
+                'id' => $t->id,
+                'name' => $t->name,
+                'text_template' => $t->text_template,
+                'party_slots' => $t->party_slots,
+            ])
+            ->values();
+
+        return response()->json($templates);
+    }
+
+    /**
+     * Flow 480 (Johan, 2026-08-29) — the recipients step (3) shows an entity's
+     * "Signs via its representative(s)" preview off `_is_entity`/`_representation`
+     * on the recipient row, but those are set client-side only at the moment a
+     * contact is picked (selectContact() in wizard.blade.php) and were never
+     * persisted into step_data — so the preview showed correctly on a fresh
+     * pick and vanished on reopening the saved flow. Rather than persist a
+     * snapshot (which can drift — the same entity's proxy/primary flags
+     * changed mid-session earlier tonight), this recomputes it fresh from the
+     * SAME identity resolution (Contact::signingRepresentatives()) the rest of
+     * the chain work uses, factored out of searchContacts() below so there is
+     * exactly one place this is computed, not a second copy.
+     */
+    /**
+     * Johan, 2026-08-26 — the ONE place that decides "what order applies
+     * to this document's representatives" from a recipient row, so every
+     * caller (live pick, saved-flow reopen, generation) resolves the same
+     * precedence the same way: an agent's manual reorder always wins;
+     * failing that, a picked proxy goes first ("almost with certainty" —
+     * Johan) and the rest follow in whatever order the code returns today;
+     * with neither, today's order stands, untouched. This only decides
+     * WHICH id list to pass — the actual sort is
+     * Contact::applyRepresentativeOrder(), the one implementation.
+     */
+    private function resolveEffectiveRepOrder(array $r, ?int $overrideProxyRepId): ?array
+    {
+        $manualOrder = ! empty($r['_entity_rep_order']) ? array_map('intval', $r['_entity_rep_order']) : null;
+
+        return $manualOrder ?? ($overrideProxyRepId !== null ? [$overrideProxyRepId] : null);
+    }
+
+    private function buildEntityRepresentationPreview(Contact $c, ?\App\Models\Docuperfect\EsignRecipientPreset $entityPreset, ?int $overrideProxyRepId = null, ?array $orderContactIds = null): ?array
+    {
+        if (! $c->isEntity()) {
+            return null;
+        }
+        // Johan, 2026-08-29 — a per-document proxy pick lives on the flow's
+        // OWN recipient (never written to contact_representatives), so it is
+        // ALWAYS supplied by the caller from that recipient's own data, never
+        // read back from the company/contact here. $overrideProxyRepId null
+        // means "no pick made on this document" — falls through to whatever
+        // is permanently on file (usually nothing, for an ordinary company).
+        $signers = $c->signingRepresentatives($overrideProxyRepId);
+        $signers = Contact::applyRepresentativeOrder($signers, $orderContactIds);
+        $allReps = Contact::applyRepresentativeOrder($c->representatives()->get(), $orderContactIds);
+
+        return [
+            'needs_representative' => $signers->isEmpty(),
+            'signers' => $signers->map(function ($rep) use ($c, $entityPreset, $overrideProxyRepId) {
+                $capacity = $rep->pivot->capacity ?? null;
+                $isProxy  = $overrideProxyRepId !== null ? ($rep->id === $overrideProxyRepId) : (bool) ($rep->pivot->signs_as_proxy ?? false);
+                $phrase   = $entityPreset
+                    ? $entityPreset->renderPhrase($c, $rep, $capacity, $isProxy)
+                    : \App\Models\Docuperfect\EsignRecipientPreset::substitute(
+                        $isProxy
+                            ? \App\Models\Docuperfect\EsignRecipientPreset::DEFAULT_PROXY_PHRASING
+                            : \App\Models\Docuperfect\EsignRecipientPreset::DEFAULT_PHRASING,
+                        $c, $rep, $capacity);
+                return ['rep_name' => $rep->full_name, 'capacity' => $capacity, 'is_proxy' => $isProxy, 'phrase' => $phrase];
+            })->values()->all(),
+            // Johan, 2026-08-29 — "signers" above is already proxy-collapsed
+            // (ONE row once a proxy is picked), which is right for "who
+            // actually signs" but wrong for a PICKER's own option list — the
+            // agent needs to see and choose among ALL of this company's
+            // representatives, not just whoever is currently chosen. Same
+            // underlying relation (Contact::representatives(), the raw pivot),
+            // not a second resolution of who signs. is_proxy here reflects
+            // THIS DOCUMENT's pick when one was made, never the permanent
+            // pivot value in that case — the picker must show what's true
+            // for this flow, not silently show a different document's pick.
+            // Ordered by the SAME applyRepresentativeOrder() every other
+            // consumer uses, so the reorder arrows sit on rows already in
+            // the order that's actually going onto the document.
+            'all_representatives' => $allReps->map(function ($rep) use ($overrideProxyRepId) {
+                return [
+                    'contact_id' => $rep->id,
+                    'name' => $rep->full_name,
+                    'capacity' => $rep->pivot->capacity ?? null,
+                    'is_primary' => (bool) ($rep->pivot->is_primary ?? false),
+                    'is_proxy' => $overrideProxyRepId !== null ? ($rep->id === $overrideProxyRepId) : (bool) ($rep->pivot->signs_as_proxy ?? false),
+                ];
+            })->values()->all(),
+        ];
+    }
+
+    /**
+     * Flow 480 — re-attaches _is_entity/_representation to every entity
+     * recipient row before handing $recipients to the wizard view, so the
+     * step-3 preview survives a reload the same way it showed on first pick.
+     * Additive only: rows without a resolvable Contact are returned as-is.
+     */
+    private function attachEntityRepresentationPreview(array $recipients, $user): array
+    {
+        $entityContactIds = collect($recipients)
+            ->filter(fn ($r) => ! empty($r['_contact_id']) && ($r['_recipient_source'] ?? 'contact') === 'contact')
+            ->pluck('_contact_id')
+            ->unique();
+        if ($entityContactIds->isEmpty()) {
+            return $recipients;
+        }
+
+        $contactsById = Contact::whereIn('id', $entityContactIds)->get()->keyBy('id');
+        $actingAgencyId = (int) ($user?->agency_id ?? 0);
+        $entityPreset = $actingAgencyId
+            ? \App\Models\Docuperfect\EsignRecipientPreset::resolveFor($actingAgencyId, 'entity')
+            : null;
+
+        foreach ($recipients as &$r) {
+            $contact = ! empty($r['_contact_id']) ? ($contactsById[$r['_contact_id']] ?? null) : null;
+            if (! $contact) {
+                continue;
+            }
+            // Johan, 2026-08-26 — this loop used to `continue` past a
+            // resolved NATURAL-PERSON contact entirely, leaving `_is_entity`
+            // simply absent on their row (never explicitly false). The
+            // recipients screen's "Deceased" checkbox binds
+            // :disabled="r._is_entity" — Alpine reads an undefined boolean-
+            // attribute binding as disabling, not as falsy, so a resumed
+            // flow's natural-person recipient (no fresh client-side
+            // selectContact() to set it) came back permanently greyed out,
+            // same as the entity bug this function was built to fix, just
+            // for the opposite party. Every resolvable contact now gets an
+            // explicit boolean either way; _representation stays null for a
+            // non-entity, exactly as before.
+            $r['_is_entity'] = $contact->isEntity();
+            if ($contact->isEntity()) {
+                // Reopening a saved flow must show THIS flow's own pick and
+                // order (already sitting on the recipient row, never on the
+                // contact) — not whatever the permanent pivot happens to say.
+                $overrideProxyRepId = isset($r['_entity_proxy_contact_id']) ? (int) $r['_entity_proxy_contact_id'] : null;
+                $r['_representation'] = $this->buildEntityRepresentationPreview($contact, $entityPreset, $overrideProxyRepId, $this->resolveEffectiveRepOrder($r, $overrideProxyRepId));
+            }
+        }
+        unset($r);
+
+        return $recipients;
+    }
+
+    /**
      * API: search contacts for autocomplete.
      *
      * Returns full contact data including bank details for auto-fill.
@@ -1257,6 +1397,10 @@ class ESignWizardController extends Controller
                     // lives in is_buyer / contact_property role='owner'. Match
                     // either the (rare) typed contacts OR the canonical column.
                     $query->where(function ($w) use ($typeIds, $wantsBuyer, $wantsSeller) {
+                        // Entity/company recipients are ALWAYS eligible regardless of
+                        // owner/buyer typing — they sign via their representative(s),
+                        // which the wizard expands server-side (entity recipient builder).
+                        $w->orWhere('contact_kind', Contact::TYPE_ENTITY);
                         if ($typeIds->isNotEmpty()) {
                             // Legacy single mirror OR the AT-79 multi-parent pivot.
                             $w->orWhereIn('contact_type_id', $typeIds);
@@ -1271,7 +1415,8 @@ class ESignWizardController extends Controller
                     });
                 } elseif ($typeIds->isNotEmpty()) {
                     $query->where(function ($w) use ($typeIds) {
-                        $w->whereIn('contact_type_id', $typeIds)
+                        $w->where('contact_kind', Contact::TYPE_ENTITY) // entities always eligible (sign via rep)
+                          ->orWhereIn('contact_type_id', $typeIds)
                           ->orWhereHas('parentTypes', fn ($q) => $q->whereIn('contact_types.id', $typeIds));
                     });
                 }
@@ -1279,19 +1424,65 @@ class ESignWizardController extends Controller
                 // Fallback: match by contact_type name directly (for witness, spouse, etc.)
                 $typeId = DB::table('contact_types')->where('name', 'like', '%' . $role . '%')->value('id');
                 if ($typeId) {
-                    $query->where('contact_type_id', $typeId);
+                    $query->where(fn ($w) => $w->where('contact_type_id', $typeId)
+                        ->orWhere('contact_kind', Contact::TYPE_ENTITY)); // entities always eligible
                 }
             }
         }
 
         $contacts = $query->limit(10)->get();
 
-        return response()->json($contacts->map(function ($c) use ($q) {
+        // Precompute the agency's entity preset once so each entity result can
+        // preview what it expands to (rep(s) + capacity + proxy + phrasing) on
+        // the recipient row — the "define on setup → shown on recipient screen".
+        $actingAgencyId = (int) ($request->user()?->agency_id ?? 0);
+        $entityPreset = $actingAgencyId
+            ? \App\Models\Docuperfect\EsignRecipientPreset::resolveFor($actingAgencyId, 'entity')
+            : null;
+
+        // Johan, 2026-08-25 — "supplier to be added, not just adding contacts."
+        // One supplier book for the whole product: the SAME Deal Register v2
+        // directory (agency_service_providers / agency_service_provider_contacts),
+        // never a parallel e-sign-only supplier list. A recipient is either a
+        // Contact or a supplier's own working contact person (the actual
+        // natural person who signs — a firm itself never signs), discriminated
+        // by 'source' in the response the same way the frontend already reads
+        // is_entity. Not role-filtered: a supplier (attorney, conveyancer,
+        // executor) can fill any recipient slot, unlike the Contact esign_role
+        // mapping above which is specific to buyer/seller/landlord/tenant typing.
+        $suppliers = $actingAgencyId
+            ? \App\Models\DealV2\AgencyServiceProviderContact::query()
+                ->withoutGlobalScopes()
+                ->where('agency_service_provider_contacts.agency_id', $actingAgencyId)
+                ->where('is_active', true)
+                ->whereHas('firm', fn ($fq) => $fq->where('is_active', true))
+                ->with('firm')
+                ->where(function ($w) use ($q) {
+                    $t = '%' . $q . '%';
+                    $w->where('attorney_name', 'like', $t)
+                      ->orWhere('contact_person', 'like', $t)
+                      ->orWhere('email', 'like', $t)
+                      ->orWhereHas('firm', fn ($fq) => $fq->where('name', 'like', $t)->orWhere('company', 'like', $t));
+                })
+                ->limit(5)
+                ->get()
+            : collect();
+
+        $contactResults = $contacts->map(function ($c) use ($q, $entityPreset) {
+            $representation = $this->buildEntityRepresentationPreview($c, $entityPreset);
             return [
                 'id'                  => $c->id,
+                'source'              => 'contact',
                 'first_name'          => $c->first_name,
                 'last_name'           => $c->last_name,
-                'full_name'           => $c->first_name . ' ' . $c->last_name,
+                // full_name via the accessor so ENTITY/company contacts show their
+                // entity_name (first/last are blank for entities). Entity flags let
+                // the picker badge a company — on select it expands server-side into
+                // its proxy-aware signing representatives (entity recipient builder).
+                'full_name'           => $c->full_name,
+                'is_entity'           => $c->isEntity(),
+                'entity_name'         => $c->entity_name,
+                'entity_reg_no'       => $c->entity_reg_no,
                 'identifier'          => $c->matchedIdentifier($q),
                 'agent'               => $c->agent?->name,
                 'email'               => $c->email ?? '',
@@ -1306,8 +1497,324 @@ class ESignWizardController extends Controller
                 'bank_branch_name'    => $c->bank_branch_name ?? '',
                 'bank_branch_code'    => $c->bank_branch_code ?? '',
                 'bank_account_type'   => $c->bank_account_type ?? '',
+                // Entity recipient preview — the rep(s)/capacity/proxy + resolved
+                // "herein represented by …" phrasing this company expands into.
+                'representation'      => $representation,
             ];
-        }));
+        });
+
+        // Same response shape as a contact result, wherever the fields map
+        // cleanly — bank fields stay '' (suppliers do not carry them; the
+        // recipient row already treats a blank id_number as "not printed"
+        // rather than an error, same as a Contact with none on file).
+        // Address/phone fall back to the FIRM's when the specific working
+        // contact has none of their own — AgencyServiceProviderContact has
+        // no address field at all, only the firm does.
+        //
+        // Johan, 2026-08-26 — id_number now reads the REPRESENTATIVE's own
+        // id_number (new 2026_08_29_000007), not the firm's
+        // registration_number. Previously it borrowed the firm's number
+        // (2026-08-25) as a stand-in for both concepts; now that the two
+        // are genuinely separate fields, this is the one that belongs on a
+        // PERSON — the firm's own registration_number is checked
+        // separately, alongside this, by
+        // assertSupplierRepresentativesHaveRegistrationNumber(). No
+        // backfill exists for this field yet (see the migration's
+        // docblock) — existing representatives show blank here until an
+        // agent adds it on the supplier directory screen.
+        $supplierResults = $suppliers->map(function (\App\Models\DealV2\AgencyServiceProviderContact $sc) {
+            $firm = $sc->firm;
+            $name = trim((string) ($sc->attorney_name ?: $sc->contact_person ?: ($firm->name ?? '')));
+            $parts = preg_split('/\s+/', $name, 2);
+
+            return [
+                'id'                  => $sc->id,
+                'source'              => 'supplier',
+                'first_name'          => $parts[0] ?? '',
+                'last_name'           => $parts[1] ?? '',
+                'full_name'           => $name,
+                'is_entity'           => false,
+                'entity_name'         => null,
+                'entity_reg_no'       => null,
+                'identifier'          => $sc->email ?: $sc->phone ?: '',
+                'agent'               => null,
+                'email'               => $sc->email ?: '',
+                'phone'               => $sc->phone ?: ($firm->phone ?? ''),
+                'id_number'           => $sc->id_number ?? '',
+                'address'             => $firm->address ?? '',
+                'contact_type'        => 'Supplier',
+                'esign_role'          => null,
+                'bank_name'           => '',
+                'bank_account_name'   => '',
+                'bank_account_number' => '',
+                'bank_branch_name'    => '',
+                'bank_branch_code'    => '',
+                'bank_account_type'   => '',
+                'representation'      => null,
+                // Supplier-only fields the recipient row/picker need to keep
+                // this reusable back on a deal later (Johan's design: one
+                // supplier book, the e-sign-captured supplier lives where a
+                // deal can pick it up too).
+                'supplier_contact_id' => $sc->id,
+                'supplier_firm_id'    => $firm->id ?? null,
+                // Johan, 2026-08-26 — "company leads, person underneath, and
+                // where there is no company the person leads." $firm->name is
+                // the firm's own required identifier and is NOT necessarily
+                // the trading name an agent typed for a real company (a
+                // sole-practitioner firm often has the PERSON's own name in
+                // this field, e.g. "Piet Begrafnis" as both the firm's name
+                // AND the contact's own name) — $firm->company is the actual
+                // company name when one was captured; that's what belongs
+                // here, never the raw firm identifier.
+                'supplier_firm_name'  => ($firm->company ?: $firm->name) ?? '',
+                // The company half of the three-part clause chain (Johan,
+                // 2026-08-26) — cached on the picked recipient client-side
+                // for the live document preview
+                // (RecipientTemplate::resolveBoundTextFromArray()); the
+                // authoritative copy frozen at Send is looked up live from
+                // this same firm record (stampSupplierFirmIfAny()), never
+                // trusted from this cached value.
+                'supplier_firm_registration_number' => $firm->registration_number ?? '',
+                'supplier_role'       => $sc->role ?? '',
+            ];
+        });
+
+        return response()->json($contactResults->concat($supplierResults)->values());
+    }
+
+    /**
+     * Johan, 2026-08-25 — "adding a supplier from inside the wizard." Called
+     * before addSupplier() so the agent sees a possible match and can confirm
+     * or dismiss it, never a silent auto-merge and never a silent miss.
+     * Deliberately NOT the ID-number-only pattern used elsewhere in the
+     * codebase for a different quick-add flow — a supplier's working contact
+     * has no ID number at all; see AgencyServiceProviderService::
+     * findPossibleDuplicateContacts() for the real, multi-field check.
+     */
+    public function checkSupplierDuplicate(Request $request, \App\Services\DealV2\AgencyServiceProviderService $service): \Illuminate\Http\JsonResponse
+    {
+        $validated = $request->validate([
+            'name'      => 'required|string|max:255',
+            'email'     => 'nullable|email|max:255',
+            'phone'     => 'nullable|string|max:50',
+            'firm_name' => 'nullable|string|max:255',
+        ]);
+
+        $agencyId = (int) ($request->user()?->agency_id ?? 0);
+        if ($agencyId <= 0) {
+            return response()->json(['matches' => []]);
+        }
+
+        $matches = $service->findPossibleDuplicateContacts(
+            $agencyId,
+            $validated['name'],
+            $validated['email'] ?? null,
+            $validated['phone'] ?? null,
+            $validated['firm_name'] ?? null,
+        );
+
+        return response()->json([
+            // Johan, 2026-08-26 — enriched with the same fields a picker
+            // search result carries (supplier_firm_id, id_number, address)
+            // so "use this one" in the quick-add screen can select the
+            // match through the exact same path as a picked search result,
+            // rather than a second, thinner shape.
+            'matches' => $matches->map(fn ($m) => [
+                'supplier_contact_id' => $m['contact']->id,
+                'supplier_firm_id'    => $m['contact']->firm->id ?? null,
+                'name'                => $m['contact']->attorney_name ?: $m['contact']->contact_person,
+                'firm_name'           => $m['contact']->firm->name ?? '',
+                'email'               => $m['contact']->email,
+                'phone'               => $m['contact']->phone,
+                'address'             => $m['contact']->firm->address ?? '',
+                'id_number'           => $m['contact']->id_number ?? '',
+                'firm_registration_number' => $m['contact']->firm->registration_number ?? '',
+                'reasons'             => $m['reasons'],
+            ])->values(),
+        ]);
+    }
+
+    /**
+     * Creates (or reuses, at the firm level) a supplier and adds a new
+     * working contact under it — Johan's design: one supplier book for the
+     * whole product, so a supplier captured here is the SAME record a deal
+     * can pick up later, not a parallel e-sign-only entry. The agent must
+     * have already seen checkSupplierDuplicate()'s result and either found
+     * nothing or explicitly confirmed to proceed anyway (confirmed=true) —
+     * this endpoint does not silently re-run the check and block on it,
+     * since that decision belongs to the human looking at the match.
+     */
+    public function addSupplier(Request $request, \App\Services\DealV2\AgencyServiceProviderService $service): \Illuminate\Http\JsonResponse
+    {
+        $validated = $request->validate([
+            'name'                 => 'required|string|max:255',
+            'email'                => 'nullable|email|max:255',
+            'phone'                => 'nullable|string|max:50',
+            'firm_name'            => 'required|string|max:255',
+            'specialty'            => 'nullable|string|max:100',
+            // Johan, 2026-08-26 — "Registration/ID number field present" in
+            // the quick-add screen. Reuses the SAME id_number field a
+            // picked recipient already has, so the agent isn't learning a
+            // second field name for the same thing.
+            'registration_number'  => 'nullable|string|max:100',
+        ]);
+
+        $agencyId = (int) ($request->user()?->agency_id ?? 0);
+
+        $firm = $service->findOrCreate($agencyId, [
+            'name'                 => $validated['firm_name'],
+            'specialty'            => $validated['specialty'] ?? 'other',
+            'registration_number'  => $validated['registration_number'] ?? null,
+        ], $request->user()?->id);
+
+        $contact = \App\Models\DealV2\AgencyServiceProviderContact::create([
+            'agency_id'            => $agencyId,
+            'service_provider_id'  => $firm->id,
+            'attorney_name'        => $validated['name'],
+            'email'                => $validated['email'] ?? null,
+            'phone'                => $validated['phone'] ?? null,
+            'is_active'            => true,
+            'created_by_id'        => $request->user()?->id,
+        ]);
+
+        return response()->json([
+            'id'                  => $contact->id,
+            'source'              => 'supplier',
+            'full_name'           => $contact->attorney_name,
+            'first_name'          => $contact->attorney_name,
+            'last_name'           => '',
+            'email'               => $contact->email ?? '',
+            'phone'               => $contact->phone ?: ($firm->phone ?? ''),
+            'address'             => $firm->address ?? '',
+            // Johan, 2026-08-26 — this quick-add screen only ever captures
+            // the FIRM's registration number, never a representative's own
+            // ID (that field lives on the Deal Register supplier screen,
+            // added after this contact exists). id_number here is the
+            // REPRESENTATIVE's own field (blank on a brand-new contact,
+            // same as any other optional field) — the firm's registration
+            // number is carried separately below.
+            'id_number'           => $contact->id_number ?? '',
+            'contact_type'        => 'Supplier',
+            'supplier_contact_id' => $contact->id,
+            'supplier_firm_id'    => $firm->id,
+            // Johan, 2026-08-26 — company leads over the firm's own raw
+            // identifier, same rule as the picker (see searchContacts()).
+            'supplier_firm_name'  => ($firm->company ?: $firm->name) ?? '',
+            'supplier_firm_registration_number' => $firm->registration_number ?? '',
+        ]);
+    }
+
+    /**
+     * Johan, 2026-08-25 (cc4's finding — caught too late) — "Replace this
+     * party" is where the agent is already thinking about the exact person
+     * standing in for someone else; the missing-registration-number block
+     * moved there too (see the frontend's bindSlotToRecipient()). This is
+     * the single-purpose save that makes fixing it right there possible
+     * without a rebuild of the full supplier directory form: JUST the
+     * registration number, none of SupplierDirectoryController::update()'s
+     * other required fields (name/specialty), because the agent in this
+     * modal has neither on hand and re-fetching the whole firm record to
+     * satisfy them would be exactly the "something elaborate" Johan said
+     * not to build tonight.
+     */
+    public function updateSupplierRegistrationNumber(Request $request, \App\Models\DealV2\AgencyServiceProvider $firm): \Illuminate\Http\JsonResponse
+    {
+        $agencyId = (int) ($request->user()?->effectiveAgencyId() ?? 0);
+        if ($agencyId <= 0 || (int) $firm->agency_id !== $agencyId) {
+            abort(403);
+        }
+
+        $validated = $request->validate([
+            'registration_number' => 'required|string|max:100',
+        ]);
+
+        $firm->update(['registration_number' => $validated['registration_number']]);
+
+        return response()->json([
+            'ok' => true,
+            'supplier_firm_id' => $firm->id,
+            'registration_number' => $firm->registration_number,
+        ]);
+    }
+
+    /**
+     * Johan, 2026-08-29 — "the proxy tick essentially does nothing... it
+     * should let you pick one of the parties on the company to select as
+     * the proxy." The recipient row's own _is_proxy checkbox was flagging
+     * the ENTITY's row, which expandEntityRecipients() discards the moment
+     * it expands into the real representative rows — the flag that
+     * actually matters is contact_representatives.signs_as_proxy on the
+     * CHOSEN representative, which nothing in the wizard let an agent set.
+     *
+     * Johan, 2026-08-26 (bug found testing 913f2f102) — the FIRST version of
+     * this endpoint wrote the pick to contact_representatives.signs_as_proxy/
+     * is_primary directly. That is a SHARED, permanent record — a pick made
+     * on one document showed up already selected on the next, unrelated
+     * document for the same company, exactly the class of fault cc2 fixed
+     * the same day for a supplier-executor wrongly linked onto a property as
+     * owner (81f183284): a per-document choice leaking into permanent data.
+     * READ-ONLY now — no write of any kind, to this contact or any other
+     * record. It validates the pick against this company's real, currently-
+     * linked representatives and returns a computed preview of what the
+     * document would look like with that pick applied; the pick itself is
+     * held by the wizard purely client-side and saved only inside THIS
+     * flow's own step_data (_entity_proxy_contact_id on the recipient row),
+     * the same way _is_deceased/_slot_bindings already are. Contact::
+     * signingRepresentatives()/RoleBlockExpansionService::
+     * composeEntityPartyText() both now accept that same per-document
+     * override directly — reused, not duplicated — so the signing decision
+     * and the document's clause text agree without either ever consulting
+     * or touching the permanent pivot for a document-scoped pick.
+     */
+    public function setEntityProxy(Request $request, Contact $contact): \Illuminate\Http\JsonResponse
+    {
+        $agencyId = (int) ($request->user()?->effectiveAgencyId() ?? 0);
+        if ($agencyId <= 0 || (int) $contact->agency_id !== $agencyId) {
+            abort(403);
+        }
+
+        if (! $contact->isEntity()) {
+            return response()->json(['ok' => false, 'error' => 'Only a company/entity party can have a proxy representative.'], 422);
+        }
+
+        $validated = $request->validate([
+            // Nullable, not required — sending no id previews "nobody
+            // chosen yet" (the wizard clears its own local pick either way).
+            'representative_contact_id' => 'nullable|integer',
+            // Johan, 2026-08-26 — "1st director - 1st signature position."
+            // Optional ordered list of representative contact ids from the
+            // recipient's own manual reorder (up/down arrows); absent means
+            // "no manual order set on this document" — the caller (this
+            // same wizard) still applies the proxy-first default itself via
+            // buildEntityRepresentationPreview()'s existing precedence.
+            'order' => 'nullable|array',
+            'order.*' => 'integer',
+        ]);
+
+        $chosenId = $validated['representative_contact_id'] ?? null;
+        $order = $validated['order'] ?? null;
+
+        if ($chosenId !== null && ! $contact->representatives()->get()->contains('id', (int) $chosenId)) {
+            return response()->json([
+                'ok' => false,
+                'error' => 'That person is not currently linked as a representative of '
+                    . ($contact->entity_name ?: 'this company') . ' — refusing to set them as proxy. '
+                    . 'Link them as a representative first, on the contact record.',
+            ], 422);
+        }
+
+        $actingAgencyId = (int) ($request->user()?->agency_id ?? 0);
+        $entityPreset = $actingAgencyId
+            ? \App\Models\Docuperfect\EsignRecipientPreset::resolveFor($actingAgencyId, 'entity')
+            : null;
+
+        $overrideProxyRepId = $chosenId !== null ? (int) $chosenId : null;
+        $effectiveOrder = $this->resolveEffectiveRepOrder(['_entity_rep_order' => $order], $overrideProxyRepId);
+
+        return response()->json([
+            'ok' => true,
+            'representation' => $this->buildEntityRepresentationPreview($contact, $entityPreset, $overrideProxyRepId, $effectiveOrder),
+        ]);
     }
 
     /**
@@ -1330,6 +1837,38 @@ class ESignWizardController extends Controller
                 if (!empty($stepData['is_pack_flow']) && !empty($stepData['template_ids'])) {
                     $packTemplateIds = $stepData['template_ids'];
                 }
+
+                // Fault 3, round 2 (Johan, 2026-08-24) — this is the LIVE-REFRESH
+                // endpoint the wizard calls after every field edit (loadTemplatePreview),
+                // so it must prepare recipients (auto-populate + entity expansion) the
+                // SAME way showStep()'s initial page load does — see
+                // prepareRecipientsForMerge()'s docblock. Without this, a refreshed
+                // preview showed different — or missing — party text than the page just
+                // loaded with. Safe to reassign $stepData straight to the EXPANDED form
+                // here (unlike showStep()) — this endpoint only ever returns rendered
+                // HTML/pages, never an editable recipients form (fault 3, round 3 — see
+                // expandRecipientsForMerge()'s docblock for why that distinction matters).
+                $stepData = $this->prepareRecipientsForMerge($stepData, $template, $user, (int) ($flow->current_step ?? 1));
+                // Johan/conductor, 2026-08-27 — "recipients render domicilium
+                // wrong, clicking next onto details renders it correctly...
+                // so what making render correct when you click next?" Answer,
+                // traced end to end: Next calls saveStep(), which persists
+                // $stepData['recipients'] onto the Flow row BEFORE Details'
+                // own templatePages() call runs — so by the time Details
+                // asks, $flow->step_data['recipients']['recipients'] (read
+                // fresh below, at the raw-recipients block) is populated.
+                // On the Recipients screen's OWN preview, nothing has saved
+                // yet the first time a property auto-populates its owners
+                // (no manual add ever touches saveStep()) — that raw read
+                // finds nothing, the per-party role-block expansion never
+                // runs, and rendering falls through to the named-field
+                // "and"-joined base values. Snapshot prepareRecipientsForMerge()'s
+                // own output — the SAME auto-populated, un-deduped array Next's
+                // save would persist — right here, so the raw-recipients block
+                // below has it on this exact request, load or edit, saved or
+                // not, instead of depending on a write that hasn't happened yet.
+                $rawMergeStepData = $stepData;
+                $stepData = $this->expandRecipientsForMerge($stepData, $user);
             }
         }
 
@@ -1497,9 +2036,59 @@ class ESignWizardController extends Controller
             // expansion service has the same shape it sees at signing
             // time.
             if ($flow) {
+                // Johan, 2026-08-26 — "company esign still blocks on only
+                // rendering 1 seller address, tel, email" — a company
+                // represented by three parties (Elize Reichel, HA Pretorius,
+                // Steve Jobs). Two DIFFERENT, both-correct-in-their-own-place
+                // transformations were being conflated here:
+                //
+                // By this point $stepData came through expandRecipientsForMerge()
+                // (above, in this same method) — which itself expands the
+                // entity into its 3 representative rows, but then DELIBERATELY
+                // dedupeEntityRecipientsForDisplay()s them back down to ONE
+                // row sharing the entity's _entity_contact_id, specifically so
+                // resolveFieldGroupValue()'s "and"-joined clause names the
+                // company/all-reps ONCE, not three times. That collapse is
+                // correct for the clause — Johan's own words: "The CLAUSE
+                // naming everyone while the signing EMAIL goes to one signer
+                // is DELIBERATE and correct. Do not touch it."
+                //
+                // But $stepData['recipients']['recipients'] — already
+                // collapsed to 1 row for that reason — is the WRONG input
+                // for the address/tel/email role-block expansion below: "the
+                // document's own per-recipient detail fields... must carry
+                // all three." Re-expanding the already-deduped 1 row finds
+                // nothing further to expand (it is now its own individual
+                // contact, not the entity's) — which is exactly why an
+                // earlier attempt at this fix still produced only one block.
+                // The fix reaches past the dedup: expand the flow's OWN raw,
+                // un-deduped recipients (the same source
+                // expandRecipientsForMerge() itself expands from) fresh,
+                // right here, for this one purpose only — never written back
+                // to $stepData, so the clause-collapse above is untouched.
+                //
+                // Johan/conductor, 2026-08-27 — this used to read
+                // $flow->step_data['recipients']['recipients'] directly: the
+                // Flow row AS LAST SAVED. That is correct once Next has
+                // saved at least once, but on THIS screen's own first paint
+                // — a property just auto-populated its owners into $stepData,
+                // nothing has saved yet — the DB row is still empty, so this
+                // found nothing, $wizardRecipients stayed empty, and
+                // rendering fell through to the named-field "and"-joined
+                // base values below. $rawMergeStepData (captured right after
+                // prepareRecipientsForMerge(), above) is the SAME
+                // auto-populated array a save WOULD persist — use it
+                // directly so this doesn't depend on a write that may not
+                // have happened yet.
                 $wizardRecipients = $this->buildTransientSignatureRequestsForPreview(
                     $flow,
-                    $stepData['recipients']['recipients'] ?? [],
+                    // Johan, 2026-08-26: "all parties must show on the
+                    // document, although only 1 party will actually sign."
+                    // Proxy narrows WHO SIGNS (elsewhere, unchanged); it must
+                    // never narrow what renders here. Display is now the
+                    // default (see expandEntityRecipients() docblock) — no
+                    // flag needed at this call site.
+                    $this->expandEntityRecipients($rawMergeStepData['recipients']['recipients'] ?? [], $user),
                 );
                 if ($wizardRecipients->isNotEmpty()) {
                     // AT-295 — stamp the data-role-block contract onto the raw
@@ -1988,11 +2577,87 @@ class ESignWizardController extends Controller
         }
 
         $recipients = $stepData['recipients']['recipients'] ?? [];
-        // Sort recipients by SA signing convention: Agent → Tenant/Buyer → Landlord/Seller → Witness
-        $recipients = $this->sortRecipientsBySigningOrder($recipients);
-        // Support both old format (array of entries) and new format ({delivery_mode, parties: [...]})
+        // Support both old format (array of entries) and new format ({delivery_mode, parties: [...]}).
+        // Moved ahead of expandEntityRecipients() (Job 1, Johan/cc1, 2026-08-26)
+        // — attachSigningSetupMatch() needs signingSetup while $recipients
+        // still carries the ORIGINAL (pre-expansion) names, matching what
+        // the frontend actually built signing_setup from.
         $signingSetupRaw = $stepData['signing_setup'] ?? [];
         $signingSetup = isset($signingSetupRaw['parties']) ? $signingSetupRaw['parties'] : $signingSetupRaw;
+        $unmatchedSigningSetup = [];
+        $recipients = $this->attachSigningSetupMatch($recipients, $signingSetup, $unmatchedSigningSetup);
+        // Fault 3, round 5 (Johan, 2026-08-24) — the ACTUAL blocker: this raw
+        // array is what the SignatureRequest-creation loop below reads
+        // directly, and an entity recipient here is still the COMPANY
+        // contact — which cannot sign and routinely has no email. Left
+        // unexpanded, the ceremony got exactly one SignatureRequest, bound
+        // to the entity itself, with an empty email — "Deferred, details
+        // not yet known," undeliverable. Johan's rule, verbatim: "it will
+        // always be natural person signing... An entity never signs."
+        // expandEntityRecipients() replaces an entity row with its actual
+        // SIGNING representative(s) — every non-proxied one, or the sole
+        // proxy — each bound to THAT person's own contact_id/name/email, and
+        // every one carrying the SAME (correctly all-reps-listed)
+        // _party_clause_text so whichever of them opens their link sees the
+        // company's full representation named correctly in the document
+        // body. This is the generation-time twin of expandRecipientsForMerge()
+        // — same expansion, no dedup: signing genuinely needs one row per
+        // actual signer, unlike the preview body's single mention.
+        //
+        // Johan, 2026-08-26 (escalation of cc5's 547863fbb) — signersOnly:
+        // true is deliberate and correct HERE (this narrowed $recipients
+        // feeds the SignatureRequest-creation loop below: only a proxy, or
+        // an unproxied rep, may actually receive/sign). It must NOT be
+        // reused for anything a human reads — see $bodyStepData below,
+        // which now does its OWN, separate, display-mode expansion instead
+        // of inheriting this narrowed array.
+        $recipientsPreExpansion = $recipients;
+        $recipients = $this->expandEntityRecipients($recipients, $user, signersOnly: true);
+        // Flow 480 (Johan, 2026-08-29) — an entity's signing_setup entries
+        // name its representatives (step 6's own preview shows expanded
+        // names, "Fault 3, round 5" above), so they can never match the
+        // pre-expansion array above. Retry any still-unmatched entries now
+        // that expansion has happened; this is where entity rows actually
+        // resolve.
+        $recipients = $this->matchUnmatchedSigningSetupPostExpansion($recipients, $unmatchedSigningSetup);
+        // Sort recipients by SA signing convention: Agent → Tenant/Buyer → Landlord/Seller → Witness
+        $recipients = $this->sortRecipientsBySigningOrder($recipients);
+        // HARD BLOCK (Johan, 2026-08-25): a deceased party never signs
+        // (SignatureRequest::isSigningParticipant()) — the document must
+        // not be sendable unless someone else is bound to sign in their
+        // place. "Certain problem = hard block, not a warning."
+        $this->assertDeceasedRecipientsHaveSubstituteSigner($recipients);
+        $this->assertSupplierRepresentativesHaveRegistrationNumber($recipients);
+        $this->assertChainPartiesHaveIdNumbers($recipients);
+
+        // GENERATED-DOCUMENT BODY (Johan, 2026-08-25 — cc1's finding on
+        // 93a10b6a2 — REVISED 2026-08-26, escalation of cc5's 547863fbb):
+        // the document actually going out must read the SAME resolved
+        // clause the SignatureRequest rows carry — an entity's "Company
+        // (Reg: X), herein represented by Rep (ID, Capacity)" is computed
+        // by expandEntityRecipients(), which never writes back into
+        // $stepData itself.
+        //
+        // The original version of this comment said "never a second
+        // expandEntityRecipients() call, never a second source of truth"
+        // and reused the SAME $recipients the SignatureRequest loop above
+        // had already narrowed with signersOnly:true. That was the bug: a
+        // human reading the document (agent signing screen, final PDF)
+        // only ever saw the proxy — every OTHER representative's own
+        // address/phone/email vanished. DISPLAY and SIGNING are different
+        // questions and must use different expansions of the SAME
+        // pre-expansion recipients ($recipientsPreExpansion, captured
+        // above, before signersOnly narrowing). This second call is
+        // intentional, not drift: one source of truth (the same
+        // recipients, same function), two honestly different call-time
+        // arguments for two honestly different audiences.
+        // $stepData itself is untouched — every other consumer in this
+        // function (partiesForSigning, property/details, etc.) still reads
+        // the original, unexpanded step_data exactly as before.
+        $bodyStepData = $stepData;
+        $displayRecipients = $this->expandEntityRecipients($recipientsPreExpansion, $user);
+        $bodyStepData['recipients']['recipients'] = $this->dedupeEntityRecipientsForDisplay($displayRecipients);
+
         $propertyAddress = $stepData['property']['address'] ?? $stepData['property']['title'] ?? '';
 
         // Build document name — use custom name from wizard if set, else auto-build
@@ -2000,9 +2665,16 @@ class ESignWizardController extends Controller
         $isPdfPack = !empty($stepData['is_pdf_pack']);
         $docName = $stepData['document_name'] ?? null;
         if (empty($docName)) {
+            // Johan, 2026-08-27 (found on the late-estate walkthrough) — a
+            // deceased party is not a party to the agreement (Elize's
+            // ruling); naming the document, and therefore the "Please sign"
+            // email subject, after the deceased ("...— Anine Van der
+            // Westhuizen") instead of a living owner or the executor reads
+            // as a genuine error on an executed legal document, not a
+            // cosmetic one.
             $firstRecipientName = '';
             foreach ($recipients as $r) {
-                if (($r['role'] ?? '') !== 'agent' && !empty($r['name'])) {
+                if (($r['role'] ?? '') !== 'agent' && empty($r['_is_deceased']) && !empty($r['name'])) {
                     $firstRecipientName = $r['name'];
                     break;
                 }
@@ -2043,7 +2715,7 @@ class ESignWizardController extends Controller
                 $tpl = Template::find($tplId);
                 if (!$tpl || !$tpl->blade_view) continue;
 
-                $tplData = $webTemplateDataService->resolve($tplId, $stepData, $user);
+                $tplData = $webTemplateDataService->resolve($tplId, $bodyStepData, $user);
                 // AT-360 — same Fill & Review typed-value overlay as the single-doc path, scoped to
                 // this pack template's fields so a value only lands on the document it was typed for.
                 $tplData = $this->overlayFillReviewValues($tplData, $stepData, (int) $tplId);
@@ -2070,8 +2742,12 @@ class ESignWizardController extends Controller
                 // resolve residual Blade tokens / signed-at inputs. Without
                 // these the pack segments rendered inconsistently with the
                 // standalone template (root of the missing-signable bug).
+                // Signature-block inputs — SIGNING participants only, same
+                // reason as the single-doc path below (flow 330 Finding A).
+                $segSigningParticipantRecipients = $this->filterToSigningParticipants($recipients);
+
                 $segPartyNames = [];
-                foreach ($recipients as $r) {
+                foreach ($segSigningParticipantRecipients as $r) {
                     if (($r['role'] ?? '') === 'agent') continue;
                     $segPartyNames[] = $r['name'] ?? '';
                 }
@@ -2092,7 +2768,7 @@ class ESignWizardController extends Controller
                 $segAcqTerms   = ['acquiring_party', 'lessee', 'tenant', 'buyer', 'purchaser'];
                 $segAgentTerms = ['agent', 'property_practitioner'];
                 $segRecipientsByRole = [];
-                foreach ($recipients as $r) {
+                foreach ($segSigningParticipantRecipients as $r) {
                     $rb = strtolower(preg_replace('/_\d+$/', '', $r['role'] ?? ''));
                     if (in_array($rb, $segOwnerTerms, true)) {
                         $rk = $segOwnerCanon;
@@ -2232,7 +2908,7 @@ class ESignWizardController extends Controller
                 '_fill_review_overlay' => $packFillReviewOverlay,
             ];
         } elseif ($template->render_type === 'web' && $template->blade_view) {
-            $webTemplateData = $webTemplateDataService->resolve($template->id, $stepData, $user);
+            $webTemplateData = $webTemplateDataService->resolve($template->id, $bodyStepData, $user);
 
             // AT-360 — overlay the agent's Fill & Review typed values (pillar-less fields the
             // agent hand-typed) so they reach the signed document, not just Document.fields_json.
@@ -2272,9 +2948,17 @@ class ESignWizardController extends Controller
                 $viewData['document_context'] = $template->isSalesDocument($propSrc) ? 'sales' : 'rental';
             }
 
+            // Signature-block inputs — SIGNING participants only (Johan,
+            // 2026-08-26, flow 330 Finding A). filterToSigningParticipants()
+            // excludes a deceased/proxy-collapsed row here specifically —
+            // they still name in full elsewhere (the "I/We ..." clause,
+            // the domicilium block), just never get a blank, unexecutable
+            // signature line of their own.
+            $signingParticipantRecipients = $this->filterToSigningParticipants($recipients);
+
             // Build party_names for signature-block component (non-agent recipients first, agent last)
             $partyNames = [];
-            foreach ($recipients as $r) {
+            foreach ($signingParticipantRecipients as $r) {
                 if (($r['role'] ?? '') === 'agent') continue;
                 $partyNames[] = $r['name'] ?? '';
             }
@@ -2298,7 +2982,7 @@ class ESignWizardController extends Controller
             $acqTerms   = ['acquiring_party', 'lessee', 'tenant', 'buyer', 'purchaser'];
             $agentTerms = ['agent', 'property_practitioner'];
             $recipientsByRole = [];
-            foreach ($recipients as $r) {
+            foreach ($signingParticipantRecipients as $r) {
                 $base = strtolower(preg_replace('/_\d+$/', '', $r['role'] ?? ''));
                 if (in_array($base, $ownerTerms, true)) {
                     $key = $ownerCanon;
@@ -2511,23 +3195,50 @@ class ESignWizardController extends Controller
             ];
             $signingOrder = ['agent'];
 
-            // Use signing_setup order if available (respects drag-reorder from step 6)
+            // Use signing_setup order if available (respects drag-reorder from step 6).
+            // Job 1 (Johan/cc1, 2026-08-26) — this used to re-match each
+            // signing_setup entry to a recipient by role+NAME, which silently
+            // dropped any entry whose name changed under expansion (a
+            // represented party's row now carries the REPRESENTATIVE's name,
+            // never the original party's). attachSigningSetupMatch() already
+            // tagged every recipient (including expanded representative rows)
+            // with _matched_signing_setup_index BEFORE expansion, while names
+            // still agreed — so this reorder now matches on that stable index
+            // instead. A signing_setup entry that still finds nothing here
+            // means expansion itself dropped every representative for that
+            // party (should already be impossible — assertDeceasedRecipients
+            // HaveSubstituteSigner() and the _entity_needs_representative
+            // pass-through both run first) — loud failure, never a silently
+            // missing signer.
             $orderedRecipients = $recipients;
             if (!empty($signingSetup) && !empty($signingSetup[0]['signing_order'] ?? null)) {
-                // Rebuild recipient list from signing_setup order (skip agent entries)
                 $orderedRecipients = [];
-                foreach ($signingSetup as $ss) {
+                $usedRecipientKeys = [];
+                foreach ($signingSetup as $ssIndex => $ss) {
                     if (($ss['role'] ?? '') === 'agent') continue;
-                    // Match signing_setup entry to original recipient by role+name
-                    foreach ($recipients as $r) {
-                        if (($r['role'] ?? '') === ($ss['role'] ?? '') && ($r['name'] ?? '') === ($ss['name'] ?? '')) {
+                    $matchedAny = false;
+                    foreach ($recipients as $rKey => $r) {
+                        if (($r['_matched_signing_setup_index'] ?? null) === $ssIndex) {
                             $orderedRecipients[] = $r;
-                            break;
+                            $usedRecipientKeys[$rKey] = true;
+                            $matchedAny = true;
                         }
                     }
+                    if (! $matchedAny) {
+                        $name = trim((string) ($ss['name'] ?? '')) ?: 'This party';
+                        throw \Illuminate\Validation\ValidationException::withMessages([
+                            'recipients' => "The signing order lists {$name} but that party did not survive representative expansion. Check for a data-entry mismatch before re-sending.",
+                        ]);
+                    }
                 }
-                // Fallback: if matching failed, use original order
-                if (empty($orderedRecipients)) $orderedRecipients = $recipients;
+                // A recipient never tied to a signing_setup entry (e.g. added
+                // after step 6 was configured) is still sent — appended in
+                // original order, never silently dropped.
+                foreach ($recipients as $rKey => $r) {
+                    if (empty($usedRecipientKeys[$rKey])) {
+                        $orderedRecipients[] = $r;
+                    }
+                }
             }
 
             // Recipient Loop Engine B1 — each person is a SEPARATE signer in
@@ -2550,6 +3261,23 @@ class ESignWizardController extends Controller
                 $partyKey = $roleIndex === 1 ? $baseRole : $baseRole . '_' . $roleIndex;
 
                 $recipientPartyKeys[$i] = $partyKey;
+
+                // Cluster B1, second place (Johan/conductor, 2026-08-27) —
+                // this row still gets its OWN SignatureRequest created below
+                // (isDeceased: true, needed so the party is still NAMED in
+                // the document body) via $recipientPartyKeys[$i], set above.
+                // But parties_json/signing_order_json are the "who actually
+                // signs" lists — the same predicate every other signing
+                // surface already applies (SignatureRequest::
+                // isSigningParticipant(), filterToSigningParticipants(),
+                // expandAttestationBlocksPerRecipient()'s local filter,
+                // resolveMarginParties()). A deceased party never signs, so
+                // it never earns an entry here — this was the second place
+                // still listing 4 (agent + all 3 role rows) instead of 3
+                // (agent + 2 living sellers).
+                if (!empty($r['_is_deceased'])) {
+                    continue;
+                }
                 $parties[] = [
                     'role'       => $partyKey,
                     'role_label' => $baseRole,
@@ -2661,24 +3389,56 @@ class ESignWizardController extends Controller
                 );
             }
 
+            $chainBindings = [];
+
             foreach ($orderedRecipients as $i => $r) {
                 $baseRole = $roleAliases[$r['role'] ?? 'other'] ?? ($r['role'] ?? 'other');
                 if ($baseRole === 'agent') continue;
                 $partyKey = $recipientPartyKeys[$i] ?? $baseRole;
 
-                // Find matching signing_setup entry for this recipient
-                $matchedSetup = null;
-                foreach ($signingSetup as $ss) {
-                    if (($ss['role'] ?? '') === ($r['role'] ?? '') && ($ss['name'] ?? '') === ($r['name'] ?? '')) {
-                        $matchedSetup = $ss;
-                        break;
-                    }
-                }
+                // Job 1 (Johan/cc1, 2026-08-26) — read the index attachSigningSetupMatch()
+                // tagged pre-expansion, never re-match by role+name against the
+                // post-expansion array (silently loses skipEmail/email-override/
+                // FICA for any expanded representative row — same shape as the
+                // reorder bug above).
+                $matchedSetup = isset($r['_matched_signing_setup_index'])
+                    ? ($signingSetup[$r['_matched_signing_setup_index']] ?? null)
+                    : null;
                 $skipEmail = !empty($matchedSetup['skipEmail'] ?? false);
                 $email = $matchedSetup['email'] ?? $r['email'] ?? '';
                 $signingAction = $matchedSetup['action'] ?? 'send_after';
                 $ficaRequired = !empty($matchedSetup['fica_required'] ?? false);
                 $contactId = !empty($r['_contact_id']) ? (int) $r['_contact_id'] : null;
+
+                // cc2, 2026-08-25 (Flow 409, part 2 — "make the right document
+                // easy") — expandEntityRecipients() froze _party_clause_text
+                // onto $r back when the recipient array was FIRST built. Time
+                // passes between then and here (FICA lookups, signing_setup
+                // matching, reordering) during which the represented party's
+                // real representative can change on the underlying record —
+                // exactly the gap Flow 409 fell through. See
+                // resolveFreshPartyClauseText()'s own docblock.
+                //
+                // Gated on _party_clause_text already being set, not just
+                // _entity_contact_id — a rep-less entity carries
+                // _entity_contact_id too (_entity_needs_representative=true,
+                // no clause, handled by its own existing prompt) and must
+                // NOT be pulled into this recompute; there is nothing to
+                // recompute FROM when nobody represents them yet.
+                if (!empty($r['_entity_contact_id']) && !empty($r['_party_clause_text'])) {
+                    $r['_party_clause_text'] = $this->resolveFreshPartyClauseText(
+                        (int) $r['_entity_contact_id'],
+                        $contactId,
+                        (string) ($r['name'] ?? ''),
+                        // Johan, 2026-08-26 — this recompute must carry the
+                        // SAME per-document proxy/order choice expandEntity
+                        // Recipients() already resolved, or it silently falls
+                        // back to the permanent pivot's own state and undoes
+                        // both features right before the clause is frozen.
+                        isset($r['_entity_proxy_contact_id']) ? (int) $r['_entity_proxy_contact_id'] : null,
+                        $r['_entity_rep_order'] ?? null,
+                    );
+                }
 
                 // Auto-create FICA submission if required and contact has none approved
                 $ficaSubId = null;
@@ -2756,14 +3516,56 @@ class ESignWizardController extends Controller
                     $user,
                     $ficaRequired,
                     $contactId,
-                    $ficaSubId
+                    $ficaSubId,
+                    signerCaption: $r['_signature_caption'] ?? null,
+                    partyClauseText: $r['_party_clause_text'] ?? null,
+                    isDeceased: (bool) ($r['_is_deceased'] ?? false),
+                    isProxy: (bool) ($r['_is_proxy'] ?? false),
+                    recipientLocalKey: $r['_recipient_local_key'] ?? null,
+                    // cc2, 2026-08-25 (cc4's row 1506) — the identity the
+                    // guard checks against (Contact ids via
+                    // contact_representatives), never the clause text.
+                    // Only set for a row that actually represents someone;
+                    // null for the ordinary plain party.
+                    representedContactId: isset($r['_entity_contact_id']) ? (int) $r['_entity_contact_id'] : null,
+                    // Johan, 2026-08-28 — the recipient card's phone/address
+                    // are always editable whether or not a Contact was ever
+                    // selected via search; whatever the agent typed must
+                    // reach the document, not just the wizard's own screen.
+                    signerPhone: $r['cell'] ?? null,
+                    signerAddress: $r['address'] ?? null,
                 );
+
+                $this->stampSupplierFirmIfAny($sigReq, $r);
+
+                // "Replace this party" (Johan, 2026-08-24) — a recipient whose party is
+                // being replaced (e.g. deceased, represented by a chain) carries a
+                // recipient template + slot bindings from the wizard. Resolved in a
+                // SEPARATE pass, after every recipient in this send has been created,
+                // because a chain can bind to ANOTHER recipient in this same batch
+                // (Piet's executor slot binds to Koos's recipient_local_key) — that
+                // key only exists once Koos's own createSigningRequest() call above
+                // has run, which may be later in this same loop.
+                if (! empty($r['_recipient_template_id']) && ! empty($r['_slot_bindings'])) {
+                    $chainBindings[] = [
+                        'signature_request_id' => $sigReq->id,
+                        'recipient_template_id' => (int) $r['_recipient_template_id'],
+                        'slot_bindings' => $r['_slot_bindings'],
+                    ];
+                }
 
                 // Mark as deferred if "sign_later" was selected and party has no details
                 if ($signingAction === 'sign_later' && (empty($r['name']) || empty($email) || $skipEmail)) {
                     $sigReq->update(['status' => \App\Models\Docuperfect\SignatureRequest::STATUS_DEFERRED]);
                 }
             }
+
+            // "Replace this party" — resolve every chain binding now that every
+            // recipient in this send has a recipient_local_key (including ones a
+            // chain might point AT, which may have been created later in the loop
+            // above than the recipient whose party is being replaced). Shared with
+            // prepareWetInk() — see resolveChainBindings().
+            $this->resolveChainBindings($chainBindings, $user->id);
 
             // No supervisor_final request (confirmed model, 2026-08-03) — the authoriser co-signs ONCE
             // at the initial 'supervisor' review; the candidate's final approval completes the doc.
@@ -2832,6 +3634,45 @@ class ESignWizardController extends Controller
                     'sent_at' => now(),
                 ]);
             }
+
+            // Johan, 2026-08-28 — "it's one document that flows like a printed
+            // page... why would you rebuild it every single time it moves to
+            // the next screen." Every real SignatureRequest row now exists —
+            // compose the canonical body ONCE, right here, and store it.
+            // CanonicalDocumentRenderer::forDisplay() now trusts ANY stored
+            // canonical_html (see that method) and never recomputes it — so
+            // this is the ONE and ONLY time the parties/clause/Domicilium get
+            // derived for this document. Every later surface (agent signing
+            // screen, recipient ceremony, PDF) reads this exact artifact and
+            // only ever ADDS to it (ink, ceremony marks) — it never rebuilds
+            // it. This is what makes "correct at Fill & Review, wrong at Sign
+            // & Send" structurally impossible: there is no second derivation
+            // left to disagree with the first.
+            //
+            // Domicilium proxy-first fix (2026-08-27) — "no second derivation
+            // to disagree with the first" was true for the parties clause
+            // (party_clause_text, resolved via this same order a few dozen
+            // lines up) but NOT for the Domicilium's own representative
+            // expansion, which re-derived its own order from scratch with no
+            // proxy awareness at all — a second derivation this comment's own
+            // doctrine says shouldn't exist. Resolve the SAME per-document
+            // order (manual moveEntityRep() drag-order, else proxy-first) this
+            // recipient array already carries, and hand it to the one-time
+            // compose() call so the Domicilium agrees with the Recipients
+            // screen the agent actually approved.
+            $entityOrderOverrides = [];
+            foreach ($orderedRecipients as $r) {
+                $entityId = $r['_entity_contact_id'] ?? null;
+                if (empty($entityId)) {
+                    continue;
+                }
+                $overrideProxyRepId = isset($r['_entity_proxy_contact_id']) ? (int) $r['_entity_proxy_contact_id'] : null;
+                $effectiveOrder = $this->resolveEffectiveRepOrder($r, $overrideProxyRepId);
+                if (!empty($effectiveOrder)) {
+                    $entityOrderOverrides[(int) $entityId] = $effectiveOrder;
+                }
+            }
+            app(\App\Services\Docuperfect\CanonicalDocumentRenderer::class)->composeAndStore($sigTemplate, $entityOrderOverrides ?: null);
 
             // 6. Link document to flow
             $flowStepData = $flow->step_data ?? [];
@@ -2987,14 +3828,33 @@ class ESignWizardController extends Controller
         $document = $documentId ? Document::find($documentId) : null;
         $sigTemplate = $document ? $document->signatureTemplate : null;
 
-        $recipients = $stepData['recipients']['recipients'] ?? [];
-        $nextRecipient = null;
-        foreach ($recipients as $r) {
-            if (($r['role'] ?? '') !== 'agent' && !empty($r['email'])) {
-                $nextRecipient = $r;
-                break;
-            }
-        }
+        // Flow 330 (Johan, 2026-08-26) — this used to walk the RAW wizard
+        // recipients array and guess "the first non-agent one with an
+        // email" as who got notified. That is a completely disconnected
+        // read from what actually happened — a deceased party still has an
+        // email on file and was still first in the array, so the page told
+        // the agent "Sent to <the deceased party>" while nobody was ever
+        // emailed. Query the ACTUAL SignatureRequest that transitioned to
+        // PENDING — the status sendSigningRequest() sets ONLY on a genuine
+        // dispatch (SignatureService.php ~995-998) — so this line can never
+        // name someone who wasn't actually sent something. Null when
+        // nobody currently is (fully complete, held for agent review, or
+        // every remaining recipient turned out non-required) — the blade's
+        // existing @if($nextRecipient) guard correctly shows nothing rather
+        // than a false claim.
+        $nextRecipientRequest = $sigTemplate
+            ? $sigTemplate->requests()
+                ->where('status', SignatureRequest::STATUS_PENDING)
+                ->whereNotIn('party_role', ['agent', 'supervisor', 'supervisor_final'])
+                ->orderBy('signing_order', 'asc')
+                ->first()
+            : null;
+
+        $nextRecipient = $nextRecipientRequest ? [
+            'name'  => $nextRecipientRequest->signer_name,
+            'role'  => $nextRecipientRequest->party_role,
+            'email' => $nextRecipientRequest->signer_email,
+        ] : null;
 
         // Mark flow as completed
         $flow->status = 'completed';
@@ -3045,6 +3905,280 @@ class ESignWizardController extends Controller
     }
 
     /**
+     * Fault 3, round 2 (Johan, 2026-08-24) — the ONE recipient-preparation
+     * pipeline (auto-populate from the property + expand any entity into its
+     * representative(s)) every body/preview render goes through. Extracted
+     * from showStep() so templatePages() — the live-refresh endpoint the
+     * wizard calls after a field edit — computes the body from the SAME
+     * prepared data as the page's own initial load, not raw, un-prepared
+     * step_data. Before this, showStep() alone ran this pipeline: the first
+     * page load showed a company's correct "entity, herein represented by
+     * rep" clause, but any subsequent live refresh (templatePages()) fed
+     * WebTemplateDataService the UNEXPANDED entity row instead — dropping
+     * the representative and, for a flow with no saved recipients yet,
+     * resolving to nothing at all. Exactly the "two systems will drift"
+     * trap Johan named — this time one level up, in what feeds the party-
+     * name resolution rather than the resolution itself.
+     *
+     * Returns $stepData with 'recipients' set to the prepared array (mirrors
+     * the auto-populate/expand result showStep() always wrote back).
+     */
+    private function prepareRecipientsForMerge(array $stepData, ?Template $template, $user, int $step): array
+    {
+        // Recipients from step data — handle double-nested structure.
+        $recipientsData = $stepData['recipients'] ?? [];
+        $recipients = isset($recipientsData['recipients']) && is_array($recipientsData['recipients'])
+            ? $recipientsData['recipients']
+            : (is_array($recipientsData) && !empty($recipientsData) && isset($recipientsData[0]) ? $recipientsData : []);
+
+        // Auto-populate linked contacts from property if no non-agent recipients exist
+        $hasNonAgent = collect($recipients)->contains(fn($r) => ($r['role'] ?? '') !== 'agent');
+        if (!$hasNonAgent && $step >= 3 && $template) {
+            $propertyId = $stepData['property']['property_id'] ?? null;
+            $propertySource = $stepData['property']['_property_source'] ?? null;
+
+            // Load contacts from properties table (rental_properties has no contacts relationship)
+            if ($propertyId && $propertySource === 'properties') {
+                $prop = Property::with(['contacts' => fn($q) => $q->withPivot('role')])->find($propertyId);
+                if ($prop) {
+                    // Determine correct fallback role from template signing_parties, then document context
+                    $signingParties = $template->signing_parties ?? [];
+                    $defaultOwnerRole = collect($signingParties)->first(fn($r) => $r !== 'agent' && $r !== 'creator')
+                        ?? ($template->isSalesDocument($propertySource) ? 'seller' : 'landlord');
+
+                    // Build allowed esign_roles from template's signing_parties
+                    $allowedEsignRoles = $this->buildAllowedEsignRoles($signingParties);
+
+                    // Fault 3 (Johan, 2026-08-24) — a company AND its own director are
+                    // routinely BOTH linked to the same property (contact_property) for
+                    // CRM lookup purposes; that is correct data, not a duplicate. But the
+                    // document has ONE seller (the company) — the director only signs FOR
+                    // it, surfaced below by expandEntityRecipients(). Auto-populating the
+                    // director a SECOND time as their own independent recipient produced
+                    // two "seller" rows for the same legal signer: the entity's clause
+                    // ("1502 BEAUMONT PROP CC, herein represented by HA Pretorius") AND a
+                    // bare "HA Pretorius" row, both merging into the body as if they were
+                    // two separate owners ("HA Pretorius ... and HA Pretorius ..."). Skip
+                    // any linked contact who represents an entity ALSO linked here.
+                    $entityContactIds = $prop->contacts->filter(fn ($c) => $c->isEntity())->pluck('id')->all();
+
+                    // Agent is always first recipient (added by JS), so just add linked contacts
+                    foreach ($prop->contacts as $contact) {
+                        if (!$contact->isEntity() && !empty($entityContactIds)
+                            && $contact->representedEntities()->whereIn('contacts.id', $entityContactIds)->exists()) {
+                            continue; // Already covered via their entity's own expansion below.
+                        }
+
+                        $recipientRole = $this->resolveLinkedContactRole($contact, $allowedEsignRoles, $defaultOwnerRole);
+                        if ($recipientRole === null) {
+                            continue; // Not a party this document needs.
+                        }
+
+                        $recipients[] = [
+                            'order'       => count($recipients) + 1,
+                            'role'        => $recipientRole,
+                            'name'        => $contact->first_name . ' ' . $contact->last_name,
+                            'first_name'  => $contact->first_name ?? '',
+                            'last_name'   => $contact->last_name ?? '',
+                            'id_number'   => $contact->id_number ?? '',
+                            'email'       => $contact->email ?? '',
+                            'cell'        => $contact->phone ?? '',
+                            'address'     => $contact->address ?? '',
+                            '_contact_id' => $contact->id,
+                            // Johan, 2026-08-26 — auto-populated-from-property rows
+                            // never carried this (only a fresh search-pick via
+                            // selectContact() did), so the "deceased" checkbox's
+                            // :disabled="r._is_entity" read an undefined value on
+                            // first load — an Alpine quirk where an undefined
+                            // boolean-attribute binding disables rather than
+                            // leaving enabled, greying the tick out for a company
+                            // AND a natural person alike whenever neither had ever
+                            // been re-picked via search.
+                            '_is_entity'  => $contact->isEntity(),
+                            'bank_name'           => $contact->bank_name ?? '',
+                            'bank_account_name'   => $contact->bank_account_name ?? '',
+                            'bank_account_number' => $contact->bank_account_number ?? '',
+                            'bank_branch_name'    => $contact->bank_branch_name ?? '',
+                            'bank_branch_code'    => $contact->bank_branch_code ?? '',
+                            'bank_account_type'   => $contact->bank_account_type ?? '',
+                        ];
+                    }
+                }
+            }
+            // BL-3: rental/letting docs select a rental_properties row, which
+            // has NO contact_property pivot and NO contacts relationship —
+            // only the denormalised landlord_name/landlord_email/landlord_phone
+            // scalars (no tenant data exists on that table). Before this branch
+            // the block above was gated on source==='properties', so letting
+            // e-sign started with zero recipients. Synthesise the landlord
+            // recipient from those scalars, gated by the template's allowed
+            // esign roles, in the same shape as the sales branch. Tenant cannot
+            // be auto-resolved from rental_properties — manual-add covers it.
+            elseif ($propertyId && $propertySource === 'rental_properties') {
+                $rentalProp = RentalProperty::find($propertyId);
+                if ($rentalProp && (!empty($rentalProp->landlord_name) || !empty($rentalProp->landlord_email))) {
+                    $signingParties = $template->signing_parties ?? [];
+                    $defaultOwnerRole = collect($signingParties)->first(fn($r) => $r !== 'agent' && $r !== 'creator')
+                        ?? ($template->isSalesDocument($propertySource) ? 'seller' : 'landlord');
+                    $allowedEsignRoles = $this->buildAllowedEsignRoles($signingParties);
+
+                    // The landlord maps to esign_role 'lessor'. Skip only if the
+                    // template explicitly restricts roles and excludes lessor.
+                    $landlordAllowed = empty($allowedEsignRoles) || in_array('lessor', $allowedEsignRoles, true);
+                    if ($landlordAllowed) {
+                        $name = trim($rentalProp->landlord_name ?? '');
+                        $nameParts = $name !== '' ? preg_split('/\s+/', $name, 2) : ['', ''];
+                        $recipients[] = [
+                            'order'       => count($recipients) + 1,
+                            'role'        => $defaultOwnerRole,
+                            'name'        => $name,
+                            'first_name'  => $nameParts[0] ?? '',
+                            'last_name'   => $nameParts[1] ?? '',
+                            'id_number'   => '',
+                            'email'       => $rentalProp->landlord_email ?? '',
+                            'cell'        => $rentalProp->landlord_phone ?? '',
+                            'address'     => $rentalProp->full_address ?? '',
+                            '_contact_id' => null,
+                        ];
+                    }
+                }
+            }
+        }
+
+        // Deliberately NO entity expansion here — see expandRecipientsForMerge().
+        // This method's output feeds the recipients STEP'S OWN editable form
+        // (the 'recipients' view var showStep() seeds the Alpine list from,
+        // and what gets saved back on "Next"). Fault 3, round 3 (Johan,
+        // 2026-08-24): expansion used to happen HERE and get written back
+        // into $stepData['recipients'] — which this same array fed straight
+        // into that editable form. The agent's screen (and the client-side
+        // "Signs via its representative" preview) still looked right, but
+        // the underlying row had silently become the REPRESENTATIVE's own
+        // identity (first_name/last_name/_contact_id all HA Pretorius, not
+        // the company) with only the display `name` field still holding the
+        // composed clause. The agent clicked Next, that row got saved
+        // AS THE RECIPIENT, and the company was permanently gone from the
+        // data — flow 279's exact failure. Expansion is a presentation-layer
+        // operation for document-body merge purposes ONLY; it must never
+        // reach anything that becomes what gets edited or saved as "the
+        // recipient."
+        if (!empty($recipients)) {
+            $stepData['recipients'] = ['recipients' => $recipients];
+        }
+
+        return $stepData;
+    }
+
+    /**
+     * ENTITY RECIPIENT EXPANSION (Johan 2026-08-15, re-scoped 2026-08-24) —
+     * replace any entity/company recipient with its proxy-aware signing
+     * representative(s), each rendered "{entity}, herein represented by
+     * {rep} ({capacity})". Takes an ALREADY-prepared $stepData (see
+     * prepareRecipientsForMerge()) and returns a NEW copy with expansion
+     * applied — the caller's own $stepData is untouched, so a form fed from
+     * it never sees the expanded/substituted identities. Use this ONLY for
+     * document-body/preview merge calls (autoFillFields, WebTemplateDataService
+     * ::resolve(), field-group/per-recipient field expansion) — never for
+     * anything that becomes editable state or gets saved back.
+     */
+    private function expandRecipientsForMerge(array $stepData, $user): array
+    {
+        $recipients = $stepData['recipients']['recipients'] ?? [];
+        $expanded = $this->expandEntityRecipients($recipients, $user);
+        $deduped = $this->dedupeEntityRecipientsForDisplay($expanded);
+
+        if (!empty($deduped)) {
+            $stepData['recipients'] = ['recipients' => $deduped];
+        }
+
+        return $stepData;
+    }
+
+    /**
+     * Fault 3, round 5 (Johan, 2026-08-24) — expandEntityRecipients()
+     * correctly produces one row per SIGNER (needed for the signature-
+     * request loop: every non-proxied representative signs, so every one
+     * needs their own row there). But for DISPLAY purposes — the document
+     * body, the wizard preview — the entity is ONE party: three signer
+     * rows for the same company, each carrying the SAME (correctly
+     * all-reps-listed) _party_clause_text, still read as three separate
+     * "sellers" to resolveFieldGroupValue()'s "and"-join, tripling the
+     * identical clause. Collapse every row sharing the same
+     * _entity_contact_id down to its first occurrence.
+     *
+     * Extracted (Johan, 2026-08-25 — cc1's finding on 93a10b6a2) so
+     * prepareSigning()/prepareWetInk() can feed the document-generation
+     * body render the SAME expansion + dedup expandRecipientsForMerge()
+     * already computes for the wizard preview — never a second
+     * expandEntityRecipients() call for the same request, never two dedup
+     * implementations that could drift. The un-collapsed $expanded array
+     * itself is what the real signing-request loop must still use — this
+     * only ever narrows a DISPLAY copy.
+     */
+    private function dedupeEntityRecipientsForDisplay(array $expanded): array
+    {
+        $seenEntities = [];
+        $deduped = [];
+        foreach ($expanded as $r) {
+            $entityId = $r['_entity_contact_id'] ?? null;
+            if ($entityId !== null) {
+                if (isset($seenEntities[$entityId])) {
+                    continue;
+                }
+                $seenEntities[$entityId] = true;
+            }
+            $deduped[] = $r;
+        }
+
+        return $deduped;
+    }
+
+    /**
+     * Flow 330, Finding A (Johan, 2026-08-26) — a signature block is a
+     * place TO SIGN, not a display of the party (that's the "I/We ..."
+     * clause and the domicilium block, which correctly keep naming a
+     * deceased/proxy-collapsed party in full — untouched here). This array
+     * feeds party_names/recipients_by_role, which the signature-block
+     * component (signature-block.blade.php) reads directly to decide how
+     * many "Thus done and signed by the Seller..." lines to render. Left
+     * unfiltered, a deceased party who is correctly NOT_REQUIRED got her
+     * own blank, unexecutable signature block anyway — a mandate that
+     * looks incomplete to a conveyancer, and an open invitation to fill it
+     * in by hand on the wet-ink path.
+     *
+     * Mirrors SignatureRequest::isSigningParticipant()/nonSigningReason()'s
+     * exact two rules — deceased is absolute; a proxy elsewhere in the SAME
+     * role group collapses everyone else in it — against the WIZARD ARRAY's
+     * own _is_deceased/_is_proxy flags rather than calling that method
+     * directly: this runs BEFORE the SignatureRequest rows exist (it builds
+     * the very HTML those rows are later created from), so there is nothing
+     * to call it ON yet. If that rule ever changes, this must change with
+     * it — same two rules, same order, just read from array data instead of
+     * DB columns because of when in the pipeline this runs.
+     */
+    private function filterToSigningParticipants(array $recipients): array
+    {
+        $proxyRoles = [];
+        foreach ($recipients as $r) {
+            if (!empty($r['_is_proxy'])) {
+                $proxyRoles[strtolower($r['role'] ?? '')] = true;
+            }
+        }
+
+        return array_values(array_filter($recipients, function (array $r) use ($proxyRoles) {
+            if (!empty($r['_is_deceased'])) {
+                return false;
+            }
+            $role = strtolower($r['role'] ?? '');
+            if (!empty($proxyRoles[$role]) && empty($r['_is_proxy'])) {
+                return false; // collapsed by a proxy elsewhere in this same role group
+            }
+
+            return true;
+        }));
+    }
+
+    /**
      * The role a property-linked contact is offered to sign as — from the PROPERTY-LINK role.
      *
      * §2.1 doctrine (esign-ceremony-v3): a party's role is the role they hold ON THIS
@@ -3060,6 +4194,879 @@ class ESignWizardController extends Controller
      * canon the rest of the wizard speaks), or NULL to skip the contact entirely — they are a
      * lead, or they hold no role this template signs.
      */
+    /**
+     * True when a recipient's own Contact needs representative expansion
+     * before it can be treated as a plain pass-through party.
+     *
+     * Flow 330 (Johan, 2026-08-26) — cc2's finding: expandEntityRecipients()
+     * gated purely on isEntity(), so a NATURAL-PERSON party who is
+     * represented (Piet: a natural person represented by an entity, itself
+     * represented by a natural person — Koos) never reached expansion at
+     * all. WHO ACTUALLY RECEIVED THE SIGNING REQUEST stayed wrong even
+     * after the document-body text was fixed on the display side
+     * (RoleBlockExpansionService::resolveDocumentRepresentatives(),
+     * 2026-08-25) — Piet's OWN (possibly absent/wrong) contact details
+     * would have been used to create the SignatureRequest, never Koos's.
+     *
+     * isEntity() is kept, not replaced — an entity with ZERO representatives
+     * linked must still enter expansion so the existing
+     * _entity_needs_representative prompt still fires (unchanged, pre-
+     * existing behaviour).
+     *
+     * Flow 509 (Johan, 2026-08-26) — representatives()->exists() ALONE is no
+     * longer sufficient for a natural person. ensureChainRelationshipsExist()
+     * (cffa56c49, this morning) made "Replace this party" write a real,
+     * PERMANENT contact_representatives row every time an agent picks a
+     * representative — correctly, that record is the guard's backing
+     * evidence and must survive. But this gate then read that same
+     * permanent row as "this person is represented, always" — so Anine,
+     * picked with two DIFFERENT executors on two EARLIER, separate,
+     * legitimate documents, came up "herein represented by [both]" on a
+     * THIRD, brand-new document where Johan had ticked nothing at all.
+     * $isDocumentRepresented is per-recipient, from THIS document's own
+     * step_data (_is_deceased) — the same per-document-flag mechanism cc3
+     * just used for the proxy pick (_entity_proxy_contact_id, dce9ec0c2),
+     * not a second invention. A natural person's stored relationships stay
+     * exactly where they are; they just stop being sufficient on their own
+     * to decide what THIS document prints.
+     */
+    private function partyNeedsRepresentativeExpansion(Contact $contact, bool $isDocumentRepresented = false): bool
+    {
+        if ($contact->isEntity()) {
+            return true;
+        }
+
+        return $isDocumentRepresented && $contact->representatives()->exists();
+    }
+
+    /**
+     * cc2, 2026-08-25 (Flow 409, part 2 — "make the right document easy,
+     * not just refuse the wrong one") — expandEntityRecipients() freezes
+     * _party_clause_text early, once, when the recipient array is first
+     * built. A represented party's real representative can genuinely
+     * change on the underlying record between that moment and the moment
+     * this row is actually turned into a SignatureRequest (real minutes
+     * apart on a real document — Anna's own POA link moved between two
+     * wizard steps on Flow 409). Recomposing here, live, right before the
+     * value is frozen for good, closes that window: same entity + same
+     * pivot state always produces the same clause, so an agent who hasn't
+     * touched anything gets back the identical string (a true no-op) —
+     * only a genuine change since expansion produces a different, CORRECT
+     * result. This is why the free-text path can now compose correctly
+     * instead of merely being refused: a legitimate late correction to who
+     * represents someone is picked up automatically, not rejected.
+     *
+     * $contactId not currently among the entity's representatives at all
+     * is a different case — there is no clause this can legitimately
+     * compose (naming someone who was never actually linked as a
+     * representative), so it refuses with the specific names involved
+     * rather than silently keeping the stale text SignatureRequest::
+     * assertClauseNamesSigner() would go on to reject anyway.
+     *
+     * @throws \Illuminate\Validation\ValidationException
+     */
+    private function resolveFreshPartyClauseText(int $entityContactId, ?int $contactId, string $recipientName, ?int $overrideProxyRepId = null, ?array $orderContactIds = null): ?string
+    {
+        $entityContact = Contact::withoutGlobalScopes()->find($entityContactId);
+        if (! $entityContact) {
+            return null; // dangling entity reference — nothing to compose from; unchanged behaviour.
+        }
+
+        if ($contactId === null) {
+            return null; // no signer resolved yet (e.g. deferred) — nothing to verify against.
+        }
+
+        // cc2, 2026-08-26 — reuses SignatureRequest::assertSignerIsCurrentRepresentative()
+        // directly rather than re-walking the chain here. Two membership
+        // checks against the same relationship is the identical two-
+        // implementations shape as the clause/signer split this whole task
+        // exists to close, one level down — a one-hop check here would have
+        // refused Anna's genuinely correct multi-hop chain (Ben → Chris)
+        // exactly the way cc4 caught it doing.
+        try {
+            \App\Models\Docuperfect\SignatureRequest::assertSignerIsCurrentRepresentative($contactId, $entityContactId);
+        } catch (\App\Exceptions\PartyClauseSignerMismatchException $e) {
+            // entity_name is only populated for an actual entity — a
+            // represented NATURAL PERSON (Anna's own case) has none, so
+            // fall back to full_name the same way composeEntityPartyText()
+            // itself already does.
+            $partyName = (string) ($entityContact->entity_name ?: $entityContact->full_name);
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'recipients' => "\"{$recipientName}\" is no longer linked as a representative of "
+                    . "\"{$partyName}\" — re-link them (or pick the correct "
+                    . 'representative) on the recipient screen before sending.',
+            ]);
+        }
+
+        return app(\App\Services\Docuperfect\RoleBlockExpansionService::class)->composeEntityPartyText($entityContact, true, $overrideProxyRepId, $orderContactIds);
+    }
+
+    /**
+     * ESIGN RECIPIENT BUILDER (Johan 2026-08-15) — expand any ENTITY/company
+     * recipient into its proxy-aware signing representative(s). Consumes the
+     * shared foundation Contact::signingRepresentatives() (proxy → 1 signer;
+     * else all reps) and the agency phrasing template (EsignRecipientPreset).
+     *
+     * Each produced signer:
+     *  - name  = "{entity}, herein represented by {rep} ({capacity})" (party-name
+     *    field + signature attribution render the representation directly);
+     *  - first/last/id_number/email/cell/bank = the REP (natural person signs and
+     *    is emailed the signing link);
+     *  - _entity_contact_id / _entity_name / _capacity / _signature_caption carried
+     *    for downstream render.
+     * A rep-less entity is kept as-is with _entity_needs_representative=true so the
+     * recipient screen can prompt "link a representative first" — it cannot sign.
+     * A recipient with no representative link at all (the ordinary case) passes
+     * through unchanged (order renumbered) — see partyNeedsRepresentativeExpansion().
+     * A represented NATURAL PERSON (Johan, 2026-08-26 — the "Piet" case) now takes
+     * this SAME branch: Contact::signingRepresentatives() recurses through any
+     * entity intermediary down to the real natural-person signer(s), so the
+     * produced rows are unchanged in shape whether the original party was an
+     * entity or a represented natural person.
+     */
+    /**
+     * Job 1 (Johan/cc1, 2026-08-26) — signing_setup (step 6's drag-reorder,
+     * skip-email, FICA-required, custom-email overrides) is built by the
+     * FRONTEND against the ORIGINAL recipient names, before this controller
+     * ever runs expandEntityRecipients(). Re-matching a signing_setup entry
+     * to a recipient by role+name AFTER expansion silently fails for any
+     * entity/represented-party row, because expansion replaces that row's
+     * name with the REPRESENTATIVE's name — the frontend never sees the
+     * substitution. The failed match used to just drop the slot with no
+     * error: the represented party's signing request was never created,
+     * nobody was emailed, and the endpoint still returned 200 "ok":true.
+     *
+     * Matching happens HERE, before expansion, while names still agree with
+     * what the frontend built signing_setup from. The resulting index
+     * survives expansion because expandEntityRecipients() copies
+     * _matched_signing_setup_index onto every representative row it
+     * produces from a matched original recipient — so every downstream
+     * lookup (reorder, skip-email, FICA, email override) reads the index
+     * instead of re-matching a name expansion already changed.
+     *
+     * A signing_setup entry that cannot be matched to any recipient is a
+     * genuine data mismatch, not something to paper over — it throws
+     * instead of silently vanishing a party from the send. Same shape as
+     * flow 330's silent chain-advance stop: a legal signing chain must
+     * never drop a participant without telling anyone.
+     */
+    /**
+     * cc2, 2026-08-26 (Johan's real case, flow 480 — a company represented
+     * by three parties) — "Job 1" (a07e0927f) assumed signing_setup is
+     * ALWAYS built from the pre-expansion (original party) name. True for
+     * the natural-person-chain case it reproduced; false for an entity:
+     * step 6's own preview (ESignWizardController.php ~L616-630, "Fault 3,
+     * round 5", 2026-08-24 — OLDER than Job 1) already shows the EXPANDED
+     * representative names for an entity, so signing_setup for a company
+     * genuinely contains each representative's own name — which can never
+     * match the entity's single pre-expansion row, for ANY entity, always,
+     * not only when it has multiple representatives. Confirmed directly
+     * against Johan's real flow 480 data before writing this.
+     *
+     * Rather than re-deciding match timing globally (bigger, riskier
+     * change under the clock), this stays additive: try the pre-expansion
+     * match first (unchanged — still the fix for the natural-person-chain
+     * case Job 1 targeted), and hand back whatever DIDN'T match instead of
+     * throwing immediately. The caller retries those specific entries
+     * against the expanded array (matchUnmatchedSigningSetupPostExpansion(),
+     * right after expandEntityRecipients()) before giving up for real.
+     * Anything that matched here before still matches here, unchanged.
+     *
+     * @param array<int, array> $unmatched OUT param — signing_setup entries this pass could not place.
+     */
+    private function attachSigningSetupMatch(array $recipients, array $signingSetup, array &$unmatched = []): array
+    {
+        $unmatched = [];
+        if (empty($signingSetup)) {
+            return $recipients;
+        }
+
+        $consumed = array_fill(0, count($recipients), false);
+
+        foreach ($signingSetup as $ssIndex => $ss) {
+            if (($ss['role'] ?? '') === 'agent') continue;
+
+            $matched = false;
+            foreach ($recipients as $i => &$r) {
+                if ($consumed[$i]) continue;
+                if (($r['role'] ?? '') === ($ss['role'] ?? '') && ($r['name'] ?? '') === ($ss['name'] ?? '')) {
+                    $r['_matched_signing_setup_index'] = $ssIndex;
+                    $consumed[$i] = true;
+                    $matched = true;
+                    break;
+                }
+            }
+            unset($r);
+
+            if (! $matched) {
+                $unmatched[$ssIndex] = $ss;
+            }
+        }
+
+        return $recipients;
+    }
+
+    /**
+     * The fallback pass — see attachSigningSetupMatch()'s docblock. Matches
+     * whatever didn't resolve pre-expansion against the NOW-expanded array
+     * (an entity's real representative rows exist here), by the same
+     * role+name rule. Still throws, still names the specific party, if a
+     * signing_setup entry genuinely matches nothing anywhere — a real
+     * data-entry mismatch must never vanish a party silently.
+     *
+     * @param array<int, array> $unmatched from attachSigningSetupMatch()'s out param, keyed by original signing_setup index
+     */
+    private function matchUnmatchedSigningSetupPostExpansion(array $recipients, array $unmatched): array
+    {
+        if (empty($unmatched)) {
+            return $recipients;
+        }
+
+        $consumed = array_fill(0, count($recipients), false);
+        foreach ($recipients as $i => $r) {
+            // Already matched pre-expansion — index 0 is a valid match, so
+            // check the value, not truthiness. expandEntityRecipients()
+            // pre-populates every row (including unmatched ones) with this
+            // key set to null, so array_key_exists() alone wrongly marks
+            // every expanded row as already consumed (flow 480: threw here).
+            $consumed[$i] = array_key_exists('_matched_signing_setup_index', $r)
+                && $r['_matched_signing_setup_index'] !== null;
+        }
+
+        foreach ($unmatched as $ssIndex => $ss) {
+            $matched = false;
+            foreach ($recipients as $i => &$r) {
+                if ($consumed[$i]) continue;
+                if (($r['role'] ?? '') === ($ss['role'] ?? '') && ($r['name'] ?? '') === ($ss['name'] ?? '')) {
+                    $r['_matched_signing_setup_index'] = $ssIndex;
+                    $consumed[$i] = true;
+                    $matched = true;
+                    break;
+                }
+            }
+            unset($r);
+
+            if (! $matched) {
+                $name = trim((string) ($ss['name'] ?? '')) ?: 'This party';
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'recipients' => "The signing order lists {$name} but no matching recipient was found on this document. Check for a data-entry mismatch between the recipient list and the signing order (step 6) before re-sending.",
+                ]);
+            }
+        }
+
+        return $recipients;
+    }
+
+    /**
+     * Johan, 2026-08-26 (cc5's proxy fix, 547863fbb, escalated) — DISPLAY and
+     * SIGNING are different questions with different answers, decided ONCE,
+     * here, not per call site: a human reading this document — Fill &
+     * Review, the agent signing screen, the generated document, the PDF —
+     * must see every representative's own name/address/phone/email,
+     * regardless of proxy; only the code that decides who receives a
+     * signing request and who actually signs narrows to the proxy (or the
+     * sole non-proxied rep). $forDisplay defaulted to false and was wired
+     * into exactly one call site (the wizard preview) — every OTHER
+     * consumer, including the ones that bake the address/phone/email
+     * sections into the document that actually gets sent, inherited the
+     * narrowed default and only ever showed the proxy. Inverted: the
+     * default is now "show everyone" (what any new call site gets without
+     * having to know this distinction exists); $signersOnly=true is the
+     * one, explicit, opt-in for the two places that must stay narrowed —
+     * the Signing Order list and the SignatureRequest-creation loop itself.
+     */
+    private function expandEntityRecipients(array $recipients, $user, bool $signersOnly = false): array
+    {
+        $contactIds = collect($recipients)->pluck('_contact_id')->filter()->unique()->values();
+        if ($contactIds->isEmpty()) {
+            return $recipients;
+        }
+
+        $contacts = Contact::withoutGlobalScopes()->whereIn('id', $contactIds)->get()->keyBy('id');
+        // Flow 509 — per-recipient now (not per-contact): whether a natural
+        // person needs expansion depends on THIS document's own _is_deceased
+        // flag, so the early-exit must look at each recipient row, not just
+        // the distinct contact set. An entity is still unconditional.
+        $needsExpansion = false;
+        foreach ($recipients as $r) {
+            $cid = $r['_contact_id'] ?? null;
+            $c = $cid ? ($contacts[$cid] ?? null) : null;
+            if ($c && $this->partyNeedsRepresentativeExpansion($c, ! empty($r['_is_deceased']))) {
+                $needsExpansion = true;
+                break;
+            }
+        }
+        if (! $needsExpansion) {
+            return $recipients; // no entities, and nothing else has a representative linked → nothing to expand
+        }
+
+        $agencyId = $user->agency_id ?? optional($contacts->first())->agency_id;
+        // The APPLICABLE recipient preset (agency-defined on the setup screen):
+        // an 'entity'/'all' default, falling back to the agency default.
+        $preset   = $agencyId ? \App\Models\Docuperfect\EsignRecipientPreset::resolveFor((int) $agencyId, 'entity') : null;
+
+        $out = [];
+        $order = 0;
+        foreach ($recipients as $r) {
+            $cid     = $r['_contact_id'] ?? null;
+            $contact = $cid ? ($contacts[$cid] ?? null) : null;
+
+            // cc3's finding, cc2 2026-08-26 (Johan scenario 5, live regression
+            // caught minutes before landing) — a recipient already carrying
+            // _slot_bindings/_recipient_template_id is already spoken for by
+            // resolveChainBindings() (the deceased-substitute / "Replace this
+            // party" mechanism). Once that binding is legitimately backed by
+            // a real contact_representatives row (as tonight's identity guard
+            // now requires), this generic entity-expansion pass would ALSO
+            // fire on the same contact and silently consume/rewrite the
+            // deceased party's own row before the slot-binding pass ever
+            // runs — losing is_deceased and the row's own recipient_local_key,
+            // and leaving the executor with two separate SignatureRequest
+            // rows instead of one. Leave an already-bound recipient alone
+            // entirely; it is not this pass's row to touch.
+            $alreadyBoundByChain = ! empty($r['_slot_bindings']) || ! empty($r['_recipient_template_id']);
+            if (! $contact || $alreadyBoundByChain || ! $this->partyNeedsRepresentativeExpansion($contact, ! empty($r['_is_deceased']))) {
+                $r['order'] = ++$order;
+                $out[] = $r;
+                continue;
+            }
+
+            // Johan, 2026-08-26 (bug found testing 913f2f102) — the proxy
+            // pick lives on THIS recipient's own row only, never on the
+            // contact/company — set purely client-side by the wizard's
+            // picker and carried through step_data like _is_deceased/
+            // _slot_bindings already are. Never read back from
+            // contact_representatives for this purpose.
+            $overrideProxyRepId = isset($r['_entity_proxy_contact_id']) ? (int) $r['_entity_proxy_contact_id'] : null;
+
+            // Johan, 2026-08-26 — "1st director - 1st signature position, 1
+            // address section, 1st recipient to sign." Same per-document,
+            // never-on-the-contact rule as the proxy pick itself.
+            $effectiveOrder = $this->resolveEffectiveRepOrder($r, $overrideProxyRepId);
+
+            // Full representative list by default — every one renders their
+            // own address/phone/email; a proxy pick must never make the
+            // other representatives' details disappear from a document a
+            // human reads. Proxy-narrowed (who actually signs/receives the
+            // request) ONLY when the caller explicitly asks for that.
+            $signers = $signersOnly ? $contact->signingRepresentatives($overrideProxyRepId) : $contact->representatives()->get();
+            $signers = Contact::applyRepresentativeOrder($signers, $effectiveOrder);
+            if ($signers->isEmpty()) {
+                $r['order']                        = ++$order;
+                $r['_entity_contact_id']           = (int) $contact->id;
+                $r['_entity_name']                 = (string) $contact->entity_name;
+                $r['_entity_needs_representative']  = true;
+                $out[] = $r;
+                continue;
+            }
+
+            foreach ($signers as $rep) {
+                $capacity = $rep->pivot->capacity ?? null;
+                // A PROXY signer renders with the distinct proxy wording —
+                // this document's own pick when one was made, else whatever
+                // is permanently on file (ordinarily nothing, for a company).
+                $isProxy  = $overrideProxyRepId !== null ? ($rep->id === $overrideProxyRepId) : (bool) ($rep->pivot->signs_as_proxy ?? false);
+                $label    = $preset
+                    ? $preset->renderPhrase($contact, $rep, $capacity, $isProxy)
+                    : \App\Models\Docuperfect\EsignRecipientPreset::substitute(
+                        $isProxy
+                            ? \App\Models\Docuperfect\EsignRecipientPreset::DEFAULT_PROXY_PHRASING
+                            : \App\Models\Docuperfect\EsignRecipientPreset::DEFAULT_PHRASING,
+                        $contact, $rep, $capacity);
+                $caption  = $preset ? $preset->renderCaption($contact, $rep, $capacity, $isProxy) : '';
+
+                // SNAPSHOT (Johan, 2026-08-24) — the document-body wording is
+                // resolved ONCE, here, at generation time, and stored on the
+                // SignatureRequest (see the createSigningRequest() call
+                // below). A wording template edited after this point must
+                // never change what an already-sent document says.
+                $partyClauseText = app(\App\Services\Docuperfect\RoleBlockExpansionService::class)
+                    ->composeEntityPartyText($contact, true, $overrideProxyRepId, $effectiveOrder);
+
+                $out[] = [
+                    'order'                 => ++$order,
+                    'role'                  => $r['role'] ?? '',
+                    // cc1's audit, escalated by Johan 2026-08-24 — this used
+                    // to be $label (the FULL document-body clause: entity +
+                    // every representative + IDs + capacity), and it fed
+                    // createSigningRequest()'s $signerName param DIRECTLY
+                    // below — meaning the real email greeting read "Hi 1502
+                    // BEAUMONT PROP CC, herein represented by Elize
+                    // Reichel..." instead of "Hi Elize." The clause belongs
+                    // in the document body (_party_clause_text, already
+                    // correct); the SIGNER RECORD needs the natural
+                    // person's own name and nothing else — resolved
+                    // directly from the representative Contact, the same
+                    // way a natural-person recipient's own 'name' always
+                    // has been (never the entity's, never the clause).
+                    'name'                  => (string) $rep->full_name,
+                    'first_name'            => $rep->first_name ?? '',
+                    'last_name'             => $rep->last_name ?? '',
+                    'id_number'             => $rep->id_number ?? '',
+                    'email'                 => $rep->email ?? '',
+                    'cell'                  => $rep->phone ?? '',
+                    'address'               => $rep->address ?? '',
+                    '_contact_id'           => (int) $rep->id,
+                    '_entity_contact_id'    => (int) $contact->id,
+                    '_entity_name'          => (string) $contact->entity_name,
+                    '_capacity'             => $capacity,
+                    '_is_proxy'             => $isProxy,
+                    '_representation_label' => $label,
+                    '_signature_caption'    => $caption,
+                    '_party_clause_text'    => $partyClauseText,
+                    '_matched_signing_setup_index' => $r['_matched_signing_setup_index'] ?? null,
+                    // Johan, 2026-08-26 — must survive expansion: prepareSigning()'s
+                    // own "recompute fresh right before freezing" step (Flow 409)
+                    // reruns composeEntityPartyText() a second time later using
+                    // ONLY what's still on this row — without these, that recompute
+                    // would silently drop back to the permanent pivot's own order/
+                    // proxy state and undo everything just set above.
+                    '_entity_proxy_contact_id' => $overrideProxyRepId,
+                    '_entity_rep_order'     => $effectiveOrder,
+                    'bank_name'             => $rep->bank_name ?? '',
+                    'bank_account_name'     => $rep->bank_account_name ?? '',
+                    'bank_account_number'   => $rep->bank_account_number ?? '',
+                    'bank_branch_name'      => $rep->bank_branch_name ?? '',
+                    'bank_branch_code'      => $rep->bank_branch_code ?? '',
+                    'bank_account_type'     => $rep->bank_account_type ?? '',
+                ];
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * HARD BLOCK (Johan, 2026-08-25): "for every party added to a document
+     * there is a way to replace this party... the signer is ALWAYS a
+     * natural person." A recipient flagged deceased never signs
+     * (SignatureRequest::isSigningParticipant() — is_deceased is absolute),
+     * so the document must not be sendable unless a real substitute signer
+     * is bound in their place. This is the same "signing link in the
+     * chain" contract RecipientTemplate.php's own docblock describes for a
+     * type:'recipient' slot binding — the ONLY binding type that produces
+     * an actual SignatureRequest for the bound party (see
+     * RecipientTemplate::resolveSlotDisplayName()). A type:'contact'
+     * binding is display-only by design and never receives a signing
+     * request, so it does not satisfy this rule; nor does a type:'self'
+     * binding pointing back at the deceased row itself, nor a binding to
+     * another recipient who is themselves deceased.
+     *
+     * A certain problem is a hard block, not a warning — this throws
+     * before any DB writes, naming the specific party, rather than letting
+     * a document with an unsignable party go out.
+     */
+    private function assertDeceasedRecipientsHaveSubstituteSigner(array $recipients): void
+    {
+        $byLocalKey = [];
+        foreach ($recipients as $r) {
+            $key = $r['_recipient_local_key'] ?? null;
+            if ($key !== null) {
+                $byLocalKey[$key] = $r;
+            }
+        }
+
+        foreach ($recipients as $r) {
+            if (empty($r['_is_deceased'])) {
+                continue;
+            }
+
+            $ownKey = $r['_recipient_local_key'] ?? null;
+            $bindings = $r['_slot_bindings'] ?? [];
+            $hasSubstitute = false;
+
+            if (is_array($bindings)) {
+                foreach ($bindings as $binding) {
+                    if (! is_array($binding) || ($binding['type'] ?? null) !== 'recipient') {
+                        continue;
+                    }
+                    $boundKey = $binding['recipient_local_key'] ?? null;
+                    if ($boundKey === null || $boundKey === $ownKey) {
+                        continue;
+                    }
+                    $bound = $byLocalKey[$boundKey] ?? null;
+                    if ($bound !== null && empty($bound['_is_deceased'])) {
+                        $hasSubstitute = true;
+                        break;
+                    }
+                }
+            }
+
+            if (! $hasSubstitute) {
+                $name = trim((string) ($r['name'] ?? '')) ?: 'This party';
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'recipients' => "{$name} is marked deceased but no substitute signer has been chosen. Open \u{201c}Replace this party\u{201d} and choose who signs in their place before sending.",
+                ]);
+            }
+        }
+    }
+
+    /**
+     * HARD BLOCK (Johan, 2026-08-25 — "so add a registration field on
+     * suppliers"; split 2026-08-26 — "split registration and ID into two
+     * fields on supplier... a company registration number, and the
+     * representative's ID number. The clause needs both"): a supplier
+     * bound as someone's representative via a type:'recipient' slot
+     * binding (the same "Replace this party" chain
+     * assertDeceasedRecipientsHaveSubstituteSigner() above checks) must
+     * carry BOTH numbers — the FIRM's registration number
+     * (AgencyServiceProvider::registration_number) and the REPRESENTATIVE's
+     * own ID number (AgencyServiceProviderContact::id_number, new
+     * 2026_08_29_000007) — because the clause names both: the company by
+     * its registration, the person signing by their own ID. Checked
+     * against the real, current DB records (not the wizard's own
+     * flattened recipient-array snapshot, which only ever carried one
+     * borrowed value) so a number added moments ago on the supplier
+     * directory screen is picked up immediately. An ordinary supplier
+     * recipient who is NOT standing in as anyone's representative is
+     * untouched — existing suppliers with no number on file are fine
+     * right up until the moment one is actually used this way, per
+     * Johan's explicit "not required retrospectively" instruction.
+     *
+     * The message names the specific supplier, which number(s) are
+     * missing, and where to add them, per Johan's "if you block, say so"
+     * steer.
+     */
+    private function assertSupplierRepresentativesHaveRegistrationNumber(array $recipients): void
+    {
+        $byLocalKey = [];
+        foreach ($recipients as $r) {
+            $key = $r['_recipient_local_key'] ?? null;
+            if ($key !== null) {
+                $byLocalKey[$key] = $r;
+            }
+        }
+
+        foreach ($recipients as $r) {
+            $bindings = $r['_slot_bindings'] ?? [];
+            if (! is_array($bindings)) {
+                continue;
+            }
+
+            foreach ($bindings as $binding) {
+                if (! is_array($binding) || ($binding['type'] ?? null) !== 'recipient') {
+                    continue;
+                }
+                $boundKey = $binding['recipient_local_key'] ?? null;
+                if ($boundKey === null) {
+                    continue;
+                }
+                $bound = $byLocalKey[$boundKey] ?? null;
+                if ($bound === null || ($bound['_recipient_source'] ?? null) !== 'supplier') {
+                    continue;
+                }
+
+                $supplierContactId = $bound['_supplier_contact_id'] ?? null;
+                $representative = $supplierContactId
+                    ? \App\Models\DealV2\AgencyServiceProviderContact::withoutGlobalScopes()->with('firm')->find($supplierContactId)
+                    : null;
+
+                $supplierName = trim((string) ($bound['name'] ?? '')) ?: 'This supplier';
+                $firmName = trim((string) ($bound['_supplier_firm_name'] ?? ($representative->firm->name ?? '')));
+                $where = $firmName !== '' ? "the supplier directory entry for {$firmName}" : 'the supplier directory';
+
+                $missingCompanyReg = $representative === null || trim((string) ($representative->firm->registration_number ?? '')) === '';
+                $missingRepId = $representative === null || trim((string) ($representative->id_number ?? '')) === '';
+
+                if (! $missingCompanyReg && ! $missingRepId) {
+                    continue;
+                }
+
+                $missing = array_filter([
+                    $missingCompanyReg ? 'the company registration number' : null,
+                    $missingRepId ? "{$supplierName}'s own ID number" : null,
+                ]);
+                $missingText = implode(' and ', $missing);
+
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'recipients' => "{$supplierName} is standing in as a representative on this document but {$missingText} " . (count($missing) > 1 ? 'are' : 'is') . " missing. Add " . (count($missing) > 1 ? 'them' : 'it') . " in {$where} (Deal Register \u{2192} Suppliers) before sending.",
+                ]);
+            }
+        }
+    }
+
+    /**
+     * HARD BLOCK (Johan, 2026-08-26 — correcting an earlier, wrong
+     * self-answer): "the ruling is BLOCK... Silent degradation is exactly
+     * the failure pattern we have spent this whole night removing. So:
+     * BLOCK when the deceased contact has no ID. Same for the person
+     * signing on the executor side. The refusal names which person is
+     * missing an ID and where to add it." Deliberately NOT
+     * RecipientTemplate::withIdSuffix()'s existing graceful-degradation
+     * pattern (omit the suffix, never block) — that pattern is correct
+     * for an ordinary party's optional ID; it is the wrong pattern here,
+     * because the clause's whole legal purpose is naming who died and who
+     * stands for them, by ID.
+     *
+     * Checks every slot of a chain-bound recipient's template (not just
+     * "deceased"/"executor" by name — whatever the template declares),
+     * skipping only: an entity/company contact (its ID concept is a
+     * registration number, a different check, not this one) and a
+     * supplier-sourced binding (already fully covered, correctly, by
+     * assertSupplierRepresentativesHaveRegistrationNumber() just above —
+     * checking it again here would risk a second, differently-worded
+     * block on the exact same missing number).
+     */
+    private function assertChainPartiesHaveIdNumbers(array $recipients): void
+    {
+        $byLocalKey = [];
+        foreach ($recipients as $r) {
+            $key = $r['_recipient_local_key'] ?? null;
+            if ($key !== null) {
+                $byLocalKey[$key] = $r;
+            }
+        }
+
+        foreach ($recipients as $r) {
+            if (empty($r['_recipient_template_id']) || empty($r['_slot_bindings']) || ! is_array($r['_slot_bindings'])) {
+                continue;
+            }
+
+            $recipientTemplate = \App\Models\RecipientTemplate::find($r['_recipient_template_id']);
+            if ($recipientTemplate === null) {
+                continue;
+            }
+
+            foreach ($recipientTemplate->party_slots ?? [] as $slot) {
+                $slotKey = $slot['key'] ?? null;
+                $slotLabel = $slot['label'] ?? $slotKey;
+                if ($slotKey === null) {
+                    continue;
+                }
+                $binding = $r['_slot_bindings'][$slotKey] ?? null;
+                if (! is_array($binding)) {
+                    continue; // dangling bindings are blocked elsewhere (resolveChainBindings)
+                }
+
+                $type = $binding['type'] ?? null;
+                $name = null;
+                $idNumber = null;
+                $where = 'on the recipient';
+
+                if ($type === 'self') {
+                    $name = trim((string) ($r['name'] ?? '')) ?: 'This party';
+                    $idNumber = $r['id_number'] ?? null;
+                } elseif ($type === 'contact') {
+                    $contact = Contact::withoutGlobalScopes()->find($binding['contact_id'] ?? null);
+                    if ($contact === null || $contact->isEntity()) {
+                        continue; // dangling handled elsewhere; a company has no personal ID to check here
+                    }
+                    $name = $contact->full_name;
+                    $idNumber = $contact->id_number;
+                    $where = 'on their contact record';
+                } elseif ($type === 'recipient') {
+                    $bound = $byLocalKey[$binding['recipient_local_key'] ?? null] ?? null;
+                    if ($bound === null || ($bound['_recipient_source'] ?? null) === 'supplier') {
+                        continue; // dangling, or already covered above
+                    }
+                    $name = trim((string) ($bound['name'] ?? '')) ?: 'This party';
+                    $idNumber = $bound['id_number'] ?? null;
+                } else {
+                    continue;
+                }
+
+                if (trim((string) $idNumber) !== '') {
+                    continue;
+                }
+
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'recipients' => "{$name} is named as \"{$slotLabel}\" in this document's clause but has no ID number on file. Add it {$where} before sending.",
+                ]);
+            }
+        }
+    }
+
+    /**
+     * Johan, 2026-08-26 — the three-part clause chain's middle piece: when
+     * $r is a supplier-sourced recipient (standing in as someone's
+     * representative), freeze the FIRM's name and registration number onto
+     * $sigReq's own row at the moment it's created — see
+     * 2026_08_29_000008_add_supplier_firm_to_signature_requests_table.
+     * RecipientTemplate::resolveSlotDisplayName()'s type:'recipient' branch
+     * reads these back later to build "Firm (Reg: NNN) represented by
+     * Person (ID: NNN)" instead of just the person.
+     *
+     * Looked up LIVE from the real AgencyServiceProvider row via
+     * _supplier_firm_id, never trusted from the wizard's own
+     * _supplier_firm_name/_supplier_firm_registration_number — same
+     * live-DB-over-client-payload discipline
+     * assertSupplierRepresentativesHaveRegistrationNumber() already uses,
+     * so what freezes onto a legal document's clause is never something the
+     * browser merely claimed.
+     */
+    private function stampSupplierFirmIfAny(\App\Models\Docuperfect\SignatureRequest $sigReq, array $r): void
+    {
+        if (($r['_recipient_source'] ?? null) !== 'supplier' || empty($r['_supplier_firm_id'])) {
+            return;
+        }
+
+        $firm = \App\Models\DealV2\AgencyServiceProvider::withoutGlobalScopes()->find((int) $r['_supplier_firm_id']);
+        if ($firm === null) {
+            return;
+        }
+
+        $sigReq->update([
+            // Johan, 2026-08-26 — company leads, person underneath, and where
+            // there is no company the person leads. $firm->name is the firm's
+            // own required identifier and is often the PERSON's own name for
+            // a sole-practitioner firm (e.g. "Piet Begrafnis" as both the
+            // firm's name and the contact's own name) — $firm->company is the
+            // real company name when one was captured. Same rule as the
+            // picker/search fix in searchContacts()/addSupplier() above; this
+            // is the value that actually freezes onto the clause at send time.
+            'supplier_firm_name' => $firm->company ?: $firm->name,
+            'supplier_firm_registration_number' => $firm->registration_number,
+            // Johan, 2026-08-27 — cc4 gave suppliers a real business address
+            // (AgencyServiceProvider->address, same plain-string shape as
+            // Contact->address, 1407ef455). A supplier-sourced recipient has
+            // no linked Contact, so the domicilium address block had no
+            // source at all until now — frozen here the same way the firm
+            // name/reg number already are.
+            'supplier_firm_address' => $firm->address,
+        ]);
+    }
+
+    /**
+     * "Replace this party" — resolves every collected chain binding into its
+     * frozen party_clause_text, once, at generation time. Shared by BOTH send
+     * paths (prepareSigning() and prepareWetInk(), Johan 2026-08-25) so a
+     * deceased party's clause — "Late Estate of {deceased} herein represented
+     * by {executor}" — prints identically whether the document goes out for
+     * e-signature or to paper. One resolution, never a second implementation
+     * that could drift from it.
+     *
+     * $chainBindings shape: list of ['signature_request_id', 'recipient_template_id', 'slot_bindings'].
+     * A dangling binding (a slot's recipient/contact no longer resolves)
+     * blocks the send entirely rather than freezing a half-built clause.
+     */
+    private function resolveChainBindings(array $chainBindings, ?int $assertingUserId = null): void
+    {
+        foreach ($chainBindings as $binding) {
+            $sigReq = \App\Models\Docuperfect\SignatureRequest::find($binding['signature_request_id']);
+            $recipientTemplate = \App\Models\RecipientTemplate::find($binding['recipient_template_id']);
+            if (! $sigReq || ! $recipientTemplate) {
+                continue;
+            }
+
+            try {
+                $resolvedText = $recipientTemplate->resolveBoundText($sigReq, $binding['slot_bindings']);
+            } catch (\App\Exceptions\DanglingSlotBindingException $e) {
+                // Block the send with a message naming the specific slot — never a
+                // half-built clause on a document that goes on to be signed or printed.
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'recipients' => $e->getMessage(),
+                ]);
+            }
+
+            // cc2, 2026-08-25 — Flow 409's other half: this rebind only ever
+            // freezes party_clause_text; it never touches the signer identity
+            // ($sigReq->signer_name was set once, back at createSigningRequest()
+            // time, and could be for a DIFFERENT party slot than the one this
+            // binding just resolved to). Re-deriving the terminal signer from a
+            // chain binding is a bigger change than this task covers tonight —
+            // the honest, safe move per Johan's own rule is to refuse the
+            // rebind outright rather than let it freeze a clause that no
+            // longer names the signer already on this row.
+            //
+            // Corrected same night (cc4, row 1506) — the first version of
+            // this check compared $resolvedText against $sigReq->signer_name
+            // as TEXT, which a name that merely LOOKS related ("Chris" inside
+            // "Christopher") can satisfy without being the same person. This
+            // checks IDENTITY instead: at least one bound slot must resolve,
+            // by Contact id / recipient_local_key — never by name — to
+            // $sigReq itself. See slotBindingResolvesToSigner()'s docblock.
+            if (! $this->slotBindingResolvesToSigner($sigReq, $binding['slot_bindings'])) {
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'recipients' => 'This party replacement does not resolve, by identity, to '
+                        . "the signer already bound to this document ({$sigReq->signer_name}). "
+                        . 'Replace the signer too, not just the clause, before sending.',
+                ]);
+            }
+
+            // Johan, 2026-08-26 — "picking someone in 'Replace this party'
+            // CREATES the relationship." Run BEFORE the identity check
+            // below: an agent binding a slot (deceased→executor, etc.) IS
+            // the real-world assertion of that relationship, not a claim
+            // that one must already exist on file. This only ever fills a
+            // gap (firstOrCreate) — an already-legitimate pair is untouched.
+            $recipientTemplate->ensureChainRelationshipsExist($sigReq, $binding['slot_bindings'], $assertingUserId);
+
+            // cc2, 2026-08-26 (cc4's stranger-rebind finding, corrected
+            // twice the same night — cc4's real reproduction, document 959
+            // / signature_request 1578, proved the first version wrong: it
+            // only ever validated party_slots[0] — "deceased" — which was
+            // bound to self on that exact row, so the check exempted
+            // itself and NEVER looked at "executor", the slot naming the
+            // stranger. Checking a slot because it happens to be first was
+            // the bug. RecipientTemplate::assertChainIsLegitimate()
+            // validates every adjacent pair the template declares — the
+            // FULL chain, not one position — using the same canonical
+            // identity check the create path already uses
+            // (SignatureRequest::assertSignerIsCurrentRepresentative()).
+            // Still runs unconditionally: a signer bound to a slot that was
+            // NOT resolved through this chain at all (never went through
+            // ensureChainRelationshipsExist() above) is still refused here
+            // exactly as before — this only ever adds a record, it never
+            // substitutes for the check.
+            try {
+                $recipientTemplate->assertChainIsLegitimate($sigReq, $binding['slot_bindings']);
+            } catch (\App\Exceptions\DanglingSlotBindingException $e) {
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'recipients' => $e->getMessage(),
+                ]);
+            } catch (\App\Exceptions\PartyClauseSignerMismatchException $e) {
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'recipients' => 'This party replacement names someone who is not currently linked '
+                        . 'as a genuine representative — pick someone who actually stands in that '
+                        . 'relationship before sending. (' . $e->getMessage() . ')',
+                ]);
+            }
+
+            // Persisted onto the row so a LATER re-check
+            // (SignatureRequest::isSigningBlocked(), at sign time) has
+            // something to re-verify against — the same identity just
+            // validated above, not recomputed a third way.
+            $representedContactId = $recipientTemplate->resolveRepresentedContactIdFor($sigReq, $binding['slot_bindings']);
+
+            $sigReq->update([
+                'recipient_template_id' => $recipientTemplate->id,
+                'slot_bindings' => $binding['slot_bindings'],
+                'party_clause_text' => $resolvedText,
+                'represented_contact_id' => $representedContactId,
+            ]);
+        }
+    }
+
+    /**
+     * cc2, 2026-08-25 (cc4's row 1506) — is $sigReq, BY IDENTITY, one of the
+     * parties this chain binding actually resolved to? A binding's own
+     * $type/$contact_id/$recipient_local_key are the SAME primary keys
+     * RecipientTemplate::resolveSlotDisplayName() resolves display text
+     * from — reused here directly rather than re-deriving from the text
+     * that method produces. 'self' means the binding points at $sigReq by
+     * construction; 'contact'/'recipient' are checked against $sigReq's own
+     * contact_id / recipient_local_key — never against signer_name.
+     */
+    private function slotBindingResolvesToSigner(\App\Models\Docuperfect\SignatureRequest $sigReq, array $slotBindings): bool
+    {
+        foreach ($slotBindings as $binding) {
+            $type = $binding['type'] ?? null;
+
+            if ($type === 'self') {
+                return true;
+            }
+            if ($type === 'contact' && $sigReq->contact_id !== null
+                && (int) ($binding['contact_id'] ?? 0) === (int) $sigReq->contact_id) {
+                return true;
+            }
+            if ($type === 'recipient' && ($binding['recipient_local_key'] ?? null) === $sigReq->recipient_local_key) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private function resolveLinkedContactRole(Contact $contact, array $allowedEsignRoles, string $defaultOwnerRole): ?string
     {
         $pivotRole = strtolower(trim((string) ($contact->pivot->role ?? '')));
@@ -3361,10 +5368,10 @@ class ESignWizardController extends Controller
                 $dbContact = Contact::find($contactId);
                 if ($dbContact) {
                     $r = array_merge($r, [
-                        'bank_name'           => $r['bank_name'] ?: ($dbContact->bank_name ?? ''),
-                        'bank_account_name'   => $r['bank_account_name'] ?: ($dbContact->bank_account_name ?? ''),
-                        'bank_account_number' => $r['bank_account_number'] ?: ($dbContact->bank_account_number ?? ''),
-                        'bank_branch_name'    => $r['bank_branch_name'] ?: ($dbContact->bank_branch_name ?? ''),
+                        'bank_name'           => ($r['bank_name'] ?? '') ?: ($dbContact->bank_name ?? ''),
+                        'bank_account_name'   => ($r['bank_account_name'] ?? '') ?: ($dbContact->bank_account_name ?? ''),
+                        'bank_account_number' => ($r['bank_account_number'] ?? '') ?: ($dbContact->bank_account_number ?? ''),
+                        'bank_branch_name'    => ($r['bank_branch_name'] ?? '') ?: ($dbContact->bank_branch_name ?? ''),
                     ]);
                 }
             }
@@ -4084,12 +6091,33 @@ class ESignWizardController extends Controller
             'witness' => 90,
         ];
 
+        // Elize's rule (conveyancer, via Johan/conductor, 2026-08-27) — within
+        // a role, the living party ALWAYS displays first, then the deceased.
+        // This is THE ONE PLACE that decides recipient order for a document —
+        // the array this sorts into is what the seller clause
+        // (WebTemplateDataService::resolveFieldGroupValue()/
+        // resolveContactColumnAllRecipients()), the Domicilium/attestation
+        // blocks (RoleBlockExpansionService::groupRecipientsByRole(), which
+        // sorts by role_index — itself assigned from THIS array's order at
+        // row-creation) and the signing-order list all read from. Fixing the
+        // order here, once, means every one of them agrees without composing
+        // its own — the alternative (the clause read one order, the
+        // Domicilium a different one) is exactly the bug this exists to
+        // close. usort() is stable since PHP 8.0 — two recipients equal on
+        // BOTH role priority and living/deceased keep their existing
+        // relative order, so this never reorders two living parties (or two
+        // deceased parties) against each other.
         usort($recipients, function ($a, $b) use ($rolePriority) {
             $roleA = strtolower(trim($a['role'] ?? 'other'));
             $roleB = strtolower(trim($b['role'] ?? 'other'));
             $priorityA = $rolePriority[$roleA] ?? 50;
             $priorityB = $rolePriority[$roleB] ?? 50;
-            return $priorityA <=> $priorityB;
+            if ($priorityA !== $priorityB) {
+                return $priorityA <=> $priorityB;
+            }
+            $deceasedA = !empty($a['_is_deceased']) ? 1 : 0;
+            $deceasedB = !empty($b['_is_deceased']) ? 1 : 0;
+            return $deceasedA <=> $deceasedB;
         });
 
         foreach ($recipients as $i => &$r) {
@@ -4339,8 +6367,26 @@ class ESignWizardController extends Controller
         // canonical-to-wizard alias chain mirrors the same map used by
         // RoleBlockExpansionService::CANONICAL_FOR_VIEWER on the
         // recipient-signing side.
+        // Johan, 2026-08-28 (the exact Domicilium off-by-one root cause) —
+        // this position numbering ("__r{n}") is what an agent's Fill &
+        // Review edit gets keyed and saved under, and that saved key is
+        // later matched, EXACT-KEY, against the document's own "__r{n}"
+        // stamps by CanonicalDocumentRenderer::applyFillReviewAuthoritativeOverlay().
+        // Those document stamps come from RoleBlockExpansionService's
+        // role-block cloning, which EXCLUDES a deceased recipient from the
+        // position count (Domicilium never lists them — Elize's ruling).
+        // This method was including them — so "instance 1" meant the
+        // deceased party here but the FIRST LIVING party on the actual
+        // document, and an edit the agent made to (what they saw as) the
+        // second seller's address saved under a key that, on the real
+        // document, belongs to the first. One position-numbering rule,
+        // used everywhere a recipient's position is assigned: exclude the
+        // deceased, exactly as the document itself does.
         $byRole = [];
         foreach ($recipients as $r) {
+            if (! empty($r['_is_deceased'])) {
+                continue;
+            }
             $role = strtolower(trim((string) ($r['role'] ?? '')));
             if ($role === '') continue;
             $byRole[$role] ??= [];
@@ -4480,6 +6526,37 @@ class ESignWizardController extends Controller
             $req->signer_name = (string) ($r['name'] ?? '');
             $req->signer_email = (string) ($r['email'] ?? '');
             $req->contact_id  = $r['_contact_id'] ?? null;
+            // Johan, 2026-08-28 — same no-Contact fallback the real send now
+            // carries (signer_phone/signer_address); without this the
+            // preview shows blank for what the agent typed while the sent
+            // document (once this fix landed) would not.
+            $req->signer_phone   = (string) ($r['cell'] ?? '');
+            $req->signer_address = (string) ($r['address'] ?? '');
+            // Johan, 2026-08-26 — RoleBlockExpansionService::expandWithLooping()'s
+            // attestation-block split reads is_proxy/is_deceased straight off
+            // these transient rows (never the DB — nothing here is persisted)
+            // to decide which representative's signature block is the real one
+            // vs. a display-only entry. Without these, every entity
+            // representative in the preview looked like a signer.
+            $req->is_proxy    = (bool) ($r['_is_proxy'] ?? false);
+            $req->is_deceased = (bool) ($r['_is_deceased'] ?? false);
+            // Johan, 2026-08-27 — a supplier-sourced recipient (an executor
+            // standing in from the supplier directory) has no linked Contact,
+            // so its domicilium address block resolves from
+            // supplier_firm_address (mutateCloneForInstance()'s no-Contact
+            // fallback) the same way the real, sent SignatureRequest row
+            // does — see stampSupplierFirmIfAny(). Without this the preview
+            // shows blank while the sent document (once frozen) would not,
+            // the exact "steps screen wrong, agent screen right" divergence
+            // this task exists to close. Live-looked-up, not trusted from
+            // the wizard's own payload — same discipline as
+            // stampSupplierFirmIfAny().
+            if (($r['_recipient_source'] ?? null) === 'supplier' && !empty($r['_supplier_firm_id'])) {
+                $firm = \App\Models\DealV2\AgencyServiceProvider::withoutGlobalScopes()->find((int) $r['_supplier_firm_id']);
+                if ($firm !== null) {
+                    $req->supplier_firm_address = $firm->address;
+                }
+            }
             $out->push($req);
         }
         return $out;
@@ -4805,9 +6882,11 @@ class ESignWizardController extends Controller
         $recipients = $stepData['recipients']['recipients'] ?? [];
         $propertyAddress = $stepData['property']['address'] ?? $stepData['property']['title'] ?? '';
 
+        // Johan, 2026-08-27 — a deceased party is not a party to the
+        // agreement; never name the document after them.
         $firstRecipientName = '';
         foreach ($recipients as $r) {
-            if (($r['role'] ?? '') !== 'agent' && !empty($r['name'])) {
+            if (($r['role'] ?? '') !== 'agent' && empty($r['_is_deceased']) && !empty($r['name'])) {
                 $firstRecipientName = $r['name'];
                 break;
             }
@@ -4832,9 +6911,18 @@ class ESignWizardController extends Controller
                 $viewData['document_context'] = $template->isSalesDocument($propSrc) ? 'sales' : 'rental';
             }
 
+            // Signature-block inputs — SIGNING participants only (Johan,
+            // 2026-08-26, flow 330 Finding A) — same rule as prepareSigning()
+            // and prepareWetInk(). This was the 4th of the four build sites
+            // and was missed in the original fix: Download Only rendered
+            // straight off $recipients with no filter, so a deceased/
+            // proxy-collapsed party still got a blank, unexecutable
+            // signature block on the printed PDF.
+            $signingParticipantRecipients = $this->filterToSigningParticipants($recipients);
+
             // Build party_names for signature-block component
             $partyNames = [];
-            foreach ($recipients as $r) {
+            foreach ($signingParticipantRecipients as $r) {
                 if (($r['role'] ?? '') === 'agent') continue;
                 $partyNames[] = $r['name'] ?? '';
             }
@@ -4843,7 +6931,7 @@ class ESignWizardController extends Controller
 
             // Build recipients_by_role
             $recipientsByRole = [];
-            foreach ($recipients as $r) {
+            foreach ($signingParticipantRecipients as $r) {
                 $role = $r['role'] ?? '';
                 $baseRole = preg_replace('/_\d+$/', '', $role);
                 $recipientsByRole[$baseRole][] = $r;
@@ -4976,14 +7064,63 @@ class ESignWizardController extends Controller
         }
 
         $recipients = $stepData['recipients']['recipients'] ?? [];
-        $recipients = $this->sortRecipientsBySigningOrder($recipients);
+        // Moved ahead of expandEntityRecipients() (Job 1, Johan/cc1, 2026-08-26)
+        // — see prepareSigning() for full rationale: attachSigningSetupMatch()
+        // needs signingSetup while $recipients still carries the ORIGINAL
+        // (pre-expansion) names.
         $signingSetupRaw = $stepData['signing_setup'] ?? [];
         $signingSetup = isset($signingSetupRaw['parties']) ? $signingSetupRaw['parties'] : $signingSetupRaw;
+        $unmatchedSigningSetup = [];
+        $recipients = $this->attachSigningSetupMatch($recipients, $signingSetup, $unmatchedSigningSetup);
+        // Entity/company expansion (Johan, 2026-08-25 — cc1's finding on
+        // 93a10b6a2, and the same "an entity never signs" rule prepareSigning()
+        // already applies at ESignWizardController.php:2028). Missing here
+        // meant a company/CC/trust seller in a wet-ink send never got a real
+        // representative signer — createSigningRequest() would have been
+        // called with the ENTITY's own raw contact row, not the natural
+        // person who actually signs. Same call, same place in the pipeline,
+        // as the e-sign path.
+        //
+        // Johan, 2026-08-26 (escalation of cc5's 547863fbb) — signersOnly:
+        // true here is deliberate: this narrowed $recipients feeds the
+        // signing-request creation below. It must not be reused for the
+        // printed document body — see $bodyStepData below.
+        $recipientsPreExpansion = $recipients;
+        $recipients = $this->expandEntityRecipients($recipients, $user, signersOnly: true);
+        // Flow 480 (Johan, 2026-08-29) — see prepareSigning() for full
+        // rationale: entity signing_setup entries name representatives, so
+        // they can only match after expansion.
+        $recipients = $this->matchUnmatchedSigningSetupPostExpansion($recipients, $unmatchedSigningSetup);
+        $recipients = $this->sortRecipientsBySigningOrder($recipients);
+        // HARD BLOCK (Johan, 2026-08-25) — the MORE dangerous of the two send
+        // paths: wet-ink puts a physical document in someone's hand to sign
+        // on paper, with no server-side catch after this point. A deceased
+        // party with no substitute must never reach print. Same predicate as
+        // the e-sign path — see assertDeceasedRecipientsHaveSubstituteSigner().
+        $this->assertDeceasedRecipientsHaveSubstituteSigner($recipients);
+        $this->assertSupplierRepresentativesHaveRegistrationNumber($recipients);
+        $this->assertChainPartiesHaveIdNumbers($recipients);
+
+        // GENERATED-DOCUMENT BODY — same reasoning as prepareSigning()
+        // (ESignWizardController.php ~2586-2610): the printed document must
+        // read the SAME resolved clause the SignatureRequest rows carry, but
+        // every representative — not just the proxy who signs — must render
+        // their own address/phone/email. A fresh, separate display-mode
+        // expansion of the pre-narrowing recipients, not a reuse of the
+        // signersOnly-narrowed $recipients above. $stepData itself is
+        // untouched; every other consumer below still reads the original,
+        // unexpanded step_data.
+        $bodyStepData = $stepData;
+        $displayRecipients = $this->expandEntityRecipients($recipientsPreExpansion, $user);
+        $bodyStepData['recipients']['recipients'] = $this->dedupeEntityRecipientsForDisplay($displayRecipients);
+
         $propertyAddress = $stepData['property']['address'] ?? $stepData['property']['title'] ?? '';
 
+        // Johan, 2026-08-27 — a deceased party is not a party to the
+        // agreement; never name the document after them.
         $firstRecipientName = '';
         foreach ($recipients as $r) {
-            if (($r['role'] ?? '') !== 'agent' && !empty($r['name'])) {
+            if (($r['role'] ?? '') !== 'agent' && empty($r['_is_deceased']) && !empty($r['name'])) {
                 $firstRecipientName = $r['name'];
                 break;
             }
@@ -5001,7 +7138,7 @@ class ESignWizardController extends Controller
         $webTemplateData = null;
         if ($renderType === 'web' && $template->blade_view) {
             $webTemplateDataService = app(WebTemplateDataService::class);
-            $webTemplateData = $webTemplateDataService->resolve($template->id, $stepData, $user);
+            $webTemplateData = $webTemplateDataService->resolve($template->id, $bodyStepData, $user);
 
             $viewData = $webTemplateData;
             if (!empty($template->signing_parties)) {
@@ -5010,8 +7147,12 @@ class ESignWizardController extends Controller
                 $viewData['document_context'] = $template->isSalesDocument($propSrc) ? 'sales' : 'rental';
             }
 
+            // Signature-block inputs — SIGNING participants only (Johan,
+            // 2026-08-26, flow 330 Finding A) — same rule, print path.
+            $signingParticipantRecipients = $this->filterToSigningParticipants($recipients);
+
             $partyNames = [];
-            foreach ($recipients as $r) {
+            foreach ($signingParticipantRecipients as $r) {
                 if (($r['role'] ?? '') === 'agent') continue;
                 $partyNames[] = $r['name'] ?? '';
             }
@@ -5019,7 +7160,7 @@ class ESignWizardController extends Controller
             $viewData['party_names'] = $partyNames;
 
             $recipientsByRole = [];
-            foreach ($recipients as $r) {
+            foreach ($signingParticipantRecipients as $r) {
                 $role = $r['role'] ?? '';
                 $baseRole = preg_replace('/_\d+$/', '', $role);
                 $recipientsByRole[$baseRole][] = $r;
@@ -5111,19 +7252,37 @@ class ESignWizardController extends Controller
             ];
             $signingOrder = ['agent'];
 
+            // Job 1 (Johan/cc1, 2026-08-26) — same fix as prepareSigning():
+            // match on _matched_signing_setup_index (set pre-expansion by
+            // attachSigningSetupMatch(), survives expansion), never role+name
+            // against the post-expansion array. See prepareSigning() for the
+            // full rationale.
             $orderedRecipients = $recipients;
             if (!empty($signingSetup) && !empty($signingSetup[0]['signing_order'] ?? null)) {
                 $orderedRecipients = [];
-                foreach ($signingSetup as $ss) {
+                $usedRecipientKeys = [];
+                foreach ($signingSetup as $ssIndex => $ss) {
                     if (($ss['role'] ?? '') === 'agent') continue;
-                    foreach ($recipients as $r) {
-                        if (($r['role'] ?? '') === ($ss['role'] ?? '') && ($r['name'] ?? '') === ($ss['name'] ?? '')) {
+                    $matchedAny = false;
+                    foreach ($recipients as $rKey => $r) {
+                        if (($r['_matched_signing_setup_index'] ?? null) === $ssIndex) {
                             $orderedRecipients[] = $r;
-                            break;
+                            $usedRecipientKeys[$rKey] = true;
+                            $matchedAny = true;
                         }
                     }
+                    if (! $matchedAny) {
+                        $name = trim((string) ($ss['name'] ?? '')) ?: 'This party';
+                        throw \Illuminate\Validation\ValidationException::withMessages([
+                            'recipients' => "The signing order lists {$name} but that party did not survive representative expansion. Check for a data-entry mismatch before re-sending.",
+                        ]);
+                    }
                 }
-                if (empty($orderedRecipients)) $orderedRecipients = $recipients;
+                foreach ($recipients as $rKey => $r) {
+                    if (empty($usedRecipientKeys[$rKey])) {
+                        $orderedRecipients[] = $r;
+                    }
+                }
             }
 
             $roleCounts = [];
@@ -5141,6 +7300,15 @@ class ESignWizardController extends Controller
                 }
 
                 $recipientPartyKeys[$i] = $partyKey;
+
+                // Cluster B1, second place, wet-ink twin (Johan/conductor,
+                // 2026-08-27) — same fix as prepareSigning() above: a
+                // deceased row still gets its own SignatureRequest created
+                // below (named in the document, never signs), but never
+                // earns an entry in parties_json/signing_order_json.
+                if (!empty($r['_is_deceased'])) {
+                    continue;
+                }
                 $parties[] = [
                     'role'       => $partyKey,
                     'role_label' => $baseRole,
@@ -5194,27 +7362,75 @@ class ESignWizardController extends Controller
                 'sent_at' => now(),
             ]);
 
+            // "Replace this party" chain bindings (Johan, 2026-08-25) — same
+            // mechanism and same reason as prepareSigning(): a deceased
+            // party's clause chains to another recipient in this same batch,
+            // whose recipient_local_key only exists once THAT recipient's
+            // own createSigningRequest() call below has run.
+            $chainBindings = [];
+
             foreach ($orderedRecipients as $i => $r) {
                 $baseRole = $roleAliases[$r['role'] ?? 'other'] ?? ($r['role'] ?? 'other');
                 if ($baseRole === 'agent') continue;
                 $partyKey = $recipientPartyKeys[$i] ?? $baseRole;
 
-                $matchedSetup = null;
-                foreach ($signingSetup as $ss) {
-                    if (($ss['role'] ?? '') === ($r['role'] ?? '') && ($ss['name'] ?? '') === ($r['name'] ?? '')) {
-                        $matchedSetup = $ss;
-                        break;
-                    }
-                }
+                // Job 1 (Johan/cc1, 2026-08-26) — see prepareSigning() for
+                // the full rationale: read the pre-expansion-matched index,
+                // never re-match by role+name post-expansion.
+                $matchedSetup = isset($r['_matched_signing_setup_index'])
+                    ? ($signingSetup[$r['_matched_signing_setup_index']] ?? null)
+                    : null;
                 $skipEmail = !empty($matchedSetup['skipEmail'] ?? false);
                 $email = $matchedSetup['email'] ?? $r['email'] ?? '';
+                // Johan, 2026-08-26 — the printed document's notices clause
+                // (address, phone) only ever reaches the page through the
+                // linked Contact (RoleBlockExpansionService::resolveContact(),
+                // gated on SignatureRequest.contact_id — SignatureRequest
+                // itself has no address/phone columns of its own). This call
+                // never passed it, so every wet-ink signing row was created
+                // with contact_id NULL, for every recipient, and the notices
+                // clause rendered blank regardless of what was typed in the
+                // wizard. Same one-liner prepareSigning() already uses
+                // (~line 2757) — the reference implementation, unchanged.
+                $contactId = !empty($r['_contact_id']) ? (int) $r['_contact_id'] : null;
 
                 $sigReq = $signatureService->createSigningRequest(
                     $sigTemplate, $partyKey, $r['name'] ?? '', $skipEmail ? '' : $email,
-                    $r['id_number'] ?? null, null, $user
+                    $r['id_number'] ?? null, null, $user,
+                    contactId: $contactId,
+                    signerCaption: $r['_signature_caption'] ?? null,
+                    partyClauseText: $r['_party_clause_text'] ?? null,
+                    isDeceased: (bool) ($r['_is_deceased'] ?? false),
+                    isProxy: (bool) ($r['_is_proxy'] ?? false),
+                    recipientLocalKey: $r['_recipient_local_key'] ?? null,
+                    representedContactId: isset($r['_entity_contact_id']) ? (int) $r['_entity_contact_id'] : null,
+                    // Johan, 2026-08-28 — see prepareSigning()'s identical fix.
+                    signerPhone: $r['cell'] ?? null,
+                    signerAddress: $r['address'] ?? null,
                 );
                 $sigReq->update(['signing_method' => 'wet_ink']);
+                $this->stampSupplierFirmIfAny($sigReq, $r);
+
+                if (! empty($r['_recipient_template_id']) && ! empty($r['_slot_bindings'])) {
+                    $chainBindings[] = [
+                        'signature_request_id' => $sigReq->id,
+                        'recipient_template_id' => (int) $r['_recipient_template_id'],
+                        'slot_bindings' => $r['_slot_bindings'],
+                    ];
+                }
             }
+
+            // Printed output names every party in full exactly as the e-sign
+            // body does (Johan, 2026-08-25) — resolves "Late Estate of {X}
+            // herein represented by {Y}" onto party_clause_text before this
+            // document is ever handed over to be signed on paper.
+            $this->resolveChainBindings($chainBindings, $user->id);
+
+            // Johan, 2026-08-28 — see prepareSigning()'s identical fix: compose
+            // the canonical body ONCE, now, while every SignatureRequest row is
+            // freshly and consistently created. No-op (fail-safe) for a
+            // document with no composable web body.
+            app(\App\Services\Docuperfect\CanonicalDocumentRenderer::class)->composeAndStore($sigTemplate);
 
             // No markers or zones needed — wet ink is signed on paper
 

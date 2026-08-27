@@ -274,6 +274,7 @@ return [
         ['key' => 'esign.compiler.compile',      'label' => 'Compile Templates',           'section' => 'docuperfect',      'type' => 'action',  'module' => 'esign-compiler',   'sort_order' => 31],
         ['key' => 'esign.compiler.publish',      'label' => 'Publish Compiled Versions',   'section' => 'docuperfect',      'type' => 'action',  'module' => 'esign-compiler',   'sort_order' => 32],
         ['key' => 'esign.compiler.dictionary',   'label' => 'Manage Data Dictionary',      'section' => 'docuperfect',      'type' => 'action',  'module' => 'esign-compiler',   'sort_order' => 33],
+        ['key' => 'esign.settings',              'label' => 'Manage E-Sign Recipient Presets', 'section' => 'docuperfect',  'type' => 'access',  'module' => 'esign',            'sort_order' => 40],
 
         // ── Document Library ──
         ['key' => 'access_document_library',     'label' => 'Access Document Library',    'section' => 'document-library', 'type' => 'access',  'module' => 'document_library', 'sort_order' => 1],
@@ -432,6 +433,18 @@ return [
         // `include` list here — Johan sets the defaults himself; unset resolves to 'own'
         // (the safe default), same as every other unset scope key.
         ['key' => 'deeds_capture.view',          'label' => 'View Deeds Capture List',     'section' => 'prospecting',      'type' => 'action',  'module' => 'deeds_capture',    'sort_order' => 3],
+        // Edinburgh erf 364 remediation (Johan, 2026-08-24) — promote() sat behind the
+        // SAME flat deeds_capture.access every agent holds, with no role check inside
+        // the method itself. That's the approval gate Johan believed already existed
+        // and never was. This is a genuinely separate permission from .access, not a
+        // second name for it: .access lets an agent see and work the Deeds Capture
+        // list; .promote lets them convert a capture into live stock (the exact action
+        // that created the duplicate). Granted to admin + branch_manager in
+        // role_defaults below — the same roles item 2's block-override escape hatch
+        // trusts, deliberately: the ability to take a contested property and the
+        // ability to override its duplicate block are the same authority. Agents keep
+        // .access; they do not get .promote.
+        ['key' => 'deeds_capture.promote',       'label' => 'Promote Deeds Capture to Stock', 'section' => 'prospecting',   'type' => 'action',  'module' => 'deeds_capture',    'sort_order' => 4],
 
         // ── Market Intelligence Centre (Phase A2) ── per spec §12.2/§12.3
         ['key' => 'mic.edit_address',            'label' => 'Edit / Add Property Address',         'section' => 'prospecting',      'type' => 'action',  'module' => 'mic',              'sort_order' => 50],
@@ -739,11 +752,23 @@ return [
                 // (super_admin gets it via the '*' wildcard above; branch_manager
                 // already has it in its own include list below.)
                 'manage_activity_mappings',
+                // Edinburgh erf 364 remediation — promote() authority, deliberately
+                // paired with the block-override escape hatch below (same two roles).
+                'deeds_capture.promote',
             ],
         ],
 
         'branch_manager' => [
             'include' => [
+                // Edinburgh erf 364 remediation — deeds_capture.promote (same reasoning
+                // as admin's include above), PLUS .access itself: found while wiring
+                // this that branch_manager had no deeds_capture.access grant on this
+                // environment at all (a pre-existing gap, not new), which would make
+                // .promote unreachable regardless — the promote route sits inside the
+                // .access-gated route group. Granting .access here so branch_manager
+                // can actually reach the screen the promote button lives on, matching
+                // the role's real-world need to review and take contested captures.
+                'deeds_capture.access', 'deeds_capture.promote',
                 'view_dashboard', 'view_dashboard_kpis', 'view_dashboard_charts', 'export_reports',
                 'access_agency_tracker', 'access_daily_activity', 'access_deal_register',
                 'access_listing_stock', 'access_tv_messages', 'access_worksheet_market',
@@ -783,6 +808,12 @@ return [
                 'access_client_portal', 'manage_clients',
                 'access_docuperfect', 'create_docuperfect_docs', 'manage_templates', 'manage_clauses',
                 'access_docuperfect_packs', 'access_clause_library',
+                // esign.settings (E-Sign -> Recipient Presets AND Recipient Templates) had
+                // never reached branch_manager's own include list — same admin-settings
+                // tier as manage_templates/manage_clauses right above, which branch_manager
+                // already has (2026-08-24, Johan: found the screen unreachable for admins
+                // too, traced to this never having been synced into role_permissions).
+                'esign.settings',
                 'documents.view', 'documents.create', 'documents.edit',
                 'templates.view', 'templates.create', 'templates.edit',
                 'clauses.view', 'clauses.create', 'clauses.edit',

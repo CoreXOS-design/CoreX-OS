@@ -859,6 +859,14 @@ class SignatureService
         ?int $contactId = null,
         ?int $ficaSubmissionId = null,
         ?int $roleIndex = null,
+        ?string $signerCaption = null,
+        ?string $partyClauseText = null,
+        bool $isDeceased = false,
+        bool $isProxy = false,
+        ?string $recipientLocalKey = null,
+        ?int $representedContactId = null,
+        ?string $signerPhone = null,
+        ?string $signerAddress = null,
     ): SignatureRequest {
         $token = $this->generateToken();
 
@@ -882,6 +890,19 @@ class SignatureService
             ->max('signing_order') ?? 0;
         $signingOrder = $maxOrder + 1;
 
+        // cc2, 2026-08-25 — Flow 409, corrected same night after cc4's real
+        // reproduction (row 1506) broke the first version by name-substring
+        // ("Chris" reads as present inside "Christopher"). Refuse by
+        // CONTACT IDENTITY, not text, at the one place every
+        // SignatureRequest is created regardless of caller. See
+        // SignatureRequest::assertSignerIsCurrentRepresentative().
+        if ($representedContactId !== null) {
+            SignatureRequest::assertSignerIsCurrentRepresentative(
+                $contactId ?? -1, // no real contact id can ever legitimately be -1; forces a refusal rather than a silent skip
+                $representedContactId,
+            );
+        }
+
         $request = SignatureRequest::create([
             'signature_template_id' => $template->id,
             'party_role' => $partyRole,
@@ -892,8 +913,29 @@ class SignatureService
             // a group of one and checkpoints alone, exactly as it always has.
             'signing_group' => $template->groupFor($partyRole),
             'signer_name' => $signerName,
+            'signer_caption' => $signerCaption,
+            'party_clause_text' => $partyClauseText,
+            'is_deceased' => $isDeceased,
+            'is_proxy' => $isProxy,
+            // Every recipient gets a stable key on creation, whether or not
+            // anything binds to it — cheap, and it's what a LATER-added
+            // recipient's chain would need to point at. The wizard passes its
+            // own (assigned when the recipient was first added to the
+            // screen) once that UI exists; auto-generated here is the safe
+            // default for every recipient today.
+            'recipient_local_key' => $recipientLocalKey ?? (string) \Illuminate\Support\Str::uuid(),
             'signer_email' => $signerEmail,
             'signer_id_number' => $signerIdNumber,
+            // Johan, 2026-08-28 — the recipient card's phone/address fields
+            // are always editable regardless of whether a Contact was ever
+            // selected via search; an agent who types into them must see
+            // that value on the document. Frozen here the same way
+            // signer_id_number already is, read back by
+            // RoleBlockExpansionService::mutateCloneForInstance()'s
+            // no-linked-Contact fallback chain when there is no Contact to
+            // resolve from.
+            'signer_phone' => $signerPhone,
+            'signer_address' => $signerAddress,
             'token' => $token,
             'token_expires_at' => now()->addDays(14),
             'status' => SignatureRequest::STATUS_WAITING,
@@ -901,6 +943,11 @@ class SignatureService
             'message' => $message,
             'fica_required' => $ficaRequired,
             'contact_id' => $contactId,
+            // cc2, 2026-08-26 (cc4's revoked-representative finding) —
+            // persisted, not discarded after this one create-time check, so
+            // SignatureRequest::isSigningBlocked() can re-verify the
+            // relationship still holds every time this link is opened.
+            'represented_contact_id' => $representedContactId,
             'fica_submission_id' => $ficaSubmissionId,
         ]);
 
@@ -923,6 +970,29 @@ class SignatureService
      */
     public function sendSigningRequest(SignatureRequest $request): void
     {
+        // Elize's rule via Johan, 2026-08-24 — THE single guard: a party who
+        // doesn't sign (deceased, or collapsed out by a proxy elsewhere in
+        // their group) is never invited, regardless of which caller reached
+        // this method. This is the only choke point every invitation email
+        // flows through (sequential-chain advancement + resend both land
+        // here), so this is the only place this needs guarding. See
+        // SignatureRequest::isSigningParticipant().
+        if (! $request->isSigningParticipant()) {
+            $request->update(['status' => SignatureRequest::STATUS_NOT_REQUIRED]);
+            $template = $request->template;
+            if ($template) {
+                SignatureAuditLog::log(
+                    $template,
+                    'send_skipped_not_signing_participant',
+                    SignatureAuditLog::ACTOR_SYSTEM,
+                    'System',
+                    requestId: $request->id,
+                    metadata: ['party_role' => $request->party_role, 'reason' => $request->nonSigningReason()],
+                );
+            }
+            return;
+        }
+
         // AT-294 — ABSORB an email-less recipient instead of firing a doomed
         // Mail::to('') that throws and is swallowed (silently parking the
         // ceremony as a healthy-looking awaiting_* with no link and no
@@ -1356,7 +1426,17 @@ class SignatureService
                     // Hand the pen to the next member of the SAME group. Sequential within the group is
                     // deliberate: two people inside one signing view at once is how captured-but-unsaved
                     // signatures get destroyed (STANDARDS, the P0 signing-view invariant).
-                    $this->advanceToNextParty($template, $completedParty, $nextInGroup);
+                    //
+                    // Late-estate approval-gate fix (2026-08-25) — $nextInGroup is picked by raw
+                    // status===waiting (nextWaitingInGroup()), which a deceased/proxy-collapsed row
+                    // still carries until the walk actually reaches it. If that phantom row is the
+                    // ONLY thing left in the group, advanceToNextSigningParticipant() silently skips
+                    // it and finds nobody — meaning THIS call can turn out to be the real final
+                    // release. It must gate on agent review exactly like the clean-accept call below
+                    // (line ~1467), not default to false — a stale default here is what let a
+                    // late-estate document skip pending_agent_approval and dispatch straight to
+                    // recipients.
+                    $this->advanceToNextParty($template, $completedParty, $nextInGroup, $request?->signing_method !== 'wet_ink');
 
                     return;
                 }
@@ -1499,12 +1579,11 @@ class SignatureService
     public function approveAndAdvance(SignatureTemplate $template): array
     {
         return DB::transaction(function () use ($template) {
-            // Find next waiting request by signing_order (not by role name)
-            // This correctly handles co-owners who share the same party_role
-            $nextRequest = $template->requests()
-                ->where('status', SignatureRequest::STATUS_WAITING)
-                ->orderBy('signing_order', 'asc')
-                ->first();
+            // Flow 330 — same walker as advanceToNextParty(): try the next
+            // WAITING request, skip forward past any non-participant
+            // (isSigningParticipant(), via sendSigningRequest()) rather than
+            // stopping the chain on the first one tried.
+            $nextRequest = $this->advanceToNextSigningParticipant($template, null);
 
             if ($nextRequest) {
                 // Recalculate hash before sending to next external party
@@ -1524,7 +1603,9 @@ class SignatureService
                 $newStatus = $statusMap[$nextRequest->party_role] ?? SignatureTemplate::STATUS_SIGNING;
                 $template->update(['status' => $newStatus]);
 
-                // Authoriser steps: notify all eligible authorisers (shared queue)
+                // Authoriser steps: notify all eligible authorisers (shared queue).
+                // A non-authoriser recipient was ALREADY dispatched (or skipped
+                // and walked past) inside advanceToNextSigningParticipant() above.
                 if ($this->isAuthoriserRole($nextRequest->party_role)) {
                     $nextRequest->update([
                         'status'  => SignatureRequest::STATUS_PENDING,
@@ -1532,8 +1613,6 @@ class SignatureService
                     ]);
                     $notifyType = $nextRequest->party_role === 'supervisor_final' ? 'final_signoff' : 'initial_review';
                     $this->notifyEligibleAuthorisers($template, $notifyType);
-                } else {
-                    $this->sendSigningRequest($nextRequest);
                 }
 
                 SignatureAuditLog::log(
@@ -1705,6 +1784,102 @@ class SignatureService
     }
 
     /**
+     * Flow 330 (Johan, 2026-08-26) — isSigningParticipant() correctly stops a
+     * non-participant (deceased, or collapsed out by a proxy in their group)
+     * from ever being emailed: sendSigningRequest() already checks it and
+     * transitions such a row straight to NOT_REQUIRED, no send attempted.
+     * But every caller that WALKS the recipient list to find "the next party
+     * to hand the pen to" only ever tried ONE candidate. If that one turned
+     * out to be a non-participant, the chain died silently right there —
+     * nobody after them was ever tried, let alone notified, even though
+     * their own SignatureRequest rows sat at WAITING with real, unused
+     * signing links. The agent saw a confident "Sent to <deceased party>"
+     * and nothing was actually sent to anyone.
+     *
+     * ONE walk, shared by advanceToNextParty() and approveAndAdvance() — the
+     * two chain-advancement callers — so there is exactly one place that
+     * decides "who's actually next," reusing isSigningParticipant() via
+     * sendSigningRequest() rather than a second definition of who signs.
+     * Tries $only first if given (HD-5 group handoff), then keeps trying the
+     * next WAITING request by signing_order until sendSigningRequest()
+     * actually dispatches to someone (status becomes PENDING or DEFERRED) or
+     * there is nobody left to try. Supervisor/authoriser roles are never
+     * non-participants — that concept only applies to recipient rows — so
+     * they always terminate the loop on the first try and the caller handles
+     * their own authoriser-notify branch.
+     *
+     * @param  SignatureRequest|null  $only  HD-5 — try THIS request first (the next member of the
+     *                                       completing party's group). If it turns out to be a
+     *                                       non-participant, falls through to the general
+     *                                       signing_order walk exactly like any other skip.
+     * @return SignatureRequest|null the request actually notified (or the authoriser request for
+     *                                the caller to notify), or null once the chain is exhausted.
+     *
+     * 2026-08-26 fix (Johan — the send cascade stalls at a skipped party) —
+     * made public so SignatureController::sendForSignature()'s manual "click
+     * send" path can call this SAME walk instead of the standalone
+     * party_role lookup it used to do (first same-role row, no signing_order,
+     * no status filter — which could land on an already-NOT_REQUIRED row and
+     * silently do nothing while still reporting success). No other caller or
+     * behaviour changes; this is a visibility change onto the one existing
+     * implementation, not a new one.
+     */
+    public function advanceToNextSigningParticipant(SignatureTemplate $template, ?SignatureRequest $only): ?SignatureRequest
+    {
+        $candidate = $only;
+
+        while (true) {
+            $candidate ??= $template->requests()
+                ->where('status', SignatureRequest::STATUS_WAITING)
+                ->orderBy('signing_order', 'asc')
+                ->first();
+
+            if (! $candidate) {
+                return null;
+            }
+
+            if ($this->isAuthoriserRole($candidate->party_role)) {
+                return $candidate;
+            }
+
+            $this->sendSigningRequest($candidate);
+
+            if ($candidate->fresh()->status === SignatureRequest::STATUS_NOT_REQUIRED) {
+                // Not a signing participant — sendSigningRequest() already
+                // skipped emailing them. Try the next one in signing_order.
+                $candidate = null;
+                continue;
+            }
+
+            return $candidate; // a real dispatch happened (PENDING or DEFERRED)
+        }
+    }
+
+    /**
+     * 2026-08-26 fix (Johan — the send cascade stalls at a skipped party) —
+     * READ-ONLY preview of who advanceToNextSigningParticipant() would
+     * actually notify right now: the same signing_order walk, the same
+     * isSigningParticipant() predicate every real skip decision already
+     * goes through — but no send, no NOT_REQUIRED transition, no side
+     * effect at all. Exists so a caller (the manual "send" button) can
+     * check something about the REAL next party — has an email, needs a
+     * custom message attached — before the actual notify/skip walk runs,
+     * without re-deriving "who's a real participant" a second way. Skips
+     * straight past a WAITING row that isn't a genuine signing participant
+     * (deceased, proxy-collapsed) exactly as the real walk would, but
+     * leaves those rows untouched — they're only ever transitioned by
+     * sendSigningRequest() itself, never by this preview.
+     */
+    public function peekNextSigningCandidate(SignatureTemplate $template): ?SignatureRequest
+    {
+        return $template->requests()
+            ->where('status', SignatureRequest::STATUS_WAITING)
+            ->orderBy('signing_order', 'asc')
+            ->get()
+            ->first(fn (SignatureRequest $r) => $this->isAuthoriserRole($r->party_role) || $r->isSigningParticipant());
+    }
+
+    /**
      * @param  SignatureRequest|null  $only  HD-5 — release THIS request specifically (the next member of
      *                                       the completing party's group). Without it the method takes
      *                                       the next waiting request globally, which is right at a group
@@ -1714,12 +1889,7 @@ class SignatureService
      */
     private function advanceToNextParty(SignatureTemplate $template, string $completedParty, ?SignatureRequest $only = null, bool $gateFinalizeForAgentReview = false): void
     {
-        // Find the next WAITING request by signing_order — not by role name
-        // This correctly handles co-owners who share the same party_role string
-        $nextRequest = $only ?: $template->requests()
-            ->where('status', SignatureRequest::STATUS_WAITING)
-            ->orderBy('signing_order', 'asc')
-            ->first();
+        $nextRequest = $this->advanceToNextSigningParticipant($template, $only);
 
         // If no waiting request, check for deferred requests (sign later)
         if (!$nextRequest) {
@@ -1778,16 +1948,18 @@ class SignatureService
             'document_hash' => $this->generateDocumentHash($template->document),
         ]);
 
-        // Supervisor steps: notify all eligible authorisers (shared queue)
-        if (in_array($nextRequest->party_role, ['supervisor', 'supervisor_final'])) {
+        // Supervisor steps: notify all eligible authorisers (shared queue).
+        // A non-authoriser recipient was ALREADY dispatched (or skipped and
+        // walked past, per isSigningParticipant()) inside
+        // advanceToNextSigningParticipant() above — never call
+        // sendSigningRequest() a second time for the same request here.
+        if ($this->isAuthoriserRole($nextRequest->party_role)) {
             $nextRequest->update([
                 'status'  => SignatureRequest::STATUS_PENDING,
                 'sent_at' => now(),
             ]);
             $notifyType = $nextRequest->party_role === 'supervisor_final' ? 'final_signoff' : 'initial_review';
             $this->notifyEligibleAuthorisers($template, $notifyType);
-        } else {
-            $this->sendSigningRequest($nextRequest);
         }
     }
 

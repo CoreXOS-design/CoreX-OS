@@ -73,6 +73,24 @@
                        style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
             </div>
             <div>
+                {{-- Johan, 2026-08-26 — split from the old combined
+                     "Registration / ID Number" field. This one is the
+                     COMPANY's own registration number only — the
+                     representative's own ID number is a separate field,
+                     captured per-person on the "Add contact" form under
+                     each provider below (a supplier is one company + one
+                     or more representatives; the person's ID belongs on
+                     THEIR record, not the firm's). Never required here —
+                     required only where it actually matters: putting this
+                     supplier on a document as a representative (both this
+                     and the representative's own ID number, together). --}}
+                <label for="sp-registration-number" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Company Registration Number</label>
+                <input id="sp-registration-number" name="registration_number" maxlength="100"
+                       placeholder="e.g. 2020/778899/23"
+                       class="w-full rounded-md px-3 py-2 text-sm"
+                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+            </div>
+            <div>
                 <label for="sp-email" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Email</label>
                 <input id="sp-email" name="email" type="email" maxlength="191"
                        class="w-full rounded-md px-3 py-2 text-sm"

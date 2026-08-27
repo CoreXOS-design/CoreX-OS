@@ -87,11 +87,21 @@
         </div>
     @endif
 
-    {{-- ===== TWO-PANEL LAYOUT ===== --}}
-    <div class="flex-1 flex min-h-0 overflow-hidden">
+    {{-- ===== TWO-PANEL LAYOUT =====
+         Johan, 2026-08-24 (fault A, round 2) — "both sides scroll together"
+         reported again, this time on /docuperfect/esign/create. create()
+         and showStep() both render THIS one view (wizard.blade.php), so
+         there was never a second, unfixed copy of this markup to find —
+         but the layout's own scroll contract lived only in loose Tailwind
+         utility classes with nothing naming or documenting it as a
+         contract. esign-two-pane-row / esign-pane below + the matching
+         corex.css rule make it explicit: every /docuperfect/esign/* screen
+         renders through this shell, so the contract is inherited, not
+         re-implemented per screen. --}}
+    <div class="esign-two-pane-row flex-1 flex min-h-0 overflow-hidden">
 
         {{-- LEFT PANEL --}}
-        <div class="overflow-y-auto flex flex-col"
+        <div class="esign-pane overflow-y-auto flex flex-col"
              :style="'background: var(--surface); width:' + leftPanelPx + 'px; min-width:250px; max-width:50vw;'">
             <div class="flex-1 p-6 pb-24">
 
@@ -504,11 +514,17 @@
                                                 <button @click="selectContact(ri, contact)"
                                                         class="w-full text-left px-3 py-2 transition-colors"
                                                         :style="(ci === (r._searchIdx || 0) ? 'background: var(--surface-2);' : '') + 'border-top: 1px solid var(--border);'">
-                                                    <div class="text-sm font-medium" style="color: var(--text-primary);" x-text="contact.full_name"></div>
+                                                    <div class="text-sm font-medium flex items-center gap-2" style="color: var(--text-primary);">
+                                                        <span x-text="contact.full_name"></span>
+                                                        <span x-show="contact.is_entity" class="ds-badge" style="background: color-mix(in srgb, var(--brand-icon,#0ea5e9) 15%, transparent); color: var(--brand-icon,#0ea5e9);">Company</span>
+                                                        <span x-show="contact.source === 'supplier'" class="ds-badge" style="background: color-mix(in srgb, var(--ds-amber,#f59e0b) 15%, transparent); color: var(--ds-amber,#f59e0b);">Supplier</span>
+                                                    </div>
                                                     <div class="text-xs flex items-center gap-2" style="color: var(--text-muted);">
                                                         <span x-show="contact.email" x-text="contact.email"></span>
                                                         <span x-show="contact.phone" x-text="contact.phone"></span>
-                                                        <span x-show="contact.contact_type" style="color: var(--brand-icon, #0ea5e9);" x-text="contact.contact_type"></span>
+                                                        <span x-show="contact.source === 'supplier' && contact.supplier_firm_name" x-text="contact.supplier_firm_name"></span>
+                                                        <span x-show="contact.contact_type && contact.source !== 'supplier'" style="color: var(--brand-icon, #0ea5e9);" x-text="contact.contact_type"></span>
+                                                        <span x-show="contact.is_entity" style="color: var(--text-muted);">— signs via its representative(s)</span>
                                                     </div>
                                                 </button>
                                             </template>
@@ -520,6 +536,47 @@
                                              style="background: var(--surface); border: 1px solid var(--border); color: var(--text-muted); box-shadow: 0 8px 24px rgba(0,0,0,0.2);">
                                             No contacts found. Enter manually below.
                                         </div>
+
+                                        {{-- Add a new supplier without leaving the document (Johan,
+                                             2026-08-26) — "same shape as adding a new contact": reuses
+                                             the Full Name / ID Number / Email / Cell Phone / Address
+                                             fields below, just like a manually-entered contact. --}}
+                                        <div x-show="!r._contact_id && r._recipient_source !== 'supplier'" class="mt-1.5">
+                                            <button type="button" @click="toggleAddSupplier(ri)" class="text-xs font-medium" style="color: var(--brand-icon,#2563eb);">
+                                                <span x-text="r._addingSupplier ? '− Cancel new supplier' : '+ Add a new supplier (attorney, contractor, etc.)'"></span>
+                                            </button>
+                                        </div>
+
+                                        <div x-show="r._addingSupplier" class="mt-2 rounded-md p-3 text-xs space-y-2" style="background: var(--surface-2); border: 1px solid var(--border);">
+                                            <p style="color: var(--text-secondary);">New supplier — use the Full Name / ID Number / Email / Cell Phone / Address fields below for this person, plus the firm they work for. We'll check for an existing match before adding.</p>
+                                            <div>
+                                                <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Firm / Company name</label>
+                                                <input type="text" x-model="r._newSupplierFirmName" placeholder="e.g. Smith &amp; Associates Attorneys"
+                                                       class="w-full rounded-md px-2.5 py-1.5 text-xs" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                            </div>
+                                            <p style="color: var(--text-muted);">The ID Number field below is this supplier's registration or ID number — leave it blank if you don't have it yet.</p>
+                                            <button type="button" @click="checkNewSupplierDuplicate(ri)" :disabled="r._supplierDupChecking"
+                                                    class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background: var(--brand-button); color: #fff;">
+                                                <span x-text="r._supplierDupChecking ? 'Checking…' : 'Check &amp; add supplier'"></span>
+                                            </button>
+                                            <p x-show="r._supplierDupError" style="color: #dc2626;" x-text="r._supplierDupError"></p>
+
+                                            <div x-show="(r._supplierDupMatches || []).length > 0" class="space-y-1.5 pt-1">
+                                                <p style="color: var(--ds-amber,#b45309);">Possible match — is this the same supplier?</p>
+                                                <template x-for="m in (r._supplierDupMatches || [])" :key="m.supplier_contact_id">
+                                                    <div class="rounded-md p-2 flex items-center justify-between gap-2" style="background: var(--surface); border: 1px solid var(--border);">
+                                                        <div>
+                                                            <div class="font-medium" style="color: var(--text-primary);" x-text="m.name + ' — ' + m.firm_name"></div>
+                                                            <div style="color: var(--text-muted);" x-text="(m.reasons || []).join(', ')"></div>
+                                                        </div>
+                                                        <button type="button" @click="useExistingSupplierMatch(ri, m)" class="text-xs font-semibold px-2 py-1 rounded-md flex-shrink-0" style="background: var(--brand-button); color: #fff;">Use this one</button>
+                                                    </div>
+                                                </template>
+                                                <button type="button" @click="createNewSupplier(ri)" :disabled="r._supplierDupChecking" class="text-xs font-medium px-2.5 py-1 rounded-md" style="border:1px solid var(--border); color: var(--text-secondary);">
+                                                    <span x-text="r._supplierDupChecking ? 'Adding…' : 'None of these — add as new'"></span>
+                                                </button>
+                                            </div>
+                                        </div>
                                     </div>
                                 </template>
 
@@ -529,6 +586,86 @@
                                            class="w-full rounded-md px-3 py-2 text-sm"
                                            :style="r.readonly ? 'background: var(--surface); border: 1px solid var(--border); color: var(--text-muted);' : 'background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);'">
                                 </div>
+
+                                {{-- Johan, 2026-08-26 — "nothing has been done about the recipient
+                                     insert screen. thats the fault." The template's four executor
+                                     fields ({executor_company}, {executor_company_reg},
+                                     {executor_representative}, {executor_representative_id}) print
+                                     EXACTLY what this recipient holds — Representative Name/ID are
+                                     the Full Name/ID Number fields above; Company/Company Reg live
+                                     here. Shown for any recipient standing in as someone else's
+                                     representative (_deceased_substitute_for is set the same way
+                                     whether picked via supplier search or contact search — see
+                                     bindSlotToSupplier()/bindSlotToContact()), not only a
+                                     supplier-sourced one: a plain contact can just as validly need
+                                     a company added or corrected by hand. Editable, not display-only
+                                     — the agent sees exactly what will print and can fix it here,
+                                     no other place changes it. Left empty (never auto-composed) when
+                                     there is no company; the template's own empty-collapse rules
+                                     handle that in the printed clause. --}}
+                                <template x-if="r._deceased_substitute_for">
+                                    <div class="rounded-md p-2.5 text-xs space-y-2" style="background: var(--surface-2); border: 1px solid var(--border);">
+                                        <div class="text-[10px] uppercase tracking-wide font-semibold" style="color: var(--text-muted);">Company represented (leave blank if none)</div>
+                                        <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                            <div>
+                                                <label class="block text-[10px] font-medium mb-0.5" style="color: var(--text-muted);">Company</label>
+                                                <input type="text" x-model="r._supplier_firm_name" placeholder="e.g. Deceased Estate Executors"
+                                                       class="w-full rounded-md px-2 py-1.5 text-xs"
+                                                       style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                            </div>
+                                            <div>
+                                                <label class="block text-[10px] font-medium mb-0.5" style="color: var(--text-muted);">Company registration number</label>
+                                                <input type="text" x-model="r._supplier_firm_registration_number" placeholder="e.g. 2020/020202/2158"
+                                                       class="w-full rounded-md px-2 py-1.5 text-xs"
+                                                       style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                            </div>
+                                        </div>
+                                        <div style="color: var(--text-muted);">Representative: <span x-text="r.name || '(unnamed)'"></span><span x-show="r.id_number" x-text="' (ID: ' + r.id_number + ')'"></span></div>
+                                    </div>
+                                </template>
+
+                                {{-- Entity recipient preview — how this company expands into its
+                                     signing representative(s) (from the agency's recipient preset).
+                                     Johan, 2026-08-26 (correcting placement from earlier the same day):
+                                     "the ask was a sort on directors. now I have it on tick proxy to
+                                     reorder" — the director list and its up/down order controls live
+                                     HERE, always visible whenever this company has representatives,
+                                     Proxy ticked or not. Iterates all_representatives (the full,
+                                     already-ordered list), not the proxy-collapsed "signers" — ticking
+                                     Proxy must never hide the other directors or their arrows. --}}
+                                <template x-if="r._is_entity && r._representation">
+                                    <div class="rounded-md p-3 text-xs" style="background: color-mix(in srgb, var(--brand-icon,#2563eb) 6%, transparent); border: 1px solid color-mix(in srgb, var(--brand-icon,#2563eb) 25%, var(--border));">
+                                        <template x-if="r._representation.needs_representative">
+                                            <div style="color: var(--ds-amber,#b45309);">⚠ This company has no representative linked. Add a director/executor/trustee (with a capacity) on its contact record — it cannot sign until then.</div>
+                                        </template>
+                                        <template x-if="!r._representation.needs_representative">
+                                            <div class="space-y-1">
+                                                <div class="font-semibold mb-1" style="color: var(--brand-icon,#2563eb);">Signs via its representative<span x-show="r._representation.signers.length > 1">s</span> — order sets the clause, address sections, signature positions and signing order:</div>
+                                                <template x-for="(rep, repIdx) in r._representation.all_representatives" :key="rep.contact_id">
+                                                    <div class="flex items-center justify-between gap-2">
+                                                        <div class="min-w-0">
+                                                            <span class="font-semibold" style="color: var(--text-primary);" x-text="(repIdx + 1) + '. ' + rep.name"></span>
+                                                            <span style="color: var(--text-muted);" x-show="rep.capacity" x-text="' (' + rep.capacity + ')'"></span>
+                                                            <span x-show="rep.is_proxy" class="ml-1 text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded" style="background:color-mix(in srgb, var(--ds-amber,#f59e0b) 18%, transparent); color:var(--ds-amber,#b45309);">proxy</span>
+                                                        </div>
+                                                        <div class="flex items-center gap-1 flex-shrink-0">
+                                                            <button type="button" @click="moveEntityRep(ri, rep.contact_id, -1)" :disabled="repIdx === 0"
+                                                                    :style="repIdx === 0 ? 'opacity:0.3;' : 'opacity:1; cursor:pointer;'"
+                                                                    style="background:none; border:none; padding:2px;" title="Move up">▲</button>
+                                                            <button type="button" @click="moveEntityRep(ri, rep.contact_id, 1)" :disabled="repIdx === (r._representation.all_representatives.length - 1)"
+                                                                    :style="repIdx === (r._representation.all_representatives.length - 1) ? 'opacity:0.3;' : 'opacity:1; cursor:pointer;'"
+                                                                    style="background:none; border:none; padding:2px;" title="Move down">▼</button>
+                                                        </div>
+                                                    </div>
+                                                </template>
+                                                <template x-if="r._representation.signers.length === 1">
+                                                    <div class="italic mt-1" style="color: var(--text-muted);" x-text="'“' + r._representation.signers[0].phrase + '”'"></div>
+                                                </template>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </template>
+
                                 <div>
                                     <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">ID Number</label>
                                     <input type="text" x-model="r.id_number" :readonly="r.readonly"
@@ -536,6 +673,72 @@
                                            :style="r.readonly ? 'background: var(--surface); border: 1px solid var(--border); color: var(--text-muted);' : 'background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);'"
                                            placeholder="SA ID or Passport">
                                 </div>
+
+                                {{-- Elize's rule (2026-08-24) — per-recipient, per-document. Every
+                                     party always displays with full details; only a flagged proxy
+                                     signs; a flagged deceased party never signs and is never
+                                     emailed. Mutually exclusive in the UI — a deceased party can't
+                                     also be the one signing.
+                                     Johan, 2026-08-24 (fault 2): ticking deceased was a dead end —
+                                     no path to choosing the clause or filling executor/estate
+                                     slots. Deceased now opens the Replace modal directly instead
+                                     of leaving him to find the button below on his own. --}}
+                                <div class="flex flex-wrap items-center gap-x-5 gap-y-1.5 -mt-1">
+                                    <label class="flex items-center gap-1.5 text-xs select-none" :class="r._is_entity ? 'cursor-not-allowed' : 'cursor-pointer'" style="color: var(--text-secondary);">
+                                        <input type="checkbox" x-model="r._is_deceased" :disabled="r._is_entity"
+                                               @change="if (r._is_deceased) { if (r._is_entity) { r._is_deceased = false; return; } r._is_proxy = false; openReplaceModal(ri); }"
+                                               class="rounded" :style="r._is_entity ? 'accent-color: var(--ds-red, #dc2626); width: 14px; height: 14px; opacity: 0.4;' : 'accent-color: var(--ds-red, #dc2626); width: 14px; height: 14px;'">
+                                        Deceased — replace this party
+                                    </label>
+                                    <label class="flex items-center gap-1.5 text-xs cursor-pointer select-none" style="color: var(--text-secondary);">
+                                        <input type="checkbox" x-model="r._is_proxy"
+                                               @change="if (r._is_proxy) r._is_deceased = false; if (r._is_entity) toggleEntityProxy(ri)"
+                                               class="rounded" style="accent-color: var(--ds-amber, #f59e0b); width: 14px; height: 14px;">
+                                        Proxy — signs on behalf of the others in this role
+                                    </label>
+                                </div>
+                                <div x-show="r._is_entity" class="rounded-md px-3 py-2 text-xs" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-muted);">
+                                    A company can't be marked deceased. If this company can no longer act (deregistered, liquidated, in business rescue), replace it as a party manually.
+                                </div>
+                                <div x-show="r._is_deceased" class="rounded-md px-3 py-2 text-xs" style="background: color-mix(in srgb, var(--ds-red,#dc2626) 8%, transparent); border: 1px solid color-mix(in srgb, var(--ds-red,#dc2626) 25%, transparent); color: var(--text-secondary);">
+                                    Still displays on the document with full details. Never receives a signing request.
+                                </div>
+
+                                {{-- Johan, 2026-08-29 — the picker itself. Entity-only: a
+                                     non-entity recipient's Proxy tick is a separate, untouched
+                                     case and keeps its old plain text box below. Every
+                                     representative stays NAMED on the document either way —
+                                     picking one here only narrows who gets the SIGNING EMAIL. --}}
+                                {{-- Johan, 2026-08-26 (correcting placement, same day) — this stays
+                                     Proxy-gated: it answers WHO SIGNS, nothing else. The order itself
+                                     (arrows) moved up to the always-visible director list above so it
+                                     no longer depends on this tick. --}}
+                                <div x-show="r._is_entity && r._is_proxy" class="rounded-md px-3 py-2 text-xs space-y-2" style="background: color-mix(in srgb, var(--ds-amber,#f59e0b) 8%, transparent); border: 1px solid color-mix(in srgb, var(--ds-amber,#f59e0b) 25%, transparent); color: var(--text-secondary);">
+                                    <div>Every representative still displays on the document. Pick the ONE who actually signs:</div>
+                                    <template x-if="!r._representation || !(r._representation.all_representatives || []).length">
+                                        <div style="color: var(--ds-amber,#b45309);">No representatives linked yet — add one on this company's contact record first.</div>
+                                    </template>
+                                    <template x-for="(rep, repIdx) in (r._representation ? (r._representation.all_representatives || []) : [])" :key="rep.contact_id">
+                                        <label class="flex items-center gap-1.5 cursor-pointer select-none">
+                                            {{-- Johan, 2026-08-26 (bug found testing 913f2f102) — checked
+                                                 reflects THIS recipient's own pick only (r._entity_proxy_
+                                                 contact_id), never rep.is_proxy — that field can carry a
+                                                 permanent pivot value from outside this document entirely;
+                                                 trusting it here is exactly how a pick leaked onto the next,
+                                                 unrelated document. A brand-new pick on this document starts
+                                                 with nothing checked, full stop. --}}
+                                            <input type="radio" :name="'entity-proxy-' + ri" :checked="r._entity_proxy_contact_id === rep.contact_id"
+                                                   @change="setEntityProxyPick(ri, rep.contact_id)"
+                                                   style="accent-color: var(--ds-amber, #f59e0b); width: 13px; height: 13px;">
+                                            <span class="font-medium" style="color: var(--text-primary);" x-text="(repIdx + 1) + '. ' + rep.name"></span>
+                                            <span x-show="rep.capacity" style="color: var(--text-muted);" x-text="'(' + rep.capacity + ')'"></span>
+                                        </label>
+                                    </template>
+                                </div>
+                                <div x-show="!r._is_entity && r._is_proxy" class="rounded-md px-3 py-2 text-xs" style="background: color-mix(in srgb, var(--ds-amber,#f59e0b) 8%, transparent); border: 1px solid color-mix(in srgb, var(--ds-amber,#f59e0b) 25%, transparent); color: var(--text-secondary);">
+                                    Every other recipient in this role still displays with full details but will not receive a signing request — only this one signs.
+                                </div>
+
                                 <div class="grid grid-cols-2 gap-3">
                                     <div>
                                         <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Email</label>
@@ -557,6 +760,22 @@
                                            :style="r.readonly ? 'background: var(--surface); border: 1px solid var(--border); color: var(--text-muted);' : 'background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);'"
                                            placeholder="Residential address">
                                 </div>
+
+                                {{-- "Replace this party" (Johan, 2026-08-24, stage 2) — universal, every
+                                     party, not only deceased ones. Picks a recipient template from the
+                                     agency's library and fills its slots. --}}
+                                <div class="pt-1">
+                                    <button type="button" @click="openReplaceModal(ri)"
+                                            class="text-xs font-medium px-3 py-1.5 rounded-md transition"
+                                            style="border: 1px solid var(--border); color: var(--text-secondary); background: var(--surface-2);">
+                                        <span x-text="r._recipient_template_id ? '↻ Change replacement clause' : '↻ Replace this party'"></span>
+                                    </button>
+                                    <div x-show="r._recipient_template_id" class="mt-2 rounded-md p-2.5 text-xs italic"
+                                         style="background: color-mix(in srgb, var(--brand-icon,#2563eb) 6%, transparent); border: 1px solid color-mix(in srgb, var(--brand-icon,#2563eb) 25%, var(--border)); color: var(--text-secondary);">
+                                        “<span x-text="r._replace_preview || '…'"></span>”
+                                        <button type="button" @click="clearReplacement(ri)" class="not-italic ml-2 font-semibold" style="color: var(--ds-red,#dc2626);">Remove</button>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </template>
@@ -574,6 +793,193 @@
                         style="border: 2px dashed var(--border); color: var(--text-secondary);">
                     + Add Recipient
                 </button>
+            </div>
+
+            {{-- "Replace this party" modal (Johan, 2026-08-24, stage 2) — universal,
+                 every recipient, not only deceased ones. --}}
+            <div x-show="replaceModal.open" x-cloak class="fixed inset-0 z-[9999] flex items-center justify-center p-4"
+                 style="background: rgba(0,0,0,.6);" @keydown.escape.window="closeReplaceModal()" @click="closeReplaceModal()">
+                <div class="rounded-2xl shadow-2xl w-full max-w-xl mx-4 overflow-hidden max-h-[85vh] flex flex-col" style="background: var(--surface);" @click.stop>
+                    <div class="px-6 py-4" style="background: var(--brand-default, #0b2a4a);">
+                        <h3 class="font-semibold text-lg" style="color: #fff;">Replace this party</h3>
+                        <p class="text-xs mt-0.5" style="color: rgba(255,255,255,0.7);" x-text="recipients[replaceModal.recipientIndex]?.name || 'This recipient'"></p>
+                    </div>
+
+                    <div class="p-6 overflow-y-auto" style="flex: 1;">
+                        <div x-show="replaceModal.loading" class="text-sm text-center py-6" style="color: var(--text-muted);">Loading templates…</div>
+
+                        {{-- Step A: pick a template --}}
+                        <div x-show="!replaceModal.loading && !replaceModal.selectedTemplate">
+                            <div x-show="replaceModal.templates.length === 0" class="text-sm text-center py-6" style="color: var(--text-muted);">
+                                No recipient templates for this role yet. Build one in Settings → Recipient Templates.
+                            </div>
+                            <div class="space-y-2">
+                                <template x-for="t in replaceModal.templates" :key="t.id">
+                                    <button type="button" @click="selectReplaceTemplate(t)"
+                                            class="w-full text-left rounded-md p-3 transition"
+                                            style="border: 1px solid var(--border); background: var(--surface-2);">
+                                        <div class="text-sm font-semibold" style="color: var(--text-primary);" x-text="t.name"></div>
+                                        <div class="text-xs italic mt-0.5" style="color: var(--text-muted);" x-text="t.text_template"></div>
+                                    </button>
+                                </template>
+                            </div>
+                        </div>
+
+                        {{-- Step B: fill the template's party slots --}}
+                        <div x-show="!replaceModal.loading && replaceModal.selectedTemplate" class="space-y-4">
+                            <button type="button" @click="replaceModal.selectedTemplate = null" class="text-xs font-medium" style="color: var(--brand-icon,#2563eb);">← Choose a different template</button>
+
+                            <div class="rounded-md p-3 text-xs italic" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-secondary);">
+                                “<span x-text="replacePreviewText()"></span>”
+                            </div>
+
+                            <template x-for="slot in (replaceModal.selectedTemplate?.party_slots || [])" :key="slot.key">
+                                <div class="rounded-md p-3" style="border: 1px solid var(--border);">
+                                    <label class="block text-xs font-semibold mb-2" style="color: var(--text-secondary);" x-text="slot.label"></label>
+
+                                    {{-- Johan, 2026-08-26 — "The agent has ALREADY ticked which
+                                         recipient is deceased, before reaching this dialog. Asking
+                                         again is wrong... Show the name as a fact. No buttons, no
+                                         search box, nothing to pick." Always bound to this party
+                                         (enforced in selectReplaceTemplate()/openReplaceModal()); the
+                                         deceased slot never offers a choice, it states one. --}}
+                                    <template x-if="slot.key === 'deceased'">
+                                        <div>
+                                            <div class="text-sm font-medium rounded-md px-2.5 py-1.5"
+                                                 style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);"
+                                                 x-text="recipients[replaceModal.recipientIndex]?.name || 'This recipient'"></div>
+                                            <p class="mt-1.5 text-xs" style="color: var(--text-muted);">To change who this is, update it on the recipient — not here.</p>
+                                        </div>
+                                    </template>
+
+                                    <template x-if="slot.key !== 'deceased'">
+                                    <div>
+                                    <div class="flex flex-wrap gap-1.5 mb-2">
+                                        <button type="button" @click="bindSlotToSelf(slot.key)"
+                                                class="text-xs px-2.5 py-1 rounded-full transition"
+                                                :style="replaceModal.bindings[slot.key]?.type === 'self' ? 'background: var(--brand-button); color: #fff;' : 'background: var(--surface-2); border: 1px solid var(--border); color: var(--text-secondary);'">
+                                            This party
+                                        </button>
+                                        <template x-for="rec in recipients.filter((rr, rri) => rri !== replaceModal.recipientIndex)" :key="rec._recipient_local_key">
+                                            <button type="button" @click="bindSlotToRecipient(slot.key, rec)"
+                                                    class="text-xs px-2.5 py-1 rounded-full transition"
+                                                    :style="replaceModal.bindings[slot.key]?.recipient_local_key === rec._recipient_local_key ? 'background: var(--brand-button); color: #fff;' : 'background: var(--surface-2); border: 1px solid var(--border); color: var(--text-secondary);'"
+                                                    x-text="rec.name || '(unnamed recipient)'">
+                                            </button>
+                                        </template>
+                                    </div>
+
+                                    {{-- Johan, 2026-08-25 (cc4's finding) — caught here, not only at
+                                         Send: a supplier with no registration/ID number can't be bound
+                                         as a representative. Names the supplier and where to fix it,
+                                         and offers to save it right here without leaving the modal. --}}
+                                    <div x-show="replaceModal.blockedSupplier && replaceModal.blockedSupplier.slotKey === slot.key"
+                                         class="mb-2 rounded-md p-2.5 text-xs" style="background: rgba(245,158,11,0.08); border: 1px solid #f59e0b; color: var(--text-primary);">
+                                        <p class="mb-1.5" x-text="'“' + (replaceModal.blockedSupplier?.recipient?.name || 'This supplier') + '” has no registration or ID number on file. Add it in the supplier directory entry for “' + (replaceModal.blockedSupplier?.firmName || '') + '” (Deal Register → Suppliers), or enter it here to bind them now:'"></p>
+                                        <div class="flex gap-1.5">
+                                            <input type="text" x-model="replaceModal.blockedSupplier.value" placeholder="Registration or ID number"
+                                                   @keydown.enter="saveBlockedSupplierRegistrationNumber()"
+                                                   class="flex-1 rounded-md px-2 py-1 text-xs"
+                                                   style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                            <button type="button" @click="saveBlockedSupplierRegistrationNumber()"
+                                                    :disabled="replaceModal.blockedSupplier.saving || !replaceModal.blockedSupplier.value.trim()"
+                                                    class="text-xs font-semibold px-2.5 py-1 rounded-md whitespace-nowrap"
+                                                    style="background: var(--brand-button); color: #fff;">
+                                                <span x-text="replaceModal.blockedSupplier.saving ? 'Saving…' : 'Save &amp; bind'"></span>
+                                            </button>
+                                            <button type="button" @click="cancelBlockedSupplierRegistrationNumber()" class="text-xs px-2 py-1 whitespace-nowrap" style="color: var(--text-secondary);">Cancel</button>
+                                        </div>
+                                        <p x-show="replaceModal.blockedSupplier.error" class="mt-1" style="color: #dc2626;" x-text="replaceModal.blockedSupplier.error"></p>
+                                    </div>
+
+                                    <div class="relative">
+                                        <input type="text" placeholder="Or search a contact by name…"
+                                               class="w-full rounded-md px-2.5 py-1.5 text-xs"
+                                               style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);"
+                                               :value="replaceModal.slotSearch[slot.key]?.query || ''"
+                                               @input="searchSlotContact(slot.key, $event.target.value)">
+                                        <div x-show="replaceModal.slotSearch[slot.key]?.open && (replaceModal.slotSearch[slot.key]?.results || []).length > 0"
+                                             class="absolute z-30 w-full mt-1 rounded-md max-h-40 overflow-y-auto"
+                                             style="background: var(--surface); border: 1px solid var(--border); box-shadow: 0 8px 24px rgba(0,0,0,0.2);">
+                                            {{-- Johan, 2026-08-26 — "make it obvious whether the
+                                                 result is a SUPPLIER or an ordinary CONTACT." Every
+                                                 result here comes from searchSlotContact() (Contacts
+                                                 only), so the badge is fixed — kept visible anyway so
+                                                 the two lists read consistently at a glance. --}}
+                                            <template x-for="contact in (replaceModal.slotSearch[slot.key]?.results || [])" :key="contact.id">
+                                                <button type="button" @click="bindSlotToContact(slot.key, contact)"
+                                                        class="w-full text-left px-3 py-2 text-xs" style="border-top: 1px solid var(--border); color: var(--text-primary);">
+                                                    <span x-text="contact.full_name"></span>
+                                                    <span class="ml-1.5 text-[9px] font-bold uppercase tracking-wider px-1 py-0.5 rounded" style="background: var(--surface-2); color: var(--text-muted);">Contact</span>
+                                                </button>
+                                            </template>
+                                        </div>
+                                    </div>
+
+                                    {{-- Johan, 2026-08-26 — "EXECUTOR TAKES A CONTACT OR A SUPPLIER.
+                                         Two search boxes in that slot: one for contacts, one for
+                                         suppliers... Put them back, properly bound." A supplier's own
+                                         id lives in a different book (agency_service_provider_contacts,
+                                         not contacts) so it needs its own box and its own bind path —
+                                         bindSlotToSupplier() below, not bindSlotToContact(). --}}
+                                    <div class="relative mt-1.5">
+                                        <input type="text" placeholder="Or search a supplier by name or firm…"
+                                               class="w-full rounded-md px-2.5 py-1.5 text-xs"
+                                               style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);"
+                                               :value="replaceModal.supplierSlotSearch[slot.key]?.query || ''"
+                                               @input="searchSlotSupplier(slot.key, $event.target.value)">
+                                        <div x-show="replaceModal.supplierSlotSearch[slot.key]?.open && (replaceModal.supplierSlotSearch[slot.key]?.results || []).length > 0"
+                                             class="absolute z-30 w-full mt-1 rounded-md max-h-40 overflow-y-auto"
+                                             style="background: var(--surface); border: 1px solid var(--border); box-shadow: 0 8px 24px rgba(0,0,0,0.2);">
+                                            {{-- Johan, 2026-08-26 — "search for executor shows a thin
+                                                 list ... enhance that you can see supplier and
+                                                 contact." Same rule as the directory row: the company
+                                                 leads where there is one, the person sits underneath;
+                                                 no company falls back to the person leading, exactly
+                                                 as before. A "Supplier" badge marks it as distinct from
+                                                 an ordinary Contact result above. --}}
+                                            <template x-for="supplier in (replaceModal.supplierSlotSearch[slot.key]?.results || [])" :key="supplier.id">
+                                                <button type="button" @click="bindSlotToSupplier(slot.key, supplier)"
+                                                        class="w-full text-left px-3 py-2 text-xs" style="border-top: 1px solid var(--border); color: var(--text-primary);">
+                                                    <template x-if="supplier.supplier_firm_name">
+                                                        <div>
+                                                            <div>
+                                                                <span x-text="supplier.supplier_firm_name"></span>
+                                                                <span class="ml-1.5 text-[9px] font-bold uppercase tracking-wider px-1 py-0.5 rounded" style="background: var(--surface-2); color: var(--text-muted);">Supplier</span>
+                                                            </div>
+                                                            <div style="color: var(--text-muted);" x-text="supplier.full_name"></div>
+                                                        </div>
+                                                    </template>
+                                                    <template x-if="!supplier.supplier_firm_name">
+                                                        <div>
+                                                            <span x-text="supplier.full_name"></span>
+                                                            <span class="ml-1.5 text-[9px] font-bold uppercase tracking-wider px-1 py-0.5 rounded" style="background: var(--surface-2); color: var(--text-muted);">Supplier</span>
+                                                        </div>
+                                                    </template>
+                                                </button>
+                                            </template>
+                                        </div>
+                                    </div>
+
+                                    <div x-show="replaceModal.bindings[slot.key]" class="mt-2 text-xs" style="color: var(--ds-green,#16a34a);">
+                                        ✓ <span x-text="replaceModal.bindings[slot.key]?.label"></span>
+                                    </div>
+                                    </div>
+                                    </template>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+
+                    <div class="px-6 py-4 flex items-center justify-end gap-2" style="border-top: 1px solid var(--border);">
+                        <button type="button" @click="closeReplaceModal()" class="text-sm px-4 py-2 rounded-md" style="color: var(--text-secondary);">Cancel</button>
+                        <button type="button" @click="confirmReplace()" :disabled="!replaceModalCanConfirm()"
+                                class="text-sm font-semibold px-4 py-2 rounded-md transition"
+                                :style="replaceModalCanConfirm() ? 'background: var(--brand-button); color: #fff;' : 'background: var(--surface-2); color: var(--text-muted); cursor: not-allowed;'">
+                            Confirm
+                        </button>
+                    </div>
+                </div>
             </div>
 
             {{-- ======== STEP 4: Details ======== --}}
@@ -1088,8 +1494,12 @@
              style="background: var(--border);"
              @mousedown.prevent="startResize($event)"></div>
 
-        {{-- RIGHT PANEL: Document Preview --}}
-        <div class="flex-1 overflow-y-auto p-6 min-w-0" style="background: var(--bg);"
+        {{-- RIGHT PANEL: Document Preview.
+             pb-24 clearance matches the left panel's — the footer is now
+             position:fixed (see STICKY BOTTOM BAR above), so nothing scrolls
+             UNDER it by default; this is the same margin-of-safety the left
+             panel already carried. --}}
+        <div class="esign-pane flex-1 overflow-y-auto p-6 pb-24 min-w-0" style="background: var(--bg);"
              @mouseup="onPreviewStrikeSelect()" @click="onPreviewMarkClick($event)">
             {{-- Fill & Review strike-out hint (Step 5, web templates) --}}
             <template x-if="currentStep === 5 && previewRenderType === 'web'">
@@ -1160,7 +1570,15 @@
                  outer container class scopes Step-5-specific behaviour
                  (e.g. fill-mode field highlighting) without forking the
                  layout itself. --}}
-            <div x-show="previewRenderType === 'web' && previewHtml" class="overflow-y-auto" style="max-height: calc(100vh - 200px);">
+            {{-- Johan, 2026-08-24 (fault A): this used to carry its own
+                 overflow-y-auto + a hardcoded max-height: calc(100vh - 200px)
+                 nested inside the right panel's own overflow-y-auto (line
+                 1264 above) — a second, disconnected scroll boundary sized
+                 off the raw viewport instead of the actual flex-allocated
+                 space, and the reason the whole page scrolled instead of
+                 just this panel. One panel, one scroll container: the right
+                 panel (line 1264) owns scrolling; this is plain flow content. --}}
+            <div x-show="previewRenderType === 'web' && previewHtml">
                 <link href="/css/corex-document.css" rel="stylesheet">
                 {{-- WET-INK change marks in the Fill & Review preview render from the ONE canonical stylesheet
                      the signing view + PDF use (DocumentChangeHighlighter::styleBlock() renders the same
@@ -1308,9 +1726,20 @@
         </div>
     </div>
 
-    {{-- ===== STICKY BOTTOM BAR ===== --}}
-    <div class="flex-shrink-0 px-6 py-3 flex items-center justify-between"
-         style="background: var(--surface); border-top: 1px solid var(--border);">
+    {{-- ===== STICKY BOTTOM BAR (Johan, 2026-08-24) =====
+         REGRESSION HISTORY: this exact "Next button off-screen" complaint was
+         fixed once before (AT-336, commit 116524211/b6c18af32) by capping
+         .esign-shell's height so this bar's flex-shrink:0 positioning stayed
+         within the viewport. That fix is still present (.esign-shell height:
+         100%, not calc(100% + Nrem)) — this is a NEW instance of the same
+         class of fragility, not a regression of that fix: flex-shrink:0
+         positioning is only ever as reliable as every ancestor's height
+         computation staying correct, and it broke again as soon as content
+         above it changed. Fixed properly this time with actual CSS position,
+         independent of the shell's height math entirely — it cannot go
+         off-screen again regardless of how tall either panel's content gets. --}}
+    <div class="px-6 py-3 flex items-center justify-between"
+         style="position: fixed; bottom: 0; left: var(--corex-sidebar-width); right: 0; z-index: 40; background: var(--surface); border-top: 1px solid var(--border);">
         <div>
             <button x-show="currentStep > 1" @click="goBack()"
                     class="corex-btn-outline">
@@ -1759,9 +2188,15 @@ function esignWizard() {
         propSearchIdx: 0,
 
         // Step 3: Recipients
+        // _recipient_local_key: the stable id a "Replace this party" slot
+        // binding points at — assigned once here (or in addRecipient/
+        // addSecondOwner for a new row), never re-derived from name/email/
+        // position, so a binding survives an edit and only ever breaks (by
+        // design — see DanglingSlotBindingException) if the bound recipient
+        // is actually removed.
         recipients: serverRecipients.length > 0
-            ? serverRecipients.map((r, i) => ({ ...r, readonly: i === 0 && r.role === 'agent' }))
-            : [{ order: 1, role: 'agent', name: currentUser.name, id_number: '', email: currentUser.email || '', cell: '', address: '', readonly: true }],
+            ? serverRecipients.map((r, i) => ({ ...r, readonly: i === 0 && r.role === 'agent', _recipient_local_key: r._recipient_local_key || (crypto.randomUUID ? crypto.randomUUID() : ('r' + Date.now() + i)) }))
+            : [{ order: 1, role: 'agent', name: currentUser.name, id_number: '', email: currentUser.email || '', cell: '', address: '', readonly: true, _recipient_local_key: (crypto.randomUUID ? crypto.randomUUID() : ('r' + Date.now())) }],
 
         // Step 4: Details — supports both rental and sales fields
         details: (() => {
@@ -1900,6 +2335,18 @@ function esignWizard() {
                 if (!r.hasOwnProperty('_searching')) r._searching = false;
                 if (!r.hasOwnProperty('_searchIdx')) r._searchIdx = 0;
                 if (!r.hasOwnProperty('_contact_id')) r._contact_id = null;
+                // Johan, 2026-08-26 — a row with _is_entity simply absent
+                // (never search-picked: addSecondOwner()/addRecipient()'s
+                // blank rows, or an older saved flow from before the
+                // server started sending this) left :disabled="r._is_entity"
+                // reading undefined. Alpine's boolean-attribute binding
+                // treats an undefined value as disabling, not as falsy —
+                // confirmed directly against a live page: the SAME
+                // undefined value left :style (a plain, non-boolean
+                // attribute) correctly falsy, but set disabled="disabled"
+                // regardless. Explicit false is the only value Alpine
+                // reads as "not disabled" here.
+                if (!r.hasOwnProperty('_is_entity')) r._is_entity = false;
                 // Restore skipEmail and overridden email from signing_setup step data
                 const saved = serverStepData?.signing_setup?.[i] || {};
                 if (!r.hasOwnProperty('skipEmail')) r.skipEmail = saved.skipEmail || false;
@@ -1957,6 +2404,21 @@ function esignWizard() {
                     });
                 });
             }
+
+            // Johan/conductor, 2026-08-27 (Cluster A) — the Recipients step's own
+            // document preview must inherit every change the agent makes on the
+            // left (party order, proxy pick, proxy clause, each party's own
+            // Domicilium entry), live, not only after the agent leaves and
+            // returns to this step. Deep-watches the recipients array itself, so
+            // it fires for a typed field, a reorder (moveEntityRep), a proxy pick
+            // (setEntityProxyPick), an add/remove — every one of them mutates
+            // this same array. Debounced via the SAME refreshPreviewDebounced()
+            // step 5 already uses, so rapid edits collapse to one reload.
+            this.$watch('recipients', () => {
+                if (this.currentStep === 3) {
+                    this.refreshPreviewDebounced();
+                }
+            });
 
             // Global mouse events for resize
             document.addEventListener('mousemove', (e) => this._onResize(e));
@@ -2957,6 +3419,53 @@ function esignWizard() {
                         bank_account_name: r.bank_account_name || '',
                         bank_account_number: r.bank_account_number || '',
                         bank_branch_name: r.bank_branch_name || '',
+                        // Elize's rule (2026-08-24) — per-recipient, per-document. Every party
+                        // still displays with full details; only a flagged proxy signs, a
+                        // flagged deceased party never does. Read server-side by
+                        // SignatureRequest::isSigningParticipant()/nonSigningReason() — the
+                        // single predicate the notification guard checks.
+                        _is_deceased: !!r._is_deceased,
+                        _is_proxy: !!r._is_proxy,
+                        // "Replace this party" (stage 2) — the stable key other
+                        // recipients' slot bindings point at, plus this
+                        // recipient's own chosen template + resolved slots (if any).
+                        _recipient_local_key: r._recipient_local_key || null,
+                        _recipient_template_id: r._recipient_template_id || null,
+                        _slot_bindings: r._slot_bindings || null,
+                        // Deceased-substitute reconciliation marker (see
+                        // bindSlotToContact/closeReplaceModal) — persisted so
+                        // a later session re-opening the replace modal can
+                        // still clean up a stale auto-added recipient.
+                        _deceased_substitute_for: r._deceased_substitute_for || null,
+                        // Johan, 2026-08-26 (bug found testing 913f2f102) — the
+                        // proxy pick belongs to THIS document only. Must be
+                        // explicitly saved here or it silently vanishes the
+                        // moment the agent leaves this step, since this
+                        // recipient list is a hand-picked whitelist, not a
+                        // pass-through of the whole live object.
+                        _entity_proxy_contact_id: r._entity_proxy_contact_id || null,
+                        // Johan, 2026-08-26 — "1st director - 1st signature
+                        // position." Same reason as the proxy pick above:
+                        // this whitelist drops anything not explicitly listed.
+                        _entity_rep_order: r._entity_rep_order || null,
+                        // Johan, 2026-08-26 — root cause of the executor-loses-
+                        // its-company bug, chased across the modal, the
+                        // recipient card and the document all day: this exact
+                        // whitelist already dropped two other fields today for
+                        // the identical reason (_entity_proxy_contact_id,
+                        // _entity_rep_order, both above). bindSlotToSupplier()
+                        // builds a recipient carrying its firm correctly; this
+                        // whitelist is what silently threw it away the moment
+                        // the agent left this step, so the persisted row (and
+                        // everything the document renders from) never had a
+                        // company at all. The modal's own live preview reads
+                        // the UNSAVED in-memory recipient, which is why it was
+                        // right while the saved document stayed wrong.
+                        _recipient_source: r._recipient_source || null,
+                        _supplier_contact_id: r._supplier_contact_id || null,
+                        _supplier_firm_id: r._supplier_firm_id || null,
+                        _supplier_firm_name: r._supplier_firm_name || '',
+                        _supplier_firm_registration_number: r._supplier_firm_registration_number || '',
                     })),
                 };
                 case 4: {
@@ -3034,7 +3543,7 @@ function esignWizard() {
             }
         },
 
-        async saveDraft() {
+        async saveDraft(silent = false) {
             if (!this.flowId) return;
             this.saving = true;
             try {
@@ -3051,15 +3560,22 @@ function esignWizard() {
                     }),
                 });
                 if (resp.ok) {
-                    this.showToast('Draft saved', 'success');
+                    // Johan/conductor, 2026-08-27 (Cluster A) — this same save now
+                    // also fires silently, debounced, on every Recipients-step edit
+                    // (see the "recipients" $watch in init()) so the live preview
+                    // has something current to reload from. A "Draft saved" toast
+                    // on every keystroke/reorder/proxy pick would be noise, not
+                    // feedback — silent is for that path only; the explicit
+                    // "Save Draft" button keeps its toast.
+                    if (!silent) this.showToast('Draft saved', 'success');
                 } else {
                     const text = await resp.text();
                     console.error('Draft save failed:', text);
-                    this.showToast('Failed to save draft', 'error');
+                    if (!silent) this.showToast('Failed to save draft', 'error');
                 }
             } catch (e) {
                 console.error('Draft save error:', e);
-                this.showToast('Failed to save draft', 'error');
+                if (!silent) this.showToast('Failed to save draft', 'error');
             } finally {
                 this.saving = false;
             }
@@ -3278,15 +3794,63 @@ function esignWizard() {
             r.cell = contact.phone || '';
             r.id_number = contact.id_number || '';
             r.address = contact.address || '';
-            r._contact_id = contact.id;
             r._searchOpen = false;
             r._searchQuery = contact.full_name;
+            // Entity recipient: remember it's a company + how it expands (rep(s) /
+            // capacity / proxy / phrasing) so the row can preview it. On send the
+            // server re-expands via expandEntityRecipients().
+            r._is_entity = !!contact.is_entity;
+            r._representation = contact.representation || null;
+            // Johan, 2026-08-26 (bug found testing 913f2f102) — a proxy pick
+            // belongs to THIS document only, never to the company. Picking a
+            // company here is always a BRAND NEW document as far as proxy
+            // goes: starts unticked, nothing pre-selected, regardless of any
+            // pick made on some other document for the same company. Do not
+            // seed this from the search result's representation.
+            r._is_proxy = false;
+            r._entity_proxy_contact_id = null;
+            // Same rule for order — "1st director, 1st signature position"
+            // is a document-scoped choice too. A brand-new document starts
+            // with no manual order, same as it starts with no proxy pick.
+            r._entity_rep_order = null;
 
-            // Set role from esign_role (maps type to signing role) or contact_type name as fallback
-            if (contact.esign_role) {
-                r.role = contact.esign_role.toLowerCase();
-            } else if (contact.contact_type) {
-                r.role = contact.contact_type.toLowerCase();
+            // Johan, 2026-08-25 — supplier vs contact recipient. A picked
+            // supplier's own id lives in a DIFFERENT book (agency_service_
+            // provider_contacts), never in contacts — _contact_id must stay
+            // null for a supplier row so nothing downstream mistakes the
+            // supplier-contact id for a Contact id. _recipient_source is the
+            // single flag everything downstream reads to tell which book this
+            // recipient came from.
+            if (contact.source === 'supplier') {
+                r._contact_id = null;
+                r._recipient_source = 'supplier';
+                r._supplier_contact_id = contact.supplier_contact_id;
+                r._supplier_firm_id = contact.supplier_firm_id || null;
+                r._supplier_firm_name = contact.supplier_firm_name || '';
+                // Company half of the three-part clause chain (Johan,
+                // 2026-08-26) — cached here for the live document preview;
+                // Send freezes the authoritative copy from a live DB lookup
+                // (stampSupplierFirmIfAny()), never trusts this value.
+                r._supplier_firm_registration_number = contact.supplier_firm_registration_number || '';
+                // A supplier's specialty (e.g. "Supplier") is not a
+                // transaction role — never overwrite the slot's actual role
+                // (seller/buyer/witness/etc.) the way a Contact's esign_role
+                // legitimately does below. The agent picked a supplier FOR
+                // this role slot; the slot's role is untouched.
+            } else {
+                r._contact_id = contact.id;
+                r._recipient_source = 'contact';
+                r._supplier_contact_id = null;
+                r._supplier_firm_id = null;
+                r._supplier_firm_name = '';
+                r._supplier_firm_registration_number = '';
+
+                // Set role from esign_role (maps type to signing role) or contact_type name as fallback
+                if (contact.esign_role) {
+                    r.role = contact.esign_role.toLowerCase();
+                } else if (contact.contact_type) {
+                    r.role = contact.contact_type.toLowerCase();
+                }
             }
 
             // Store bank details for WebTemplateDataService
@@ -3323,9 +3887,147 @@ function esignWizard() {
             this.showToast(contact.full_name + ' selected', 'success');
         },
 
+        // Johan, 2026-08-29 — the "Proxy" tick on a company recipient did
+        // nothing: it flagged the entity's own recipient row, which the
+        // server discards the moment it expands into the real representative
+        // rows. Ticking now opens a picker over this company's actual
+        // representatives.
+        //
+        // Johan, 2026-08-26 (bug found testing 913f2f102) — the FIRST version
+        // of this wrote the pick straight onto contact_representatives, a
+        // SHARED record — a pick on one document showed up already selected
+        // on the next, unrelated document for the same company. The pick now
+        // lives ONLY on this recipient row (_entity_proxy_contact_id),
+        // saved into THIS flow's own step_data exactly like _is_deceased/
+        // _slot_bindings already are — never sent anywhere as a write. The
+        // server call below is READ-ONLY: it validates the pick against the
+        // company's real representatives and returns a computed preview,
+        // nothing more.
+        async toggleEntityProxy(recipientIndex) {
+            const r = this.recipients[recipientIndex];
+            if (r._is_proxy) return; // opening the picker is enough; nothing to save until a pick is made
+            // Unticked — clear whichever representative was picked FOR THIS DOCUMENT.
+            await this.setEntityProxyPick(recipientIndex, null);
+        },
+
+        async setEntityProxyPick(recipientIndex, representativeContactId) {
+            const r = this.recipients[recipientIndex];
+            if (!r._contact_id) return;
+            // Johan/conductor, 2026-08-27 (shape E, cc5's harness) — goNext()
+            // never awaits this call, and the pick previously only landed in
+            // Alpine state AFTER the round trip resolved. A Next click fired
+            // before that resolution (a fast agent, or any scripted
+            // harness) serialized the recipient with its OLD
+            // _entity_proxy_contact_id — the document then sent to every
+            // representative instead of just the named proxy. Land the pick
+            // optimistically, synchronously, the same way moveEntityRep()
+            // already does for _entity_rep_order just below — the server
+            // call stays what its own comment says it always was, read-only
+            // validation + preview — and roll back only if it actually
+            // rejects the pick.
+            const previousPick = r._entity_proxy_contact_id || null;
+            const previousIsProxy = !!r._is_proxy;
+            r._entity_proxy_contact_id = representativeContactId || null;
+            r._is_proxy = !!representativeContactId;
+            // Johan/conductor, 2026-08-27 (cc5's real-DOM-click harness) — a
+            // deep $watch('recipients', ...) only reliably fires when the
+            // watched EXPRESSION's own dependency graph was touched by the
+            // mutation; a nested property set through a real click event
+            // is not guaranteed to hit it the same way a manual test does.
+            // Don't depend on that alone for the two interactions already
+            // proven to miss it (this pick, and moveEntityRep() below) —
+            // call the same debounced refresh explicitly, at the exact
+            // point of mutation, same as every other explicit caller
+            // (setFieldValue(), confirmReplace()) already does.
+            this.refreshPreviewDebounced(0);
+            try {
+                const resp = await fetch('/docuperfect/esign/api/entity/' + r._contact_id + '/proxy', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': csrfToken,
+                        'Accept': 'application/json',
+                    },
+                    // Johan, 2026-08-26 — "changing the proxy after an order
+                    // has been manually set must not silently throw the
+                    // manual order away." Always send whatever manual order
+                    // this recipient already has; the server's own
+                    // precedence (manual order wins over proxy-first) keeps
+                    // it exactly where the agent left it.
+                    body: JSON.stringify({ representative_contact_id: representativeContactId, order: r._entity_rep_order || null }),
+                });
+                const result = await resp.json();
+                if (!resp.ok || !result.ok) {
+                    r._entity_proxy_contact_id = previousPick;
+                    r._is_proxy = previousIsProxy;
+                    this.refreshPreviewDebounced(0);
+                    this.showToast(result.error || 'Could not set the proxy representative.', 'error');
+                    return;
+                }
+                r._representation = result.representation;
+                this.showToast(representativeContactId ? 'Proxy representative set for this document.' : 'Proxy cleared for this document — all representatives sign again.', 'success');
+            } catch (e) {
+                r._entity_proxy_contact_id = previousPick;
+                r._is_proxy = previousIsProxy;
+                this.refreshPreviewDebounced(0);
+                console.error('setEntityProxyPick error:', e);
+                this.showToast('Could not reach the server to check the proxy pick.', 'error');
+            }
+        },
+
+        // Johan, 2026-08-26 — "1st director - 1st signature position... lets
+        // find an easy way to do this." Up/down on the rows already showing
+        // the directors, no new screen. Reorders THIS document's own
+        // _entity_rep_order (never the company/pivot) and re-previews so the
+        // clause/address/signing-order effect is visible immediately.
+        async moveEntityRep(recipientIndex, contactId, direction) {
+            const r = this.recipients[recipientIndex];
+            const all = (r._representation && r._representation.all_representatives) || [];
+            const currentOrder = (r._entity_rep_order && r._entity_rep_order.length)
+                ? r._entity_rep_order.slice()
+                : all.map(rep => rep.contact_id);
+            const idx = currentOrder.indexOf(contactId);
+            const swapWith = idx + direction;
+            if (idx === -1 || swapWith < 0 || swapWith >= currentOrder.length) return;
+            [currentOrder[idx], currentOrder[swapWith]] = [currentOrder[swapWith], currentOrder[idx]];
+            r._entity_rep_order = currentOrder;
+            // Johan/conductor, 2026-08-27 (cc5's real-DOM-click harness) —
+            // same reliability fix as setEntityProxyPick(): call the
+            // debounced refresh explicitly at the point of mutation rather
+            // than trusting the deep $watch alone to catch a nested
+            // property set.
+            this.refreshPreviewDebounced(0);
+
+            try {
+                const resp = await fetch('/docuperfect/esign/api/entity/' + r._contact_id + '/proxy', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': csrfToken,
+                        'Accept': 'application/json',
+                    },
+                    body: JSON.stringify({ representative_contact_id: r._entity_proxy_contact_id || null, order: currentOrder }),
+                });
+                const result = await resp.json();
+                if (!resp.ok || !result.ok) {
+                    this.showToast(result.error || 'Could not reorder representatives.', 'error');
+                    return;
+                }
+                r._representation = result.representation;
+            } catch (e) {
+                console.error('moveEntityRep error:', e);
+                this.showToast('Could not reach the server to reorder representatives.', 'error');
+            }
+        },
+
         clearContactSelection(recipientIndex) {
             const r = this.recipients[recipientIndex];
             r._contact_id = null;
+            r._recipient_source = null;
+            r._supplier_contact_id = null;
+            r._supplier_firm_id = null;
+            r._supplier_firm_name = '';
+            r._supplier_firm_registration_number = '';
             r._searchQuery = '';
             r.name = '';
             r.email = '';
@@ -3336,6 +4038,602 @@ function esignWizard() {
             r.bank_account_name = '';
             r.bank_account_number = '';
             r.bank_branch_name = '';
+        },
+
+        // ---- Add a new supplier without leaving the document (Johan, 2026-08-26) ----
+        // "Same shape as adding a new contact from the same place" — reuses
+        // the recipient row's own Full Name / ID Number / Email / Cell /
+        // Address fields exactly as a contact would; the only NEW field is
+        // the firm/company name a supplier needs and a contact doesn't.
+        // Unlike a contact (which quietly matches-or-creates server-side at
+        // Send), a supplier is created explicitly here, through the same
+        // real duplicate-check + create endpoints already proven —
+        // "never a silent auto-merge, never a silent miss."
+        toggleAddSupplier(ri) {
+            const r = this.recipients[ri];
+            r._addingSupplier = !r._addingSupplier;
+            if (r._addingSupplier) {
+                r._searchOpen = false;
+                r._newSupplierFirmName = r._newSupplierFirmName || '';
+                r._supplierDupMatches = null;
+                r._supplierDupError = '';
+            }
+        },
+
+        async checkNewSupplierDuplicate(ri) {
+            const r = this.recipients[ri];
+            r._supplierDupError = '';
+            if (!(r.name || '').trim() || !(r._newSupplierFirmName || '').trim()) {
+                r._supplierDupError = 'Enter a name and a firm/company name first.';
+                return;
+            }
+            r._supplierDupChecking = true;
+            try {
+                const resp = await fetch('/docuperfect/esign/api/suppliers/check-duplicate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': csrfToken, 'Accept': 'application/json' },
+                    body: JSON.stringify({
+                        name: r.name.trim(),
+                        email: r.email || null,
+                        phone: r.cell || null,
+                        firm_name: r._newSupplierFirmName.trim(),
+                    }),
+                });
+                const data = await resp.json();
+                const matches = data.matches || [];
+                r._supplierDupMatches = matches;
+                if (matches.length === 0) {
+                    // Nothing to confirm — go straight to creating it.
+                    await this.createNewSupplier(ri);
+                } else {
+                    r._supplierDupChecking = false;
+                }
+            } catch (e) {
+                r._supplierDupError = 'Could not check for duplicates. Try again.';
+                r._supplierDupChecking = false;
+            }
+        },
+
+        useExistingSupplierMatch(ri, match) {
+            this.selectContact(ri, {
+                source: 'supplier',
+                full_name: match.name,
+                first_name: match.name,
+                last_name: '',
+                email: match.email || '',
+                phone: match.phone || '',
+                id_number: match.id_number || '',
+                address: match.address || '',
+                supplier_contact_id: match.supplier_contact_id,
+                supplier_firm_id: match.supplier_firm_id,
+                supplier_firm_name: match.firm_name || '',
+                supplier_firm_registration_number: match.firm_registration_number || '',
+            });
+            const r = this.recipients[ri];
+            r._addingSupplier = false;
+            r._supplierDupMatches = null;
+            r._supplierDupError = '';
+        },
+
+        async createNewSupplier(ri) {
+            const r = this.recipients[ri];
+            r._supplierDupChecking = true;
+            r._supplierDupError = '';
+            try {
+                const resp = await fetch('/docuperfect/esign/api/suppliers', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': csrfToken, 'Accept': 'application/json' },
+                    body: JSON.stringify({
+                        name: r.name.trim(),
+                        email: r.email || null,
+                        phone: r.cell || null,
+                        firm_name: r._newSupplierFirmName.trim(),
+                        registration_number: r.id_number || null,
+                    }),
+                });
+                const data = await resp.json().catch(() => ({}));
+                if (!resp.ok) {
+                    r._supplierDupError = data.error || 'Could not add the supplier. Try again.';
+                    return;
+                }
+                this.selectContact(ri, data);
+                r._addingSupplier = false;
+                r._supplierDupMatches = null;
+            } catch (e) {
+                r._supplierDupError = 'Could not add the supplier. Try again.';
+            } finally {
+                r._supplierDupChecking = false;
+            }
+        },
+
+        // ---- "Replace this party" (Johan, 2026-08-24, stage 2) ----
+        // Universal on every recipient. Picks a RecipientTemplate from the
+        // agency's library, fills its party_slots by linking to recipients
+        // already on the screen (or a searched-up Contact for a named-only
+        // slot), previews the resolved sentence client-side. The actual
+        // frozen party_clause_text is resolved server-side, once, at send
+        // time (ESignWizardController's chain-binding pass) — this modal
+        // only sets _recipient_template_id / _slot_bindings on the recipient;
+        // it never writes the resolved text itself, so the preview here can
+        // never drift from what actually gets burned onto the document.
+        replaceModal: {
+            open: false,
+            recipientIndex: null,
+            loading: false,
+            templates: [],
+            selectedTemplate: null,
+            bindings: {},        // slotKey -> { type: 'self'|'recipient'|'contact', recipient_local_key?, contact_id?, label }
+            slotSearch: {},      // slotKey -> { query, results, open } — contacts
+            supplierSlotSearch: {}, // slotKey -> { query, results, open } — suppliers (own box, own book)
+            // Johan, 2026-08-25 (cc4's finding) — catch a missing supplier
+            // registration number HERE, at bind time, not only at Send. Set
+            // by bindSlotToRecipient() when the chosen recipient is a
+            // supplier with a blank id_number; holds enough to save it
+            // right in this modal without a rebuild (see
+            // updateSupplierRegistrationNumber() — a single-purpose save,
+            // not the full supplier-directory form).
+            blockedSupplier: null, // { slotKey, recipient, firmId, firmName, value, saving, error }
+        },
+
+        async openReplaceModal(ri) {
+            const r = this.recipients[ri];
+            this.replaceModal.open = true;
+            this.replaceModal.recipientIndex = ri;
+            this.replaceModal.loading = true;
+            this.replaceModal.templates = [];
+            this.replaceModal.selectedTemplate = null;
+            this.replaceModal.bindings = {};
+            this.replaceModal.slotSearch = {};
+            this.replaceModal.supplierSlotSearch = {};
+            this.replaceModal.blockedSupplier = null;
+
+            // Restore a prior selection so re-opening to edit doesn't lose it.
+            if (r._recipient_template_id) {
+                this.replaceModal.bindings = JSON.parse(JSON.stringify(r._slot_bindings || {}));
+            }
+
+            try {
+                const resp = await fetch('/docuperfect/esign/api/recipient-templates?role=' + encodeURIComponent(r.role || ''), {
+                    headers: { 'Accept': 'application/json' },
+                });
+                const data = await resp.json();
+                this.replaceModal.templates = Array.isArray(data) ? data : [];
+                if (r._recipient_template_id) {
+                    this.replaceModal.selectedTemplate = this.replaceModal.templates.find(t => t.id === r._recipient_template_id) || null;
+                    // A restored prior selection could in principle carry a
+                    // stale/different deceased binding from before this rule
+                    // existed — re-assert it as this party, unconditionally,
+                    // same as a fresh template pick.
+                    const hasDeceasedSlot = (this.replaceModal.selectedTemplate?.party_slots || []).some(slot => slot.key === 'deceased');
+                    if (hasDeceasedSlot) {
+                        this.replaceModal.bindings['deceased'] = { type: 'self', label: r.name || 'This party' };
+                    }
+                }
+            } catch (e) {
+                console.error('Failed to load recipient templates', e);
+            } finally {
+                this.replaceModal.loading = false;
+            }
+        },
+
+        closeReplaceModal() {
+            // Deceased-substitute reconciliation (Johan, 2026-08-25) — runs on
+            // BOTH cancel and confirm (confirmReplace() calls this after
+            // setting r._slot_bindings). A row auto-added by
+            // bindSlotToContact() for THIS recipient's replacement is removed
+            // again if it ended up unreferenced: cancelled entirely, or the
+            // agent rebound the slot to a different contact mid-session. A
+            // key is kept if ANY recipient's slot_bindings — not just this
+            // row's — still points at it as type:'recipient', since the same
+            // substitute can legitimately be shared across two different
+            // deceased rows' clauses.
+            const ri = this.replaceModal.recipientIndex;
+            if (ri !== null && this.recipients[ri]) {
+                const r = this.recipients[ri];
+                const stillReferenced = new Set();
+                this.recipients.forEach(rr => {
+                    Object.values(rr._slot_bindings || {}).forEach(b => {
+                        if (b && b.type === 'recipient' && b.recipient_local_key) stillReferenced.add(b.recipient_local_key);
+                    });
+                });
+                this.recipients = this.recipients.filter(rr =>
+                    rr._deceased_substitute_for !== r._recipient_local_key || stillReferenced.has(rr._recipient_local_key)
+                );
+                this.recipients.forEach((rr, i) => rr.order = i + 1);
+            }
+
+            this.replaceModal.open = false;
+            this.replaceModal.recipientIndex = null;
+            this.replaceModal.blockedSupplier = null;
+        },
+
+        selectReplaceTemplate(t) {
+            this.replaceModal.selectedTemplate = t;
+            // Fresh bindings per template — a slot key from a different template
+            // has no meaning here. Johan, 2026-08-26 — the "deceased" slot is
+            // never a choice: it's always this party, unconditionally, however
+            // many slots the template has or in whatever order they appear.
+            // Everything else keeps the old one-click-default-for-the-first-slot
+            // behaviour (unchanged for templates with no "deceased" slot).
+            const hasDeceasedSlot = (t.party_slots || []).some(slot => slot.key === 'deceased');
+            const selfLabel = this.recipients[this.replaceModal.recipientIndex].name || 'This party';
+            const bindings = {};
+            (t.party_slots || []).forEach((slot, i) => {
+                if (slot.key === 'deceased') {
+                    bindings[slot.key] = { type: 'self', label: selfLabel };
+                } else if (!hasDeceasedSlot && i === 0) {
+                    bindings[slot.key] = { type: 'self', label: selfLabel };
+                } else {
+                    bindings[slot.key] = null;
+                }
+            });
+            this.replaceModal.bindings = bindings;
+        },
+
+        bindSlotToSelf(slotKey) {
+            const r = this.recipients[this.replaceModal.recipientIndex];
+            this.replaceModal.bindings[slotKey] = { type: 'self', label: r.name || 'This party', id_number: r.id_number || '' };
+        },
+
+        bindSlotToRecipient(slotKey, recipient) {
+            // Johan, 2026-08-25 (cc4's finding) — the SAME rule
+            // assertSupplierRepresentativesHaveRegistrationNumber() enforces
+            // server-side at Send, caught here instead: this is the moment
+            // the agent is already looking at this exact supplier, and where
+            // adding the number costs them nothing. Send-time keeps its own
+            // check too — this is the early catch, not a replacement for it
+            // (a supplier could still be bound before its number is removed
+            // again, or bound through a path other than this modal).
+            if (recipient._recipient_source === 'supplier' && !(recipient.id_number || '').trim()) {
+                this.replaceModal.blockedSupplier = {
+                    slotKey,
+                    recipient,
+                    firmId: recipient._supplier_firm_id,
+                    firmName: recipient._supplier_firm_name || recipient.name || 'this supplier',
+                    value: '',
+                    saving: false,
+                    error: '',
+                };
+                return;
+            }
+
+            // Johan, 2026-08-26 — "selected executor but the screen shows the
+            // contact, not the company." This is the exact point the firm was
+            // being discarded: `recipient` (bindSlotToSupplier()'s own target,
+            // right here in scope) still carries _supplier_firm_name/
+            // _supplier_firm_registration_number at this moment, but the
+            // binding this function wrote only ever kept `label` (the bare
+            // person name) — the modal's live preview, and everything a later
+            // save/reload derives from _slot_bindings, had nothing left to
+            // read the company from. Carrying it here, on the selection
+            // itself, is what "the selection carries the firm alongside the
+            // person" means.
+            this.replaceModal.bindings[slotKey] = {
+                type: 'recipient',
+                recipient_local_key: recipient._recipient_local_key,
+                label: recipient.name || '(unnamed recipient)',
+                id_number: recipient.id_number || '',
+                _supplier_firm_name: recipient._supplier_firm_name || '',
+                _supplier_firm_registration_number: recipient._supplier_firm_registration_number || '',
+            };
+        },
+
+        async saveBlockedSupplierRegistrationNumber() {
+            const b = this.replaceModal.blockedSupplier;
+            if (!b || !b.value.trim() || b.saving) return;
+            b.saving = true;
+            b.error = '';
+            try {
+                const resp = await fetch(`/docuperfect/esign/api/suppliers/${b.firmId}/registration-number`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': csrfToken, 'Accept': 'application/json' },
+                    body: JSON.stringify({ registration_number: b.value.trim() }),
+                });
+                const data = await resp.json().catch(() => ({}));
+                if (!resp.ok || !data.ok) {
+                    b.error = data.error || 'Could not save the registration number. Try the supplier directory instead.';
+                    b.saving = false;
+                    return;
+                }
+                // Same object reference as the recipients array entry — this
+                // updates the row itself, not a copy, so the wording engine
+                // (and the send-time check) both see it immediately.
+                b.recipient.id_number = data.registration_number;
+                const slotKey = b.slotKey, recipient = b.recipient;
+                this.replaceModal.blockedSupplier = null;
+                this.bindSlotToRecipient(slotKey, recipient);
+            } catch (e) {
+                b.error = 'Could not save the registration number. Try the supplier directory instead.';
+                b.saving = false;
+            }
+        },
+
+        cancelBlockedSupplierRegistrationNumber() {
+            this.replaceModal.blockedSupplier = null;
+        },
+
+        // "Named only" slots (e.g. the representing entity) search real Contacts —
+        // reuses the exact same search endpoint the ordinary recipient fields use.
+        //
+        // Johan, 2026-08-26 — that shared endpoint also returns suppliers
+        // now, but bindSlotToContact() below only knows how to bind a
+        // Contact (contact_id, or a deceased-row promotion keyed off
+        // contact_id). A supplier result's id is really an
+        // AgencyServiceProviderContact id — a completely different ID
+        // space — so binding one through this box would silently attach
+        // the WRONG record. Ruling: a box that can't bind suppliers
+        // correctly must not offer them. An already-added supplier
+        // recipient still binds correctly here via the recipient chips
+        // above (bindSlotToRecipient, fixed 2026-08-25/26); this box is
+        // Contacts-only until someone teaches bindSlotToContact() a real
+        // supplier binding path — which is a RecipientTemplate
+        // binding-type decision that belongs with the representative-chain
+        // consolidation, not a search-box filter tweak.
+        async searchSlotContact(slotKey, query) {
+            this.replaceModal.slotSearch[slotKey] = this.replaceModal.slotSearch[slotKey] || { query: '', results: [], open: false };
+            this.replaceModal.slotSearch[slotKey].query = query;
+            if ((query || '').length < 2) {
+                this.replaceModal.slotSearch[slotKey].results = [];
+                return;
+            }
+            try {
+                const resp = await fetch('/docuperfect/esign/api/contacts?q=' + encodeURIComponent(query), {
+                    headers: { 'Accept': 'application/json' },
+                });
+                const data = await resp.json();
+                this.replaceModal.slotSearch[slotKey].results = Array.isArray(data) ? data.filter(c => c.source !== 'supplier') : [];
+                this.replaceModal.slotSearch[slotKey].open = true;
+            } catch (e) {
+                console.error('Slot contact search failed', e);
+            }
+        },
+
+        // Johan, 2026-08-26 — the supplier half of "EXECUTOR TAKES A CONTACT
+        // OR A SUPPLIER". Same shared search endpoint as searchSlotContact()
+        // (it already returns both books, discriminated by `source`), own
+        // box, own results list — filtered to suppliers only.
+        async searchSlotSupplier(slotKey, query) {
+            this.replaceModal.supplierSlotSearch[slotKey] = this.replaceModal.supplierSlotSearch[slotKey] || { query: '', results: [], open: false };
+            this.replaceModal.supplierSlotSearch[slotKey].query = query;
+            if ((query || '').length < 2) {
+                this.replaceModal.supplierSlotSearch[slotKey].results = [];
+                return;
+            }
+            try {
+                const resp = await fetch('/docuperfect/esign/api/contacts?q=' + encodeURIComponent(query), {
+                    headers: { 'Accept': 'application/json' },
+                });
+                const data = await resp.json();
+                this.replaceModal.supplierSlotSearch[slotKey].results = Array.isArray(data) ? data.filter(c => c.source === 'supplier') : [];
+                this.replaceModal.supplierSlotSearch[slotKey].open = true;
+            } catch (e) {
+                console.error('Slot supplier search failed', e);
+            }
+        },
+
+        // A supplier's own id lives in a DIFFERENT book (agency_service_
+        // provider_contacts), never in contacts — cannot be bound as
+        // type:'contact' (RecipientTemplate resolves that against the Contact
+        // model). Same "promote to a real recipient, bind as type:'recipient'"
+        // pattern bindSlotToContact() already uses for a deceased row's
+        // replacement, built from the supplier field shape selectContact()
+        // already knows (source==='supplier' branch) rather than the contact
+        // shape. Reuses an already-added recipient for this same supplier
+        // contact if one exists, so picking the same person twice doesn't
+        // create a duplicate row. bindSlotToRecipient() below already runs
+        // the missing-registration/ID block for a supplier-sourced row —
+        // nothing extra needed here to get that check for free.
+        bindSlotToSupplier(slotKey, supplier) {
+            const ri = this.replaceModal.recipientIndex;
+            const r = this.recipients[ri];
+
+            let target = this.recipients.find((rr, rri) => rri !== ri && rr._supplier_contact_id === supplier.supplier_contact_id);
+            if (!target) {
+                target = {
+                    order: this.recipients.length + 1,
+                    role: r.role,
+                    name: supplier.full_name || '',
+                    first_name: supplier.first_name || '',
+                    last_name: supplier.last_name || '',
+                    id_number: supplier.id_number || '',
+                    email: supplier.email || '',
+                    cell: supplier.phone || '',
+                    address: supplier.address || '',
+                    readonly: false,
+                    _contact_id: null,
+                    _recipient_source: 'supplier',
+                    _supplier_contact_id: supplier.supplier_contact_id,
+                    _supplier_firm_id: supplier.supplier_firm_id || null,
+                    _supplier_firm_name: supplier.supplier_firm_name || '',
+                    _supplier_firm_registration_number: supplier.supplier_firm_registration_number || '',
+                    _searchQuery: supplier.full_name || '', _searchResults: [], _searchOpen: false, _searching: false, _searchIdx: 0,
+                    _is_deceased: false,
+                    _is_proxy: false,
+                    bank_name: '', bank_account_name: '', bank_account_number: '', bank_branch_name: '',
+                    _recipient_local_key: (crypto.randomUUID ? crypto.randomUUID() : ('r' + Date.now() + Math.random())),
+                    // Same cleanup contract as the contact-promotion path in
+                    // bindSlotToContact() — reconciled away in
+                    // closeReplaceModal() if cancelled or rebound. Always
+                    // tagged (unlike bindSlotToContact's deceased-only gate)
+                    // because a supplier has no display-only type:'contact'
+                    // equivalent — every supplier bind creates a real
+                    // recipient here, whether or not this modal's own row
+                    // happens to be the deceased one, so every one of them
+                    // needs the same abandon-cleanup safety net.
+                    _deceased_substitute_for: r._recipient_local_key,
+                };
+                this.recipients.push(target);
+                this.recipients.forEach((rr, i) => rr.order = i + 1);
+            }
+            this.bindSlotToRecipient(slotKey, target);
+            this.replaceModal.supplierSlotSearch[slotKey] = { query: target.name || '', results: [], open: false };
+        },
+
+        bindSlotToContact(slotKey, contact) {
+            const ri = this.replaceModal.recipientIndex;
+            const r = this.recipients[ri];
+
+            // Johan, 2026-08-25 (deceased-substitute fix) — a slot bound on a
+            // DECEASED party's replacement clause must produce a REAL signer,
+            // never a display-only clause token. type:'contact' (below, the
+            // general path every other template still uses) is deliberately
+            // named-only in RecipientTemplate.php and never becomes a
+            // SignatureRequest — that is exactly the gap cc1's audit found:
+            // the executor's name appeared in the clause but nobody ever got
+            // a signing link. For a deceased row, promote the searched
+            // contact to an ordinary recipient on this same document
+            // (reusing one already there if the contact already is a
+            // recipient) and bind as type:'recipient' — the same "signing
+            // link in the chain" the model already documents — instead.
+            if (r && r._is_deceased) {
+                let target = this.recipients.find((rr, rri) => rri !== ri && rr._contact_id === contact.id);
+                if (!target) {
+                    target = {
+                        order: this.recipients.length + 1,
+                        role: r.role,
+                        name: contact.full_name || ((contact.first_name || '') + ' ' + (contact.last_name || '')).trim(),
+                        first_name: contact.first_name || '',
+                        last_name: contact.last_name || '',
+                        id_number: contact.id_number || '',
+                        email: contact.email || '',
+                        cell: contact.phone || '',
+                        address: contact.address || '',
+                        readonly: false,
+                        _contact_id: contact.id,
+                        _searchQuery: contact.full_name || '', _searchResults: [], _searchOpen: false, _searching: false, _searchIdx: 0,
+                        _is_deceased: false,
+                        _is_proxy: false,
+                        bank_name: contact.bank_name || '',
+                        bank_account_name: contact.bank_account_name || '',
+                        bank_account_number: contact.bank_account_number || '',
+                        bank_branch_name: contact.bank_branch_name || '',
+                        _recipient_local_key: (crypto.randomUUID ? crypto.randomUUID() : ('r' + Date.now() + Math.random())),
+                        // Tags this row as auto-added by THIS deceased row's
+                        // replacement — reconciled away in closeReplaceModal()
+                        // if the binding is later cancelled or rebound to
+                        // someone else, so a rebind never leaves a stray
+                        // duplicate recipient behind.
+                        _deceased_substitute_for: r._recipient_local_key,
+                    };
+                    this.recipients.push(target);
+                    this.recipients.forEach((rr, i) => rr.order = i + 1);
+                }
+                this.bindSlotToRecipient(slotKey, target);
+                this.replaceModal.slotSearch[slotKey] = { query: target.name || '', results: [], open: false };
+                return;
+            }
+
+            this.replaceModal.bindings[slotKey] = {
+                type: 'contact',
+                contact_id: contact.id,
+                label: contact.full_name || contact.name || '(unnamed contact)',
+            };
+            this.replaceModal.slotSearch[slotKey] = { query: contact.full_name || '', results: [], open: false };
+        },
+
+        // Client-side preview only — mirrors RecipientTemplate::
+        // resolveSlotSubTokens()/resolveSlotSubTokensFromArray() so the agent
+        // sees the sentence before confirming. The server resolves the SAME
+        // template the same way at send time; this never becomes the stored
+        // text itself. Must never drift from the PHP originals (2026-08-26 —
+        // this is exactly the class of bug Johan found: a binding that
+        // carried the firm but a preview that only ever knew how to print
+        // {key} -> label, never the full chain, never the 4 component
+        // tokens).
+        resolveSlotSubTokensJs(binding) {
+            const empty = { company: '', company_reg: '', representative: '', representative_id: '' };
+            if (!binding) return empty;
+            if (binding.type === 'recipient') {
+                return {
+                    company: binding._supplier_firm_name || '',
+                    company_reg: binding._supplier_firm_registration_number || '',
+                    representative: binding.label || '',
+                    representative_id: binding.id_number || '',
+                };
+            }
+            if (binding.type === 'self') {
+                return { company: '', company_reg: '', representative: binding.label || '', representative_id: binding.id_number || '' };
+            }
+            // type === 'contact' — a named-only Contact never carries a company
+            // in this wizard, and its ID isn't cached on the binding (the real
+            // render resolves it fresh from the Contact record) — name only
+            // for this fast preview.
+            return { company: '', company_reg: '', representative: binding.label || '', representative_id: '' };
+        },
+
+        // Mirrors RecipientTemplate::substitute()'s empty-collapse rules
+        // exactly — same two narrow cases, nothing broader invented here
+        // either: a parenthetical left holding only its own label collapses,
+        // and a "represented by" immediately followed by another one
+        // collapses to the last.
+        substituteJs(template, tokens) {
+            let out = template;
+            Object.keys(tokens).forEach(k => { out = out.split(k).join(tokens[k]); });
+            out = out.replace(/\(\s*\)/g, '');
+            out = out.replace(/\(\s*[A-Za-z][A-Za-z \t]*:\s*\)/g, '');
+            out = out.replace(/represented by\s+(?=represented by)/gi, '');
+            return out.replace(/\s{2,}/g, ' ').trim();
+        },
+
+        replacePreviewText() {
+            const t = this.replaceModal.selectedTemplate;
+            if (!t) return '';
+            const tokens = {};
+            (t.party_slots || []).forEach(slot => {
+                const b = this.replaceModal.bindings[slot.key];
+                const sub = this.resolveSlotSubTokensJs(b);
+                let full;
+                if (!b) {
+                    full = '{' + slot.key + '}';
+                } else if (sub.company) {
+                    full = sub.company + (sub.company_reg ? ' (Reg: ' + sub.company_reg + ')' : '') + ' represented by ' + (b.label || '');
+                } else {
+                    full = b.label || '';
+                }
+                tokens['{' + slot.key + '}'] = full;
+                tokens['{' + slot.key + '_company}'] = sub.company;
+                tokens['{' + slot.key + '_company_reg}'] = sub.company_reg;
+                tokens['{' + slot.key + '_representative}'] = sub.representative;
+                tokens['{' + slot.key + '_representative_id}'] = sub.representative_id;
+            });
+            return this.substituteJs(t.text_template, tokens);
+        },
+
+        replaceModalCanConfirm() {
+            const t = this.replaceModal.selectedTemplate;
+            if (!t) return false;
+            return (t.party_slots || []).every(slot => !!this.replaceModal.bindings[slot.key]);
+        },
+
+        async confirmReplace() {
+            if (!this.replaceModalCanConfirm()) return;
+            const ri = this.replaceModal.recipientIndex;
+            const r = this.recipients[ri];
+            r._recipient_template_id = this.replaceModal.selectedTemplate.id;
+            r._slot_bindings = JSON.parse(JSON.stringify(this.replaceModal.bindings));
+            r._replace_preview = this.replacePreviewText();
+            this.closeReplaceModal();
+            // cc5's find, 2026-08-26 — Step 3's own document preview
+            // (loadTemplatePreview() -> the real templatePages() endpoint)
+            // renders from the SAVED flow, not this in-memory recipients
+            // array; nothing here previously told it anything had changed,
+            // so it kept showing the pre-binding placeholder text until the
+            // agent reloaded the page (which happens to autosave-then-load
+            // on mount). Save this step's data now — the same call
+            // saveDraft() already makes on demand elsewhere — then reload
+            // the preview immediately, same pairing autosave-fields already
+            // does for step 5's live refresh.
+            if (this.previewRenderType === 'web' && this.flowId && serverTemplateId) {
+                await this.saveDraft();
+                await this.loadTemplatePreview(serverTemplateId);
+            }
+        },
+
+        clearReplacement(ri) {
+            const r = this.recipients[ri];
+            r._recipient_template_id = null;
+            r._slot_bindings = null;
+            r._replace_preview = null;
         },
 
         // ---- Lease duration calculator ----
@@ -3353,9 +4651,32 @@ function esignWizard() {
 
         // ---- Live preview refresh (debounced) ----
         _previewTimer: null,
-        refreshPreviewDebounced() {
+        _previewFireAt: null,
+        // Johan/conductor, 2026-08-27 (cc5's real-DOM-click harness, shapes
+        // D/E) — the 600ms debounce exists for RAPID-FIRE input (a typed
+        // field, one keystroke per event) so it doesn't fire a save+reload
+        // per keystroke. A discrete, deliberate click (reorder a director,
+        // pick a proxy) is the OPPOSITE case: there is exactly one event,
+        // and it needs to land as soon as possible. moveEntityRep() and
+        // setEntityProxyPick() call this directly with delayMs=0 for that —
+        // but both ALSO mutate `recipients`, which the Cluster A $watch
+        // observes and reacts to with its own default (600ms) call. Alpine's
+        // reactive effects run as a microtask, which fires before this
+        // function's own setTimeout(cb, 0) macrotask — so the watch's slower
+        // call was overwriting the fast one via the shared timer, silently
+        // undoing delayMs=0 and putting the ~600ms debounce back. Track the
+        // earliest requested fire time and never let a LATER request push it
+        // back — a slower request arriving while a sooner one is already
+        // scheduled is a no-op; a sooner request always wins and reschedules.
+        refreshPreviewDebounced(delayMs = 600) {
+            const requestedFireAt = Date.now() + delayMs;
+            if (this._previewTimer && this._previewFireAt !== null && this._previewFireAt <= requestedFireAt) {
+                return;
+            }
             if (this._previewTimer) clearTimeout(this._previewTimer);
+            this._previewFireAt = requestedFireAt;
             this._previewTimer = setTimeout(async () => {
+                this._previewFireAt = null;
                 if (this.previewRenderType === 'web' && this.flowId && serverTemplateId) {
                     // Autosave field values first so server re-renders with latest data
                     if (this.currentStep === 5) {
@@ -3369,9 +4690,26 @@ function esignWizard() {
                             console.error('Autosave failed:', e);
                         }
                     }
+                    // Johan/conductor, 2026-08-27 (Cluster A — "the recipients screen
+                    // must render the SAME document the rest of the chain renders...
+                    // live, as they change it"). templatePages() (loadTemplatePreview's
+                    // endpoint) renders from the flow's SAVED step_data, never the
+                    // in-browser recipients array (same fact cc5 already found and
+                    // fixed for confirmReplace() -- see that function's own comment).
+                    // Step 3 had nothing wiring an edit through to a save at all, so
+                    // the preview kept showing whatever recipients existed when the
+                    // step was first loaded: reordering directors, picking a proxy,
+                    // typing a party's address, all invisible here until the agent
+                    // left and returned to the step. Save (silently -- this fires on
+                    // every keystroke/pick, a toast each time would be noise) using
+                    // the SAME saveDraft() confirmReplace() already trusts, THEN
+                    // reload, so this step composes from what the agent just did.
+                    if (this.currentStep === 3) {
+                        await this.saveDraft(true);
+                    }
                     this.loadTemplatePreview(serverTemplateId);
                 }
-            }, 600);
+            }, delayMs);
         },
 
         // ---- Recipients ----
@@ -3391,6 +4729,7 @@ function esignWizard() {
                 order: 0, role: role, name: '', id_number: '', email: '', cell: '', address: '', readonly: false,
                 _contact_id: null, _searchQuery: '', _searchResults: [], _searchOpen: false, _searching: false, _searchIdx: 0,
                 _includeEmail: false,
+                _recipient_local_key: (crypto.randomUUID ? crypto.randomUUID() : ('r' + Date.now())),
             };
             if (idx >= 0) {
                 this.recipients.splice(idx + 1, 0, newOwner);
@@ -3406,6 +4745,7 @@ function esignWizard() {
             this.recipients.push({
                 order: this.recipients.length + 1, role: defaultRole, name: '', id_number: '', email: '', cell: '', address: '', readonly: false,
                 _contact_id: null, _searchQuery: '', _searchResults: [], _searchOpen: false, _searching: false, _searchIdx: 0,
+                _recipient_local_key: (crypto.randomUUID ? crypto.randomUUID() : ('r' + Date.now())),
             });
         },
 

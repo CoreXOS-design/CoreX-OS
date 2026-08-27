@@ -3763,6 +3763,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/{contact}/representatives/create-and-link', [\App\Http\Controllers\CoreX\ContactRepresentativeController::class, 'createAndLinkRepresentative'])->name('representatives.create-and-link');
         Route::delete('/{contact}/representatives/{representative}', [\App\Http\Controllers\CoreX\ContactRepresentativeController::class, 'unlink'])->name('representatives.unlink');
         Route::post('/{contact}/representatives/{representative}/move', [\App\Http\Controllers\CoreX\ContactRepresentativeController::class, 'move'])->name('representatives.move');
+        // Edit capacity / primary / proxy on an existing entity<->rep link (entity-rep foundation, Johan 2026-08-15).
+        Route::patch('/{contact}/representatives/{representative}', [\App\Http\Controllers\CoreX\ContactRepresentativeController::class, 'updateRepresentative'])->name('representatives.update');
         // Mirror direction — a NATURAL PERSON's "Linked Entities" panel. Same
         // pivot, same link()/unlink() above (called with the entity as
         // {contact}); these two are the person-side search + create-on-the-fly.
@@ -4194,6 +4196,19 @@ Route::prefix('docuperfect')->middleware(['auth', 'permission:access_docuperfect
     Route::post('/clauses/{clause}/restore', [\App\Http\Controllers\Docuperfect\ClauseController::class, 'restore'])->name('docuperfect.clauses.restore')->withTrashed();
     Route::get('/api/clauses', [\App\Http\Controllers\Docuperfect\ClauseController::class, 'listJson'])->name('docuperfect.clauses.json');
 
+    // Recipient Templates (Johan, 2026-08-24, stage 3) — authored like the clause library
+    // above, gated the same way E-Sign → Recipient Presets already is.
+    Route::middleware(['permission:esign.settings', 'agency.required'])
+        ->prefix('recipient-templates')
+        ->name('docuperfect.recipient-templates.')
+        ->group(function () {
+            Route::get('/', [\App\Http\Controllers\Docuperfect\RecipientTemplateController::class, 'index'])->name('index');
+            Route::post('/', [\App\Http\Controllers\Docuperfect\RecipientTemplateController::class, 'store'])->name('store');
+            Route::get('/{recipientTemplate}/edit', [\App\Http\Controllers\Docuperfect\RecipientTemplateController::class, 'edit'])->name('edit');
+            Route::put('/{recipientTemplate}', [\App\Http\Controllers\Docuperfect\RecipientTemplateController::class, 'update'])->name('update');
+            Route::delete('/{recipientTemplate}', [\App\Http\Controllers\Docuperfect\RecipientTemplateController::class, 'destroy'])->name('destroy');
+        });
+
     // Page images (authenticated)
     Route::get('/templates/{id}/page/{page}', [\App\Http\Controllers\Docuperfect\PageImageController::class, 'show'])->name('docuperfect.page.image');
 
@@ -4272,7 +4287,25 @@ Route::prefix('docuperfect')->middleware(['auth', 'permission:access_docuperfect
     Route::get('/esign/download/{document}/pdf', [\App\Http\Controllers\Docuperfect\ESignWizardController::class, 'downloadDocumentPdf'])->middleware('deny_assistant_download')->name('docuperfect.esign.downloadDocumentPdf');
     Route::get('/esign/api/properties', [\App\Http\Controllers\Docuperfect\ESignWizardController::class, 'searchProperties'])->name('docuperfect.esign.api.properties');
     Route::get('/esign/api/contacts', [\App\Http\Controllers\Docuperfect\ESignWizardController::class, 'searchContacts'])->name('docuperfect.esign.api.contacts');
+    Route::post('/esign/api/suppliers/check-duplicate', [\App\Http\Controllers\Docuperfect\ESignWizardController::class, 'checkSupplierDuplicate'])->name('docuperfect.esign.api.suppliers.checkDuplicate');
+    Route::post('/esign/api/suppliers', [\App\Http\Controllers\Docuperfect\ESignWizardController::class, 'addSupplier'])->name('docuperfect.esign.api.suppliers.add');
+    Route::post('/esign/api/suppliers/{firm}/registration-number', [\App\Http\Controllers\Docuperfect\ESignWizardController::class, 'updateSupplierRegistrationNumber'])->name('docuperfect.esign.api.suppliers.registrationNumber');
+    Route::post('/esign/api/entity/{contact}/proxy', [\App\Http\Controllers\Docuperfect\ESignWizardController::class, 'setEntityProxy'])->name('docuperfect.esign.api.entityProxy');
+    Route::get('/esign/api/recipient-templates', [\App\Http\Controllers\Docuperfect\ESignWizardController::class, 'listRecipientTemplates'])->name('docuperfect.esign.api.recipientTemplates');
     Route::get('/esign/api/template/{templateId}/pages', [\App\Http\Controllers\Docuperfect\ESignWizardController::class, 'templatePages'])->name('docuperfect.esign.api.templatePages');
+
+    // ── E-Sign → Recipient Presets (agency setup for entity-representative phrasing) ──
+    Route::middleware(['permission:esign.settings', 'agency.required'])
+        ->prefix('esign/settings/recipient-presets')
+        ->name('docuperfect.esign.recipient-presets.')
+        ->group(function () {
+            Route::get('/',              [\App\Http\Controllers\Docuperfect\EsignRecipientPresetController::class, 'index'])->name('index');
+            Route::get('/create',        [\App\Http\Controllers\Docuperfect\EsignRecipientPresetController::class, 'create'])->name('create');
+            Route::post('/',             [\App\Http\Controllers\Docuperfect\EsignRecipientPresetController::class, 'store'])->name('store');
+            Route::get('/{preset}/edit', [\App\Http\Controllers\Docuperfect\EsignRecipientPresetController::class, 'edit'])->name('edit');
+            Route::put('/{preset}',      [\App\Http\Controllers\Docuperfect\EsignRecipientPresetController::class, 'update'])->name('update');
+            Route::delete('/{preset}',   [\App\Http\Controllers\Docuperfect\EsignRecipientPresetController::class, 'destroy'])->name('destroy');
+        });
 
     // Pack FICA per-party duplication (MERGE pack model — the legacy
     // initPackChain/nextPackDocument/packStatus CHAIN engine was removed:
@@ -4549,6 +4582,10 @@ Route::prefix('sign')->group(function () {
     // 2026-08-24 (Johan) — throttle:30,1 on the entry point (token-enumeration
     // gap, previously unthrottled), throttle:5,1 on /verify specifically — an
     // ID-number check, brute-forceable, not just enumerable.
+    //
+    // Same gap independently found and fixed on QA1 (cc6's public-link audit,
+    // same day) at throttle:60,1 — Staging's stricter 30,1 stands; this is one
+    // fix, not two to reconcile.
     Route::get('/{token}', [\App\Http\Controllers\Docuperfect\SigningController::class, 'show'])->middleware('throttle:30,1')->name('signatures.external');
     // Task 1 — session keep-alive: the signing page pings this so a long,
     // in-progress sign never lapses the session/CSRF token (no forced refresh).

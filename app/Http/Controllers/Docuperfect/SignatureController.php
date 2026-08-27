@@ -1534,6 +1534,62 @@ class SignatureController extends Controller
                 $webData['merged_html'] = $html;
             }
 
+            // ═══ ESIGN-WETINK Phase 1c — bake THIS signer's ink INTO canonical_html ═══
+            // Mirrors SigningController::completeWeb()'s bake (the recipient
+            // ceremony path). This method (the AGENT's own "Complete Signing &
+            // Send") never did this — since the canonical-html doctrine landed
+            // (ba2792a96, 2026-07-19) it only ever embedded into the legacy
+            // merged_html above. That gap was masked as long as
+            // CanonicalDocumentRenderer::resolveOrCompose() re-derived canonical
+            // from merged_html on every view while still at v0; 996fa5452
+            // (2026-08-27) correctly stopped that re-derivation to fix a
+            // different, confirmed bug (a Domicilium position-numbering
+            // disagreement) — "serve what is stored; never recompose it" is
+            // right for that fix, but it means an agent's signature, baked
+            // only into merged_html, no longer reaches canonical_html at all —
+            // so no recipient (whose screen reads canonical_html per doctrine
+            // I2/I3) ever sees it. Same bake as completeWeb(), so the agent's
+            // ink is IN the artifact exactly like every other party's.
+            $signingRequestForBake = $template->requests()->where('party_role', $partyRole)->first();
+            if ($signingRequestForBake) {
+                $canonicalHtml = (string) ($webData['canonical_html'] ?? '');
+                $notYetBaked = (int) ($webData['canonical_version'] ?? 0) < 1;
+                if (trim($canonicalHtml) === '' || $notYetBaked) {
+                    $rederived = app(\App\Services\Docuperfect\CanonicalDocumentRenderer::class)->compose($template);
+                    if (trim($rederived) === '' && trim($canonicalHtml) === '') {
+                        $rederived = app(\App\Services\Docuperfect\CanonicalDocumentRenderer::class)->resolveOrCompose($template);
+                    }
+                    if (trim($rederived) !== '') {
+                        $canonicalHtml = $rederived;
+                    }
+                }
+                $signaturesOnly = [];
+                foreach ($signatures as $sigKey => $sigVal) {
+                    if (! str_contains((string) $sigKey, '-init-')) {
+                        $signaturesOnly[$sigKey] = $sigVal;
+                    }
+                }
+                if (trim($canonicalHtml) !== '' && (!empty($signaturesOnly) || !empty($initials) || !empty($ceremonyValues))) {
+                    $soleOfRole = $template->requests()
+                        ->where('party_role', $signingRequestForBake->party_role)
+                        ->count() === 1;
+                    $webData['canonical_html'] = app(\App\Services\Docuperfect\CanonicalInkComposer::class)
+                        ->bakeInk(
+                            $canonicalHtml,
+                            $signingRequestForBake,
+                            $signaturesOnly,
+                            $initials,
+                            $ceremonyValues,
+                            $soleOfRole,
+                        );
+                    $webData['canonical_version'] = (int) ($webData['canonical_version'] ?? 0) + 1;
+                }
+                if (!empty($webData['canonical_html']) && !empty($webData['ceremony_values'])) {
+                    $webData['canonical_html'] = app(\App\Services\Docuperfect\CanonicalInkComposer::class)
+                        ->applyCeremonyValues($webData['canonical_html'], $webData['ceremony_values']);
+                }
+            }
+
             // Two-write: canonical un-paginated merged_html + exact signed
             // paginated DOM persisted ONCE to the derived-artifact column.
             $docUpdates = ['web_template_data' => $webData];
@@ -1895,8 +1951,14 @@ class SignatureController extends Controller
         $this->authorizeDocument($user, $document);
 
         $template = SignatureTemplate::where('document_id', $document->id)->firstOrFail();
-        $templateType = $document->template?->template_type ?? 'rentals';
-        $isSales = $templateType === 'sales';
+        // Johan, 2026-08-27 (found on the late-estate walkthrough) — raw
+        // template_type is a builder-set free-text category ('cds' here),
+        // never the string 'sales'/'rentals'; every dashboard-redirect
+        // decision keyed off it directly picked "rental" for THIS exact
+        // sales document ("EXCLUSIVE AUTHORITY TO SELL"). isSalesDocument()
+        // is the layered detector already trusted elsewhere in this file
+        // (line ~351) for exactly this question.
+        $isSales = (bool) $document->template?->isSalesDocument();
 
         // If template is awaiting a party, send to that party
         $awaitingStatuses = [
@@ -1907,12 +1969,24 @@ class SignatureController extends Controller
         ];
 
         if (in_array($template->status, $awaitingStatuses)) {
-            $currentRole = $template->currentPartyRole();
-            $partyRequest = $currentRole
-                ? $template->requests()->where('party_role', $currentRole)->first()
-                : null;
+            // 2026-08-26 fix (Johan — the send cascade stalls at a skipped
+            // party) — this used to look up "the first row with this role,"
+            // no signing_order, no status filter. Once that first row was
+            // already NOT_REQUIRED (deceased, or superseded by a proxy in
+            // its own group), the $partyRequest->status === WAITING check
+            // below was never true, sendSigningRequest() was never called on
+            // ANYONE, and the agent still saw "Document sent" — the exact
+            // shape Johan named: the deceased is skipped, but the substitute
+            // who actually signs is never reached by the ordinary button.
+            // peekNextSigningCandidate() finds who the real walk would
+            // notify (same signing_order, same isSigningParticipant() the
+            // walk itself uses — read-only, no second definition of "who
+            // signs"), so the no-email check and the custom message below
+            // land on the actual next real party, not a stale guess.
+            $partyRequest = $this->signatureService->peekNextSigningCandidate($template);
+            $currentRole = $partyRequest?->party_role ?? $template->currentPartyRole();
 
-            if ($partyRequest && $partyRequest->status === SignatureRequest::STATUS_WAITING) {
+            if ($partyRequest) {
                 // AT-294 PREVENT — reject upfront rather than silently dead-end
                 // on a Mail::to('') that gets swallowed.
                 if (trim((string) $partyRequest->signer_email) === '') {
@@ -1923,7 +1997,11 @@ class SignatureController extends Controller
                 if ($request->filled('message')) {
                     $partyRequest->update(['message' => $request->input('message')]);
                 }
-                $this->signatureService->sendSigningRequest($partyRequest);
+                // The real walk, not a second lookup: passes the peeked
+                // candidate as $only, which the walk tries first and falls
+                // through from exactly like any other skip if it turns out
+                // to no longer qualify by the time this runs.
+                $this->signatureService->advanceToNextSigningParticipant($template, $partyRequest);
             }
 
             $partyLabel = $currentRole ? ucfirst($currentRole) : 'next party';
@@ -2501,8 +2579,8 @@ class SignatureController extends Controller
         if ($request->boolean('auto_approve')) {
             $this->signatureService->approveUploadOnBehalf($signingRequest, $request->user());
 
-            $templateType = $document->template?->template_type ?? 'rentals';
-            $dashboardRoute = $templateType === 'sales' ? 'docuperfect.sales' : 'docuperfect.rental';
+            // See the ~line 1900 comment — isSalesDocument(), never raw template_type.
+            $dashboardRoute = $document->template?->isSalesDocument() ? 'docuperfect.sales' : 'docuperfect.rental';
 
             return redirect()->route($dashboardRoute)
                 ->with('status', 'Uploaded and approved for ' . $signingRequest->signer_name . '. Signing advanced.');
@@ -2549,8 +2627,8 @@ class SignatureController extends Controller
             : "Rejection sent to {$signingRequest->signer_name} with instructions to re-sign.";
 
         // Redirect to the appropriate dashboard based on template type
-        $templateType = $document->template?->template_type ?? 'rentals';
-        $dashboardRoute = $templateType === 'sales' ? 'docuperfect.sales' : 'docuperfect.rental';
+        // (isSalesDocument(), never raw template_type — see ~line 1900).
+        $dashboardRoute = $document->template?->isSalesDocument() ? 'docuperfect.sales' : 'docuperfect.rental';
 
         return redirect()->route($dashboardRoute)
             ->with('status', $message);
@@ -3054,8 +3132,8 @@ class SignatureController extends Controller
             SignatureTemplate::STATUS_AWAITING_SUPERVISOR_FINAL,
         ];
         if (!in_array($template->status, $reviewableStatuses)) {
-            $templateType = $document->template?->template_type ?? 'rentals';
-            $dashboardRoute = $templateType === 'sales' ? 'docuperfect.sales' : 'docuperfect.rental';
+            // isSalesDocument(), never raw template_type — see ~line 1900.
+            $dashboardRoute = $document->template?->isSalesDocument() ? 'docuperfect.sales' : 'docuperfect.rental';
             return redirect()->route($dashboardRoute)
                 ->with('error', 'This document is not pending approval.');
         }
@@ -3074,8 +3152,13 @@ class SignatureController extends Controller
 
         $result = $this->signatureService->approveAndAdvance($template);
 
-        $templateType = $document->template?->template_type ?? 'rentals';
-        $dashboardRoute = $templateType === 'sales' ? 'docuperfect.sales' : 'docuperfect.rental';
+        // Johan, 2026-08-27 (found on the late-estate walkthrough — approving
+        // THIS exact "EXCLUSIVE AUTHORITY TO SELL" document landed the agent
+        // on the RENTAL dashboard) — isSalesDocument(), never raw
+        // template_type: this template's template_type is 'cds', a builder
+        // category, never the string 'sales'/'rentals' the crude check
+        // expected. See ~line 1900 for the same fix's first occurrence.
+        $dashboardRoute = $document->template?->isSalesDocument() ? 'docuperfect.sales' : 'docuperfect.rental';
 
         if ($result['action'] === 'sent') {
             $nextName = $result['next_name'] ?? ucfirst($result['next_party']);
@@ -3247,8 +3330,8 @@ class SignatureController extends Controller
 
         $result = $this->signatureService->returnToCandidate($template, $request->input('notes'), $user);
 
-        $templateType = $document->template?->template_type ?? 'rentals';
-        $dashboardRoute = $templateType === 'sales' ? 'docuperfect.sales' : 'docuperfect.rental';
+        // isSalesDocument(), never raw template_type — see ~line 1900.
+        $dashboardRoute = $document->template?->isSalesDocument() ? 'docuperfect.sales' : 'docuperfect.rental';
 
         return redirect()->route($dashboardRoute)
             ->with('status', "Document returned to {$result['candidate_name']} with your notes.");
@@ -3879,8 +3962,8 @@ class SignatureController extends Controller
             $request->signer_cell
         );
 
-        $templateType = $document->template?->template_type ?? 'rentals';
-        $dashboardRoute = $templateType === 'sales' ? 'docuperfect.sales' : 'docuperfect.rental';
+        // isSalesDocument(), never raw template_type — see ~line 1900.
+        $dashboardRoute = $document->template?->isSalesDocument() ? 'docuperfect.sales' : 'docuperfect.rental';
 
         return redirect()->route($dashboardRoute)
             ->with('status', "Signing resumed — {$request->signer_name} will be sent the document for signing.");

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Exceptions\UnresolvableRepresentativeChainException;
 use App\Models\CommandCenter\CalendarEvent;
 use App\Models\CommandCenter\CalendarEventLink;
 use App\Models\Concerns\BelongsToAgency;
@@ -50,7 +51,7 @@ class Contact extends Model
         // shadowed the pre-existing Contact::type() relationship
         // (belongsTo(ContactType::class)), see the incident-fix migration
         // 2026_08_21_000100_rename_type_to_contact_kind_on_contacts_table.
-        'contact_kind', 'entity_name', 'entity_reg_no',
+        'contact_kind', 'entity_name', 'entity_reg_no', 'entity_shape',
         // AT-60 — structured PROPERTY-address capture (independent of the
         // residential `address` above; never auto-composed into it).
         'unit_number', 'floor_number', 'unit_section_block', 'complex_name',
@@ -474,6 +475,9 @@ class Contact extends Model
             $query->where(function ($q) use ($like, $lcLike, $digits) {
                 $q->where('first_name', 'like', $like)
                   ->orWhere('last_name', 'like', $like)
+                  // ENTITY contacts: match on the company/trust name directly (not
+                  // just via the observer's first_name mirror) so they're findable.
+                  ->orWhere('entity_name', 'like', $like)
                   ->orWhere('id_number', 'like', $like)
                   // mirror columns — fast path / belt
                   ->orWhere('phone', 'like', $like)
@@ -647,6 +651,39 @@ class Contact extends Model
     }
 
     /**
+     * " (ID: xxxxx)" — this Contact's own ID-number suffix, or '' when none
+     * is captured. The single formatting rule for a party's own identity
+     * suffix in a legal clause (Johan, 2026-08-25 — e-sign recipient
+     * presets): never a dangling "(ID: )" when the value is missing, the
+     * whole bracket (including the leading space) is either present in
+     * full or not there at all. Self-contained on purpose — a caller
+     * concatenates it directly onto a name with no extra parens of its
+     * own, exactly like {rep_name}'s existing ID suffix already works.
+     *
+     * Shared choke point: EsignRecipientPreset::substitute() uses this for
+     * BOTH {rep_name} (refactored onto it, was inline) and the new
+     * {party_id_number} token — a party's own ID, not the representative's.
+     * RoleBlockExpansionService::composeEntityPartyText() (the document-body
+     * clause composer, a separate file this change does not touch) should
+     * call this same method for a natural-person party once it renders one,
+     * so the two clause composers never disagree about how a party's ID
+     * prints — that is the reason this lives here rather than duplicated
+     * in EsignRecipientPreset.php.
+     *
+     * Delegates to RecipientTemplate::withIdSuffix() (Johan, 2026-08-25) —
+     * that method already implements this exact rule (name + id in,
+     * formatted string out); calling it with $name = '' yields precisely
+     * this method's own suffix-only shape. One formatting rule, one place
+     * it lives, instead of two method bodies that happened to compute the
+     * same string. Byte-identical output, both branches, verified before
+     * this change shipped.
+     */
+    public function idNumberSuffix(): string
+    {
+        return \App\Models\RecipientTemplate::withIdSuffix('', $this->id_number);
+    }
+
+    /**
      * The natural-person Contacts who represent THIS entity Contact (director/
      * trustee/partner/signatory). Many-to-many: a director can sit on multiple
      * entities. Spec: .ai/specs/contact-entity-type.md §4.2/§5.
@@ -672,7 +709,7 @@ class Contact extends Model
             'contact_representatives',
             'entity_contact_id',
             'representative_contact_id'
-        )->using(ContactRepresentative::class)->withPivot('is_primary', 'sort_order')->withTimestamps()->wherePivotNull('deleted_at')
+        )->using(ContactRepresentative::class)->withPivot('is_primary', 'sort_order', 'capacity', 'signs_as_proxy')->withTimestamps()->wherePivotNull('deleted_at')
             ->orderBy('contact_representatives.sort_order');
     }
 
@@ -687,7 +724,238 @@ class Contact extends Model
             'contact_representatives',
             'representative_contact_id',
             'entity_contact_id'
-        )->using(ContactRepresentative::class)->withPivot('is_primary')->withTimestamps()->wherePivotNull('deleted_at');
+        )->using(ContactRepresentative::class)->withPivot('is_primary', 'capacity', 'signs_as_proxy')->withTimestamps()->wherePivotNull('deleted_at');
+    }
+
+    /**
+     * ENTITY-REP FOUNDATION (Johan, 2026-08-15) — the representatives who must
+     * SIGN on behalf of this entity, applying the proxy rule. If ANY linked rep
+     * holds proxy (contact_representatives.signs_as_proxy) only that rep signs
+     * (e.g. one director signs for all); otherwise EVERY rep signs (4 directors
+     * each sign). Each returned Contact carries its pivot (capacity, is_primary,
+     * signs_as_proxy) for phrasing. Returns an empty collection for a natural
+     * person or an entity with no linked reps (the caller gates on that).
+     *
+     * Consumed by esign (recipient builder) AND DR2 (company attorney/supplier
+     * signers) — the single canonical resolver; do NOT re-implement per lane.
+     *
+     * @return \Illuminate\Support\Collection<int, \App\Models\Contact>
+     */
+    public function signingRepresentatives(?int $overrideProxyRepId = null): \Illuminate\Support\Collection
+    {
+        return $this->proxyAwareRepresentatives(0, [], $overrideProxyRepId);
+    }
+
+    /**
+     * Johan, 2026-08-26 — "1st director - 1st signature position, 1
+     * address section, 1st recipient to sign." ONE ordering, every
+     * consumer of "this company's representatives, in order" reuses THIS
+     * — never re-sorted independently per consumer. Called from
+     * ESignWizardController::expandEntityRecipients() (address/email/phone
+     * sections, signing order, signature block position all derive from
+     * its output array order) and from
+     * RoleBlockExpansionService::resolveDirectRepresentatives() (clause
+     * wording order) — the same two existing resolvers the proxy pick
+     * already threads through, not a third.
+     *
+     * $orderContactIds is per-document only (the recipient's own
+     * step_data, never contact_representatives) — pass null/empty for
+     * "no order set, use whatever order this collection already has."
+     * A stale id (representative unlinked since the order was set) is
+     * simply skipped; any CURRENT representative not mentioned in the
+     * order (added since, or the order is just a proxy-first shorthand —
+     * see expandEntityRecipients()) is appended in the collection's own
+     * existing order, never dropped. Display order is not the
+     * legally-sensitive "who actually signed" question proxy identity is,
+     * so this never refuses on drift the way the proxy override does.
+     *
+     * @param \Illuminate\Support\Collection<int, \App\Models\Contact> $reps
+     * @return \Illuminate\Support\Collection<int, \App\Models\Contact>
+     */
+    public static function applyRepresentativeOrder(\Illuminate\Support\Collection $reps, ?array $orderContactIds): \Illuminate\Support\Collection
+    {
+        if (empty($orderContactIds)) {
+            return $reps;
+        }
+
+        $byId = $reps->keyBy('id');
+        $ordered = collect();
+        foreach ($orderContactIds as $id) {
+            if ($byId->has($id)) {
+                $ordered->push($byId->get($id));
+                $byId->forget($id);
+            }
+        }
+
+        return $ordered->concat($byId->values())->values();
+    }
+
+    /**
+     * The representatives who should RECEIVE the e-sign / correspondence email
+     * for this entity. Proxy-aware, same resolution as signingRepresentatives()
+     * — the signer is the emailee (the person who must act gets the link). Kept
+     * as a distinct method so a later "cc the primary contact" behaviour can
+     * diverge the email set without touching the signing rule.
+     *
+     * @return \Illuminate\Support\Collection<int, \App\Models\Contact>
+     */
+    public function emailRepresentatives(): \Illuminate\Support\Collection
+    {
+        return $this->proxyAwareRepresentatives();
+    }
+
+    /** True if this entity has a representative marked as proxy (signs for all). */
+    public function hasProxyRepresentative(): bool
+    {
+        if (! $this->isEntity()) {
+            return false;
+        }
+
+        return $this->representatives()->wherePivot('signs_as_proxy', true)->exists();
+    }
+
+    /**
+     * Same bound as RoleBlockExpansionService::MAX_REPRESENTATIVE_DEPTH (the
+     * document-BODY recursion) — kept as a separate constant because the two
+     * are different methods resolving different questions (who signs vs who
+     * is named), but the same value for the same reason: Johan's own proof
+     * case (natural person -> entity -> natural person) is depth 2; this
+     * gives headroom above any real SA conveyancing chain while still
+     * failing fast. If one bound changes, check whether the other should.
+     */
+    private const MAX_REPRESENTATIVE_DEPTH = 5;
+
+    /**
+     * Shared proxy resolution for signingRepresentatives()/emailRepresentatives().
+     * Defensive against dirty data: if more than one rep is somehow flagged
+     * proxy, the FIRST (lowest pivot id) is taken rather than throwing —
+     * single-proxy is enforced at the write paths, this is the read-side floor.
+     *
+     * Recursive (Johan, 2026-08-26 — flow 330's own "Piet" case: a natural
+     * person represented by an entity, itself represented by a natural
+     * person). Contact::representatives() has no contact_kind filter, so a
+     * direct representative can itself be an entity needing its own
+     * representative before there is anyone to actually sign or email.
+     * Previously gated on `! $this->isEntity()`, which — same mistake
+     * RoleBlockExpansionService::resolveDocumentRepresentatives() made on
+     * the document-body side, fixed there 2026-08-25 — also blocked a
+     * NATURAL-PERSON party (Piet himself) from ever having a representative
+     * resolved here at all, so WHO ACTUALLY RECEIVED THE SIGNING REQUEST was
+     * still wrong even after the document text was fixed.
+     *
+     * Proxy is applied AT EACH LEVEL independently (unlike the document-body
+     * recursion, which names every representative regardless of proxy) —
+     * signing is exactly the question proxy answers: if one direct rep at
+     * this level is flagged proxy, only that one continues into the
+     * chain; otherwise every direct rep at this level does. A representative
+     * who is themselves an entity recurses one level; a natural-person
+     * representative is always a leaf — Johan's rule: the signer at the
+     * bottom of any chain is always a natural person, and a natural person
+     * has nothing further to recurse into.
+     *
+     * $depth / $seenIds are internal recursion state — always called with
+     * their defaults from signingRepresentatives()/emailRepresentatives();
+     * a caller never needs to pass them.
+     *
+     * @throws UnresolvableRepresentativeChainException chain too deep, a
+     *   cycle (A represents B represents A), or a nested entity
+     *   representative with no representative of its own — same three
+     *   named refusals RoleBlockExpansionService's recursion already
+     *   throws, reused rather than re-defined: "the signer is always a
+     *   natural person... refuse, never render/dispatch to a bare entity."
+     * @return \Illuminate\Support\Collection<int, \App\Models\Contact>
+     */
+    private function proxyAwareRepresentatives(int $depth = 0, array $seenIds = [], ?int $overrideProxyRepId = null): \Illuminate\Support\Collection
+    {
+        if ($depth > self::MAX_REPRESENTATIVE_DEPTH) {
+            throw UnresolvableRepresentativeChainException::tooDeep($this, self::MAX_REPRESENTATIVE_DEPTH);
+        }
+        if (in_array($this->id, $seenIds, true)) {
+            throw UnresolvableRepresentativeChainException::cycleDetected($this, $this);
+        }
+        $seenIds[] = $this->id;
+
+        $reps = $this->representatives()->get();
+
+        if ($reps->isEmpty()) {
+            // A NESTED entity representative (depth > 0) with nobody
+            // representing IT is the state Johan's rule refuses. The
+            // TOP-LEVEL party (depth 0) having no representative yet is the
+            // normal, pre-existing, non-error state (the recipient screen
+            // already prompts an agent to link one — see
+            // ESignWizardController::expandEntityRecipients()'s
+            // _entity_needs_representative) — unchanged here.
+            if ($this->isEntity() && $depth > 0) {
+                throw UnresolvableRepresentativeChainException::entityWithNoRepresentative($this);
+            }
+
+            return collect();
+        }
+
+        // Johan, 2026-08-26 — a per-document proxy pick (the wizard's
+        // "Proxy" picker) applies ONLY at depth 0 — the exact entity
+        // signingRepresentatives()/emailRepresentatives() was called on —
+        // and is never written to signs_as_proxy/is_primary on the pivot;
+        // it lives on the flow's own recipient data and is passed in fresh
+        // on every call. A deeper level in the chain (this rep is itself
+        // represented by someone else) still resolves from the pivot's own
+        // permanent state below, unaffected — the override is not this
+        // party's standing designation, only this one document's choice of
+        // who among ALREADY-linked representatives actually signs.
+        if ($depth === 0 && $overrideProxyRepId !== null) {
+            $picked = $reps->firstWhere('id', $overrideProxyRepId);
+            if (! $picked) {
+                $pickedName = optional(self::withoutGlobalScopes()->find($overrideProxyRepId))->full_name ?? 'That person';
+                throw UnresolvableRepresentativeChainException::overrideNotLinked($this, $pickedName);
+            }
+            $proxy = $picked;
+        } else {
+            // cc4's finding, cc2 2026-08-26 — first() over whichever rows
+            // signs_as_proxy happens to be true on picked the FIRST one, in
+            // whatever order the query returned them — arbitrary, silent, and
+            // it decides who signs a legal document. is_primary is the pivot
+            // column that exists precisely to break this tie; consult it
+            // instead of guessing. Exactly one proxy: unchanged, no tie to
+            // break. More than one: exactly one must be marked primary, or this
+            // refuses rather than pick — "don't guess" is Johan's own rule.
+            $proxies = $reps->filter(fn (Contact $rep) => (bool) ($rep->pivot->signs_as_proxy ?? false));
+            if ($proxies->count() > 1) {
+                $primaries = $proxies->filter(fn (Contact $rep) => (bool) ($rep->pivot->is_primary ?? false));
+                if ($primaries->count() !== 1) {
+                    throw UnresolvableRepresentativeChainException::ambiguousProxy($this, $proxies->count(), $primaries->count());
+                }
+                $proxy = $primaries->first();
+            } else {
+                $proxy = $proxies->first();
+            }
+        }
+        $levelReps = $proxy ? collect([$proxy]) : $reps;
+
+        $leaves = collect();
+        foreach ($levelReps as $rep) {
+            // Job 1 fast-follow (Johan/cc1, 2026-08-26) — gating recursion on
+            // isEntity() alone made every NATURAL-PERSON representative an
+            // automatic leaf, even one who is themselves represented by
+            // someone else. Two silent failures resulted: a natural-person
+            // A-represented-by-B-represented-by-A cycle never reached the
+            // cycle check above (recursion stopped at B, so A's own
+            // representative link back to A was never walked), and a
+            // natural-person-only multi-hop chain (A→B→C) truncated at B
+            // instead of resolving through to C. Recursing whenever the rep
+            // has ANY representative of their own — not just when they're an
+            // entity — lets the SAME depth/cycle guards above cover every
+            // shape of chain. isEntity() is kept as an unconditional OR so an
+            // entity rep with NO representative of its own still hits
+            // entityWithNoRepresentative() below rather than being silently
+            // treated as a leaf.
+            if ($rep->isEntity() || $rep->representatives()->exists()) {
+                $leaves = $leaves->concat($rep->proxyAwareRepresentatives($depth + 1, $seenIds));
+            } else {
+                $leaves->push($rep);
+            }
+        }
+
+        return $leaves;
     }
 
     /**

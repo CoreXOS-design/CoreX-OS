@@ -1,0 +1,412 @@
+#!/usr/bin/env node
+// E-SIGN REGRESSION HARNESS — one command, drives every flow shape end to
+// end on QA1, snapshots the document body at EVERY link in Johan's chain
+// (document selected -> property -> recipients -> details -> fill & review
+// -> sign & send -> preview -> agent signing), and diffs each link against
+// the one before it. Reports the exact link where the chain first breaks.
+//
+// USAGE (from the QA1 repo root):
+//   node scripts/esign/regression/run.js
+//   node scripts/esign/regression/run.js --shape=D
+//   node scripts/esign/regression/run.js --shape=B,C,D
+//
+// Requires: the QA1 app running at https://qatesting1.corexos.co.za, and
+// this box's `php artisan tinker` able to reach it.
+//
+// Read-only against the product: every stage capture reads the real
+// rendered screen (innerText of the live preview / signing-screen DOM),
+// never an internal API response. Test-data setup (fixtures.php) uses
+// direct DB writes — see that file's own header for why that's a different
+// question from the flow being regression-tested.
+
+const path = require('path');
+const fs = require('fs');
+const { execSync } = require('child_process');
+const puppeteer = require('/corex-qa1/node_modules/puppeteer');
+
+const REPO_ROOT = '/corex-qa1';
+const HOST = 'qatesting1.corexos.co.za';
+const REPORT_DIR = path.join(__dirname, 'reports');
+const PROPERTY_SEARCH = 'Regression Harness Way';
+const PROPERTY_MATCH = 'Regression Harness Way';
+const TEMPLATE_BUTTON = 'EXCLUSIVE AUTHORITY TO SELL';
+
+const { mintSessionCookie } = require('./lib/cookie');
+const driver = require('./lib/driver');
+const capture = require('./lib/capture');
+const mailpit = require('./lib/mailpit');
+const { shapeList } = require('./shapes');
+const { runAssertions } = require('./lib/assertions');
+
+function nowStamp() {
+    return new Date().toISOString().replace(/[:.]/g, '-');
+}
+
+async function ensureFixtures() {
+    execSync(`php artisan tinker --execute="require '${path.join(__dirname, 'fixtures.php')}';"`, {
+        cwd: REPO_ROOT, encoding: 'utf8', timeout: 60000,
+    });
+    return JSON.parse(fs.readFileSync(path.join(__dirname, '.fixtures.json'), 'utf8'));
+}
+
+function buildFixtureTruth() {
+    return {
+        'RegSellerOne': { tel: '0821000001', email: 'reg.seller.one@harness.test' },
+        'RegSellerTwo': { tel: '0821000002', email: 'reg.seller.two@harness.test' },
+        'RegDeceased': { tel: '0821000003', email: 'reg.deceased@harness.test' },
+        'RegExecutor': { tel: '0821000004', email: 'reg.executor@harness.test' },
+        'RegSupplierExecutor': { tel: '0821000005', email: 'reg.supplier.executor@harness.test' },
+        'RegDirectorOne': { tel: '0821000010', email: 'regdirectorone@harness.test' },
+        'RegDirectorTwo': { tel: '0821000011', email: 'regdirectortwo@harness.test' },
+        'RegDirectorThree': { tel: '0821000012', email: 'regdirectorthree@harness.test' },
+        'RegManualEntry': { tel: '0821000099', email: 'reg.manual.entry@harness.test' },
+    };
+}
+
+async function captureTextStage(page, name) {
+    const text = await capture.extractPreviewText(page);
+    return {
+        name,
+        domicilium: capture.parseDomicilium(text),
+        clause: capture.parseClauseOpening(text),
+        signatureSummary: capture.parseSignatureBlockSummary(text),
+    };
+}
+
+async function runShape(browser, cookie, shapeDef, fixtureTruth, warnings) {
+    const page = await driver.newPage(browser, HOST, cookie);
+    const stages = [];
+    let notes = [];
+
+    try {
+        // Link 1: Template.
+        await driver.selectTemplate(page, HOST, TEMPLATE_BUTTON);
+        stages.push(await captureTextStage(page, 'Template'));
+
+        // Link 2: Property.
+        const flowId = await driver.selectProperty(page, PROPERTY_SEARCH, PROPERTY_MATCH);
+        stages.push(await captureTextStage(page, 'Property'));
+
+        // Link 3: Recipients (shape-specific build).
+        //
+        // 2026-08-27 — Johan found by hand, on the Recipients screen itself,
+        // three live-update bugs this harness's earlier design could not
+        // have caught: a joined-with-"and" Domicilium blob, a company
+        // showing only its first director, and a picked proxy never
+        // reflecting in the seller section or clause. Root cause of the
+        // miss: the old capture forced a fresh page navigation before
+        // reading the preview, on the theory that the live pane's own
+        // staleness was a separate, low-severity finding. That reload
+        // masked exactly the bugs Johan found — a reload re-renders fresh
+        // from saved state even when the LIVE, no-reload view is broken.
+        // Fixed: `snap(label)` captures the preview immediately, in place,
+        // after every action a shape takes on this screen — no reload. Each
+        // shape calls it after every add/reorder/proxy-pick. The final
+        // reload-based capture is kept too, now explicitly labelled, so a
+        // "live wrong, reload fixes it" case and a "wrong everywhere" case
+        // are never conflated.
+        const liveStages = [];
+        const snap = async (label) => {
+            // A short settle delay for Alpine's own reactivity to flush and
+            // the DOM to paint after a click — NOT a reload, NOT long enough
+            // to mask a genuine "never updates without a reload" bug (that
+            // class of bug wouldn't resolve in under a second either way,
+            // since no navigation happens). Without this, capturing at 0ms
+            // just races the app's own render and reads blank/empty, which
+            // would report a false "0 entries" finding indistinguishable
+            // from Johan's actual "wrong content" reports.
+            await driver.sleep(700);
+            const s = await captureTextStage(page, label);
+            liveStages.push(s);
+            stages.push(s);
+            return s;
+        };
+        const { expected, liveExpectations } = await shapeDef.build(page, warnings, snap);
+        const flowIdForReload = await page.evaluate(() => {
+            const root = document.querySelector('[x-data="esignWizard()"]');
+            return root && window.Alpine ? window.Alpine.$data(root).flowId : null;
+        });
+        await driver.goToStep(page, HOST, flowIdForReload, 3);
+        stages.push(await captureTextStage(page, 'Recipients (after reload)'));
+
+        // Link 4: Details.
+        await driver.goToStep(page, HOST, flowId, 4);
+        await driver.clickBtnExact(page, '6 Mo');
+        await driver.sleep(800);
+        stages.push(await captureTextStage(page, 'Details'));
+
+        // Link 5: Fill & Review (the hard stop — no manual edits in this run).
+        await driver.advanceNext(page, 'Next →');
+        stages.push(await captureTextStage(page, 'Fill & Review'));
+
+        // Link 6: Sign & Send ("next" — Johan's chain treats the click-through
+        // from Fill & Review as landing directly here; there is no distinct
+        // intermediate screen in the real UI to capture separately).
+        await driver.advanceNext(page, 'Signing Setup');
+        const signSendText = await capture.extractPreviewText(page);
+        stages.push({
+            name: 'Sign & Send',
+            domicilium: capture.parseDomicilium(signSendText),
+            clause: capture.parseClauseOpening(signSendText),
+            signatureSummary: capture.parseSignatureBlockSummary(signSendText),
+            signingOrderCount: capture.parseSigningOrderCount(await page.evaluate(() => document.body.innerText)),
+        });
+
+        // Link 7: Preview (the markers/zones screen between Sign & Send and
+        // the live signing screen) + Link 8: Agent Signing.
+        const deceasedNames = expected.deceasedNames || [];
+        let documentId = null;
+        try {
+            documentId = await dispatchCapturingPreview(page, HOST, flowId, deceasedNames, stages);
+        } catch (e) {
+            notes.push(`Could not reach Preview/signing: ${e.message}`);
+        }
+
+        if (documentId) {
+            await driver.sleep(2000);
+            let signPageText = await capture.extractPreviewText(page);
+            if (!signPageText) { await driver.sleep(2500); signPageText = await capture.extractPreviewText(page); }
+            const signPageBlocks = await capture.captureSignPageBlocks(page);
+            const initialsRow = await capture.countInitialsRow(page);
+            stages.push({
+                name: 'Agent Signing Screen',
+                domicilium: capture.parseDomicilium(signPageText),
+                clause: capture.parseClauseOpening(signPageText),
+                signatureSummary: capture.parseSignatureBlockSummary(signPageText),
+                signPageBlocks,
+                initialsRow,
+            });
+
+            const agentResult = await driver.robustCompleteAgentSigning(page, 'Johan Reichel');
+            if (!agentResult.completed) {
+                notes.push(`Agent signing did not complete: ${agentResult.reason} (progress: ${agentResult.finalProgress}). Recipient-by-recipient signing chain (rec 1, rec 2, ...) COULD NOT BE CHECKED this run — needs the agent's own signature to complete first.`);
+            } else {
+                // Snapshot exactly what the agent authorised, immediately
+                // before sending — this is the baseline "rec 1 matches from
+                // agent" is measured against (Johan's spec, verbatim).
+                const agentFinalText = await capture.extractPreviewText(page);
+                stages.push({
+                    name: 'Agent Final (pre-send)',
+                    domicilium: capture.parseDomicilium(agentFinalText),
+                    clause: capture.parseClauseOpening(agentFinalText),
+                    signatureSummary: capture.parseSignatureBlockSummary(agentFinalText),
+                });
+                try {
+                    await driver.completeSigningAndSend(page);
+                    notes.push(`Agent signing completed and dispatched (document #${documentId}).`);
+                    if (expected.recipientsForChain && expected.recipientsForChain.length) {
+                        await driveRecipientChain(browser, expected, stages, notes);
+                    } else {
+                        notes.push('No recipientsForChain declared for this shape — recipient-by-recipient chain not driven.');
+                    }
+                } catch (e) {
+                    notes.push(`Could not click Complete Signing & Send: ${e.message}`);
+                }
+            }
+        } else {
+            notes.push('Preview/Agent Signing Screen COULD NOT BE CHECKED this run.');
+        }
+
+        const assertions = runAssertions(stages, expected, fixtureTruth, liveExpectations || []);
+        await page.close();
+        return { key: shapeDef.key, label: shapeDef.label, ok: true, stages, expected, assertions, notes, documentId, flowId };
+    } catch (e) {
+        await page.close().catch(() => {});
+        return { key: shapeDef.key, label: shapeDef.label, ok: false, error: e.message, stack: e.stack, stages, notes, assertions: null };
+    }
+}
+
+// Dispatches to signing and captures the Preview (markers/zones) screen on
+// the way through, before landing on the live Agent Signing screen.
+async function dispatchCapturingPreview(page, host, flowId, excludeNameParts, stages) {
+    await driver.goToStep(page, host, flowId, 6);
+    for (const namePart of excludeNameParts) {
+        await page.evaluate((namePart) => {
+            const root = document.querySelector('[x-data="esignWizard()"]');
+            const data = window.Alpine.$data(root);
+            const idx = data.recipients.findIndex(r => (r.name || '').includes(namePart));
+            if (idx >= 0) data.recipients[idx].skipEmail = true;
+        }, namePart);
+    }
+    await driver.sleep(500);
+
+    const clicked = await page.evaluate(() => {
+        const btn = Array.from(document.querySelectorAll('button')).find(b => b.innerText && b.innerText.trim() === 'Sign Document');
+        if (btn && !btn.disabled) { btn.click(); return true; }
+        return btn ? `disabled=${btn.disabled}` : 'not_found';
+    });
+    if (clicked !== true) throw new Error(`Sign Document button ${clicked}`);
+    await driver.sleep(3000);
+
+    if (page.url().includes('/signatures/setup')) {
+        // This IS "Preview" — capture it before continuing. Its own explicit
+        // chain link (Johan, 2026-08-27: "shape 5 correct all the way to
+        // Preview and then swapped around at Preview" — never folded into
+        // Sign & Send or Agent Signing, diffed against each independently).
+        await driver.sleep(1500);
+        const previewText = await capture.extractPreviewText(page);
+        const initialsRow = await capture.countInitialsRow(page);
+        stages.push({
+            name: 'Preview',
+            domicilium: capture.parseDomicilium(previewText),
+            clause: capture.parseClauseOpening(previewText),
+            signatureSummary: capture.parseSignatureBlockSummary(previewText),
+            initialsRow,
+        });
+        await driver.clickBtnExact(page, 'Preview & Continue');
+        await driver.sleep(2500);
+    } else {
+        stages.push({ name: 'Preview', domicilium: { found: false, entries: [] }, clause: { found: false, text: '' }, signatureSummary: { count: 0, blocks: [] }, initialsRow: { rowsFound: 0, firstRowCount: null, firstRowLabels: [] } });
+    }
+
+    const m = page.url().match(/documents\/(\d+)/);
+    if (!m) throw new Error(`did not land on a document sign URL — got ${page.url()}`);
+    return parseInt(m[1], 10);
+}
+
+// 2026-08-27 — the recipient-signing chain (Johan's spec, verbatim: "agent
+// signing matches exactly to preview / rec 1 matches from agent / rec 2
+// matches from rec 1 / etc"). For each recipient in order: read their
+// signing link out of Mailpit (the only channel that gives it — there is no
+// CoreX session for a recipient, the token IS their identity), open it,
+// clear the identity gateway + consent, snapshot what they RECEIVED (before
+// they touch anything — this is what gets diffed against the previous
+// party's final state), sign every field of theirs, snapshot again.
+async function driveRecipientChain(browser, expected, stages, notes) {
+    for (const rec of expected.recipientsForChain) {
+        let mail;
+        try {
+            mail = await mailpit.findSigningLink(rec.email);
+        } catch (e) {
+            notes.push(`Rec "${rec.namePart}": COULD NOT CHECK — ${e.message}`);
+            return; // can't continue the chain past a missing link
+        }
+        let recPage;
+        try {
+            recPage = await driver.openRecipientSigningLink(browser, mail.link);
+            await driver.completeIdentityGateway(recPage, rec.idNumber);
+            if (recPage.url().includes('/fica')) {
+                notes.push(`Rec "${rec.namePart}": hit the FICA gate — no pre-approved fica_submissions row for this contact (see fixtures.php). COULD NOT CHECK further for this recipient.`);
+                await recPage.close();
+                return;
+            }
+            if (recPage.url().includes('/consent')) {
+                await driver.completeConsent(recPage);
+            }
+            await driver.completeMethodChoiceIfPresent(recPage);
+        } catch (e) {
+            notes.push(`Rec "${rec.namePart}": COULD NOT CHECK — failed to reach the document: ${e.message}`);
+            if (recPage) await recPage.close().catch(() => {});
+            return;
+        }
+
+        await driver.sleep(1500);
+        const receivedText = await capture.extractPreviewText(recPage);
+        const receivedInitials = await capture.countInitialsRow(recPage);
+        stages.push({
+            name: `Rec ${rec.namePart} (received)`,
+            domicilium: capture.parseDomicilium(receivedText),
+            clause: capture.parseClauseOpening(receivedText),
+            signatureSummary: capture.parseSignatureBlockSummary(receivedText),
+            initialsRow: receivedInitials,
+        });
+
+        const result = await driver.robustCompleteSigningAsCurrentParty(recPage, rec.namePart + ' HarnessFixture');
+        if (!result.completed) {
+            notes.push(`Rec "${rec.namePart}": signing did not complete — ${result.reason} (progress: ${result.finalProgress}). Chain stops here; later recipients COULD NOT BE CHECKED.`);
+            await recPage.close().catch(() => {});
+            return;
+        }
+        // Submit this recipient's turn if a distinct submit action exists
+        // (mirrors completeSigningAndSend for the agent) — tolerate its
+        // absence (some flows may auto-advance once progress hits 100%).
+        const submitted = await driver.clickBtnContains(recPage, 'Complete').catch(() => false);
+        await driver.sleep(2000);
+
+        const signedText = await capture.extractPreviewText(recPage);
+        stages.push({
+            name: `Rec ${rec.namePart} (signed)`,
+            domicilium: capture.parseDomicilium(signedText),
+            clause: capture.parseClauseOpening(signedText),
+            signatureSummary: capture.parseSignatureBlockSummary(signedText),
+        });
+        notes.push(`Rec "${rec.namePart}": signing completed (submit button clicked: ${submitted}).`);
+        await recPage.close().catch(() => {});
+    }
+}
+
+function printReport(results) {
+    console.log('\n' + '='.repeat(78));
+    console.log('E-SIGN REGRESSION HARNESS — RESULTS');
+    console.log('='.repeat(78));
+
+    for (const r of results) {
+        console.log(`\nSHAPE ${r.key} — ${r.label}`);
+        if (!r.ok) {
+            console.log(`  COULD NOT COMPLETE — ${r.error}`);
+            continue;
+        }
+        const master = r.assertions['0_MASTER_chain_holds_link_by_link'];
+        const mv = master.pass === true ? 'PASS' : (master.pass === false ? 'FAIL' : 'INCOMPLETE');
+        console.log(`  [${mv}] CHAIN — ${master.detail}`);
+        if (master.chain) {
+            master.chain.forEach(l => console.log(`      ${l.link}: ${l.result}`));
+        }
+        for (const [key, res] of Object.entries(r.assertions)) {
+            if (key === '0_MASTER_chain_holds_link_by_link') continue;
+            const verdict = res.pass === true ? 'PASS' : (res.pass === false ? 'FAIL' : 'INCOMPLETE');
+            const stageNote = res.firstDivergentStage ? ` (first wrong at: ${res.firstDivergentStage})` : '';
+            console.log(`  [${verdict}] ${key}${stageNote} — ${res.detail}`);
+        }
+        if (r.notes.length) {
+            console.log('  Notes:');
+            r.notes.forEach(n => console.log(`    - ${n}`));
+        }
+    }
+    console.log('\n' + '='.repeat(78));
+    const failCount = results.filter(r => r.ok && Object.values(r.assertions).some(a => a.pass === false)).length;
+    const incompleteCount = results.filter(r => !r.ok || Object.values(r.assertions || {}).some(a => a.pass === null)).length;
+    console.log(`${results.length} shapes run. ${failCount} with at least one FAIL. ${incompleteCount} with something INCOMPLETE.`);
+    console.log('='.repeat(78) + '\n');
+}
+
+async function main() {
+    const args = process.argv.slice(2);
+    const shapeArg = args.find(a => a.startsWith('--shape='));
+    const wantedShapes = shapeArg ? shapeArg.replace('--shape=', '').split(',') : null;
+
+    console.log('Minting QA1 session...');
+    const cookie = mintSessionCookie(REPO_ROOT);
+
+    console.log('Ensuring disposable fixtures (idempotent)...');
+    const fixtures = await ensureFixtures();
+    const fixtureTruth = buildFixtureTruth();
+
+    const shapes = shapeList(fixtures).filter(s => !wantedShapes || wantedShapes.includes(s.key));
+    console.log(`Running ${shapes.length} shape(s): ${shapes.map(s => s.key).join(', ')}`);
+
+    const browser = await puppeteer.launch({
+        executablePath: '/usr/bin/chromium', headless: 'new',
+        args: ['--no-sandbox', '--disable-setuid-sandbox'],
+    });
+
+    const results = [];
+    for (const shapeDef of shapes) {
+        console.log(`\n--- Shape ${shapeDef.key}: ${shapeDef.label} ---`);
+        const warnings = [];
+        const result = await runShape(browser, cookie, shapeDef, fixtureTruth, warnings);
+        result.warnings = warnings;
+        results.push(result);
+        console.log(`Shape ${shapeDef.key} done.`);
+    }
+
+    await browser.close();
+    printReport(results);
+
+    if (!fs.existsSync(REPORT_DIR)) fs.mkdirSync(REPORT_DIR, { recursive: true });
+    const reportFile = path.join(REPORT_DIR, `run-${nowStamp()}.json`);
+    fs.writeFileSync(reportFile, JSON.stringify(results, null, 2));
+    console.log(`Full report written to: ${reportFile}`);
+}
+
+main().catch(e => { console.error('HARNESS ERROR:', e); process.exit(1); });

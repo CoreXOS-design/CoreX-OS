@@ -72,8 +72,19 @@ class CanonicalDocumentRenderer
     /**
      * Compose the canonical, fully-expanded, viewer-agnostic document HTML.
      * Returns '' when the template has no web body to compose.
+     *
+     * $entityOrderOverrides (2026-08-27, the proxy-first Domicilium fix) — optional
+     * map of represented_contact_id => ordered contact-id array, keyed exactly like
+     * Contact::applyRepresentativeOrder()'s own $orderContactIds. Lets a caller who
+     * already resolved the wizard's per-document representative order (manual
+     * drag-order via moveEntityRep(), or the proxy-first fallback when no manual
+     * order was set — ESignWizardController::resolveEffectiveRepOrder()) carry it
+     * into the ONE-TIME composition, so expandRepresentedEntitiesForDisplay() below
+     * doesn't have to re-derive its own (previously order-blind) order. Null/absent
+     * for an entity — the ordinary case for callers with no recipient array in
+     * scope — falls back to proxy-first only, same as before this parameter existed.
      */
-    public function compose(SignatureTemplate $template): string
+    public function compose(SignatureTemplate $template, ?array $entityOrderOverrides = null): string
     {
         $document = $template->document;
         if (! $document) {
@@ -112,9 +123,27 @@ class CanonicalDocumentRenderer
         //    so every same-party recipient has a STABLE, distinct instance for
         //    ink to attach to (the un-expanded merged_html could not — see the
         //    ESIGN-WETINK gap audit finding (b)).
+        //
+        // Johan, 2026-08-26 (escalation of cc5's 547863fbb) — the real
+        // SignatureRequest set is, correctly, narrowed to one row per entity
+        // (the proxy, or the sole non-proxied rep) because only one person
+        // actually signs. Feeding that narrowed set straight into
+        // expandWithLooping() is why an entity's OTHER representatives —
+        // present in the clause text, absent everywhere else — never got
+        // their own address/phone/email block on the agent signing screen,
+        // the ceremony, or the PDF: this is THE ONE render path all three
+        // go through. expandRepresentedEntitiesForDisplay() replaces each
+        // entity-represented row with one synthetic, unsaved SignatureRequest
+        // per CURRENT representative, purely for this DOM loop — nothing
+        // here is persisted, nothing here changes who receives a signing
+        // request or who signs. The signature block itself is unaffected:
+        // it carries no data-role-block markers (see signature-block.blade.php)
+        // and was already built, correctly narrowed to the actual signer(s),
+        // when merged_html was first composed via filterToSigningParticipants().
         $recipients = SignatureRequest::where('signature_template_id', $template->id)
             ->orderBy('signing_order')
             ->get();
+        $recipients = $this->expandRepresentedEntitiesForDisplay($recipients, $entityOrderOverrides);
         $fieldMappings = is_array($docTemplate?->field_mappings ?? null)
             ? $docTemplate->field_mappings
             : [];
@@ -161,6 +190,142 @@ class CanonicalDocumentRenderer
         $html = $this->maybeHighlight($html, $document, $webData);
 
         return $html;
+    }
+
+    /**
+     * Johan, 2026-08-26 (escalation of cc5's 547863fbb) — expand every
+     * entity-represented SignatureRequest into one synthetic, UNSAVED row
+     * per CURRENT representative of that entity, for role-block DISPLAY
+     * looping only. A plain (non-entity) row passes through untouched.
+     *
+     * Never persisted (no ->save()/->create() anywhere here), never seen by
+     * anything that decides who receives a signing request or who signs —
+     * those still read the real SignatureRequest table directly. Only
+     * contact_id/signer_name/signer_email/signer_id_number differ per
+     * clone; RoleBlockExpansionService::mutateCloneForInstance() re-resolves
+     * each clone's address/phone/email straight from that representative's
+     * own Contact record, so nothing further needs to be carried here.
+     * is_proxy is preserved on whichever clone is the actual signer, so any
+     * "(proxy)" display affordance still points at the right person.
+     *
+     * $entityOrderOverrides — see compose()'s own docblock. Keyed by
+     * represented_contact_id (entity id); each value is the ordered contact-id
+     * array Contact::applyRepresentativeOrder() expects.
+     */
+    private function expandRepresentedEntitiesForDisplay(\Illuminate\Support\Collection $requests, ?array $entityOrderOverrides = null): \Illuminate\Support\Collection
+    {
+        // Johan, 2026-08-28 (cc5's harness, shapes D/E) — represented_contact_id
+        // is stamped on EVERY representative's row when a company has NO
+        // proxy (Contact::proxyAwareRepresentatives() correctly returns ALL
+        // representatives as real signers in that case — everyone must
+        // sign) just as it is on the ONE row when a proxy narrows signing to
+        // a single representative. This function exists to expand the
+        // SECOND shape (one real row standing in for others who never got
+        // their own) — applying it to the FIRST shape (every representative
+        // already HAS their own real row) re-expands each of the N real
+        // rows into all N representatives again, producing N×N clones:
+        // reproduced live as "RegDirectorOne appears three times,
+        // RegDirectorTwo replaced by a repeat of RegDirectorOne" on a
+        // 3-director, no-proxy company. Count real rows per entity FIRST —
+        // more than one real row for the same entity means every
+        // representative already has their own place in this document;
+        // pass them all through untouched. Expansion only ever fires for
+        // the genuine one-row case.
+        $realRowCountByEntity = [];
+        foreach ($requests as $req) {
+            if (! empty($req->represented_contact_id)) {
+                $realRowCountByEntity[$req->represented_contact_id] = ($realRowCountByEntity[$req->represented_contact_id] ?? 0) + 1;
+            }
+        }
+        $out = collect();
+        foreach ($requests as $req) {
+            $entityId = $req->represented_contact_id;
+            if (empty($entityId) || ($realRowCountByEntity[$entityId] ?? 0) > 1) {
+                $out->push($req);
+                continue;
+            }
+            $entity = \App\Models\Contact::withoutGlobalScopes()->find($entityId);
+            // Johan, 2026-08-27 (found on the late-estate walkthrough) —
+            // represented_contact_id is stamped for TWO different
+            // relationships that must not be conflated: an entity
+            // represented by its directors (1-to-N — every current
+            // representative is a party, expand them all for display), and
+            // a deceased natural person represented by their executor
+            // (1-to-1 — the "Replace this party" chain already resolved
+            // and froze the ONE correct executor onto this recipient's own
+            // row). Expanding the natural-person case here pulled every
+            // contact EVER linked as an "Executor" representative of that
+            // deceased contact — including stale test/reassigned links —
+            // onto one document as phantom co-executors (reproduced: a doc
+            // for Anine/Andre/Koos also rendered "Seller - Piet Begrafnis"
+            // and "Seller - Elize Reichel" blocks, neither of them party to
+            // this document at all). Only an ENTITY has multiple
+            // representatives who are all genuinely parties; gate the
+            // expansion on that.
+            //
+            // Johan, 2026-08-28 (conductor escalation) — isEntity() alone
+            // is a single, mistaggable enum column (contact_kind), and
+            // reproduced live: flip ONE natural person's contact_kind to
+            // 'entity' — a completely mundane, keyboard-only CRM data
+            // mistake, no devtools, no page-state hacking required — and
+            // this guard opens right back up, expanding her deceased-chain
+            // executor link into every contact EVER linked as her
+            // "representative" (stale test data included) as phantom
+            // sellers carrying THEIR real phone/email. is_entity is
+            // exactly the class of "trust one tag" mistake Johan corrected
+            // in the Domicilium rule itself — same fix here: require a
+            // SECOND, structurally-independent signal a mistagged natural
+            // person would essentially never also have — a populated
+            // entity_name. A genuine company contact always has one (it is
+            // how the company itself is named); nothing about mistagging
+            // contact_kind touches this separate field. Belt-and-braces,
+            // not a replacement for fixing contact_kind data quality — but
+            // this code must not trust a single classification field for a
+            // question this consequential.
+            $reps = ($entity && $entity->isEntity() && trim((string) ($entity->entity_name ?? '')) !== '')
+                ? $entity->representatives()->get()
+                : collect();
+            if ($reps->isEmpty()) {
+                // Nothing to expand against — keep the real row rather than dropping the party.
+                $out->push($req);
+                continue;
+            }
+            $signerContactId = $req->contact_id;
+            // Domicilium proxy-first fix (2026-08-27) — this used to clone $reps in
+            // whatever raw order $entity->representatives()->get() returned (no
+            // ORDER BY), disagreeing with the Recipients-screen preview
+            // (ESignWizardController::buildEntityRepresentationPreview(), which
+            // orders via Contact::applyRepresentativeOrder()). Since compose() only
+            // ever runs ONCE per document (composeAndStore()'s idempotent guard),
+            // whichever order this produces is frozen for the document's life — so
+            // the disagreement was permanent, not transient. Reuse the SAME shared
+            // primitive here rather than a third bespoke sort — never a fourth.
+            //
+            // Prefer the caller's real per-document order when it threaded one
+            // through (prepareSigning()/prepareWetInk() resolve it from the SAME
+            // recipient array the Recipients screen itself reads — manual
+            // moveEntityRep() drag-order when the agent set one, else the
+            // proxy-first fallback — via resolveEffectiveRepOrder(), the identical
+            // resolution used for the party_clause_text snapshot). Only a caller
+            // with no recipient array in scope (or an entity that override map
+            // doesn't mention) falls back to reconstructing proxy-first alone from
+            // this row's own contact_id — the one thing always available here.
+            $order = $entityOrderOverrides[$entityId] ?? [$signerContactId];
+            $reps = \App\Models\Contact::applyRepresentativeOrder($reps, $order);
+            $index = 0;
+            foreach ($reps as $rep) {
+                $index++;
+                $clone = $req->replicate();
+                $clone->contact_id       = $rep->id;
+                $clone->signer_name      = $rep->full_name;
+                $clone->signer_email     = (string) ($rep->email ?? '');
+                $clone->signer_id_number = (string) ($rep->id_number ?? '');
+                $clone->role_index       = $index;
+                $clone->is_proxy         = ((int) $rep->id === (int) $signerContactId);
+                $out->push($clone);
+            }
+        }
+        return $out->values();
     }
 
     /**
@@ -374,9 +539,20 @@ class CanonicalDocumentRenderer
                 return [];
             }
             $rows = \App\Models\Docuperfect\SignatureRequest::whereIn('signature_template_id', $templateIds)
-                ->get(['party_role', 'role_index']);
+                ->get(['id', 'party_role', 'role_index', 'signature_template_id', 'is_deceased', 'is_proxy']);
             $byRole = [];
             foreach ($rows as $r) {
+                // Cluster B1 (Johan/conductor, 2026-08-27, shapes 2/3) — this
+                // counted every row for the party, including a deceased row
+                // that will never sign, giving that role one extra margin
+                // initial slot: 3 initial blocks against 2 real signature
+                // blocks. isSigningParticipant() is "THE single predicate"
+                // (its own docblock) for exactly this question — the same
+                // rule expandAttestationBlocksPerRecipient() already applies
+                // to the signature blocks these initial slots sit beside.
+                if (! $r->isSigningParticipant()) {
+                    continue;
+                }
                 $role = strtolower(trim((string) $r->party_role));
                 if ($role === '' || $role === 'supervisor_final') {
                     continue;   // checkpoint pseudo-role folds onto 'supervisor'
@@ -470,8 +646,23 @@ class CanonicalDocumentRenderer
             // Candidate keys: the exact data-field first (covers base vars and explicit
             // "{var}__r{n}" per-recipient instances), then the base var — for a single-recipient
             // contact field that expansion stamped "{var}__r1" while the overlay holds "{var}".
+            //
+            // Johan, 2026-08-26 — "up to esign its fine, but as soon as you click back it
+            // renders it wrong." A company with 3 representatives: the base-var fallback below
+            // was firing for EVERY instance ("__r1", "__r2", "__r3" alike), not just the single-
+            // recipient case its own docblock describes. The Fill & Review left panel has ONE
+            // editable seller_address/phone/email input (not one per representative) — the agent
+            // never touched recipient 2/3's fields, so the overlay only ever holds the BASE key
+            // (recipient 1's value, saved unsuffixed). On first render there is no overlay yet,
+            // so each of the 3 blocks correctly reads its own Contact record — right once. The
+            // moment ANY overlay exists (Next to step 6, or back to step 5), this fallback
+            // matched "__r2"/"__r3" against the base key too and stamped recipient 1's address
+            // onto recipients 2 and 3 — permanently, since the overlay itself then gets
+            // re-saved from what's now on screen. Restricting the fallback to __r1 keeps the
+            // single-recipient case working exactly as documented while leaving an untouched
+            // __r2+/__r3+ instance to resolve from its own Contact record, same as first render.
             $candidates = [$raw];
-            if (preg_match('/^(.*)__r\d+$/', $raw, $m) && $m[1] !== '') {
+            if (preg_match('/^(.*)__r(\d+)$/', $raw, $m) && $m[1] !== '' && (int) $m[2] === 1) {
                 $candidates[] = $m[1];
             }
 
@@ -531,22 +722,33 @@ class CanonicalDocumentRenderer
      * document (recipient ceremony, agent sign, marker setup, agent review,
      * amendment review, print/PDF preview).
      *
-     * Returns the stored `canonical_html` when present (the immutable post-send
-     * artifact — the frozen truth every party signed). When absent — a document
-     * still being PREPARED (pre-send: the agent is on the setup/markers/sign
-     * screens and no canonical has been composed yet) — it composes ONE fresh via
-     * the exact same pipeline (`compose()` → normalize → letterhead → insertable →
-     * expandWithLooping), WITHOUT storing.
+     * Johan, 2026-08-28 — "it's one document that flows like a printed page...
+     * Fill & Review is the freeze point... from there it's a printed page that
+     * ran through a printer." This method used to recompose from scratch at
+     * v0 ("nothing baked yet, re-composing loses nothing"), on the theory that
+     * pre-send `merged_html` was still changing under the agent's own edits.
+     * That theory stopped being true the moment ESignWizardController's send
+     * paths (prepareSigning/prepareWetInk) started calling composeAndStore()
+     * once, immediately, right after every SignatureRequest row exists — by
+     * the time ANY of these surfaces can be opened, Fill & Review has already
+     * happened and nothing on the page can change the body again. Recomposing
+     * "fresh" at that point isn't refreshing anything current — it is a
+     * SECOND, independent derivation of the parties/clause/Domicilium,
+     * competing with the first one, replaying the Fill & Review overlay
+     * against whatever position count THIS run happens to produce. Two
+     * derivations of the same document, at two different moments, are two
+     * chances to disagree — confirmed live: a document correct at Fill &
+     * Review rendered a different person's address at Sign & Send, because
+     * the second derivation's role-block count had shifted from the first's.
      *
-     * Why no store on the pre-send path: during preparation `merged_html` is still
-     * changing (the agent is editing fields), so a stored snapshot would go stale
-     * between screens. Composing fresh each load means EVERY prep surface renders
-     * from the same current inputs through the same code — so setup, sign, review
-     * and the eventual ceremony are BYTE-IDENTICAL by construction, not by
-     * coincidence. That is the whole point of the wet-ink "one document" rule: the
-     * seller domicilium (and every other role-block) can no longer compose one way
-     * on the markers screen and another way in the ceremony, because there is now
-     * exactly ONE composition path and all surfaces call it.
+     * The fix is not a smarter recompute; it is not recomputing. A stored,
+     * non-empty canonical is ALWAYS served verbatim, at any version — v0
+     * (composed once, not yet inked) equally with v1+ (ink baked in). The
+     * ONLY time this composes is the fail-safe branch below, for a document
+     * that somehow reached display with no stored canonical at all (a
+     * pre-this-fix document, or composeAndStore() having failed at send —
+     * it is fail-safe, not fail-fatal). That is a recovery path, not the
+     * normal one, and its own result gets backfilled so it never runs twice.
      *
      * Returns '' when the template has no composable web body (caller keeps its
      * page-image/PDF path).
@@ -559,32 +761,25 @@ class CanonicalDocumentRenderer
         }
         $webData = $document->web_template_data ?? [];
         $stored  = (string) ($webData['canonical_html'] ?? '');
-        $version = (int) ($webData['canonical_version'] ?? 0);
 
-        // Ink baked (version >= 1) → the stored canonical is the accumulated source
-        // of truth (every prior party's signatures/initials/fills are composed into
-        // it); return it verbatim so the agent-review and every later party see the
-        // exact accumulated document.
-        if (trim($stored) !== '' && ($version >= 1 || $this->storedCanonicalIsSigned($stored))) {
-            // UNIFIED WET-INK MODEL — a signed document's canonical is served VERBATIM so every signature +
-            // the "signed at" execution block stay intact. An amend on a signed doc OVERLAYS its strike + the
-            // per-party initial row straight INTO this canonical (writeAmend) and keeps it baked (version >= 1),
-            // so what is served already carries the marks. `storedCanonicalIsSigned` is the safety net for the
-            // rare signed-but-version-0 canonical (a legacy/edge write): serve it rather than recompose from the
-            // pre-ink merged_html, which would drop the signatures + location. maybeHighlight() then adds only
-            // the field-diff vs baseline + the Schedule of Amendments — it does NOT re-strike (author side owns that).
+        // Any stored canonical — v0 (composed once at send, not yet inked) or
+        // v1+ (ink baked in) — is the frozen artifact. Never recomposed.
+        if (trim($stored) !== '') {
+            // UNIFIED WET-INK MODEL — served VERBATIM so every signature + the
+            // "signed at" execution block stay intact once baked; pre-ink, it is
+            // the one-and-only composition every surface agrees on. maybeHighlight()
+            // only ever adds a display overlay (field-diff / Schedule of Amendments)
+            // — it does not re-derive the body.
             return $this->maybeHighlight($stored, $document, $webData);
         }
 
-        // NOT yet baked (version 0 / no ink, or never composed) → RE-COMPOSE fresh so
-        // the structure always reflects the CURRENT pipeline (per-recipient
-        // attestation split, uniform ink, etc.). A stored v0 can be stale — composed
-        // before a structural fix landed — and because nothing is baked into it yet,
-        // re-composing loses nothing and keeps every surface (setup, sign, ceremony,
-        // AGENT-REVIEW) on the one current spine. This is why the review must call
-        // forDisplay: it renders the same accumulated/current canonical, never an
-        // outdated snapshot.
-        return $this->compose($template);
+        // FAIL-SAFE ONLY — no stored canonical exists at all (composeAndStore()
+        // never ran or failed at send; a document that predates this fix). Compose
+        // once now and persist it immediately so this branch never fires twice for
+        // the same document — see composeAndStore().
+        $this->composeAndStore($template);
+        $recovered = (string) (($document->fresh()->web_template_data ?? [])['canonical_html'] ?? '');
+        return $recovered !== '' ? $recovered : $this->compose($template);
     }
 
     /**
@@ -608,41 +803,26 @@ class CanonicalDocumentRenderer
         }
         $webData  = $document->web_template_data ?? [];
         $existing = (string) ($webData['canonical_html'] ?? '');
-        $version  = (int) ($webData['canonical_version'] ?? 0);
 
-        // Ink baked (version >= 1) → the stored canonical is the accumulated source of
-        // truth (every prior party's signatures/initials/fills are composed into it);
-        // serve it verbatim so no baked ink is ever lost.
-        if (trim($existing) !== '' && ($version >= 1 || $this->storedCanonicalIsSigned($existing))) {
-            // UNIFIED WET-INK MODEL — same as forDisplay: serve the signed canonical verbatim (the amend has
-            // already OVERLAID its strike + initial row into it via writeAmend, keeping it baked). The
-            // storedCanonicalIsSigned branch is the safety net for a signed-but-version-0 canonical — serve it
-            // rather than recompose from the pre-ink merged_html, which would drop the signatures + location.
+        // Johan, 2026-08-28 — same fix as forDisplay(), same reasoning: a
+        // stored canonical (any version) is the frozen, printed-page artifact.
+        // This resolver used to re-derive at v0 "so the served structure
+        // always reflects the current pipeline" — that is precisely the
+        // second-derivation-competing-with-the-first pattern that produced
+        // the Domicilium off-by-one. Serve what is stored; never recompose it.
+        if (trim($existing) !== '') {
             return $this->maybeHighlight($existing, $document, $webData);
         }
 
-        // NOT yet inked (version 0, or never composed) → (RE-)COMPOSE fresh so the served
-        // structure always reflects the CURRENT pipeline — in particular the per-recipient
-        // identity stamps (data-name / data-recipient-identity on signature + ceremony
-        // marks) on EVERY pack `.corex-document-wrapper`. A stored v0 can be STALE: composed
-        // before a structural stamping fix landed (e.g. the AT-303 per-recipient stamps), and
-        // served verbatim it left wrappers 2..N un-stamped — so the pack progress counter
-        // ("N items remaining / go to next", which scans the whole merged container) saw
-        // ZERO "mine" items in documents 2..N and hit 0 after document 1, hiding the control
-        // (Bug 1, Johan 2026-08-03). Because nothing is inked into a v0 yet, re-composing
-        // loses nothing. This mirrors forDisplay() — the agent-review surface already
-        // re-composes stale v0 — closing the recipient-serve gap where only THIS resolver
-        // returned a stale v0 verbatim.
+        // FAIL-SAFE ONLY — no stored canonical at all. Compose once and persist
+        // immediately so this never runs twice for the same document.
         $html = $this->compose($template);
         if ($html === '') {
-            // Never regress a template that cannot be composed; if a stale body exists,
-            // still return it rather than nothing.
             return $existing;
         }
-        // Back-fill / refresh the stored v0 so the next surface reads the current artifact.
         try {
             $webData['canonical_html']    = $html;
-            $webData['canonical_version'] = $version; // stays 0 (un-inked)
+            $webData['canonical_version'] = 0;
             $document->update(['web_template_data' => $webData]);
         } catch (\Throwable $e) {
             Log::warning('CanonicalDocumentRenderer::resolveOrCompose back-fill store failed (non-fatal)', [
@@ -656,16 +836,35 @@ class CanonicalDocumentRenderer
     /**
      * Compose and persist the canonical artifact (v0) onto the document as
      * web_template_data['canonical_html']. Non-fatal — never blocks the send.
+     *
+     * $entityOrderOverrides — see compose()'s own docblock. Pass it whenever the
+     * caller has the wizard's recipient array in scope (prepareSigning(),
+     * prepareWetInk()) so the ONE composition this method ever performs uses the
+     * real per-document representative order instead of falling back to
+     * proxy-first alone.
      */
-    public function composeAndStore(SignatureTemplate $template): void
+    public function composeAndStore(SignatureTemplate $template, ?array $entityOrderOverrides = null): void
     {
         try {
-            $html = $this->compose($template);
+            $document = $template->document;
+            if (! $document) {
+                return;
+            }
+            $webData = $document->web_template_data ?? [];
+            // Johan, 2026-08-28 — "one document... why would you rebuild it
+            // every time it moves to the next screen." Enforced here, not
+            // just by convention of "only call this once": a canonical that
+            // already exists is the frozen artifact and is never
+            // overwritten by a fresh derivation, no matter how many times
+            // (or from how many call sites, today or added later) this
+            // method gets invoked for the same document.
+            if (trim((string) ($webData['canonical_html'] ?? '')) !== '') {
+                return;
+            }
+            $html = $this->compose($template, $entityOrderOverrides);
             if ($html === '') {
                 return;
             }
-            $document = $template->document;
-            $webData = $document->web_template_data ?? [];
             $webData['canonical_html'] = $html;
             $webData['canonical_version'] = 0; // v0 — agent-prepared (ESIGN-WETINK I4)
             $document->update(['web_template_data' => $webData]);

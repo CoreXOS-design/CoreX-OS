@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Already Signed — {{ $agencyName ?? 'Agency' }}</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>
 <body class="bg-slate-50 min-h-screen flex items-center justify-center p-4">
     <div class="w-full max-w-md text-center">
@@ -27,16 +27,20 @@
                 You have already completed signing this document.
             </p>
 
-            {{-- Document Details --}}
+            {{-- Signed-on timestamp only — Johan, 2026-08-24 (cc6's public-
+                 link audit): the document NAME auto-generates to include a
+                 recipient's own name, so it was dropped from this box. This
+                 page is reachable by anyone who still holds the link, so it
+                 must not confirm which document, for whom. The recipient
+                 already knows what they signed; they don't need it repeated
+                 here, and a stranger who finds this link must not learn it. --}}
+            @if($request->completed_at)
             <div class="p-3 rounded-xl bg-emerald-50 border border-emerald-100 mb-4">
-                <div class="text-xs text-emerald-500 uppercase tracking-wider font-semibold mb-1">Document</div>
-                <div class="text-sm font-medium text-slate-700">{{ $request->template->document->name ?? 'Document' }}</div>
-                @if($request->completed_at)
-                <div class="text-xs text-slate-400 mt-1">
+                <div class="text-xs text-slate-400">
                     Signed on {{ $request->completed_at->format('d M Y \a\t H:i') }}
                 </div>
-                @endif
             </div>
+            @endif
 
             {{-- Consent Timestamp --}}
             @if(isset($consentLog) && $consentLog)

@@ -483,3 +483,285 @@ fallback for docs with no captured paginated DOM.
 **Proof (doc 452, real Chromium):** PDF-input now = signed_paginated_html →
 **3 pages**, **8 "Signed by"** (no extra inline rows), **6/6 initials in position**,
 footers **"Page 1 of 3 / 2 of 3 / 3 of 3"** — matches the on-screen signed document.
+
+---
+
+## AT — agent's OWN completion never baked into canonical_html (I3 gap, doc 1113)
+
+**Finding:** the agent's own "Complete Signing & Send" (`SignatureController::
+webSignComplete()`, the in-app screen at `/documents/{id}/sign`) has never, since
+I2/I3 landed (`ba2792a96`, 2026-07-19), written the agent's ink INTO
+`canonical_html`. It only ever embedded into the legacy `merged_html` (§7 Finding
+(b)'s "party-aliased embed", kept for backward compat). `SigningController::
+completeWeb()` — the RECIPIENT ceremony's completion — was correctly wired to
+`CanonicalInkComposer::bakeInk()` in that same commit; the agent's own path was
+not. A straight I3 violation: "After party N completes, the canonical artifact
+literally contains party N's signature" — it didn't, for the agent specifically.
+
+**Why it was invisible until 2026-08-27:** `CanonicalDocumentRenderer::
+resolveOrCompose()` used to RE-DERIVE canonical from `merged_html` on every view
+while still at v0 ("so the served structure always reflects the current
+pipeline"). That re-derivation accidentally picked up the agent's `merged_html`
+-only ink on every recipient's view, masking the gap. Commit `996fa5452`
+(2026-08-27, "one document, composed once") correctly REMOVED that
+re-derivation to fix a real, separate, confirmed bug (a Domicilium
+position-numbering disagreement — the fix is right; "serve what is stored;
+never recompose it" is the correct rule for THAT bug). Removing it stopped
+masking this one: with nothing ever baking the agent's ink into canonical_html,
+every recipient's screen showed the agent's signature block blank
+("Awaiting agent", no image) — reported live by Johan on doc 1113/template 737.
+
+**Fix:** `SignatureController::webSignComplete()` now bakes the agent's own
+signatures/initials/ceremony values into `canonical_html` via
+`CanonicalInkComposer::bakeInk()` and bumps `canonical_version`, mirroring
+`SigningController::completeWeb()`'s pattern exactly (re-derive canonical from
+merged_html only when not-yet-baked, split `-init-` keys, sole-of-role
+bleed-safe fallback, re-apply accumulated ceremony_values after). The agent is
+now just another party baking ink into the one artifact (I3), same as every
+recipient already was.
+
+**Proof:** doc 1113 (Anine Van der Westhuizen, seller, signing_order 2) —
+before the fix, the agent's 4 signature markers on her screen all read
+`data-signed=null`, "Awaiting agent", no `<img>`. Repaired the existing
+document's data (agent's already-captured signatures/initials baked in
+one-time via the same `bakeInk()` call), then reloaded Johan's exact link:
+all 4 blocks now `data-signed="true"`, real signature image, "Signed by Johan
+Reichel". New documents completed after this fix bake correctly at
+`webSignComplete()` time — no manual repair needed going forward.
+
+**Residual, not touched (flagging, not fixing):** `SigningController::
+completeWeb()`'s own not-yet-baked re-derive branch (line ~2058-2078, "AT-373
+Issue D") still re-composes fresh from `merged_html` when `canonical_version <
+1` — this is the SAME re-derive pattern `996fa5452` removed from
+`resolveOrCompose()`, kept here deliberately for a narrower purpose (picking
+up mid-ceremony amendments). `996fa5452`'s own commit message already flagged
+this exact branch as unverified under the new single-composition model and
+out of that day's scope — still true; not re-examined here.
+
+---
+
+## Rule — the final agent-approval gate is UNCONDITIONAL on every flow
+
+**The gate:** once every real signing party has completed, the document
+ALWAYS lands at `pending_agent_approval` and holds — `completeDocument()`
+(the call that files the PDF and emails every recipient) may only fire after
+the agent reviews and clicks Approve. This is Johan's absolute rule (2026-08-25).
+It must never be special-cased per party shape — plain natural-person, joint
+sellers, company/director groups, and estate/proxy shapes all gate identically.
+The one *acknowledged* exception is wet-ink (see below) — everything else is
+unconditional.
+
+### Bug — a late-estate document skipped the gate and dispatched straight to recipients (fixed 2026-08-25)
+
+**Symptom (Johan's report):** on a natural-person-with-late-estate mandate
+(a deceased seller represented by an executor, alongside a living seller),
+once the recipients finished signing the document skipped
+`pending_agent_approval` entirely, filed the PDF, and emailed every recipient
+immediately — landing straight under Completed. The plain natural-person flow
+(no deceased party) was unaffected.
+
+**Root cause — the phantom-row trap.** `SignatureService::
+handlePartyCompletion()` hands the pen to the next member of a completing
+party's `signing_group` via `nextWaitingInGroup()`, which finds "next" by raw
+`status === waiting`. A `SignatureRequest` row for a deceased party (or one
+collapsed out by a proxy) is ALSO created at `status = waiting` and only
+lazily flips to `not_required` the moment `sendSigningRequest()` actually
+walks it (`isSigningParticipant()`) — it is never `not_required` up front. So
+when the group's true last real signer completes, and a not-yet-visited
+deceased/proxy-collapsed sibling still shows `waiting` with a later
+`signing_order`, the group-handoff call
+(`SignatureService.php` line ~1429, inside `handlePartyCompletion()`) treats
+that phantom row as "someone else to sign" and hands off to it. Inside
+`advanceToNextSigningParticipant()`, the phantom is walked, found not to be a
+real participant, flipped to `not_required`, and the walk finds nobody left —
+at which point `advanceToNextParty()` checks whether to hold for agent review
+or complete outright. The group-handoff call had never told it this could be
+the final release: `gateFinalizeForAgentReview` silently defaulted to `false`
+(the parameter default on `advanceToNextParty()`), so `completeDocument()`
+fired directly instead of `holdForFinalAgentReview()`.
+
+Plain natural-person groups never hit this: with two living co-sellers,
+`nextWaitingInGroup()` always resolves to a real person, so the caller's
+default-`false` gate value is never consulted — the bug only surfaces when
+the group's last "waiting" row turns out to be a phantom, which only happens
+in estate/proxy-collapse shapes.
+
+**The other, already-correct call site** — the clean-accept branch a few
+lines below (line ~1476) — computes the gate fresh every time:
+`$request?->signing_method !== 'wet_ink'`. It was never wrong; the
+group-handoff call simply never got the same treatment.
+
+**Fix:** the group-handoff call now passes the identical gate computation:
+```php
+$this->advanceToNextParty($template, $completedParty, $nextInGroup, $request?->signing_method !== 'wet_ink');
+```
+One line. No new branching, no per-shape special-casing — it closes the bug
+CLASS (any signing_group whose apparent "next" member resolves to nobody),
+not just the late-estate instance.
+
+**Verified (2026-08-25), all 6 regression-harness shapes, driven through
+`SignatureService::handlePartyCompletion()` exactly as the real controllers
+call it** (`SigningController::completeWeb()` / the amendment-cascade path):
+
+| Shape | Structure | Result after final real signer |
+|---|---|---|
+| A | two natural sellers | `pending_agent_approval` (unchanged) |
+| B | natural + late estate (executor's signing_order BEFORE the deceased row) | `pending_agent_approval` (was the bug — now fixed) |
+| C | natural + late estate (Supplier-executor variant) | `pending_agent_approval` (was the bug — now fixed) |
+| D | company, 3 directors, no proxy | `pending_agent_approval` (unchanged) |
+| E | company + proxy | `pending_agent_approval` (never actually vulnerable — see below) |
+| F | manual recipient | `pending_agent_approval` (unchanged) |
+
+Confirmed directly in Mailpit against a live shape-B document (template 758):
+zero "Fully signed" completion emails to any recipient at the moment the
+final real signer (the executor) completed; the completion email only
+appeared the instant the agent's own `approveAndAdvance()` ran. The deceased
+row correctly ends at `not_required` in every case — the fix only changes
+which gate value is passed through, not the walk/skip logic itself.
+
+**Why shape E (company + proxy) was never actually vulnerable:** unlike a
+deceased party, a proxy-collapsed co-director never gets its own
+`SignatureRequest` row at all — `Signing Setup` only creates a row for the
+proxy who actually signs. Shape E's `seller`-role group therefore contains
+exactly one row; `nextWaitingInGroup()` has no sibling to find, so the
+group-handoff branch is never even entered — the clean-accept branch (already
+correct) handles it every time. The phantom-row trap is specific to shapes
+that create a real DB row for a non-signing party — today, that means
+deceased sellers only.
+
+**Known, pre-existing, ACKNOWLEDGED exception — wet-ink.** Wet-ink parties
+never complete via `handlePartyCompletion()` at all: they upload a physical
+scan, and a staff/agent inspector reviews it via
+`SignatureService::reviewWetInkUpload()` / `approveUploadOnBehalf()`, which
+call `advanceAfterWetInkApproval()` directly — a separate advancement path
+that has NEVER held at `pending_agent_approval`, by design ("wet-ink review
+IS the agent approval" — see the comment at `completeDocument()`'s wet-ink
+call sites). That inspection is a per-scan approval, not the same
+whole-document "Review & Approve" gate every digital flow now holds at
+unconditionally. This is pre-existing behaviour, untouched by the fix above,
+and was flagged in-code before this fix as "AT-322 open question." **Whether
+wet-ink should also route through a final whole-document Review & Approve
+step is Johan's call, not made here** — reported, not fixed, in this pass.
+
+---
+
+## Rule — representative display order is ONE decision, never re-derived
+
+When an entity (a company) is represented by more than one person and the
+document shows all of them (the Domicilium address block, the parties
+clause), the order they appear in is decided ONCE, per document, and every
+surface that lists them agrees with it:
+
+1. **A manual drag-order** the agent set on the Recipients screen
+   (`moveEntityRep()` → `_entity_rep_order`), if one was set; else
+2. **Proxy first**, everyone else in their existing relative order — the
+   same fallback `ESignWizardController::resolveEffectiveRepOrder()` itself
+   uses when no manual order exists.
+
+The single shared primitive for applying this is `Contact::
+applyRepresentativeOrder(Collection $reps, ?array $orderContactIds)`
+(`app/Models/Contact.php:737`) — "ONE ordering, every consumer reuses THIS,"
+per its own docblock. Nothing that lists an entity's representatives may sort
+them a different way.
+
+### Bug — the Domicilium disagreed with the Recipients screen on a company+proxy document (fixed 2026-08-27)
+
+**Symptom (Johan's report, doc 1135):** on a company-with-a-proxy mandate,
+the Recipients screen correctly showed the proxy first. Once the agent
+opened the document to sign it, the Domicilium block's address/contact
+listing had the proxy LAST instead — and because the artifact is composed
+exactly once and never recomposed (see "one document, composed once" below),
+that wrong order was permanent for the rest of the document's life.
+
+**Root cause — two independent implementations of the same expansion, only
+one of them order-aware.** Turning "one collapsed proxy row" into "one
+address/contact block per representative" is a single conceptual operation,
+but it had two separate, disagreeing implementations:
+
+- `ESignWizardController::buildEntityRepresentationPreview()` (the
+  Recipients-screen preview) — correctly threads `resolveEffectiveRepOrder()`
+  through `Contact::applyRepresentativeOrder()`. Always correct.
+- `CanonicalDocumentRenderer::expandRepresentedEntitiesForDisplay()`
+  (`app/Services/Docuperfect/CanonicalDocumentRenderer.php:211`, added
+  2026-08-26 to fix a different bug — a proxy-narrowed row's OTHER
+  representatives never getting their own address block) — cloned the
+  entity's representatives in whatever raw order `$entity->
+  representatives()->get()` returned. No `ORDER BY` on that relationship, no
+  proxy awareness, no call to `applyRepresentativeOrder()` at all: a THIRD,
+  independent order source, exactly the failure class `4bf3f7166` (today,
+  cc1's living-first ordering fix) closed for a different dimension
+  (living-vs-deceased) but did not touch.
+
+**Why the flip lands specifically at "agent sign," not earlier:** the
+Recipients-screen preview never touches `canonical_html` — it's a live,
+separate render. The FIRST and ONLY time `compose()` (which contains the
+buggy function) ever runs for a document is `ESignWizardController::
+prepareSigning()` — the handler behind the agent's own "Sign Document" step
+— via `CanonicalDocumentRenderer::composeAndStore()`, which refuses to ever
+recompose an existing `canonical_html`. So whatever order that one call
+produces is frozen for the document's life. Not a re-derive-vs-preserve
+timing bug (compose() genuinely only runs once) — a wrong-of-two-
+disagreeing-implementations bug, where the wrong one is the one that gets
+frozen.
+
+**Fix, two parts:**
+
+1. `expandRepresentedEntitiesForDisplay()` now sorts `$reps` via `Contact::
+   applyRepresentativeOrder()` before assigning `role_index` — reusing the
+   shared primitive rather than inventing a fourth sort.
+2. `compose()`/`composeAndStore()` gained an optional `$entityOrderOverrides`
+   parameter (map of `represented_contact_id => ordered contact-id array`).
+   `prepareSigning()` — the only caller with the wizard's recipient array in
+   scope — resolves each represented entity's real per-document order via
+   the SAME `resolveEffectiveRepOrder()` the Recipients screen and the
+   `party_clause_text` snapshot already use, and passes it through. This
+   means the Domicilium now honours a genuine manual drag-order too, not
+   just the proxy-first fallback — matching the Recipients screen exactly,
+   not approximately. A caller with no recipient array in scope (the
+   `resolveOrCompose()` back-fill fail-safe; `prepareWetInk()`, not touched
+   in this pass) still falls back to proxy-first alone via
+   `expandRepresentedEntitiesForDisplay()`'s own default — strictly better
+   than the pre-fix raw-order behaviour, never worse.
+
+**Verified (2026-08-27):**
+- Direct `compose()` calls against template 759 (doc 1135): no override →
+  proxy first (Steve Jobs, then Elize Reichel, then HA Pretorius); an
+  explicit manual order `[HA Pretorius, Elize, Steve Jobs]` → that exact
+  order — proving the override mechanism itself, not just the fallback.
+- Two fresh, real, end-to-end company+proxy builds via `prepareSigning()`'s
+  actual HTTP path (docs 1136, 1141): proxy first in the Domicilium
+  immediately after generation, and unchanged after the agent's own
+  signature bake (canonical_version 0→1) — `CanonicalInkComposer` only ever
+  queries `@data-marker-party`/`@data-marker-type` elements (confirmed by
+  code inspection), never `@data-recipient-instance`, so no ink-baking step
+  — the agent's or any recipient's — can disturb Domicilium order once v0
+  is composed.
+- Doc 1135 itself repaired in place (see below) and reads proxy-first now.
+- All 6 regression-harness shapes: agent completion + bake succeed cleanly,
+  no regressions. Shape D (3 directors, no proxy) is provably unaffected —
+  it already has one real row per representative, so
+  `expandRepresentedEntitiesForDisplay()`'s single-collapsed-row branch
+  (where this fix lives) never executes for it.
+
+**Doc 1135 repair:** the document was already frozen `completed` with the
+wrong order and no separately-stored signature data for the proxy's own ink
+(recipients bake straight into `canonical_html`, never into the `Signature`
+table — that table only ever gets rows from the agent's own
+`webSignComplete()`), so a full recompose-and-rebake was not safe — it would
+have discarded the proxy's already-captured signature with no way to
+reconstruct it. Repaired surgically instead: parsed the stored
+`canonical_html`'s Domicilium segment, grouped its per-instance divs by
+`data-recipient-instance`, and physically reordered the groups (proxy
+group first) in place — same bytes, same ink, only the read order changed.
+Confirmed proxy-first afterward; `canonical_version` and all baked ink
+unchanged.
+
+**Not fixed, flagged only:** the document's "parties" intro clause
+(`party_clause_text`, via `RoleBlockExpansionService::renderEntityParty()`/
+`composeEntityPartyText()`) is a separate render from the Domicilium and was
+NOT investigated for the same disagreement — doc 1135's own
+`party_clause_text` snapshot is NULL, meaning that clause is falling back to
+`renderEntityParty()`'s own live-recompute path (no order threaded there
+either). Whether that clause has the same proxy-ordering gap is unknown;
+out of scope for this fix (Johan's report named the Domicilium block
+specifically) and not touched.
