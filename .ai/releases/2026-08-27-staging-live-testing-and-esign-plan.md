@@ -7,40 +7,83 @@ in a disposable scratch worktree that has since been removed.
 
 ---
 
-## URGENT — read this before anything else in this document
+## CORRECTION (2026-08-27, later the same night) — read this first
 
-**`live-testing.corexos.co.za` is not a separate environment. It is the live production
-server, under a second name.**
+An earlier version of this document claimed live-testing IS live. **That was wrong, and
+here is the correction, checked properly this time:**
 
-Verified directly:
-- The domain resolves to `91.99.130.85` — the production server itself.
-- Its nginx site serves from `/corex/public` — the exact same codebase directory as
-  `corexos.co.za`.
-- It runs through the exact same PHP-FPM pool/socket as production.
-- Its `.env` (there is only one — `/corex/.env`) reads `APP_ENV=production`,
-  `DB_DATABASE=nexus_os` — the real production database.
-- There is no hostname-based switching anywhere in the app that would make it behave
-  differently depending on which domain name was used to reach it.
+- `live-testing.corexos.co.za` resolves (real public DNS, via 8.8.8.8, independent of this
+  box's own resolver) to **91.99.130.85**.
+- `corexos.co.za` (real live) resolves to **62.238.31.82** — a **different machine**, which
+  I cannot reach from here at all.
+- **Live-testing is a genuinely separate, real environment** — the old live box, repurposed,
+  carrying a copy of production data as of the 25 August cutover. Deploying Staging to it
+  does not touch real live. Only Andre moving live-testing → live touches real live.
 
-**Consequence: as things stand today, "push Staging to live-testing" and "push Staging to
-live" are the same action.** There is no intermediate, safe environment to test in before
-the real thing. If the intent is genuinely a three-step Staging → live-testing → live
-process with a real regression pass in between, **a real separate live-testing environment
-has to be built first** — its own checkout directory, its own database (a copy of
-production data, or a fresh test set — Johan's call), and its own vhost pointed at that
-checkout, not at `/corex`. Until that exists, everything below that talks about "the
-live-testing push" is describing a production deploy, not a safe rehearsal.
+## THE ONE THING THAT DOES CARRY REAL CONSEQUENCE — put this at the top on purpose
 
-This does not block writing the rest of this plan — the commit range, migrations, and
-config differences below are exactly what either a real live-testing environment OR a
-live deploy would need — but the order-of-operations and risk sections have been written
-honestly around the fact that, right now, this step IS the live deploy.
+Checked properly this time — not assumed:
+
+- **Mail is fully real on this box.** `/corex/.env` has `MAIL_MAILER=smtp` pointing at
+  `mail.corexos.co.za` with real, working credentials — not a local catcher, not `log`.
+  There are queue workers **actively running on this box right now**, including four
+  separate processes literally draining the `mail` queue (`php /corex/artisan queue:work
+  --queue=mail ...`), alongside workers for `webhooks`, `matching`, `buyer-matching`,
+  `p24import`, and `p24images`. Anything that queues a real estate-agent email today WILL
+  send it.
+- **WhatsApp is fully real, and reaches the real live server.** `/corex/.env`'s
+  `WAHA_BASE_URL` is `http://62.238.31.82:3111` — **live's own WhatsApp API, on live's own
+  IP.** I confirmed the connection is actually open (a live TCP connect from this box to
+  that address succeeds right now). The one code-level safety switch
+  (`COMMUNICATIONS_DEBUG_DROPPED_WA`) is not set in this `.env` at all, and defaults to
+  `false` in the app itself — meaning nothing here silently drops a WhatsApp send. It goes
+  out for real, through the real agency WhatsApp session, to whatever number the contact
+  record holds.
+- **This box holds a copy of real production contacts** (per Johan, as of the 25 August
+  cutover). Put together: **any test on live-testing that triggers an email or a WhatsApp
+  message sends it to a real person, for real, today.**
+- One more thing this surfaced, separate from any testing risk: those mail/webhooks/p24
+  queue workers on `/corex` are running **right now, unprompted by any test** — this
+  "decommissioned" box appears to still be actively processing real background work
+  (property imports, mail, webhooks) two days after the cutover it was supposedly retired
+  at. Worth Johan or Andre confirming whether that's intended or something nobody
+  remembered to turn off.
+
+**Mitigation, before ANY testing happens on live-testing:** either point `/corex/.env`'s
+mail driver at a local catcher and its `WAHA_BASE_URL` at a disconnected/sandboxed
+endpoint — the same way Staging's own `.env` already does it — or stop the mail/webhooks
+queue workers for the duration of the test window. The first option is the durable fix;
+the second is a ritual someone will eventually forget to do. Either way, this should happen
+**before** Step 1 below, not be discovered mid-test.
 
 ---
 
-## PART 1 — Staging → live-testing (currently: Staging → live)
+## Process ownership (Johan's ruling)
 
-### What is on Staging that isn't on live-testing/live
+**Staging → live-testing is deployed by the team.** **live-testing → live is Andre's job,
+and his alone** — nobody else pushes there. Everything in Part 1 below describes the
+team's step; nothing in it authorises or describes the second step.
+
+---
+
+## PART 1 — Staging → live-testing (the team's step; live-testing → live is Andre's alone)
+
+### What is on Staging that isn't on live-testing
+
+Commit range checked directly against `origin/main`, which live-testing's own `/corex`
+checkout tracks. I have no access to 62.238.31.82 (real live) itself, so "not yet on live"
+here means "not yet on the `main`/`Prod` branch" — the project's own convention for what
+live runs — not something confirmed against the live box directly.
+
+**This number moves, and it moved while I was writing this document tonight — treat the
+count below as a snapshot, not a fixed figure.** Two things confirmed directly: (1)
+`origin/main` itself gained 12 more commits in the time it took me to write this section —
+the gap was 31 commits when I first checked, 43 by the time I re-checked; (2) `/corex`'s
+own checkout on disk is not even fully caught up to `origin/main` — it's currently sitting
+8 commits behind the branch it tracks. Whoever executes this step should re-run
+`git log origin/main..Staging --oneline` (or better, diff against whatever `/corex`
+actually has checked out, via `git log $(cd /corex && git rev-parse HEAD)..Staging`) at
+execution time, not trust the appendix list below as current.
 
 Commit range: `origin/main..Staging` (31 commits, of which 3 are merge commits — 28 real
 changes). `origin/main` is what live-testing currently serves, confirmed identical to
@@ -84,18 +127,22 @@ migration can.
 
 ### Config / environment differences that could bite
 
-Since live-testing currently = production, these are the real differences a tester would
-hit that Staging testing never surfaces:
+These are real, directly-confirmed differences a tester would hit that Staging testing
+never surfaces — see the top of this document for the full detail and the mitigation,
+this is the summary:
 
-- **Mail is real on live/live-testing.** Staging captures all outgoing mail locally and
-  never actually sends it. Live sends real email through the real mail server. Any of
-  these 28 commits — or anything already on main waiting behind them — that triggers an
-  email will send a real one to a real address the first time it's exercised here.
-- **WhatsApp (WAHA) is a real, remote session on live/live-testing** (a real phone number's
-  session), where Staging points at a local, disconnected instance. Several of tonight's
-  changes touch the seller-outreach/prospecting screens, which are WhatsApp-adjacent. Test
-  those flows carefully — they are capable of sending a real WhatsApp message to a real
-  contact on this environment, unlike on Staging.
+- **Mail is real on live-testing.** Staging captures all outgoing mail locally and never
+  actually sends it. Live-testing's `/corex` is configured with real SMTP credentials, and
+  has real queue workers actively draining the `mail` queue right now. Any of these
+  commits — or anything already sitting on `main` waiting behind them — that triggers an
+  email will send a real one to a real address the moment it's exercised here, unless the
+  mitigation at the top of this document is applied first.
+- **WhatsApp (WAHA) is real, and reaches the real live server's WhatsApp session** —
+  `/corex`'s `WAHA_BASE_URL` points directly at `62.238.31.82` (live's own IP), and that
+  connection is open and reachable right now. Staging points at a local, disconnected
+  instance instead. Several of tonight's changes touch the seller-outreach/prospecting
+  screens, which are WhatsApp-adjacent — do not test those flows here until the mitigation
+  above is in place.
 - **`WHISTLEBLOW_PPRA_LIVE_SEND=false`** exists only in production's `.env` (Staging has no
   such key at all, because Staging doesn't send real regulator reports). It's correctly set
   to `false` today. One of tonight's commits (`2fd1f039e`) touches the whistleblower report
@@ -118,19 +165,16 @@ alongside the real code. None of them are wired into the app or would be picked 
 deploy that pulls from git — they're harmless — but worth a `git status` glance before the
 push just to confirm nothing new has landed there since.
 
-### Order of operations
+### Order of operations (the team's step — Staging → live-testing only)
 
-1. Build (or confirm Johan wants to skip building) a genuinely separate live-testing
-   environment before doing anything else — see the urgent note above. If he wants to
-   proceed treating this as the live deploy directly, that's his call to make explicitly,
-   not an assumption.
+1. Apply the mail/WhatsApp mitigation above FIRST — before any code moves. This is not
+   optional and not something to do "after we see if it's a problem."
 2. Run the two migrations.
-3. Regenerate the schema snapshot if a fresh environment is being stood up
-   (`php artisan schema:dump`, then strip DEFINER clauses per the project's own standing
-   rule).
-4. Clear view/route/config caches, reload PHP-FPM, restart the queue worker (any of tonight's
-   28 commits that touch a queued job).
+3. Regenerate the schema snapshot (`php artisan schema:dump`, then strip DEFINER clauses
+   per the project's own standing rule).
+4. Clear view/route/config caches, reload PHP-FPM, restart the relevant queue workers.
 5. Deploy the code.
+6. Stop. **Do not touch live.** The next step (live-testing → live) is Andre's alone.
 
 ### Verification checklist — what to actually click
 
@@ -149,18 +193,20 @@ push just to confirm nothing new has landed there since.
 
 ### Honest risk list
 
-1. **Someone treats this as a safe rehearsal when it's actually live.** Likelihood: high,
-   given the domain name implies otherwise. Impact: real data, real customers. Mitigation:
-   this document's urgent note — make sure whoever executes this knows it before they start.
-2. **A real email or WhatsApp message goes out during "testing."** Likelihood: moderate,
-   given multiple prospecting/outreach commits in this batch. Mitigation: test those flows
-   last, with a real staff account and full awareness, not as an incidental click.
-3. **The schema-dump DEFINER footgun** (documented separately in the project's own
+1. **A real email or WhatsApp message goes out to a real person during testing**, because
+   the mitigation above wasn't applied first. Likelihood: high if skipped, given several of
+   tonight's commits touch prospecting/outreach screens directly. Impact: a real contact
+   gets a real, unintended message. This is the top risk on this whole document — see the
+   mitigation above; do it before Step 1, not after something goes out.
+2. **The schema-dump DEFINER footgun** (documented separately in the project's own
    standing rules) resurfaces if anyone re-dumps the schema without stripping it. Low
    likelihood if the existing checklist is followed, high impact if missed (breaks every
    restricted DB user's test bootstrap).
-4. **A tester gets logged out mid-test** on the shorter session lifetime and mistakes it
+3. **A tester gets logged out mid-test** on the shorter session lifetime and mistakes it
    for a bug. Low impact, just a "know before you go" item.
+4. **Someone assumes "live-testing" means "live"** (or the reverse — assumes it's fully
+   isolated) without reading the correction at the top of this document. Mitigation: this
+   document exists; point people at it.
 
 ---
 
@@ -314,7 +360,7 @@ situation on both sides — safe to reconcile, not a destructive collision.
 
 ---
 
-## Appendix — full 28-commit list, Staging not yet on live-testing/live
+## Appendix — 28-commit snapshot, Staging not yet on live-testing (taken earlier tonight — see the moving-target note above; re-derive at execution time)
 
 ```
 7e88f934a  fix(map): portal stock already matched to our own listing no longer draws a second pin
