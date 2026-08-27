@@ -986,6 +986,22 @@ class ESignWizardController extends Controller
         }
 
         $stepData = $flow->step_data ?? [];
+
+        // Johan/conductor, 2026-08-27 (Elize's ordering rule) — saveStep()
+        // (the Next-button save) already runs recipients through
+        // sortRecipientsBySigningOrder() so living parties sort before
+        // deceased within a role. saveDraft() is the SEPARATE save path
+        // "Replace this party"'s confirmReplace() uses (and any other
+        // explicit Save Draft) — it was writing $data straight through with
+        // no sort at all, so a deceased party ticked/bound via that flow
+        // kept whatever position she was ADDED in, disagreeing with the
+        // Domicilium (which already read the array in existing order) the
+        // moment she happened to have been added before the living seller.
+        // Reuse the SAME method rather than a second copy of the rule.
+        if ($stepKey === 'recipients' && !empty($data['recipients'])) {
+            $data['recipients'] = $this->sortRecipientsBySigningOrder($data['recipients']);
+        }
+
         $stepData[$stepKey] = $data;
 
         // Merge field values and party overrides for fill_review
@@ -6051,12 +6067,33 @@ class ESignWizardController extends Controller
             'witness' => 90,
         ];
 
+        // Elize's rule (conveyancer, via Johan/conductor, 2026-08-27) — within
+        // a role, the living party ALWAYS displays first, then the deceased.
+        // This is THE ONE PLACE that decides recipient order for a document —
+        // the array this sorts into is what the seller clause
+        // (WebTemplateDataService::resolveFieldGroupValue()/
+        // resolveContactColumnAllRecipients()), the Domicilium/attestation
+        // blocks (RoleBlockExpansionService::groupRecipientsByRole(), which
+        // sorts by role_index — itself assigned from THIS array's order at
+        // row-creation) and the signing-order list all read from. Fixing the
+        // order here, once, means every one of them agrees without composing
+        // its own — the alternative (the clause read one order, the
+        // Domicilium a different one) is exactly the bug this exists to
+        // close. usort() is stable since PHP 8.0 — two recipients equal on
+        // BOTH role priority and living/deceased keep their existing
+        // relative order, so this never reorders two living parties (or two
+        // deceased parties) against each other.
         usort($recipients, function ($a, $b) use ($rolePriority) {
             $roleA = strtolower(trim($a['role'] ?? 'other'));
             $roleB = strtolower(trim($b['role'] ?? 'other'));
             $priorityA = $rolePriority[$roleA] ?? 50;
             $priorityB = $rolePriority[$roleB] ?? 50;
-            return $priorityA <=> $priorityB;
+            if ($priorityA !== $priorityB) {
+                return $priorityA <=> $priorityB;
+            }
+            $deceasedA = !empty($a['_is_deceased']) ? 1 : 0;
+            $deceasedB = !empty($b['_is_deceased']) ? 1 : 0;
+            return $deceasedA <=> $deceasedB;
         });
 
         foreach ($recipients as $i => &$r) {

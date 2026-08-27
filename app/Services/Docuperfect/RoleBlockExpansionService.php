@@ -1467,8 +1467,28 @@ final class RoleBlockExpansionService
             }
         }
         // Sort each bucket by role_index so duplication respects ordering.
+        //
+        // Elize's rule (conveyancer, via Johan/conductor, 2026-08-27) — on the
+        // seller clause, the living party ALWAYS displays first, then the
+        // deceased. This is a legal convention, not a per-document
+        // preference: an agency should not have to remember it and should
+        // not be able to get it wrong by accident. Applied HERE — the one
+        // grouping every role-block clause/Domicilium loop (expandViaContract()
+        // via expandWithLooping()) reads from, for both the canonical
+        // compose() pipeline and its wizard-preview twin (templatePages()) —
+        // so every screen inherits the same order without composing its own.
+        // Living-vs-deceased is the PRIMARY key; role_index (the agent's own
+        // order among recipients who are equally living, or equally
+        // deceased) is preserved as the secondary key, so this only ever
+        // moves a deceased party past a living one, never re-orders two
+        // living parties against each other or two deceased parties against
+        // each other.
         foreach ($byRole as $role => $col) {
-            $byRole[$role] = $col->sortBy(fn(SignatureRequest $r) => $r->role_index ?? 1)->values();
+            $byRole[$role] = $col->sortBy(fn(SignatureRequest $r) => sprintf(
+                '%d_%05d',
+                ((bool) ($r->is_deceased ?? false)) ? 1 : 0,
+                (int) ($r->role_index ?? 1),
+            ))->values();
         }
         return $byRole;
     }

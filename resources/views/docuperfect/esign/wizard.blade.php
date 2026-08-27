@@ -3939,7 +3939,7 @@ function esignWizard() {
             // call the same debounced refresh explicitly, at the exact
             // point of mutation, same as every other explicit caller
             // (setFieldValue(), confirmReplace()) already does.
-            this.refreshPreviewDebounced();
+            this.refreshPreviewDebounced(0);
             try {
                 const resp = await fetch('/docuperfect/esign/api/entity/' + r._contact_id + '/proxy', {
                     method: 'POST',
@@ -3960,7 +3960,7 @@ function esignWizard() {
                 if (!resp.ok || !result.ok) {
                     r._entity_proxy_contact_id = previousPick;
                     r._is_proxy = previousIsProxy;
-                    this.refreshPreviewDebounced();
+                    this.refreshPreviewDebounced(0);
                     this.showToast(result.error || 'Could not set the proxy representative.', 'error');
                     return;
                 }
@@ -3969,7 +3969,7 @@ function esignWizard() {
             } catch (e) {
                 r._entity_proxy_contact_id = previousPick;
                 r._is_proxy = previousIsProxy;
-                this.refreshPreviewDebounced();
+                this.refreshPreviewDebounced(0);
                 console.error('setEntityProxyPick error:', e);
                 this.showToast('Could not reach the server to check the proxy pick.', 'error');
             }
@@ -3996,7 +3996,7 @@ function esignWizard() {
             // debounced refresh explicitly at the point of mutation rather
             // than trusting the deep $watch alone to catch a nested
             // property set.
-            this.refreshPreviewDebounced();
+            this.refreshPreviewDebounced(0);
 
             try {
                 const resp = await fetch('/docuperfect/esign/api/entity/' + r._contact_id + '/proxy', {
@@ -4651,9 +4651,32 @@ function esignWizard() {
 
         // ---- Live preview refresh (debounced) ----
         _previewTimer: null,
-        refreshPreviewDebounced() {
+        _previewFireAt: null,
+        // Johan/conductor, 2026-08-27 (cc5's real-DOM-click harness, shapes
+        // D/E) — the 600ms debounce exists for RAPID-FIRE input (a typed
+        // field, one keystroke per event) so it doesn't fire a save+reload
+        // per keystroke. A discrete, deliberate click (reorder a director,
+        // pick a proxy) is the OPPOSITE case: there is exactly one event,
+        // and it needs to land as soon as possible. moveEntityRep() and
+        // setEntityProxyPick() call this directly with delayMs=0 for that —
+        // but both ALSO mutate `recipients`, which the Cluster A $watch
+        // observes and reacts to with its own default (600ms) call. Alpine's
+        // reactive effects run as a microtask, which fires before this
+        // function's own setTimeout(cb, 0) macrotask — so the watch's slower
+        // call was overwriting the fast one via the shared timer, silently
+        // undoing delayMs=0 and putting the ~600ms debounce back. Track the
+        // earliest requested fire time and never let a LATER request push it
+        // back — a slower request arriving while a sooner one is already
+        // scheduled is a no-op; a sooner request always wins and reschedules.
+        refreshPreviewDebounced(delayMs = 600) {
+            const requestedFireAt = Date.now() + delayMs;
+            if (this._previewTimer && this._previewFireAt !== null && this._previewFireAt <= requestedFireAt) {
+                return;
+            }
             if (this._previewTimer) clearTimeout(this._previewTimer);
+            this._previewFireAt = requestedFireAt;
             this._previewTimer = setTimeout(async () => {
+                this._previewFireAt = null;
                 if (this.previewRenderType === 'web' && this.flowId && serverTemplateId) {
                     // Autosave field values first so server re-renders with latest data
                     if (this.currentStep === 5) {
@@ -4686,7 +4709,7 @@ function esignWizard() {
                     }
                     this.loadTemplatePreview(serverTemplateId);
                 }
-            }, 600);
+            }, delayMs);
         },
 
         // ---- Recipients ----
