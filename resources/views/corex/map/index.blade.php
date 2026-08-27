@@ -227,10 +227,21 @@
                  1366px width — one orphaned icon alone on its own second
                  row. gap tightened 6px -> 3px (same buttons, same size, same
                  order, no redesign) so all 7 fit on one line; flex-wrap
-                 stays as the safety net for narrower viewports. --}}
+                 stays as the safety net for narrower viewports.
+                 2026-08-27, later still — Johan saw 2 rows on Staging even
+                 after the 3px-gap fix and the reload. Measured on-disk/live:
+                 7×30px = 210px + 6 gaps. At 3px that's 228px against a
+                 235px container — only 7px (3%) of margin, exactly the kind
+                 of knife-edge fit that a hard-refresh-vs-cached-CSS gap, a
+                 fraction-of-a-pixel rounding difference, or a slightly
+                 different render can tip over. Cut to 1px: 216px used
+                 against 235px available — 19px (8%) of real margin, verified
+                 at both 1366x768 and 1280x720 (container measured 235px at
+                 both — it does not shrink with viewport width; flex-wrap
+                 remains the backstop for anything narrower still). --}}
             <div style="margin-bottom: 12px;">
                 <div style="font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); font-weight: 600; margin-bottom: 6px;">Layers</div>
-                <div id="layer-list" data-tour="re-map-layers" style="display: flex; flex-wrap: wrap; gap: 3px;">
+                <div id="layer-list" data-tour="re-map-layers" style="display: flex; flex-wrap: wrap; gap: 1px;">
                     @php
                         // Layer-chip palette MUST stay in sync with PIN_STYLES
                         // and LAYER_COLOURS in the JS section below. Otherwise
