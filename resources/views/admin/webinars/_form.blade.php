@@ -70,6 +70,21 @@
         </div>
 
         <div>
+            <label for="registration_closes_at" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">
+                Registration closes
+            </label>
+            <input id="registration_closes_at" name="registration_closes_at" type="datetime-local"
+                   value="{{ old('registration_closes_at', $w?->registration_closes_at?->format('Y-m-d\TH:i')) }}"
+                   class="w-full rounded-md px-3 py-2 text-sm"
+                   style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+            <p class="mt-1 text-xs" style="color: var(--text-muted);">
+                Leave blank to keep sign-ups open until the webinar starts. Set it to close the
+                list earlier — useful when you want the final numbers a day or two ahead.
+            </p>
+            <x-input-error :messages="$errors->get('registration_closes_at')" class="mt-1" />
+        </div>
+
+        <div>
             <label for="duration_minutes" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">
                 How long (minutes)
             </label>

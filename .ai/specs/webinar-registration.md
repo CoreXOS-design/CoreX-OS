@@ -105,6 +105,59 @@ created_at / updated_at
 
 `demoAccessEndsAt()` = `starts_at + access_ends_days_after days`, `endOfDay()` (D9). Registration is open when `archived_at IS NULL AND starts_at > now()` — derived (D3), never stored.
 
+#### §3.1a Optional registration cut-off (AMENDMENT — NOT YET BUILT)
+
+**Status: proposed. Needs Johan's gate before any code is written.**
+
+**Why.** Registration currently closes only when the webinar *starts*. The team needs
+to close sign-ups earlier — "register by Friday 17:00" — so the attendee list is final
+before the day, in time to load it into Zoom and brief around it. The marketing
+website's admin console already collects the field and its public page already enforces
+and displays it; the value has nowhere to persist, so today it is silently dropped.
+
+**New column:**
+
+```
+registration_closes_at  timestamp  nullable, after starts_at
+```
+
+**NULL is the whole compatibility story.** NULL means "no cut-off" — registration stays
+open until the webinar starts, exactly as it does today. Every existing row is NULL, so
+nothing is backfilled and no live webinar changes behaviour. The field is opt-in per
+webinar.
+
+House migration pattern: anonymous class, docblock citing this section,
+`Schema::hasTable` guard, symmetric `down()`.
+
+**Model.** `Webinar::isOpenForRegistration()` gains a third clause and **stays derived** —
+no stored `closed` flag. A stored flag would need something to flip it (a scheduled job,
+or a write on read), and until that something ran the API would report a webinar as open
+past its own cut-off. Deriving it means the cut-off is true the instant the clock passes
+it, with nothing to run and nothing to forget:
+
+```php
+return $this->archived_at === null
+    && $this->starts_at->greaterThan($now)
+    && $this->demoAccessEndsAt()->greaterThan($now)
+    && ($this->registration_closes_at === null
+        || $this->registration_closes_at->greaterThan($now));   // ← new
+```
+
+Also needs `registration_closes_at` in `$fillable` and cast to `datetime`, or the
+comparison above runs against a raw string.
+
+**Validation:** `nullable`, `date`, and **`before:starts_at`**. A cut-off at or after the
+start is not a cut-off — it either does nothing or contradicts the rule that registration
+closes when the webinar begins, and both read as "the field is broken."
+
+**One consequence to decide, not to assume — `statusLabel()`.** It currently returns
+"Open for registration" for any un-archived webinar whose `starts_at` is in the future.
+With a cut-off in the past that label becomes **wrong on screen** while
+`registration_open` is correctly `false` — the admin list would show a webinar as open
+that is in fact refusing sign-ups. The proposal is a third branch returning
+**"Registration closed"** for that case. Flagged rather than silently included, because
+it changes copy Johan reads on the admin list. **Johan's call.**
+
 ### §3.2 `webinar_registrations`
 
 ```
@@ -487,6 +540,66 @@ that is a one-line change to the query and this note is where it gets revisited.
 9. A second call re-queues the whole cohort and updates `join_link_sent_at`.
 10. Zero registrants → `200`, `notified: 0`, link saved.
 11. No log line anywhere names a registrant's email.
+
+### §4.5 Registration cut-off — API surface (AMENDMENT — NOT YET BUILT)
+
+**Status: proposed alongside §3.1a. Needs Johan's gate.**
+
+The new `registration_closes_at` (§3.1a) touches the API in **three** places, and the
+CoreX-side admin screens in a fourth (§7.2) so the two front doors keep agreeing about
+what a valid webinar is.
+
+**1. `GET /api/v1/webinars/{slug}` (§4.1)** — add `registration_closes_at` to the webinar
+object: ISO 8601 with the SAST offset, or `null`. The website's public page displays it
+("Registration closes Friday 17:00") and stops accepting submissions once it passes.
+`registration_open` already carries the enforcement; this field is what lets the page
+*explain* the closure instead of just refusing.
+
+**2. `GET /api/v1/webinars` (§4.3)** — same field on each row. This is free: index, store
+and update all render through `listPayload()`, so adding it there covers all three
+responses at once. `GET /{slug}` builds its own body (deliberately — it must never carry
+`join_url`) and therefore needs the field added separately. Two edits, four responses.
+
+**3. `POST /` and `PUT /{slug}` (§4.3)** — accept `registration_closes_at`, with a
+distinction the website depends on:
+
+| Request carries | Meaning | Result |
+|---|---|---|
+| `"registration_closes_at": "2026-09-08T17:00:00+02:00"` | set/replace the cut-off | column set |
+| `"registration_closes_at": ""` | **clear the cut-off** | column set to `NULL` |
+| key **absent** | leave unchanged | column untouched |
+
+**This distinction is load-bearing and it is currently implicit.** It works because
+`ConvertEmptyStringsToNull` turns `""` into `null` before validation, and Laravel's
+`validate()` returns keys that are *present but null* while omitting keys that are
+*absent* — so `$webinar->update($data)` nulls the column in the first case and never
+mentions it in the second. Nothing states that today, and a later refactor to
+`$request->input('registration_closes_at')` or to an `array_merge` with defaults would
+quietly turn "leave unchanged" into "clear it" — wiping a cut-off on every unrelated
+edit, with no error. **A test must pin all three rows of that table**, not just the happy
+path. The same reasoning already governs `slug` on update (§4.3), which is the precedent.
+
+**4. `Admin\WebinarController` (§7.2)** — the field on the create and edit screens and in
+`validated()`, with the same `nullable|date|before:starts_at` rule. Label: **"Registration
+closes"**; help text: *"Leave blank to keep sign-ups open until the webinar starts."*
+
+**`POST /{slug}/register` needs no new code and must not gain any.** It already refuses
+on `! $webinar->isOpenForRegistration()` with the existing
+`404 "That webinar is not open for registration."` — so a passed cut-off is answered
+identically to archived, past, and never-existed. That sameness is the point: a distinct
+"registration has closed" status would let anyone probe slugs and map the sales calendar.
+
+#### Acceptance
+
+1. A webinar starting **next week** with `registration_closes_at` **yesterday** returns
+   `registration_open: false` from `GET /{slug}`, and the field itself in the response.
+2. `POST /{slug}/register` against that webinar returns `404`, creates no registration
+   and issues no demo grant.
+3. `PUT` with `"registration_closes_at": ""` nulls the column and the webinar is open
+   again — `registration_open: true`, `POST /register` succeeds.
+4. `PUT` **omitting** the key leaves an existing cut-off exactly as it was.
+5. A cut-off at or after `starts_at` is rejected `422`, field-keyed.
+6. `registration_closes_at: null` behaves exactly as today for every existing webinar.
 
 ---
 
