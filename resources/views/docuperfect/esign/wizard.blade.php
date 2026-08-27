@@ -2405,6 +2405,21 @@ function esignWizard() {
                 });
             }
 
+            // Johan/conductor, 2026-08-27 (Cluster A) — the Recipients step's own
+            // document preview must inherit every change the agent makes on the
+            // left (party order, proxy pick, proxy clause, each party's own
+            // Domicilium entry), live, not only after the agent leaves and
+            // returns to this step. Deep-watches the recipients array itself, so
+            // it fires for a typed field, a reorder (moveEntityRep), a proxy pick
+            // (setEntityProxyPick), an add/remove — every one of them mutates
+            // this same array. Debounced via the SAME refreshPreviewDebounced()
+            // step 5 already uses, so rapid edits collapse to one reload.
+            this.$watch('recipients', () => {
+                if (this.currentStep === 3) {
+                    this.refreshPreviewDebounced();
+                }
+            });
+
             // Global mouse events for resize
             document.addEventListener('mousemove', (e) => this._onResize(e));
             document.addEventListener('mouseup', () => this._resizing = false);
@@ -3528,7 +3543,7 @@ function esignWizard() {
             }
         },
 
-        async saveDraft() {
+        async saveDraft(silent = false) {
             if (!this.flowId) return;
             this.saving = true;
             try {
@@ -3545,15 +3560,22 @@ function esignWizard() {
                     }),
                 });
                 if (resp.ok) {
-                    this.showToast('Draft saved', 'success');
+                    // Johan/conductor, 2026-08-27 (Cluster A) — this same save now
+                    // also fires silently, debounced, on every Recipients-step edit
+                    // (see the "recipients" $watch in init()) so the live preview
+                    // has something current to reload from. A "Draft saved" toast
+                    // on every keystroke/reorder/proxy pick would be noise, not
+                    // feedback — silent is for that path only; the explicit
+                    // "Save Draft" button keeps its toast.
+                    if (!silent) this.showToast('Draft saved', 'success');
                 } else {
                     const text = await resp.text();
                     console.error('Draft save failed:', text);
-                    this.showToast('Failed to save draft', 'error');
+                    if (!silent) this.showToast('Failed to save draft', 'error');
                 }
             } catch (e) {
                 console.error('Draft save error:', e);
-                this.showToast('Failed to save draft', 'error');
+                if (!silent) this.showToast('Failed to save draft', 'error');
             } finally {
                 this.saving = false;
             }
@@ -4625,6 +4647,23 @@ function esignWizard() {
                         } catch (e) {
                             console.error('Autosave failed:', e);
                         }
+                    }
+                    // Johan/conductor, 2026-08-27 (Cluster A — "the recipients screen
+                    // must render the SAME document the rest of the chain renders...
+                    // live, as they change it"). templatePages() (loadTemplatePreview's
+                    // endpoint) renders from the flow's SAVED step_data, never the
+                    // in-browser recipients array (same fact cc5 already found and
+                    // fixed for confirmReplace() -- see that function's own comment).
+                    // Step 3 had nothing wiring an edit through to a save at all, so
+                    // the preview kept showing whatever recipients existed when the
+                    // step was first loaded: reordering directors, picking a proxy,
+                    // typing a party's address, all invisible here until the agent
+                    // left and returned to the step. Save (silently -- this fires on
+                    // every keystroke/pick, a toast each time would be noise) using
+                    // the SAME saveDraft() confirmReplace() already trusts, THEN
+                    // reload, so this step composes from what the agent just did.
+                    if (this.currentStep === 3) {
+                        await this.saveDraft(true);
                     }
                     this.loadTemplatePreview(serverTemplateId);
                 }

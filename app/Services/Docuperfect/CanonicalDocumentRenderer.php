@@ -503,9 +503,20 @@ class CanonicalDocumentRenderer
                 return [];
             }
             $rows = \App\Models\Docuperfect\SignatureRequest::whereIn('signature_template_id', $templateIds)
-                ->get(['party_role', 'role_index']);
+                ->get(['id', 'party_role', 'role_index', 'signature_template_id', 'is_deceased', 'is_proxy']);
             $byRole = [];
             foreach ($rows as $r) {
+                // Cluster B1 (Johan/conductor, 2026-08-27, shapes 2/3) — this
+                // counted every row for the party, including a deceased row
+                // that will never sign, giving that role one extra margin
+                // initial slot: 3 initial blocks against 2 real signature
+                // blocks. isSigningParticipant() is "THE single predicate"
+                // (its own docblock) for exactly this question — the same
+                // rule expandAttestationBlocksPerRecipient() already applies
+                // to the signature blocks these initial slots sit beside.
+                if (! $r->isSigningParticipant()) {
+                    continue;
+                }
                 $role = strtolower(trim((string) $r->party_role));
                 if ($role === '' || $role === 'supervisor_final') {
                     continue;   // checkpoint pseudo-role folds onto 'supervisor'
