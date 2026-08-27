@@ -576,6 +576,26 @@ final class MapPinService
                 return false; // every candidate at this address is a DIFFERENT unit
             })->values();
 
+            // 2026-08-27 — cc6's finding: a tracked property with a live
+            // Portal Stock listing (the active_listings layer already draws
+            // it) still drew its own separate T-pin, because this method
+            // only ever checked promotion to agency Stock (above) and never
+            // the Portal side. Unlike the Stock fold above, this one needs
+            // no address heuristic — prospecting_listings.tracked_property_id
+            // is a direct FK the portal ingest already resolved back to this
+            // exact tracked property. Same fold mechanism, same "keep total
+            // honest" pattern, reused rather than reinvented.
+            $portalLinkedIds = DB::table('prospecting_listings')
+                ->whereNull('deleted_at')
+                ->where('is_active', true)
+                ->whereIn('portal_source', ['p24', 'pp'])
+                ->where('agency_id', $req->agencyId)
+                ->whereNotNull('tracked_property_id')
+                ->pluck('tracked_property_id')
+                ->all();
+            $portalLinkedSet = array_flip($portalLinkedIds);
+            $rows = $rows->reject(fn ($r) => isset($portalLinkedSet[$r->id]))->values();
+
             // Keep the cap-detection total honest — it must reflect the
             // SAME already-on-our-books folding the pins themselves just
             // got, or a bbox with folded duplicates would misreport a
