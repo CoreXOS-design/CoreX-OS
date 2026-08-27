@@ -274,6 +274,15 @@ by oversight — do not reinstate them without asking:
   agency's website-settings page. `agencies.website_enabled` and
   `config/corex-features.php`'s `public-website` registry row both still default `false`.
 
+- **MIC tile-count cache window** (`suggested_action_thresholds.mic_counts_cache_fresh_seconds` /
+  `.mic_counts_cache_stale_seconds`, added 2026-08-27). An internal cache-tuning knob, not a
+  decision an agency makes about how CoreX behaves for them: with the claim-write cache-version
+  invalidation in place it has no observable product effect except on the rare non-claim
+  recompute. Reasoning recorded in `.ai/specs/mic-complete-spec.md` §10; registered here so the
+  omission sits in this central list rather than only in the module spec. Configured on
+  Settings → Prospecting Setup → Stale-claim rules. **Pending Johan's confirmation** — §10a makes
+  the keep-it-out call his, not the lane's.
+
 **From the feature switchboard (spec `.ai/specs/agency-onboarding-feature-switchboard.md` §3.5):**
 
 - **P24 / Private Property portal *credentials* and the `p24_enabled` / `pp_enabled` /

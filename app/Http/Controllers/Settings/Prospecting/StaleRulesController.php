@@ -22,8 +22,16 @@ class StaleRulesController extends Controller
         $thresholds = $config->getSuggestedActionThresholds($agencyId);
 
         return view('settings.prospecting.stale-rules', [
-            'warnDays'    => (int) $thresholds->claim_warn_days,
-            'releaseDays' => (int) $thresholds->claim_release_days,
+            'warnDays'     => (int) $thresholds->claim_warn_days,
+            'releaseDays'  => (int) $thresholds->claim_release_days,
+            // Audit 2026-08-27 — the MIC tile-count cache window shipped as columns
+            // + an allow-list entry + a spec line calling it "agency-configurable",
+            // with nothing anywhere that could actually set it. It lives here rather
+            // than on a page of its own: this is already the MIC claim-settings
+            // surface, already nav-linked from Prospecting Setup, and the counts
+            // these tiles show are claim counts.
+            'countsFresh'  => (int) $thresholds->mic_counts_cache_fresh_seconds,
+            'countsStale'  => (int) $thresholds->mic_counts_cache_stale_seconds,
         ]);
     }
 
@@ -37,12 +45,18 @@ class StaleRulesController extends Controller
         $validated = $request->validate([
             'claim_warn_days'    => 'required|integer|min:1|max:365',
             'claim_release_days' => 'required|integer|min:1|max:365',
+            // Ceilings are the column's own: unsignedSmallInteger, so 65535.
+            'mic_counts_cache_fresh_seconds' => 'required|integer|min:1|max:3600',
+            'mic_counts_cache_stale_seconds' => 'required|integer|min:1|max:3600',
         ]);
 
-        // Service enforces release >= warn (throws ValidationException); surface it on the form.
+        // Service enforces release >= warn and stale >= fresh (throws
+        // ValidationException); surface both on the form.
         $config->updateSuggestedActionThresholds($agencyId, [
             'claim_warn_days'    => (int) $validated['claim_warn_days'],
             'claim_release_days' => (int) $validated['claim_release_days'],
+            'mic_counts_cache_fresh_seconds' => (int) $validated['mic_counts_cache_fresh_seconds'],
+            'mic_counts_cache_stale_seconds' => (int) $validated['mic_counts_cache_stale_seconds'],
         ]);
 
         return back()->with('status', 'Stale-claim rules saved.');

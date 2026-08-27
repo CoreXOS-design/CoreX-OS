@@ -538,14 +538,33 @@ final class MapPinService
         // propertyIdentityConflicts() already guards for promotion itself.
         if ($rows->isNotEmpty()) {
             $preFoldCount = $rows->count();
-            $propertyRows = DB::table('properties')
-                ->where('agency_id', $req->agencyId)
-                ->whereNull('deleted_at')
-                ->whereNotNull('street_number')
-                ->whereNotNull('street_name_normalised')
-                ->whereNotNull('suburb_normalised')
-                ->select(['street_number', 'street_name_normalised', 'suburb_normalised', 'unit_number'])
-                ->get();
+            // Bounded to the address keys THIS bbox page actually asks about
+            // (audit, 2026-08-27). This ran on every pan/zoom and previously
+            // loaded EVERY property in the agency to build an index that is
+            // only ever probed with keys derived from $rows. A fold requires
+            // street_name_normalised AND suburb_normalised to be equal to some
+            // $rows value, so restricting the fetch to the normalised suburbs
+            // and streets present in $rows cannot drop a row that would have
+            // matched — same result, index-aligned with idx_properties_address_key
+            // (agency_id, suburb_normalised, street_name_normalised, ...).
+            $tpSuburbKeys = [];
+            $tpStreetKeys = [];
+            foreach ($rows as $r) {
+                $s = TrackedPropertyAddress::normaliseSuburb($r->suburb);
+                $n = TrackedPropertyAddress::normaliseStreet($r->street_name);
+                if ($s !== null) { $tpSuburbKeys[$s] = true; }
+                if ($n !== null) { $tpStreetKeys[$n] = true; }
+            }
+            $propertyRows = (empty($tpSuburbKeys) || empty($tpStreetKeys))
+                ? collect()
+                : DB::table('properties')
+                    ->where('agency_id', $req->agencyId)
+                    ->whereNull('deleted_at')
+                    ->whereNotNull('street_number')
+                    ->whereIn('suburb_normalised', array_keys($tpSuburbKeys))
+                    ->whereIn('street_name_normalised', array_keys($tpStreetKeys))
+                    ->select(['street_number', 'street_name_normalised', 'suburb_normalised', 'unit_number'])
+                    ->get();
             $propertyIndex = [];
             foreach ($propertyRows as $pr) {
                 $key = trim((string) $pr->street_number) . '|' . $pr->street_name_normalised . '|' . $pr->suburb_normalised;
@@ -606,12 +625,18 @@ final class MapPinService
             // has GPS AND is within 100m of this tracked property's own
             // coordinates — reusing HaversineDistance, the same helper
             // applyRadiusFilter() already uses elsewhere in this file.
+            // Bounded to the tracked properties still on this page after the
+            // Stock fold above (audit, 2026-08-27). The reject below only ever
+            // reads $portalLinkedGps[$r->id] for $r in $rows, so constraining
+            // the fetch to those ids is behaviour-identical — and stops a map
+            // pan from loading every active portal link in the agency (the
+            // comment above cites 27,315 agency-wide) to consult a handful.
             $portalLinks = DB::table('prospecting_listings')
                 ->whereNull('deleted_at')
                 ->where('is_active', true)
                 ->whereIn('portal_source', ['p24', 'pp'])
                 ->where('agency_id', $req->agencyId)
-                ->whereNotNull('tracked_property_id')
+                ->whereIn('tracked_property_id', $rows->pluck('id')->all())
                 ->whereNotNull('latitude')
                 ->whereNotNull('longitude')
                 ->select(['tracked_property_id', 'latitude', 'longitude'])

@@ -1688,6 +1688,23 @@ class PropertyController extends Controller
         // reason typed.
         $reason = trim((string) $request->input('reason', ''));
 
+        // Resolved BEFORE the save (audit, 2026-08-27). Saving a status change
+        // fires PropertyObserver, which dispatches MatchPropertyProspectingJob;
+        // that job calls ProspectingStockMatchService::clearMatchesForProperty()
+        // and NULLs matched_property_id on every listing pointing here, because
+        // not_selling is off-market. Read after the save, this query therefore
+        // returns nothing and the listing-linked branch below closes no claims
+        // at all — which is precisely the incomplete-pitch case this feature
+        // exists for (deed linked, "Continue" never clicked, so the claim has
+        // no property_id of its own and the listing link is its ONLY route).
+        // It survived review because the job is queued in production, so the
+        // clear usually lands after the request — a timing accident, not a
+        // guarantee. Capturing the ids up front makes it deterministic.
+        $matchedListingIds = \DB::table('prospecting_listings')
+            ->where('matched_property_id', $property->id)
+            ->whereNull('deleted_at')
+            ->pluck('id');
+
         $property->status = Property::STATUS_NOT_SELLING;
         $property->save();
 
@@ -1706,10 +1723,7 @@ class PropertyController extends Controller
         // rather than inventing a new one. is_active=false is what actually
         // drops it off the my_claims filter (whereHas('activeClaim', ...)); the
         // status + note make the outcome findable, not silently vanished.
-        $matchedListingIds = \DB::table('prospecting_listings')
-            ->where('matched_property_id', $property->id)
-            ->whereNull('deleted_at')
-            ->pluck('id');
+        // $matchedListingIds was captured above, before the save — see the note there.
         \App\Models\ProspectingClaim::where('agency_id', $property->agency_id)
             ->where('is_active', true)
             ->whereNull('released_at')

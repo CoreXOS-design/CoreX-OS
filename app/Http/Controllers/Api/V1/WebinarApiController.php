@@ -78,6 +78,11 @@ class WebinarApiController extends Controller
                 'title'               => $webinar->title,
                 'description'         => $webinar->description,
                 'starts_at'           => $webinar->starts_at->toIso8601String(),
+                // The optional earlier cut-off, or null (§3.1a). registration_open
+                // already carries the ENFORCEMENT; this is what lets the public page
+                // EXPLAIN the closure ("registration closed on Friday at 17:00")
+                // instead of simply refusing the form with no reason given.
+                'registration_closes_at' => $webinar->registration_closes_at?->toIso8601String(),
                 'duration_minutes'    => $webinar->duration_minutes,
                 'registration_open'   => $webinar->isOpenForRegistration(),
                 'demo_access_ends_at' => $webinar->demoAccessEndsAt()->toIso8601String(),
@@ -566,6 +571,7 @@ class WebinarApiController extends Controller
             'title'               => $webinar->title,
             'description'         => $webinar->description,
             'starts_at'           => $webinar->starts_at->toIso8601String(),
+            'registration_closes_at' => $webinar->registration_closes_at?->toIso8601String(),
             'duration_minutes'    => $webinar->duration_minutes,
             // The edit form needs these three; the PUBLIC read (§4.1) still must
             // not carry join_url, which is why that method builds its own body.
@@ -676,6 +682,25 @@ class WebinarApiController extends Controller
      *
      * @return array<string, mixed>
      *
+     * ══ registration_closes_at CARRIES A THREE-WAY CONTRACT — DO NOT REFACTOR IT AWAY ══
+     *
+     * The website relies on the difference between three requests (§4.5):
+     *
+     *   "registration_closes_at": "2026-09-08T17:00:00+02:00"  → set the cut-off
+     *   "registration_closes_at": ""                           → CLEAR it (write NULL)
+     *   key absent                                             → leave it UNCHANGED
+     *
+     * That works because ConvertEmptyStringsToNull turns "" into null before validation,
+     * and validate() returns keys that are PRESENT BUT NULL while omitting keys that are
+     * ABSENT — so update($data) nulls the column in the second case and never mentions
+     * it in the third.
+     *
+     * It is implicit, and it is load-bearing. Reading this field with
+     * $request->input('registration_closes_at') instead, or array_merge-ing defaults into
+     * $data, would turn "leave unchanged" into "clear it" — silently wiping a cut-off on
+     * every unrelated edit, with no error raised. WebinarRegistrationCutOffTest pins all
+     * three rows.
+     *
      * @throws ValidationException
      */
     private function validatedWebinar(Request $request): array
@@ -685,6 +710,7 @@ class WebinarApiController extends Controller
             'slug'                   => ['nullable', 'string', 'max:255'],
             'description'            => ['nullable', 'string', 'max:5000'],
             'starts_at'              => ['required', 'date'],
+            'registration_closes_at' => ['nullable', 'date', 'before:starts_at'],
             'duration_minutes'       => ['nullable', 'integer', 'min:5', 'max:1440'],
             'join_url'               => ['nullable', 'url', 'max:500'],
             'access_ends_days_after' => ['required', 'integer', 'min:0', 'max:365'],
@@ -692,6 +718,8 @@ class WebinarApiController extends Controller
         ], [
             'title.required'                  => 'Give the webinar a title — registrants see it in their confirmation email.',
             'starts_at.required'              => 'Set the date and time the webinar starts.',
+            'registration_closes_at.before'   => 'Registration has to close before the webinar starts. Leave it blank to keep sign-ups open right up to the start.',
+            'registration_closes_at.date'     => 'Enter a valid date and time for registration to close.',
             'join_url.url'                    => 'The joining link needs to be a full web address, starting with https://',
             'access_ends_days_after.required' => 'Say how long demo access should last.',
             'reminder_hours_before.required'  => 'Say how far ahead the reminder email should go out.',

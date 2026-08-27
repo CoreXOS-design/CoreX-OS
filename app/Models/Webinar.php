@@ -29,6 +29,7 @@ class Webinar extends Model
         'title',
         'description',
         'starts_at',
+        'registration_closes_at',
         'duration_minutes',
         'join_url',
         'access_ends_days_after',
@@ -39,6 +40,9 @@ class Webinar extends Model
 
     protected $casts = [
         'starts_at'              => 'datetime',
+        // Cast, or isOpenForRegistration() compares a Carbon against a raw string
+        // and the cut-off silently never fires.
+        'registration_closes_at' => 'datetime',
         'duration_minutes'       => 'integer',
         'access_ends_days_after' => 'integer',
         'reminder_hours_before'  => 'integer',
@@ -85,6 +89,15 @@ class Webinar extends Model
      * Without that, a finished webinar's link would keep minting free demo logins
      * indefinitely — a public form that hands out working credentials is only ever as
      * safe as the thing that closes it.
+     *
+     * `registration_closes_at` is the OPTIONAL earlier cut-off (§3.1a) — "register by
+     * Friday 17:00", so the attendee list is final before the day. NULL means no
+     * cut-off and the original three-clause behaviour, which is why adding the column
+     * changed nothing for any webinar that already existed.
+     *
+     * It is derived here rather than stored as a flag for the same reason as the rest:
+     * a flag needs something to flip it, and until that something ran the API would
+     * report a webinar as open past its own cut-off.
      */
     public function isOpenForRegistration(?Carbon $now = null): bool
     {
@@ -92,7 +105,16 @@ class Webinar extends Model
 
         return $this->archived_at === null
             && $this->starts_at->greaterThan($now)
-            && $this->demoAccessEndsAt()->greaterThan($now);
+            && $this->demoAccessEndsAt()->greaterThan($now)
+            && ($this->registration_closes_at === null
+                || $this->registration_closes_at->greaterThan($now));
+    }
+
+    /** Has an earlier cut-off been set, and has it passed? */
+    public function registrationCutOffHasPassed(?Carbon $now = null): bool
+    {
+        return $this->registration_closes_at !== null
+            && $this->registration_closes_at->lessThanOrEqualTo($now ?: Carbon::now());
     }
 
     public function isArchived(): bool
@@ -100,11 +122,23 @@ class Webinar extends Model
         return $this->archived_at !== null;
     }
 
-    /** Plain-English state for the admin list — never a raw flag on screen. */
+    /**
+     * Plain-English state for the admin list — never a raw flag on screen.
+     *
+     * The cut-off branch (§3.1a) comes BEFORE the starts_at check on purpose. Without
+     * it, a webinar whose cut-off has passed but whose start is still in the future
+     * would read "Open for registration" on the admin list while the API correctly
+     * refuses every sign-up — the label and the behaviour disagreeing on screen, which
+     * is worse than either being wrong on its own.
+     */
     public function statusLabel(): string
     {
         if ($this->archived_at !== null) {
             return 'Archived';
+        }
+
+        if ($this->registrationCutOffHasPassed()) {
+            return 'Registration closed';
         }
 
         if ($this->starts_at->isFuture()) {

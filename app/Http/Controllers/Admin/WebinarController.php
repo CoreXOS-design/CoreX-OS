@@ -66,6 +66,7 @@ class WebinarController extends Controller
             'title'                  => $data['title'],
             'description'            => $data['description'] ?? null,
             'starts_at'              => $data['starts_at'],
+            'registration_closes_at' => $data['registration_closes_at'] ?? null,
             'duration_minutes'       => $data['duration_minutes'] ?? null,
             'join_url'               => $data['join_url'] ?? null,
             'access_ends_days_after' => $data['access_ends_days_after'],
@@ -120,6 +121,11 @@ class WebinarController extends Controller
             'title'                  => $data['title'],
             'description'            => $data['description'] ?? null,
             'starts_at'              => $data['starts_at'],
+            // This screen posts the whole form every time, so an emptied field
+            // arrives as null and correctly clears the cut-off. That is NOT true of
+            // the site API, where an ABSENT key means "leave unchanged" — see the
+            // three-way contract in WebinarApiController::validatedWebinar().
+            'registration_closes_at' => $data['registration_closes_at'] ?? null,
             'duration_minutes'       => $data['duration_minutes'] ?? null,
             'join_url'               => $data['join_url'] ?? null,
             'access_ends_days_after' => $data['access_ends_days_after'],
@@ -212,6 +218,10 @@ class WebinarController extends Controller
             'slug'                   => ['nullable', 'string', 'max:255'],
             'description'            => ['nullable', 'string', 'max:5000'],
             'starts_at'              => ['required', 'date'],
+            // The optional earlier cut-off (§3.1a). Same rule as the site API's
+            // validatedWebinar() — two front doors to one record must not disagree
+            // about what a valid record is.
+            'registration_closes_at' => ['nullable', 'date', 'before:starts_at'],
             'duration_minutes'       => ['nullable', 'integer', 'min:5', 'max:1440'],
             'join_url'               => ['nullable', 'url', 'max:500'],
             'access_ends_days_after' => ['required', 'integer', 'min:0', 'max:365'],
@@ -219,6 +229,8 @@ class WebinarController extends Controller
         ], [
             'title.required'                  => 'Give the webinar a title — registrants see it in their confirmation email.',
             'starts_at.required'              => 'Set the date and time the webinar starts.',
+            'registration_closes_at.before'   => 'Registration has to close before the webinar starts. Leave it blank to keep sign-ups open right up to the start.',
+            'registration_closes_at.date'     => 'Enter a valid date and time for registration to close.',
             'join_url.url'                    => 'The joining link needs to be a full web address, starting with https://',
             'access_ends_days_after.required' => 'Say how long demo access should last.',
             'reminder_hours_before.required'  => 'Say how far ahead the reminder email should go out.',
