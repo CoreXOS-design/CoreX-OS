@@ -716,6 +716,32 @@ class MarketIntelligenceController extends Controller
         // rows matching an off-market property correctly lose it.
         $companyStockMap = app(\App\Services\Prospecting\OnMarketStockService::class)
             ->stockMapForListings($listings->items(), $agencyId);
+        // Johan, 2026-08-27 — "if the pitch is not done we cannot show in stock."
+        // 18 Riviera Crescent: pitched via MIC (deed-linked -> a real Property got
+        // created, portal_ref/address now identical to the listing's own), then
+        // marked Not Selling — and STILL showed IN STOCK / company stock on My
+        // Claims. Root cause: OnMarketStockService::identitySets() only drops an
+        // off-market property from the stock-identity map when it's ALSO been
+        // untouched for >7 days (isStaleStock()'s deliberate grace period, correct
+        // for genuinely separate agency stock going off-market — e.g. sold
+        // yesterday should still badge as ours for a few days). Not Selling clicked
+        // TODAY fails that recency check, so a listing was matching ITSELF — the
+        // exact property its own incomplete MIC pitch created — as "our stock", a
+        // self-match artifact identitySets()'s window was never meant to cover.
+        // Fix here, not in identitySets(): only suppress the specific case where
+        // the "stock" match IS this listing's own matched_property_id (a self-match
+        // from its own unfinished pitch) AND that pitch never completed
+        // (pitched_at null) — leaves the stale-stock grace period intact for every
+        // genuine cross-listing stock match untouched.
+        foreach ($listings->items() as $__selfMatch) {
+            $__selfPid = $companyStockMap[$__selfMatch->id] ?? null;
+            if ($__selfPid !== null
+                && $__selfPid === (int) ($__selfMatch->matched_property_id ?? 0)
+                && empty($__selfMatch->pitched_at)
+            ) {
+                unset($companyStockMap[$__selfMatch->id]);
+            }
+        }
         // #2 — synthetic property-backed rows ARE our stock by construction; badge them
         // IN STOCK / company-tile directly (they carry no portal_ref for stockMapForListings).
         foreach ($listings->items() as $__row) {
