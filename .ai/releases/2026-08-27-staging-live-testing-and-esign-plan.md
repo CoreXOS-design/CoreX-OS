@@ -516,6 +516,48 @@ Live-testing, live, QA1, and every user account were untouched by this step.
 
 ---
 
+## EXECUTION LOG — Part 3, 2026-08-27, map fixes → live-testing
+
+**What moved:** `04eae805f` only (cc6's buyer-demand distinct-count fix + sold-layer
+undated-property fix), cherry-picked onto `origin/main` as `1156805e3`, pushed, then
+`/corex` fast-forwarded to it. Confirmed this is the complete set — no second commit
+for this work exists anywhere in reachable history.
+
+**A baseline-drift finding, reported and decided before anything moved:** `origin/main`
+had already advanced past the `9216f8271` baseline this plan assumed, to `c8a99e1e6` —
+two of Andre's commits (a webinar registration-cutoff feature, and an unrelated "fix"
+bundling a map pin-loading performance fix, a Not-Selling/claim timing fix, and a MIC
+visibility-scope fix) — through a path outside this lane's actions. Reported to Johan
+before touching `/corex`; his call was to let them ride along. The cherry-pick of
+`04eae805f` was tested first and confirmed clean regardless (it touches a different
+method in the one shared file, `MapPinService.php`, than Andre's commit does).
+
+**Migrations:** none from the map fix itself. Andre's webinar commit's one migration
+(`add_registration_closes_at_to_webinars_table`) was already marked "Ran" on live-testing's
+database before this session touched anything — applied by some other process, not by
+this lane, and not tonight. Confirmed zero migrations pending after the fast-forward.
+
+**Geocode backfill (`php artisan map:geocode-suburbs`) run on `/corex`:** 145 suburbs
+geocoded (91 from property averages, 54 from listing averages), 20,610 skipped (no
+geocodable source — expected; this is a nationwide P24 suburb list against one regional
+agency's actual data footprint). Dry-run beforehand matched the real run exactly.
+
+**Caches cleared. Mail, WhatsApp, and every queue worker untouched.**
+
+**Verified on live-testing with real data, read-only:**
+- Map page loads (200).
+- Buyer demand: the real per-suburb figures sum to 2,681 (what the old, buggy summed
+  badge would have shown) — the actual badge total returned is 275, a genuine
+  agency-wide distinct-buyer count. The gap between the two numbers is the proof.
+- Sold layer: returns 200 sold properties inside a KZN South Coast bounding box, against
+  an independent raw-SQL check showing only 1 property in the whole agency has any
+  linked `property_sold_records` row at all — under the old code this layer could show
+  at most that 1. 200 vs 1 confirms the fix is live.
+
+Scratch worktree removed after use. Live, QA1, and every user account untouched.
+
+---
+
 ## Appendix — 28-commit snapshot, Staging not yet on live-testing (taken earlier tonight — see the moving-target note above; re-derive at execution time)
 
 ```
