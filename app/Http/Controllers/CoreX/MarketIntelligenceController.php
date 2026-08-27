@@ -669,6 +669,22 @@ class MarketIntelligenceController extends Controller
                 ->where('agency_id', $agencyId)
                 ->whereNull('deleted_at')
                 ->when($request->filled('suburb'), fn ($q) => $q->where('suburb', $request->get('suburb')))
+                // The stock injection must respect the SAME search/address filters the
+                // agent already applied to the canvass pool above — otherwise ticking
+                // "Show in stock" silently discards the search and dumps the whole
+                // agency's on-market stock (Retha, 2026-08-27: "eden palms" = 7 results,
+                // ticking in-stock showed every in-stock property). Mirrors the
+                // prospecting_listings `search` clause's address/suburb terms exactly.
+                ->when($request->filled('search'), function ($q) use ($request) {
+                    $search = $request->search;
+                    $q->where(function ($qq) use ($search) {
+                        $qq->where('address', 'like', "%{$search}%")
+                           ->orWhere('suburb', 'like', "%{$search}%");
+                    });
+                })
+                ->when($request->input('address_filter') === 'with_address', fn ($q) => $q
+                    ->whereNotNull('address')
+                    ->where('address', '<>', ''))
                 ->when(! empty($representedPropertyIds), fn ($q) => $q->whereNotIn('id', $representedPropertyIds))
                 ->get(['id', 'address', 'suburb', 'beds', 'baths', 'garages', 'price', 'property_type']);
             $injectedStockCountBySuburb = $stockProps->groupBy('suburb')->map->count()->toArray();
