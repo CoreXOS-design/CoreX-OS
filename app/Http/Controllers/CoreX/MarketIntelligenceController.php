@@ -114,11 +114,19 @@ class MarketIntelligenceController extends Controller
         // ($presetSuspendsCanvassFilter) for exactly these claim-centric
         // presets — this closes the same gap for branch/region visibility, one
         // rule, not a second condition to keep in step.
+        //
+        // 'none' is NOT widened (audit, 2026-08-27). scopeVisibleTo() maps 'none'
+        // to whereRaw('1 = 0') — a deliberate, configured "this role sees nothing
+        // in MIC", not merely a narrower window like own/branch. The exemption
+        // above exists to stop a BRANCH column hiding an agent's own claim; it was
+        // never meant to re-open a scope an admin explicitly closed, and blanket-
+        // replacing the scope did exactly that for any role set to 'none'.
         $claimCentricRequest = in_array($request->input('action_preset'), ['my_claims', 'log_outcomes', 'expiring'], true)
             || $request->input('claim_filter') === 'my_claims';
-        $micScope = $claimCentricRequest
+        $configuredMicScope = \App\Services\PermissionService::marketIntelligenceScope($user);
+        $micScope = ($claimCentricRequest && $configuredMicScope !== 'none')
             ? 'all'
-            : \App\Services\PermissionService::marketIntelligenceScope($user);
+            : $configuredMicScope;
         $query = $query->visibleTo($user, $micScope);
 
         // F.2: action preset URL param. Distinct from the legacy ?preset= (Smart

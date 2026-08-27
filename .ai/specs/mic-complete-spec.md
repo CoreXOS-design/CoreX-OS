@@ -1163,10 +1163,17 @@ The bump is wired at every real write path:
 
 The `[fresh, stale]` window itself moved off the hardcoded `[60, 300]` onto
 `SuggestedActionThresholds.mic_counts_cache_fresh_seconds` /
-`.mic_counts_cache_stale_seconds` (defaults 60/300, agency-configurable via
-`ProspectingConfigurationService::updateSuggestedActionThresholds()`) per the
-standing rule that a threshold left behind must be a setting, never
-hardcoded. Migration:
+`.mic_counts_cache_stale_seconds` (defaults 60/300) per the standing rule that
+a threshold left behind must be a setting, never hardcoded. Configured at
+**Settings → Prospecting Setup → Stale-claim rules**
+(`settings.prospecting.stale-rules.edit`, `StaleRulesController`), under its
+"Market Intelligence tile counts" section — the same MIC claim-settings surface
+the warn/release thresholds already use, so it needed no new page or nav entry.
+Saved through `ProspectingConfigurationService::updateSuggestedActionThresholds()`,
+which enforces `stale >= fresh`. (Audit, 2026-08-27: this originally shipped with
+the columns, the allow-list entry and this spec line, but no control on any page
+and no caller passing the keys — "agency-configurable" was not true as built. The
+control above is the fix.) Migration:
 `2026_08_30_000005_add_mic_counts_cache_window_to_suggested_action_thresholds.php`.
 The version-stamp bump makes correctness independent of this window — it
 only bounds staleness for figures that have NOT had a claim change (i.e.
