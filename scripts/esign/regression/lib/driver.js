@@ -210,17 +210,62 @@ async function tickDeceasedAndBindExecutor(page, { namePart, templateName, execu
     await sleep(2000);
 }
 
+// Drives the REAL proxy picker via REAL clicks — not Alpine-state
+// injection. Two clicks, matching exactly what an agent does: (1) tick the
+// "Proxy — signs on behalf of the others in this role" checkbox, which
+// reveals the representative radio list; (2) pick one representative's
+// radio, which fires setEntityProxyPick() -> fetch('/api/entity/.../proxy').
+// Deliberately no settle time after the radio click — the harness's very
+// next call (saveDraft) fires immediately after, on purpose: this is the
+// same fast-click shape that exposed the race setEntityProxyPick()'s
+// synchronous optimistic update (86648f37d) exists to survive. Sleeping
+// here would hide the exact race this shape is meant to prove is fixed.
 async function tickProxy(page, namePart) {
-    const ticked = await page.evaluate((namePart) => {
-        const root = document.querySelector('[x-data="esignWizard()"]');
-        const data = window.Alpine.$data(root);
-        const idx = data.recipients.findIndex(r => (r.name || '').includes(namePart));
-        if (idx < 0) return { ok: false };
-        data.recipients[idx]._is_proxy = true;
+    const checkboxFound = await page.evaluate((namePart) => {
+        const all = Array.from(document.querySelectorAll('body *'));
+        let card = null;
+        for (const el of all) {
+            if (!el.children || el.children.length === 0) continue;
+            const txt = el.textContent || '';
+            if (txt.includes(namePart) && txt.includes('Proxy — signs on behalf of the others in this role')) {
+                if (!card || txt.length < card.textContent.length) card = el;
+            }
+        }
+        if (!card) return { ok: false, reason: 'recipient card not found (checkbox stage)' };
+        const checkbox = Array.from(card.querySelectorAll('input[type="checkbox"]')).find(cb => {
+            const label = cb.closest('label');
+            return label && label.textContent.includes('Proxy — signs on behalf of the others in this role');
+        });
+        if (!checkbox) return { ok: false, reason: 'proxy checkbox not found' };
+        document.querySelectorAll('[data-harness-proxy-checkbox]').forEach(e => e.removeAttribute('data-harness-proxy-checkbox'));
+        checkbox.setAttribute('data-harness-proxy-checkbox', '1');
         return { ok: true };
     }, namePart);
-    if (!ticked.ok) throw new Error(`tickProxy: recipient "${namePart}" not found`);
-    await sleep(800);
+    if (!checkboxFound.ok) throw new Error(`tickProxy: ${checkboxFound.reason} for "${namePart}"`);
+
+    await page.click('[data-harness-proxy-checkbox="1"]');
+    await sleep(500); // let the x-show radio picker render
+
+    const radioFound = await page.evaluate((namePart) => {
+        const all = Array.from(document.querySelectorAll('body *'));
+        let card = null;
+        for (const el of all) {
+            if (!el.children || el.children.length === 0) continue;
+            const txt = el.textContent || '';
+            if (txt.includes(namePart) && txt.includes('Pick the ONE who actually signs')) {
+                if (!card || txt.length < card.textContent.length) card = el;
+            }
+        }
+        if (!card) return { ok: false, reason: 'representative picker panel did not open' };
+        const radio = card.querySelector('input[type="radio"]');
+        if (!radio) return { ok: false, reason: 'no representative radio found in picker panel' };
+        document.querySelectorAll('[data-harness-proxy-radio]').forEach(e => e.removeAttribute('data-harness-proxy-radio'));
+        radio.setAttribute('data-harness-proxy-radio', '1');
+        return { ok: true };
+    }, namePart);
+    if (!radioFound.ok) throw new Error(`tickProxy: ${radioFound.reason} for "${namePart}"`);
+
+    await page.click('[data-harness-proxy-radio="1"]');
 }
 
 async function saveDraft(page) {
