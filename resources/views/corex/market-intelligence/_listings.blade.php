@@ -13,6 +13,7 @@
 @php
     $viewerId = auth()->id();
     $isManager = $isProspectingManager ?? false;
+    $displayAddressByListingId = $displayAddressByListingId ?? [];
     // Part 2 — "Prospected" badge agency toggle (default ON). Resolved once per
     // render; mirrors the PermissionService Agency::value() read pattern.
     $_micAgencyId = auth()->user()?->effectiveAgencyId() ?? auth()->user()?->agency_id;
@@ -231,6 +232,10 @@
                                             && isset($listingStates['promotions'][(int) $listing->matched_property_id]),
                         'needs_reminder' => $listingStates['claims'][$_lid]['needs_reminder'] ?? false,
                         'needs_bm_flag'  => $listingStates['claims'][$_lid]['needs_bm_flag']  ?? false,
+                        // Johan, 2026-08-27 — display-only, from a linked property's
+                        // address when the listing's own is blank. Never mutates
+                        // $listing itself (see MarketIntelligenceController::work()).
+                        'display_address' => $displayAddressByListingId[(int) $_lid] ?? null,
                     ];
                 @endphp
                 @include('corex.market-intelligence._listing-row', [

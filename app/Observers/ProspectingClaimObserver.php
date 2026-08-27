@@ -36,11 +36,24 @@ use Illuminate\Support\Facades\Log;
  *
  * Failure-isolated: event dispatch wrapped in try/catch so an event-bus
  * blip never breaks the underlying claim save.
+ *
+ * MIC counts cache invalidation (2026-08-27) — piggybacks on this SAME
+ * observer rather than a new mechanism. Every single-model claim write
+ * (create, or update to is_active/released_at/last_updated_at/feedback_at
+ * — the fields computeActionPresetCounts() reads) bumps
+ * ProspectingClaim::bumpCountsCacheVersion() so the MIC tile counts can
+ * never serve a value from before this write. Bulk `->update()` query
+ * builder calls (PropertyController::markNotSelling(),
+ * ProspectingClaimMaintenance's auto-release sweep) do NOT hydrate
+ * individual models and so never reach this observer — those two sites
+ * bump the version explicitly at their own call site.
  */
 final class ProspectingClaimObserver
 {
     public function created(ProspectingClaim $claim): void
     {
+        $this->bumpCountsCacheVersion($claim);
+
         try {
             event(new ClaimCreated($claim));
         } catch (\Throwable $e) {
@@ -53,6 +66,10 @@ final class ProspectingClaimObserver
 
     public function updated(ProspectingClaim $claim): void
     {
+        if ($claim->wasChanged(['is_active', 'released_at', 'last_updated_at', 'feedback_at'])) {
+            $this->bumpCountsCacheVersion($claim);
+        }
+
         try {
             // Fire ClaimReleased only on the FIRST transition NULL → set on
             // released_at — releasing an already-released claim, or any
@@ -70,6 +87,18 @@ final class ProspectingClaimObserver
             ));
         } catch (\Throwable $e) {
             Log::warning('SPINE-3 ClaimReleased dispatch failed (swallowed)', [
+                'claim_id' => $claim->id ?? null,
+                'message'  => $e->getMessage(),
+            ]);
+        }
+    }
+
+    private function bumpCountsCacheVersion(ProspectingClaim $claim): void
+    {
+        try {
+            ProspectingClaim::bumpCountsCacheVersion((int) $claim->agency_id);
+        } catch (\Throwable $e) {
+            Log::warning('MIC counts cache version bump failed (swallowed)', [
                 'claim_id' => $claim->id ?? null,
                 'message'  => $e->getMessage(),
             ]);

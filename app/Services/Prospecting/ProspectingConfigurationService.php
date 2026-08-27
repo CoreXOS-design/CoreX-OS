@@ -189,6 +189,10 @@ class ProspectingConfigurationService
             'claim_warn_days', 'claim_release_days',
             // Deeds-capture duplicate-match take rule (Johan, 2026-08-21).
             'deeds_duplicate_no_go_days', 'deeds_duplicate_auto_take_days',
+            // MIC action-preset tile count cache window (Johan, 2026-08-27) —
+            // was hardcoded [60, 300]; claim writes also bump a cache-version
+            // stamp so this window only bounds staleness for non-claim changes.
+            'mic_counts_cache_fresh_seconds', 'mic_counts_cache_stale_seconds',
         ];
         $clean = [];
         $errors = [];
@@ -222,6 +226,14 @@ class ProspectingConfigurationService
         if ($effAutoTake < $effNoGo) {
             throw ValidationException::withMessages([
                 'deeds_duplicate_auto_take_days' => ['Auto-take days must be greater than or equal to no-go days.'],
+            ]);
+        }
+        // MIC counts cache invariant: stale ceiling must not precede the fresh window.
+        $effFresh = $clean['mic_counts_cache_fresh_seconds'] ?? (int) $row0->mic_counts_cache_fresh_seconds;
+        $effStale = $clean['mic_counts_cache_stale_seconds'] ?? (int) $row0->mic_counts_cache_stale_seconds;
+        if ($effStale < $effFresh) {
+            throw ValidationException::withMessages([
+                'mic_counts_cache_stale_seconds' => ['Stale seconds must be greater than or equal to fresh seconds.'],
             ]);
         }
 

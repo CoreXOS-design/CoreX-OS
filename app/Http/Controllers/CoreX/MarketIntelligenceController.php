@@ -95,7 +95,30 @@ class MarketIntelligenceController extends Controller
         // AT-380 — canvassing-pool visibility scope (own/branch/all), configured
         // per role in Role Manager (market_intelligence.view). Was previously
         // unrestricted for every role — every agent saw the entire agency pool.
-        $micScope = \App\Services\PermissionService::marketIntelligenceScope($user);
+        //
+        // Johan, 2026-08-27 (live, Retha Kelly's account) — "So what has Retha
+        // claimed that she cannot see." MY CLAIMS tile read 13, the list showed
+        // 6. Confirmed on Staging with a real example (Shalan Du Bois, scope
+        // 'own', one active claim): the claim's own listing has branch_id NULL —
+        // visibleTo()'s branch restriction does `where('branch_id', <agent's own
+        // branch>)`, and NULL never equals anything in SQL, so the row vanished
+        // from the list outright while the tile (a plain claim count, no branch
+        // condition at all) correctly still counted it. This scope exists for
+        // the CANVASSING pool — limiting which NEW, unclaimed leads an agent
+        // browses to their own branch (AT-380's own comment: "every agent saw
+        // the entire agency pool" was the bug it fixed) — not for claims an
+        // agent has ALREADY taken. A listing's branch_id reflects who scraped/
+        // captured the raw portal data, not who is working it; once claimed, an
+        // agent must see their own claim regardless of that column. Same
+        // exemption already exists for the stock/pitch-lock filters just below
+        // ($presetSuspendsCanvassFilter) for exactly these claim-centric
+        // presets — this closes the same gap for branch/region visibility, one
+        // rule, not a second condition to keep in step.
+        $claimCentricRequest = in_array($request->input('action_preset'), ['my_claims', 'log_outcomes', 'expiring'], true)
+            || $request->input('claim_filter') === 'my_claims';
+        $micScope = $claimCentricRequest
+            ? 'all'
+            : \App\Services\PermissionService::marketIntelligenceScope($user);
         $query = $query->visibleTo($user, $micScope);
 
         // F.2: action preset URL param. Distinct from the legacy ?preset= (Smart
@@ -252,11 +275,21 @@ class MarketIntelligenceController extends Controller
         // default-exclude/explicit-override shape as applyInStockFilter/pitch-lock
         // above. ?is_active=all reveals everything; ?is_active=0/1 stays honoured
         // for the explicit audit toggle.
+        //
+        // Johan, 2026-08-27 (proven live, Retha Kelly's account: tile 12, list 0
+        // via this exact filter, on a claim whose listing has since gone
+        // off-market) — this default was NEVER suspended for the claim-centric
+        // presets, unlike the stock and pitch-lock filters right above it. Once
+        // an agent has claimed a property, the claim is theirs to work even
+        // after the portal listing lapses — a lapsed listing must not make their
+        // own claim disappear. Same suspension flag, same pattern, no new
+        // mechanism: $presetSuspendsCanvassFilter is already computed above
+        // (line ~140) for exactly the stock/pitch-lock filters this sits beside.
         if ($request->filled('is_active')) {
             if ($request->is_active !== 'all') {
                 $query->where('is_active', $request->is_active === '1');
             }
-        } else {
+        } elseif (! $presetSuspendsCanvassFilter) {
             $query->where('is_active', true);
         }
         if ($request->filled('captured_by')) {
@@ -669,6 +702,22 @@ class MarketIntelligenceController extends Controller
                 ->where('agency_id', $agencyId)
                 ->whereNull('deleted_at')
                 ->when($request->filled('suburb'), fn ($q) => $q->where('suburb', $request->get('suburb')))
+                // The stock injection must respect the SAME search/address filters the
+                // agent already applied to the canvass pool above — otherwise ticking
+                // "Show in stock" silently discards the search and dumps the whole
+                // agency's on-market stock (Retha, 2026-08-27: "eden palms" = 7 results,
+                // ticking in-stock showed every in-stock property). Mirrors the
+                // prospecting_listings `search` clause's address/suburb terms exactly.
+                ->when($request->filled('search'), function ($q) use ($request) {
+                    $search = $request->search;
+                    $q->where(function ($qq) use ($search) {
+                        $qq->where('address', 'like', "%{$search}%")
+                           ->orWhere('suburb', 'like', "%{$search}%");
+                    });
+                })
+                ->when($request->input('address_filter') === 'with_address', fn ($q) => $q
+                    ->whereNotNull('address')
+                    ->where('address', '<>', ''))
                 ->when(! empty($representedPropertyIds), fn ($q) => $q->whereNotIn('id', $representedPropertyIds))
                 ->get(['id', 'address', 'suburb', 'beds', 'baths', 'garages', 'price', 'property_type']);
             $injectedStockCountBySuburb = $stockProps->groupBy('suburb')->map->count()->toArray();
@@ -716,6 +765,32 @@ class MarketIntelligenceController extends Controller
         // rows matching an off-market property correctly lose it.
         $companyStockMap = app(\App\Services\Prospecting\OnMarketStockService::class)
             ->stockMapForListings($listings->items(), $agencyId);
+        // Johan, 2026-08-27 — "if the pitch is not done we cannot show in stock."
+        // 18 Riviera Crescent: pitched via MIC (deed-linked -> a real Property got
+        // created, portal_ref/address now identical to the listing's own), then
+        // marked Not Selling — and STILL showed IN STOCK / company stock on My
+        // Claims. Root cause: OnMarketStockService::identitySets() only drops an
+        // off-market property from the stock-identity map when it's ALSO been
+        // untouched for >7 days (isStaleStock()'s deliberate grace period, correct
+        // for genuinely separate agency stock going off-market — e.g. sold
+        // yesterday should still badge as ours for a few days). Not Selling clicked
+        // TODAY fails that recency check, so a listing was matching ITSELF — the
+        // exact property its own incomplete MIC pitch created — as "our stock", a
+        // self-match artifact identitySets()'s window was never meant to cover.
+        // Fix here, not in identitySets(): only suppress the specific case where
+        // the "stock" match IS this listing's own matched_property_id (a self-match
+        // from its own unfinished pitch) AND that pitch never completed
+        // (pitched_at null) — leaves the stale-stock grace period intact for every
+        // genuine cross-listing stock match untouched.
+        foreach ($listings->items() as $__selfMatch) {
+            $__selfPid = $companyStockMap[$__selfMatch->id] ?? null;
+            if ($__selfPid !== null
+                && $__selfPid === (int) ($__selfMatch->matched_property_id ?? 0)
+                && empty($__selfMatch->pitched_at)
+            ) {
+                unset($companyStockMap[$__selfMatch->id]);
+            }
+        }
         // #2 — synthetic property-backed rows ARE our stock by construction; badge them
         // IN STOCK / company-tile directly (they carry no portal_ref for stockMapForListings).
         foreach ($listings->items() as $__row) {
@@ -762,13 +837,23 @@ class MarketIntelligenceController extends Controller
         // has a REAL address sitting on prospecting_listings.matched_property_id's
         // Property — but every list row here still displayed the raw, permanently-
         // blank listing address, the same fault as the Continue guard fixed
-        // earlier today, second symptom. Same pattern as the company-stock
-        // backfill immediately above (#3), generalised to ANY matched property,
-        // not just on-market stock — one query, page-scoped, runs after that
-        // block so an address it already filled is simply skipped (blank() is
-        // false by then). _listing-row.blade.php's own "No address" fallback
-        // (Str::limit($listing->address, 50) : 'No address') is untouched and
-        // now correctly sees a filled address whenever one genuinely exists.
+        // earlier today, second symptom.
+        //
+        // FIX-UP (2026-08-27, same day) — the first version of this backfill wrote
+        // straight onto $listing->address, mutating a live Eloquent ProspectingListing
+        // instance's attribute. Johan then saw the Pitched badge come back on rows that
+        // were never completed. Root cause not fully proven either way in the time
+        // available, but the mechanism is real risk regardless: a dirty ->address on
+        // these SAME objects sits alongside is_pitched/property_id, which the Pitched
+        // badge (SuggestedActionResolver) reads off this exact collection a few lines
+        // below (~line 1211) — mutating shared attributes on the shared objects is
+        // exactly the kind of coupling that produces this class of bug even when the
+        // specific path isn't obvious on inspection. Rebuilt to touch NOTHING on
+        // $listing itself: a plain array, keyed by listing id, threaded through to the
+        // view as its own value and read ONLY by the address line
+        // (_listing-row.blade.php's "No address" fallback is otherwise untouched).
+        // Zero shared mutable state between the two concerns.
+        $displayAddressByListingId = [];
         $blankAddressPropertyIds = collect($listings->items())
             ->filter(fn ($it) => blank($it->address) && ! empty($it->matched_property_id))
             ->pluck('matched_property_id')
@@ -792,7 +877,7 @@ class MarketIntelligenceController extends Controller
             foreach ($listings->items() as $__it2) {
                 $__pid2 = $__it2->matched_property_id ?? null;
                 if ($__pid2 && blank($__it2->address) && filled($matchedPropAddresses[$__pid2] ?? null)) {
-                    $__it2->address = $matchedPropAddresses[$__pid2];
+                    $displayAddressByListingId[(int) $__it2->id] = $matchedPropAddresses[$__pid2];
                 }
             }
         }
@@ -1185,6 +1270,10 @@ class MarketIntelligenceController extends Controller
             // Trust-strip (display-only) — already-computed synthetic-row breakdown,
             // just wired through so the list header can show its composition.
             'injectedStockCountBySuburb',
+            // Johan, 2026-08-27 — display-only address backfill from a linked
+            // property when the listing's own address is blank. Read-only array,
+            // never touches $listing itself.
+            'displayAddressByListingId',
         ));
     }
 
@@ -2884,18 +2973,33 @@ class MarketIntelligenceController extends Controller
      * Returns: ['pitch_now_high','pitch_now','log_outcomes','my_claims','expiring' => int]
      *
      * MIC aggregate caching (2026-08-23) — stale-while-revalidate, same
-     * mechanism/fresh-stale windows/lock bound as computeSnapshotKpis above
-     * (see that docblock for the full Cache::flexible() reasoning). Keyed by
-     * viewerId as well as agency+suburb+thresholds — unlike the other two
-     * cached methods, this one genuinely mixes an agency-wide figure
-     * (pitch_now_high/pitch_now) with per-VIEWER ones (log_outcomes/
-     * my_claims/expiring are each scoped to $viewerId's own claims/
-     * outreach). Omitting viewerId from the key would mean agent A's cache
-     * entry could serve agent B "my claims: 4" that are actually A's four
-     * claims, not B's — exactly the wrong-key risk flagged before building
-     * this. Costs a little cache-sharing efficiency (each agent gets their
-     * own entry even for the agency-wide half); correctness over efficiency
-     * was the explicit instruction.
+     * mechanism/lock bound as computeSnapshotKpis above (see that docblock
+     * for the full Cache::flexible() reasoning). Keyed by viewerId as well
+     * as agency+suburb+thresholds — unlike the other two cached methods,
+     * this one genuinely mixes an agency-wide figure (pitch_now_high/
+     * pitch_now) with per-VIEWER ones (log_outcomes/my_claims/expiring are
+     * each scoped to $viewerId's own claims/outreach). Omitting viewerId
+     * from the key would mean agent A's cache entry could serve agent B "my
+     * claims: 4" that are actually A's four claims, not B's — exactly the
+     * wrong-key risk flagged before building this. Costs a little
+     * cache-sharing efficiency (each agent gets their own entry even for
+     * the agency-wide half); correctness over efficiency was the explicit
+     * instruction.
+     *
+     * Claim-change invalidation (2026-08-27) — a TTL-only window (this used
+     * to be a flat [60, 300]) can still serve the tile a stale count for up
+     * to the fresh-window length after a claim/release/expiry, which is
+     * exactly the tile-vs-list disagreement Johan reported on Staging.
+     * ProspectingClaim::countsCacheVersion() is bumped by
+     * ProspectingClaim::bumpCountsCacheVersion() at every real claim write
+     * (claim, release, manager release, feedback close, pitch-lock
+     * conversion, "not selling" bulk close, the 48h auto-release
+     * maintenance job); folding it into the cache key makes the pre-change
+     * entry permanently unreachable instead of merely short-lived. The
+     * fresh/stale window itself is agency-configurable
+     * (SuggestedActionThresholds::mic_counts_cache_fresh_seconds /
+     * ::mic_counts_cache_stale_seconds) rather than hardcoded, per Johan's
+     * standing rule that thresholds are never hardcoded.
      */
     protected function computeActionPresetCounts(
         int $agencyId,
@@ -2909,10 +3013,13 @@ class MarketIntelligenceController extends Controller
             $thresholds->outcome_overdue_days,
             $thresholds->expiry_warning_hours,
         ]));
+        $claimsVersion = ProspectingClaim::countsCacheVersion($agencyId);
         $cacheKey = 'mic.action_preset_counts.' . $agencyId . '.' . ($viewerId ?? 'null')
-            . '.' . ($suburbFilter ?? '') . '.' . $thresholdsFingerprint;
+            . '.' . ($suburbFilter ?? '') . '.' . $thresholdsFingerprint . '.v' . $claimsVersion;
+        $freshSeconds = (int) $thresholds->mic_counts_cache_fresh_seconds;
+        $staleSeconds = (int) $thresholds->mic_counts_cache_stale_seconds;
 
-        return Cache::flexible($cacheKey, [60, 300], function () use ($agencyId, $viewerId, $thresholds, $suburbFilter) {
+        return Cache::flexible($cacheKey, [$freshSeconds, $staleSeconds], function () use ($agencyId, $viewerId, $thresholds, $suburbFilter) {
         $strongMin = (int) $thresholds->high_value_strong_min;
         $hasSuburb = $suburbFilter !== null && trim($suburbFilter) !== '';
 

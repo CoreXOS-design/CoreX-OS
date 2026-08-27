@@ -48,6 +48,8 @@ final class SuggestedActionThresholds extends Model
         'claim_release_days',
         'deeds_duplicate_no_go_days',
         'deeds_duplicate_auto_take_days',
+        'mic_counts_cache_fresh_seconds',
+        'mic_counts_cache_stale_seconds',
     ];
 
     protected $casts = [
@@ -66,6 +68,8 @@ final class SuggestedActionThresholds extends Model
         'claim_release_days'         => 'integer',
         'deeds_duplicate_no_go_days'      => 'integer',
         'deeds_duplicate_auto_take_days'  => 'integer',
+        'mic_counts_cache_fresh_seconds'  => 'integer',
+        'mic_counts_cache_stale_seconds'  => 'integer',
     ];
 
     /**
@@ -75,6 +79,14 @@ final class SuggestedActionThresholds extends Model
      * new_listing_lookback_days: MIC Work-tab `action_preset=new_today`
      * filter window. 1 day default ≈ "today" — listings first seen in
      * the last 24 hours. Agency can widen via settings.
+     *
+     * mic_counts_cache_fresh_seconds / mic_counts_cache_stale_seconds:
+     * Cache::flexible() [fresh, stale] window for the MIC action-preset
+     * tile counts (MarketIntelligenceController::computeActionPresetCounts).
+     * Defaults match the flat [60, 300] this replaced — the window is now
+     * an agency setting, but every claim write also bumps
+     * ProspectingClaim::countsCacheVersion() so the cache is invalidated
+     * immediately on a real change regardless of this window.
      */
     public static function defaultsFor(int $agencyId): array
     {
@@ -95,6 +107,8 @@ final class SuggestedActionThresholds extends Model
             'claim_release_days'         => 10,  // stale → BM/admin move-or-keep review (Johan default)
             'deeds_duplicate_no_go_days'     => 7,  // younger than this → refused outright (Johan default)
             'deeds_duplicate_auto_take_days' => 14, // at/older than this → agent takes it automatically (Johan default)
+            'mic_counts_cache_fresh_seconds' => 60,  // matches the old hardcoded fresh window
+            'mic_counts_cache_stale_seconds' => 300, // matches the old hardcoded stale ceiling
         ];
     }
 

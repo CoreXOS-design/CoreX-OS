@@ -226,10 +226,29 @@
                  the "Truncated: ..." notice below still (correctly) reported it
                  as hidden. flex-wrap lets the row spill onto a second line
                  within the existing sidebar width instead of overflowing past
-                 it — same buttons, same size, same order, no redesign. --}}
+                 it — same buttons, same size, same order, no redesign.
+                 2026-08-27, later same day — Johan, after the Portal
+                 Stock/Tracked merge dropped this to 7 buttons: "the tracked
+                 badge is removed but we are still showing the badge line on
+                 2 rows." 7×30px + 6×6px gaps still measured 246px > 235px —
+                 one orphaned icon alone on row 2. gap tightened 6px -> 3px
+                 (same buttons, same size, same order) so all 7 fit on one
+                 line; flex-wrap stays as the safety net for narrower
+                 viewports.
+                 2026-08-27, later still — Johan saw 2 rows on Staging even
+                 after the 3px-gap fix and the reload. Measured on-disk/live:
+                 7×30px = 210px + 6 gaps. At 3px that's 228px against a
+                 235px container — only 7px (3%) of margin, exactly the kind
+                 of knife-edge fit that a hard-refresh-vs-cached-CSS gap, a
+                 fraction-of-a-pixel rounding difference, or a slightly
+                 different render can tip over. Cut to 1px: 216px used
+                 against 235px available — 19px (8%) of real margin, verified
+                 at both 1366x768 and 1280x720 (container measured 235px at
+                 both — it does not shrink with viewport width; flex-wrap
+                 remains the backstop for anything narrower still). --}}
             <div style="margin-bottom: 12px;">
                 <div style="font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); font-weight: 600; margin-bottom: 6px;">Layers</div>
-                <div id="layer-list" data-tour="re-map-layers" style="display: flex; flex-wrap: wrap; gap: 6px;">
+                <div id="layer-list" data-tour="re-map-layers" style="display: flex; flex-wrap: wrap; gap: 1px;">
                     @php
                         // Layer-chip palette MUST stay in sync with PIN_STYLES
                         // and LAYER_COLOURS in the JS section below. Otherwise
@@ -243,10 +262,20 @@
                             ['key' => 'hfc_sold',        'label' => 'Sold (HFC)',        'colour' => '#dc2626', 'letter' => 'S', 'default_off' => true, 'title' => 'Sold agency stock — period-bounded by the sold-date window below'],
                             ['key' => 'hfc_off_market',  'label' => 'Off-market',        'colour' => '#94a3b8', 'letter' => 'H', 'default_off' => true, 'title' => 'Off-market agency stock — withdrawn / expired / cancelled / let-out / draft / archived'],
                             ['key' => 'sold_comps',      'label' => 'Sold Comps',        'colour' => '#dc2626', 'letter' => 'S'],
-                            ['key' => 'active_listings', 'label' => 'Portal Stock',      'colour' => '#f59e0b', 'letter' => 'P', 'title' => 'Portal Stock — competitor listings captured from Property24 and Private Property'],
+                            // 2026-08-27 — Johan's decision: Portal Stock and
+                            // Tracked were the same real-world properties
+                            // drawing as two separate layers/badges. Folded
+                            // into ONE chip: everything we know about a
+                            // property that isn't on our own agency stock,
+                            // whether or not it's currently advertised on a
+                            // portal. tracked_properties keeps its own key
+                            // server-side (unchanged categorisation, grouping
+                            // and detail routing) — this chip just toggles
+                            // and counts both together. See
+                            // PORTAL_STOCK_MERGED_KEYS in the JS below.
+                            ['key' => 'active_listings', 'label' => 'Portal Stock',      'colour' => '#f59e0b', 'letter' => 'P', 'title' => 'Portal Stock — everything we know about a property that isn\'t on your agency stock: competitor portal listings (Property24 / Private Property) and tracked prospecting candidates, advertised or not'],
                             ['key' => 'mic_subjects',    'label' => 'MIC Subjects',      'colour' => '#7c3aed', 'letter' => 'M'],
                             ['key' => 'scheme_owners',   'label' => 'Sectional Schemes', 'colour' => '#06b6d4', 'letter' => 'O', 'sensitive' => true],
-                            ['key' => 'tracked_properties', 'label' => 'Tracked',        'colour' => '#00d4aa', 'letter' => 'T', 'sensitive' => true, 'title' => 'Tracked — prospecting candidates with geocoded GPS, not yet on agency stock (Agent View only)'],
                         ];
                     @endphp
                     @foreach($layerDefs as $l)
@@ -646,7 +675,10 @@ document.addEventListener('DOMContentLoaded', function () {
         active_listings: 'Portal Stock',
         mic_subjects: 'MIC Subject',
         scheme_owners: 'Sectional Scheme',
-        tracked_properties: 'Tracked',
+        // 2026-08-27 — Portal Stock/Tracked merge: no "Tracked" wording left
+        // anywhere the agent can see, including this composite-list group
+        // header (LAYER_NAMES also drives the "Truncated: ..." cap banner).
+        tracked_properties: 'Portal Stock',
     };
 
     // Composite pin palette — neutral slate so it reads as "multiple sources here"
@@ -1335,6 +1367,10 @@ document.addEventListener('DOMContentLoaded', function () {
             const requested = p.get('layers').split(',').map(s => s.trim()).filter(Boolean);
             enabledLayers.clear();
             requested.forEach(k => { if (ALL_LAYER_KEYS.includes(k)) enabledLayers.add(k); });
+            // A pre-merge saved link may carry only one of the two Portal
+            // Stock keys — normalize so the one visible chip reflects a
+            // consistent on/off state either way.
+            normalizePortalStockLayers();
             // Reflect on the left-rail buttons so the UI matches state.
             document.querySelectorAll('[data-layer-toggle]').forEach(btn => {
                 const on = enabledLayers.has(btn.dataset.layerToggle);
@@ -1488,6 +1524,19 @@ document.addEventListener('DOMContentLoaded', function () {
             chip.textContent = cnt + ' filter' + (cnt === 1 ? '' : 's') + ' active';
             chip.style.display = cnt > 0 ? 'block' : 'none';
         }
+    }
+    // 2026-08-27 — Portal Stock / Tracked merge (Johan's decision). Exactly
+    // ONE visible chip/badge/toggle ("Portal Stock") now drives BOTH
+    // underlying category keys together — the server-side categories,
+    // grouping and detail routing are untouched, so this is presentation-
+    // only. Any code that adds/removes one of these two keys in
+    // enabledLayers must add/remove both — normalizePortalStockLayers()
+    // is the one place that rule lives; reuse it rather than hand-rolling
+    // the pair again.
+    const PORTAL_STOCK_MERGED_KEYS = ['active_listings', 'tracked_properties'];
+    function normalizePortalStockLayers() {
+        const anyOn = PORTAL_STOCK_MERGED_KEYS.some(k => enabledLayers.has(k));
+        PORTAL_STOCK_MERGED_KEYS.forEach(k => anyOn ? enabledLayers.add(k) : enabledLayers.delete(k));
     }
     const enabledLayers = new Set([
         'hfc_listings', 'sold_comps', 'active_listings', 'mic_subjects', 'scheme_owners',
@@ -2339,12 +2388,20 @@ document.addEventListener('DOMContentLoaded', function () {
         const cappedSet = new Set(payload.capped_layers || []);
         const layerLimits = payload.layer_limits || {};
         Object.keys(LAYER_COLOURS).forEach(key => {
+            // Portal Stock's single chip counts BOTH active_listings and
+            // tracked_properties (see PORTAL_STOCK_MERGED_KEYS) — there is
+            // no separate Tracked badge to update.
+            if (key === 'tracked_properties') return;
             const badge = document.querySelector('[data-layer-count="' + key + '"]');
             if (badge) {
-                if (cappedSet.has(key) && layerLimits[key]) {
-                    badge.textContent = String(layerLimits[key]) + '+';
+                const mergedKeys = key === 'active_listings' ? PORTAL_STOCK_MERGED_KEYS : [key];
+                const anyCapped = mergedKeys.some(k => cappedSet.has(k) && layerLimits[k]);
+                if (anyCapped) {
+                    const limitSum = mergedKeys.reduce((s, k) => s + (cappedSet.has(k) ? (layerLimits[k] || 0) : (counts[k] || 0)), 0);
+                    badge.textContent = String(limitSum) + '+';
                 } else {
-                    badge.textContent = String(counts[key] ?? 0);
+                    const countSum = mergedKeys.reduce((s, k) => s + (counts[k] || 0), 0);
+                    badge.textContent = String(countSum);
                 }
             }
         });
@@ -3630,6 +3687,12 @@ document.addEventListener('DOMContentLoaded', function () {
             paintLayerBtn(btn);
             if (on) enabledLayers.add(key);
             else    enabledLayers.delete(key);
+            // The Portal Stock chip is the only control for BOTH
+            // active_listings and tracked_properties (see
+            // PORTAL_STOCK_MERGED_KEYS above) — there is no separate
+            // Tracked button to click, so mirror this toggle onto its
+            // hidden partner key.
+            if (PORTAL_STOCK_MERGED_KEYS.includes(key)) normalizePortalStockLayers();
 
             // A.1.2 fix — triple-defence so a toggle never visibly fails:
             // (1) immediate client-side re-render from the last payload so
@@ -3994,6 +4057,10 @@ document.addEventListener('DOMContentLoaded', function () {
             // includes keys that no longer exist. Defensive on read only.
             enabledLayers.clear();
             requested.forEach(k => enabledLayers.add(k));
+            // A pre-merge saved search may carry only one of the two Portal
+            // Stock keys — normalize so the one visible chip reflects a
+            // consistent on/off state either way.
+            normalizePortalStockLayers();
             // Mirror to the DOM toggle buttons.
             document.querySelectorAll('[data-layer-toggle]').forEach(btn => {
                 const on = enabledLayers.has(btn.dataset.layerToggle);

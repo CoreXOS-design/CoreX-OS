@@ -133,6 +133,29 @@ class OnMarketStockService
                             if ($p->isStaleStock()) {
                                 continue;
                             }
+                            // Johan, 2026-08-27 — "if the pitch is not done we cannot show in
+                            // stock." 12 Radstock Road: the narrower per-listing self-match
+                            // fix (MarketIntelligenceController::work()) didn't catch this case
+                            // — TWO unrelated, pre-existing listings (real address text already
+                            // on file, matched_property_id pointing at a DIFFERENT, unrelated
+                            // stale property) share the exact same real-world address as a
+                            // FRESH property Johan created via deed-link today, so they matched
+                            // it by address alone, with no linkage to their own claim history at
+                            // all. The stale-stock recency check (above) only excludes a property
+                            // once it's gone 7+ days untouched — but STATUS_PROSPECTING /
+                            // STATUS_NOT_SELLING are MIC-only synthetic statuses (see Property's
+                            // own doc comment: "ingested-but-unmandated stock... never real,
+                            // mandated agency stock") — a property in either was NEVER genuine
+                            // stock to begin with, so the recency grace period (built for real
+                            // stock recently gone off-market — sold, withdrawn) was never meant
+                            // to cover it. Excluding both unconditionally here, not per-listing,
+                            // closes the gap at its actual source for every consumer at once.
+                            if (in_array((string) $p->status, [
+                                \App\Models\Property::STATUS_PROSPECTING,
+                                \App\Models\Property::STATUS_NOT_SELLING,
+                            ], true)) {
+                                continue;
+                            }
                             if (!empty($p->p24_ref)) {
                                 $refs['P24-' . $p->p24_ref] = (int) $p->id;
                             }

@@ -58,8 +58,12 @@
         ? route('market-intelligence.thumbnail', $listing)
         : null;
 
-    // Address truncation — keep it tight on the primary line.
-    $addressShort = $listing->address ? \Illuminate\Support\Str::limit($listing->address, 50) : 'No address';
+    // Address truncation — keep it tight on the primary line. Johan, 2026-08-27 —
+    // a deed-linked listing's own address stays blank by design; $state['display_address']
+    // (set only when one was actually resolved from the linked property) is display-only
+    // and never written back onto $listing — see MarketIntelligenceController::work().
+    $displayAddress = $state['display_address'] ?? $listing->address ?? null;
+    $addressShort = $displayAddress ? \Illuminate\Support\Str::limit($displayAddress, 50) : 'No address';
     $priceLabel = $listing->price ? ('R ' . number_format($listing->price)) : '—';
 
     $metaParts = array_filter([
