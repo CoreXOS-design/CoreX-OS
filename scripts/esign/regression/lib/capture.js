@@ -86,35 +86,45 @@ function parseSignatureBlockSummary(fullText) {
 // day/month/year/time INPUT VALUES next to it — these are editable fields,
 // not static text, and this is the exact place cc1's 522a84107 fix (and the
 // bug it fixed) lived: one signer's place/time showing on another's block.
+// 2026-08-27 — was finding 0 blocks on every real document (only ever
+// verified against synthetic/simple markup). The leaf-element check
+// (el.children.length === 0 && el.textContent starts with the phrase)
+// assumed the whole sentence sits in one leaf node, but the real signing
+// screen splits it: "Thus done and signed by the " is a bare TEXT NODE,
+// followed by sibling <b>/<span>/<input> elements for the role, name and
+// ceremony fields — no single leaf element's OWN text ever starts with the
+// full phrase, so `starts` was always empty. Walk TEXT NODES instead (a
+// TreeWalker, not querySelectorAll) and anchor on the text node's PARENT —
+// robust to however the surrounding markup is structured.
 async function captureSignPageBlocks(page) {
     return page.evaluate(() => {
-        const body = document.body.innerText;
         const results = [];
-        // Walk every element whose own text starts the "Thus done and signed"
-        // sentence, then read the <input> elements that follow it in the DOM
-        // up to the next such sentence or the signature pad itself.
-        const all = Array.from(document.querySelectorAll('*'));
-        const starts = all.filter(el =>
-            el.children.length === 0 &&
-            el.textContent && el.textContent.trim().startsWith('Thus done and signed by the')
-        );
+        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+        const starts = [];
+        let node;
+        while ((node = walker.nextNode())) {
+            if (node.textContent && node.textContent.trim().startsWith('Thus done and signed by the')) {
+                starts.push(node.parentElement);
+            }
+        }
         starts.forEach((el, i) => {
-            const roleMatch = el.textContent.match(/Thus done and signed by the (\w+)\s*\(?([^)]*)\)?/);
+            if (!el) { results.push({ role: null, name: null, inputValues: [] }); return; }
+            // Full sentence may still be split across this element's OWN
+            // descendants (role/name in sibling spans) — read the whole
+            // subtree's text for the role/name match, not just this node's.
+            const scopeText = el.textContent || '';
+            const roleMatch = scopeText.match(/Thus done and signed by the (\w+)\s*\(?([^)]*)\)?/);
             const role = roleMatch ? roleMatch[1] : null;
             const name = roleMatch && roleMatch[2] ? roleMatch[2].trim() : null;
-            // Collect input values within the same containing block (walk up
-            // to a reasonably-scoped ancestor, then take the first N inputs
-            // after this element in document order, before the NEXT "Thus
-            // done" element).
-            let container = el.closest('div');
+            // Walk up to a reasonably-scoped ancestor containing the
+            // ceremony-field inputs that belong to THIS block.
+            let container = el.closest('div') || el;
             let hops = 0;
             while (container && container.parentElement && hops < 6) {
                 container = container.parentElement;
                 hops++;
             }
             const inputs = container ? Array.from(container.querySelectorAll('input')) : [];
-            // Restrict to inputs that appear AFTER this element and BEFORE
-            // the next "Thus done" element, by DOM position comparison.
             const nextStart = starts[i + 1];
             const scoped = inputs.filter(inp => {
                 const afterThis = !!(el.compareDocumentPosition(inp) & Node.DOCUMENT_POSITION_FOLLOWING);

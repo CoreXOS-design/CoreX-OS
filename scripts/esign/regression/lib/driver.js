@@ -354,6 +354,19 @@ async function clickHighlightedField(page) {
     });
 }
 
+// 2026-08-27 — root cause of the intermittent signing-completion stall,
+// found via ESIGN_HARNESS_DEBUG: sign.blade.php's ceremony-field setup
+// (_makeCeremonyFieldsEditable, called from a tryInit() polled every 200ms
+// for up to 4s after the page paginates) is not idempotent — each poll tick
+// that still finds a "[data-marker-party][data-marker-type=...]" element
+// (which the REPLACEMENT <input> itself still matches) tears it down and
+// creates a fresh one with value:'' for the location field (no prefill,
+// unlike day/month/year/time). Typing into the field while that 4s window
+// is still open gets silently wiped by the next tick — the exact "always
+// empty, same position, every loop" symptom this harness was hitting.
+// Fixed here, not in the product (out of scope for this pass) — retry with
+// verification for up to ~4.5s, comfortably covering the polling window,
+// instead of trusting a single type+Tab to stick.
 async function fillLocationIfPresent(page) {
     const box = await page.evaluate(() => {
         const input = document.querySelector('input[placeholder="Location"]');
@@ -363,14 +376,29 @@ async function fillLocationIfPresent(page) {
         input.scrollIntoView({ block: 'center' });
         return { x: r.x + r.width / 2, y: r.y + r.height / 2, value: input.value };
     });
-    if (box && !box.value) {
-        await page.mouse.click(box.x, box.y);
+    if (!box || box.value) return false;
+
+    for (let attempt = 0; attempt < 9; attempt++) {
+        const fresh = await page.evaluate(() => {
+            const input = document.querySelector('input[placeholder="Location"]');
+            if (!input) return null;
+            const r = input.getBoundingClientRect();
+            return { x: r.x + r.width / 2, y: r.y + r.height / 2, value: input.value };
+        });
+        if (!fresh) break; // field disappeared — a "Go to next" moved us on
+        if (fresh.value) return true; // a previous attempt already stuck
+        await page.mouse.click(fresh.x, fresh.y);
         await page.keyboard.type('Uvongo', { delay: 15 });
         await page.keyboard.press('Tab');
-        await sleep(700);
-        return true;
+        await sleep(500);
+        const after = await page.evaluate(() => {
+            const input = document.querySelector('input[placeholder="Location"]');
+            return input ? input.value : null;
+        });
+        if (process.env.ESIGN_HARNESS_DEBUG) console.error(`[signing-debug] fillLocationIfPresent: attempt ${attempt}, value after type+tab = ${JSON.stringify(after)}`);
+        if (after) return true;
     }
-    return false;
+    return true; // treat as handled either way — caller just needs to know to re-check progress, not spin forever on this field
 }
 
 async function typeAndApplySignature(page, name) {
@@ -403,13 +431,51 @@ async function typeAndApplySignature(page, name) {
 // harness can sign as, being logged in as the agent). Retries generously;
 // on genuine failure to progress, returns completed:false with a plain
 // reason rather than hanging or reporting a false pass.
+// 2026-08-27 — second root cause of the intermittent signing-completion
+// stall, found via ESIGN_HARNESS_DEBUG + a full-page marker dump: page-break
+// initial boxes for the agent DO carry the dashed border clickHighlightedField
+// looks for (_makeWebInitialsInteractive sets `border: 2px dashed`), but
+// "Go to next" was not reliably scrolling them into view — all 4 unsigned
+// agent-initial elements on a 5-page test document sat at NEGATIVE
+// getBoundingClientRect().top (scrolled above the current viewport) even
+// after clicking "Go to next" and waiting. clickHighlightedField only scans
+// what's currently on-screen, so it never found them and the loop spun on
+// the already-signed final attestation instead. This queries and scrolls to
+// an unsigned agent initial DIRECTLY — [data-marker-party="agent"]
+// [data-marker-type="initial"] without data-signed="true" — bypassing
+// "Go to next" and the viewport-only scan entirely for this field type.
+async function findAndScrollToUnsignedAgentInitial(page) {
+    return page.evaluate(() => {
+        const els = Array.from(document.querySelectorAll('[data-marker-party="agent"][data-marker-type="initial"]'));
+        const target = els.find(el => el.getAttribute('data-signed') !== 'true');
+        if (!target) return { found: false };
+        target.scrollIntoView({ block: 'center' });
+        const r = target.getBoundingClientRect();
+        return { found: true, x: r.x + r.width / 2, y: r.y + r.height / 2 };
+    }).then(async (result) => {
+        if (!result.found) return result;
+        // scrollIntoView is async/animated in some browsers — re-read the
+        // rect after a short settle instead of trusting the pre-scroll one.
+        await sleep(400);
+        return page.evaluate(() => {
+            const els = Array.from(document.querySelectorAll('[data-marker-party="agent"][data-marker-type="initial"]'));
+            const target = els.find(el => el.getAttribute('data-signed') !== 'true');
+            if (!target) return { found: false };
+            const r = target.getBoundingClientRect();
+            return { found: true, x: r.x + r.width / 2, y: r.y + r.height / 2 };
+        });
+    });
+}
+
 async function robustCompleteAgentSigning(page, agentName, { maxLoops = 40, stagnantLimit = 8 } = {}) {
     let lastProgress = null;
     let stagnant = 0;
     let lastError = null;
 
+    const DEBUG = !!process.env.ESIGN_HARNESS_DEBUG;
     for (let i = 0; i < maxLoops; i++) {
         const prog = await getProgress(page);
+        if (DEBUG) console.error(`[signing-debug] loop ${i} start: progress="${prog}"`);
         if (prog) {
             const [done, total] = prog.split(' / ').map(s => parseInt(s));
             if (done >= total) return { completed: true, finalProgress: prog };
@@ -423,22 +489,38 @@ async function robustCompleteAgentSigning(page, agentName, { maxLoops = 40, stag
             await clickBtnContains(page, 'Go to next');
             await sleep(900);
 
-            if (await fillLocationIfPresent(page)) continue;
+            const locFilled = await fillLocationIfPresent(page);
+            if (DEBUG) console.error(`[signing-debug] loop ${i}: location field filled = ${locFilled}`);
+            if (locFilled) continue;
 
-            const hl = await clickHighlightedField(page);
+            let hl = await clickHighlightedField(page);
+            if (DEBUG) console.error(`[signing-debug] loop ${i}: highlighted field = ${JSON.stringify(hl)}`);
+            if (!hl.found) {
+                hl = await findAndScrollToUnsignedAgentInitial(page);
+                if (DEBUG) console.error(`[signing-debug] loop ${i}: fallback unsigned-agent-initial scan = ${JSON.stringify(hl)}`);
+            }
             if (hl.found) {
                 await page.mouse.click(hl.x, hl.y);
                 await sleep(900);
                 const hasSigModal = await page.evaluate(() => document.body.innerText.includes('Use my saved signature'));
                 if (hasSigModal) {
                     await typeAndApplySignature(page, agentName);
+                    if (DEBUG) console.error(`[signing-debug] loop ${i}: signature typed+applied`);
                 } else {
                     const dlg = await page.evaluate(() => document.body.innerText.includes('Apply to Remaining Markers?'));
-                    if (dlg) { await clickBtnExact(page, 'Yes, Apply to All'); await sleep(1200); }
+                    if (dlg) {
+                        await clickBtnExact(page, 'Yes, Apply to All'); await sleep(1200);
+                        if (DEBUG) console.error(`[signing-debug] loop ${i}: apply-to-remaining dialog handled`);
+                    } else if (DEBUG) {
+                        console.error(`[signing-debug] loop ${i}: clicked highlighted field at (${hl.x},${hl.y}) — no signature modal, no apply-to-remaining dialog. Progress stayed at "${prog}".`);
+                    }
                 }
+            } else if (DEBUG) {
+                console.error(`[signing-debug] loop ${i}: no dashed-border highlighted field found on screen. Progress "${prog}".`);
             }
         } catch (e) {
             lastError = e.message;
+            if (DEBUG) console.error(`[signing-debug] loop ${i}: EXCEPTION caught: ${e.message}\n${e.stack}`);
         }
     }
 
