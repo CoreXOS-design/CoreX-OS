@@ -90,6 +90,27 @@ class SupplierDirectoryController extends Controller
         // AT-319 — capture the supplier's type(s) alongside the legacy single specialty.
         $this->syncServiceTypes($provider, $this->postedTypeCodes($request, $agencyId));
 
+        // Johan, 2026-08-26 — "creating a new supplier - where do I capture the id?"
+        // A brand-new firm gets its first contact right here, in the same submit,
+        // when a representative ID was given — the exact same record shape (and the
+        // exact same field) "+ Add contact" below creates for an existing firm. Only
+        // for a genuinely NEW firm (findOrCreate() can return an EXISTING one it
+        // matched on name/email) so re-submitting the add form for an existing
+        // supplier never silently creates a duplicate contact.
+        $repIdNumber = trim((string) $request->input('rep_id_number', ''));
+        if ($repIdNumber !== '' && $provider->wasRecentlyCreated) {
+            \App\Models\DealV2\AgencyServiceProviderContact::create([
+                'agency_id' => $agencyId,
+                'service_provider_id' => $provider->id,
+                'attorney_name' => $data['name'],
+                'email' => $data['email'] ?? null,
+                'phone' => $data['phone'] ?? null,
+                'id_number' => $repIdNumber,
+                'is_active' => true,
+                'created_by_id' => $request->user()->id,
+            ]);
+        }
+
         return back()->with('success', 'Provider saved to the directory.');
     }
 

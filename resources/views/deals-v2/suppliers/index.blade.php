@@ -49,6 +49,16 @@
         <div class="text-lg font-semibold mb-4" style="color: var(--text-primary);">Add a provider to the directory</div>
         <form method="POST" action="{{ route('deals-v2.suppliers.store') }}" class="grid grid-cols-1 md:grid-cols-3 gap-4">
             @csrf
+            {{-- Johan, 2026-08-26 — "starts with name, then further down company?"
+                 The identity of a supplier is the firm where there is one; an agent
+                 adding a firm should be typing the firm first. Company leads, the
+                 person's own name follows — same fields, no labels changed. --}}
+            <div>
+                <label for="sp-company" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Company</label>
+                <input id="sp-company" name="company" maxlength="191"
+                       class="w-full rounded-md px-3 py-2 text-sm"
+                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+            </div>
             <div>
                 <label for="sp-name" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Name <span class="text-red-500">*</span></label>
                 <input id="sp-name" name="name" required maxlength="191"
@@ -67,12 +77,6 @@
                 </select>
             </div>
             <div>
-                <label for="sp-company" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Company</label>
-                <input id="sp-company" name="company" maxlength="191"
-                       class="w-full rounded-md px-3 py-2 text-sm"
-                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
-            </div>
-            <div>
                 {{-- Johan, 2026-08-26 — split from the old combined
                      "Registration / ID Number" field. This one is the
                      COMPANY's own registration number only — the
@@ -87,6 +91,21 @@
                 <label for="sp-registration-number" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Company Registration Number</label>
                 <input id="sp-registration-number" name="registration_number" maxlength="100"
                        placeholder="e.g. 2020/778899/23"
+                       class="w-full rounded-md px-3 py-2 text-sm"
+                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+            </div>
+            <div>
+                {{-- Johan, 2026-08-26 — "creating a new supplier - where do I capture
+                     the id?" A supplier is one company + a representative; the person's
+                     ID is captured here at create time too now, not only afterwards on
+                     the "Add contact" row — an agent can finish a supplier complete in
+                     one go. Saved as this supplier's first contact (attorney_name =
+                     the Name field above), the exact same record shape "+ Add contact"
+                     below creates — never required here, same reasoning as Company
+                     Registration Number above. --}}
+                <label for="sp-rep-id-number" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Representative ID Number</label>
+                <input id="sp-rep-id-number" name="rep_id_number" maxlength="20"
+                       placeholder="e.g. 8001015800099"
                        class="w-full rounded-md px-3 py-2 text-sm"
                        style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
             </div>
@@ -146,9 +165,22 @@
                     @forelse($providers as $p)
                         <tr style="{{ $p->is_active ? '' : 'opacity:0.55;' }}">
                             <td class="px-4 py-3">
-                                <span class="font-medium" style="color: var(--text-primary);">{{ $p->name }}</span>
-                                @if($p->is_preferred)<span class="ds-badge ds-badge-success ml-2">Preferred</span>@endif
-                                @if($p->company)<div class="text-[11px]" style="color: var(--text-muted);">{{ $p->company }}</div>@endif
+                                {{-- Johan, 2026-08-26 — "the identity of a supplier is
+                                     the FIRM where there is one, and the person only
+                                     when there isn't." Company leads as the heading;
+                                     the person sits underneath as the representative.
+                                     No company on file (a sole practitioner with no
+                                     firm name captured) falls back to the person as
+                                     the heading, exactly as before — never a blank
+                                     heading or "None". --}}
+                                @if($p->company)
+                                    <span class="font-medium" style="color: var(--text-primary);">{{ $p->company }}</span>
+                                    @if($p->is_preferred)<span class="ds-badge ds-badge-success ml-2">Preferred</span>@endif
+                                    <div class="text-[11px]" style="color: var(--text-muted);">{{ $p->name }}</div>
+                                @else
+                                    <span class="font-medium" style="color: var(--text-primary);">{{ $p->name }}</span>
+                                    @if($p->is_preferred)<span class="ds-badge ds-badge-success ml-2">Preferred</span>@endif
+                                @endif
                                 @if($p->registration_number)<div class="text-[11px]" style="color: var(--text-muted);">Reg: {{ $p->registration_number }}</div>@endif
                                 {{-- AT-319 — the supplier's service types (labels; falls back to the stored code if archived). --}}
                                 @if($p->serviceTypes->isNotEmpty())
@@ -297,14 +329,25 @@
                                     <div class="text-xs mb-2" style="color: var(--text-muted);">No contacts yet — add the attorney and the person you deal with.</div>
                                 @endforelse
 
-                                <form method="POST" action="{{ route('deals-v2.suppliers.contacts.store', $p) }}" class="mt-2 flex flex-wrap items-end gap-2">
+                                {{-- Johan, 2026-08-26 — "refreshed screen as theres no
+                                     edit or save for suppliers?" This row of inputs DOES
+                                     save (POST below) — it typed as an inline row with no
+                                     visual boundary, so it read as free text with nowhere
+                                     to submit it, and a refresh discarded whatever was
+                                     typed. Boxed and labelled now so it reads as its own
+                                     form with its own Save button, not loose text. --}}
+                                <form method="POST" action="{{ route('deals-v2.suppliers.contacts.store', $p) }}"
+                                      class="mt-2 rounded-md p-2.5" style="background: var(--surface-2); border: 1px solid var(--border);">
                                     @csrf
-                                    <input type="text" name="attorney_name" placeholder="Attorney" class="text-xs rounded-md px-2 py-1" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
-                                    <input type="text" name="contact_person" placeholder="Contact (assistant/paralegal)" class="text-xs rounded-md px-2 py-1" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
-                                    <input type="email" name="email" placeholder="Email" class="text-xs rounded-md px-2 py-1" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
-                                    <input type="text" name="phone" placeholder="Phone" class="text-xs rounded-md px-2 py-1" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
-                                    <input type="text" name="id_number" placeholder="ID number" maxlength="20" class="text-xs rounded-md px-2 py-1" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
-                                    <button type="submit" class="text-xs font-semibold no-underline hover:underline" style="color: var(--brand-icon);">+ Add contact</button>
+                                    <div class="text-[11px] font-semibold uppercase tracking-wider mb-2" style="color: var(--text-muted);">Add a contact — remember to Save</div>
+                                    <div class="flex flex-wrap items-end gap-2">
+                                        <input type="text" name="attorney_name" placeholder="Attorney" class="text-xs rounded-md px-2 py-1.5" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                        <input type="text" name="contact_person" placeholder="Contact (assistant/paralegal)" class="text-xs rounded-md px-2 py-1.5" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                        <input type="email" name="email" placeholder="Email" class="text-xs rounded-md px-2 py-1.5" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                        <input type="text" name="phone" placeholder="Phone" class="text-xs rounded-md px-2 py-1.5" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                        <input type="text" name="id_number" placeholder="ID number" maxlength="20" class="text-xs rounded-md px-2 py-1.5" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                        <button type="submit" class="corex-btn-primary text-xs">Save contact</button>
+                                    </div>
                                 </form>
                             </td>
                         </tr>
