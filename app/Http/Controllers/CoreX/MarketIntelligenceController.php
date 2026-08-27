@@ -762,13 +762,23 @@ class MarketIntelligenceController extends Controller
         // has a REAL address sitting on prospecting_listings.matched_property_id's
         // Property — but every list row here still displayed the raw, permanently-
         // blank listing address, the same fault as the Continue guard fixed
-        // earlier today, second symptom. Same pattern as the company-stock
-        // backfill immediately above (#3), generalised to ANY matched property,
-        // not just on-market stock — one query, page-scoped, runs after that
-        // block so an address it already filled is simply skipped (blank() is
-        // false by then). _listing-row.blade.php's own "No address" fallback
-        // (Str::limit($listing->address, 50) : 'No address') is untouched and
-        // now correctly sees a filled address whenever one genuinely exists.
+        // earlier today, second symptom.
+        //
+        // FIX-UP (2026-08-27, same day) — the first version of this backfill wrote
+        // straight onto $listing->address, mutating a live Eloquent ProspectingListing
+        // instance's attribute. Johan then saw the Pitched badge come back on rows that
+        // were never completed. Root cause not fully proven either way in the time
+        // available, but the mechanism is real risk regardless: a dirty ->address on
+        // these SAME objects sits alongside is_pitched/property_id, which the Pitched
+        // badge (SuggestedActionResolver) reads off this exact collection a few lines
+        // below (~line 1211) — mutating shared attributes on the shared objects is
+        // exactly the kind of coupling that produces this class of bug even when the
+        // specific path isn't obvious on inspection. Rebuilt to touch NOTHING on
+        // $listing itself: a plain array, keyed by listing id, threaded through to the
+        // view as its own value and read ONLY by the address line
+        // (_listing-row.blade.php's "No address" fallback is otherwise untouched).
+        // Zero shared mutable state between the two concerns.
+        $displayAddressByListingId = [];
         $blankAddressPropertyIds = collect($listings->items())
             ->filter(fn ($it) => blank($it->address) && ! empty($it->matched_property_id))
             ->pluck('matched_property_id')
@@ -792,7 +802,7 @@ class MarketIntelligenceController extends Controller
             foreach ($listings->items() as $__it2) {
                 $__pid2 = $__it2->matched_property_id ?? null;
                 if ($__pid2 && blank($__it2->address) && filled($matchedPropAddresses[$__pid2] ?? null)) {
-                    $__it2->address = $matchedPropAddresses[$__pid2];
+                    $displayAddressByListingId[(int) $__it2->id] = $matchedPropAddresses[$__pid2];
                 }
             }
         }
@@ -1185,6 +1195,10 @@ class MarketIntelligenceController extends Controller
             // Trust-strip (display-only) — already-computed synthetic-row breakdown,
             // just wired through so the list header can show its composition.
             'injectedStockCountBySuburb',
+            // Johan, 2026-08-27 — display-only address backfill from a linked
+            // property when the listing's own address is blank. Read-only array,
+            // never touches $listing itself.
+            'displayAddressByListingId',
         ));
     }
 
