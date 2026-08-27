@@ -753,10 +753,28 @@
 
                 @if($contact->representatives->isNotEmpty())
                 <div class="rounded-md overflow-hidden mb-4" style="border:1px solid var(--border);">
-                    @foreach($contact->representatives as $rep)
+                    @foreach($contact->representatives as $repIdx => $rep)
                     <div class="flex items-center gap-3 px-4 py-3" style="border-bottom:1px solid var(--border); background:var(--surface);">
+                        {{-- Johan, 2026-08-30 — "whichever order they got added is what
+                             the company document starts to render... build sorting onto
+                             the representatives on the contacts." This order is
+                             PERMANENT on the company (contact_representatives.sort_order)
+                             — unlike e-sign's own per-document reorder, which starts from
+                             this and lets an agent adjust it for one document only. --}}
+                        <div class="flex flex-col flex-shrink-0" style="line-height:1;">
+                            <form method="POST" action="{{ route('corex.contacts.representatives.move', [$contact, $rep]) }}">
+                                @csrf
+                                <input type="hidden" name="direction" value="up">
+                                <button type="submit" title="Move up" style="background:none; border:none; padding:2px; {{ $repIdx === 0 ? 'opacity:0.3;' : 'opacity:1; cursor:pointer;' }}" {{ $repIdx === 0 ? 'disabled' : '' }}>▲</button>
+                            </form>
+                            <form method="POST" action="{{ route('corex.contacts.representatives.move', [$contact, $rep]) }}">
+                                @csrf
+                                <input type="hidden" name="direction" value="down">
+                                <button type="submit" title="Move down" style="background:none; border:none; padding:2px; {{ $repIdx === $contact->representatives->count() - 1 ? 'opacity:0.3;' : 'opacity:1; cursor:pointer;' }}" {{ $repIdx === $contact->representatives->count() - 1 ? 'disabled' : '' }}>▼</button>
+                            </form>
+                        </div>
                         <div class="flex-1 min-w-0">
-                            <a href="{{ route('corex.contacts.show', $rep) }}" class="text-sm font-semibold hover:underline" style="color:var(--text-primary);">{{ $rep->full_name }}</a>
+                            <a href="{{ route('corex.contacts.show', $rep) }}" class="text-sm font-semibold hover:underline" style="color:var(--text-primary);">{{ $repIdx + 1 }}. {{ $rep->full_name }}</a>
                             @if($rep->pivot->is_primary)
                             <span class="ml-2 text-[11px] font-semibold px-1.5 py-0.5 rounded" style="background:var(--brand-icon,#0ea5e9)22; color:var(--brand-icon,#0ea5e9);">Primary signatory</span>
                             @endif

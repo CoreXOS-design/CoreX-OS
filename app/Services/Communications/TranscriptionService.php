@@ -4,6 +4,8 @@ namespace App\Services\Communications;
 
 use App\Models\Communications\Communication;
 use App\Models\Communications\CommunicationAttachment;
+use Illuminate\Contracts\Cache\LockTimeoutException;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -30,6 +32,27 @@ class TranscriptionService
 {
     /** body_status values that mean the body/media is withheld — never transcribe. */
     private const WITHHELD = ['embargoed', 'consent_pending', 'embargo_purged'];
+
+    /**
+     * Box-wide whisper concurrency guard.
+     *
+     * whisper.cpp loads the entire model into RAM (large-v3 is 2.9GB on disk,
+     * ~4GB resident), so two notes transcribing at once costs ~8GB. On
+     * 2026-08-26 the live box ran two of them — supervisor had numprocs=2 on the
+     * queue that carries TranscribeVoiceNoteJob — exhausted its 15.6GB, and the
+     * kernel OOM-killed mysqld at 22:04. The job's docblock asserted "one note at
+     * a time on the worker so it never saturates the box", but nothing enforced
+     * it: the guarantee held per worker process, not per box, and ShouldBeUnique
+     * only deduplicates the SAME note.
+     *
+     * This lock makes the assertion true regardless of worker count. The TTL is
+     * the process timeout plus a margin so a SIGKILLed worker (OOM, deploy)
+     * cannot strand the lock — it expires rather than wedging transcription.
+     */
+    private const WHISPER_LOCK = 'corex:transcription:whisper';
+
+    /** How long a waiting worker holds out for the box lock before deferring the note. */
+    private const WHISPER_LOCK_WAIT = 600;
 
     /**
      * Transcribe a voice-note message end to end. Idempotent-ish: sets processing,
@@ -75,6 +98,22 @@ class TranscriptionService
         // worker as `-l <lang>`; 'auto' preserves the historical per-note auto-detect.
         $language = $languageOverride ?: $this->resolveLanguage($comm);
 
+        // Serialise the whisper shell-out box-wide (see WHISPER_LOCK). A second
+        // worker waits its turn instead of loading a second copy of the model. If
+        // the box is still busy after the wait window the note is left exactly as
+        // it was — NOT marked failed, since nothing is wrong with the audio and a
+        // failure would burn one of its capped retries. The next sweep picks it up.
+        $lock = Cache::lock(self::WHISPER_LOCK, $timeout + 300);
+        try {
+            $lock->block(self::WHISPER_LOCK_WAIT);
+        } catch (LockTimeoutException $e) {
+            // AT-173 — the decrypted temp audio must not outlive the attempt.
+            @unlink($audioPath);
+            Log::info('AT-163 transcription deferred — box busy', ['communication_id' => $comm->id]);
+
+            return ['status' => 'deferred'];
+        }
+
         $comm->forceFill(['transcript_status' => 'processing'])->save();
 
         try {
@@ -111,6 +150,8 @@ class TranscriptionService
             Log::warning('AT-163 transcription error', ['communication_id' => $comm->id, 'error' => $e->getMessage()]);
             return $this->markFailed($comm, Str::limit($e->getMessage(), 200, ''));
         } finally {
+            // Always hand the box back, on success, failure or timeout alike.
+            $lock->release();
             // AT-173 — never leave the decrypted temp audio on disk.
             if (isset($audioPath) && is_file($audioPath)) {
                 @unlink($audioPath);

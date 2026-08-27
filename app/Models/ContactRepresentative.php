@@ -42,6 +42,7 @@ class ContactRepresentative extends Pivot
         'entity_contact_id',
         'representative_contact_id',
         'is_primary',
+        'sort_order',
     ];
 
     protected $casts = [

@@ -34,6 +34,7 @@ class WebinarRegistration extends Model
         'demo_access_grant_id',
         'confirmation_sent_at',
         'reminder_sent_at',
+        'join_link_sent_at',
         'last_issued_at',
         'ip_address',
         'user_agent',
@@ -43,6 +44,7 @@ class WebinarRegistration extends Model
     protected $casts = [
         'confirmation_sent_at' => 'datetime',
         'reminder_sent_at'     => 'datetime',
+        'join_link_sent_at'    => 'datetime',
         'last_issued_at'       => 'datetime',
     ];
 

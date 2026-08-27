@@ -272,15 +272,25 @@ final class DeedsCaptureController extends Controller
             // evidence defaults to a person rather than being blocked.
             $isEntity = OwnerEntityClassifier::isEntity($ownerName, $o['id_type'] ?? null, $ownerId);
 
-            $contactId = $this->resolveOwnerContact(
-                $agencyId, $user, $ownerName, $ownerId, $o['id_type'] ?? null, $dupes, $surname, $firstNames, $isEntity
+            // Johan, 2026-08-30 — "phone and email carried across from
+            // deeds." Read defensively: no real capture sends these keys
+            // today (deeds/CMA data has no phone/email — confirmed in the
+            // scraper), so this is always null in practice right now, but
+            // resolveOwnerContact() is ready the moment any source does.
+            $ownerPhone = isset($o['phone']) ? trim((string) $o['phone']) : null;
+            $ownerEmail = isset($o['email']) ? trim((string) $o['email']) : null;
+
+            $resolved = $this->resolveOwnerContact(
+                $agencyId, $user, $ownerName, $ownerId, $o['id_type'] ?? null, $dupes, $surname, $firstNames, $isEntity,
+                $ownerPhone !== '' ? $ownerPhone : null, $ownerEmail !== '' ? $ownerEmail : null
             );
             $resolvedOwners[] = [
-                'contact_id' => $contactId,
-                'name'       => $ownerName !== '' ? $ownerName : null,
-                'id_number'  => $ownerId,
-                'id_type'    => $o['id_type'] ?? null,
-                'is_entity'  => $isEntity,
+                'contact_id'         => $resolved['contact_id'],
+                'name'               => $ownerName !== '' ? $ownerName : null,
+                'id_number'          => $ownerId,
+                'id_type'            => $o['id_type'] ?? null,
+                'is_entity'          => $isEntity,
+                'matched_contact'    => $resolved['matched'],
             ];
         }
         // owner_contact_id stays the FIRST/primary owner — existing consumers of
@@ -556,8 +566,8 @@ final class DeedsCaptureController extends Controller
             return;
         }
 
-        $matchesOnFile = static function (array $scraped) use ($onFile): bool {
-            return $onFile->contains(function ($existing) use ($scraped) {
+        $findOnFile = static function (array $scraped) use ($onFile) {
+            return $onFile->first(function ($existing) use ($scraped) {
                 if (!empty($scraped['id_number']) && !empty($existing->id_number)) {
                     return $scraped['id_number'] === $existing->id_number;
                 }
@@ -568,8 +578,22 @@ final class DeedsCaptureController extends Controller
         };
 
         foreach ($resolvedOwners as $i => $o) {
-            if ($matchesOnFile($o)) {
-                continue; // (b) same owner already on file — nothing to add, nothing to touch
+            $onFileRow = $findOnFile($o);
+            if ($onFileRow) {
+                // (b) same owner already on file — the ownership facts are
+                // deliberately untouched (Johan's existing rule, unchanged).
+                // Johan, 2026-08-30 — but a RE-capture of an already-on-file
+                // owner is the single most common real case, and until now
+                // it never reached the "flag deeds on id numbers" write at
+                // all: resolveOwnerContact() above had already worked out
+                // this owner matched a real contact, and that answer was
+                // then silently thrown away right here. Backfill the flag
+                // (once — never re-stamp a row that already has it) without
+                // touching anything else on the row.
+                if (($o['matched_contact'] ?? false) && $onFileRow->matched_contact_at === null) {
+                    $onFileRow->update(['matched_contact_at' => now()]);
+                }
+                continue;
             }
 
             // (c) differs from what's on file — capture it, flagged, never merged.
@@ -590,6 +614,7 @@ final class DeedsCaptureController extends Controller
             \App\Models\Prospecting\TrackedPropertyOwner::create([
                 'tracked_property_id' => $tp->id,
                 'contact_id'          => $o['contact_id'],
+                'matched_contact_at'  => ($o['matched_contact'] ?? false) ? now() : null,
                 'name'                => $o['name'],
                 'id_number'           => $o['id_number'],
                 'id_type'             => $o['id_type'],
@@ -608,10 +633,14 @@ final class DeedsCaptureController extends Controller
     private function syncOwners(\App\Models\Prospecting\TrackedProperty $tp, array $resolvedOwners): void
     {
         foreach ($resolvedOwners as $i => $o) {
+            // Johan, 2026-08-30 — the deeds-capture screen's "we already
+            // know this person" flag, and the real-numbers count of how
+            // many owners actually matched an existing contact.
+            $matchedAt = $o['matched_contact'] ?? false ? now() : null;
             if ($o['id_number']) {
                 \App\Models\Prospecting\TrackedPropertyOwner::updateOrCreate(
                     ['tracked_property_id' => $tp->id, 'id_number' => $o['id_number']],
-                    ['contact_id' => $o['contact_id'], 'name' => $o['name'], 'id_type' => $o['id_type'], 'is_primary' => $i === 0]
+                    ['contact_id' => $o['contact_id'], 'name' => $o['name'], 'id_type' => $o['id_type'], 'is_primary' => $i === 0, 'matched_contact_at' => $matchedAt]
                 );
             } else {
                 \App\Models\Prospecting\TrackedPropertyOwner::create([
@@ -621,19 +650,29 @@ final class DeedsCaptureController extends Controller
                     'id_number'           => null,
                     'id_type'             => $o['id_type'],
                     'is_primary'          => $i === 0,
+                    'matched_contact_at'  => $matchedAt,
                 ]);
             }
         }
     }
 
+    /**
+     * @return array{contact_id: ?int, matched: bool} matched=true only when
+     *   an EXISTING contact was found by ID and reused — never on create.
+     *   This is the one signal the deeds-capture screen's "already a
+     *   contact" flag and the real-numbers count both read (Johan,
+     *   2026-08-30 — "look for matches on contacts to flag deeds... on id
+     *   numbers").
+     */
     private function resolveOwnerContact(
         int $agencyId, $user, string $name, ?string $idNumber, ?string $idType, $dupes,
-        ?string $surname = null, ?string $firstNames = null, bool $isEntity = false
-    ): ?int
+        ?string $surname = null, ?string $firstNames = null, bool $isEntity = false,
+        ?string $ownerPhone = null, ?string $ownerEmail = null
+    ): array
     {
         // Juristic entity (company/CC/trust) — capture as an entity Contact.
         if ($isEntity) {
-            return $this->resolveEntityOwnerContact($agencyId, $user, $name, $idNumber, $dupes);
+            return $this->resolveEntityOwnerContact($agencyId, $user, $name, $idNumber, $dupes, $ownerPhone, $ownerEmail);
         }
 
         // Dedupe on the owner ID — the join key.
@@ -644,8 +683,18 @@ final class DeedsCaptureController extends Controller
                 $patch = [];
                 if (empty($existing->id_number)) { $patch['id_number'] = $idNumber; }
                 if (empty($existing->id_type) && $idType) { $patch['id_type'] = $idType; }
+                // Johan, 2026-08-30 — "phone and email carried across from
+                // deeds... do NOT silently overwrite a value the agency
+                // already has." Same empty-field-only pattern as id_number/
+                // id_type immediately above — reused, not a new rule.
+                // $ownerPhone/$ownerEmail are null on every real capture
+                // today (deeds/CMA data carries neither — confirmed in the
+                // scraper and the spec); this exists so a future source that
+                // DOES provide them enriches correctly with zero further code.
+                if (empty($existing->phone) && $ownerPhone) { $patch['phone'] = $ownerPhone; }
+                if (empty($existing->email) && $ownerEmail) { $patch['email'] = $ownerEmail; }
                 if ($patch !== []) { $existing->update($patch); }
-                return (int) $existing->id;
+                return ['contact_id' => (int) $existing->id, 'matched' => true];
             }
         }
 
@@ -665,7 +714,8 @@ final class DeedsCaptureController extends Controller
             'branch_id'             => $user->branch_id,
             'first_name'            => $first !== '' ? $first : 'Owner',
             'last_name'             => $last,
-            'phone'                 => '',
+            'phone'                 => $ownerPhone ?? '',
+            'email'                 => $ownerEmail,
             'id_number'             => $idNumber,
             'id_type'               => $idType,
             'id_number_captured_at' => $idNumber ? now() : null,
@@ -673,7 +723,7 @@ final class DeedsCaptureController extends Controller
             'created_by_user_id'    => (int) $user->id,
         ]);
 
-        return (int) $contact->id;
+        return ['contact_id' => (int) $contact->id, 'matched' => false];
     }
 
     /**
@@ -688,7 +738,7 @@ final class DeedsCaptureController extends Controller
      * order. Dedupe on entity_reg_no — the entity join key — mirroring how the
      * natural-person path dedupes on id_number.
      */
-    private function resolveEntityOwnerContact(int $agencyId, $user, string $name, ?string $regNo, $dupes): ?int
+    private function resolveEntityOwnerContact(int $agencyId, $user, string $name, ?string $regNo, $dupes, ?string $ownerPhone = null, ?string $ownerEmail = null): array
     {
         $regNo = ($regNo !== null && $regNo !== '') ? $regNo : null;
 
@@ -700,8 +750,10 @@ final class DeedsCaptureController extends Controller
                 if (empty($existing->entity_reg_no)) { $patch['entity_reg_no'] = $regNo; }
                 if ($existing->contact_kind !== Contact::TYPE_ENTITY) { $patch['contact_kind'] = Contact::TYPE_ENTITY; }
                 if (empty($existing->entity_name) && $name !== '') { $patch['entity_name'] = $name; }
+                if (empty($existing->phone) && $ownerPhone) { $patch['phone'] = $ownerPhone; }
+                if (empty($existing->email) && $ownerEmail) { $patch['email'] = $ownerEmail; }
                 if ($patch !== []) { $existing->update($patch); }
-                return (int) $existing->id;
+                return ['contact_id' => (int) $existing->id, 'matched' => true];
             }
         }
 
@@ -714,11 +766,12 @@ final class DeedsCaptureController extends Controller
             'entity_reg_no'      => $regNo,
             'first_name'         => $entityName,
             'last_name'          => '',
-            'phone'              => '',
+            'phone'              => $ownerPhone ?? '',
+            'email'              => $ownerEmail,
             'created_by_user_id' => (int) $user->id,
         ]);
 
-        return (int) $contact->id;
+        return ['contact_id' => (int) $contact->id, 'matched' => false];
     }
 
     private function splitName(string $name): array

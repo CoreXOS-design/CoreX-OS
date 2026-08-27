@@ -78,6 +78,7 @@ class AgencyServiceProviderService
             'company' => $data['company'] ?? null,
             'email' => $data['email'] ?? null,
             'phone' => $data['phone'] ?? null,
+            'address' => $data['address'] ?? null,
             'notes' => $data['notes'] ?? null,
             'is_preferred' => (bool) ($data['is_preferred'] ?? false),
             'is_active' => true,

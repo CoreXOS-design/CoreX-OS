@@ -589,6 +589,18 @@
                                                 <span style="color: var(--ds-amber, #f59e0b);">No owner ID</span>
                                             @endif
                                         </div>
+                                        {{-- Johan, 2026-08-30 — "look for matches on contacts to flag
+                                             deeds as well on id numbers." matched_contact_at is set ONLY
+                                             when this owner's ID matched an EXISTING contact (never on a
+                                             fresh create) — see DeedsCaptureController::resolveOwnerContact(). --}}
+                                        @if($ownerRow->matchedExistingContact() && $ownerRow->contact)
+                                            <div class="text-[11px] mt-0.5">
+                                                <a href="{{ route('corex.contacts.show', $ownerRow->contact) }}" target="_blank" rel="noopener"
+                                                   class="font-semibold no-underline" style="color: var(--ds-green, #059669);">
+                                                    ✓ Already a contact — view record
+                                                </a>
+                                            </div>
+                                        @endif
                                         @if($ownerRow->deed_reference || $ownerRow->ownership_share_pct !== null)
                                             <div class="text-[11px] mt-0.5" style="color: var(--text-muted);">
                                                 @if($ownerRow->deed_reference)Deed {{ $ownerRow->deed_reference }}@endif

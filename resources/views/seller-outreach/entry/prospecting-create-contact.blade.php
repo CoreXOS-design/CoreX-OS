@@ -85,7 +85,7 @@
             </div>
             <div id="listing-header-address" class="font-semibold text-sm" style="color: var(--text-primary);"
                  data-original-address="{{ $listing->address ?? '(no address)' }}{{ !empty($listing->suburb) ? ', ' . $listing->suburb : '' }}">
-                {{ $listing->address ?? '(no address)' }}{{ !empty($listing->suburb) ? ', ' . $listing->suburb : '' }}
+                {{ $sellerState['linked_deed']['address'] ?? (($listing->address ?? '(no address)') . (!empty($listing->suburb) ? ', ' . $listing->suburb : '')) }}
             </div>
             <div class="text-xs mt-1" style="color: var(--text-muted);">
                 @if(!empty($listing->price))R {{ number_format((float) $listing->price, 0, '.', ',') }} · @endif
@@ -168,10 +168,15 @@
               },
               async pollDeed() {
                   if (document.hidden) return;   // don't poll a backgrounded tab
+                  const seqAtStart = this._stateSeq;
                   try {
                       const res = await fetch(this.deedPollUrl, { headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' } });
                       if (!res.ok) return;
                       const d = await res.json();
+                      // A mutation (link/unlink seller, pick/unlink deed, dead-end, ...) completed
+                      // while this poll was in flight — its result is newer than this snapshot.
+                      // Applying it now would clobber the newer state with a stale one.
+                      if (this._stateSeq !== seqAtStart) return;
                       this.deed.owners = d.owners || [];
                       this.deed.candidates = d.candidates || [];
                       if (Array.isArray(d.deeds)) this.deeds = d.deeds;
@@ -199,6 +204,14 @@
               removed: @js($sellerState['removed'] ?? []),
               tvaPicks: {},
               sellerBusy: false,
+              // Bumped by every applySellerState() call (link/unlink seller, pick/unlink deed,
+              // dead-end, primary, tva, numbers). pollDeed() below snapshots this before its
+              // fetch and refuses to apply a response that arrives after a mutation already
+              // landed — otherwise a poll that was in flight before a fast remove-then-re-add
+              // click sequence resolves afterward and silently reverts the re-add (Johan
+              // 2026-08-26, MIC contact screen: removed a contact, re-added it, it did not come
+              // back).
+              _stateSeq: 0,
               // When sellers are already linked, the manual seller-contact form is collapsed and
               // NOT a required gate — continue runs off the linked sellers.
               showManualForm: false,
@@ -234,6 +247,7 @@
                            'X-CSRF-TOKEN': document.querySelector('meta[name=csrf-token]')?.content || '' };
               },
               applySellerState(d) {
+                  this._stateSeq++;
                   this.sellers = d.sellers || [];
                   this.tva = d.tva || {};
                   if (d.property_id) this.propertyId = d.property_id;
@@ -242,7 +256,7 @@
                   // The listing header above this component's own x-data scope is plain
                   // server-rendered Blade (not reactive) — selecting/unlinking a deed still
                   // has to update it, so we do it directly rather than leaving the address
-                  // stuck on its page-load value (or "(no address)") after the deed changes it.
+                  // stuck on its page-load value (or '(no address)') after the deed changes it.
                   const headerEl = document.getElementById('listing-header-address');
                   if (headerEl) {
                       headerEl.textContent = (this.linkedDeed && this.linkedDeed.address)

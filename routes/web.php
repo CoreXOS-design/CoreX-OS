@@ -994,6 +994,8 @@ Route::prefix('deals-v2/suppliers')->middleware(['auth'])->group(function () {
     Route::post('/{provider}/types', [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'syncTypes'])->name('deals-v2.suppliers.types')->middleware('permission:deals_v2.manage_suppliers');
     // AT-364 — persist a supplier's attorney capabilities (Transfer / Bond); a firm can be both.
     Route::post('/{provider}/attorney-capabilities', [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'syncAttorneyCapabilities'])->name('deals-v2.suppliers.attorney-capabilities')->middleware('permission:deals_v2.manage_suppliers');
+    // The firm's business address — needed on any document the firm signs (e.g. an executor).
+    Route::post('/{provider}/address', [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'updateAddress'])->name('deals-v2.suppliers.address')->middleware('permission:deals_v2.manage_suppliers');
     Route::post('/{provider}/deactivate', [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'deactivate'])->name('deals-v2.suppliers.deactivate')->middleware('permission:deals_v2.manage_suppliers');
     // (DR2 respec) firm → contact persons management.
     Route::post('/{provider}/contacts', [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'storeContact'])->name('deals-v2.suppliers.contacts.store')->middleware('permission:deals_v2.manage_suppliers');
@@ -3610,6 +3612,12 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::get('/active/{layerId}',       [\App\Http\Controllers\Map\MapController::class, 'activeCard'])->name('active');
         Route::get('/mic-subject/{report}',   [\App\Http\Controllers\Map\MapController::class, 'micSubjectCard'])->name('mic-subject');
         Route::get('/scheme-owner/{owner}',   [\App\Http\Controllers\Map\MapController::class, 'schemeOwnerCard'])->name('scheme-owner');
+        // Johan, 2026-08-30 — "expand the scheme tick so an agent can start a Pitch
+        // Now directly from there." Reuses the SAME Pitch Now entry point the map's
+        // T-pins already use (seller-outreach.entry.from-tracked-property) — this
+        // route only bridges a SchemeOwner row to a TrackedProperty first (a scheme
+        // unit has no Property/TrackedProperty of its own yet), never a second flow.
+        Route::get('/scheme-owner/{owner}/pitch', [\App\Http\Controllers\Map\MapController::class, 'pitchSchemeOwner'])->name('scheme-owner.pitch');
         // Phase A.2 — activity log endpoint for map-launched actions.
         Route::post('/activity/log',          [\App\Http\Controllers\Map\MapActivityController::class, 'log'])->name('activity.log');
         // Phase A.3.2 — per-user saved searches CRUD.
@@ -3754,6 +3762,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/{contact}/representatives/link',  [\App\Http\Controllers\CoreX\ContactRepresentativeController::class, 'link'])->name('representatives.link');
         Route::post('/{contact}/representatives/create-and-link', [\App\Http\Controllers\CoreX\ContactRepresentativeController::class, 'createAndLinkRepresentative'])->name('representatives.create-and-link');
         Route::delete('/{contact}/representatives/{representative}', [\App\Http\Controllers\CoreX\ContactRepresentativeController::class, 'unlink'])->name('representatives.unlink');
+        Route::post('/{contact}/representatives/{representative}/move', [\App\Http\Controllers\CoreX\ContactRepresentativeController::class, 'move'])->name('representatives.move');
         // Mirror direction — a NATURAL PERSON's "Linked Entities" panel. Same
         // pivot, same link()/unlink() above (called with the entity as
         // {contact}); these two are the person-side search + create-on-the-fly.

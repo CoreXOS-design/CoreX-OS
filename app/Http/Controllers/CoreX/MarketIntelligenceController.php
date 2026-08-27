@@ -755,6 +755,48 @@ class MarketIntelligenceController extends Controller
             }
         }
 
+        // Johan, 2026-08-27 — "we have an address now [on the linked property].
+        // so the my claim can update with that address as it got linked." A
+        // no-address portal listing that's since had a deed linked (Pitch Now
+        // -> Link a deed -> ComposeSellerService::selectDeed()/applyDeedAddress())
+        // has a REAL address sitting on prospecting_listings.matched_property_id's
+        // Property — but every list row here still displayed the raw, permanently-
+        // blank listing address, the same fault as the Continue guard fixed
+        // earlier today, second symptom. Same pattern as the company-stock
+        // backfill immediately above (#3), generalised to ANY matched property,
+        // not just on-market stock — one query, page-scoped, runs after that
+        // block so an address it already filled is simply skipped (blank() is
+        // false by then). _listing-row.blade.php's own "No address" fallback
+        // (Str::limit($listing->address, 50) : 'No address') is untouched and
+        // now correctly sees a filled address whenever one genuinely exists.
+        $blankAddressPropertyIds = collect($listings->items())
+            ->filter(fn ($it) => blank($it->address) && ! empty($it->matched_property_id))
+            ->pluck('matched_property_id')
+            ->unique()
+            ->values();
+        if ($blankAddressPropertyIds->isNotEmpty()) {
+            $matchedPropAddresses = \App\Models\Property::withoutGlobalScopes()
+                ->whereIn('id', $blankAddressPropertyIds)
+                ->whereNull('deleted_at')
+                ->get(['id', 'address', 'street_number', 'street_name', 'suburb'])
+                ->mapWithKeys(function ($p) {
+                    $line = trim((string) $p->address) !== ''
+                        ? $p->address
+                        : trim(implode(' ', array_filter([$p->street_number, $p->street_name])));
+                    if ($line !== '' && filled($p->suburb) && ! str_contains($line, $p->suburb)) {
+                        $line .= ', ' . $p->suburb;
+                    }
+                    return [$p->id => $line];
+                })
+                ->filter(fn ($line) => $line !== '');
+            foreach ($listings->items() as $__it2) {
+                $__pid2 = $__it2->matched_property_id ?? null;
+                if ($__pid2 && blank($__it2->address) && filled($matchedPropAddresses[$__pid2] ?? null)) {
+                    $__it2->address = $matchedPropAddresses[$__pid2];
+                }
+            }
+        }
+
         // MIC property row comments (.ai/specs/mic-property-row-comments.md) —
         // one batched count query for the whole visible page, mirroring the
         // $companyStockMap precedent above. Zero N+1 regardless of row count.

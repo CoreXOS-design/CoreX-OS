@@ -141,6 +141,28 @@ class SupplierDirectoryController extends Controller
         return back()->with('success', "Updated attorney capabilities for {$provider->name}.");
     }
 
+    /**
+     * The firm's business address — e.g. an executor's practice address, needed on any
+     * document the firm signs. Dedicated route (same idiom as syncTypes / attorney
+     * capabilities) so saving it never trips update()'s required name/specialty rules
+     * and can never trample another field.
+     */
+    public function updateAddress(Request $request, AgencyServiceProvider $provider)
+    {
+        $this->authorizeAgency($request, $provider);
+
+        $data = $request->validate([
+            'address' => 'nullable|string|max:500',
+        ]);
+
+        $provider->update(['address' => $data['address'] ?? null]);
+
+        if ($request->wantsJson()) {
+            return response()->json(['ok' => true, 'address' => $provider->fresh()->address]);
+        }
+        return back()->with('success', "Updated the address for {$provider->name}.");
+    }
+
     public function markPreferred(Request $request, AgencyServiceProvider $provider)
     {
         $this->authorizeAgency($request, $provider);
@@ -209,6 +231,7 @@ class SupplierDirectoryController extends Controller
             'company' => 'nullable|string|max:191',
             'email' => 'nullable|email|max:191',
             'phone' => 'nullable|string|max:50',
+            'address' => 'nullable|string|max:500',
             'notes' => 'nullable|string',
             'is_preferred' => 'sometimes|boolean',
             'contact_id' => 'nullable|integer',

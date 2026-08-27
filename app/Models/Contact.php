@@ -658,12 +658,22 @@ class Contact extends Model
      */
     public function representatives(): BelongsToMany
     {
+        // Johan, 2026-08-30 — "whichever order they got added is what the
+        // company document starts to render... build sorting onto the
+        // representatives on the contacts." No ORDER BY existed here at
+        // all before this; sort_order is the permanent, company-level
+        // order an agent sets on this contact's own Representatives panel.
+        // Ordering the base relation means every consumer of
+        // ->representatives() (this contact-side list, DR2, and e-sign's
+        // resolvers, which already re-query this same relation fresh) sees
+        // it as the default starting order with no separate wiring.
         return $this->belongsToMany(
             Contact::class,
             'contact_representatives',
             'entity_contact_id',
             'representative_contact_id'
-        )->using(ContactRepresentative::class)->withPivot('is_primary')->withTimestamps()->wherePivotNull('deleted_at');
+        )->using(ContactRepresentative::class)->withPivot('is_primary', 'sort_order')->withTimestamps()->wherePivotNull('deleted_at')
+            ->orderBy('contact_representatives.sort_order');
     }
 
     /**

@@ -5,6 +5,7 @@ namespace App\Services\Prospecting;
 use App\Models\Agency;
 use App\Models\ProspectingListing;
 use App\Models\Property;
+use Illuminate\Support\Facades\Cache;
 
 /**
  * Canonical "our stock" — the SINGLE source of truth for what counts as the
@@ -50,50 +51,104 @@ class OnMarketStockService
     private static array $suburbCountCache = [];
 
     /**
+     * 2026-08-27 — the agency-wide property scan behind identitySets() cost
+     * ~580ms per call (measured: 3 chunked queries ~100ms + ~480ms of PHP-side
+     * per-row normalisation/stale-stock work over 4,702 rows), and the prior
+     * request-scoped-only memoisation meant every single map load, pan, and
+     * zoom paid it fresh (identified as ~75-78% of total map API time — the
+     * proximate cause was applyNotStock() being added to the map's
+     * active_listings layer for the double-pin fix). Cached here, cross-request,
+     * keyed per agency.
+     *
+     * Correctness is carried by PropertyObserver, NOT by this TTL — Johan's
+     * ruling (2026-08-27): the map must reflect a save immediately, an agent
+     * marking a property sold must never still see its pin. saved()/deleted()/
+     * restored() bust this key synchronously as part of the save, before the
+     * response returns, so the very next map/MIC load after any Eloquent write
+     * rebuilds fresh. Confirmed no write path in this codebase bypasses that —
+     * grepped for Property::query()->update(), DB::table('properties')->update/
+     * insert/upsert(), none exist; every write is a model save/delete.
+     *
+     * This TTL exists ONLY for a write that bypasses Eloquent entirely (a raw
+     * SQL fix, a future migration, a DBA one-off) — none exist today, so this
+     * is deliberately a long, rarely-triggered safety net rather than a second
+     * correctness mechanism. 30 minutes: long enough that nobody could mistake
+     * it for "the map refreshes every N minutes," short enough that even the
+     * theoretical bypass case self-heals within a work session.
+     */
+    private const IDENTITY_CACHE_TTL_SECONDS = 1800;
+
+    private static function identityCacheKey(int $agencyId): string
+    {
+        return "onmarket-stock:identity-sets:agency:{$agencyId}";
+    }
+
+    /**
+     * Bust the identity set for one agency — called by PropertyObserver on
+     * saved()/deleted()/restored() so a property change is reflected on the
+     * next map/MIC load rather than waiting out the TTL.
+     */
+    public static function forgetAgency(int $agencyId): void
+    {
+        unset(self::$identityCache[$agencyId]);
+        Cache::forget(self::identityCacheKey($agencyId));
+    }
+
+    /**
      * Our LIVE (non-stale) stock identity for the agency:
      *   ['refs' => ['P24-<num>'|'PP-<ref>' => propertyId, …],
      *    'normAddrs' => [normalizedAddress => propertyId, …]]
      * Matches ANY property regardless of on-market status (drafts included —
      * CX-101 draft-hole fix), then drops any match whose Property::isStaleStock()
      * is true, so a genuinely dead record never suppresses/badges a listing.
-     * Chunked + memoised per agency per request.
+     * Memoised per agency per request (static array — repeat calls in the same
+     * render are free); the underlying property scan itself is cached across
+     * requests per agency (see IDENTITY_CACHE_TTL_SECONDS above).
      */
     public function identitySets(int $agencyId): array
     {
-        if (!array_key_exists($agencyId, self::$identityCache)) {
-            $refs = [];
-            $normAddrs = [];
-
-            Property::withoutGlobalScopes()
-                ->where('agency_id', $agencyId)
-                ->whereNull('deleted_at')
-                ->select([
-                    'id', 'p24_ref', 'pp_ref', 'address', 'suburb', 'status',
-                    'p24_last_submitted_at', 'pp_last_submitted_at',
-                    'p24_activated_at', 'pp_activated_at',
-                    'last_activity_at', 'updated_at',
-                ])
-                ->orderBy('id')
-                ->chunk(2000, function ($rows) use (&$refs, &$normAddrs) {
-                    foreach ($rows as $p) {
-                        if ($p->isStaleStock()) {
-                            continue;
-                        }
-                        if (!empty($p->p24_ref)) {
-                            $refs['P24-' . $p->p24_ref] = (int) $p->id;
-                        }
-                        if (!empty($p->pp_ref)) {
-                            $refs['PP-' . $p->pp_ref] = (int) $p->id;
-                        }
-                        $norm = ProspectingListing::normalizeAddress($p->address, $p->suburb ?? '');
-                        if ($norm) {
-                            $normAddrs[$norm] = (int) $p->id;
-                        }
-                    }
-                });
-
-            self::$identityCache[$agencyId] = ['refs' => $refs, 'normAddrs' => $normAddrs];
+        if (array_key_exists($agencyId, self::$identityCache)) {
+            return self::$identityCache[$agencyId];
         }
+
+        self::$identityCache[$agencyId] = Cache::remember(
+            self::identityCacheKey($agencyId),
+            self::IDENTITY_CACHE_TTL_SECONDS,
+            function () use ($agencyId) {
+                $refs = [];
+                $normAddrs = [];
+
+                Property::withoutGlobalScopes()
+                    ->where('agency_id', $agencyId)
+                    ->whereNull('deleted_at')
+                    ->select([
+                        'id', 'p24_ref', 'pp_ref', 'address', 'suburb', 'status',
+                        'p24_last_submitted_at', 'pp_last_submitted_at',
+                        'p24_activated_at', 'pp_activated_at',
+                        'last_activity_at', 'updated_at',
+                    ])
+                    ->orderBy('id')
+                    ->chunk(2000, function ($rows) use (&$refs, &$normAddrs) {
+                        foreach ($rows as $p) {
+                            if ($p->isStaleStock()) {
+                                continue;
+                            }
+                            if (!empty($p->p24_ref)) {
+                                $refs['P24-' . $p->p24_ref] = (int) $p->id;
+                            }
+                            if (!empty($p->pp_ref)) {
+                                $refs['PP-' . $p->pp_ref] = (int) $p->id;
+                            }
+                            $norm = ProspectingListing::normalizeAddress($p->address, $p->suburb ?? '');
+                            if ($norm) {
+                                $normAddrs[$norm] = (int) $p->id;
+                            }
+                        }
+                    });
+
+                return ['refs' => $refs, 'normAddrs' => $normAddrs];
+            }
+        );
 
         return self::$identityCache[$agencyId];
     }
