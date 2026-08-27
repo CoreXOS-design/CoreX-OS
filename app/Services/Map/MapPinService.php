@@ -558,7 +558,16 @@ final class MapPinService
      */
     private function trackedProperties(MapBoundsRequest $req, int $limit): array
     {
-        $q = DB::table('tracked_properties')
+        // Map perf (Johan, 2026-08-27) — idx_tp_agency_status_promoted_geo exists
+        // (this migration) covering exactly this filter shape, but MySQL's
+        // optimizer will not choose it here even after ANALYZE TABLE — it
+        // prefers an index_merge of idx_tracked_props_agency_status and
+        // idx_tracked_props_promoted, which examines 8,764+ rows and applies
+        // lat/lng as a post-filter. Measured directly: forcing this index cuts
+        // the count query from 115ms to 35-40ms and the row select from 119ms
+        // to 40ms (Staging, agency 1, Johan's bounds). Forced rather than left
+        // for the optimizer to find on its own.
+        $q = DB::table(DB::raw('tracked_properties USE INDEX (idx_tp_agency_status_promoted_geo)'))
             ->whereNull('deleted_at')
             ->whereNotNull('latitude')->whereNotNull('longitude')
             ->whereNull('promoted_to_property_id')
