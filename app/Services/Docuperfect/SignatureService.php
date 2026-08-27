@@ -1426,7 +1426,17 @@ class SignatureService
                     // Hand the pen to the next member of the SAME group. Sequential within the group is
                     // deliberate: two people inside one signing view at once is how captured-but-unsaved
                     // signatures get destroyed (STANDARDS, the P0 signing-view invariant).
-                    $this->advanceToNextParty($template, $completedParty, $nextInGroup);
+                    //
+                    // Late-estate approval-gate fix (2026-08-25) — $nextInGroup is picked by raw
+                    // status===waiting (nextWaitingInGroup()), which a deceased/proxy-collapsed row
+                    // still carries until the walk actually reaches it. If that phantom row is the
+                    // ONLY thing left in the group, advanceToNextSigningParticipant() silently skips
+                    // it and finds nobody — meaning THIS call can turn out to be the real final
+                    // release. It must gate on agent review exactly like the clean-accept call below
+                    // (line ~1467), not default to false — a stale default here is what let a
+                    // late-estate document skip pending_agent_approval and dispatch straight to
+                    // recipients.
+                    $this->advanceToNextParty($template, $completedParty, $nextInGroup, $request?->signing_method !== 'wet_ink');
 
                     return;
                 }

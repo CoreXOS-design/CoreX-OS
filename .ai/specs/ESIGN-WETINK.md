@@ -537,3 +537,108 @@ Issue D") still re-composes fresh from `merged_html` when `canonical_version <
 up mid-ceremony amendments). `996fa5452`'s own commit message already flagged
 this exact branch as unverified under the new single-composition model and
 out of that day's scope — still true; not re-examined here.
+
+---
+
+## Rule — the final agent-approval gate is UNCONDITIONAL on every flow
+
+**The gate:** once every real signing party has completed, the document
+ALWAYS lands at `pending_agent_approval` and holds — `completeDocument()`
+(the call that files the PDF and emails every recipient) may only fire after
+the agent reviews and clicks Approve. This is Johan's absolute rule (2026-08-25).
+It must never be special-cased per party shape — plain natural-person, joint
+sellers, company/director groups, and estate/proxy shapes all gate identically.
+The one *acknowledged* exception is wet-ink (see below) — everything else is
+unconditional.
+
+### Bug — a late-estate document skipped the gate and dispatched straight to recipients (fixed 2026-08-25)
+
+**Symptom (Johan's report):** on a natural-person-with-late-estate mandate
+(a deceased seller represented by an executor, alongside a living seller),
+once the recipients finished signing the document skipped
+`pending_agent_approval` entirely, filed the PDF, and emailed every recipient
+immediately — landing straight under Completed. The plain natural-person flow
+(no deceased party) was unaffected.
+
+**Root cause — the phantom-row trap.** `SignatureService::
+handlePartyCompletion()` hands the pen to the next member of a completing
+party's `signing_group` via `nextWaitingInGroup()`, which finds "next" by raw
+`status === waiting`. A `SignatureRequest` row for a deceased party (or one
+collapsed out by a proxy) is ALSO created at `status = waiting` and only
+lazily flips to `not_required` the moment `sendSigningRequest()` actually
+walks it (`isSigningParticipant()`) — it is never `not_required` up front. So
+when the group's true last real signer completes, and a not-yet-visited
+deceased/proxy-collapsed sibling still shows `waiting` with a later
+`signing_order`, the group-handoff call
+(`SignatureService.php` line ~1429, inside `handlePartyCompletion()`) treats
+that phantom row as "someone else to sign" and hands off to it. Inside
+`advanceToNextSigningParticipant()`, the phantom is walked, found not to be a
+real participant, flipped to `not_required`, and the walk finds nobody left —
+at which point `advanceToNextParty()` checks whether to hold for agent review
+or complete outright. The group-handoff call had never told it this could be
+the final release: `gateFinalizeForAgentReview` silently defaulted to `false`
+(the parameter default on `advanceToNextParty()`), so `completeDocument()`
+fired directly instead of `holdForFinalAgentReview()`.
+
+Plain natural-person groups never hit this: with two living co-sellers,
+`nextWaitingInGroup()` always resolves to a real person, so the caller's
+default-`false` gate value is never consulted — the bug only surfaces when
+the group's last "waiting" row turns out to be a phantom, which only happens
+in estate/proxy-collapse shapes.
+
+**The other, already-correct call site** — the clean-accept branch a few
+lines below (line ~1476) — computes the gate fresh every time:
+`$request?->signing_method !== 'wet_ink'`. It was never wrong; the
+group-handoff call simply never got the same treatment.
+
+**Fix:** the group-handoff call now passes the identical gate computation:
+```php
+$this->advanceToNextParty($template, $completedParty, $nextInGroup, $request?->signing_method !== 'wet_ink');
+```
+One line. No new branching, no per-shape special-casing — it closes the bug
+CLASS (any signing_group whose apparent "next" member resolves to nobody),
+not just the late-estate instance.
+
+**Verified (2026-08-25), all 6 regression-harness shapes, driven through
+`SignatureService::handlePartyCompletion()` exactly as the real controllers
+call it** (`SigningController::completeWeb()` / the amendment-cascade path):
+
+| Shape | Structure | Result after final real signer |
+|---|---|---|
+| A | two natural sellers | `pending_agent_approval` (unchanged) |
+| B | natural + late estate (executor's signing_order BEFORE the deceased row) | `pending_agent_approval` (was the bug — now fixed) |
+| C | natural + late estate (Supplier-executor variant) | `pending_agent_approval` (was the bug — now fixed) |
+| D | company, 3 directors, no proxy | `pending_agent_approval` (unchanged) |
+| E | company + proxy | `pending_agent_approval` (never actually vulnerable — see below) |
+| F | manual recipient | `pending_agent_approval` (unchanged) |
+
+Confirmed directly in Mailpit against a live shape-B document (template 758):
+zero "Fully signed" completion emails to any recipient at the moment the
+final real signer (the executor) completed; the completion email only
+appeared the instant the agent's own `approveAndAdvance()` ran. The deceased
+row correctly ends at `not_required` in every case — the fix only changes
+which gate value is passed through, not the walk/skip logic itself.
+
+**Why shape E (company + proxy) was never actually vulnerable:** unlike a
+deceased party, a proxy-collapsed co-director never gets its own
+`SignatureRequest` row at all — `Signing Setup` only creates a row for the
+proxy who actually signs. Shape E's `seller`-role group therefore contains
+exactly one row; `nextWaitingInGroup()` has no sibling to find, so the
+group-handoff branch is never even entered — the clean-accept branch (already
+correct) handles it every time. The phantom-row trap is specific to shapes
+that create a real DB row for a non-signing party — today, that means
+deceased sellers only.
+
+**Known, pre-existing, ACKNOWLEDGED exception — wet-ink.** Wet-ink parties
+never complete via `handlePartyCompletion()` at all: they upload a physical
+scan, and a staff/agent inspector reviews it via
+`SignatureService::reviewWetInkUpload()` / `approveUploadOnBehalf()`, which
+call `advanceAfterWetInkApproval()` directly — a separate advancement path
+that has NEVER held at `pending_agent_approval`, by design ("wet-ink review
+IS the agent approval" — see the comment at `completeDocument()`'s wet-ink
+call sites). That inspection is a per-scan approval, not the same
+whole-document "Review & Approve" gate every digital flow now holds at
+unconditionally. This is pre-existing behaviour, untouched by the fix above,
+and was flagged in-code before this fix as "AT-322 open question." **Whether
+wet-ink should also route through a final whole-document Review & Approve
+step is Johan's call, not made here** — reported, not fixed, in this pass.
