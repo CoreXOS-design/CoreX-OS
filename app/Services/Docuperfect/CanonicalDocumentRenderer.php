@@ -72,8 +72,19 @@ class CanonicalDocumentRenderer
     /**
      * Compose the canonical, fully-expanded, viewer-agnostic document HTML.
      * Returns '' when the template has no web body to compose.
+     *
+     * $entityOrderOverrides (2026-08-27, the proxy-first Domicilium fix) — optional
+     * map of represented_contact_id => ordered contact-id array, keyed exactly like
+     * Contact::applyRepresentativeOrder()'s own $orderContactIds. Lets a caller who
+     * already resolved the wizard's per-document representative order (manual
+     * drag-order via moveEntityRep(), or the proxy-first fallback when no manual
+     * order was set — ESignWizardController::resolveEffectiveRepOrder()) carry it
+     * into the ONE-TIME composition, so expandRepresentedEntitiesForDisplay() below
+     * doesn't have to re-derive its own (previously order-blind) order. Null/absent
+     * for an entity — the ordinary case for callers with no recipient array in
+     * scope — falls back to proxy-first only, same as before this parameter existed.
      */
-    public function compose(SignatureTemplate $template): string
+    public function compose(SignatureTemplate $template, ?array $entityOrderOverrides = null): string
     {
         $document = $template->document;
         if (! $document) {
@@ -132,7 +143,7 @@ class CanonicalDocumentRenderer
         $recipients = SignatureRequest::where('signature_template_id', $template->id)
             ->orderBy('signing_order')
             ->get();
-        $recipients = $this->expandRepresentedEntitiesForDisplay($recipients);
+        $recipients = $this->expandRepresentedEntitiesForDisplay($recipients, $entityOrderOverrides);
         $fieldMappings = is_array($docTemplate?->field_mappings ?? null)
             ? $docTemplate->field_mappings
             : [];
@@ -196,8 +207,12 @@ class CanonicalDocumentRenderer
      * own Contact record, so nothing further needs to be carried here.
      * is_proxy is preserved on whichever clone is the actual signer, so any
      * "(proxy)" display affordance still points at the right person.
+     *
+     * $entityOrderOverrides — see compose()'s own docblock. Keyed by
+     * represented_contact_id (entity id); each value is the ordered contact-id
+     * array Contact::applyRepresentativeOrder() expects.
      */
-    private function expandRepresentedEntitiesForDisplay(\Illuminate\Support\Collection $requests): \Illuminate\Support\Collection
+    private function expandRepresentedEntitiesForDisplay(\Illuminate\Support\Collection $requests, ?array $entityOrderOverrides = null): \Illuminate\Support\Collection
     {
         // Johan, 2026-08-28 (cc5's harness, shapes D/E) — represented_contact_id
         // is stamped on EVERY representative's row when a company has NO
@@ -276,6 +291,27 @@ class CanonicalDocumentRenderer
                 continue;
             }
             $signerContactId = $req->contact_id;
+            // Domicilium proxy-first fix (2026-08-27) — this used to clone $reps in
+            // whatever raw order $entity->representatives()->get() returned (no
+            // ORDER BY), disagreeing with the Recipients-screen preview
+            // (ESignWizardController::buildEntityRepresentationPreview(), which
+            // orders via Contact::applyRepresentativeOrder()). Since compose() only
+            // ever runs ONCE per document (composeAndStore()'s idempotent guard),
+            // whichever order this produces is frozen for the document's life — so
+            // the disagreement was permanent, not transient. Reuse the SAME shared
+            // primitive here rather than a third bespoke sort — never a fourth.
+            //
+            // Prefer the caller's real per-document order when it threaded one
+            // through (prepareSigning()/prepareWetInk() resolve it from the SAME
+            // recipient array the Recipients screen itself reads — manual
+            // moveEntityRep() drag-order when the agent set one, else the
+            // proxy-first fallback — via resolveEffectiveRepOrder(), the identical
+            // resolution used for the party_clause_text snapshot). Only a caller
+            // with no recipient array in scope (or an entity that override map
+            // doesn't mention) falls back to reconstructing proxy-first alone from
+            // this row's own contact_id — the one thing always available here.
+            $order = $entityOrderOverrides[$entityId] ?? [$signerContactId];
+            $reps = \App\Models\Contact::applyRepresentativeOrder($reps, $order);
             $index = 0;
             foreach ($reps as $rep) {
                 $index++;
@@ -800,8 +836,14 @@ class CanonicalDocumentRenderer
     /**
      * Compose and persist the canonical artifact (v0) onto the document as
      * web_template_data['canonical_html']. Non-fatal — never blocks the send.
+     *
+     * $entityOrderOverrides — see compose()'s own docblock. Pass it whenever the
+     * caller has the wizard's recipient array in scope (prepareSigning(),
+     * prepareWetInk()) so the ONE composition this method ever performs uses the
+     * real per-document representative order instead of falling back to
+     * proxy-first alone.
      */
-    public function composeAndStore(SignatureTemplate $template): void
+    public function composeAndStore(SignatureTemplate $template, ?array $entityOrderOverrides = null): void
     {
         try {
             $document = $template->document;
@@ -819,7 +861,7 @@ class CanonicalDocumentRenderer
             if (trim((string) ($webData['canonical_html'] ?? '')) !== '') {
                 return;
             }
-            $html = $this->compose($template);
+            $html = $this->compose($template, $entityOrderOverrides);
             if ($html === '') {
                 return;
             }

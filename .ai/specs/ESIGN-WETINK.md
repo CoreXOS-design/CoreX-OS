@@ -642,3 +642,126 @@ unconditionally. This is pre-existing behaviour, untouched by the fix above,
 and was flagged in-code before this fix as "AT-322 open question." **Whether
 wet-ink should also route through a final whole-document Review & Approve
 step is Johan's call, not made here** — reported, not fixed, in this pass.
+
+---
+
+## Rule — representative display order is ONE decision, never re-derived
+
+When an entity (a company) is represented by more than one person and the
+document shows all of them (the Domicilium address block, the parties
+clause), the order they appear in is decided ONCE, per document, and every
+surface that lists them agrees with it:
+
+1. **A manual drag-order** the agent set on the Recipients screen
+   (`moveEntityRep()` → `_entity_rep_order`), if one was set; else
+2. **Proxy first**, everyone else in their existing relative order — the
+   same fallback `ESignWizardController::resolveEffectiveRepOrder()` itself
+   uses when no manual order exists.
+
+The single shared primitive for applying this is `Contact::
+applyRepresentativeOrder(Collection $reps, ?array $orderContactIds)`
+(`app/Models/Contact.php:737`) — "ONE ordering, every consumer reuses THIS,"
+per its own docblock. Nothing that lists an entity's representatives may sort
+them a different way.
+
+### Bug — the Domicilium disagreed with the Recipients screen on a company+proxy document (fixed 2026-08-27)
+
+**Symptom (Johan's report, doc 1135):** on a company-with-a-proxy mandate,
+the Recipients screen correctly showed the proxy first. Once the agent
+opened the document to sign it, the Domicilium block's address/contact
+listing had the proxy LAST instead — and because the artifact is composed
+exactly once and never recomposed (see "one document, composed once" below),
+that wrong order was permanent for the rest of the document's life.
+
+**Root cause — two independent implementations of the same expansion, only
+one of them order-aware.** Turning "one collapsed proxy row" into "one
+address/contact block per representative" is a single conceptual operation,
+but it had two separate, disagreeing implementations:
+
+- `ESignWizardController::buildEntityRepresentationPreview()` (the
+  Recipients-screen preview) — correctly threads `resolveEffectiveRepOrder()`
+  through `Contact::applyRepresentativeOrder()`. Always correct.
+- `CanonicalDocumentRenderer::expandRepresentedEntitiesForDisplay()`
+  (`app/Services/Docuperfect/CanonicalDocumentRenderer.php:211`, added
+  2026-08-26 to fix a different bug — a proxy-narrowed row's OTHER
+  representatives never getting their own address block) — cloned the
+  entity's representatives in whatever raw order `$entity->
+  representatives()->get()` returned. No `ORDER BY` on that relationship, no
+  proxy awareness, no call to `applyRepresentativeOrder()` at all: a THIRD,
+  independent order source, exactly the failure class `4bf3f7166` (today,
+  cc1's living-first ordering fix) closed for a different dimension
+  (living-vs-deceased) but did not touch.
+
+**Why the flip lands specifically at "agent sign," not earlier:** the
+Recipients-screen preview never touches `canonical_html` — it's a live,
+separate render. The FIRST and ONLY time `compose()` (which contains the
+buggy function) ever runs for a document is `ESignWizardController::
+prepareSigning()` — the handler behind the agent's own "Sign Document" step
+— via `CanonicalDocumentRenderer::composeAndStore()`, which refuses to ever
+recompose an existing `canonical_html`. So whatever order that one call
+produces is frozen for the document's life. Not a re-derive-vs-preserve
+timing bug (compose() genuinely only runs once) — a wrong-of-two-
+disagreeing-implementations bug, where the wrong one is the one that gets
+frozen.
+
+**Fix, two parts:**
+
+1. `expandRepresentedEntitiesForDisplay()` now sorts `$reps` via `Contact::
+   applyRepresentativeOrder()` before assigning `role_index` — reusing the
+   shared primitive rather than inventing a fourth sort.
+2. `compose()`/`composeAndStore()` gained an optional `$entityOrderOverrides`
+   parameter (map of `represented_contact_id => ordered contact-id array`).
+   `prepareSigning()` — the only caller with the wizard's recipient array in
+   scope — resolves each represented entity's real per-document order via
+   the SAME `resolveEffectiveRepOrder()` the Recipients screen and the
+   `party_clause_text` snapshot already use, and passes it through. This
+   means the Domicilium now honours a genuine manual drag-order too, not
+   just the proxy-first fallback — matching the Recipients screen exactly,
+   not approximately. A caller with no recipient array in scope (the
+   `resolveOrCompose()` back-fill fail-safe; `prepareWetInk()`, not touched
+   in this pass) still falls back to proxy-first alone via
+   `expandRepresentedEntitiesForDisplay()`'s own default — strictly better
+   than the pre-fix raw-order behaviour, never worse.
+
+**Verified (2026-08-27):**
+- Direct `compose()` calls against template 759 (doc 1135): no override →
+  proxy first (Steve Jobs, then Elize Reichel, then HA Pretorius); an
+  explicit manual order `[HA Pretorius, Elize, Steve Jobs]` → that exact
+  order — proving the override mechanism itself, not just the fallback.
+- Two fresh, real, end-to-end company+proxy builds via `prepareSigning()`'s
+  actual HTTP path (docs 1136, 1141): proxy first in the Domicilium
+  immediately after generation, and unchanged after the agent's own
+  signature bake (canonical_version 0→1) — `CanonicalInkComposer` only ever
+  queries `@data-marker-party`/`@data-marker-type` elements (confirmed by
+  code inspection), never `@data-recipient-instance`, so no ink-baking step
+  — the agent's or any recipient's — can disturb Domicilium order once v0
+  is composed.
+- Doc 1135 itself repaired in place (see below) and reads proxy-first now.
+- All 6 regression-harness shapes: agent completion + bake succeed cleanly,
+  no regressions. Shape D (3 directors, no proxy) is provably unaffected —
+  it already has one real row per representative, so
+  `expandRepresentedEntitiesForDisplay()`'s single-collapsed-row branch
+  (where this fix lives) never executes for it.
+
+**Doc 1135 repair:** the document was already frozen `completed` with the
+wrong order and no separately-stored signature data for the proxy's own ink
+(recipients bake straight into `canonical_html`, never into the `Signature`
+table — that table only ever gets rows from the agent's own
+`webSignComplete()`), so a full recompose-and-rebake was not safe — it would
+have discarded the proxy's already-captured signature with no way to
+reconstruct it. Repaired surgically instead: parsed the stored
+`canonical_html`'s Domicilium segment, grouped its per-instance divs by
+`data-recipient-instance`, and physically reordered the groups (proxy
+group first) in place — same bytes, same ink, only the read order changed.
+Confirmed proxy-first afterward; `canonical_version` and all baked ink
+unchanged.
+
+**Not fixed, flagged only:** the document's "parties" intro clause
+(`party_clause_text`, via `RoleBlockExpansionService::renderEntityParty()`/
+`composeEntityPartyText()`) is a separate render from the Domicilium and was
+NOT investigated for the same disagreement — doc 1135's own
+`party_clause_text` snapshot is NULL, meaning that clause is falling back to
+`renderEntityParty()`'s own live-recompute path (no order threaded there
+either). Whether that clause has the same proxy-ordering gap is unknown;
+out of scope for this fix (Johan's report named the Domicilium block
+specifically) and not touched.

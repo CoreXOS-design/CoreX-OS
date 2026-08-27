@@ -3648,7 +3648,31 @@ class ESignWizardController extends Controller
             // it. This is what makes "correct at Fill & Review, wrong at Sign
             // & Send" structurally impossible: there is no second derivation
             // left to disagree with the first.
-            app(\App\Services\Docuperfect\CanonicalDocumentRenderer::class)->composeAndStore($sigTemplate);
+            //
+            // Domicilium proxy-first fix (2026-08-27) — "no second derivation
+            // to disagree with the first" was true for the parties clause
+            // (party_clause_text, resolved via this same order a few dozen
+            // lines up) but NOT for the Domicilium's own representative
+            // expansion, which re-derived its own order from scratch with no
+            // proxy awareness at all — a second derivation this comment's own
+            // doctrine says shouldn't exist. Resolve the SAME per-document
+            // order (manual moveEntityRep() drag-order, else proxy-first) this
+            // recipient array already carries, and hand it to the one-time
+            // compose() call so the Domicilium agrees with the Recipients
+            // screen the agent actually approved.
+            $entityOrderOverrides = [];
+            foreach ($orderedRecipients as $r) {
+                $entityId = $r['_entity_contact_id'] ?? null;
+                if (empty($entityId)) {
+                    continue;
+                }
+                $overrideProxyRepId = isset($r['_entity_proxy_contact_id']) ? (int) $r['_entity_proxy_contact_id'] : null;
+                $effectiveOrder = $this->resolveEffectiveRepOrder($r, $overrideProxyRepId);
+                if (!empty($effectiveOrder)) {
+                    $entityOrderOverrides[(int) $entityId] = $effectiveOrder;
+                }
+            }
+            app(\App\Services\Docuperfect\CanonicalDocumentRenderer::class)->composeAndStore($sigTemplate, $entityOrderOverrides ?: null);
 
             // 6. Link document to flow
             $flowStepData = $flow->step_data ?? [];
