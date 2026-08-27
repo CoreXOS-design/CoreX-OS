@@ -777,7 +777,7 @@
                 </form>
 
                 @permission('compliance.whistleblow.create')
-                <button type="button" @click="wbReportOpen = true" class="prop-action-btn prop-action-btn-neutral">
+                <button type="button" @click="$dispatch('open-wb-report')" class="prop-action-btn prop-action-btn-neutral">
                     <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z"/></svg>
                     Report Non-Compliance
                 </button>
@@ -7724,7 +7724,7 @@ function propertyMapWidget(cfg) {
 @permission('compliance.whistleblow.create')
 @if(!$isNew)
 <template x-teleport="body">
-<div x-show="wbReportOpen" x-cloak class="fixed inset-0 z-[9999] flex items-center justify-center p-4" x-transition.opacity>
+<div x-data="{ wbReportOpen: false }" @open-wb-report.window="wbReportOpen = true" x-show="wbReportOpen" x-cloak class="fixed inset-0 z-[9999] flex items-center justify-center p-4" x-transition.opacity>
     <div class="absolute inset-0" style="background:rgba(0,0,0,0.55); backdrop-filter:blur(2px);" @click="wbReportOpen = false"></div>
     <div class="relative rounded-md shadow-2xl" style="width:520px; max-width:95vw; max-height:88vh; overflow-y:auto; background:var(--surface); border:1px solid var(--border);"
          x-data="{
