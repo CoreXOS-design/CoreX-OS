@@ -3212,6 +3212,23 @@ class ESignWizardController extends Controller
                 $partyKey = $roleIndex === 1 ? $baseRole : $baseRole . '_' . $roleIndex;
 
                 $recipientPartyKeys[$i] = $partyKey;
+
+                // Cluster B1, second place (Johan/conductor, 2026-08-27) —
+                // this row still gets its OWN SignatureRequest created below
+                // (isDeceased: true, needed so the party is still NAMED in
+                // the document body) via $recipientPartyKeys[$i], set above.
+                // But parties_json/signing_order_json are the "who actually
+                // signs" lists — the same predicate every other signing
+                // surface already applies (SignatureRequest::
+                // isSigningParticipant(), filterToSigningParticipants(),
+                // expandAttestationBlocksPerRecipient()'s local filter,
+                // resolveMarginParties()). A deceased party never signs, so
+                // it never earns an entry here — this was the second place
+                // still listing 4 (agent + all 3 role rows) instead of 3
+                // (agent + 2 living sellers).
+                if (!empty($r['_is_deceased'])) {
+                    continue;
+                }
                 $parties[] = [
                     'role'       => $partyKey,
                     'role_label' => $baseRole,
@@ -7189,6 +7206,15 @@ class ESignWizardController extends Controller
                 }
 
                 $recipientPartyKeys[$i] = $partyKey;
+
+                // Cluster B1, second place, wet-ink twin (Johan/conductor,
+                // 2026-08-27) — same fix as prepareSigning() above: a
+                // deceased row still gets its own SignatureRequest created
+                // below (named in the document, never signs), but never
+                // earns an entry in parties_json/signing_order_json.
+                if (!empty($r['_is_deceased'])) {
+                    continue;
+                }
                 $parties[] = [
                     'role'       => $partyKey,
                     'role_label' => $baseRole,

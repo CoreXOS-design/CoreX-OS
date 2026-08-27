@@ -3929,6 +3929,17 @@ function esignWizard() {
             const previousIsProxy = !!r._is_proxy;
             r._entity_proxy_contact_id = representativeContactId || null;
             r._is_proxy = !!representativeContactId;
+            // Johan/conductor, 2026-08-27 (cc5's real-DOM-click harness) — a
+            // deep $watch('recipients', ...) only reliably fires when the
+            // watched EXPRESSION's own dependency graph was touched by the
+            // mutation; a nested property set through a real click event
+            // is not guaranteed to hit it the same way a manual test does.
+            // Don't depend on that alone for the two interactions already
+            // proven to miss it (this pick, and moveEntityRep() below) —
+            // call the same debounced refresh explicitly, at the exact
+            // point of mutation, same as every other explicit caller
+            // (setFieldValue(), confirmReplace()) already does.
+            this.refreshPreviewDebounced();
             try {
                 const resp = await fetch('/docuperfect/esign/api/entity/' + r._contact_id + '/proxy', {
                     method: 'POST',
@@ -3949,6 +3960,7 @@ function esignWizard() {
                 if (!resp.ok || !result.ok) {
                     r._entity_proxy_contact_id = previousPick;
                     r._is_proxy = previousIsProxy;
+                    this.refreshPreviewDebounced();
                     this.showToast(result.error || 'Could not set the proxy representative.', 'error');
                     return;
                 }
@@ -3957,6 +3969,7 @@ function esignWizard() {
             } catch (e) {
                 r._entity_proxy_contact_id = previousPick;
                 r._is_proxy = previousIsProxy;
+                this.refreshPreviewDebounced();
                 console.error('setEntityProxyPick error:', e);
                 this.showToast('Could not reach the server to check the proxy pick.', 'error');
             }
@@ -3978,6 +3991,12 @@ function esignWizard() {
             if (idx === -1 || swapWith < 0 || swapWith >= currentOrder.length) return;
             [currentOrder[idx], currentOrder[swapWith]] = [currentOrder[swapWith], currentOrder[idx]];
             r._entity_rep_order = currentOrder;
+            // Johan/conductor, 2026-08-27 (cc5's real-DOM-click harness) —
+            // same reliability fix as setEntityProxyPick(): call the
+            // debounced refresh explicitly at the point of mutation rather
+            // than trusting the deep $watch alone to catch a nested
+            // property set.
+            this.refreshPreviewDebounced();
 
             try {
                 const resp = await fetch('/docuperfect/esign/api/entity/' + r._contact_id + '/proxy', {
