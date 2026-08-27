@@ -1833,6 +1833,25 @@ class ESignWizardController extends Controller
                 // HTML/pages, never an editable recipients form (fault 3, round 3 — see
                 // expandRecipientsForMerge()'s docblock for why that distinction matters).
                 $stepData = $this->prepareRecipientsForMerge($stepData, $template, $user, (int) ($flow->current_step ?? 1));
+                // Johan/conductor, 2026-08-27 — "recipients render domicilium
+                // wrong, clicking next onto details renders it correctly...
+                // so what making render correct when you click next?" Answer,
+                // traced end to end: Next calls saveStep(), which persists
+                // $stepData['recipients'] onto the Flow row BEFORE Details'
+                // own templatePages() call runs — so by the time Details
+                // asks, $flow->step_data['recipients']['recipients'] (read
+                // fresh below, at the raw-recipients block) is populated.
+                // On the Recipients screen's OWN preview, nothing has saved
+                // yet the first time a property auto-populates its owners
+                // (no manual add ever touches saveStep()) — that raw read
+                // finds nothing, the per-party role-block expansion never
+                // runs, and rendering falls through to the named-field
+                // "and"-joined base values. Snapshot prepareRecipientsForMerge()'s
+                // own output — the SAME auto-populated, un-deduped array Next's
+                // save would persist — right here, so the raw-recipients block
+                // below has it on this exact request, load or edit, saved or
+                // not, instead of depending on a write that hasn't happened yet.
+                $rawMergeStepData = $stepData;
                 $stepData = $this->expandRecipientsForMerge($stepData, $user);
             }
         }
@@ -2031,6 +2050,20 @@ class ESignWizardController extends Controller
                 // expandRecipientsForMerge() itself expands from) fresh,
                 // right here, for this one purpose only — never written back
                 // to $stepData, so the clause-collapse above is untouched.
+                //
+                // Johan/conductor, 2026-08-27 — this used to read
+                // $flow->step_data['recipients']['recipients'] directly: the
+                // Flow row AS LAST SAVED. That is correct once Next has
+                // saved at least once, but on THIS screen's own first paint
+                // — a property just auto-populated its owners into $stepData,
+                // nothing has saved yet — the DB row is still empty, so this
+                // found nothing, $wizardRecipients stayed empty, and
+                // rendering fell through to the named-field "and"-joined
+                // base values below. $rawMergeStepData (captured right after
+                // prepareRecipientsForMerge(), above) is the SAME
+                // auto-populated array a save WOULD persist — use it
+                // directly so this doesn't depend on a write that may not
+                // have happened yet.
                 $wizardRecipients = $this->buildTransientSignatureRequestsForPreview(
                     $flow,
                     // Johan, 2026-08-26: "all parties must show on the
@@ -2039,7 +2072,7 @@ class ESignWizardController extends Controller
                     // never narrow what renders here. Display is now the
                     // default (see expandEntityRecipients() docblock) — no
                     // flag needed at this call site.
-                    $this->expandEntityRecipients($flow->step_data['recipients']['recipients'] ?? [], $user),
+                    $this->expandEntityRecipients($rawMergeStepData['recipients']['recipients'] ?? [], $user),
                 );
                 if ($wizardRecipients->isNotEmpty()) {
                     // AT-295 — stamp the data-role-block contract onto the raw
