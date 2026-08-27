@@ -92,6 +92,38 @@ commits unique to `main`), `origin/main` was fast-forwarded to the frozen Stagin
 first, then `/corex` was fast-forwarded to the new `origin/main` — same mechanism, correct
 source. Nothing invented.
 
+**Migrations run (3, not 2 — a third surfaced only once the code actually landed; see
+below):**
+- `2026_08_30_000003_add_join_link_sent_at_to_webinar_registrations` — DONE (428ms).
+  Additive, guarded, reversible. Part of the webinar-registration feature that rode along.
+- `2026_08_30_000004_add_matched_contact_at_to_tracked_property_owners_table` — DONE
+  (136ms). Additive, reversible.
+- `2026_08_30_000005_add_mic_counts_cache_window_to_suggested_action_thresholds` — DONE
+  (207ms). Additive, reversible.
+
+All three columns confirmed present afterward by direct read-only check (`Schema::
+hasColumn`), not assumed from the migration output alone.
+
+**Caches:** view/route/config/app caches cleared, CLI opcache reset, `php8.3-fpm` reloaded
+gracefully, nginx reloaded. **Mail config, WAHA config, and every queue worker were left
+untouched** — confirmed afterward: `.env` mtime unchanged since before tonight, and the
+mail/webhooks/p24 queue worker PIDs are the exact same processes, same start times, as
+before the deploy.
+
+**Verification — read-only only, nothing submitted, nothing sent:**
+- Map, MIC Opportunities, MIC Work tab, Deeds Capture, Supplier Directory, Calendar, and a
+  property show page all load (HTTP 200) under a real (non-Johan) staff account.
+- Confirmed in the actual rendered HTML: the CMA upload widget is gone from the Work tab;
+  the supplier address field is present on the Add-provider form; the whistleblower
+  modal's fixed Alpine scope is present on the property page.
+- **Skipped, because verifying them would require a write or a send, not just a page
+  load:** removing/re-adding a My Claims contact (a database write); the "already a
+  contact" deeds flag showing on an existing row (only stamped on a NEW capture, which is
+  a write); the whistleblower modal actually opening, and the calendar defaulting to the
+  current month visually (both require real JS execution, not just fetching HTML); the
+  Bulk Email tab was not touched or loaded at all, deliberately, since it is a
+  send-capable screen.
+
 ## Process ownership (Johan's ruling)
 
 **Staging → live-testing is deployed by the team.** **live-testing → live is Andre's job,
