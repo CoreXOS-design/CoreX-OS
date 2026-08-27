@@ -452,10 +452,39 @@ async function completeSigningAndSend(page) {
     await sleep(3000);
 }
 
+// 2026-08-27 — Johan found by hand: "Reordering the directors on the left
+// does not update the seller block or the Domicilium on the right." Clicks
+// the REAL "Move down" arrow (moveEntityRep(ri, contactId, 1)) on the FIRST
+// representative row inside the given entity recipient's card — the same
+// button an agent clicks. No settle time after the click; the caller
+// captures immediately to test whether the live preview actually updates
+// in place, which is exactly the gap that let this bug through undetected.
+async function moveEntityRepDown(page, namePart) {
+    const found = await page.evaluate((namePart) => {
+        const all = Array.from(document.querySelectorAll('body *'));
+        let card = null;
+        for (const el of all) {
+            if (!el.children || el.children.length === 0) continue;
+            const txt = el.textContent || '';
+            if (txt.includes(namePart) && txt.includes('Signs via its representative')) {
+                if (!card || txt.length < card.textContent.length) card = el;
+            }
+        }
+        if (!card) return { ok: false, reason: 'representative list card not found' };
+        const downBtn = Array.from(card.querySelectorAll('button[title="Move down"]')).find(b => !b.disabled);
+        if (!downBtn) return { ok: false, reason: 'no enabled "Move down" button found' };
+        document.querySelectorAll('[data-harness-move-down]').forEach(e => e.removeAttribute('data-harness-move-down'));
+        downBtn.setAttribute('data-harness-move-down', '1');
+        return { ok: true };
+    }, namePart);
+    if (!found.ok) throw new Error(`moveEntityRepDown: ${found.reason} for "${namePart}"`);
+    await page.click('[data-harness-move-down="1"]');
+}
+
 module.exports = {
     sleep, clickBtnContains, clickBtnExact,
     newPage, selectTemplate, selectProperty, addRecipientBySearch, addRecipientManual,
-    tickDeceasedAndBindExecutor, tickProxy, saveDraft, goToStep, advanceNext,
+    tickDeceasedAndBindExecutor, tickProxy, moveEntityRepDown, saveDraft, goToStep, advanceNext,
     completeDetailsAndAdvanceToSignSend, dispatchToSigning, getProgress,
     robustCompleteAgentSigning, completeSigningAndSend,
 };

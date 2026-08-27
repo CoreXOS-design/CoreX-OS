@@ -86,21 +86,47 @@ async function runShape(browser, cookie, shapeDef, fixtureTruth, warnings) {
         const flowId = await driver.selectProperty(page, PROPERTY_SEARCH, PROPERTY_MATCH);
         stages.push(await captureTextStage(page, 'Property'));
 
-        // Link 3: Recipients (shape-specific build). The in-session live
-        // preview pane does not repaint after a plain recipient add (only a
-        // Replace-this-party Confirm forces a refresh, per c38c50b7e/
-        // 42cf6ae54) — a fresh navigation to the same step is what a real
-        // agent effectively gets by leaving and coming back, and is the only
-        // way to capture what's actually SAVED rather than a stale in-memory
-        // preview. Noted as its own (separate, low-severity) finding, not
-        // conflated with the chain-break checks this harness exists for.
-        const { expected } = await shapeDef.build(page, warnings);
+        // Link 3: Recipients (shape-specific build).
+        //
+        // 2026-08-27 — Johan found by hand, on the Recipients screen itself,
+        // three live-update bugs this harness's earlier design could not
+        // have caught: a joined-with-"and" Domicilium blob, a company
+        // showing only its first director, and a picked proxy never
+        // reflecting in the seller section or clause. Root cause of the
+        // miss: the old capture forced a fresh page navigation before
+        // reading the preview, on the theory that the live pane's own
+        // staleness was a separate, low-severity finding. That reload
+        // masked exactly the bugs Johan found — a reload re-renders fresh
+        // from saved state even when the LIVE, no-reload view is broken.
+        // Fixed: `snap(label)` captures the preview immediately, in place,
+        // after every action a shape takes on this screen — no reload. Each
+        // shape calls it after every add/reorder/proxy-pick. The final
+        // reload-based capture is kept too, now explicitly labelled, so a
+        // "live wrong, reload fixes it" case and a "wrong everywhere" case
+        // are never conflated.
+        const liveStages = [];
+        const snap = async (label) => {
+            // A short settle delay for Alpine's own reactivity to flush and
+            // the DOM to paint after a click — NOT a reload, NOT long enough
+            // to mask a genuine "never updates without a reload" bug (that
+            // class of bug wouldn't resolve in under a second either way,
+            // since no navigation happens). Without this, capturing at 0ms
+            // just races the app's own render and reads blank/empty, which
+            // would report a false "0 entries" finding indistinguishable
+            // from Johan's actual "wrong content" reports.
+            await driver.sleep(700);
+            const s = await captureTextStage(page, label);
+            liveStages.push(s);
+            stages.push(s);
+            return s;
+        };
+        const { expected, liveExpectations } = await shapeDef.build(page, warnings, snap);
         const flowIdForReload = await page.evaluate(() => {
             const root = document.querySelector('[x-data="esignWizard()"]');
             return root && window.Alpine ? window.Alpine.$data(root).flowId : null;
         });
         await driver.goToStep(page, HOST, flowIdForReload, 3);
-        stages.push(await captureTextStage(page, 'Recipients'));
+        stages.push(await captureTextStage(page, 'Recipients (after reload)'));
 
         // Link 4: Details.
         await driver.goToStep(page, HOST, flowId, 4);
@@ -140,12 +166,14 @@ async function runShape(browser, cookie, shapeDef, fixtureTruth, warnings) {
             let signPageText = await capture.extractPreviewText(page);
             if (!signPageText) { await driver.sleep(2500); signPageText = await capture.extractPreviewText(page); }
             const signPageBlocks = await capture.captureSignPageBlocks(page);
+            const initialsRow = await capture.countInitialsRow(page);
             stages.push({
                 name: 'Agent Signing Screen',
                 domicilium: capture.parseDomicilium(signPageText),
                 clause: capture.parseClauseOpening(signPageText),
                 signatureSummary: capture.parseSignatureBlockSummary(signPageText),
                 signPageBlocks,
+                initialsRow,
             });
 
             const agentResult = await driver.robustCompleteAgentSigning(page, 'Johan Reichel');
@@ -163,7 +191,7 @@ async function runShape(browser, cookie, shapeDef, fixtureTruth, warnings) {
             notes.push('Preview/Agent Signing Screen COULD NOT BE CHECKED this run.');
         }
 
-        const assertions = runAssertions(stages, expected, fixtureTruth);
+        const assertions = runAssertions(stages, expected, fixtureTruth, liveExpectations || []);
         await page.close();
         return { key: shapeDef.key, label: shapeDef.label, ok: true, stages, expected, assertions, notes, documentId, flowId };
     } catch (e) {
@@ -195,19 +223,24 @@ async function dispatchCapturingPreview(page, host, flowId, excludeNameParts, st
     await driver.sleep(3000);
 
     if (page.url().includes('/signatures/setup')) {
-        // This IS "Preview" — capture it before continuing.
+        // This IS "Preview" — capture it before continuing. Its own explicit
+        // chain link (Johan, 2026-08-27: "shape 5 correct all the way to
+        // Preview and then swapped around at Preview" — never folded into
+        // Sign & Send or Agent Signing, diffed against each independently).
         await driver.sleep(1500);
         const previewText = await capture.extractPreviewText(page);
+        const initialsRow = await capture.countInitialsRow(page);
         stages.push({
             name: 'Preview',
             domicilium: capture.parseDomicilium(previewText),
             clause: capture.parseClauseOpening(previewText),
             signatureSummary: capture.parseSignatureBlockSummary(previewText),
+            initialsRow,
         });
         await driver.clickBtnExact(page, 'Preview & Continue');
         await driver.sleep(2500);
     } else {
-        stages.push({ name: 'Preview', domicilium: { found: false, entries: [] }, clause: { found: false, text: '' }, signatureSummary: { count: 0, blocks: [] } });
+        stages.push({ name: 'Preview', domicilium: { found: false, entries: [] }, clause: { found: false, text: '' }, signatureSummary: { count: 0, blocks: [] }, initialsRow: { rowsFound: 0, firstRowCount: null, firstRowLabels: [] } });
     }
 
     const m = page.url().match(/documents\/(\d+)/);

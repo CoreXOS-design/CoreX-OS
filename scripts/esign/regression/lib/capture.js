@@ -141,6 +141,32 @@ function parseSigningOrderCount(fullText) {
     return matches ? matches.length : 0;
 }
 
+// 2026-08-27 — Gap 2 (Johan, by hand): on Preview, a deceased party showed
+// THREE seller initial blocks where there should be two; on Agent Signing,
+// three initial blocks but only two seller signature blocks mid-document,
+// while the final signing list was correct — three different counts of the
+// same thing on one document. Page-break initial boxes are built client-side
+// by paginateDocument()'s _buildInitialsRow() (a4-page-styles.blade.php) —
+// one `.corex-page-initials` box per entry in `signingParties`, one
+// `.corex-page-initials-row` per page break (none exist on a single-page
+// document — reported honestly as rowsFound:0, not a failure). Every row
+// should carry the same party set, so the first row is representative.
+async function countInitialsRow(page) {
+    return page.evaluate(() => {
+        const rows = document.querySelectorAll('.corex-page-initials-row');
+        if (rows.length === 0) return { rowsFound: 0, firstRowCount: null, firstRowLabels: [] };
+        const boxes = Array.from(rows[0].querySelectorAll('.corex-page-initials'));
+        return {
+            rowsFound: rows.length,
+            firstRowCount: boxes.length,
+            firstRowLabels: boxes.map(b => ({
+                role: b.getAttribute('data-marker-party') || '',
+                label: (b.textContent || '').trim(),
+            })),
+        };
+    });
+}
+
 module.exports = {
     extractPreviewText,
     parseDomicilium,
@@ -148,4 +174,5 @@ module.exports = {
     parseSignatureBlockSummary,
     captureSignPageBlocks,
     parseSigningOrderCount,
+    countInitialsRow,
 };

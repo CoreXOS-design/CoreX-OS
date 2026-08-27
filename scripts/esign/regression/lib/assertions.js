@@ -73,8 +73,22 @@ function bodySnapshot(stage) {
 // exactly that "should never change" range.
 const NON_STRICT_LINKS = new Set([
     'Template -> Property',   // no recipients yet — nothing comparable
-    'Property -> Recipients', // recipients/Domicilium go from absent to populated — this step's OWN job
 ]);
+// 2026-08-27 — Gap 1: every "Recipients: ..." live checkpoint a shape snaps
+// via snap() is itself a deliberate, additive change (the shape is actively
+// adding/reordering/proxy-picking) — those links stay non-strict, same
+// reasoning as Property -> Recipients always had. What's NEW here: the link
+// from the LAST live checkpoint into "Recipients (after reload)" is STRICT —
+// a plain reload of already-saved state must show exactly what the live
+// pane just showed, or it is direct chain-level proof of a live-vs-saved
+// divergence (belt-and-braces alongside assertion 8's own explicit checks).
+const FIXED_STAGE_NAMES = new Set([
+    'Template', 'Property', 'Recipients (after reload)', 'Details',
+    'Fill & Review', 'Sign & Send', 'Preview', 'Agent Signing Screen',
+]);
+function isLiveRecipientsSubStage(name) {
+    return !FIXED_STAGE_NAMES.has(name);
+}
 
 function assertChainHolds(stages) {
     const links = [];
@@ -85,6 +99,9 @@ function assertChainHolds(stages) {
     for (const stage of stages) {
         const current = bodySnapshot(stage);
         const linkLabel = prevName ? `${prevName} -> ${stage.name}` : stage.name;
+        const nonStrict = NON_STRICT_LINKS.has(linkLabel)
+            || prevName === 'Property'
+            || (prevName !== null && isLiveRecipientsSubStage(prevName) && isLiveRecipientsSubStage(stage.name));
 
         if (!current) {
             links.push({ link: linkLabel, result: 'could_not_check', detail: `${stage.name} was never reached / captured no comparable text` });
@@ -93,7 +110,7 @@ function assertChainHolds(stages) {
         }
         if (prevSnapshot === null) {
             links.push({ link: stage.name, result: 'baseline', detail: `${stage.name} captured as the chain's first link` });
-        } else if (NON_STRICT_LINKS.has(linkLabel)) {
+        } else if (nonStrict) {
             links.push({ link: linkLabel, result: 'ok (not strict — this step fills in new content by design)', detail: `${stage.name} adds its own material; not diffed byte-for-byte against ${prevName}` });
         } else if (current === prevSnapshot) {
             links.push({ link: linkLabel, result: 'ok', detail: 'byte-identical to the previous step' });
@@ -194,6 +211,14 @@ function assertDeceasedHandling(stages, expected) {
         return { pass: true, firstDivergentStage: null, detail: 'no deceased party in this shape' };
     }
     for (const stage of stages) {
+        // 2026-08-27 — Gap 1 added live sub-stages captured BEFORE the
+        // deceased tick fires (e.g. "B: after RegDeceased added" — added as
+        // an ordinary recipient, not yet flagged). Showing up in Domicilium
+        // there is correct, expected behaviour, not the bug this assertion
+        // exists to catch — only enforce "never in Domicilium" from the
+        // tick action onward (fixed stages, or a live sub-stage whose own
+        // label says the tick already happened).
+        if (isLiveRecipientsSubStage(stage.name) && !stage.name.includes('ticked')) continue;
         for (const namePart of expected.deceasedNames) {
             const inDomicilium = findEntry(stage.domicilium, namePart);
             if (inDomicilium) {
@@ -290,7 +315,146 @@ function assertSignatureBlocks(stages, expected) {
     return { pass: true, firstDivergentStage: null, detail: `${blocks.length} signature blocks, correct count, none blank, nobody twice (cross-signer place/time contamination only partially checked — single-signer harness)` };
 }
 
-function runAssertions(stages, expected, fixtureTruth) {
+// 8. GAP 1 (Johan, by hand, 2026-08-27): the Recipients screen's OWN live
+// preview must reflect every action the agent takes there IMMEDIATELY, with
+// no reload — a joined-with-"and" Domicilium blob, a company showing only
+// its first director, and a picked proxy never updating the seller section
+// were all live-rendering bugs a reload-before-capture design could not see.
+// Each shape declares `liveExpectations`: [{ label, names: [...] }] — the
+// exact set of Domicilium names that must already be showing, correctly
+// separated, at that exact live (no-reload) snapshot. Order matters where a
+// shape is specifically testing a reorder.
+function assertRecipientsLiveReflectsChanges(stages, liveExpectations) {
+    if (!liveExpectations || liveExpectations.length === 0) {
+        return { pass: true, firstDivergentStage: null, detail: 'no live Recipients checkpoints declared for this shape' };
+    }
+    for (const exp of liveExpectations) {
+        const stage = stages.find(s => s.name === exp.label);
+        if (!stage) {
+            return { pass: null, firstDivergentStage: exp.label, detail: `COULD NOT CHECK — live checkpoint "${exp.label}" was never captured` };
+        }
+        const gotNames = (stage.domicilium && stage.domicilium.entries || []).map(e => e.name);
+        if (gotNames.length !== exp.names.length) {
+            return {
+                pass: false, firstDivergentStage: exp.label,
+                detail: `live preview shows ${gotNames.length} Domicilium ${gotNames.length === 1 ? 'entry' : 'entries'} (${JSON.stringify(gotNames)}), expected ${exp.names.length} (${JSON.stringify(exp.names)}) — no reload happened before this capture`,
+            };
+        }
+        for (let i = 0; i < exp.names.length; i++) {
+            if (!gotNames[i] || !gotNames[i].includes(exp.names[i])) {
+                return {
+                    pass: false, firstDivergentStage: exp.label,
+                    detail: `live preview entry #${i + 1} is "${gotNames[i] || '(missing)'}", expected it to be "${exp.names[i]}" — order or identity wrong immediately after the action, no reload happened before this capture`,
+                };
+            }
+        }
+        if (exp.clauseContains) {
+            if (!stage.clause || !stage.clause.found || !stage.clause.text.includes(exp.clauseContains)) {
+                return {
+                    pass: false, firstDivergentStage: exp.label,
+                    detail: `live clause does not contain "${exp.clauseContains}" immediately after the action (clause: "${stage.clause ? stage.clause.text : '(none)'}")`,
+                };
+            }
+        }
+        // Some actions (picking a proxy) legitimately leave the Domicilium
+        // NAME LIST unchanged (every representative still shows) but must
+        // still visibly change the rendered document (a proxy clause/marker
+        // appears). "Same names, but nothing else moved either" is exactly
+        // the staleness bug Johan found — check the raw body actually
+        // differs from the checkpoint named in compareRawChangedFrom.
+        if (exp.compareRawChangedFrom) {
+            const prevStage = stages.find(s => s.name === exp.compareRawChangedFrom);
+            if (prevStage) {
+                const prevRaw = bodySnapshot(prevStage);
+                const curRaw = bodySnapshot(stage);
+                if (prevRaw === curRaw) {
+                    return {
+                        pass: false, firstDivergentStage: exp.label,
+                        detail: `live preview is byte-identical to "${exp.compareRawChangedFrom}" — nothing changed after the action, even though it should have (no reload happened before this capture)`,
+                    };
+                }
+            }
+        }
+    }
+    return { pass: true, firstDivergentStage: null, detail: `all ${liveExpectations.length} live Recipients checkpoint(s) reflected immediately, no reload needed` };
+}
+
+// 9. GAP 2 (Johan, by hand, 2026-08-27): "three different counts of the same
+// thing on one document" — initial blocks, signature blocks and the final
+// signing list must all agree, and all equal the number of SIGNING parties
+// (a deceased party never gets an initial or signature block).
+function assertInitialsSignatureSigningListAgree(stages, expected) {
+    if (expected.signingOrderCount === undefined) {
+        return { pass: true, firstDivergentStage: null, detail: 'not applicable — this shape has no signing order' };
+    }
+    const checks = [];
+    for (const stageName of ['Preview', 'Agent Signing Screen']) {
+        const stage = stages.find(s => s.name === stageName);
+        if (!stage) continue;
+        const row = stage.initialsRow;
+        const sigCount = stage.signatureSummary ? stage.signatureSummary.count : null;
+        if (row && row.rowsFound > 0) {
+            if (row.firstRowCount !== expected.signingOrderCount) {
+                return {
+                    pass: false, firstDivergentStage: stageName,
+                    detail: `${stageName}: ${row.firstRowCount} initial blocks in the page-break row, expected ${expected.signingOrderCount} signing parties (labels: ${JSON.stringify(row.firstRowLabels)})`,
+                };
+            }
+            checks.push(`${stageName}: ${row.firstRowCount} initials`);
+        }
+        if (sigCount !== null && stageName === 'Agent Signing Screen') {
+            // Sign page blocks (the more reliable DOM-level count) is checked
+            // by assertion 7 against the same expected.signingOrderCount —
+            // this just cross-checks the text-parsed summary agrees with it
+            // too, so a divergence between the two parsers is never silently
+            // averaged away.
+            if (stage.signPageBlocks && stage.signPageBlocks.length !== sigCount && sigCount > 0) {
+                return {
+                    pass: false, firstDivergentStage: stageName,
+                    detail: `${stageName}: text-parsed signature summary counts ${sigCount} blocks but the DOM-level capture counts ${stage.signPageBlocks.length} — two different counts of the same thing`,
+                };
+            }
+        }
+    }
+    if (checks.length === 0) {
+        return { pass: null, firstDivergentStage: null, detail: 'COULD NOT CHECK — no page-break initials row found on this document (too short to paginate, or Preview/Agent Signing never reached)' };
+    }
+    return { pass: true, firstDivergentStage: null, detail: `initials, signature blocks and signing list agree (${checks.join('; ')}, all = ${expected.signingOrderCount})` };
+}
+
+// 10. A deceased party appears in the seller clause and in NO signing
+// element anywhere — not Domicilium (assertion 4), not an initial block,
+// not a signature block, not the final signing order count.
+function assertDeceasedNeverInSigningElements(stages, expected) {
+    if (!expected.deceasedNames || expected.deceasedNames.length === 0) {
+        return { pass: true, firstDivergentStage: null, detail: 'no deceased party in this shape' };
+    }
+    for (const stage of stages) {
+        if (stage.initialsRow && stage.initialsRow.firstRowLabels) {
+            for (const box of stage.initialsRow.firstRowLabels) {
+                for (const namePart of expected.deceasedNames) {
+                    if (box.label && namePart.toLowerCase().includes(box.label.toLowerCase()) && box.label.length > 1) {
+                        // Weak signal only (label is often initials, not a
+                        // full name) — real confirmation is the count check
+                        // in assertion 9. Flag only an exact/near-exact match.
+                    }
+                }
+            }
+        }
+        if (stage.signPageBlocks) {
+            for (const b of stage.signPageBlocks) {
+                for (const namePart of expected.deceasedNames) {
+                    if (b.name && b.name.includes(namePart)) {
+                        return { pass: false, firstDivergentStage: stage.name, detail: `deceased party "${namePart}" appears in a signature block at ${stage.name}` };
+                    }
+                }
+            }
+        }
+    }
+    return { pass: true, firstDivergentStage: null, detail: 'deceased party never appears in a signature block (initial-block identity cannot be confirmed by name — the box only carries initials; covered indirectly by the count check in assertion 9)' };
+}
+
+function runAssertions(stages, expected, fixtureTruth, liveExpectations) {
     return {
         '0_MASTER_chain_holds_link_by_link': assertChainHolds(stages),
         '1_consistent_across_stages': assertConsistentAcrossStages(stages, expected),
@@ -300,6 +464,9 @@ function runAssertions(stages, expected, fixtureTruth) {
         '5_proxy_expansion': assertProxyExpansion(stages, expected),
         '6_blank_fields_stay_blank': assertBlankFieldsStayBlank(stages),
         '7_signature_blocks': assertSignatureBlocks(stages, expected),
+        '8_recipients_live_reflects_changes': assertRecipientsLiveReflectsChanges(stages, liveExpectations),
+        '9_initials_signature_signing_list_agree': assertInitialsSignatureSigningListAgree(stages, expected),
+        '10_deceased_never_in_signing_elements': assertDeceasedNeverInSigningElements(stages, expected),
     };
 }
 
