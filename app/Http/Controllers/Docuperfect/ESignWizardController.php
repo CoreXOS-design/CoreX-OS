@@ -3462,6 +3462,12 @@ class ESignWizardController extends Controller
                     // Only set for a row that actually represents someone;
                     // null for the ordinary plain party.
                     representedContactId: isset($r['_entity_contact_id']) ? (int) $r['_entity_contact_id'] : null,
+                    // Johan, 2026-08-28 — the recipient card's phone/address
+                    // are always editable whether or not a Contact was ever
+                    // selected via search; whatever the agent typed must
+                    // reach the document, not just the wizard's own screen.
+                    signerPhone: $r['cell'] ?? null,
+                    signerAddress: $r['address'] ?? null,
                 );
 
                 $this->stampSupplierFirmIfAny($sigReq, $r);
@@ -6376,6 +6382,12 @@ class ESignWizardController extends Controller
             $req->signer_name = (string) ($r['name'] ?? '');
             $req->signer_email = (string) ($r['email'] ?? '');
             $req->contact_id  = $r['_contact_id'] ?? null;
+            // Johan, 2026-08-28 — same no-Contact fallback the real send now
+            // carries (signer_phone/signer_address); without this the
+            // preview shows blank for what the agent typed while the sent
+            // document (once this fix landed) would not.
+            $req->signer_phone   = (string) ($r['cell'] ?? '');
+            $req->signer_address = (string) ($r['address'] ?? '');
             // Johan, 2026-08-26 — RoleBlockExpansionService::expandWithLooping()'s
             // attestation-block split reads is_proxy/is_deceased straight off
             // these transient rows (never the DB — nothing here is persisted)
@@ -7239,6 +7251,9 @@ class ESignWizardController extends Controller
                     isProxy: (bool) ($r['_is_proxy'] ?? false),
                     recipientLocalKey: $r['_recipient_local_key'] ?? null,
                     representedContactId: isset($r['_entity_contact_id']) ? (int) $r['_entity_contact_id'] : null,
+                    // Johan, 2026-08-28 — see prepareSigning()'s identical fix.
+                    signerPhone: $r['cell'] ?? null,
+                    signerAddress: $r['address'] ?? null,
                 );
                 $sigReq->update(['signing_method' => 'wet_ink']);
                 $this->stampSupplierFirmIfAny($sigReq, $r);

@@ -865,6 +865,8 @@ class SignatureService
         bool $isProxy = false,
         ?string $recipientLocalKey = null,
         ?int $representedContactId = null,
+        ?string $signerPhone = null,
+        ?string $signerAddress = null,
     ): SignatureRequest {
         $token = $this->generateToken();
 
@@ -924,6 +926,16 @@ class SignatureService
             'recipient_local_key' => $recipientLocalKey ?? (string) \Illuminate\Support\Str::uuid(),
             'signer_email' => $signerEmail,
             'signer_id_number' => $signerIdNumber,
+            // Johan, 2026-08-28 — the recipient card's phone/address fields
+            // are always editable regardless of whether a Contact was ever
+            // selected via search; an agent who types into them must see
+            // that value on the document. Frozen here the same way
+            // signer_id_number already is, read back by
+            // RoleBlockExpansionService::mutateCloneForInstance()'s
+            // no-linked-Contact fallback chain when there is no Contact to
+            // resolve from.
+            'signer_phone' => $signerPhone,
+            'signer_address' => $signerAddress,
             'token' => $token,
             'token_expires_at' => now()->addDays(14),
             'status' => SignatureRequest::STATUS_WAITING,

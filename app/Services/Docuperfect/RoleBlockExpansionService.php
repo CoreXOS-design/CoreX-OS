@@ -2105,10 +2105,8 @@ final class RoleBlockExpansionService
                 // stating one party's address as two other people's addresses
                 // stuck together. Resolve from the Contact when one exists;
                 // otherwise fall through to this recipient's OWN SignatureRequest
-                // fields (name/email/ID/address — see the address fallback
-                // below for a supplier-sourced recipient; phone has no such
-                // column and correctly resolves to blank, never another
-                // party's value).
+                // fields (name/email/ID/address/phone — see the fallback
+                // blocks below) rather than another party's value.
                 $value = $contact !== null
                     ? $this->resolveContactValue($contact, $parsed['sub_name'], $recipient)
                     : null;
@@ -2155,6 +2153,34 @@ final class RoleBlockExpansionService
                     && in_array($parsed['sub_name'], ['address', 'address_1', 'address_line_1', 'physical_address'], true)
                 ) {
                     $value = $this->blankToNull($recipient->supplier_firm_address);
+                }
+                // Johan, 2026-08-28 (conductor escalation) — the recipient
+                // card's phone/address fields are ALWAYS editable, whether
+                // or not the agent ever selected a Contact via search (a
+                // search that can itself fail to find a real, imperfectly-
+                // tagged seller — a separate, open question). An agent who
+                // types a phone number and physical address into fields
+                // they can see on screen must see them on the document.
+                // Before this, id/email/name had a no-Contact fallback
+                // (signer_id_number/signer_email/signer_name) but phone and
+                // address did not — the SAME class of "screen shows one
+                // thing, the document shows another" fault as the
+                // empty-field concatenation bug, this time a silent full
+                // omission instead of a wrong value. signer_address is the
+                // GENERIC no-Contact fallback (any manually-typed
+                // recipient); supplier_firm_address above stays checked
+                // first since it is more specific to that one case.
+                if ($value === null
+                    && $recipient !== null
+                    && in_array($parsed['sub_name'], ['address', 'address_1', 'address_line_1', 'physical_address'], true)
+                ) {
+                    $value = $this->blankToNull($recipient->signer_address);
+                }
+                if ($value === null
+                    && $recipient !== null
+                    && in_array($parsed['sub_name'], ['phone', 'cell', 'cell_phone', 'mobile'], true)
+                ) {
+                    $value = $this->blankToNull($recipient->signer_phone);
                 }
                 // Johan, 2026-08-26 — a null here used to SKIP
                 // replaceTextContent() entirely, silently leaving whatever

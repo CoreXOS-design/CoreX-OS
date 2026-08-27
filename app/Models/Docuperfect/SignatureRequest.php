@@ -31,6 +31,8 @@ class SignatureRequest extends Model
         'slot_bindings',
         'signer_email',
         'signer_id_number',
+        'signer_phone',
+        'signer_address',
         'token',
         'token_expires_at',
         'status',

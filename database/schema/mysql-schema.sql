@@ -12583,6 +12583,8 @@ CREATE TABLE `signature_requests` (
   `slot_bindings` json DEFAULT NULL,
   `signer_email` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `signer_id_number` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `signer_phone` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `signer_address` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `token` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `token_expires_at` timestamp NOT NULL,
   `status` enum('waiting','pending','viewed','partially_signed','completed','expired','declined','deferred','cancelled','not_required') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'waiting',
@@ -15500,3 +15502,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1211,'2026_08_29_0
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1212,'2026_08_29_000009_add_asserted_by_to_contact_representatives',288);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1213,'2026_08_29_000010_widen_specialty_to_varchar_on_agency_service_providers',289);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1214,'2026_08_29_000011_add_supplier_firm_address_to_signature_requests_table',290);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1215,'2026_08_29_000012_add_signer_phone_and_address_to_signature_requests_table',291);
