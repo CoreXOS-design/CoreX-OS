@@ -82,10 +82,12 @@
                                 <button type="button" @click="insertToken(slot.key)" class="text-xs px-2 py-1.5 rounded-md" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--brand-icon,#2563eb);">Insert</button>
                                 <button type="button" @click="form.party_slots.splice(i, 1)" class="text-xs" style="color: var(--ds-red,#dc2626);">×</button>
                             </div>
-                            {{-- Same component tokens as the edit screen — see its comment for why these
-                                 exist separately from the welded {field} token. --}}
-                            <div class="flex items-center gap-2 flex-wrap pl-1" x-show="slot.key" x-cloak>
-                                <span class="text-[10px] uppercase tracking-wide" style="color: var(--text-muted);">If standing in for someone else:</span>
+                            {{-- Same component tokens as the edit screen — see its comment (2026-08-27,
+                                 Elize's Late Estate wording) for why "deceased" hides this group: that
+                                 slot always self-binds, so its own _representative/etc tokens can only
+                                 ever name the deceased again, never a stand-in. --}}
+                            <div class="flex items-center gap-2 flex-wrap pl-1" x-show="slot.key && slot.key !== 'deceased'" x-cloak>
+                                <span class="text-[10px] uppercase tracking-wide" style="color: var(--text-muted);">This field's own name/company, as separate tokens:</span>
                                 <template x-for="part in ['company', 'company_reg', 'representative', 'representative_id']" :key="part">
                                     <button type="button" @click="insertToken(slot.key + '_' + part)"
                                             class="text-[11px] px-1.5 py-1 rounded"
@@ -93,6 +95,9 @@
                                             x-text="'{' + slot.key + '_' + part + '}'"></button>
                                 </template>
                             </div>
+                            <p class="text-[11px] pl-1" style="color: var(--text-muted);" x-show="slot.key === 'deceased'" x-cloak>
+                                Always this party's own name and ID — this slot can never stand in for someone else.
+                            </p>
                         </div>
                     </template>
                 </div>

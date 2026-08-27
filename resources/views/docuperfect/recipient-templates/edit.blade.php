@@ -82,9 +82,26 @@
                              insert on their own so a template can name the company, its
                              registration number, and the person separately, in any order or
                              wording — empty ones simply don't print (no dangling "represented
-                             by" or stray brackets). Blank when the field has no key yet. --}}
-                        <div class="flex items-center gap-2 flex-wrap pl-1" x-show="slot.key" x-cloak>
-                            <span class="text-[10px] uppercase tracking-wide" style="color: var(--text-muted);">If standing in for someone else:</span>
+                             by" or stray brackets). Blank when the field has no key yet.
+
+                             Johan/conductor, 2026-08-27 (Elize's Late Estate wording) — the
+                             "deceased" slot is the ONE slot every "Replace this party" flow
+                             hardcodes to always bind to itself (esign/wizard.blade.php's
+                             selectReplaceTemplate(): "the deceased slot is never a choice: it's
+                             always this party, unconditionally"). Its own {deceased_company}/
+                             {deceased_representative}/etc therefore always resolve to the
+                             deceased's own name and ID — never a stand-in — but this group's
+                             buttons were offered under EVERY slot's row identically, including
+                             "deceased", inviting exactly the mistake Johan made: reading "if
+                             standing in for someone else" under the deceased row as "who
+                             represents the deceased" and inserting {deceased_representative}
+                             where {executor_representative} belonged. The wording rendered in
+                             full (every token resolved — this was never a blank/dangling-field
+                             bug) but named the deceased twice instead of naming the executor.
+                             Hidden here for "deceased" specifically — there is no "standing in"
+                             case for a slot that can only ever be itself. --}}
+                        <div class="flex items-center gap-2 flex-wrap pl-1" x-show="slot.key && slot.key !== 'deceased'" x-cloak>
+                            <span class="text-[10px] uppercase tracking-wide" style="color: var(--text-muted);">This field's own name/company, as separate tokens:</span>
                             <template x-for="part in ['company', 'company_reg', 'representative', 'representative_id']" :key="part">
                                 <button type="button" @click="insertToken(slot.key + '_' + part)"
                                         class="text-[11px] px-1.5 py-1 rounded"
@@ -92,6 +109,9 @@
                                         x-text="'{' + slot.key + '_' + part + '}'"></button>
                             </template>
                         </div>
+                        <p class="text-[11px] pl-1" style="color: var(--text-muted);" x-show="slot.key === 'deceased'" x-cloak>
+                            Always this party's own name and ID — this slot can never stand in for someone else.
+                        </p>
                     </div>
                 </template>
             </div>
