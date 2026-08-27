@@ -58,6 +58,40 @@ the second is a ritual someone will eventually forget to do. Either way, this sh
 
 ---
 
+## EXECUTION LOG — Part 1, 2026-08-27
+
+**Frozen deploy target:** `9216f8271d58bb7d7f90bd2e50f9c16a490fad8b` (Staging tip at
+freeze time, 2026-08-27 17:42:59 +0200 — "docs(releases): correct live-testing finding,
+add mail/WhatsApp danger, ownership"). This exact commit is what gets deployed, not
+whatever Staging is at by the time this finishes.
+
+**What rode along beyond the 26-item list already reported to Johan** (the count kept
+moving; this is the honest final reconciliation against `origin/main` at freeze time, 44
+non-merge-adjacent commits total in the range):
+- `feat(system-updates): add Bulk Email tab` — send an email to all CoreX users or one
+  agency (2026-08-24).
+- `test(system-updates): lock in deactivated/soft-deleted user exclusion for bulk email`
+  (2026-08-24).
+- `feat(mobile): add App Access` — agent mobile "delete my account" (Apple App Store
+  compliance requirement 5.1.1(v)) (2026-08-24).
+- `fix(calendar): the month view opens on today, not on last month` (2026-08-27).
+- `fix(deploy): restore missing global role templates` (AT-265 blank-screen bug)
+  (2026-08-27).
+- The two release-plan documents themselves (no app behaviour change).
+
+These three from 2026-08-24 were not in my original count at all — they reached Staging
+through a separate merge chain (a QA2/AT-383 branch) that a simple two-point diff against
+an earlier snapshot of `origin/main` missed. Flagging plainly rather than pretending the
+earlier count was complete.
+
+**Deploy mechanism used:** the documented, existing one — `git -C /corex merge --ff-only
+origin/main` (box-wide CLAUDE.md's own authorisation section; confirmed by `/corex`'s own
+reflog, which shows this exact fast-forward pattern used repeatedly, most recently
+2026-08-26). Since `main` is currently a pure ancestor of the frozen Staging commit (zero
+commits unique to `main`), `origin/main` was fast-forwarded to the frozen Staging commit
+first, then `/corex` was fast-forwarded to the new `origin/main` — same mechanism, correct
+source. Nothing invented.
+
 ## Process ownership (Johan's ruling)
 
 **Staging → live-testing is deployed by the team.** **live-testing → live is Andre's job,
