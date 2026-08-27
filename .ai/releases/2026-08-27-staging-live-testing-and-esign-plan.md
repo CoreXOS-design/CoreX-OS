@@ -558,6 +558,65 @@ Scratch worktree removed after use. Live, QA1, and every user account untouched.
 
 ---
 
+## EXECUTION LOG — Part 4, 2026-08-27, map perf + centroid-outlier fix → live-testing
+
+**What moved:** three commits only — `11c30dfa1` (geo indexes, sold_comps N+1 batching,
+address-fold caching), `439553e8e` (force the tracked_properties index), `845038cd4`
+(centroid geocode rejects out-of-bounds source rows, uses median not mean) — cherry-picked
+onto `origin/main` (which already carried `04eae805f` from Part 3) as `a2b800422`, pushed,
+`/corex` fast-forwarded. Confirmed complete: the only other map-tagged commits on Staging
+since `04eae805f` are two pure-documentation `docs(map)` commits touching only
+`.ai/specs/map-pin-taxonomy-investigation.md` — no code, correctly left behind.
+
+**Migrations — both ran, neither was a no-op:**
+- `2026_08_27_000002_add_agency_status_geo_index_to_tracked_properties` — DONE, ~1s.
+- `2026_08_27_000003_add_agency_status_geo_index_to_properties` — DONE, ~894ms.
+Both indexes independently confirmed present via `SHOW INDEX`, not just trusted from the
+migrate output. Both purely additive (new index only, reversible `dropIndex` in `down()`).
+
+**Geocode backfill, forced re-run (`--force`):** 145 geocoded (90 properties_avg, 55
+listings_avg — a 1-suburb shift in split from the pre-fix run, expected since the outlier
+rejection/median change can move which source resolves a given suburb), 6 out-of-bounds
+source property rows rejected, 0 out-of-bounds listings. 20,610 still with no geocodable
+source (unchanged, expected).
+
+**The 800m real-address-proximity check — 2, not the expected 1:** computed the minimum
+distance from every geocoded centroid to the nearest real property/listing address that
+could have contributed to it. `Ballito Rural` is 2,782m away — matches what was expected
+and already explained. **`Umhlali` is also outside the threshold, at 1,055m** — this was
+not anticipated going in. Reporting it plainly rather than rounding it into "close enough":
+it may be a legitimately sparse suburb where the available real addresses are spread wider
+than 800m apart with nothing to be done differently, or it may be worth a second look. Not
+investigated further tonight — flagging for a decision, not deciding it myself.
+
+**Caches cleared. Mail, WhatsApp, and every queue worker untouched.**
+
+**Verified on live-testing with real data:**
+- Map page loads (200).
+- **Pins request timing, live-testing's own dataset, same bbox/layers, 5 runs each,
+  median of the warm runs:** measured the OLD code against live-testing's real database
+  from a disposable read-only worktree (never reverting `/corex` itself) — **137.9ms
+  before, 137.6ms after — no measurable improvement on this dataset for this query.**
+  Traced why: the `tracked_properties` layer (the one `11c30dfa1`'s biggest win targets)
+  returned 0 pins for this agency inside this bbox both before and after — the underlying
+  query still runs, but this specific agency/bbox combination doesn't carry the row volume
+  the Staging measurements in the commit messages were taken against. The commits' own
+  cited numbers (115ms→35-40ms, etc.) were measured on Staging, not live-testing — I could
+  not reproduce a comparable win here with the bbox tested. Not a regression, not a
+  failure, but not the improvement the commit messages describe either — reporting exactly
+  what was measured, not what was expected.
+- Buyer demand: badge total 275 (same genuine distinct count as Part 3, unaffected by this
+  batch — expected, this batch didn't touch buyer-demand logic).
+- Sold layer: 200 sold properties returned (unchanged from Part 3, expected).
+- Centroid bounds: **0** suburbs outside a plausible South Africa bounding box (was several
+  before tonight's fix, per the commit's own Melbourne/null-island findings) — confirmed
+  directly by query, not assumed.
+
+Both scratch worktrees removed after use, confirmed gone. Live, QA1, and every user
+account untouched.
+
+---
+
 ## Appendix — 28-commit snapshot, Staging not yet on live-testing (taken earlier tonight — see the moving-target note above; re-derive at execution time)
 
 ```
