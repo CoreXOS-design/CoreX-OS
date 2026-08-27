@@ -652,22 +652,33 @@ class CanonicalDocumentRenderer
      * document (recipient ceremony, agent sign, marker setup, agent review,
      * amendment review, print/PDF preview).
      *
-     * Returns the stored `canonical_html` when present (the immutable post-send
-     * artifact — the frozen truth every party signed). When absent — a document
-     * still being PREPARED (pre-send: the agent is on the setup/markers/sign
-     * screens and no canonical has been composed yet) — it composes ONE fresh via
-     * the exact same pipeline (`compose()` → normalize → letterhead → insertable →
-     * expandWithLooping), WITHOUT storing.
+     * Johan, 2026-08-28 — "it's one document that flows like a printed page...
+     * Fill & Review is the freeze point... from there it's a printed page that
+     * ran through a printer." This method used to recompose from scratch at
+     * v0 ("nothing baked yet, re-composing loses nothing"), on the theory that
+     * pre-send `merged_html` was still changing under the agent's own edits.
+     * That theory stopped being true the moment ESignWizardController's send
+     * paths (prepareSigning/prepareWetInk) started calling composeAndStore()
+     * once, immediately, right after every SignatureRequest row exists — by
+     * the time ANY of these surfaces can be opened, Fill & Review has already
+     * happened and nothing on the page can change the body again. Recomposing
+     * "fresh" at that point isn't refreshing anything current — it is a
+     * SECOND, independent derivation of the parties/clause/Domicilium,
+     * competing with the first one, replaying the Fill & Review overlay
+     * against whatever position count THIS run happens to produce. Two
+     * derivations of the same document, at two different moments, are two
+     * chances to disagree — confirmed live: a document correct at Fill &
+     * Review rendered a different person's address at Sign & Send, because
+     * the second derivation's role-block count had shifted from the first's.
      *
-     * Why no store on the pre-send path: during preparation `merged_html` is still
-     * changing (the agent is editing fields), so a stored snapshot would go stale
-     * between screens. Composing fresh each load means EVERY prep surface renders
-     * from the same current inputs through the same code — so setup, sign, review
-     * and the eventual ceremony are BYTE-IDENTICAL by construction, not by
-     * coincidence. That is the whole point of the wet-ink "one document" rule: the
-     * seller domicilium (and every other role-block) can no longer compose one way
-     * on the markers screen and another way in the ceremony, because there is now
-     * exactly ONE composition path and all surfaces call it.
+     * The fix is not a smarter recompute; it is not recomputing. A stored,
+     * non-empty canonical is ALWAYS served verbatim, at any version — v0
+     * (composed once, not yet inked) equally with v1+ (ink baked in). The
+     * ONLY time this composes is the fail-safe branch below, for a document
+     * that somehow reached display with no stored canonical at all (a
+     * pre-this-fix document, or composeAndStore() having failed at send —
+     * it is fail-safe, not fail-fatal). That is a recovery path, not the
+     * normal one, and its own result gets backfilled so it never runs twice.
      *
      * Returns '' when the template has no composable web body (caller keeps its
      * page-image/PDF path).
@@ -680,32 +691,25 @@ class CanonicalDocumentRenderer
         }
         $webData = $document->web_template_data ?? [];
         $stored  = (string) ($webData['canonical_html'] ?? '');
-        $version = (int) ($webData['canonical_version'] ?? 0);
 
-        // Ink baked (version >= 1) → the stored canonical is the accumulated source
-        // of truth (every prior party's signatures/initials/fills are composed into
-        // it); return it verbatim so the agent-review and every later party see the
-        // exact accumulated document.
-        if (trim($stored) !== '' && ($version >= 1 || $this->storedCanonicalIsSigned($stored))) {
-            // UNIFIED WET-INK MODEL — a signed document's canonical is served VERBATIM so every signature +
-            // the "signed at" execution block stay intact. An amend on a signed doc OVERLAYS its strike + the
-            // per-party initial row straight INTO this canonical (writeAmend) and keeps it baked (version >= 1),
-            // so what is served already carries the marks. `storedCanonicalIsSigned` is the safety net for the
-            // rare signed-but-version-0 canonical (a legacy/edge write): serve it rather than recompose from the
-            // pre-ink merged_html, which would drop the signatures + location. maybeHighlight() then adds only
-            // the field-diff vs baseline + the Schedule of Amendments — it does NOT re-strike (author side owns that).
+        // Any stored canonical — v0 (composed once at send, not yet inked) or
+        // v1+ (ink baked in) — is the frozen artifact. Never recomposed.
+        if (trim($stored) !== '') {
+            // UNIFIED WET-INK MODEL — served VERBATIM so every signature + the
+            // "signed at" execution block stay intact once baked; pre-ink, it is
+            // the one-and-only composition every surface agrees on. maybeHighlight()
+            // only ever adds a display overlay (field-diff / Schedule of Amendments)
+            // — it does not re-derive the body.
             return $this->maybeHighlight($stored, $document, $webData);
         }
 
-        // NOT yet baked (version 0 / no ink, or never composed) → RE-COMPOSE fresh so
-        // the structure always reflects the CURRENT pipeline (per-recipient
-        // attestation split, uniform ink, etc.). A stored v0 can be stale — composed
-        // before a structural fix landed — and because nothing is baked into it yet,
-        // re-composing loses nothing and keeps every surface (setup, sign, ceremony,
-        // AGENT-REVIEW) on the one current spine. This is why the review must call
-        // forDisplay: it renders the same accumulated/current canonical, never an
-        // outdated snapshot.
-        return $this->compose($template);
+        // FAIL-SAFE ONLY — no stored canonical exists at all (composeAndStore()
+        // never ran or failed at send; a document that predates this fix). Compose
+        // once now and persist it immediately so this branch never fires twice for
+        // the same document — see composeAndStore().
+        $this->composeAndStore($template);
+        $recovered = (string) (($document->fresh()->web_template_data ?? [])['canonical_html'] ?? '');
+        return $recovered !== '' ? $recovered : $this->compose($template);
     }
 
     /**
@@ -729,41 +733,26 @@ class CanonicalDocumentRenderer
         }
         $webData  = $document->web_template_data ?? [];
         $existing = (string) ($webData['canonical_html'] ?? '');
-        $version  = (int) ($webData['canonical_version'] ?? 0);
 
-        // Ink baked (version >= 1) → the stored canonical is the accumulated source of
-        // truth (every prior party's signatures/initials/fills are composed into it);
-        // serve it verbatim so no baked ink is ever lost.
-        if (trim($existing) !== '' && ($version >= 1 || $this->storedCanonicalIsSigned($existing))) {
-            // UNIFIED WET-INK MODEL — same as forDisplay: serve the signed canonical verbatim (the amend has
-            // already OVERLAID its strike + initial row into it via writeAmend, keeping it baked). The
-            // storedCanonicalIsSigned branch is the safety net for a signed-but-version-0 canonical — serve it
-            // rather than recompose from the pre-ink merged_html, which would drop the signatures + location.
+        // Johan, 2026-08-28 — same fix as forDisplay(), same reasoning: a
+        // stored canonical (any version) is the frozen, printed-page artifact.
+        // This resolver used to re-derive at v0 "so the served structure
+        // always reflects the current pipeline" — that is precisely the
+        // second-derivation-competing-with-the-first pattern that produced
+        // the Domicilium off-by-one. Serve what is stored; never recompose it.
+        if (trim($existing) !== '') {
             return $this->maybeHighlight($existing, $document, $webData);
         }
 
-        // NOT yet inked (version 0, or never composed) → (RE-)COMPOSE fresh so the served
-        // structure always reflects the CURRENT pipeline — in particular the per-recipient
-        // identity stamps (data-name / data-recipient-identity on signature + ceremony
-        // marks) on EVERY pack `.corex-document-wrapper`. A stored v0 can be STALE: composed
-        // before a structural stamping fix landed (e.g. the AT-303 per-recipient stamps), and
-        // served verbatim it left wrappers 2..N un-stamped — so the pack progress counter
-        // ("N items remaining / go to next", which scans the whole merged container) saw
-        // ZERO "mine" items in documents 2..N and hit 0 after document 1, hiding the control
-        // (Bug 1, Johan 2026-08-03). Because nothing is inked into a v0 yet, re-composing
-        // loses nothing. This mirrors forDisplay() — the agent-review surface already
-        // re-composes stale v0 — closing the recipient-serve gap where only THIS resolver
-        // returned a stale v0 verbatim.
+        // FAIL-SAFE ONLY — no stored canonical at all. Compose once and persist
+        // immediately so this never runs twice for the same document.
         $html = $this->compose($template);
         if ($html === '') {
-            // Never regress a template that cannot be composed; if a stale body exists,
-            // still return it rather than nothing.
             return $existing;
         }
-        // Back-fill / refresh the stored v0 so the next surface reads the current artifact.
         try {
             $webData['canonical_html']    = $html;
-            $webData['canonical_version'] = $version; // stays 0 (un-inked)
+            $webData['canonical_version'] = 0;
             $document->update(['web_template_data' => $webData]);
         } catch (\Throwable $e) {
             Log::warning('CanonicalDocumentRenderer::resolveOrCompose back-fill store failed (non-fatal)', [
@@ -781,12 +770,25 @@ class CanonicalDocumentRenderer
     public function composeAndStore(SignatureTemplate $template): void
     {
         try {
+            $document = $template->document;
+            if (! $document) {
+                return;
+            }
+            $webData = $document->web_template_data ?? [];
+            // Johan, 2026-08-28 — "one document... why would you rebuild it
+            // every time it moves to the next screen." Enforced here, not
+            // just by convention of "only call this once": a canonical that
+            // already exists is the frozen artifact and is never
+            // overwritten by a fresh derivation, no matter how many times
+            // (or from how many call sites, today or added later) this
+            // method gets invoked for the same document.
+            if (trim((string) ($webData['canonical_html'] ?? '')) !== '') {
+                return;
+            }
             $html = $this->compose($template);
             if ($html === '') {
                 return;
             }
-            $document = $template->document;
-            $webData = $document->web_template_data ?? [];
             $webData['canonical_html'] = $html;
             $webData['canonical_version'] = 0; // v0 — agent-prepared (ESIGN-WETINK I4)
             $document->update(['web_template_data' => $webData]);

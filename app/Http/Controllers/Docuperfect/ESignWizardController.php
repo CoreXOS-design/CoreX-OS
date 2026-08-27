@@ -3569,6 +3569,21 @@ class ESignWizardController extends Controller
                 ]);
             }
 
+            // Johan, 2026-08-28 — "it's one document that flows like a printed
+            // page... why would you rebuild it every single time it moves to
+            // the next screen." Every real SignatureRequest row now exists —
+            // compose the canonical body ONCE, right here, and store it.
+            // CanonicalDocumentRenderer::forDisplay() now trusts ANY stored
+            // canonical_html (see that method) and never recomputes it — so
+            // this is the ONE and ONLY time the parties/clause/Domicilium get
+            // derived for this document. Every later surface (agent signing
+            // screen, recipient ceremony, PDF) reads this exact artifact and
+            // only ever ADDS to it (ink, ceremony marks) — it never rebuilds
+            // it. This is what makes "correct at Fill & Review, wrong at Sign
+            // & Send" structurally impossible: there is no second derivation
+            // left to disagree with the first.
+            app(\App\Services\Docuperfect\CanonicalDocumentRenderer::class)->composeAndStore($sigTemplate);
+
             // 6. Link document to flow
             $flowStepData = $flow->step_data ?? [];
             $flowStepData['document_id'] = $document->id;
@@ -6241,8 +6256,26 @@ class ESignWizardController extends Controller
         // canonical-to-wizard alias chain mirrors the same map used by
         // RoleBlockExpansionService::CANONICAL_FOR_VIEWER on the
         // recipient-signing side.
+        // Johan, 2026-08-28 (the exact Domicilium off-by-one root cause) —
+        // this position numbering ("__r{n}") is what an agent's Fill &
+        // Review edit gets keyed and saved under, and that saved key is
+        // later matched, EXACT-KEY, against the document's own "__r{n}"
+        // stamps by CanonicalDocumentRenderer::applyFillReviewAuthoritativeOverlay().
+        // Those document stamps come from RoleBlockExpansionService's
+        // role-block cloning, which EXCLUDES a deceased recipient from the
+        // position count (Domicilium never lists them — Elize's ruling).
+        // This method was including them — so "instance 1" meant the
+        // deceased party here but the FIRST LIVING party on the actual
+        // document, and an edit the agent made to (what they saw as) the
+        // second seller's address saved under a key that, on the real
+        // document, belongs to the first. One position-numbering rule,
+        // used everywhere a recipient's position is assigned: exclude the
+        // deceased, exactly as the document itself does.
         $byRole = [];
         foreach ($recipients as $r) {
+            if (! empty($r['_is_deceased'])) {
+                continue;
+            }
             $role = strtolower(trim((string) ($r['role'] ?? '')));
             if ($role === '') continue;
             $byRole[$role] ??= [];
@@ -7272,6 +7305,12 @@ class ESignWizardController extends Controller
             // herein represented by {Y}" onto party_clause_text before this
             // document is ever handed over to be signed on paper.
             $this->resolveChainBindings($chainBindings, $user->id);
+
+            // Johan, 2026-08-28 — see prepareSigning()'s identical fix: compose
+            // the canonical body ONCE, now, while every SignatureRequest row is
+            // freshly and consistently created. No-op (fail-safe) for a
+            // document with no composable web body.
+            app(\App\Services\Docuperfect\CanonicalDocumentRenderer::class)->composeAndStore($sigTemplate);
 
             // No markers or zones needed — wet ink is signed on paper
 
