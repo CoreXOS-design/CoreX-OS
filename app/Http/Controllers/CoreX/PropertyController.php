@@ -1691,6 +1691,44 @@ class PropertyController extends Controller
         $property->status = Property::STATUS_NOT_SELLING;
         $property->save();
 
+        // Johan, 2026-08-27 — "the my claim has run its cycle... should fall off
+        // My Claims." Not Selling ends the cycle whether the MIC pitch was
+        // completed or not (two real cases hit this: a completed pitch marked
+        // Not Selling afterward, AND a deed linked but Continue never clicked —
+        // My Claims must not care which). Every ACTIVE claim pointing at this
+        // property — via its listing's matched_property_id (the incomplete-pitch
+        // path) OR the claim's own property_id (backfilled once the pitch
+        // completes, per ProspectingClaimService::consumeLockAsPermanentClaim())
+        // — is closed here, not just released: STATUS_NOT_INTERESTED is already
+        // the closest existing outcome ("owner declined — closes the claim") and
+        // is already one of the model's own CLOSING_STATUSES, so this reuses the
+        // vocabulary the whole feedback/reporting system already understands
+        // rather than inventing a new one. is_active=false is what actually
+        // drops it off the my_claims filter (whereHas('activeClaim', ...)); the
+        // status + note make the outcome findable, not silently vanished.
+        $matchedListingIds = \DB::table('prospecting_listings')
+            ->where('matched_property_id', $property->id)
+            ->whereNull('deleted_at')
+            ->pluck('id');
+        \App\Models\ProspectingClaim::where('agency_id', $property->agency_id)
+            ->where('is_active', true)
+            ->whereNull('released_at')
+            ->where(function ($q) use ($matchedListingIds, $property) {
+                $q->whereIn('prospecting_listing_id', $matchedListingIds)
+                  ->orWhere('property_id', $property->id);
+            })
+            ->update([
+                'status'          => \App\Models\ProspectingClaim::STATUS_NOT_INTERESTED,
+                'is_active'       => false,
+                'released_at'     => now(),
+                'release_reason'  => 'not_selling',
+                'feedback_at'     => now(),
+                'notes'           => \Illuminate\Support\Facades\DB::raw(
+                    "CONCAT(COALESCE(notes, ''), '\n[" . now()->format('Y-m-d H:i') . "] Marked Not selling — claim closed.')"
+                ),
+                'last_updated_at' => now(),
+            ]);
+
         $actor = $request->user()?->name ?? 'Unknown user';
         $when = now()->format('j M Y, H:i');
         $reasonText = $reason !== '' ? $reason : 'No reason given.';
