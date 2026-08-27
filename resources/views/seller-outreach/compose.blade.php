@@ -145,7 +145,7 @@ function composerState(init) {
             // AT-117 §4a — send-window lock. Client prevent (immediate message);
             // the server submit endpoint also refuses out-of-window (defense in depth).
             if (this.windowAllowed === false) {
-                alert(this.windowMessage || 'Outreach sending is closed right now.');
+                window.showToast(this.windowMessage || 'Outreach sending is closed right now.', 'warning');
                 return;
             }
             this.sending = true;
@@ -186,7 +186,7 @@ function composerState(init) {
                 const data = await res.json();
                 if (!res.ok) {
                     if (waTab) waTab.close(); // don't strand a blank tab on failure
-                    alert(data.message || 'Send failed.');
+                    window.showToast(data.message || 'Send failed.', 'error');
                     return;
                 }
                 // Navigate the pre-opened tab to the per-send WhatsApp URL (the body
@@ -204,7 +204,7 @@ function composerState(init) {
                 window.location.href = this.sentUrlBase + '/' + data.send_id;
             } catch (e) {
                 if (waTab) waTab.close();
-                alert('Network error — try again.');
+                window.showToast('Network error — try again.', 'error');
             } finally {
                 this.sending = false;
             }
@@ -231,11 +231,11 @@ function composerState(init) {
                     }),
                 });
                 const data = await res.json();
-                if (!res.ok) { alert(data.message || 'Could not queue.'); return; }
-                alert(data.message || 'Added to your outreach queue.');
+                if (!res.ok) { window.showToast(data.message || 'Could not queue.', 'error'); return; }
+                window.showToast(data.message || 'Added to your outreach queue.', 'success');
                 window.location.href = this.contactUrl;
             } catch (e) {
-                alert('Network error — try again.');
+                window.showToast('Network error — try again.', 'error');
             } finally {
                 this.queuing = false;
             }

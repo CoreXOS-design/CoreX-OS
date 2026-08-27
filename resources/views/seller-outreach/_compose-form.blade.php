@@ -155,6 +155,46 @@
         </div>
     @endif
 
+    {{-- AT-81 — pending hard block: a consent-request is already out awaiting a
+         reply. Two variants share one banner idiom (copied from cooldownSignal
+         below): delivered (the clock is running, honest "hasn't replied yet")
+         vs undelivered (a WhatsApp pitch the agent never confirmed sending —
+         the only on-screen exit from this hold, since it never clears on its
+         own). --}}
+    @if($context->pendingBlocks && $context->pendingSignal)
+        @php
+            $pendingSignal = $context->pendingSignal;
+            $pendingChannelLabel = match ($pendingSignal['channel']) {
+                'whatsapp' => 'WhatsApp',
+                'email' => 'email',
+                default => 'a message',
+            };
+            $pendingContactName = trim(($contact->first_name ?? '') . ' ' . ($contact->last_name ?? '')) ?: 'This contact';
+        @endphp
+        <div class="rounded-md p-3 text-sm"
+             style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 12%, transparent); border: 1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 40%, var(--border)); color: var(--text-primary);">
+            @if($pendingSignal['delivered_at'])
+                <div class="font-semibold" style="color: var(--ds-amber, #b45309);">Awaiting reply</div>
+                <div class="mt-1">
+                    You pitched {{ $pendingContactName }} on
+                    <strong>{{ \Carbon\Carbon::parse($pendingSignal['delivered_at'])->format('j M Y') }}</strong>
+                    via {{ $pendingChannelLabel }} and they haven't replied yet. You can pitch them again from
+                    <strong>{{ \Carbon\Carbon::parse($pendingSignal['clears_at'])->format('j M Y') }}</strong>.
+                </div>
+            @else
+                <div class="font-semibold" style="color: var(--ds-amber, #b45309);">Unconfirmed pitch — needs your answer</div>
+                <div class="mt-1">
+                    You prepared a {{ $pendingChannelLabel }} pitch for {{ $pendingContactName }} on
+                    <strong>{{ \Carbon\Carbon::parse($pendingSignal['asked_at'])->format('j M Y') }}</strong>
+                    but never confirmed whether it actually went out. Until you confirm, this contact stays on hold.
+                    @if($pendingSignal['send_id'])
+                        <a href="{{ route('seller-outreach.composer.sent', [$contact, $pendingSignal['send_id']]) }}" class="font-semibold underline">Confirm now</a>
+                    @endif
+                </div>
+            @endif
+        </div>
+    @endif
+
     {{-- Subject (email only) --}}
     @if($channel === 'email')
     <div>
@@ -245,8 +285,10 @@
          including outside the send-window (prepare now); sending from the queue is
          gated by the send-window. The send-now button above is window-disabled. --}}
     <div class="pt-3 mt-3" data-tour="oc-queue" style="border-top: 1px solid var(--border);">
-        <button type="button" @click="addToQueue()" :disabled="queuing"
-                class="corex-btn-outline text-sm">
+        <button type="button" @click="addToQueue()"
+                :disabled="queuing || {{ $context->isSendable() ? 'false' : 'true' }}"
+                class="corex-btn-outline text-sm"
+                style="{{ $context->isSendable() ? '' : 'background: var(--surface-2); color: var(--text-muted); cursor: not-allowed; opacity: 0.7;' }}">
             <span x-show="!queuing">Add to queue</span>
             <span x-show="queuing" x-cloak>Adding…</span>
         </button>

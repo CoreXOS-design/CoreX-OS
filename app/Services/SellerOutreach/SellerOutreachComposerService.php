@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Services\SellerOutreach;
 
+use App\Models\AgencyContactSettings;
+use App\Models\Communications\Communication;
 use App\Models\Contact;
 use App\Models\Property;
 use App\Models\SellerOutreach\SellerOutreachSend;
@@ -196,6 +198,7 @@ final class SellerOutreachComposerService
         // AT-81 — a consent-request already sent and awaiting a reply blocks a
         // re-blast until the contact engages or the no-response window lapses.
         $pendingBlocks = $contact->isOutreachPending();
+        $pendingSignal = $pendingBlocks ? $this->pendingSignal($agencyId, $contact) : null;
         $cooldownSignal = $this->cooldownSignal($agencyId, $contact);
 
         $factsSnapshot = [
@@ -241,6 +244,7 @@ final class SellerOutreachComposerService
             optOutBlocks: $optOutBlocks,
             cooldownSignal: $cooldownSignal,
             pendingBlocks: $pendingBlocks,
+            pendingSignal: $pendingSignal,
         );
     }
 
@@ -591,6 +595,76 @@ final class SellerOutreachComposerService
             'last_agent_id' => $recent->agent_id,
             'last_channel' => $recent->channel,
         ];
+    }
+
+    /**
+     * AT-81 — the composer banner payload behind $pendingBlocks. Shaped like
+     * cooldownSignal (asked_at, channel, send_id, delivered_at, clears_at).
+     * delivered_at/clears_at are null when the latest send has no delivery
+     * evidence yet — that is the distinct "unconfirmed WhatsApp pitch" state
+     * the composer must surface separately from "delivered, awaiting reply".
+     *
+     * Delivery is resolved with resolveDeliveredAt() below, which mirrors the
+     * SAME rule App\Console\Commands\RecomputeOutreachNoResponse::handle() uses
+     * (~lines 102-116 of that file) to decide whether the no-response clock has
+     * legitimately started for a pending contact. That command sits outside
+     * this prompt's scope-locked files, so this cannot call through to it in
+     * this pass — it is mirrored here rather than duplicated ad-hoc, and a
+     * follow-up should extract both call sites onto one shared method. Flagged
+     * in the build report.
+     */
+    private function pendingSignal(int $agencyId, Contact $contact): ?array
+    {
+        $latestSend = SellerOutreachSend::withoutGlobalScopes()
+            ->where('agency_id', $agencyId)
+            ->where('contact_id', $contact->id)
+            ->whereNull('deleted_at')
+            ->latest('sent_at')
+            ->first();
+
+        if (!$latestSend) {
+            return [
+                'asked_at' => $contact->outreach_permission_asked_at,
+                'channel' => null,
+                'send_id' => null,
+                'delivered_at' => null,
+                'clears_at' => null,
+            ];
+        }
+
+        $deliveredAt = $this->resolveDeliveredAt($latestSend);
+        $clearsAt = $deliveredAt !== null
+            ? $deliveredAt->copy()->addDays(AgencyContactSettings::forAgency($agencyId)->outreachNoResponseDays())
+            : null;
+
+        return [
+            'asked_at' => $contact->outreach_permission_asked_at,
+            'channel' => $latestSend->channel,
+            'send_id' => $latestSend->id,
+            'delivered_at' => $deliveredAt,
+            'clears_at' => $clearsAt,
+        ];
+    }
+
+    /**
+     * Mirrors RecomputeOutreachNoResponse's delivery gate (~lines 102-116): email
+     * is system-sent (delivered at sent_at); WhatsApp is client-side click-to-chat
+     * and only counts as delivered once its linked Communication is confirmed
+     * send_status=sent. No delivery evidence -> null (never fabricate a delivery
+     * time for an unconfirmed pitch).
+     */
+    private function resolveDeliveredAt(SellerOutreachSend $send): ?\Illuminate\Support\Carbon
+    {
+        if ($send->channel === Communication::CHANNEL_EMAIL) {
+            return $send->sent_at;
+        }
+        if ($send->communication_id) {
+            $comm = Communication::withoutGlobalScopes()->find($send->communication_id);
+            if ($comm && $comm->send_status === Communication::SEND_STATUS_SENT) {
+                return $comm->send_status_set_at ?? $send->sent_at;
+            }
+        }
+        return null;
     }
 
     private function agentDisplayName(User $agent): string
