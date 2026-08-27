@@ -34,6 +34,7 @@ const TEMPLATE_BUTTON = 'EXCLUSIVE AUTHORITY TO SELL';
 const { mintSessionCookie } = require('./lib/cookie');
 const driver = require('./lib/driver');
 const capture = require('./lib/capture');
+const mailpit = require('./lib/mailpit');
 const { shapeList } = require('./shapes');
 const { runAssertions } = require('./lib/assertions');
 
@@ -178,11 +179,26 @@ async function runShape(browser, cookie, shapeDef, fixtureTruth, warnings) {
 
             const agentResult = await driver.robustCompleteAgentSigning(page, 'Johan Reichel');
             if (!agentResult.completed) {
-                notes.push(`Agent signing did not complete: ${agentResult.reason} (progress: ${agentResult.finalProgress}). Recipient-by-recipient signing chain (rec 1, rec 2, ...) COULD NOT BE CHECKED this run — needs the agent's own signature to complete first, then each recipient's own signing link (Mailpit) in turn; out of scope for this pass under the deadline.`);
+                notes.push(`Agent signing did not complete: ${agentResult.reason} (progress: ${agentResult.finalProgress}). Recipient-by-recipient signing chain (rec 1, rec 2, ...) COULD NOT BE CHECKED this run — needs the agent's own signature to complete first.`);
             } else {
+                // Snapshot exactly what the agent authorised, immediately
+                // before sending — this is the baseline "rec 1 matches from
+                // agent" is measured against (Johan's spec, verbatim).
+                const agentFinalText = await capture.extractPreviewText(page);
+                stages.push({
+                    name: 'Agent Final (pre-send)',
+                    domicilium: capture.parseDomicilium(agentFinalText),
+                    clause: capture.parseClauseOpening(agentFinalText),
+                    signatureSummary: capture.parseSignatureBlockSummary(agentFinalText),
+                });
                 try {
                     await driver.completeSigningAndSend(page);
-                    notes.push(`Agent signing completed and dispatched (document #${documentId}). Recipient-by-recipient chain (rec 1, rec 2, ...) COULD NOT BE CHECKED this run — would require opening each recipient's own signing link from Mailpit and signing as them in turn; not built in this pass under the deadline.`);
+                    notes.push(`Agent signing completed and dispatched (document #${documentId}).`);
+                    if (expected.recipientsForChain && expected.recipientsForChain.length) {
+                        await driveRecipientChain(browser, expected, stages, notes);
+                    } else {
+                        notes.push('No recipientsForChain declared for this shape — recipient-by-recipient chain not driven.');
+                    }
                 } catch (e) {
                     notes.push(`Could not click Complete Signing & Send: ${e.message}`);
                 }
@@ -246,6 +262,77 @@ async function dispatchCapturingPreview(page, host, flowId, excludeNameParts, st
     const m = page.url().match(/documents\/(\d+)/);
     if (!m) throw new Error(`did not land on a document sign URL — got ${page.url()}`);
     return parseInt(m[1], 10);
+}
+
+// 2026-08-27 — the recipient-signing chain (Johan's spec, verbatim: "agent
+// signing matches exactly to preview / rec 1 matches from agent / rec 2
+// matches from rec 1 / etc"). For each recipient in order: read their
+// signing link out of Mailpit (the only channel that gives it — there is no
+// CoreX session for a recipient, the token IS their identity), open it,
+// clear the identity gateway + consent, snapshot what they RECEIVED (before
+// they touch anything — this is what gets diffed against the previous
+// party's final state), sign every field of theirs, snapshot again.
+async function driveRecipientChain(browser, expected, stages, notes) {
+    for (const rec of expected.recipientsForChain) {
+        let mail;
+        try {
+            mail = await mailpit.findSigningLink(rec.email);
+        } catch (e) {
+            notes.push(`Rec "${rec.namePart}": COULD NOT CHECK — ${e.message}`);
+            return; // can't continue the chain past a missing link
+        }
+        let recPage;
+        try {
+            recPage = await driver.openRecipientSigningLink(browser, mail.link);
+            await driver.completeIdentityGateway(recPage, rec.idNumber);
+            if (recPage.url().includes('/fica')) {
+                notes.push(`Rec "${rec.namePart}": hit the FICA gate — no pre-approved fica_submissions row for this contact (see fixtures.php). COULD NOT CHECK further for this recipient.`);
+                await recPage.close();
+                return;
+            }
+            if (recPage.url().includes('/consent')) {
+                await driver.completeConsent(recPage);
+            }
+            await driver.completeMethodChoiceIfPresent(recPage);
+        } catch (e) {
+            notes.push(`Rec "${rec.namePart}": COULD NOT CHECK — failed to reach the document: ${e.message}`);
+            if (recPage) await recPage.close().catch(() => {});
+            return;
+        }
+
+        await driver.sleep(1500);
+        const receivedText = await capture.extractPreviewText(recPage);
+        const receivedInitials = await capture.countInitialsRow(recPage);
+        stages.push({
+            name: `Rec ${rec.namePart} (received)`,
+            domicilium: capture.parseDomicilium(receivedText),
+            clause: capture.parseClauseOpening(receivedText),
+            signatureSummary: capture.parseSignatureBlockSummary(receivedText),
+            initialsRow: receivedInitials,
+        });
+
+        const result = await driver.robustCompleteSigningAsCurrentParty(recPage, rec.namePart + ' HarnessFixture');
+        if (!result.completed) {
+            notes.push(`Rec "${rec.namePart}": signing did not complete — ${result.reason} (progress: ${result.finalProgress}). Chain stops here; later recipients COULD NOT BE CHECKED.`);
+            await recPage.close().catch(() => {});
+            return;
+        }
+        // Submit this recipient's turn if a distinct submit action exists
+        // (mirrors completeSigningAndSend for the agent) — tolerate its
+        // absence (some flows may auto-advance once progress hits 100%).
+        const submitted = await driver.clickBtnContains(recPage, 'Complete').catch(() => false);
+        await driver.sleep(2000);
+
+        const signedText = await capture.extractPreviewText(recPage);
+        stages.push({
+            name: `Rec ${rec.namePart} (signed)`,
+            domicilium: capture.parseDomicilium(signedText),
+            clause: capture.parseClauseOpening(signedText),
+            signatureSummary: capture.parseSignatureBlockSummary(signedText),
+        });
+        notes.push(`Rec "${rec.namePart}": signing completed (submit button clicked: ${submitted}).`);
+        await recPage.close().catch(() => {});
+    }
 }
 
 function printReport(results) {

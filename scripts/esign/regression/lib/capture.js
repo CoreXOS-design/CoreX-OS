@@ -12,12 +12,29 @@
 // `.corex-document-wrapper` / `.corex-a4-page` instead, once pagination has
 // run. Try both, in the order a given screen is likely to have.
 async function extractPreviewText(page) {
-    return page.evaluate(() => {
+    const raw = await page.evaluate(() => {
         const el = document.querySelector('.web-template-preview')
             || document.querySelector('.corex-document-wrapper')
             || document.querySelector('.corex-a4-page')?.parentElement;
         return el ? el.innerText : '';
     });
+    // 2026-08-27 — recipient-signing screens interleave UI prompt text
+    // ("Click to initial", "Click to sign") and pagination furniture ("Page
+    // N of M", standalone role chips like "Seller") INLINE inside the
+    // flowing document text itself, at points other than a clean page
+    // break — seen corrupting parseDomicilium's field boundaries on a live
+    // capture (assertions.js's stripPaginationFurniture only strips the
+    // page-break form, line-by-line, which doesn't catch this INLINE case).
+    // Strip at the source so every downstream parser sees the same text
+    // whether captured on the agent's screen or a recipient's.
+    return raw
+        .replace(/\s*Click to (initial|sign)\s*/g, ' ')
+        // "Page N of M" plus an optional immediately-adjacent role chip —
+        // strip as ONE unit (matches the observed "...Page 1 of 5 Seller
+        // ..." furniture) rather than a bare role-word replace, which would
+        // risk eating a legitimate occurrence of "Seller"/"Agent"/etc.
+        // elsewhere in real document text.
+        .replace(/\s*Page\s+\d+\s+of\s+\d+\s*(Agent|Seller|Buyer|Landlord|Tenant)?\s*/g, ' ');
 }
 
 // Parses the Domicilium block into one entry per "<Role> - <Name>" row.

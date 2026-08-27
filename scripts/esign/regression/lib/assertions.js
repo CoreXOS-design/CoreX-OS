@@ -85,9 +85,22 @@ const NON_STRICT_LINKS = new Set([
 const FIXED_STAGE_NAMES = new Set([
     'Template', 'Property', 'Recipients (after reload)', 'Details',
     'Fill & Review', 'Sign & Send', 'Preview', 'Agent Signing Screen',
+    'Agent Final (pre-send)',
 ]);
 function isLiveRecipientsSubStage(name) {
-    return !FIXED_STAGE_NAMES.has(name);
+    return !FIXED_STAGE_NAMES.has(name) && !/^Rec .* \((received|signed)\)$/.test(name);
+}
+// 2026-08-27 — the recipient-signing chain (Johan's spec, verbatim: "agent
+// signing matches exactly to preview / rec 1 matches from agent / rec 2
+// matches from rec 1 / etc"). A "(signed)" stage is that recipient's own
+// addition (their signature/initials) — non-strict, same reasoning as every
+// other "someone just acted" link. A "(received)" stage is what THEY GOT,
+// compared against whatever the PREVIOUS party's final state was — this
+// must be STRICT, because it is the literal claim "rec N matches rec N-1"
+// (or "rec 1 matches from agent" for the first one). Getting this backwards
+// would silently exempt exactly the check this chain exists to make.
+function isRecipientOwnAddition(stageName) {
+    return stageName === 'Agent Final (pre-send)' || /^Rec .* \(signed\)$/.test(stageName);
 }
 
 function assertChainHolds(stages) {
@@ -101,7 +114,8 @@ function assertChainHolds(stages) {
         const linkLabel = prevName ? `${prevName} -> ${stage.name}` : stage.name;
         const nonStrict = NON_STRICT_LINKS.has(linkLabel)
             || prevName === 'Property'
-            || (prevName !== null && isLiveRecipientsSubStage(prevName) && isLiveRecipientsSubStage(stage.name));
+            || (prevName !== null && isLiveRecipientsSubStage(prevName) && isLiveRecipientsSubStage(stage.name))
+            || isRecipientOwnAddition(stage.name);
 
         if (!current) {
             links.push({ link: linkLabel, result: 'could_not_check', detail: `${stage.name} was never reached / captured no comparable text` });

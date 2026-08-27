@@ -41,6 +41,14 @@ function shapeList(fixtures) {
                         domiciliumNames: ['RegSellerOne HarnessFixture', 'RegSellerTwo HarnessFixture'],
                         deceasedNames: [],
                         signingOrderCount: 3, // agent + 2 sellers
+                        // 2026-08-27 — the recipient-signing chain (Johan:
+                        // "rec 1 matches from agent, rec 2 matches from rec
+                        // 1, etc."). Signing order = the order run.js drives
+                        // them in.
+                        recipientsForChain: [
+                            { namePart: 'RegSellerOne', email: 'reg.seller.one@harness.test', idNumber: '8001015800101' },
+                            { namePart: 'RegSellerTwo', email: 'reg.seller.two@harness.test', idNumber: '8002015800102' },
+                        ],
                     },
                 };
             },
@@ -60,7 +68,12 @@ function shapeList(fixtures) {
 
                 await driver.tickDeceasedAndBindExecutor(page, {
                     namePart: 'RegDeceased',
-                    templateName: 'Late Estate',
+                    // 2026-08-27 — cc1: the real template names are "Estate
+                    // Late Company" and "Estate late Natural", not "Late
+                    // Estate" (which doesn't exist) — that alone was making
+                    // shapes B and C fail to run, a harness bug, not a
+                    // product fault. Natural-person executor here.
+                    templateName: 'Estate late Natural',
                     executorSource: 'contact',
                     executorSearchTerm: 'RegExecutor HarnessFixture',
                     executorMatchText: 'RegExecutor',
@@ -85,6 +98,12 @@ function shapeList(fixtures) {
                         // "still displays, never receives a signing request"
                         // note that turned out to describe a bug, not a design.
                         signingOrderCount: 3, // agent + living seller + executor
+                        // Living party first, deceased is never in this list
+                        // at all (no signing link — see assertion 10/11).
+                        recipientsForChain: [
+                            { namePart: 'RegSellerOne', email: 'reg.seller.one@harness.test', idNumber: '8001015800101' },
+                            { namePart: 'RegExecutor', email: 'reg.executor@harness.test', idNumber: '8004015800104' },
+                        ],
                     },
                 };
             },
@@ -104,7 +123,9 @@ function shapeList(fixtures) {
 
                 await driver.tickDeceasedAndBindExecutor(page, {
                     namePart: 'RegDeceased',
-                    templateName: 'Late Estate',
+                    // 2026-08-27 — see shape B's note. Supplier-firm executor
+                    // here.
+                    templateName: 'Estate Late Company',
                     executorSource: 'supplier',
                     executorSearchTerm: 'RegSupplierExecutor',
                     executorMatchText: 'RegSupplierExecutor',
@@ -157,6 +178,11 @@ function shapeList(fixtures) {
                         domiciliumNames: ['RegDirectorOne HarnessFixture', 'RegDirectorTwo HarnessFixture', 'RegDirectorThree HarnessFixture'],
                         deceasedNames: [],
                         signingOrderCount: 4, // agent + 3 directors, none proxied
+                        recipientsForChain: [
+                            { namePart: 'RegDirectorOne', email: 'regdirectorone@harness.test', idNumber: '8006015800106' },
+                            { namePart: 'RegDirectorTwo', email: 'regdirectortwo@harness.test', idNumber: '8007015800107' },
+                            { namePart: 'RegDirectorThree', email: 'regdirectorthree@harness.test', idNumber: '8008015800108' },
+                        ],
                     },
                 };
             },
@@ -199,6 +225,20 @@ function shapeList(fixtures) {
                         domiciliumNames: ['RegDirectorOne HarnessFixture', 'RegDirectorTwo HarnessFixture', 'RegDirectorThree HarnessFixture'],
                         deceasedNames: [],
                         signingOrderCount: 2, // agent + ONE proxy signer, not all 3 directors
+                        // tickProxy() picks the FIRST representative radio in
+                        // the picker panel — RegDirectorOne (is_primary,
+                        // first in all_representatives). Only the proxy
+                        // receives a link ("under proxy, only the proxy
+                        // receives a link, the other directors do not").
+                        recipientsForChain: [
+                            { namePart: 'RegDirectorOne', email: 'regdirectorone@harness.test', idNumber: '8006015800106' },
+                        ],
+                        proxyOnlyCheck: {
+                            shouldNotHaveLink: [
+                                { namePart: 'RegDirectorTwo', email: 'regdirectortwo@harness.test' },
+                                { namePart: 'RegDirectorThree', email: 'regdirectorthree@harness.test' },
+                            ],
+                        },
                     },
                 };
             },

@@ -329,10 +329,26 @@ async function dispatchToSigning(page, host, flowId, excludeNameParts) {
     return parseInt(m[1], 10);
 }
 
+// 2026-08-27 — "X / Y items completed" is the AGENT screen's own progress
+// text. A RECIPIENT's screen shows a DIFFERENT format entirely — "N items
+// remaining" (no total given) — found via a full-page screenshot after the
+// first format's absence caused the signing loop to spin forever with no
+// way to detect completion. Returns a normalized { done, total, remaining }
+// (total/done null when only "remaining" is known) or null if neither
+// pattern is present at all.
 async function getProgress(page) {
     return page.evaluate(() => {
-        const el = Array.from(document.querySelectorAll('*')).find(e => e.innerText && /^\d+ \/ \d+ items completed$/.test(e.innerText.trim()));
-        return el ? el.innerText.trim() : null;
+        const completedEl = Array.from(document.querySelectorAll('*')).find(e => e.innerText && /^\d+ \/ \d+ items completed$/.test(e.innerText.trim()));
+        if (completedEl) {
+            const [done, total] = completedEl.innerText.trim().split(' / ').map(s => parseInt(s));
+            return { text: completedEl.innerText.trim(), done, total, remaining: total - done };
+        }
+        const remainingEl = Array.from(document.querySelectorAll('*')).find(e => e.innerText && /^\d+ items? remaining$/i.test(e.innerText.trim()));
+        if (remainingEl) {
+            const remaining = parseInt(remainingEl.innerText.trim());
+            return { text: remainingEl.innerText.trim(), done: null, total: null, remaining };
+        }
+        return null;
     });
 }
 
@@ -401,28 +417,58 @@ async function fillLocationIfPresent(page) {
     return true; // treat as handled either way — caller just needs to know to re-check progress, not spin forever on this field
 }
 
+// 2026-08-27 — found via ESIGN_HARNESS_DEBUG on a recipient's own signing
+// screen: clickBtnExact('Type')/clickBtnExact('Apply Signature') match by
+// text alone, `.find()`ing the FIRST button anywhere in the DOM with that
+// label — but the signing modal is instantiated once PER marker (one per
+// initial box, one for the final signature), and only ONE instance is
+// actually visible (display!=none, non-zero rect) at a time. The click
+// could silently land on a hidden instance's identically-labelled button,
+// which is exactly indistinguishable from "worked" (clickBtnExact returns
+// true) while nothing visible changes — the loop then spins forever
+// re-clicking the same still-unsigned marker. Every step here is scoped to
+// VISIBLE elements only (non-zero rect), never "the first match anywhere".
+async function clickVisibleBtn(page, matchFn) {
+    return page.evaluate((matchFnStr) => {
+        const matchFn = new Function('text', `return (${matchFnStr})(text)`);
+        const btn = Array.from(document.querySelectorAll('button')).find(b => {
+            if (!matchFn(b.innerText.trim())) return false;
+            const r = b.getBoundingClientRect();
+            return r.width > 0 && r.height > 0;
+        });
+        if (btn) { btn.click(); return true; }
+        return false;
+    }, matchFn.toString());
+}
+
 async function typeAndApplySignature(page, name) {
-    await clickBtnExact(page, 'Type');
-    await sleep(500);
+    const typeClicked = await clickVisibleBtn(page, (t) => t === 'Type');
+    await sleep(600);
     const inputBox = await page.evaluate(() => {
+        // Must be on-screen in the CURRENT viewport, not just "decent
+        // size" — a hidden/off-screen modal instance's identically-shaped
+        // input matches on size alone and sends the click miles off-canvas
+        // (seen at y:-2300 once the viewport bound was dropped).
         const input = Array.from(document.querySelectorAll('input[type="text"]')).find(i => {
             const r = i.getBoundingClientRect();
-            return r.width > 100 && r.height > 10 && r.y > 300 && r.y < 1400;
+            return r.width > 100 && r.height > 10 && r.top >= 0 && r.top < window.innerHeight && r.left >= 0 && r.left < window.innerWidth;
         });
         if (!input) return null;
         const r = input.getBoundingClientRect();
         return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
     });
+    if (process.env.ESIGN_HARNESS_DEBUG) console.error(`[signing-debug] typeAndApplySignature: typeClicked=${typeClicked}, inputBox=${JSON.stringify(inputBox)}`);
     if (inputBox) {
         await page.mouse.click(inputBox.x, inputBox.y, { clickCount: 3 });
         await page.keyboard.type(name, { delay: 15 });
         await sleep(300);
     }
-    await clickBtnExact(page, 'Apply Signature');
+    const applyClicked = await clickVisibleBtn(page, (t) => t.startsWith('Apply Signature'));
+    if (process.env.ESIGN_HARNESS_DEBUG) console.error(`[signing-debug] typeAndApplySignature: applyClicked=${applyClicked}`);
     await sleep(1500);
     const dlg = await page.evaluate(() => document.body.innerText.includes('Apply to Remaining Markers?'));
     if (dlg) {
-        await clickBtnExact(page, 'Yes, Apply to All');
+        await clickVisibleBtn(page, (t) => t.startsWith('Yes, Apply to All'));
         await sleep(1200);
     }
 }
@@ -433,41 +479,43 @@ async function typeAndApplySignature(page, name) {
 // reason rather than hanging or reporting a false pass.
 // 2026-08-27 — second root cause of the intermittent signing-completion
 // stall, found via ESIGN_HARNESS_DEBUG + a full-page marker dump: page-break
-// initial boxes for the agent DO carry the dashed border clickHighlightedField
-// looks for (_makeWebInitialsInteractive sets `border: 2px dashed`), but
-// "Go to next" was not reliably scrolling them into view — all 4 unsigned
-// agent-initial elements on a 5-page test document sat at NEGATIVE
-// getBoundingClientRect().top (scrolled above the current viewport) even
-// after clicking "Go to next" and waiting. clickHighlightedField only scans
-// what's currently on-screen, so it never found them and the loop spun on
-// the already-signed final attestation instead. This queries and scrolls to
-// an unsigned agent initial DIRECTLY — [data-marker-party="agent"]
-// [data-marker-type="initial"] without data-signed="true" — bypassing
-// "Go to next" and the viewport-only scan entirely for this field type.
-async function findAndScrollToUnsignedAgentInitial(page) {
-    return page.evaluate(() => {
-        const els = Array.from(document.querySelectorAll('[data-marker-party="agent"][data-marker-type="initial"]'));
-        const target = els.find(el => el.getAttribute('data-signed') !== 'true');
+// initial boxes for the CURRENT SIGNER do carry a dashed border
+// clickHighlightedField looks for (_makeWebInitialsInteractive /
+// _makeCeremonyFieldsEditable-equivalent on the external page sets
+// `border: 2px dashed`), but "Go to next" was not reliably scrolling them
+// into view — all 4 unsigned initial elements on a 5-page test document sat
+// at NEGATIVE getBoundingClientRect().top (scrolled above the current
+// viewport) even after clicking it and waiting. clickHighlightedField only
+// scans what's currently on-screen, so it never found them and the loop
+// spun on the already-signed final attestation instead. This queries and
+// scrolls to an unsigned initial DIRECTLY, filtered by the dashed border
+// style itself (not a hardcoded party name) — works identically whether the
+// current signer is the agent (internal /documents/{id}/sign) or a
+// recipient (external /sign/{token}), since only the CURRENT signer's own
+// boxes ever get that border. Bypasses "Go to next" and the viewport-only
+// scan entirely for this field type.
+async function findAndScrollToUnsignedInitial(page) {
+    const evalFn = () => {
+        const els = Array.from(document.querySelectorAll('[data-marker-type="initial"]'));
+        const target = els.find(el => {
+            if (el.getAttribute('data-signed') === 'true') return false;
+            const cs = getComputedStyle(el);
+            return cs.borderStyle && cs.borderStyle.includes('dashed');
+        });
         if (!target) return { found: false };
         target.scrollIntoView({ block: 'center' });
         const r = target.getBoundingClientRect();
         return { found: true, x: r.x + r.width / 2, y: r.y + r.height / 2 };
-    }).then(async (result) => {
-        if (!result.found) return result;
-        // scrollIntoView is async/animated in some browsers — re-read the
-        // rect after a short settle instead of trusting the pre-scroll one.
-        await sleep(400);
-        return page.evaluate(() => {
-            const els = Array.from(document.querySelectorAll('[data-marker-party="agent"][data-marker-type="initial"]'));
-            const target = els.find(el => el.getAttribute('data-signed') !== 'true');
-            if (!target) return { found: false };
-            const r = target.getBoundingClientRect();
-            return { found: true, x: r.x + r.width / 2, y: r.y + r.height / 2 };
-        });
-    });
+    };
+    const first = await page.evaluate(evalFn);
+    if (!first.found) return first;
+    // scrollIntoView is async/animated in some browsers — re-read the rect
+    // after a short settle instead of trusting the pre-scroll one.
+    await sleep(400);
+    return page.evaluate(evalFn);
 }
 
-async function robustCompleteAgentSigning(page, agentName, { maxLoops = 40, stagnantLimit = 8 } = {}) {
+async function robustCompleteSigningAsCurrentParty(page, signerName, { maxLoops = 40, stagnantLimit = 8 } = {}) {
     let lastProgress = null;
     let stagnant = 0;
     let lastError = null;
@@ -475,14 +523,28 @@ async function robustCompleteAgentSigning(page, agentName, { maxLoops = 40, stag
     const DEBUG = !!process.env.ESIGN_HARNESS_DEBUG;
     for (let i = 0; i < maxLoops; i++) {
         const prog = await getProgress(page);
-        if (DEBUG) console.error(`[signing-debug] loop ${i} start: progress="${prog}"`);
-        if (prog) {
-            const [done, total] = prog.split(' / ').map(s => parseInt(s));
-            if (done >= total) return { completed: true, finalProgress: prog };
-        }
-        if (prog === lastProgress) stagnant++; else { stagnant = 0; lastProgress = prog; }
-        if (stagnant >= stagnantLimit) {
-            return { completed: false, finalProgress: prog, reason: `stuck at ${prog} for ${stagnantLimit} consecutive loops` };
+        // Fall back to the "Complete Signing" button becoming enabled —
+        // present on both screens, belt-and-braces alongside the
+        // remaining-count reaching 0.
+        const completeBtnEnabled = await page.evaluate(() => {
+            const btn = Array.from(document.querySelectorAll('button')).find(b => b.innerText.trim().startsWith('Complete Signing'));
+            return btn ? !btn.disabled : false;
+        });
+        if (DEBUG) console.error(`[signing-debug] loop ${i} start: progress=${JSON.stringify(prog)}, completeBtnEnabled=${completeBtnEnabled}`);
+        if (prog && prog.remaining <= 0) return { completed: true, finalProgress: prog.text };
+        if (completeBtnEnabled) return { completed: true, finalProgress: 'complete-button-enabled' };
+        // Only count stagnation once we have SOME signal to compare against
+        // — a page that never renders a progress indicator at all would
+        // otherwise trip the stagnant counter on loop 0 before any real
+        // click has happened.
+        const progKey = prog ? prog.text : null;
+        if (progKey !== null) {
+            if (progKey === lastProgress) stagnant++; else { stagnant = 0; lastProgress = progKey; }
+            if (stagnant >= stagnantLimit) {
+                return { completed: false, finalProgress: progKey, reason: `stuck at ${progKey} for ${stagnantLimit} consecutive loops` };
+            }
+        } else if (i >= maxLoops - 1) {
+            return { completed: false, finalProgress: null, reason: `loop cap reached with no progress indicator and no enabled Complete Signing button` };
         }
 
         try {
@@ -496,15 +558,25 @@ async function robustCompleteAgentSigning(page, agentName, { maxLoops = 40, stag
             let hl = await clickHighlightedField(page);
             if (DEBUG) console.error(`[signing-debug] loop ${i}: highlighted field = ${JSON.stringify(hl)}`);
             if (!hl.found) {
-                hl = await findAndScrollToUnsignedAgentInitial(page);
-                if (DEBUG) console.error(`[signing-debug] loop ${i}: fallback unsigned-agent-initial scan = ${JSON.stringify(hl)}`);
+                hl = await findAndScrollToUnsignedInitial(page);
+                if (DEBUG) console.error(`[signing-debug] loop ${i}: fallback unsigned-initial scan = ${JSON.stringify(hl)}`);
             }
             if (hl.found) {
                 await page.mouse.click(hl.x, hl.y);
                 await sleep(900);
-                const hasSigModal = await page.evaluate(() => document.body.innerText.includes('Use my saved signature'));
+                // 2026-08-27 — "Use my saved signature" is agent-only (a
+                // recipient has no saved signature to reuse). Recipients
+                // only ever see the "Draw"/"Type" tabs + "Apply Signature",
+                // so detect the modal by THOSE instead of assuming every
+                // signer's modal looks like the agent's.
+                const hasSigModal = await page.evaluate(() => {
+                    const text = document.body.innerText;
+                    if (text.includes('Use my saved signature')) return true;
+                    const btns = Array.from(document.querySelectorAll('button')).map(b => b.innerText.trim());
+                    return btns.some(t => t === 'Type') && btns.some(t => t.startsWith('Apply Signature'));
+                });
                 if (hasSigModal) {
-                    await typeAndApplySignature(page, agentName);
+                    await typeAndApplySignature(page, signerName);
                     if (DEBUG) console.error(`[signing-debug] loop ${i}: signature typed+applied`);
                 } else {
                     const dlg = await page.evaluate(() => document.body.innerText.includes('Apply to Remaining Markers?'));
@@ -525,13 +597,101 @@ async function robustCompleteAgentSigning(page, agentName, { maxLoops = 40, stag
     }
 
     const finalProg = await getProgress(page);
-    return { completed: false, finalProgress: finalProg, reason: lastError ? `loop cap reached, last error: ${lastError}` : 'loop cap reached without completing' };
+    return { completed: false, finalProgress: finalProg ? finalProg.text : null, reason: lastError ? `loop cap reached, last error: ${lastError}` : 'loop cap reached without completing' };
+}
+
+// Back-compat name — identical behaviour, the agent is just another "current
+// party" as far as the signing loop is concerned (see above).
+async function robustCompleteAgentSigning(page, agentName, opts) {
+    return robustCompleteSigningAsCurrentParty(page, agentName, opts);
 }
 
 async function completeSigningAndSend(page) {
     const clicked = await clickBtnExact(page, 'Complete Signing & Send');
     if (!clicked) throw new Error('completeSigningAndSend: button not found');
     await sleep(3000);
+}
+
+// 2026-08-27 — recipient signing chain (Johan: "rec 1 matches from agent,
+// rec 2 matches from rec 1, etc."). A recipient's token link
+// (https://host/sign/{token}) lands on a real FICA-style identity gate
+// before the document itself: gateway (enter ID/passport number) ->
+// consent (accept declaration) -> the document. No CoreX session involved
+// — the token IS the recipient's identity, so this drives a page that was
+// never logged in via newPage()/cookie at all.
+async function openRecipientSigningLink(browser, link) {
+    const page = await browser.newPage();
+    await page.setViewport({ width: 1450, height: 1600 });
+    await page.goto(link, { waitUntil: 'networkidle2', timeout: 30000 });
+    await sleep(1500);
+    return page;
+}
+
+async function completeIdentityGateway(page, idNumber) {
+    const input = await page.evaluate(() => {
+        const visible = Array.from(document.querySelectorAll('input')).find(i => {
+            const r = i.getBoundingClientRect();
+            return r.width > 20 && r.height > 5 && i.type !== 'hidden';
+        });
+        if (!visible) return null;
+        const r = visible.getBoundingClientRect();
+        return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+    });
+    if (!input) throw new Error('completeIdentityGateway: no visible ID/passport input found');
+    await page.mouse.click(input.x, input.y);
+    await page.keyboard.type(idNumber, { delay: 20 });
+    const clicked = await clickBtnContains(page, 'Verify My Identity');
+    if (!clicked) throw new Error('completeIdentityGateway: "Verify My Identity" button not found');
+    await sleep(2500);
+    const failed = await page.evaluate(() => document.body.innerText.includes('did not match') || document.body.innerText.includes('verification failed') || document.body.innerText.includes('incorrect'));
+    if (failed) throw new Error('completeIdentityGateway: identity verification was rejected — check the fixture id_number matches what was captured for this recipient');
+}
+
+async function completeConsent(page) {
+    const cb = await page.evaluate(() => {
+        const c = document.querySelector('input[type="checkbox"]');
+        if (!c) return null;
+        const r = c.getBoundingClientRect();
+        return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+    });
+    if (cb) {
+        await page.mouse.click(cb.x, cb.y);
+        await sleep(400);
+    }
+    const clicked = await clickBtnContains(page, 'Proceed to Documents');
+    if (!clicked) throw new Error('completeConsent: "Proceed to Documents" button not found');
+    await sleep(2500);
+}
+
+// 2026-08-27 — a fourth gate between consent and the actual document:
+// "How would you like to sign? / Sign Electronically / Download, Print &
+// Sign". Only present if the page actually shows it (a recipient who
+// already picked electronic on a prior visit may skip straight to the
+// document) — checked for, not assumed.
+async function completeMethodChoiceIfPresent(page) {
+    const hasChoice = await page.evaluate(() => document.body.innerText.includes('How would you like to sign?'));
+    if (!hasChoice) return false;
+    const clicked = await clickBtnContains(page, 'Sign Electronically');
+    if (!clicked) throw new Error('completeMethodChoiceIfPresent: "Sign Electronically" button not found');
+    await sleep(2500);
+    return true;
+}
+
+// Drives a recipient's own signing link fully: identity gateway -> consent
+// -> sign every field of theirs -> submit. Returns { completed, finalUrl }.
+// Throws (does not silently skip) if the FICA gate is hit unexpectedly —
+// that means fixtures.php's pre-approval didn't cover this contact.
+async function completeRecipientSigning(browser, link, { idNumber, signerName }) {
+    const page = await openRecipientSigningLink(browser, link);
+    await completeIdentityGateway(page, idNumber);
+    if (page.url().includes('/fica')) {
+        throw new Error('completeRecipientSigning: hit the FICA gate — this contact has no pre-approved fica_submissions row (see fixtures.php regEnsureFicaApproved)');
+    }
+    if (page.url().includes('/consent')) {
+        await completeConsent(page);
+    }
+    await completeMethodChoiceIfPresent(page);
+    return page;
 }
 
 // 2026-08-27 — Johan found by hand: "Reordering the directors on the left
@@ -568,5 +728,6 @@ module.exports = {
     newPage, selectTemplate, selectProperty, addRecipientBySearch, addRecipientManual,
     tickDeceasedAndBindExecutor, tickProxy, moveEntityRepDown, saveDraft, goToStep, advanceNext,
     completeDetailsAndAdvanceToSignSend, dispatchToSigning, getProgress,
-    robustCompleteAgentSigning, completeSigningAndSend,
+    robustCompleteAgentSigning, robustCompleteSigningAsCurrentParty, completeSigningAndSend,
+    openRecipientSigningLink, completeIdentityGateway, completeConsent, completeMethodChoiceIfPresent, completeRecipientSigning,
 };

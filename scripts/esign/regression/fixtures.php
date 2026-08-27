@@ -222,6 +222,49 @@ foreach ($directorNames as $i => $name) {
 }
 $fixtures['director_contact_ids'] = $directorIds;
 
+// --- Pre-approved FICA for every fixture contact that can be asked to
+// sign as a recipient ---------------------------------------------------
+// 2026-08-27 — the recipient-signing chain (Johan: "rec 1 matches from
+// agent, rec 2 matches from rec 1") hits a REAL FICA gate
+// (SigningController checks FicaSubmission::where('contact_id',...)->
+// where('status','approved')->exists() before allowing a recipient to
+// reach the document). A disposable test contact obviously has no real
+// FICA submission, and completing that gate for real (document upload +
+// review) is a different screen from the one being regression-tested —
+// same reasoning fixtures.php already uses for Contacts/Properties. One
+// idempotent, clearly-labelled 'approved' row per fixture contact, dated
+// far in the future so it never itself trips a staleness check.
+if (!function_exists('regEnsureFicaApproved')) {
+    function regEnsureFicaApproved(int $contactId, int $agencyId): void
+    {
+        $exists = DB::table('fica_submissions')
+            ->where('contact_id', $contactId)
+            ->where('status', 'approved')
+            ->whereNull('deleted_at')
+            ->exists();
+        if ($exists) return;
+        DB::table('fica_submissions')->insert([
+            'contact_id'      => $contactId,
+            'agency_id'       => $agencyId,
+            'requested_by'    => 22,
+            'entity_type'     => 'natural',
+            'status'          => 'approved',
+            'intake_type'     => 'online',
+            'verification_method' => json_encode(['source' => 'regression-harness-fixture']),
+            'verified_by'     => 22,
+            'verified_at'     => now(),
+            'fica_expires_at' => now()->addYears(5),
+            'reviewer_notes'  => 'REGRESSION HARNESS FIXTURE — pre-approved so the recipient-signing chain (rec 1, rec 2, ...) can be driven end to end. Not a real FICA verification.',
+            'created_at'      => now(), 'updated_at' => now(),
+        ]);
+    }
+}
+foreach ([$sellerOne->id, $sellerTwo->id, $executor->id, ...$directorIds] as $ficaContactId) {
+    regEnsureFicaApproved($ficaContactId, $agencyId);
+}
+// Deliberately NOT for $deceased — she must never receive a signing link
+// at all (assertion 10), so she has no reason to ever reach the FICA gate.
+
 file_put_contents(
     __DIR__ . '/.fixtures.json',
     json_encode($fixtures, JSON_PRETTY_PRINT)
