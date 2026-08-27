@@ -95,7 +95,30 @@ class MarketIntelligenceController extends Controller
         // AT-380 — canvassing-pool visibility scope (own/branch/all), configured
         // per role in Role Manager (market_intelligence.view). Was previously
         // unrestricted for every role — every agent saw the entire agency pool.
-        $micScope = \App\Services\PermissionService::marketIntelligenceScope($user);
+        //
+        // Johan, 2026-08-27 (live, Retha Kelly's account) — "So what has Retha
+        // claimed that she cannot see." MY CLAIMS tile read 13, the list showed
+        // 6. Confirmed on Staging with a real example (Shalan Du Bois, scope
+        // 'own', one active claim): the claim's own listing has branch_id NULL —
+        // visibleTo()'s branch restriction does `where('branch_id', <agent's own
+        // branch>)`, and NULL never equals anything in SQL, so the row vanished
+        // from the list outright while the tile (a plain claim count, no branch
+        // condition at all) correctly still counted it. This scope exists for
+        // the CANVASSING pool — limiting which NEW, unclaimed leads an agent
+        // browses to their own branch (AT-380's own comment: "every agent saw
+        // the entire agency pool" was the bug it fixed) — not for claims an
+        // agent has ALREADY taken. A listing's branch_id reflects who scraped/
+        // captured the raw portal data, not who is working it; once claimed, an
+        // agent must see their own claim regardless of that column. Same
+        // exemption already exists for the stock/pitch-lock filters just below
+        // ($presetSuspendsCanvassFilter) for exactly these claim-centric
+        // presets — this closes the same gap for branch/region visibility, one
+        // rule, not a second condition to keep in step.
+        $claimCentricRequest = in_array($request->input('action_preset'), ['my_claims', 'log_outcomes', 'expiring'], true)
+            || $request->input('claim_filter') === 'my_claims';
+        $micScope = $claimCentricRequest
+            ? 'all'
+            : \App\Services\PermissionService::marketIntelligenceScope($user);
         $query = $query->visibleTo($user, $micScope);
 
         // F.2: action preset URL param. Distinct from the legacy ?preset= (Smart
