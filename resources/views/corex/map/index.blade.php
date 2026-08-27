@@ -226,10 +226,18 @@
                  the "Truncated: ..." notice below still (correctly) reported it
                  as hidden. flex-wrap lets the row spill onto a second line
                  within the existing sidebar width instead of overflowing past
-                 it — same buttons, same size, same order, no redesign. --}}
+                 it — same buttons, same size, same order, no redesign.
+                 2026-08-27, later same day — Johan, after the Portal
+                 Stock/Tracked merge dropped this to 7 buttons: "the tracked
+                 badge is removed but we are still showing the badge line on
+                 2 rows." 7×30px + 6×6px gaps still measured 246px > 235px —
+                 one orphaned icon alone on row 2. gap tightened 6px -> 3px
+                 (same buttons, same size, same order) so all 7 fit on one
+                 line; flex-wrap stays as the safety net for narrower
+                 viewports. --}}
             <div style="margin-bottom: 12px;">
                 <div style="font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); font-weight: 600; margin-bottom: 6px;">Layers</div>
-                <div id="layer-list" data-tour="re-map-layers" style="display: flex; flex-wrap: wrap; gap: 6px;">
+                <div id="layer-list" data-tour="re-map-layers" style="display: flex; flex-wrap: wrap; gap: 3px;">
                     @php
                         // Layer-chip palette MUST stay in sync with PIN_STYLES
                         // and LAYER_COLOURS in the JS section below. Otherwise
@@ -656,7 +664,10 @@ document.addEventListener('DOMContentLoaded', function () {
         active_listings: 'Portal Stock',
         mic_subjects: 'MIC Subject',
         scheme_owners: 'Sectional Scheme',
-        tracked_properties: 'Tracked',
+        // 2026-08-27 — Portal Stock/Tracked merge: no "Tracked" wording left
+        // anywhere the agent can see, including this composite-list group
+        // header (LAYER_NAMES also drives the "Truncated: ..." cap banner).
+        tracked_properties: 'Portal Stock',
     };
 
     // Composite pin palette — neutral slate so it reads as "multiple sources here"
