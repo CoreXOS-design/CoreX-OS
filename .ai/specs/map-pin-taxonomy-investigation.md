@@ -489,6 +489,40 @@ If the spec adds "WhatsApp on any address" — and the click currently goes thro
 
 ---
 
+## (h) Performance fixes — 2026-08-27 (Johan, "the map is slow")
+
+Measured before touching anything (Staging, agency 1, real bounds/filters):
+combined 6-layer pins request ~620-650ms warm, dominated by `tracked_properties`
+(~460ms — an unindexed geo scan over 8,764 rows) and a hard-required agency-wide
+address-fold query re-run on every request (~160ms, MySQL wouldn't use the
+existing composite index for a double `whereIn`). Full breakdown, EXPLAIN
+output, and the caching-vs-index diagnosis live in the investigation this spec
+section summarises; not reproduced here in full — see chat history 2026-08-27.
+
+**Fixed, this branch:**
+- `idx_properties_agency_status_geo (agency_id, status, latitude, longitude)`
+  on `properties` — optimizer picks it up on its own. hfc_listings: 86ms → ~6ms SQL.
+- `idx_tp_agency_status_promoted_geo (agency_id, status, promoted_to_property_id,
+  latitude, longitude)` on `tracked_properties` — the optimizer would NOT choose
+  it even after `ANALYZE TABLE`, so `MapPinService::trackedProperties()` forces
+  it via `USE INDEX`. tracked_properties: ~460ms → ~144ms warm.
+- `MapPinService::agencyAddressIndex()` — the Stock-fold step's per-request
+  property scan is now a per-agency cache, same shape/TTL/invalidation as
+  `OnMarketStockService::identitySets()` (busted from `PropertyObserver`
+  saved()/deleted()/restored(), same three call sites).
+- `soldComps()`'s presentation_sold_comps branch batched a 29-query N+1
+  (one `market_report_comp_rows` lookup per row) into one `whereIn()`.
+
+**Result:** combined warm request ~620-650ms → ~246ms (real, measured,
+Staging). Payload/pin counts unchanged; `agencyAddressIndex()` output verified
+byte-identical to a fresh live rebuild.
+
+**Explicitly not done, per Johan's own read of the diagnosis:** no bounds-keyed
+tile cache (would miss on every pan — the actual conclusion of the perf
+investigation was "this is an index problem, a cache would paper over it").
+
+---
+
 ## Closing — read-only verification
 
 The audit produced exactly one new file, this report. `git status --short` output is captured in the chat.
