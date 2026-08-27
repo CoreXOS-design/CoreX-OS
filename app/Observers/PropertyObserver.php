@@ -8,6 +8,7 @@ use App\Jobs\SubmitListingToProperty24;
 use App\Models\Property;
 use App\Models\User;
 use App\Services\CommandCenter\AutoEventService;
+use App\Services\Map\MapPinService;
 use App\Services\Prospecting\OnMarketStockService;
 use App\Services\Syndication\Property24\Property24ApiClient;
 use App\Services\Syndication\Property24\Property24ListingMapper;
@@ -336,6 +337,16 @@ class PropertyObserver
             OnMarketStockService::forgetAgency((int) $property->agency_id);
         } catch (\Throwable $e) {
             Log::warning("OnMarketStockService cache bust failed on property save #{$property->id}: {$e->getMessage()}");
+        }
+
+        // Map perf (Johan, 2026-08-27) — MapPinService::agencyAddressIndex()
+        // caches this agency's properties address index (used by the
+        // tracked_properties Stock-fold step). Same bust-on-write discipline
+        // as OnMarketStockService immediately above.
+        try {
+            MapPinService::forgetAgencyAddressIndex((int) $property->agency_id);
+        } catch (\Throwable $e) {
+            Log::warning("MapPinService address-index cache bust failed on property save #{$property->id}: {$e->getMessage()}");
         }
 
         // AT-321 — release the trigger suppression set in saving() now that the
@@ -762,6 +773,12 @@ class PropertyObserver
             Log::warning("OnMarketStockService cache bust failed on property delete #{$property->id}: {$e->getMessage()}");
         }
 
+        try {
+            MapPinService::forgetAgencyAddressIndex((int) $property->agency_id);
+        } catch (\Throwable $e) {
+            Log::warning("MapPinService address-index cache bust failed on property delete #{$property->id}: {$e->getMessage()}");
+        }
+
         // AT-108 — archived stock no longer matches; recompute affected buyers (async, coalesced).
         $this->queueBuyerMatchRecompute($property);
 
@@ -800,6 +817,12 @@ class PropertyObserver
             OnMarketStockService::forgetAgency((int) $property->agency_id);
         } catch (\Throwable $e) {
             Log::warning("OnMarketStockService cache bust failed on property restore #{$property->id}: {$e->getMessage()}");
+        }
+
+        try {
+            MapPinService::forgetAgencyAddressIndex((int) $property->agency_id);
+        } catch (\Throwable $e) {
+            Log::warning("MapPinService address-index cache bust failed on property restore #{$property->id}: {$e->getMessage()}");
         }
     }
 
