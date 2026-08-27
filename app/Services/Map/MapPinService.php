@@ -411,10 +411,22 @@ final class MapPinService
         };
         if ($months !== null) {
             $cutoff = \Carbon\CarbonImmutable::now()->subMonths($months)->toDateString();
-            $q->whereExists(function ($sub) use ($cutoff) {
-                $sub->from('property_sold_records as psr')
-                    ->whereColumn('psr.property_id', 'properties.id')
-                    ->where('psr.sold_date', '>=', $cutoff);
+            // A sold property with NO linked property_sold_records row has an
+            // UNKNOWN sold date, not a disqualifying one — it stays visible
+            // regardless of window rather than being silently dropped (Johan
+            // 2026-08-27: the map found only 1 of 509 live-linked Staging sold
+            // properties because this used to hard-require the join). A
+            // property that DOES have a linked record is still windowed by its
+            // own sold_date exactly as before.
+            $q->where(function ($outer) use ($cutoff) {
+                $outer->whereExists(function ($sub) use ($cutoff) {
+                    $sub->from('property_sold_records as psr')
+                        ->whereColumn('psr.property_id', 'properties.id')
+                        ->where('psr.sold_date', '>=', $cutoff);
+                })->orWhereNotExists(function ($sub) {
+                    $sub->from('property_sold_records as psr')
+                        ->whereColumn('psr.property_id', 'properties.id');
+                });
             });
         }
 
