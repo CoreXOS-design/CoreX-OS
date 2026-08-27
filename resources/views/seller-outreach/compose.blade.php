@@ -233,7 +233,10 @@ function composerState(init) {
                 const data = await res.json();
                 if (!res.ok) { window.showToast(data.message || 'Could not queue.', 'error'); return; }
                 window.showToast(data.message || 'Added to your outreach queue.', 'success');
-                window.location.href = this.contactUrl;
+                // The old blocking alert() forced the agent to see this message before
+                // the redirect could happen; the non-blocking toast needs a moment on
+                // screen instead, or the immediate navigation cuts it off unseen.
+                setTimeout(() => { window.location.href = this.contactUrl; }, 1200);
             } catch (e) {
                 window.showToast('Network error — try again.', 'error');
             } finally {

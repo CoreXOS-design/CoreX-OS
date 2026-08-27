@@ -164,11 +164,9 @@
     @if($context->pendingBlocks && $context->pendingSignal)
         @php
             $pendingSignal = $context->pendingSignal;
-            $pendingChannelLabel = match ($pendingSignal['channel']) {
-                'whatsapp' => 'WhatsApp',
-                'email' => 'email',
-                default => 'a message',
-            };
+            // Raw channel string, same idiom as cooldownSignal['last_channel'] below
+            // — no separate capitalisation helper for the two banners to drift on.
+            $pendingChannelLabel = $pendingSignal['channel'] ?? 'a message';
             $pendingContactName = trim(($contact->first_name ?? '') . ' ' . ($contact->last_name ?? '')) ?: 'This contact';
         @endphp
         <div class="rounded-md p-3 text-sm"
@@ -189,6 +187,11 @@
                     but never confirmed whether it actually went out. Until you confirm, this contact stays on hold.
                     @if($pendingSignal['send_id'])
                         <a href="{{ route('seller-outreach.composer.sent', [$contact, $pendingSignal['send_id']]) }}" class="font-semibold underline">Confirm now</a>
+                    @else
+                        {{-- No send row is attached to this pending marker (legacy data /
+                             a soft-deleted send) — there is no single send to confirm, so
+                             point the agent at the full history instead of a dead end. --}}
+                        <a href="{{ route('seller-outreach.composer.timeline', $contact) }}" class="font-semibold underline">Review this contact's outreach history</a>
                     @endif
                 </div>
             @endif

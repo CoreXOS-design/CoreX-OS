@@ -41,8 +41,9 @@ final class OutreachContext
         // honest: "awaiting reply", not "opted out"). Cleared the moment the
         // contact engages or the no-response window lapses them to opted-out.
         public readonly bool $pendingBlocks = false,
-        // AT-81 — the composer banner payload behind $pendingBlocks, shaped like
-        // $cooldownSignal (asked_at, channel, send_id, delivered_at, clears_at).
+        // AT-81 — the composer banner payload behind $pendingBlocks: an array
+        // (asked_at, channel, send_id, delivered_at, clears_at) — its OWN keys,
+        // not $cooldownSignal's (last_sent_at/last_agent_id/last_channel).
         // Null whenever $pendingBlocks is false. delivered_at/clears_at are null
         // when the pending send has no delivery evidence yet (an unconfirmed
         // WhatsApp click-to-chat pitch) — that is the distinct on-screen state

@@ -598,11 +598,14 @@ final class SellerOutreachComposerService
     }
 
     /**
-     * AT-81 — the composer banner payload behind $pendingBlocks. Shaped like
-     * cooldownSignal (asked_at, channel, send_id, delivered_at, clears_at).
-     * delivered_at/clears_at are null when the latest send has no delivery
-     * evidence yet — that is the distinct "unconfirmed WhatsApp pitch" state
-     * the composer must surface separately from "delivered, awaiting reply".
+     * AT-81 — the composer banner payload behind $pendingBlocks: a small array
+     * (asked_at, channel, send_id, delivered_at, clears_at) carrying the same
+     * KIND of per-send context cooldownSignal() carries for its banner — the
+     * two do NOT share key names, so do not assume one's keys work for the
+     * other. delivered_at/clears_at are null when the latest send has no
+     * delivery evidence yet — that is the distinct "unconfirmed WhatsApp
+     * pitch" state the composer must surface separately from "delivered,
+     * awaiting reply".
      *
      * Delivery is resolved with resolveDeliveredAt() below, which mirrors the
      * SAME rule App\Console\Commands\RecomputeOutreachNoResponse::handle() uses
@@ -615,10 +618,17 @@ final class SellerOutreachComposerService
      */
     private function pendingSignal(int $agencyId, Contact $contact): ?array
     {
+        // Same outcome filter as cooldownSignal() (AT-323) — a send the agent
+        // already confirmed did NOT go out (outcome=not_sent) must never be
+        // picked as "the pending send": it can carry a later sent_at than the
+        // genuine still-open pitch, which would point the banner (and its
+        // "Confirm now" link) at an already-resolved send instead of the real
+        // awaiting-reply one.
         $latestSend = SellerOutreachSend::withoutGlobalScopes()
             ->where('agency_id', $agencyId)
             ->where('contact_id', $contact->id)
             ->whereNull('deleted_at')
+            ->where('outcome', '!=', SellerOutreachSend::OUTCOME_NOT_SENT)
             ->latest('sent_at')
             ->first();
 
