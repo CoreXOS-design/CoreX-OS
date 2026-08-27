@@ -199,10 +199,33 @@ class CanonicalDocumentRenderer
      */
     private function expandRepresentedEntitiesForDisplay(\Illuminate\Support\Collection $requests): \Illuminate\Support\Collection
     {
+        // Johan, 2026-08-28 (cc5's harness, shapes D/E) — represented_contact_id
+        // is stamped on EVERY representative's row when a company has NO
+        // proxy (Contact::proxyAwareRepresentatives() correctly returns ALL
+        // representatives as real signers in that case — everyone must
+        // sign) just as it is on the ONE row when a proxy narrows signing to
+        // a single representative. This function exists to expand the
+        // SECOND shape (one real row standing in for others who never got
+        // their own) — applying it to the FIRST shape (every representative
+        // already HAS their own real row) re-expands each of the N real
+        // rows into all N representatives again, producing N×N clones:
+        // reproduced live as "RegDirectorOne appears three times,
+        // RegDirectorTwo replaced by a repeat of RegDirectorOne" on a
+        // 3-director, no-proxy company. Count real rows per entity FIRST —
+        // more than one real row for the same entity means every
+        // representative already has their own place in this document;
+        // pass them all through untouched. Expansion only ever fires for
+        // the genuine one-row case.
+        $realRowCountByEntity = [];
+        foreach ($requests as $req) {
+            if (! empty($req->represented_contact_id)) {
+                $realRowCountByEntity[$req->represented_contact_id] = ($realRowCountByEntity[$req->represented_contact_id] ?? 0) + 1;
+            }
+        }
         $out = collect();
         foreach ($requests as $req) {
             $entityId = $req->represented_contact_id;
-            if (empty($entityId)) {
+            if (empty($entityId) || ($realRowCountByEntity[$entityId] ?? 0) > 1) {
                 $out->push($req);
                 continue;
             }
