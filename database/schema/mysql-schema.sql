@@ -12950,6 +12950,8 @@ CREATE TABLE `suggested_action_thresholds` (
   `claim_release_days` smallint unsigned NOT NULL DEFAULT '10',
   `deeds_duplicate_no_go_days` smallint unsigned NOT NULL DEFAULT '7',
   `deeds_duplicate_auto_take_days` smallint unsigned NOT NULL DEFAULT '14',
+  `mic_counts_cache_fresh_seconds` smallint unsigned NOT NULL DEFAULT '60',
+  `mic_counts_cache_stale_seconds` smallint unsigned NOT NULL DEFAULT '300',
   `investigate_mid_min` smallint unsigned NOT NULL DEFAULT '5',
   `new_listing_lookback_days` smallint unsigned NOT NULL DEFAULT '1',
   `created_at` timestamp NULL DEFAULT NULL,
@@ -14108,7 +14110,6 @@ CREATE TABLE `webinar_registrations` (
   `demo_access_grant_id` bigint unsigned DEFAULT NULL,
   `confirmation_sent_at` timestamp NULL DEFAULT NULL,
   `reminder_sent_at` timestamp NULL DEFAULT NULL,
-  `join_link_sent_at` timestamp NULL DEFAULT NULL,
   `last_issued_at` timestamp NULL DEFAULT NULL,
   `ip_address` varchar(45) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `user_agent` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -15617,3 +15618,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1202,'2026_08_30_0
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1203,'2026_08_30_000003_create_site_connectors_table',248);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1204,'2026_08_30_000004_make_expiry_hours_nullable_on_demo_access_grants_table',248);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1205,'2026_08_30_000004_add_matched_contact_at_to_tracked_property_owners_table',249);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1206,'2026_08_30_000005_add_mic_counts_cache_window_to_suggested_action_thresholds',250);

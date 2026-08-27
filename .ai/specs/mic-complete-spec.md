@@ -1105,6 +1105,80 @@ Each writes to the claim's `notes` (prepended timeline) and updates `feedback_at
 
 Claims with no feedback and no status change after 7 days auto-release back to the canvass pool. Notification to agent: "Your claim on [property] expired due to no feedback. The property is back in the pool."
 
+### 10.5 Claim-centric presets ignore listing `is_active` (2026-08-27)
+
+`MarketIntelligenceController::work()`'s default canvass-pool filter
+(`where('is_active', true)` when no `is_active` query param is given) is
+suspended for the claim-centric presets — `my_claims`, `expiring`,
+`log_outcomes` — using the same `$presetSuspendsCanvassFilter` flag that
+already suspends the on-market-stock and pitch-lock exclusions immediately
+above it in that method. No new mechanism.
+
+Rule: once an agent has claimed a property, the claim stays theirs to work
+even after the underlying portal listing lapses (`prospecting_listings.is_active`
+flips to `false`). The claim is the durable record; the listing's live/lapsed
+status is not a reason to hide a claim the agent already holds. `?is_active=all`
+still reveals everything, and the explicit `?is_active=0`/`?is_active=1` audit
+toggle is still honoured — only the *default* (no param) behaviour changed.
+
+A lapsed listing generally still carries full address/price/property-type
+data (confirmed via a real sample row) — only portal-refresh fields
+(`thumbnail_path`, `portal_status`, `last_search_id`, etc.) commonly go null,
+and the listing-row partial already handles those null-safely. No row-template
+change was needed.
+
+### 10.6 MIC action-preset tile counts — cache-version invalidation (2026-08-27)
+
+`MarketIntelligenceController::computeActionPresetCounts()` (the tile figures
+for Pitch now·high, Pitch now, Log outcomes, My claims, Expiring) is wrapped
+in `Cache::flexible()`. A TTL-only window can serve the tile a stale count for
+up to the fresh-window length after a claim changes — proven directly (tile
+read 13 while the true uncached count was 12 immediately after a claim write).
+
+Fix: `ProspectingClaim::bumpCountsCacheVersion(int $agencyId)` bumps a small
+per-agency integer cache entry (`mic.claims_version.{agencyId}`) on every
+real claim write, and `computeActionPresetCounts()` folds
+`ProspectingClaim::countsCacheVersion($agencyId)` into its cache key. A stale
+entry is never served again after a claim change — it becomes a permanently
+unreachable key, not merely a short-lived one. Agency-scoped rather than
+per-viewer, because `pitch_now`/`pitch_now_high` in the same cached payload
+are computed from every active claim in the agency, not just the acting
+viewer's — any claim change can move another agent's cached figure too.
+
+The bump is wired at every real write path:
+- `App\Observers\ProspectingClaimObserver` (already the SPINE-3 domain-event
+  hook for every `ProspectingClaim` model `created`/`updated`) bumps on
+  create, and on update when `is_active`, `released_at`, `last_updated_at`,
+  or `feedback_at` changed. This alone covers `MarketIntelligenceController::
+  claim()/feedback()/release()`, `ProspectingClaimService::releaseClaim()/
+  reassignClaim()/keepClaim()/consumeLockAsPermanentClaim()/
+  claimOnPitchNow()/recordActionOnClaim()`.
+- Two sites bypass Eloquent model events by using a bulk query-builder
+  `->update()` (no individual models are hydrated, so the observer never
+  fires) and bump explicitly at the call site instead:
+  `PropertyController::markNotSelling()`'s claim-closure block, and
+  `ProspectingClaimMaintenance`'s 48h auto-release sweep (which spans every
+  agency in one query, so it collects the affected `agency_id`s before the
+  bulk update and bumps each one afterward).
+
+The `[fresh, stale]` window itself moved off the hardcoded `[60, 300]` onto
+`SuggestedActionThresholds.mic_counts_cache_fresh_seconds` /
+`.mic_counts_cache_stale_seconds` (defaults 60/300, agency-configurable via
+`ProspectingConfigurationService::updateSuggestedActionThresholds()`) per the
+standing rule that a threshold left behind must be a setting, never
+hardcoded. Migration:
+`2026_08_30_000005_add_mic_counts_cache_window_to_suggested_action_thresholds.php`.
+The version-stamp bump makes correctness independent of this window — it
+only bounds staleness for figures that have NOT had a claim change (i.e.
+`pitch_now`/`pitch_now_high` drifting from a buyer-match recompute elsewhere).
+
+**Deliberately NOT in the Agency Onboarding Setup Wizard.** This is an
+internal cache-tuning knob, not a decision an agency makes about how CoreX
+behaves for them — it has no observable product effect once the
+cache-version invalidation is in place (it only bounds staleness for the
+rare non-claim recompute case above). Per CLAUDE.md Non-Negotiable #10a,
+this is flagged as an explicit call, not a silent omission.
+
 ---
 
 ## 11. Legacy Retirement

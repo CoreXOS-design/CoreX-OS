@@ -1728,6 +1728,10 @@ class PropertyController extends Controller
                 ),
                 'last_updated_at' => now(),
             ]);
+        // Bulk query-builder ->update() above bypasses Eloquent model events, so
+        // ProspectingClaimObserver never sees it — bump the MIC counts cache
+        // version explicitly here (see ProspectingClaimObserver docblock).
+        \App\Models\ProspectingClaim::bumpCountsCacheVersion((int) $property->agency_id);
 
         $actor = $request->user()?->name ?? 'Unknown user';
         $when = now()->format('j M Y, H:i');

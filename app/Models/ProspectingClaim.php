@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Facades\Cache;
 
 use App\Models\Concerns\BelongsToAgency;
 class ProspectingClaim extends Model
@@ -245,5 +246,40 @@ class ProspectingClaim extends Model
             && $this->feedback_at
             && $this->last_updated_at < now()->subDays(14)
             && !$this->flagged_at;
+    }
+
+    /**
+     * MIC action-preset-count cache invalidation (2026-08-27).
+     *
+     * computeActionPresetCounts() in MarketIntelligenceController caches its
+     * tile figures under Cache::flexible() with this version folded into the
+     * key. CACHE_STORE=database has no wildcard/tag deletion, so a shortened
+     * TTL was the only lever available before this — and Johan's tile-vs-list
+     * disagreement proved a TTL-only window can still serve a stale count.
+     * Bumping this integer on every claim write makes the OLD cache key
+     * permanently unreachable (true invalidation, not just a shorter wait).
+     *
+     * Agency-scoped, not per-viewer: pitch_now/pitch_now_high inside that
+     * same cached payload are computed from ALL of the agency's active
+     * claims (not just the acting viewer's), so any claim change in the
+     * agency can move another agent's cached counts too. One bump per
+     * agency keeps that correct without a second, narrower key to reason
+     * about.
+     */
+    public static function bumpCountsCacheVersion(int $agencyId): void
+    {
+        $key = self::countsCacheVersionKey($agencyId);
+        Cache::add($key, 1, now()->addYears(5));
+        Cache::increment($key);
+    }
+
+    public static function countsCacheVersion(int $agencyId): int
+    {
+        return (int) (Cache::get(self::countsCacheVersionKey($agencyId)) ?? 1);
+    }
+
+    private static function countsCacheVersionKey(int $agencyId): string
+    {
+        return "mic.claims_version.$agencyId";
     }
 }

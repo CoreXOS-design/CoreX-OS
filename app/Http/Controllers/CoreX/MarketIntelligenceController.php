@@ -275,11 +275,21 @@ class MarketIntelligenceController extends Controller
         // default-exclude/explicit-override shape as applyInStockFilter/pitch-lock
         // above. ?is_active=all reveals everything; ?is_active=0/1 stays honoured
         // for the explicit audit toggle.
+        //
+        // Johan, 2026-08-27 (proven live, Retha Kelly's account: tile 12, list 0
+        // via this exact filter, on a claim whose listing has since gone
+        // off-market) — this default was NEVER suspended for the claim-centric
+        // presets, unlike the stock and pitch-lock filters right above it. Once
+        // an agent has claimed a property, the claim is theirs to work even
+        // after the portal listing lapses — a lapsed listing must not make their
+        // own claim disappear. Same suspension flag, same pattern, no new
+        // mechanism: $presetSuspendsCanvassFilter is already computed above
+        // (line ~140) for exactly the stock/pitch-lock filters this sits beside.
         if ($request->filled('is_active')) {
             if ($request->is_active !== 'all') {
                 $query->where('is_active', $request->is_active === '1');
             }
-        } else {
+        } elseif (! $presetSuspendsCanvassFilter) {
             $query->where('is_active', true);
         }
         if ($request->filled('captured_by')) {
@@ -2963,18 +2973,33 @@ class MarketIntelligenceController extends Controller
      * Returns: ['pitch_now_high','pitch_now','log_outcomes','my_claims','expiring' => int]
      *
      * MIC aggregate caching (2026-08-23) — stale-while-revalidate, same
-     * mechanism/fresh-stale windows/lock bound as computeSnapshotKpis above
-     * (see that docblock for the full Cache::flexible() reasoning). Keyed by
-     * viewerId as well as agency+suburb+thresholds — unlike the other two
-     * cached methods, this one genuinely mixes an agency-wide figure
-     * (pitch_now_high/pitch_now) with per-VIEWER ones (log_outcomes/
-     * my_claims/expiring are each scoped to $viewerId's own claims/
-     * outreach). Omitting viewerId from the key would mean agent A's cache
-     * entry could serve agent B "my claims: 4" that are actually A's four
-     * claims, not B's — exactly the wrong-key risk flagged before building
-     * this. Costs a little cache-sharing efficiency (each agent gets their
-     * own entry even for the agency-wide half); correctness over efficiency
-     * was the explicit instruction.
+     * mechanism/lock bound as computeSnapshotKpis above (see that docblock
+     * for the full Cache::flexible() reasoning). Keyed by viewerId as well
+     * as agency+suburb+thresholds — unlike the other two cached methods,
+     * this one genuinely mixes an agency-wide figure (pitch_now_high/
+     * pitch_now) with per-VIEWER ones (log_outcomes/my_claims/expiring are
+     * each scoped to $viewerId's own claims/outreach). Omitting viewerId
+     * from the key would mean agent A's cache entry could serve agent B "my
+     * claims: 4" that are actually A's four claims, not B's — exactly the
+     * wrong-key risk flagged before building this. Costs a little
+     * cache-sharing efficiency (each agent gets their own entry even for
+     * the agency-wide half); correctness over efficiency was the explicit
+     * instruction.
+     *
+     * Claim-change invalidation (2026-08-27) — a TTL-only window (this used
+     * to be a flat [60, 300]) can still serve the tile a stale count for up
+     * to the fresh-window length after a claim/release/expiry, which is
+     * exactly the tile-vs-list disagreement Johan reported on Staging.
+     * ProspectingClaim::countsCacheVersion() is bumped by
+     * ProspectingClaim::bumpCountsCacheVersion() at every real claim write
+     * (claim, release, manager release, feedback close, pitch-lock
+     * conversion, "not selling" bulk close, the 48h auto-release
+     * maintenance job); folding it into the cache key makes the pre-change
+     * entry permanently unreachable instead of merely short-lived. The
+     * fresh/stale window itself is agency-configurable
+     * (SuggestedActionThresholds::mic_counts_cache_fresh_seconds /
+     * ::mic_counts_cache_stale_seconds) rather than hardcoded, per Johan's
+     * standing rule that thresholds are never hardcoded.
      */
     protected function computeActionPresetCounts(
         int $agencyId,
@@ -2988,10 +3013,13 @@ class MarketIntelligenceController extends Controller
             $thresholds->outcome_overdue_days,
             $thresholds->expiry_warning_hours,
         ]));
+        $claimsVersion = ProspectingClaim::countsCacheVersion($agencyId);
         $cacheKey = 'mic.action_preset_counts.' . $agencyId . '.' . ($viewerId ?? 'null')
-            . '.' . ($suburbFilter ?? '') . '.' . $thresholdsFingerprint;
+            . '.' . ($suburbFilter ?? '') . '.' . $thresholdsFingerprint . '.v' . $claimsVersion;
+        $freshSeconds = (int) $thresholds->mic_counts_cache_fresh_seconds;
+        $staleSeconds = (int) $thresholds->mic_counts_cache_stale_seconds;
 
-        return Cache::flexible($cacheKey, [60, 300], function () use ($agencyId, $viewerId, $thresholds, $suburbFilter) {
+        return Cache::flexible($cacheKey, [$freshSeconds, $staleSeconds], function () use ($agencyId, $viewerId, $thresholds, $suburbFilter) {
         $strongMin = (int) $thresholds->high_value_strong_min;
         $hasSuburb = $suburbFilter !== null && trim($suburbFilter) !== '';
 
