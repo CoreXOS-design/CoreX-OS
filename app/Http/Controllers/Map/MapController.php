@@ -590,6 +590,106 @@ final class MapController extends Controller
     }
 
     /**
+     * GET /corex/map/scheme-owner/{owner}/pitch — Johan, 2026-08-30: "expand
+     * the scheme tick so an agent can start a Pitch Now directly from there,
+     * the same way they can elsewhere."
+     *
+     * A scheme_owners row has no Property or TrackedProperty of its own yet
+     * (unlike a T-pin, which already IS a TrackedProperty) — this bridges it
+     * to one via the SAME universal match-or-create every other ingestion
+     * path uses (Non-Negotiable #10), then hands off to the UNMODIFIED,
+     * already-working Pitch Now entry point (SellerOutreach\EntryPoint
+     * Controller::fromTrackedProperty()) — the identical route the map's own
+     * T-pin "WhatsApp / Pitch →" button already redirects to. One mechanism,
+     * reused; nothing about the pitch flow itself is duplicated here.
+     *
+     * source.ref is stable per scheme owner row, so re-clicking Pitch Now on
+     * the same unit always resolves back to the SAME TrackedProperty rather
+     * than creating a new one each time.
+     *
+     * Missing-data finding (Johan asked to be told rather than guessed past):
+     * a scheme_owners row carries NO street/suburb/erf — only scheme name,
+     * section/flat number, and (sometimes) GPS. A normal property/T-pin has
+     * a real address to match and display on; a scheme unit does not. This
+     * bridge composes a display address from scheme+unit and matches on GPS
+     * + a stable source ref instead — the closest honest equivalent, not a
+     * fabricated address.
+     */
+    public function pitchSchemeOwner(Request $request, SchemeOwner $owner)
+    {
+        $this->assertSameAgency($request, $owner->agency_id);
+
+        // Same GPS precedence schemeOwnerCard() already uses: a matching
+        // MarketReport's subject coordinates are more reliable than the
+        // scheme_owners row's own (often unpopulated) lat/lng.
+        $matching = MarketReport::query()
+            ->withoutGlobalScope(AgencyScope::class)
+            ->where('agency_id', $owner->agency_id)
+            ->whereNotNull('subject_latitude')
+            ->whereRaw('LOWER(subject_scheme_name) = ?', [mb_strtolower((string) $owner->scheme_name)])
+            ->orderByDesc('id')
+            ->first(['subject_latitude', 'subject_longitude', 'subject_address']);
+
+        $lat = $matching?->subject_latitude !== null ? (float) $matching->subject_latitude : ($owner->latitude !== null ? (float) $owner->latitude : null);
+        $lng = $matching?->subject_longitude !== null ? (float) $matching->subject_longitude : ($owner->longitude !== null ? (float) $owner->longitude : null);
+
+        $displayAddress = trim(
+            ($owner->flat_number ? 'Unit ' . $owner->flat_number . ', ' : '')
+            . (string) ($owner->scheme_name ?? '')
+        );
+
+        $tp = app(\App\Services\Prospecting\TrackedPropertyMatchOrCreateService::class)->matchOrCreate(
+            agencyId: (int) $owner->agency_id,
+            facts: array_filter([
+                'address'       => $displayAddress !== '' ? $displayAddress : null,
+                'complex_name'  => $owner->scheme_name,
+                'scheme_name'   => $owner->scheme_name,
+                'scheme_number' => $owner->scheme_ss_number,
+                'section_number' => $owner->section_number,
+                'unit_number'   => $owner->flat_number,
+                'property_type' => $owner->property_type,
+                'floor_size_m2' => $owner->extent_m2,
+                'latitude'      => $lat,
+                'longitude'     => $lng,
+            ], fn ($v) => $v !== null && $v !== ''),
+            source: [
+                'type'    => 'scheme_owner_report',
+                'ref'     => 'scheme_owner:' . $owner->id,
+                'payload' => ['scheme_owner_id' => $owner->id, 'market_report_id' => $owner->market_report_id],
+            ],
+            actorUserId: (int) $request->user()->id,
+        );
+
+        // Scheme reports carry a NAME only (no ID number — a genuinely
+        // weaker identity than a deed). Carry it through as a real
+        // tracked_property_owners row so the EXISTING Pitch Now capture
+        // form's "Use from deeds"-style panel (unmodified) picks it up
+        // exactly the way it already does for a deeds-linked T-pin —
+        // reusing that mechanism rather than inventing a scheme-specific
+        // pre-fill. Idempotent: keyed on (tracked_property_id, name).
+        if (trim((string) $owner->owner_name) !== '') {
+            \App\Models\Prospecting\TrackedPropertyOwner::firstOrCreate(
+                ['tracked_property_id' => $tp->id, 'name' => $owner->owner_name],
+                [
+                    'contact_id'  => $owner->contact_id,
+                    'is_primary'  => true,
+                    'role'        => \App\Models\Prospecting\TrackedPropertyOwner::ROLE_OWNER,
+                    'matched_contact_at' => $owner->contact_id ? now() : null,
+                ]
+            );
+        }
+
+        // Carry the already-matched contact straight onto the TrackedProperty
+        // too — mirrors storeFromTrackedProperty()'s own "fill only if unset"
+        // rule, never overwrites an owner already linked from elsewhere.
+        if ($owner->contact_id && empty($tp->owner_contact_id)) {
+            $tp->update(['owner_contact_id' => $owner->contact_id]);
+        }
+
+        return redirect()->route('seller-outreach.entry.from-tracked-property', ['trackedProperty' => $tp->id]);
+    }
+
+    /**
      * Mask all but last 4 digits of an ID/passport number for visual display.
      * Example: "8901015009085" → "*********9085".
      *

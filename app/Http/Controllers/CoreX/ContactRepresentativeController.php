@@ -195,16 +195,56 @@ class ContactRepresentativeController extends Controller
             ->where('representative_contact_id', $representative->id)
             ->first();
 
+        // Johan, 2026-08-30 — "newly added representatives go to the end."
+        $nextSortOrder = (int) (ContactRepresentative::withTrashed()
+            ->where('entity_contact_id', $entity->id)
+            ->max('sort_order') ?? -1) + 1;
+
         if ($pivot) {
             $pivot->restore();
-            $pivot->update(['is_primary' => $isPrimary]);
+            $pivot->update(['is_primary' => $isPrimary, 'sort_order' => $nextSortOrder]);
         } else {
             ContactRepresentative::create([
                 'entity_contact_id'         => $entity->id,
                 'representative_contact_id' => $representative->id,
                 'is_primary'                => $isPrimary,
+                'sort_order'                => $nextSortOrder,
             ]);
         }
+    }
+
+    /**
+     * Johan, 2026-08-30 — "same simple control [as e-sign's recipient card]:
+     * up/down on the rows where the representatives already show." One
+     * swap with whichever neighbour is currently adjacent in sort_order —
+     * no client-side array to keep in sync, matches this panel's existing
+     * plain server-rendered list (a full-page form submit per click, same
+     * as the neighbouring Unlink button).
+     */
+    public function move(Request $request, Contact $contact, Contact $representative)
+    {
+        abort_unless($contact->isEntity(), 422, 'Only an entity contact has an orderable representative list.');
+
+        $direction = $request->validate(['direction' => 'required|in:up,down'])['direction'];
+
+        $reps = $contact->representatives()->get(['contacts.id'])->values();
+        $index = $reps->search(fn (Contact $r) => $r->id === $representative->id);
+        if ($index === false) {
+            return back()->with('error', 'That representative is not currently linked here.')->with('tab', 'info');
+        }
+
+        $swapIndex = $direction === 'up' ? $index - 1 : $index + 1;
+        if ($swapIndex < 0 || $swapIndex >= $reps->count()) {
+            return back()->with('tab', 'info'); // already at that end — nothing to do
+        }
+
+        $current = $contact->representatives()->wherePivot('representative_contact_id', $reps[$index]->id)->first();
+        $swapWith = $contact->representatives()->wherePivot('representative_contact_id', $reps[$swapIndex]->id)->first();
+
+        $contact->representatives()->updateExistingPivot($current->id, ['sort_order' => $swapWith->pivot->sort_order]);
+        $contact->representatives()->updateExistingPivot($swapWith->id, ['sort_order' => $current->pivot->sort_order]);
+
+        return back()->with('success', 'Order updated.')->with('tab', 'info');
     }
 
     /**

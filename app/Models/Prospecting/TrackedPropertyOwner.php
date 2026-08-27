@@ -19,6 +19,7 @@ final class TrackedPropertyOwner extends Model
     protected $fillable = [
         'tracked_property_id',
         'contact_id',
+        'matched_contact_at',
         'name',
         'id_number',
         'id_type',
@@ -34,9 +35,21 @@ final class TrackedPropertyOwner extends Model
     protected $casts = [
         'is_primary'           => 'boolean',
         'ownership_share_pct'  => 'float',
+        'matched_contact_at'   => 'datetime',
         'conflict_flagged_at'  => 'datetime',
         'conflict_resolved_at' => 'datetime',
     ];
+
+    /**
+     * Johan, 2026-08-30 — "flag deeds... on id numbers." True only when the
+     * scrape found and reused an EXISTING contact by ID, never when it
+     * created a fresh one — the single signal the deeds-capture screen's
+     * "already a contact" badge reads.
+     */
+    public function matchedExistingContact(): bool
+    {
+        return $this->matched_contact_at !== null;
+    }
 
     /** Owner-row roles on a deed capture. */
     public const ROLE_OWNER = 'owner';

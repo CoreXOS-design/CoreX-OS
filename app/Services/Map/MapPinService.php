@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Map;
 
+use App\Models\Prospecting\TrackedPropertyAddress;
 use App\Support\MarketAnalytics\OutlierGuard;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -150,6 +151,26 @@ final class MapPinService
         }
 
         $locations = $this->grouper()->group($allRecords);
+
+        // Badge count — single source of truth fix. Previously layer_counts
+        // was summed from each layer's raw $pins BEFORE grouping, but
+        // LocationGrouper can remove a record from a location's records[]
+        // without it becoming its own pin (the Q3 M-collapse step folds a
+        // mic_subjects record into a sibling pin's cma_info when they share
+        // an address with a non-CMA peer, instead of drawing it as its own
+        // marker). That left the M badge counting records the map never
+        // draws — reported 2026-08-27 ("M badge: 1, zero M pins on screen").
+        // Recomputing from $locations — the exact same structure returned
+        // as `locations` below — means the badge and the drawn pins can
+        // never diverge again: one array, read twice, not two computations.
+        $layerCounts = array_fill_keys(array_keys($layerCounts), 0);
+        foreach ($locations as $loc) {
+            foreach ($loc['records'] as $r) {
+                $cat = $r['category'] ?? null;
+                if ($cat === null || !array_key_exists($cat, $layerCounts)) continue;
+                $layerCounts[$cat] += (int) ($r['aggregate_count'] ?? 1);
+            }
+        }
 
         return [
             'bounds'        => [
@@ -484,7 +505,7 @@ final class MapPinService
         $rows = $q->select([
                 'id', 'agency_id',
                 'street_number', 'street_name', 'suburb', 'town', 'province',
-                'erf_number', 'property_type',
+                'erf_number', 'section_number', 'unit_number', 'property_type',
                 'latitude', 'longitude',
                 'first_seen_at', 'last_enriched_at',
                 'geo_source', 'geo_confidence',
@@ -492,6 +513,95 @@ final class MapPinService
             ->orderBy('id')
             ->limit($limit)
             ->get();
+
+        // 2026-08-27 — Johan/cc2's finding: a tracked property whose address is
+        // an EXACT match (street_number + normalised street_name + normalised
+        // suburb) for an existing, non-deleted agency Property still draws its
+        // own separate T-pin on top of the H-pin, because the only exclusion
+        // this method had was promoted_to_property_id IS NULL — and nobody had
+        // ever run the (manual, agent-triggered) promote action on this specific
+        // pair, so that column stays null even though the two are unmistakably
+        // the same physical property. Reproduced on staging: "3 Sixth Street" /
+        // "27 6th Street" — same street (the ordinal normaliser already unifies
+        // "Sixth" and "6th"), never linked.
+        //
+        // This is NOT a new, invented link — it reuses the EXACT structured
+        // address-fallback comparison TrackedPropertyMatchOrCreateService::
+        // resolvePropertyMatch() already trusts enough to auto-select without
+        // human review (unlike that method's separate, deliberately-cautious
+        // GPS-proximity fallback, which the comments there explicitly say is
+        // "a corroborating signal, not an identity one" and is NEVER
+        // auto-linked). Read-only for map presentation — this does not write
+        // promoted_to_property_id or touch any stored data, and it never folds
+        // two tracked properties into each other's Property match when they
+        // carry conflicting unit/section numbers, exactly as
+        // propertyIdentityConflicts() already guards for promotion itself.
+        if ($rows->isNotEmpty()) {
+            $preFoldCount = $rows->count();
+            $propertyRows = DB::table('properties')
+                ->where('agency_id', $req->agencyId)
+                ->whereNull('deleted_at')
+                ->whereNotNull('street_number')
+                ->whereNotNull('street_name_normalised')
+                ->whereNotNull('suburb_normalised')
+                ->select(['street_number', 'street_name_normalised', 'suburb_normalised', 'unit_number'])
+                ->get();
+            $propertyIndex = [];
+            foreach ($propertyRows as $pr) {
+                $key = trim((string) $pr->street_number) . '|' . $pr->street_name_normalised . '|' . $pr->suburb_normalised;
+                $propertyIndex[$key][] = TrackedPropertyAddress::normaliseNumericIdentifier($pr->unit_number);
+            }
+
+            $rows = $rows->reject(function ($r) use ($propertyIndex) {
+                if (!$r->street_number || !$r->street_name || !$r->suburb) {
+                    return false;
+                }
+                $streetNorm = TrackedPropertyAddress::normaliseStreet($r->street_name);
+                $suburbNorm = TrackedPropertyAddress::normaliseSuburb($r->suburb);
+                if ($streetNorm === null || $suburbNorm === null) {
+                    return false;
+                }
+                $key = trim((string) $r->street_number) . '|' . $streetNorm . '|' . $suburbNorm;
+                if (!isset($propertyIndex[$key])) {
+                    return false;
+                }
+                $tpUnit = TrackedPropertyAddress::normaliseNumericIdentifier($r->section_number ?: $r->unit_number);
+                foreach ($propertyIndex[$key] as $candUnit) {
+                    // No conflict (either side blank, or both agree) → same
+                    // property already on our books; fold the T-pin away.
+                    if ($tpUnit === null || $candUnit === null || $tpUnit === $candUnit) {
+                        return true;
+                    }
+                }
+                return false; // every candidate at this address is a DIFFERENT unit
+            })->values();
+
+            // 2026-08-27 — cc6's finding: a tracked property with a live
+            // Portal Stock listing (the active_listings layer already draws
+            // it) still drew its own separate T-pin, because this method
+            // only ever checked promotion to agency Stock (above) and never
+            // the Portal side. Unlike the Stock fold above, this one needs
+            // no address heuristic — prospecting_listings.tracked_property_id
+            // is a direct FK the portal ingest already resolved back to this
+            // exact tracked property. Same fold mechanism, same "keep total
+            // honest" pattern, reused rather than reinvented.
+            $portalLinkedIds = DB::table('prospecting_listings')
+                ->whereNull('deleted_at')
+                ->where('is_active', true)
+                ->whereIn('portal_source', ['p24', 'pp'])
+                ->where('agency_id', $req->agencyId)
+                ->whereNotNull('tracked_property_id')
+                ->pluck('tracked_property_id')
+                ->all();
+            $portalLinkedSet = array_flip($portalLinkedIds);
+            $rows = $rows->reject(fn ($r) => isset($portalLinkedSet[$r->id]))->values();
+
+            // Keep the cap-detection total honest — it must reflect the
+            // SAME already-on-our-books folding the pins themselves just
+            // got, or a bbox with folded duplicates would misreport a
+            // "truncated" layer badge that was never true.
+            $total = max($total - ($preFoldCount - $rows->count()), $rows->count());
+        }
 
         $pins = $rows->map(function ($r) {
             $streetParts = array_filter([$r->street_number ?? null, $r->street_name ?? null]);
@@ -848,6 +958,20 @@ final class MapPinService
         // prospecting_listings has no agent_id FK; captured_by_user_id is the HFC
         // agent who captured the prospect — the equivalent "owning agent" linkage.
         $this->applySearchFilter($q, $req, ['pl.address', 'pl.suburb'], 'pl.captured_by_user_id');
+
+        // Johan, 2026-08-26 — "a property appears TWICE on the map... it is
+        // not a case for merging map layers; it is a missing filter." Portal
+        // stock already matched to one of our own on-market properties must
+        // not draw a second pin here — every other MIC/map surface excludes
+        // it via this exact canonical filter (OnMarketStockService::
+        // applyNotStock(), already proven to work on a raw DB::table
+        // builder like this one — see its own docblock), this was the one
+        // pin layer that never called it. Applied to the SHARED base $q
+        // before the wide-zoom/per-pin branch below, so both paths (bucket
+        // aggregation and individual pins) get it identically — never a
+        // second, drifting filter.
+        $q = app(\App\Services\Prospecting\OnMarketStockService::class)
+            ->applyNotStock($q, $req->agencyId, 'pl.portal_ref', 'pl.normalized_address');
 
         if ($isWideZoom) {
             // ── Wide-zoom: aggregate path ────────────────────────────

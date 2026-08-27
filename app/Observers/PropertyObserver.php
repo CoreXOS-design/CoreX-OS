@@ -8,6 +8,7 @@ use App\Jobs\SubmitListingToProperty24;
 use App\Models\Property;
 use App\Models\User;
 use App\Services\CommandCenter\AutoEventService;
+use App\Services\Prospecting\OnMarketStockService;
 use App\Services\Syndication\Property24\Property24ApiClient;
 use App\Services\Syndication\Property24\Property24ListingMapper;
 use Illuminate\Support\Facades\Log;
@@ -326,6 +327,17 @@ class PropertyObserver
      */
     public function saved(Property $property): void
     {
+        // 2026-08-27 — OnMarketStockService::identitySets() caches this agency's
+        // "our stock" identity (portal refs + normalized addresses) across
+        // requests (map + MIC). Any field that feeds that identity — p24_ref,
+        // pp_ref, address, suburb, status, last_activity_at — can change on a
+        // save, so bust it here rather than wait out the cache's TTL.
+        try {
+            OnMarketStockService::forgetAgency((int) $property->agency_id);
+        } catch (\Throwable $e) {
+            Log::warning("OnMarketStockService cache bust failed on property save #{$property->id}: {$e->getMessage()}");
+        }
+
         // AT-321 — release the trigger suppression set in saving() now that the
         // Eloquent UPDATE/INSERT (and its trigger evaluation) has passed. Any
         // subsequent quiet/raw write on this connection is then caught by the trigger.
@@ -742,6 +754,14 @@ class PropertyObserver
 
     public function deleted(Property $property): void
     {
+        // 2026-08-27 — a soft-delete drops out of identitySets()'s whereNull('deleted_at')
+        // scope; bust the cache so it isn't held as "ours" a moment longer than the DB says.
+        try {
+            OnMarketStockService::forgetAgency((int) $property->agency_id);
+        } catch (\Throwable $e) {
+            Log::warning("OnMarketStockService cache bust failed on property delete #{$property->id}: {$e->getMessage()}");
+        }
+
         // AT-108 — archived stock no longer matches; recompute affected buyers (async, coalesced).
         $this->queueBuyerMatchRecompute($property);
 
@@ -767,6 +787,19 @@ class PropertyObserver
             } catch (\Exception $e) {
                 Log::channel('property24')->error("P24 withdrawal failed for deleted property #{$property->id}: {$e->getMessage()}");
             }
+        }
+    }
+
+    /**
+     * 2026-08-27 — mirror image of deleted(): a restored property re-enters
+     * identitySets()'s whereNull('deleted_at') scope, so bust the cache here too.
+     */
+    public function restored(Property $property): void
+    {
+        try {
+            OnMarketStockService::forgetAgency((int) $property->agency_id);
+        } catch (\Throwable $e) {
+            Log::warning("OnMarketStockService cache bust failed on property restore #{$property->id}: {$e->getMessage()}");
         }
     }
 

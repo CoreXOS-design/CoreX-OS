@@ -286,7 +286,23 @@ final class EntryPointController extends Controller
         // promoted Property. A listing that already carries an address skips this.
         $captureAddress    = null;
         $structuredAddress = null;
-        if (trim((string) ($listing->address ?? '')) === '') {
+        // Johan, 2026-08-27 — "linked a deed... clicking continue says Set a property
+        // address... the deed has been linked so why is this happening?" This guard
+        // checked ONLY prospecting_listings.address — the raw portal field, which is
+        // permanently empty for exactly the listings that needed a deed link in the
+        // first place. It never looked at whether linking the deed had already put a
+        // real address on the property (ComposeSellerService::selectDeed() ->
+        // applyDeedAddress() — confirmed working correctly by reading that code and
+        // replaying it directly). Fixed at the guard's own fact-check, not by loosening
+        // it: a property already carrying the deed's address now satisfies "has an
+        // address" exactly as much as the listing's own address column would.
+        $linkedPropertyHasAddress = ! empty($listing->matched_property_id) && Property::withoutGlobalScopes()
+            ->whereKey((int) $listing->matched_property_id)
+            ->where(function ($q) {
+                $q->whereNotNull('street_name')->orWhereNotNull('address');
+            })
+            ->exists();
+        if (trim((string) ($listing->address ?? '')) === '' && ! $linkedPropertyHasAddress) {
             $sa = $request->validate([
                 'street_number'          => 'nullable|string|max:100',
                 'street_name'            => 'nullable|string|max:255',

@@ -84,6 +84,13 @@
                        class="w-full rounded-md px-3 py-2 text-sm"
                        style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
             </div>
+            <div class="md:col-span-3">
+                <label for="sp-address" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Address <span class="text-[11px]" style="color: var(--text-muted);">(the firm's business address — used on documents this supplier signs, e.g. as executor)</span></label>
+                <input id="sp-address" name="address" maxlength="500"
+                       placeholder="e.g. 21 Dee Road, Uvongo"
+                       class="w-full rounded-md px-3 py-2 text-sm"
+                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+            </div>
             <div class="flex items-end">
                 <label class="inline-flex items-center gap-2 text-sm pb-2" style="color: var(--text-secondary);">
                     <input type="checkbox" name="is_preferred" value="1" class="rounded" style="accent-color: var(--brand-button);">
@@ -131,6 +138,7 @@
                                 <span class="font-medium" style="color: var(--text-primary);">{{ $p->name }}</span>
                                 @if($p->is_preferred)<span class="ds-badge ds-badge-success ml-2">Preferred</span>@endif
                                 @if($p->company)<div class="text-[11px]" style="color: var(--text-muted);">{{ $p->company }}</div>@endif
+                                @if($p->address)<div class="text-[11px]" style="color: var(--text-muted);">{{ $p->address }}</div>@endif
                                 {{-- AT-319 — the supplier's service types (labels; falls back to the stored code if archived). --}}
                                 @if($p->serviceTypes->isNotEmpty())
                                     <div class="mt-1 flex flex-wrap gap-1">
@@ -258,6 +266,38 @@
                                             </label>
                                         @endforeach
                                     </div>
+                                </div>
+                                {{-- Business address — the firm's own address (never a representative's personal
+                                     address), used on any document this firm signs (e.g. as executor). Dedicated
+                                     persist-on-blur endpoint, same idiom as service types / attorney capabilities
+                                     above, so saving the address can never trip the create/update required-field
+                                     rules or trample name/specialty. --}}
+                                <div class="mb-4"
+                                     x-data="{
+                                        address: {{ \Illuminate\Support\Js::from($p->address ?? '') }},
+                                        saving:false, saved:false, err:false,
+                                        async persist(){
+                                            this.saving=true; this.saved=false; this.err=false;
+                                            try {
+                                                const r = await fetch('{{ route('deals-v2.suppliers.address', $p) }}', {method:'POST', headers:{'Content-Type':'application/json','Accept':'application/json','X-CSRF-TOKEN':'{{ csrf_token() }}'}, credentials:'same-origin', body: JSON.stringify({address: this.address})});
+                                                const j = await r.json();
+                                                if(r.ok && j.ok){ this.saved=true; setTimeout(()=>{ this.saved=false; }, 1600); }
+                                                else { this.err=true; }
+                                            } catch(e){ this.err=true; }
+                                            this.saving=false;
+                                        }
+                                     }">
+                                    <label class="text-[11px] font-semibold uppercase tracking-wider mb-1 flex items-center gap-2" style="color: var(--text-muted);">
+                                        <span>Business address</span>
+                                        <span x-show="saving" x-cloak class="text-[10px] normal-case" style="color:#6b7280;">saving…</span>
+                                        <span x-show="saved" x-cloak x-transition class="text-[10px] normal-case" style="color:#059669;">✓ saved</span>
+                                        <span x-show="err" x-cloak class="text-[10px] normal-case" style="color:#b45309;">save failed — retry</span>
+                                    </label>
+                                    <input type="text" x-model="address" @blur="persist()" maxlength="500"
+                                           placeholder="e.g. 21 Dee Road, Uvongo"
+                                           class="w-full max-w-md rounded-md px-2 py-1 text-xs"
+                                           style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                    <div class="text-[11px] mt-1" style="color: var(--text-muted);">The firm's address — this is what appears on a document when this supplier is selected as a party (e.g. an executor).</div>
                                 </div>
                                 <div class="text-[11px] font-semibold uppercase tracking-wider mb-2" style="color: var(--text-muted);">Contacts at {{ $p->name }}</div>
                                 @forelse($p->serviceContacts as $c)

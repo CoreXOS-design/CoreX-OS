@@ -314,6 +314,29 @@ Route::prefix('v1/webinars')
         // connector card, rather than by a prospect hitting a form that 401s.
         Route::get('/ping', [\App\Http\Controllers\Api\V1\WebinarApiController::class, 'ping'])->name('v1.webinars.ping');
 
+        // ── Admin API (AT-383 amendment). Spec: webinar-registration.md §4.3 ──
+        // The marketing website's own console. Declared BEFORE /{slug}, because
+        // that route would otherwise swallow the collection and every path with
+        // a second segment. Same connector, same throttle.
+        Route::get('/', [\App\Http\Controllers\Api\V1\WebinarApiController::class, 'index'])->name('v1.webinars.index');
+        Route::post('/', [\App\Http\Controllers\Api\V1\WebinarApiController::class, 'store'])->name('v1.webinars.store');
+
+        Route::get('/{slug}/registrations.csv', [\App\Http\Controllers\Api\V1\WebinarApiController::class, 'registrationsCsv'])->name('v1.webinars.registrations-csv');
+        Route::get('/{slug}/registrations', [\App\Http\Controllers\Api\V1\WebinarApiController::class, 'registrations'])->name('v1.webinars.registrations');
+
+        // Save the joining link AND mail it to everyone already registered, in one
+        // action. A webinar is created before its Zoom link exists, so this is the
+        // ONLY way to reach the cohort whose confirmation went out without one.
+        // No ordering hazard: there is no POST /{slug} for this to collide with.
+        // Spec: webinar-registration.md §4.4
+        Route::post('/{slug}/join-link', [\App\Http\Controllers\Api\V1\WebinarApiController::class, 'sendJoinLink'])->name('v1.webinars.send-join-link');
+
+        Route::put('/{slug}', [\App\Http\Controllers\Api\V1\WebinarApiController::class, 'update'])->name('v1.webinars.update');
+
+        // Archive, never delete — the registration link stops working, but
+        // everyone already registered keeps the access they were promised.
+        Route::delete('/{slug}', [\App\Http\Controllers\Api\V1\WebinarApiController::class, 'archive'])->name('v1.webinars.archive');
+
         // Public detail, so the website renders live copy instead of hard-coding it.
         // Returns NO join_url — that is earned by registering.
         Route::get('/{slug}', [\App\Http\Controllers\Api\V1\WebinarApiController::class, 'show'])->name('v1.webinars.show');

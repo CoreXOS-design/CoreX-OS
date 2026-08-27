@@ -218,10 +218,18 @@
             </div>
 
             {{-- Phase A.3.1 — compact layer icon row. Each icon is a toggle;
-                 hover shows the layer name + count. --}}
+                 hover shows the layer name + count.
+                 2026-08-27 — 8 buttons at 30px + 6px gaps (~282px) never fit the
+                 235px sidebar at ANY window width (confirmed 1024px through
+                 1920px) — the last icon (Tracked) was rendering fully outside
+                 the sidebar's clipped bounds, invisible and unclickable, while
+                 the "Truncated: ..." notice below still (correctly) reported it
+                 as hidden. flex-wrap lets the row spill onto a second line
+                 within the existing sidebar width instead of overflowing past
+                 it — same buttons, same size, same order, no redesign. --}}
             <div style="margin-bottom: 12px;">
                 <div style="font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); font-weight: 600; margin-bottom: 6px;">Layers</div>
-                <div id="layer-list" data-tour="re-map-layers" style="display: flex; gap: 6px;">
+                <div id="layer-list" data-tour="re-map-layers" style="display: flex; flex-wrap: wrap; gap: 6px;">
                     @php
                         // Layer-chip palette MUST stay in sync with PIN_STYLES
                         // and LAYER_COLOURS in the JS section below. Otherwise
@@ -591,6 +599,10 @@ document.addEventListener('DOMContentLoaded', function () {
     const MIC_OPPORTUNITIES_URL  = @json(route('market-intelligence.opportunities'));
     // Phase B Fix 2+3 — T-pin "WhatsApp / Pitch" entry point (mirrors fromProspecting).
     const TP_OUTREACH_TPL        = @json(route('seller-outreach.entry.from-tracked-property', ['trackedProperty' => '__ID__']));
+    // Johan, 2026-08-30 — "expand the scheme tick so an agent can start a Pitch
+    // Now directly from there." Bridges a scheme-owner row to a TrackedProperty
+    // and hands off into the SAME entry point as TP_OUTREACH_TPL above.
+    const SCHEME_PITCH_TPL       = @json(route('corex.map.scheme-owner.pitch', ['owner' => '__ID__']));
 
     // Multi-tenant agency context for the H pin's logo render — spec §4 of
     // map-visual-identity-spec.md. Resolved server-side from the viewing
@@ -1907,16 +1919,34 @@ document.addEventListener('DOMContentLoaded', function () {
                 // AT-117 §7 — normalise SA leading-0 → 27 (matches every other WA path;
                 // the bare digits-only strip here was undialable for local numbers).
                 const waUrl  = phone ? 'https://wa.me/' + normalizeWaPhone(phone) + '?text=' + waText : null;
-                return [{
-                    key:       'contact_owner_launched',
-                    label:     'Contact owner →',
-                    iconLabel: 'Contact owner',
-                    iconSvg:   ICON_WHATSAPP,
-                    style:     'primary',
-                    destUrl:   waUrl,
-                    newTab:    false,
-                    logPayload:{ ...baseLog, action: 'contact_owner_launched', record_id: recId, channel: 'whatsapp' },
-                }];
+                return [
+                    {
+                        // Johan, 2026-08-30 — "expand the scheme tick so an agent
+                        // can start a Pitch Now directly from there." Same Pitch
+                        // Now destination as a T-pin (TP_OUTREACH_TPL below) —
+                        // SCHEME_PITCH_TPL only bridges this scheme unit to a
+                        // TrackedProperty first, server-side, then hands off into
+                        // the identical, unmodified flow.
+                        key:       'pitch_now_launched',
+                        label:     'Pitch Now →',
+                        iconLabel: 'Pitch Now',
+                        iconSvg:   ICON_WHATSAPP,
+                        style:     'primary',
+                        destUrl:   SCHEME_PITCH_TPL.replace('__ID__', String(recId)),
+                        newTab:    true,
+                        logPayload:{ ...baseLog, action: 'pitch_now_launched', record_id: recId },
+                    },
+                    {
+                        key:       'contact_owner_launched',
+                        label:     'Contact owner →',
+                        iconLabel: 'Contact owner',
+                        iconSvg:   ICON_WHATSAPP,
+                        style:     'secondary',
+                        destUrl:   waUrl,
+                        newTab:    false,
+                        logPayload:{ ...baseLog, action: 'contact_owner_launched', record_id: recId, channel: 'whatsapp' },
+                    },
+                ];
             }
 
             case 'tracked_properties': {

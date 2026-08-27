@@ -192,7 +192,8 @@ final class ProspectingListingStateEnricher
                 'c.feedback_at',
                 'c.flagged_at',
                 'u.name as claimer_name',
-                'ctp.promoted_to_property_id as tracked_property_promoted_id'
+                'ctp.promoted_to_property_id as tracked_property_promoted_id',
+                'cl.pitched_at as listing_pitched_at'
             )
             ->orderByDesc('c.claimed_at')
             ->get();
@@ -257,14 +258,21 @@ final class ProspectingListingStateEnricher
                 'is_expiring' => $hoursLeft !== null && $hoursLeft < 1,
                 'needs_reminder' => $needsReminder,
                 'needs_bm_flag' => $needsBmFlag,
-                // Mirrors ProspectingClaim::isPromoted() — c.property_id is only backfilled
-                // on the Pitch-Now promotion path; tracked_properties.promoted_to_property_id
-                // is written by every promotion path, so it — not property_id alone — decides
-                // is_promoted (2026-08-19: property_id-only was NULL for 94 real promoted
-                // claims). Drives the release/close-out guard and button visibility: a
-                // promoted claim must never return to the pool.
+                // Mirrors ProspectingClaim::isPromoted() — tracked_properties.promoted_to_property_id
+                // is written by every promotion path (Deeds Capture included) and is the
+                // authoritative signal on its own. c.property_id is NOT: ProspectingClaimService::
+                // claimOnPitchNow() backfills it onto the claim every time the agent re-opens the
+                // Pitch Now compose screen after linking a deed — a property genuinely exists by
+                // then (ensurePropertyForListing()/selectDeed() create it as soon as a deed is
+                // picked), but the agent may never have reached "Create & continue". Bug (Johan,
+                // 2026-08-27): re-opening after Pitch Now → link deed → close showed "Pitched" with
+                // the contact screen never completed. cl.pitched_at is the ONE place the flow's own
+                // completion is stamped (EntryPointController::storeFromProspecting(), gated on a
+                // created property + ≥1 contactable seller + the agent's own submit) — c.property_id
+                // only counts toward is_promoted when the listing's own pitched_at backs it up.
                 'property_id' => $r->property_id !== null ? (int) $r->property_id : null,
-                'is_promoted' => $r->property_id !== null || $r->tracked_property_promoted_id !== null,
+                'is_promoted' => $r->tracked_property_promoted_id !== null
+                    || ($r->property_id !== null && $r->listing_pitched_at !== null),
                 'tracked_property_promoted_id' => $r->tracked_property_promoted_id !== null ? (int) $r->tracked_property_promoted_id : null,
             ];
 
