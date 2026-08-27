@@ -271,11 +271,13 @@ class CalendarController extends Controller
     private function renderMonthAgenda(Request $request, $user, array $shared, string $view, array $typeFilter, array $categoryFilter, string $scope)
     {
         // Canonical ?date= param takes priority, derive year/month from it
+        $requestedDate = null;   // AT-384 — an EXPLICIT date the stream must open on
         if ($request->filled('date')) {
             try {
                 $anchor = Carbon::parse($request->input('date'))->startOfDay();
                 $year  = $anchor->year;
                 $month = $anchor->month;
+                $requestedDate = $anchor->copy();
             } catch (\Throwable $e) {
                 $year  = (int) $request->get('year', now()->year);
                 $month = (int) $request->get('month', now()->month);
@@ -301,7 +303,22 @@ class CalendarController extends Controller
         // engages immediately) and lazy-load continues by week from there. The month
         // view is one continuous stream: no month blocks, no duplicated boundary weeks.
         // The client scrolls to the anchor week ($anchorWeek) on init.
-        $anchorMonday   = Carbon::create($year, $month, 1)->startOfWeek(Carbon::MONDAY);
+        //
+        // AT-384 — THE STREAM OPENS ON TODAY. It used to anchor on the Monday of the
+        // month's FIRST week, which for any month whose 1st is not a Monday is a week
+        // owned by the PREVIOUS month: opening the calendar on 27 Aug 2026 landed on the
+        // week of Mon 27 Jul, and the sticky label (a week is labelled by its Thursday)
+        // read "July". Anchor precedence: an explicit ?date= the user asked for → today's
+        // week when today falls inside the rendered month (the default, no-parameter
+        // case) → that month's first week when they navigated to another month.
+        $monthFirstMonday = Carbon::create($year, $month, 1)->startOfWeek(Carbon::MONDAY);
+        if ($requestedDate) {
+            $anchorMonday = $requestedDate->copy()->startOfWeek(Carbon::MONDAY);
+        } elseif ((int) now()->year === $year && (int) now()->month === $month) {
+            $anchorMonday = now()->startOfDay()->startOfWeek(Carbon::MONDAY);
+        } else {
+            $anchorMonday = $monthFirstMonday->copy();
+        }
         // Preload enough weeks ABOVE the anchor that it lands comfortably below the
         // lazy-load top threshold (so init never trips loadPrev and drifts), plus enough
         // BELOW to overflow the frame and engage scrolling immediately.
@@ -313,8 +330,8 @@ class CalendarController extends Controller
         // first week .. Sunday of the last), a classic single-month grid. Same _week-row
         // renderer as the continuous stream (one rendering truth, two navigation shells).
         $monthLastMonday = Carbon::create($year, $month, 1)->endOfMonth()->startOfWeek(Carbon::MONDAY);
-        $pagedWeekCount  = (int) round($anchorMonday->diffInWeeks($monthLastMonday)) + 1;
-        $pagedWeekRows   = $this->weekRowsData($user, $anchorMonday->copy(), max(4, min(6, $pagedWeekCount)), $typeFilter, $categoryFilter, $scope);
+        $pagedWeekCount  = (int) round($monthFirstMonday->diffInWeeks($monthLastMonday)) + 1;
+        $pagedWeekRows   = $this->weekRowsData($user, $monthFirstMonday->copy(), max(4, min(6, $pagedWeekCount)), $typeFilter, $categoryFilter, $scope);
 
         // Agenda range logic
         $rangeGroups = [
@@ -388,7 +405,7 @@ class CalendarController extends Controller
             'spanningBars'     => $filteredSpanningBars,
             'weekRows'         => $weekRows,            // AT-164 single week-stream — preloaded weeks
             'pagedWeekRows'    => $pagedWeekRows,       // AT-164 paged shell — the anchor month's weeks only
-            'anchorWeek'       => $anchorWeek,          // AT-164 — Monday of the anchor month's first week
+            'anchorWeek'       => $anchorWeek,          // AT-384 — Monday of the week the stream OPENS on (today's, by default)
             'anchorMonth'      => sprintf('%04d-%02d', $year, $month),
             'colourMap'        => $colourMap,
             'colourPalettes'   => $colourPalettes,
