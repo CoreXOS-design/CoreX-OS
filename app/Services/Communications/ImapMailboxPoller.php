@@ -124,7 +124,7 @@ class ImapMailboxPoller
                     try {
                         $uid = (int) $liteMessage->getUid();
                         // AT-257 — non-destructive read: BODY.PEEK[], never sets \Seen.
-                        $message = \App\Services\Communications\PeekingMessageFetcher::peek($client, $uid);
+                        $message = \App\Services\Communications\PeekingMessageFetcher::peek($client, $uid, $folderName);
                         if ($message === null) {
                             $stats['errors']++;
                             Log::warning("Communication archive: peek fetch returned no content (mailbox {$mailbox->id}, uid {$uid})");

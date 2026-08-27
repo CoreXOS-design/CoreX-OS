@@ -82,7 +82,22 @@ class Communication extends Model
                   ->orWhereNotIn('body_status', ['embargoed', 'consent_pending', 'embargo_purged']);
             })
             ->where(function ($q) {
-                $q->whereNull('transcript_status')->orWhere('transcript_status', 'pending');
+                $q->whereNull('transcript_status')
+                  ->orWhere('transcript_status', 'pending')
+                  // A note stranded in 'processing' by a worker kill (deploy, OOM,
+                  // SIGSEGV) used to be invisible to EVERY later sweep and stayed
+                  // stuck forever: two live notes sat that way from 2026-08-25
+                  // 22:05 until it was spotted on 2026-08-27. Once the whisper
+                  // lock's own auto-release window (timeout + 300s, the value
+                  // TranscriptionService uses) has elapsed with the row still
+                  // 'processing', nothing can still be working on it, so it is
+                  // eligible again. Retries stay capped by transcript retry_count.
+                  ->orWhere(function ($stale) {
+                      $stale->where('transcript_status', 'processing')
+                            ->where('updated_at', '<', now()->subSeconds(
+                                (int) config('communications.transcription.timeout_seconds', 900) + 300
+                            ));
+                  });
             })
             ->whereHas('attachments', function ($a) {
                 $a->where('mime', 'like', 'audio%')
