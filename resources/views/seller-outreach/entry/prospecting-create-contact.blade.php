@@ -85,7 +85,7 @@
             </div>
             <div id="listing-header-address" class="font-semibold text-sm" style="color: var(--text-primary);"
                  data-original-address="{{ $listing->address ?? '(no address)' }}{{ !empty($listing->suburb) ? ', ' . $listing->suburb : '' }}">
-                {{ $listing->address ?? '(no address)' }}{{ !empty($listing->suburb) ? ', ' . $listing->suburb : '' }}
+                {{ $sellerState['linked_deed']['address'] ?? (($listing->address ?? '(no address)') . (!empty($listing->suburb) ? ', ' . $listing->suburb : '')) }}
             </div>
             <div class="text-xs mt-1" style="color: var(--text-muted);">
                 @if(!empty($listing->price))R {{ number_format((float) $listing->price, 0, '.', ',') }} · @endif
