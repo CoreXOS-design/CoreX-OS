@@ -245,14 +245,19 @@ final class MapController extends Controller
         }
 
         $points = $demand->demandPoints((int) $agencyId);
+        // Agency-wide totals are a genuine distinct-buyer count, NOT a sum of
+        // demandPoints()'s per-suburb figures — summing double/multi-counts any
+        // buyer active in more than one suburb. Per-area counts on $points stay
+        // exactly as computed; only the badge total is sourced differently.
+        $agencyTotals = $demand->agencyTotals((int) $agencyId);
 
         return response()->json([
             'points'  => $points,
             'totals'  => [
                 'suburbs'     => count($points),
-                'portal_lead' => array_sum(array_column($points, 'portal_lead')),
-                'other'       => array_sum(array_column($points, 'other')),
-                'total'       => array_sum(array_column($points, 'total')),
+                'portal_lead' => $agencyTotals['portal_lead'],
+                'other'       => $agencyTotals['other'],
+                'total'       => $agencyTotals['total'],
             ],
         ]);
     }

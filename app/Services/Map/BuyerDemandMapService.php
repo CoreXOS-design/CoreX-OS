@@ -28,19 +28,30 @@ final class BuyerDemandMapService
     ) {}
 
     /**
+     * The same agency-scoped filter every demand query in this class shares:
+     * dismissed matches excluded, score-gated by the agency's tier config,
+     * only listings with a usable suburb name. Kept in one place so the
+     * per-suburb breakdown and the agency-wide totals can never drift apart.
+     */
+    private function baseQuery(int $agencyId, int $weakMin)
+    {
+        return DB::table('prospecting_buyer_matches as pbm')
+            ->join('prospecting_listings as pl', 'pl.id', '=', 'pbm.prospecting_listing_id')
+            ->where('pbm.agency_id', $agencyId)
+            ->whereNull('pbm.dismissed_at')
+            ->where('pbm.score', '>=', $weakMin)
+            ->whereNull('pl.deleted_at')
+            ->whereNotNull('pl.suburb')->where('pl.suburb', '!=', '');
+    }
+
+    /**
      * @return array<int, array{name:string,lat:float,lng:float,total:int,portal_lead:int,other:int}>
      */
     public function demandPoints(int $agencyId): array
     {
         $weakMin = (int) ($this->config->buyerMatchTiers($agencyId)['weak_min_score'] ?? 50);
 
-        $rows = DB::table('prospecting_buyer_matches as pbm')
-            ->join('prospecting_listings as pl', 'pl.id', '=', 'pbm.prospecting_listing_id')
-            ->where('pbm.agency_id', $agencyId)
-            ->whereNull('pbm.dismissed_at')
-            ->where('pbm.score', '>=', $weakMin)
-            ->whereNull('pl.deleted_at')
-            ->whereNotNull('pl.suburb')->where('pl.suburb', '!=', '')
+        $rows = $this->baseQuery($agencyId, $weakMin)
             ->groupBy('pl.suburb', 'pbm.source')
             ->selectRaw('pl.suburb, pbm.source, COUNT(DISTINCT pbm.contact_id) as c')
             ->get();
@@ -85,5 +96,45 @@ final class BuyerDemandMapService
         }
 
         return $points;
+    }
+
+    /**
+     * The agency-wide badge figure. NOT a sum of demandPoints()'s per-suburb
+     * counts — a buyer active in several suburbs would be counted once per
+     * suburb (and again per source within a suburb) in that sum, wildly
+     * inflating "distinct buyers" (Staging, 2026-08-27: sum = 3,702 vs a real
+     * distinct-contact count of 260 for the same filter). This runs the
+     * agency-wide DISTINCT contact_id directly, split by source. Splitting by
+     * source is safe without a JOIN condition, not just a shortcut: every
+     * contact's matches share exactly one `source` value (verified live,
+     * zero contacts with >1 distinct source under this same filter), so
+     * portal_lead + other are disjoint sets that sum to the true total with
+     * no double count — the same invariant demandPoints() already relies on
+     * per suburb, just applied once at the agency level instead of summed
+     * across areas.
+     *
+     * @return array{total:int,portal_lead:int,other:int}
+     */
+    public function agencyTotals(int $agencyId): array
+    {
+        $weakMin = (int) ($this->config->buyerMatchTiers($agencyId)['weak_min_score'] ?? 50);
+        $portalSources = [BuyerLeadCascadeService::SOURCE_PORTAL_P24, BuyerLeadCascadeService::SOURCE_PORTAL_PP];
+
+        $rows = $this->baseQuery($agencyId, $weakMin)
+            ->groupBy('pbm.contact_id')
+            ->selectRaw('pbm.contact_id, MIN(pbm.source) as source')
+            ->get();
+
+        $portalLead = 0;
+        $other = 0;
+        foreach ($rows as $r) {
+            if (in_array($r->source, $portalSources, true)) {
+                $portalLead++;
+            } else {
+                $other++;
+            }
+        }
+
+        return ['total' => $portalLead + $other, 'portal_lead' => $portalLead, 'other' => $other];
     }
 }
