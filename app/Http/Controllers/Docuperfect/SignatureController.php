@@ -1534,6 +1534,62 @@ class SignatureController extends Controller
                 $webData['merged_html'] = $html;
             }
 
+            // ═══ ESIGN-WETINK Phase 1c — bake THIS signer's ink INTO canonical_html ═══
+            // Mirrors SigningController::completeWeb()'s bake (the recipient
+            // ceremony path). This method (the AGENT's own "Complete Signing &
+            // Send") never did this — since the canonical-html doctrine landed
+            // (ba2792a96, 2026-07-19) it only ever embedded into the legacy
+            // merged_html above. That gap was masked as long as
+            // CanonicalDocumentRenderer::resolveOrCompose() re-derived canonical
+            // from merged_html on every view while still at v0; 996fa5452
+            // (2026-08-27) correctly stopped that re-derivation to fix a
+            // different, confirmed bug (a Domicilium position-numbering
+            // disagreement) — "serve what is stored; never recompose it" is
+            // right for that fix, but it means an agent's signature, baked
+            // only into merged_html, no longer reaches canonical_html at all —
+            // so no recipient (whose screen reads canonical_html per doctrine
+            // I2/I3) ever sees it. Same bake as completeWeb(), so the agent's
+            // ink is IN the artifact exactly like every other party's.
+            $signingRequestForBake = $template->requests()->where('party_role', $partyRole)->first();
+            if ($signingRequestForBake) {
+                $canonicalHtml = (string) ($webData['canonical_html'] ?? '');
+                $notYetBaked = (int) ($webData['canonical_version'] ?? 0) < 1;
+                if (trim($canonicalHtml) === '' || $notYetBaked) {
+                    $rederived = app(\App\Services\Docuperfect\CanonicalDocumentRenderer::class)->compose($template);
+                    if (trim($rederived) === '' && trim($canonicalHtml) === '') {
+                        $rederived = app(\App\Services\Docuperfect\CanonicalDocumentRenderer::class)->resolveOrCompose($template);
+                    }
+                    if (trim($rederived) !== '') {
+                        $canonicalHtml = $rederived;
+                    }
+                }
+                $signaturesOnly = [];
+                foreach ($signatures as $sigKey => $sigVal) {
+                    if (! str_contains((string) $sigKey, '-init-')) {
+                        $signaturesOnly[$sigKey] = $sigVal;
+                    }
+                }
+                if (trim($canonicalHtml) !== '' && (!empty($signaturesOnly) || !empty($initials) || !empty($ceremonyValues))) {
+                    $soleOfRole = $template->requests()
+                        ->where('party_role', $signingRequestForBake->party_role)
+                        ->count() === 1;
+                    $webData['canonical_html'] = app(\App\Services\Docuperfect\CanonicalInkComposer::class)
+                        ->bakeInk(
+                            $canonicalHtml,
+                            $signingRequestForBake,
+                            $signaturesOnly,
+                            $initials,
+                            $ceremonyValues,
+                            $soleOfRole,
+                        );
+                    $webData['canonical_version'] = (int) ($webData['canonical_version'] ?? 0) + 1;
+                }
+                if (!empty($webData['canonical_html']) && !empty($webData['ceremony_values'])) {
+                    $webData['canonical_html'] = app(\App\Services\Docuperfect\CanonicalInkComposer::class)
+                        ->applyCeremonyValues($webData['canonical_html'], $webData['ceremony_values']);
+                }
+            }
+
             // Two-write: canonical un-paginated merged_html + exact signed
             // paginated DOM persisted ONCE to the derived-artifact column.
             $docUpdates = ['web_template_data' => $webData];

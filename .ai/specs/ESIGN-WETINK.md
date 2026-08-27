@@ -483,3 +483,57 @@ fallback for docs with no captured paginated DOM.
 **Proof (doc 452, real Chromium):** PDF-input now = signed_paginated_html →
 **3 pages**, **8 "Signed by"** (no extra inline rows), **6/6 initials in position**,
 footers **"Page 1 of 3 / 2 of 3 / 3 of 3"** — matches the on-screen signed document.
+
+---
+
+## AT — agent's OWN completion never baked into canonical_html (I3 gap, doc 1113)
+
+**Finding:** the agent's own "Complete Signing & Send" (`SignatureController::
+webSignComplete()`, the in-app screen at `/documents/{id}/sign`) has never, since
+I2/I3 landed (`ba2792a96`, 2026-07-19), written the agent's ink INTO
+`canonical_html`. It only ever embedded into the legacy `merged_html` (§7 Finding
+(b)'s "party-aliased embed", kept for backward compat). `SigningController::
+completeWeb()` — the RECIPIENT ceremony's completion — was correctly wired to
+`CanonicalInkComposer::bakeInk()` in that same commit; the agent's own path was
+not. A straight I3 violation: "After party N completes, the canonical artifact
+literally contains party N's signature" — it didn't, for the agent specifically.
+
+**Why it was invisible until 2026-08-27:** `CanonicalDocumentRenderer::
+resolveOrCompose()` used to RE-DERIVE canonical from `merged_html` on every view
+while still at v0 ("so the served structure always reflects the current
+pipeline"). That re-derivation accidentally picked up the agent's `merged_html`
+-only ink on every recipient's view, masking the gap. Commit `996fa5452`
+(2026-08-27, "one document, composed once") correctly REMOVED that
+re-derivation to fix a real, separate, confirmed bug (a Domicilium
+position-numbering disagreement — the fix is right; "serve what is stored;
+never recompose it" is the correct rule for THAT bug). Removing it stopped
+masking this one: with nothing ever baking the agent's ink into canonical_html,
+every recipient's screen showed the agent's signature block blank
+("Awaiting agent", no image) — reported live by Johan on doc 1113/template 737.
+
+**Fix:** `SignatureController::webSignComplete()` now bakes the agent's own
+signatures/initials/ceremony values into `canonical_html` via
+`CanonicalInkComposer::bakeInk()` and bumps `canonical_version`, mirroring
+`SigningController::completeWeb()`'s pattern exactly (re-derive canonical from
+merged_html only when not-yet-baked, split `-init-` keys, sole-of-role
+bleed-safe fallback, re-apply accumulated ceremony_values after). The agent is
+now just another party baking ink into the one artifact (I3), same as every
+recipient already was.
+
+**Proof:** doc 1113 (Anine Van der Westhuizen, seller, signing_order 2) —
+before the fix, the agent's 4 signature markers on her screen all read
+`data-signed=null`, "Awaiting agent", no `<img>`. Repaired the existing
+document's data (agent's already-captured signatures/initials baked in
+one-time via the same `bakeInk()` call), then reloaded Johan's exact link:
+all 4 blocks now `data-signed="true"`, real signature image, "Signed by Johan
+Reichel". New documents completed after this fix bake correctly at
+`webSignComplete()` time — no manual repair needed going forward.
+
+**Residual, not touched (flagging, not fixing):** `SigningController::
+completeWeb()`'s own not-yet-baked re-derive branch (line ~2058-2078, "AT-373
+Issue D") still re-composes fresh from `merged_html` when `canonical_version <
+1` — this is the SAME re-derive pattern `996fa5452` removed from
+`resolveOrCompose()`, kept here deliberately for a narrower purpose (picking
+up mid-ceremony amendments). `996fa5452`'s own commit message already flagged
+this exact branch as unverified under the new single-composition model and
+out of that day's scope — still true; not re-examined here.
