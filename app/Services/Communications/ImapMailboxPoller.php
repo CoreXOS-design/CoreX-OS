@@ -20,7 +20,10 @@ use Webklex\PHPIMAP\ClientManager;
  */
 class ImapMailboxPoller
 {
-    /** Skip attachments larger than this many bytes (keep, but don't store the blob). */
+    /**
+     * Fallback per-file ceiling when config is unavailable. The live value is
+     * communications.attachments.max_attachment_bytes — see attachmentCap().
+     */
     private const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 
     public function __construct(
@@ -121,15 +124,22 @@ class ImapMailboxPoller
                     try {
                         $uid = (int) $liteMessage->getUid();
                         // AT-257 — non-destructive read: BODY.PEEK[], never sets \Seen.
-                        $message = \App\Services\Communications\PeekingMessageFetcher::peek($client, $uid);
+                        $message = \App\Services\Communications\PeekingMessageFetcher::peek($client, $uid, $folderName);
                         if ($message === null) {
                             $stats['errors']++;
                             Log::warning("Communication archive: peek fetch returned no content (mailbox {$mailbox->id}, uid {$uid})");
                             continue;
                         }
                         $normalized = $this->normalize($message, $direction);
-                        $result = $this->ingestor->ingest($mailbox, $normalized, $direction);
-                        $stats[$result] = ($stats[$result] ?? 0) + 1;
+                        try {
+                            $result = $this->ingestor->ingest($mailbox, $normalized, $direction);
+                            $stats[$result] = ($stats[$result] ?? 0) + 1;
+                        } finally {
+                            // Attachments are spooled to temp files (see attachments());
+                            // free them whatever the outcome so a long poll cannot fill
+                            // the disk with the payloads we kept out of memory.
+                            $this->discardSpooled($normalized['attachments'] ?? []);
+                        }
                     } catch (ImapPollTimeoutException $e) {
                         throw $e; // the budget fired mid-message — abort the whole poll
                     } catch (\Throwable $e) {
@@ -437,6 +447,30 @@ class ImapMailboxPoller
         return trim($headers . "\r\n\r\n" . $body);
     }
 
+    /**
+     * Extract this message's attachments WITHOUT holding their payloads in the
+     * worker's memory.
+     *
+     * Two things were wrong here and both are fixed:
+     *
+     * 1. The oversize guard trusted the size the mail server DECLARES. webklex
+     *    returns null when a part advertises no size; `?? 0` then read that as
+     *    "0 bytes", i.e. never oversized, and the file was decoded in full
+     *    anyway. Two 43.7MB video/mp4 attachments were archived that way on
+     *    2026-07-24 despite the 25MB cap. The declared size is now a FAST
+     *    REJECT ONLY — the authoritative check is strlen() of the decoded bytes.
+     *
+     * 2. Every attachment was carried decoded in this array while the raw MIME —
+     *    which already contains all of them base64-encoded, ~1.33x their real
+     *    size — was held alongside it for the same message. Two copies of one
+     *    payload on a worker whose usable headroom is ~70MB. Attachments now
+     *    spool to a temp file and the ingestor streams from the path, so only
+     *    one attachment is ever momentarily resident.
+     *
+     * Over-ceiling files are not silently dropped: they come back marked
+     * 'oversized' and the ingestor records the row (filename + size, no blob) so
+     * the archive still shows the file existed. Caller MUST discardSpooled().
+     */
     private function attachments($message): array
     {
         $out = [];
@@ -444,27 +478,129 @@ class ImapMailboxPoller
         if (! $list) {
             return $out;
         }
+
+        $perFileCap = $this->attachmentCap();
+        $totalCap   = $this->messageAttachmentCap();
+        $running    = 0;
+
         foreach ($list as $att) {
             try {
-                $size = (int) ($this->safe(fn () => $att->getSize()) ?? 0);
-                if ($size > self::MAX_ATTACHMENT_BYTES) {
-                    Log::info("Communication archive: skipping oversized attachment ({$size} bytes)");
+                $filename = $this->safe(fn () => $att->getName());
+                $mime     = $this->safe(fn () => $att->getMimeType()) ?? $this->safe(fn () => $att->getContentType());
+
+                // Fast reject on the declared size — can only ever REJECT, never approve.
+                $declared = (int) ($this->safe(fn () => $att->getSize()) ?? 0);
+                if ($declared > $perFileCap) {
+                    $out[] = $this->recordedNotStored($filename, $mime, $declared, $perFileCap, 'attachment_too_large');
                     continue;
                 }
+
                 $bytes = (string) ($this->safe(fn () => $att->getContent()) ?? '');
-                if ($bytes === '') {
+                $size  = strlen($bytes);
+                if ($size === 0) {
                     continue;
                 }
+
+                // Authoritative cap: the real decoded length, whatever was declared.
+                if ($size > $perFileCap) {
+                    unset($bytes);
+                    $out[] = $this->recordedNotStored($filename, $mime, $size, $perFileCap, 'attachment_too_large');
+                    continue;
+                }
+
+                // Per-MESSAGE ceiling — ten 4MB files each clear the per-file cap
+                // but together exceed the worker budget.
+                if ($running + $size > $totalCap) {
+                    unset($bytes);
+                    $out[] = $this->recordedNotStored($filename, $mime, $size, $totalCap, 'message_attachment_total_exceeded');
+                    continue;
+                }
+
+                $path = $this->spool($bytes);
+                unset($bytes);
+                if ($path === null) {
+                    continue;
+                }
+                $running += $size;
+
                 $out[] = [
-                    'filename' => $this->safe(fn () => $att->getName()),
-                    'mime'     => $this->safe(fn () => $att->getMimeType()) ?? $this->safe(fn () => $att->getContentType()),
-                    'bytes'    => $bytes,
+                    'filename' => $filename,
+                    'mime'     => $mime,
+                    'path'     => $path,
+                    'size'     => $size,
                 ];
             } catch (\Throwable $e) {
                 Log::info("Communication archive: attachment extract failed: {$e->getMessage()}");
             }
         }
+
         return $out;
+    }
+
+    /** Per-file ceiling (bytes). Config-driven; the class const is the fallback. */
+    private function attachmentCap(): int
+    {
+        return max(1, (int) config('communications.attachments.max_attachment_bytes', self::MAX_ATTACHMENT_BYTES));
+    }
+
+    /** Per-message ceiling across all attachments — never below the per-file cap. */
+    private function messageAttachmentCap(): int
+    {
+        return max(
+            $this->attachmentCap(),
+            (int) config('communications.attachments.max_message_total_bytes', 40 * 1024 * 1024)
+        );
+    }
+
+    /**
+     * An attachment we deliberately do not carry. The row is still created by the
+     * ingestor (name, mime, size, media_status=failed) so the file is visible in
+     * the archive as "was attached, too large to keep" rather than vanishing.
+     */
+    private function recordedNotStored(?string $filename, ?string $mime, int $size, int $cap, string $reason): array
+    {
+        Log::info('Communication archive: attachment recorded but not stored', [
+            'filename'   => $filename,
+            'size_bytes' => $size,
+            'cap_bytes'  => $cap,
+            'reason'     => $reason,
+        ]);
+
+        return [
+            'filename'  => $filename,
+            'mime'      => $mime,
+            'size'      => $size,
+            'oversized' => true,
+            'error'     => "{$reason}: {$size} bytes exceeds cap {$cap}",
+        ];
+    }
+
+    /** Write decoded bytes to a temp file so they leave the worker's heap. */
+    private function spool(string $bytes): ?string
+    {
+        $path = @tempnam(sys_get_temp_dir(), 'corex-att-');
+        if ($path === false) {
+            Log::warning('Communication archive: attachment spool file could not be created');
+            return null;
+        }
+        if (@file_put_contents($path, $bytes) === false) {
+            @unlink($path);
+            Log::warning('Communication archive: attachment spool write failed');
+            return null;
+        }
+
+        return $path;
+    }
+
+    /** Delete this message's spooled attachment files. Always runs, success or not. */
+    private function discardSpooled(array $attachments): void
+    {
+        foreach ($attachments as $att) {
+            $path = $att['path'] ?? null;
+            if (is_string($path) && $path !== '' && is_file($path)) {
+                @unlink($path);
+            }
+        }
     }
 
     private function firstAddress($message, string $method): ?string

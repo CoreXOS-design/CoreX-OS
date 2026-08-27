@@ -203,10 +203,17 @@ class RegenerateBuyerMatchesJob implements ShouldQueue, ShouldBeUniqueUntilProce
             $listingsPool  = null;
             if ($this->agencyId !== null) {
                 $candidatePool = app(\App\Services\Matching\MatchingService::class)->matchableCandidatePool($this->agencyId);
+                // Hydrate ONLY the columns the scorer reads. All 50 columns of
+                // ~33,700 rows cost 176MB held for the whole run, on a worker
+                // whose ceiling was Laravel's 128MB default — so every single
+                // invocation finished its job and then exited 12 (335 restarts).
+                // The slim set is 92MB and is verified score-identical; the
+                // contract lives next to the method that consumes it.
                 $listingsPool  = \App\Models\ProspectingListing::withoutGlobalScopes()
                     ->where('agency_id', $this->agencyId)
                     ->where('is_active', 1)
                     ->whereNull('deleted_at')
+                    ->select(PropertyMatchScoringService::PROSPECTING_POOL_COLUMNS)
                     ->get();
             }
 
