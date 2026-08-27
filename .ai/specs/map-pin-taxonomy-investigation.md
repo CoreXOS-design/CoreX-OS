@@ -521,6 +521,35 @@ byte-identical to a fresh live rebuild.
 tile cache (would miss on every pan — the actual conclusion of the perf
 investigation was "this is an index problem, a cache would paper over it").
 
+## (i) Suburb-centroid geocode — outlier rejection (2026-08-27, ocean pins on live)
+
+`GeocodeSuburbCentroids` (`map:geocode-suburbs`) averaged raw AVG(lat)/AVG(lng)
+with no outlier protection. Confirmed on live: property #5668 ("PTN 144 Farm
+8159 Melbourne") is geocoded to Melbourne, AUSTRALIA; three more properties
+sit at exactly (0,0) — a silent-geocode-failure sentinel. A single bad row
+anywhere in a suburb's property list dragged that suburb's whole centroid —
+Umzumbe landed at longitude 48°, off the African continent. 14 of 145
+geocoded centroids (~10%) had no real address within 800m.
+
+Fixed: a plausible-South-Africa bounding box (lat -35..-22, lng 16..33)
+rejects a source row before it enters any average, and the remaining points
+combine via per-axis median instead of mean. Re-run with `--force` on
+Staging: 95 of 145 centroids moved, Umzumbe corrected to a real KZN south
+coast point, still-flagged count dropped from 14 to 1 (Ballito Rural — a
+genuinely dispersed rural catchment area where per-axis median synthesizes a
+point between real clusters that isn't literally on top of one address; not
+a residual data-quality bug, an inherent property of per-axis median on
+spread-out source points). Buyer Demand re-verified after: 127 points, same
+agency-wide totals, zero points outside plausible South Africa bounds.
+
+Live (a separate box from Staging) still carries the pre-fix, unreviewed
+centroids and needs the same code deploy + forced re-run — see the
+conductor's release log for the exact commands handed to Andre.
+
+Noted, not fixed (outside this task's scope): properties #5668 (Melbourne)
+and the three (0,0) properties are wrong as individual map pins too, not
+just via the centroid average — Johan raising separately.
+
 ---
 
 ## Closing — read-only verification
