@@ -585,16 +585,58 @@ final class MapPinService
             // is a direct FK the portal ingest already resolved back to this
             // exact tracked property. Same fold mechanism, same "keep total
             // honest" pattern, reused rather than reinvented.
-            $portalLinkedIds = DB::table('prospecting_listings')
+            //
+            // Guard, added after the first version of this fold matched
+            // 27,315 rows agency-wide against cc6's ~2,313 estimate (found
+            // BEFORE this shipped further than QA1/Staging — the FK alone
+            // is not sufficient): 25,444 of those matches (93%) link to a
+            // prospecting_listings row with NO latitude/longitude at all —
+            // activeListings() requires both to be non-null to draw a pin
+            // (see whereNotNull('pl.latitude'/'pl.longitude') there), so
+            // that "duplicate" is never actually drawn anywhere. Folding
+            // the tracked pin away for those would delete a real, visible
+            // marker with nothing replacing it. Of the remainder with GPS
+            // on both sides, the data itself draws the line: 2,654 pairs
+            // sit within 100m of each other (clearly the same dot on any
+            // reasonable zoom — this is the number that lines up with
+            // cc6's estimate), then a sharp drop-off to 1km-10km+ (a stale
+            // geocode on one side, not a visual duplicate at all — folding
+            // those would silently delete a marker sitting at a different,
+            // currently-correct location). Only fold when the portal link
+            // has GPS AND is within 100m of this tracked property's own
+            // coordinates — reusing HaversineDistance, the same helper
+            // applyRadiusFilter() already uses elsewhere in this file.
+            $portalLinks = DB::table('prospecting_listings')
                 ->whereNull('deleted_at')
                 ->where('is_active', true)
                 ->whereIn('portal_source', ['p24', 'pp'])
                 ->where('agency_id', $req->agencyId)
                 ->whereNotNull('tracked_property_id')
-                ->pluck('tracked_property_id')
-                ->all();
-            $portalLinkedSet = array_flip($portalLinkedIds);
-            $rows = $rows->reject(fn ($r) => isset($portalLinkedSet[$r->id]))->values();
+                ->whereNotNull('latitude')
+                ->whereNotNull('longitude')
+                ->select(['tracked_property_id', 'latitude', 'longitude'])
+                ->get();
+            $portalLinkedGps = [];
+            foreach ($portalLinks as $pl) {
+                // A tracked property can carry more than one portal link
+                // (re-listed, or listed on more than one portal) — keep
+                // the closest one for the proximity check below.
+                $portalLinkedGps[$pl->tracked_property_id][] = [(float) $pl->latitude, (float) $pl->longitude];
+            }
+            $rows = $rows->reject(function ($r) use ($portalLinkedGps) {
+                if (!isset($portalLinkedGps[$r->id])) {
+                    return false;
+                }
+                foreach ($portalLinkedGps[$r->id] as [$plLat, $plLng]) {
+                    $metres = \App\Support\MarketAnalytics\HaversineDistance::distanceMetres(
+                        (float) $r->latitude, (float) $r->longitude, $plLat, $plLng
+                    );
+                    if ($metres <= 100) {
+                        return true;
+                    }
+                }
+                return false;
+            })->values();
 
             // Keep the cap-detection total honest — it must reflect the
             // SAME already-on-our-books folding the pins themselves just
