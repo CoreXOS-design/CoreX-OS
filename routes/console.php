@@ -260,6 +260,16 @@ Schedule::job(new \App\Jobs\PrivateProperty\PullPpLeadsJob())
 // dragging the whole DB. Batched deletes keep 45 days. See PruneP24SyndicationLogs.
 Schedule::command('p24:prune-logs --days=45')->dailyAt('03:30')->withoutOverlapping()->name('p24-prune-logs');
 
+// Prune the failed_jobs retention window nightly (03:40). Every other log table
+// on this box had a prune; this one never did, so it accumulated from the day it
+// was created — 6,566 rows / 40MB reaching back to 2026-03-02 when it was first
+// looked at on 2026-08-27. The cost is not the disk, it is that a genuine failure
+// worth acting on is invisible inside thousands of historical ones nobody has
+// read: the two portal desyndication failures that actually mattered that night
+// were sitting in a five-figure pile. 30 days keeps every failure long enough to
+// diagnose and act on, and drops the archaeology.
+Schedule::command('queue:prune-failed --hours=720')->dailyAt('03:40')->withoutOverlapping()->name('queue-prune-failed');
+
 // Property24 ExDev per-listing statistics (views/alerts/lead breakdown) pull —
 // runs daily at 04:00. P24 aggregates daily and publishes next-day, so a rolling
 // lookback each run corrects late figures; sub-daily cadence would waste API calls.
