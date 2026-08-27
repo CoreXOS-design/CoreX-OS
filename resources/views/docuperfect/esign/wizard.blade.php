@@ -3891,6 +3891,22 @@ function esignWizard() {
         async setEntityProxyPick(recipientIndex, representativeContactId) {
             const r = this.recipients[recipientIndex];
             if (!r._contact_id) return;
+            // Johan/conductor, 2026-08-27 (shape E, cc5's harness) — goNext()
+            // never awaits this call, and the pick previously only landed in
+            // Alpine state AFTER the round trip resolved. A Next click fired
+            // before that resolution (a fast agent, or any scripted
+            // harness) serialized the recipient with its OLD
+            // _entity_proxy_contact_id — the document then sent to every
+            // representative instead of just the named proxy. Land the pick
+            // optimistically, synchronously, the same way moveEntityRep()
+            // already does for _entity_rep_order just below — the server
+            // call stays what its own comment says it always was, read-only
+            // validation + preview — and roll back only if it actually
+            // rejects the pick.
+            const previousPick = r._entity_proxy_contact_id || null;
+            const previousIsProxy = !!r._is_proxy;
+            r._entity_proxy_contact_id = representativeContactId || null;
+            r._is_proxy = !!representativeContactId;
             try {
                 const resp = await fetch('/docuperfect/esign/api/entity/' + r._contact_id + '/proxy', {
                     method: 'POST',
@@ -3909,14 +3925,16 @@ function esignWizard() {
                 });
                 const result = await resp.json();
                 if (!resp.ok || !result.ok) {
+                    r._entity_proxy_contact_id = previousPick;
+                    r._is_proxy = previousIsProxy;
                     this.showToast(result.error || 'Could not set the proxy representative.', 'error');
                     return;
                 }
                 r._representation = result.representation;
-                r._entity_proxy_contact_id = representativeContactId || null;
-                r._is_proxy = !!representativeContactId;
                 this.showToast(representativeContactId ? 'Proxy representative set for this document.' : 'Proxy cleared for this document — all representatives sign again.', 'success');
             } catch (e) {
+                r._entity_proxy_contact_id = previousPick;
+                r._is_proxy = previousIsProxy;
                 console.error('setEntityProxyPick error:', e);
                 this.showToast('Could not reach the server to check the proxy pick.', 'error');
             }
