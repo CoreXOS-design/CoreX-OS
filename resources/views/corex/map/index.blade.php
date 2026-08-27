@@ -218,10 +218,19 @@
             </div>
 
             {{-- Phase A.3.1 — compact layer icon row. Each icon is a toggle;
-                 hover shows the layer name + count. --}}
+                 hover shows the layer name + count.
+                 2026-08-27 — Johan, after the Portal Stock/Tracked merge:
+                 "the tracked badge is removed but we are still showing the
+                 badge line on 2 rows." Down to 7 buttons, but 7×30px + 6×6px
+                 gaps (234px... the actual measured overflow was still 246px
+                 at the old 6px gap) still didn't fit the 235px sidebar at
+                 1366px width — one orphaned icon alone on its own second
+                 row. gap tightened 6px -> 3px (same buttons, same size, same
+                 order, no redesign) so all 7 fit on one line; flex-wrap
+                 stays as the safety net for narrower viewports. --}}
             <div style="margin-bottom: 12px;">
                 <div style="font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); font-weight: 600; margin-bottom: 6px;">Layers</div>
-                <div id="layer-list" data-tour="re-map-layers" style="display: flex; gap: 6px;">
+                <div id="layer-list" data-tour="re-map-layers" style="display: flex; flex-wrap: wrap; gap: 3px;">
                     @php
                         // Layer-chip palette MUST stay in sync with PIN_STYLES
                         // and LAYER_COLOURS in the JS section below. Otherwise
@@ -644,7 +653,10 @@ document.addEventListener('DOMContentLoaded', function () {
         active_listings: 'Portal Stock',
         mic_subjects: 'MIC Subject',
         scheme_owners: 'Sectional Scheme',
-        tracked_properties: 'Tracked',
+        // 2026-08-27 — Portal Stock/Tracked merge: no "Tracked" wording left
+        // anywhere the agent can see, including this composite-list group
+        // header (LAYER_NAMES also drives the "Truncated: ..." cap banner).
+        tracked_properties: 'Portal Stock',
     };
 
     // Composite pin palette — neutral slate so it reads as "multiple sources here"
