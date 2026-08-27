@@ -166,4 +166,47 @@ final class CalendarContinuousScrollTest extends TestCase
         $end   = Carbon::parse($resp->json('end'));
         $this->assertLessThanOrEqual(401, $start->diffInDays($end), 'window is capped, not honoured to 5 years');
     }
+
+    // ── AT-384 — the stream opens on TODAY ──────────────────────────────────────
+    // The continuous month used to anchor on the Monday of the month's FIRST week.
+    // For any month whose 1st is not a Monday that week belongs to the PREVIOUS
+    // month, so a user opening the calendar on 27 Aug 2026 landed on the week of
+    // Mon 27 Jul with the sticky label reading "July". Anchor precedence is now:
+    // explicit ?date= → today's week (default) → the month's first week.
+
+    public function test_month_view_opens_on_todays_week_not_the_months_first_week(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-08-27 09:00:00'));   // Thu; 1 Aug 2026 is a Sat
+
+        $resp = $this->actingAs($this->user)->get(route('command-center.calendar', ['view' => 'month']));
+
+        $resp->assertOk();
+        $resp->assertSee("const anchorWeek = '2026-08-24'", false);   // Monday of today's week
+        $resp->assertDontSee("const anchorWeek = '2026-07-27'", false); // the old July landing
+        $resp->assertSee('data-week="2026-08-24"', false);             // and that week is preloaded
+    }
+
+    public function test_month_view_honours_an_explicit_date_over_today(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-08-27 09:00:00'));
+
+        $resp = $this->actingAs($this->user)->get(route('command-center.calendar', [
+            'view' => 'month', 'date' => '2026-08-05',
+        ]));
+
+        $resp->assertOk();
+        $resp->assertSee("const anchorWeek = '2026-08-03'", false);   // Monday of the asked-for week
+    }
+
+    public function test_month_view_opens_on_the_first_week_of_another_month(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-08-27 09:00:00'));
+
+        $resp = $this->actingAs($this->user)->get(route('command-center.calendar', [
+            'view' => 'month', 'year' => 2026, 'month' => 10,
+        ]));
+
+        $resp->assertOk();
+        $resp->assertSee("const anchorWeek = '2026-09-28'", false);   // Monday of 1 Oct 2026's week
+    }
 }
