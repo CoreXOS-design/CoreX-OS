@@ -2123,6 +2123,25 @@ class SigningController extends Controller
                 ->applyCeremonyValues($webData['canonical_html'], $webData['ceremony_values']);
         }
 
+        // Johan/conductor, 2026-08-28 — a recipient's SIGNING-TIME field
+        // completion (domicilium address blank at send and filled in here,
+        // or a pre-filled one they correct) was captured into
+        // web_template_data['field_values'] above (the save a few dozen
+        // lines up) but nothing ever read it back into the document — the
+        // typed value survived in storage and never reached a screen.
+        // $newFieldValues is THIS completion's own submission only (never
+        // the full historical map — see applyFieldValues()'s own docblock
+        // for why that's the correct scope), so a prior signer's already-
+        // baked fields are untouched here. Placed LAST in this bake
+        // sequence on purpose: it is the explicit, not incidental, reason a
+        // signing-time answer always wins over the agent's pre-send Fill &
+        // Review value for the same key (see applyFieldValues()'s docblock
+        // for why the two can never actually compete over one render).
+        if (!empty($webData['canonical_html']) && !empty($newFieldValues)) {
+            $webData['canonical_html'] = app(\App\Services\Docuperfect\CanonicalInkComposer::class)
+                ->applyFieldValues($webData['canonical_html'], $newFieldValues, $signingRequest);
+        }
+
         // Embed this signer's signatures, initials, and ceremony values into
         // merged_html — RETAINED for backward compatibility (pre-canonical docs,
         // any legacy consumer still reading merged_html). Party-aliased; canonical
