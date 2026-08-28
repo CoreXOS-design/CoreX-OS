@@ -13,11 +13,20 @@
     $agentInitials = collect(preg_split('/\s+/', trim((string)($user->name ?? 'Agent'))))->filter()->map(fn($p)=>mb_strtoupper(mb_substr($p,0,1)))->take(3)->implode('');
     // The REAL next step drives the label: a prior recipient re-initials FIRST (even when the amender was
     // the LAST recipient), so it reads "Send to <prior> to initial" — never "Finalise" while a prior owes.
+    //
+    // Label fix (2026-08-28, Johan) — the no-next-party case used to read "Approve & Finalise" here,
+    // word-for-word identical to the SEPARATE final-release-gate button (docuperfect.signatures.review.blade.php's
+    // own "Approve and Finalise", route approveAndAdvance) that actually completes the document. This button
+    // only ever hits SignatureService::approveAmendmentNode() — approving the amendment and, once nobody else
+    // owes an initial, handing off to the unconditional AT-322 final-approval gate (unchanged, by Johan's
+    // decision) rather than completing here. The old wording promised completion this action doesn't deliver,
+    // which is why the agent had to reopen the document and click the real finalise button separately. Text
+    // only: no status transition, gate, or approveAmendmentNode() behaviour changed.
     $amendNextName = $nextPartyDisplayName ?? 'the next recipient';
     $amendNextVerb = (($amendNextAction ?? null) === 'initial') ? ' to initial' : '';
     $approveLabel  = $nextParty
         ? ('Approve &amp; Send to ' . e($amendNextName) . $amendNextVerb)
-        : 'Approve &amp; Finalise';
+        : 'Approve Amendments';
 @endphp
 
 <style>
@@ -101,7 +110,7 @@
             <button type="submit" :disabled="outstanding>0 || rejectedCount>0"
                     :style="(outstanding>0 || rejectedCount>0) ? 'opacity:0.5;cursor:not-allowed;' : 'cursor:pointer;'"
                     style="width:100%; font-size:13px; font-weight:600; color:#fff; background:#059669; border-radius:9px; padding:9px 12px;"
-                    @click="return (outstanding>0 || rejectedCount>0) ? $event.preventDefault() : confirm('{{ $nextParty ? 'Approve and send to ' . ($amendNextName ?? 'the next recipient') . '?' : 'Approve and finalise the document?' }}')">
+                    @click="return (outstanding>0 || rejectedCount>0) ? $event.preventDefault() : confirm('{{ $nextParty ? 'Approve and send to ' . ($amendNextName ?? 'the next recipient') . '?' : 'Approve the amendments?' }}')">
                 {!! $approveLabel !!} &rarr;
             </button>
         </form>

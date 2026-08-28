@@ -765,3 +765,107 @@ NOT investigated for the same disagreement — doc 1135's own
 either). Whether that clause has the same proxy-ordering gap is unknown;
 out of scope for this fix (Johan's report named the Domicilium block
 specifically) and not touched.
+
+---
+
+## Rule — the amendment-approval action and the final-release gate are deliberately separate
+
+When a recipient strikes something out on a document and it returns to the agent for
+review, approving that amendment and completing the document are two distinct,
+intentional steps (Johan's decision, 2026-08-28): approving the amendment
+(`SignatureController::approveAmendmentNode()` → `SignatureService::
+approveAmendmentNode()`) records the agent's acceptance and, once no other
+already-signed recipient still owes an initial on the change, hands off to the
+SAME unconditional AT-322 final-release gate every document — amended or not —
+passes through (`holdForFinalAgentReview()` → `pending_agent_approval`). It does
+NOT complete the document itself, even for a single-recipient document with
+nothing else pending. The bottom/right-rail "Approve and Finalise" action
+(`approveAndAdvance()` → `completeDocument()`) is the one that actually files the
+PDF and emails recipients. **This is deliberate and stays exactly as it is** — do
+not merge the two gates.
+
+### Bug — the amendment-approve button was mislabelled "Approve & Finalise" (fixed 2026-08-28)
+
+**Symptom:** Johan reviewed a recipient's strike-out, initialed it, clicked
+"Approve & Finalise →" on the right-rail Amendments panel, and was returned to
+My E-Sign Documents — but the document was still `pending_agent_approval`, not
+completed. He had to reopen it and click the genuinely-separate "Approve and
+Finalise" button to finish.
+
+**Confirmed NOT a logic bug** — traced the real audit log (template 78, doc
+525): `amendment_node_approved` (10:16:59) → `pending_agent_approval` (same
+second) → …2.5 minutes later… → `completed` (10:19:36) →
+`agent_approved_complete` (10:19:37). The first click did real, correct work;
+it simply isn't the completion step, by the design above.
+
+**The actual defect:** the button's label. Live location —
+`resources/views/docuperfect/signatures/partials/_agent-amendments-panel.blade.php`
+(included by `review.blade.php:692`, gated on `@if($isAmendmentApproval ??
+false)` at `review.blade.php:671` — confirmed the real, rendered surface).
+`$approveLabel` (lines 14-20) read `'Approve &amp; Finalise'` for the
+no-next-party case — word-for-word identical to the separate button that
+actually finalises, promising completion this one doesn't deliver.
+
+**Trap for the next person:** `review.blade.php` ALSO has an `@if(!empty(
+$isAmendmentApproval)) ... 'Approve &amp; Finalise' ...` block at lines
+520-547, inside a form nearly identical to the real one. **This block is
+DEAD CODE** — it sits inside `@unless(!empty($isAmendmentApproval))` (line
+510), so its own `@if($isAmendmentApproval)` can never be true (confirmed
+both by reading the nesting and by rendering the page with
+`isAmendmentApproval=true`: zero occurrences of "Review Actions" or
+`approveAmendmentBtn`, matching the comment at lines 508-509 that says this
+whole block is suppressed in amendment mode). The first attempt at this fix
+edited that dead block and verified nothing, because nothing renders there —
+caught before push by re-deriving the branch conditions, not by the render
+test (the render test's own contradiction — `isAmendmentApproval` true via
+`getData()` but the block's markers absent from the output — was the tell).
+Left reverted, untouched, exactly as found. If `review.blade.php:520-547`
+is ever going to matter again, the outer `@unless` needs to be dealt with
+first; until then, `_agent-amendments-panel.blade.php` is the only surface
+that renders during amendment approval.
+
+**Fix:** `_agent-amendments-panel.blade.php` — `$approveLabel`'s no-next-party
+value changed to `'Approve Amendments'` (Johan's wording), and the matching
+`confirm()` dialog text changed from "Approve and finalise the document?" to
+"Approve the amendments?" for the same reason (same misleading claim, one
+click earlier). The next-party wording (`'Approve &amp; Send to ' . name`)
+already correctly describes what that branch does and was left untouched.
+Label only — no status transition, gate, or `approveAmendmentNode()`
+behaviour changed.
+
+**Verified by code inspection, not by a rendered page** — codebase-wide grep
+for the old string confirms `_agent-amendments-panel.blade.php` now has zero
+occurrences of "Approve & Finalise"; the branch condition
+(`@if($isAmendmentApproval ?? false)` gating the panel's inclusion) matches
+Johan's exact traced scenario exactly; compiled view cache cleared. Nobody
+should assume this was seen rendering on screen — the next real amendment
+review on Staging is the first live confirmation.
+
+### Related, separately reported — PIN sign missing on the agent review page
+
+`resources/views/docuperfect/signatures/review.blade.php` never includes
+`_capture-modal.blade.php` (or `signature-modal.blade.php`, which does) —
+confirmed by its complete include list (4 entries, neither present). That
+partial is the only place the "Use my saved signature 🔒" PIN option exists,
+gated on a `$savedSignatureSupport` param the review page never has occasion
+to pass. Not fixed in this pass (Johan named this specifically as Finding 1,
+separate from the double-approval investigation) — reported only.
+
+### Redirect after amendment approval — investigated, not changed
+
+`SignatureController::approveAmendmentNode()` (`app/Http/Controllers/
+Docuperfect/SignatureController.php:3196`) unconditionally redirects to
+`docuperfect.esign.myDocuments` after a successful approval, regardless of
+outcome. Checked whether redirecting back to `docuperfect.signatures.review`
+for the same document instead (so the agent lands straight on the
+now-normal-mode review page with the real "Approve and Finalise" button
+visible) is safe: the review page's own status guard
+(`SignatureController.php:2644-2660`) explicitly includes
+`STATUS_PENDING_AGENT_APPROVAL` — the exact status this action leaves the
+document in — in its `$reviewableStatuses` allow-list, so the redirect would
+pass cleanly and re-render in the normal (non-amendment) branch. `review()`
+has no side effects (no writes, no mail, no dispatch) on GET, so revisiting
+it is safe to repeat. Only one caller submits this route (a plain form POST
+on the panel above), so there's no other consumer to break. Appears to be a
+genuine one-line change with no entanglement found — not made; awaiting
+Johan's go-ahead.
