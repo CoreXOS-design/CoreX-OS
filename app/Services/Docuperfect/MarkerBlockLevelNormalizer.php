@@ -38,8 +38,14 @@ final class MarkerBlockLevelNormalizer
 
         libxml_use_internal_errors(true);
         $doc = new \DOMDocument('1.0', 'UTF-8');
+        // Same UTF-8 declaration used by DocxParserService::detectHighlightFields(),
+        // AmendmentController's review-panel loader, and
+        // DocumentTemplateGenerator::detectSignatureBoundary() — without it,
+        // loadHTML() assumes ISO-8859-1 for the input bytes regardless of the
+        // constructor's encoding argument, which only sets the DOCUMENT's
+        // declared encoding, not how the parser reads $html. AT-387.
         $doc->loadHTML(
-            $wrapperOpen . $html . $wrapperClose,
+            '<?xml encoding="UTF-8">' . $wrapperOpen . $html . $wrapperClose,
             LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD
         );
         libxml_clear_errors();
