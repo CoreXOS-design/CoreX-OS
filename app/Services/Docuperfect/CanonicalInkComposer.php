@@ -247,6 +247,133 @@ class CanonicalInkComposer
     }
 
     /**
+     * Bake a recipient's SIGNING-TIME field completions (e.g. a domicilium
+     * address left blank at send, or an agent-pre-filled one the recipient
+     * corrects) into the canonical artifact. Mirrors applyCeremonyValues()'s
+     * own shape and fail-safety — same DOM-load, same per-key loop, same
+     * "any error returns the input HTML unchanged" contract — but the match
+     * is simpler: field_values keys ARE the exact `data-field` attribute
+     * already (the wizard's own "{var}__r{n}" per-instance convention), so
+     * there is no key-splitting/party-parsing step the way ceremony keys
+     * need. Exact match only — no fuzzy/prefix matching, ever: a field with
+     * no matching span is skipped and logged at debug, never guessed at.
+     *
+     * Root cause this exists for (Johan/conductor, 2026-08-28): a recipient
+     * types a value into a field the signing UI offers them (blank-at-send
+     * domicilium address, or an edit to a pre-filled one) — completeWeb()
+     * already saves it into web_template_data['field_values'], but nothing
+     * ever read that key back into the document. The typed value survived
+     * in storage and never reached anyone's screen — worst on a PRE-FILLED
+     * field, where the recipient's edit is silently discarded and the OLD
+     * value keeps rendering with no sign anything was lost.
+     *
+     * SCOPE (decision, not incidental): only stamp fields belonging to the
+     * signer who submitted them — the same data-recipient-identity
+     * mechanism the completion gate already scopes editableFields by
+     * (SigningController::getEditableFieldsFromMappings() keys off
+     * $signingRequest->party_role; this keys off the signer's own
+     * attestationIdentity(), the per-instance identity, so seller_2 and
+     * seller_3 — same role, different instance — can never write onto each
+     * other's span even though both would pass the role-level check). See
+     * fieldBelongsToSigner()'s own docblock for the exact condition.
+     *
+     * PRECEDENCE over the agent's pre-send Fill & Review overlay (decision,
+     * not incidental): this is called ONLY from completeWeb(), which runs
+     * strictly at/after signing time. applyFillReviewAuthoritativeOverlay()
+     * runs ONLY inside compose() (CanonicalDocumentRenderer), which per the
+     * "one document, composed once" doctrine never re-runs once a canonical
+     * exists (composeAndStore() is idempotent; forDisplay()/resolveOrCompose()
+     * trust any stored canonical verbatim). So a Fill & Review value can
+     * never be written to canonical_html AFTER a signing-time field_values
+     * bake — the two never compete over the same render. This call is
+     * placed as the LAST step of completeWeb()'s bake sequence specifically
+     * so a signing-time answer is provably the final word for its own key,
+     * not merely last by incidental call order.
+     *
+     * Additive only — does not touch bakeInk(), applyCeremonyValues(), or
+     * the completion gate.
+     *
+     * @param  array<string,string> $fieldValues  THIS completion's own newly-submitted
+     *                                             field_values (request()->input('field_values')),
+     *                                             never the full historical accumulation —
+     *                                             a prior signer's own fields are already
+     *                                             baked from their own turn and untouched here.
+     */
+    public function applyFieldValues(string $html, array $fieldValues, SignatureRequest $signer): string
+    {
+        if (trim($html) === '' || $fieldValues === []) {
+            return $html;
+        }
+
+        try {
+            $dom = new \DOMDocument();
+            @$dom->loadHTML(
+                '<?xml encoding="utf-8"?>' . $html,
+                LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NOERROR | LIBXML_NOWARNING,
+            );
+            $xpath = new \DOMXPath($dom);
+            $signerIdentity = strtolower($signer->attestationIdentity());
+
+            foreach ($fieldValues as $key => $value) {
+                if (trim((string) $value) === '') {
+                    continue;
+                }
+                $key = (string) $key;
+                // Exact match ONLY — the key IS the data-field attribute, verbatim.
+                $matches = $xpath->query('//*[@data-field="' . $this->xpathLiteral($key) . '"]');
+                if ($matches === false || $matches->length === 0) {
+                    Log::debug('CanonicalInkComposer::applyFieldValues — no matching span, skipped', [
+                        'field_key' => $key,
+                    ]);
+                    continue;
+                }
+                foreach (iterator_to_array($matches) as $el) {
+                    if (! $el instanceof \DOMElement) {
+                        continue;
+                    }
+                    if (! $this->fieldBelongsToSigner($el, $signerIdentity)) {
+                        continue;
+                    }
+                    $el->textContent = (string) $value;
+                }
+            }
+
+            $out = $dom->saveHTML();
+            $out = preg_replace('/^<\?xml encoding="utf-8"\?>/', '', (string) $out);
+            return trim((string) $out);
+        } catch (\Throwable $e) {
+            Log::error('CanonicalInkComposer::applyFieldValues failed — HTML returned unchanged', [
+                'error' => $e->getMessage(),
+                'line'  => $e->getLine(),
+            ]);
+            return $html;
+        }
+    }
+
+    /**
+     * Does this field-value span belong to the signer submitting it?
+     *
+     * Named and kept separate from the selector on purpose (Johan/conductor,
+     * 2026-08-28) — a same-role sibling (seller 2 vs seller 3) must never
+     * receive another's value, and that rule needs to be readable as its own
+     * condition, not buried inside an xpath predicate. A span with no
+     * `data-recipient-identity` at all (a single-recipient role field, never
+     * cloned) is nobody's exclusive instance — safe to fill for any signer,
+     * mirroring bakeInk()'s own sole-of-role reasoning for un-keyed markers.
+     * A span that DOES carry an identity must match this signer's own
+     * attestationIdentity() exactly — no prefix, no role-only match.
+     */
+    private function fieldBelongsToSigner(\DOMElement $el, string $signerIdentity): bool
+    {
+        $fieldIdentity = strtolower(trim($el->getAttribute('data-recipient-identity')));
+        if ($fieldIdentity === '') {
+            return true;
+        }
+
+        return $fieldIdentity === $signerIdentity;
+    }
+
+    /**
      * Ceremony party-match — the SAME binding embedCeremonyValuesIntoHtml() uses
      * (SignatureController::embedCeremonyValuesIntoHtml): the span's
      * data-marker-party equals the ceremony key's party, or starts with it. Reused
