@@ -10,7 +10,8 @@
 --}}
 @php
     $items = $amendmentItems ?? [];
-    $agentInitials = collect(preg_split('/\s+/', trim((string)($user->name ?? 'Agent'))))->filter()->map(fn($p)=>mb_strtoupper(mb_substr($p,0,1)))->take(3)->implode('');
+    // AT-386 — $agentInitials removed: it only ever prefilled the retired bespoke modal's Type-mode
+    // input. The shared capture modal computes its own agent-initials prefill (typedName, review.blade.php).
     // The REAL next step drives the label: a prior recipient re-initials FIRST (even when the amender was
     // the LAST recipient), so it reads "Send to <prior> to initial" — never "Finalise" while a prior owes.
     $amendNextName = $nextPartyDisplayName ?? 'the next recipient';
@@ -121,78 +122,52 @@
     </div>
 </div>
 
-{{-- Self-contained capture modal (draw or type) — promise-based AgentCI.capture(item); handles BOTH a
-     body cir-slot (change_id) and an Other Condition (condition_id). No MutationObserver. --}}
-<div id="agentCiModal" style="display:none; position:fixed; inset:0; z-index:70; align-items:center; justify-content:center; background:rgba(0,0,0,0.6);">
-    <div style="background:#fff; border-radius:16px; width:100%; max-width:32rem; margin:0 1rem; overflow:hidden;" onclick="event.stopPropagation()">
-        <div style="padding:16px 20px; border-bottom:1px solid #e2e8f0; font-weight:600; color:#0f172a;">Initial this change</div>
-        <div style="padding:20px;">
-            <div style="display:flex; gap:8px; margin-bottom:12px;">
-                <button type="button" id="agentCiTabDraw" onclick="AgentCI.setMode('draw')" style="flex:1; padding:8px; border-radius:8px; border:1px solid #cbd5e1; font-size:13px;">Draw</button>
-                <button type="button" id="agentCiTabType" onclick="AgentCI.setMode('type')" style="flex:1; padding:8px; border-radius:8px; border:1px solid #cbd5e1; font-size:13px;">Type</button>
-            </div>
-            <div id="agentCiDraw"><canvas id="agentCiCanvas" width="460" height="150" style="width:100%; height:150px; border:1px dashed #94a3b8; border-radius:8px; touch-action:none; background:#f8fafc;"></canvas></div>
-            <div id="agentCiType" style="display:none;">
-                <input id="agentCiInput" type="text" value="{{ $agentInitials }}" maxlength="6"
-                       style="width:100%; padding:12px; border:1px solid #cbd5e1; border-radius:8px; font-size:28px; font-family:'Dancing Script',cursive; text-align:center;">
-                <p style="font-size:12px; color:#64748b; margin-top:6px;">Your initials — edit if needed.</p>
-            </div>
-        </div>
-        <div style="padding:14px 20px; border-top:1px solid #e2e8f0; display:flex; justify-content:flex-end; gap:10px;">
-            <button type="button" onclick="AgentCI.clear()" style="padding:8px 14px; font-size:13px; color:#475569; border:1px solid #cbd5e1; border-radius:8px;">Clear</button>
-            <button type="button" onclick="AgentCI.cancel()" style="padding:8px 14px; font-size:13px; color:#475569;">Cancel</button>
-            <button type="button" id="agentCiApply" onclick="AgentCI.apply()" style="padding:8px 18px; font-size:13px; font-weight:600; color:#fff; background:#059669; border-radius:8px;">Apply Initial</button>
-        </div>
-    </div>
-</div>
-<link href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@700&display=swap" rel="stylesheet">
+{{-- AT-386 (2026-08-28) — unify the signature capture. This panel used to open its OWN self-contained
+     draw/type-only modal (#agentCiModal / window.AgentCI, plain JS, no saved-signature option — the
+     root cause of the missing PIN-sign control). Replaced with a bridge to the SAME shared capture modal
+     sign.blade.php uses (docuperfect.signatures.partials.signature-modal, savedSignatureSupport=true,
+     mounted once on review.blade.php, right after this panel's own include): capture() dispatches the
+     SAME corex-open-change-initial event _change-initial-affordance.blade.php's own slot-click already
+     uses, and resolves its promise off the corex-change-initialed / corex-change-initial-cancelled events
+     that shared modal's Alpine component fires. No second implementation of the PIN/saved-signature
+     logic — same partial, same params, same backend calls, same behaviour as the normal agent signing
+     page. __corexApplyChangeInitial / __corexApplyConditionInitial are UNCHANGED below — only which
+     modal captures the ink changed, not how it gets persisted. --}}
 <script>
-// Script-block-level (visible to BOTH the capture IIFE below and the Alpine agentAmendmentPanel factory).
 const CSRF = document.querySelector('meta[name=csrf-token]')?.content || @json(csrf_token());
 const REJECT_URL = @json(route('docuperfect.signatures.amendment.rejectItem', $document));
 (function () {
     const CHANGE_URL = @json(route('docuperfect.signatures.initialChange', $document));
     const COND_URL_BASE = @json(url('/docuperfect/documents/' . $document->id . '/signatures/condition'));
-    // Reuse the affordance's body-change apply if present; else define it here (POST internal initial-change).
     window.__corexApplyChangeInitial = window.__corexApplyChangeInitial || async function (changeId, partyKey, img) {
         try { const r = await fetch(CHANGE_URL, { method:'POST', headers:{'Content-Type':'application/json','X-CSRF-TOKEN':CSRF,'X-Requested-With':'XMLHttpRequest'}, body:JSON.stringify({change_id:changeId, initial_image:img}) }); const d=await r.json().catch(()=>({})); return r.ok && !!d.ok; } catch(e){ return false; }
     };
     window.__corexApplyConditionInitial = async function (conditionId, img) {
         try { const r = await fetch(COND_URL_BASE + '/' + conditionId + '/initial', { method:'POST', headers:{'Content-Type':'application/json','X-CSRF-TOKEN':CSRF,'X-Requested-With':'XMLHttpRequest'}, body:JSON.stringify({initial_image:img}) }); const d=await r.json().catch(()=>({})); return r.ok && !!d.ok; } catch(e){ return false; }
     };
-    const modal=document.getElementById('agentCiModal'), canvas=document.getElementById('agentCiCanvas'), ctx=canvas.getContext('2d');
-    let drawing=false, hasInk=false, mode='draw', pending=null; // pending = {item, resolve}
-    function resetCanvas(){ ctx.clearRect(0,0,canvas.width,canvas.height); ctx.lineWidth=2.5; ctx.lineCap='round'; ctx.strokeStyle='#0f172a'; hasInk=false; }
-    function pos(e){ const r=canvas.getBoundingClientRect(); const t=e.touches?e.touches[0]:e; return {x:(t.clientX-r.left)*(canvas.width/r.width), y:(t.clientY-r.top)*(canvas.height/r.height)}; }
-    canvas.addEventListener('mousedown',e=>{drawing=true;const p=pos(e);ctx.beginPath();ctx.moveTo(p.x,p.y);e.preventDefault();});
-    canvas.addEventListener('mousemove',e=>{if(!drawing)return;const p=pos(e);ctx.lineTo(p.x,p.y);ctx.stroke();hasInk=true;e.preventDefault();});
-    window.addEventListener('mouseup',()=>{drawing=false;});
-    canvas.addEventListener('touchstart',e=>{drawing=true;const p=pos(e);ctx.beginPath();ctx.moveTo(p.x,p.y);e.preventDefault();},{passive:false});
-    canvas.addEventListener('touchmove',e=>{if(!drawing)return;const p=pos(e);ctx.lineTo(p.x,p.y);ctx.stroke();hasInk=true;e.preventDefault();},{passive:false});
-    canvas.addEventListener('touchend',()=>{drawing=false;});
-    function typedUrl(t){ const c=document.createElement('canvas');c.width=460;c.height=150;const x=c.getContext('2d');x.fillStyle='#0f172a';x.font="64px 'Dancing Script',cursive";x.textAlign='center';x.textBaseline='middle';x.fillText((t||'').trim()||'—',230,75);return c.toDataURL('image/png'); }
-    function settle(v){ if(pending){ const r=pending.resolve; pending=null; modal.style.display='none'; r(v); } }
     window.AgentCI = {
-        setMode(m){ mode=m; document.getElementById('agentCiDraw').style.display=m==='draw'?'block':'none'; document.getElementById('agentCiType').style.display=m==='type'?'block':'none'; document.getElementById('agentCiTabDraw').style.background=m==='draw'?'#e0f2fe':'#fff'; document.getElementById('agentCiTabType').style.background=m==='type'?'#e0f2fe':'#fff'; },
-        clear(){ if(mode==='draw') resetCanvas(); else document.getElementById('agentCiInput').value=''; },
-        cancel(){ settle(false); },
-        // Returns Promise<bool> — true when the initial was captured + persisted for this item.
-        capture(item){ return new Promise(resolve=>{ pending={item,resolve}; resetCanvas(); this.setMode('draw'); modal.style.display='flex'; }); },
-        async apply(){
-            if(!pending){ modal.style.display='none'; return; }
-            let url; if(mode==='draw'){ if(!hasInk){ alert('Please draw your initial, or switch to Type.'); return; } url=canvas.toDataURL('image/png'); }
-            else { const v=(document.getElementById('agentCiInput').value||'').trim(); if(!v){ alert('Enter your initials.'); return; } url=typedUrl(v); }
-            const btn=document.getElementById('agentCiApply'); btn.disabled=true; btn.textContent='Applying…';
-            const it=pending.item;
-            const ok = it.kind==='condition' ? await window.__corexApplyConditionInitial(it.id, url) : await window.__corexApplyChangeInitial(it.id, it.party_key, url);
-            btn.disabled=false; btn.textContent='Apply Initial';
-            if(!ok){ alert('Could not save your initial — please try again.'); return; }
-            // Paint a body cir-slot in place (the OC ink is server-adopted + shows on reload).
-            if(it.kind==='body'){ document.querySelectorAll('.cir-slot[data-change-id="'+it.id+'"][data-party-key="'+it.party_key+'"]').forEach(s=>{ s.classList.add('cir-filled'); const ink=s.querySelector('.cir-ink'); if(ink){ ink.removeAttribute('data-empty'); ink.innerHTML='<img src="'+url+'" class="cir-ink-img" alt="Initial">'; } }); }
-            settle(true);
+        // Returns Promise<bool> — true when the initial was captured + persisted for this item. Bridges
+        // to review.blade.php's shared capture-modal Alpine component via the SAME event contract
+        // _change-initial-affordance.blade.php already documents (corex-open-change-initial in,
+        // corex-change-initialed out) — for BOTH item kinds, so an added Other Condition also opens the
+        // real modal with PIN support, not the retired bespoke one.
+        capture(item){
+            return new Promise(resolve => {
+                const matches = (d) => String(d.itemId) === String(item.id) && d.kind === item.kind;
+                const onDone = (e) => { if (!matches(e.detail || {})) return; cleanup(); resolve(true); };
+                const onCancel = (e) => { if (!matches(e.detail || {})) return; cleanup(); resolve(false); };
+                function cleanup() {
+                    document.removeEventListener('corex-change-initialed', onDone);
+                    document.removeEventListener('corex-change-initial-cancelled', onCancel);
+                }
+                document.addEventListener('corex-change-initialed', onDone);
+                document.addEventListener('corex-change-initial-cancelled', onCancel);
+                document.dispatchEvent(new CustomEvent('corex-open-change-initial', {
+                    detail: { changeId: item.id, partyKey: item.party_key, kind: item.kind, itemId: item.id },
+                }));
+            });
         },
     };
-    modal.addEventListener('click', ()=>settle(false));
 })();
 function agentAmendmentPanel(items){
     return {

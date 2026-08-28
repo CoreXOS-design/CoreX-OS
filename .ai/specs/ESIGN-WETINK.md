@@ -765,3 +765,137 @@ NOT investigated for the same disagreement — doc 1135's own
 either). Whether that clause has the same proxy-ordering gap is unknown;
 out of scope for this fix (Johan's report named the Domicilium block
 specifically) and not touched.
+
+---
+
+## Rule — there is now ONE signature-capture implementation, not two
+
+Every surface that captures a signature or initial (drawing, typing, or placing a
+saved signature via PIN unlock) goes through exactly one component:
+`docuperfect.signatures.partials._capture-modal` (wrapped by `signature-modal.blade.php`
+for the agent-in-app variant). **Do not build a second one.** Before adding any new
+"capture a signature here" surface, check whether it can bridge to the existing
+shared modal via a `CustomEvent` (the pattern below) instead of writing its own
+canvas/Draw/Type/PIN logic from scratch — that duplication has already happened
+once (AT-386) and cost a full investigation to find.
+
+## AT-386 — unify the signature capture (fixed 2026-08-28, built on QA1)
+
+**The gap this closed:** `_agent-amendments-panel.blade.php`'s "Accept & Initial"
+button opened its own, completely separate, self-contained capture modal
+(`#agentCiModal` / `window.AgentCI`, plain vanilla JS — its own `<canvas>`, its own
+Draw/Type tabs, its own Apply/Clear/Cancel buttons) instead of the shared
+`_capture-modal.blade.php` `sign.blade.php` uses. That bespoke modal had no
+saved-signature/PIN concept at all — not hidden, not gated, simply never built.
+Discovered and fully diagnosed 2026-08-28 during a Staging investigation into the
+missing PIN control; the fix itself was deliberately built and verified here on
+QA1 first, per Johan's decision, for cherry-pick into Staging once ready.
+
+**Fix, two files:**
+
+1. `resources/views/docuperfect/signatures/partials/_agent-amendments-panel.blade.php`
+   — removed `#agentCiModal` and the vanilla-JS canvas/Draw/Type/Apply logic
+   entirely. `window.AgentCI.capture(item)` keeps its exact original `Promise<bool>`
+   contract (`agentAmendmentPanel()`'s `accept(it)` already awaits it, unchanged) —
+   only what happens *inside* `capture()` changed: it now dispatches
+   `corex-open-change-initial` (the same event `_change-initial-affordance.blade.php`'s
+   own slot-click already used) and resolves the promise off `corex-change-initialed`
+   / a new `corex-change-initial-cancelled` event, matched by `itemId` + `kind` so
+   concurrent items can't cross-resolve each other's promises.
+   `window.__corexApplyChangeInitial` / `window.__corexApplyConditionInitial` —
+   the actual persistence calls — are byte-for-byte unchanged, exactly as scoped.
+2. `resources/views/docuperfect/signatures/review.blade.php` — mounts
+   `signature-modal.blade.php` (`savedSignatureSupport: true`) once, inside the
+   existing `@if($isAmendmentApproval ?? false)` block, right after the Amendments
+   panel's own include. A new Alpine component wraps it, reusing `sign.blade.php`'s
+   method bodies for canvas init/clear, typed-signature generation, and the
+   saved-signature PIN-unlock flow (`initSavedSig`/`chooseSavedSignature`/
+   `submitSavedPin`/`loadSavedAssets`/`savedImageForActiveMarker`) — same routes
+   (`signature.status`/`signature.unlock`/`signature.asset`), same backend, no
+   second implementation of the PIN logic. `applySignature()` is narrowed to just
+   the change-initial case (this page never places a marker signature) and, on
+   success, paints the `.cir-slot` in place and dispatches `corex-change-initialed`.
+   The saved-signature PIN-entry modal markup itself isn't an `@include`-able
+   partial upstream (a pre-existing gap, not introduced here) — copied verbatim
+   from `sign.blade.php`, same markup, same behaviour.
+
+**The quoting trap, twice, and how it's actually avoided this time:**
+
+`x-data="{ ... }"` is a DOUBLE-quoted HTML attribute. Two, DIFFERENT, real bugs
+came from writing raw code inside it without checking what actually reaches the
+browser:
+
+1. **Literal `"` characters in hand-written JS.** A CSS attribute-selector string
+   built as `'[data-change-id="' + id + '"]'` puts real `"` bytes into the HTML
+   source, closing the attribute early and corrupting Alpine's parse of everything
+   after it. Avoided here by never writing a literal double-quote anywhere inside
+   the attribute — CSS selectors use single quotes (`[data-change-id='...']`) or an
+   unquoted ident where the value is a safe identifier, and HTML built at runtime
+   (the painted `<img>`) uses DOM APIs (`createElement`/`style.cssText`/`alt`) so
+   there is no string to quote at all.
+2. **The `@json` Blade directive used inline.** `@json(...)` always emits its own
+   literal double-quote JSON delimiters — its hex-escape flags (`JSON_HEX_QUOT`
+   etc.) only cover quote characters *inside* the encoded string's own content,
+   never `json_encode`'s own wrapping quotes — so `return @json('esign:doc:' .
+   $document->id);` written inline inside this attribute broke it exactly the same
+   way, caught live during this build (real 500, real Alpine parse failure, same
+   symptom as bug 1). Fixed by using plain double-brace interpolation instead
+   (`'esign:doc:{{ $document->id }}'`) — Blade's `{{ }}` auto-escapes its own
+   output into HTML entities for exactly this context; `@json()` does not.
+
+Both are now verified **programmatically, not by eye**: the actual server-rendered
+HTML response (fetched raw over HTTPS, not the browser's re-serialized DOM, which
+would hide a parse failure) has its `x-data` attribute value extracted and checked
+for zero literal `"` characters, and separately syntax-checked as standalone
+JavaScript (`node --check`) — both pass. A third, smaller mistake caught the same
+way: writing the directive names themselves as *prose* inside an explanatory `//`
+JS comment (not a Blade `{{-- --}}` comment) — Blade compiles `@word(...)` and
+`{{ }}` wherever it finds them in the raw file text, including inside a JS
+comment, since it has no concept of "this text is commented out" in a language it
+isn't parsing. Fixed by rephrasing the comment to describe the directives in
+words rather than writing their literal syntax.
+
+**Verified end-to-end, real browser, two disposable QA1 documents (1143, 1144 —
+neither is Johan's), never a rendered-page-only check:**
+
+- Built each via the harness: agent sends → recipient opens the real link →
+  selects real document text → strikes it via the real "✎ Amend this" → Strike
+  out → Apply strike-out flow → the recipient's own turn opens a genuine
+  `amendment_chain_review` cycle (`SignatureService::openAmendmentCycle()`, called
+  for real, with the real captured `change_id` — the only step done directly
+  rather than through the known-flaky recipient-completion UI, which is
+  pre-existing and unrelated to AT-386).
+- **Doc 1143, agent = johan@hfcoastal.co.za (already had a saved signature
+  configured from prior work; only the signing PIN was reset to a known test
+  value for this pass — images untouched, confirmed before/after)**: loaded the
+  real review page, clicked the real "Accept & Initial" button, the shared modal
+  opened with Draw / Type / **"Use my saved signature 🔒"** all present, clicked
+  the saved-signature tab, the PIN modal appeared, entered the PIN, unlocked with
+  no error, clicked Apply Signature, the `.cir-slot` filled and the outstanding
+  count cleared in the DOM — then confirmed **server-side**: the change's
+  `cir-slot` in the document's stored `canonical_html` is `cir-filled` with a real
+  `<img>` tag, not just a DOM-only illusion.
+- **Doc 1144, agent = retha@hfcoastal.co.za (never had a saved signature
+  configured — the genuine degraded case, no setup performed)**: same flow,
+  confirmed the modal shows **Draw and Type only, no saved-signature tab at
+  all** — same behaviour the normal signing page gives an unconfigured agent —
+  then drew an initial and applied it; confirmed filled in the DOM and, again,
+  persisted server-side in `canonical_html`.
+- Console clean of anything from this change on both runs. Two pre-existing
+  console errors ("Unexpected token 'return'") appeared on every run regardless
+  of account or document — traced to `_agent-amendments-panel.blade.php` lines
+  105 and 114 (`@click="return (...) ? ... : ..."` / `@submit="return ... : ..."`,
+  Alpine apparently not tolerating a bare `return` in those two directives),
+  **not touched — pre-existing, outside AT-386's scope, reported here rather
+  than fixed.**
+
+**Regression harness:** all 6 shapes (A-F) re-run against QA1 after this change —
+agent completion + canonical bake succeed cleanly on every shape, no regressions.
+Neither changed file is reachable from the standard send/agent-sign path this
+harness exercises (both only render once a document is already in
+`amendment_chain_review`), so this is confirmation nothing *else* broke, not a
+retest of the amendment flow itself — that's the two-document real-browser pass
+above.
+
+**Not investigated in this pass:** the Return-to-Signer / Reject-Document modal's
+`return`-statement Alpine errors (see above) — flagged, not fixed, per scope.

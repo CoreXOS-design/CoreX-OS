@@ -7,6 +7,8 @@
     $dashboardLabel = $templateType === 'sales' ? 'Back to Sales' : 'Back to Dashboard';
     $completedRole = $completedRequest?->party_role;
     $completedRoleLabel = $completedRole ? ucfirst(preg_replace('/_\d+$/', '', $completedRole)) : '';
+    // AT-386 — same prefill sign.blade.php uses for the agent's own initial (userInitials there).
+    $userInitials = collect(explode(' ', $user->name ?? ''))->map(fn($n) => strtoupper(substr($n, 0, 1)))->join('');
 @endphp
 
 @include('docuperfect.signatures.partials.a4-page-styles')
@@ -691,6 +693,250 @@
     <aside class="review-aside" style="width:260px; flex:0 0 260px; align-self:stretch;">
         @include('docuperfect.signatures.partials._agent-amendments-panel')
     </aside>
+    {{-- AT-386 (2026-08-28) — unify the signature capture. The Amendments panel's "Accept & Initial"
+         used to open its own self-contained draw/type-only modal (#agentCiModal / window.AgentCI, plain
+         JS, no saved-signature option). This mounts the SAME shared capture modal sign.blade.php uses
+         (signature-modal.blade.php, savedSignatureSupport=true) and bridges AgentCI.capture(item)'s
+         existing Promise<bool> contract to it via corex-open-change-initial (in) / corex-change-initialed
+         and corex-change-initial-cancelled (out) — the same event names _change-initial-affordance.blade.php
+         already documents and dispatches for its own (separate) slot-click path. __corexApplyChangeInitial /
+         __corexApplyConditionInitial are untouched; only WHICH modal captures the ink changes.
+
+         Quoting note: every JS string literal below is single-quoted, and CSS attribute selectors use
+         either an unquoted ident (meta[name=csrf-token], precedented at sign.blade.php:209) or single
+         quotes ([data-change-id='...']) — never a literal double-quote character — because this whole
+         block is itself the content of a DOUBLE-quoted x-data="..." HTML attribute; one stray " here
+         closes the attribute early and silently corrupts Alpine's parse of everything after it (the
+         exact bug an earlier attempt at this shipped and had to be reverted for). Double-brace
+         interpolation of route() calls is safe as written — Blade auto-escapes {{ }} output, converting
+         any literal double-quote into an HTML entity. The json Blade directive is NOT safe used the
+         same way — it always emits its own literal double-quote JSON delimiters regardless of its
+         hex-escape flags — so this file only ever interpolates plain values through double braces, never
+         through that directive, inside this attribute. (Caught live: an earlier pass here used the json
+         directive for one value and it broke exactly this way — fixed by switching to double-brace
+         interpolation instead, not by trusting the directive's escaping.) --}}
+    <div x-data="{
+            showSignModal: false, activeMarker: null, captureMode: 'draw', typedName: '{{ addslashes($userInitials ?? '') }}',
+            signaturePad: null, applying: false, isAgent: true, changeInitialApplied: false,
+            savedSigConfigured: false, savedSigImpersonating: false, savedSigUnlocked: false,
+            savedSignatureImg: null, savedInitialImg: null,
+            savedPinOpen: false, savedPin: '', savedPinError: '', savedPinLoading: false,
+            showApplyAll: false, remainingSignatureCount: 0, applyingAll: false,
+            init() {
+                this.initSavedSig();
+                document.addEventListener('corex-open-change-initial', (e) => {
+                    e.preventDefault();
+                    const d = e.detail || {};
+                    this.activeMarker = {
+                        type: 'initial', assigned_party: 'agent', label: 'Initial this change', page_number: '',
+                        isChangeInitial: true, changeId: d.changeId, partyKey: d.partyKey,
+                        itemId: d.itemId || d.changeId, kind: d.kind || 'body',
+                    };
+                    this.captureMode = 'draw';
+                    this.showSignModal = true;
+                    this.$nextTick(() => this.initCanvas());
+                });
+                // Cancel path (Escape / click outside) — resolve AgentCI.capture()'s promise as false
+                // rather than leaving it pending forever.
+                this.$watch('showSignModal', (open, wasOpen) => {
+                    if (wasOpen && !open && this.activeMarker && this.activeMarker.isChangeInitial && !this.changeInitialApplied) {
+                        document.dispatchEvent(new CustomEvent('corex-change-initial-cancelled', {
+                            detail: { itemId: this.activeMarker.itemId, kind: this.activeMarker.kind },
+                        }));
+                    }
+                    this.changeInitialApplied = false;
+                });
+            },
+            async initSavedSig() {
+                if (!this.isAgent) return;
+                try {
+                    const res = await fetch('{{ route('signature.status') }}', { headers: { Accept: 'application/json' }, credentials: 'same-origin' });
+                    if (!res.ok) return;
+                    const d = await res.json();
+                    this.savedSigConfigured = !!d.configured;
+                    this.savedSigImpersonating = !!d.impersonating;
+                } catch (e) {}
+            },
+            // AT-386 quoting fix — the json Blade directive always emits its own literal double-quote
+            // JSON delimiters (its hex-escape flags only cover quote characters INSIDE the string
+            // content, never json_encode's own wrapping quotes), so it is never safe used inline inside
+            // a double-quoted HTML attribute like this x-data. Plain double-brace interpolation is safe
+            // here because Blade's own auto-escaping converts any literal double-quote in its output to
+            // an HTML entity before the browser ever sees it. document->id is a plain integer, so
+            // nothing else needs escaping. (This note deliberately avoids writing Blade's own directive
+            // syntax as prose — Blade compiles it regardless of being inside a comment.)
+            sigContext() { return 'esign:doc:{{ $document->id }}'; },
+            csrf() { return document.querySelector('meta[name=csrf-token]')?.content || ''; },
+            chooseSavedSignature() {
+                if (this.savedSigImpersonating || !this.savedSigConfigured) return;
+                if (!this.savedSigUnlocked) { this.savedPinError = ''; this.savedPin = ''; this.savedPinOpen = true; return; }
+                this.captureMode = 'saved';
+            },
+            async submitSavedPin() {
+                if (this.savedPinLoading || !this.savedPin) return;
+                this.savedPinLoading = true; this.savedPinError = '';
+                try {
+                    const res = await fetch('{{ route('signature.unlock') }}', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': this.csrf(), Accept: 'application/json' },
+                        credentials: 'same-origin',
+                        body: JSON.stringify({ pin: this.savedPin, context: this.sigContext() }),
+                    });
+                    const d = await res.json().catch(() => ({}));
+                    if (res.ok && d.ok) {
+                        await this.loadSavedAssets();
+                        this.savedSigUnlocked = true;
+                        this.savedPinOpen = false;
+                        this.savedPin = '';
+                        this.captureMode = 'saved';
+                    } else {
+                        this.savedPinError = d.error || 'Incorrect PIN.';
+                    }
+                } catch (e) {
+                    this.savedPinError = 'Network error — please try again.';
+                } finally {
+                    this.savedPinLoading = false;
+                }
+            },
+            async loadSavedAssets() {
+                const q = '?context=' + encodeURIComponent(this.sigContext());
+                const [s, i] = await Promise.all([
+                    fetch('{{ route('signature.asset', ['type' => 'signature']) }}' + q, { headers: { Accept: 'application/json' }, credentials: 'same-origin' }),
+                    fetch('{{ route('signature.asset', ['type' => 'initial']) }}'   + q, { headers: { Accept: 'application/json' }, credentials: 'same-origin' }),
+                ]);
+                if (s.ok) { const d = await s.json(); this.savedSignatureImg = d.image || null; }
+                if (i.ok) { const d = await i.json(); this.savedInitialImg   = d.image || null; }
+            },
+            savedImageForActiveMarker() {
+                const isInitial = this.activeMarker && this.activeMarker.type === 'initial';
+                return isInitial ? this.savedInitialImg : this.savedSignatureImg;
+            },
+            initCanvas() {
+                const canvas = this.$refs.signatureCanvas;
+                if (!canvas) return;
+                const ratio = Math.max(window.devicePixelRatio || 1, 1);
+                canvas.width = canvas.offsetWidth * ratio;
+                canvas.height = canvas.offsetHeight * ratio;
+                canvas.getContext('2d').scale(ratio, ratio);
+                if (this.signaturePad) { this.signaturePad.clear(); this.signaturePad.off(); }
+                this.signaturePad = new SignaturePad(canvas, {
+                    backgroundColor: 'rgba(255, 255, 255, 0)', penColor: 'rgb(0, 0, 0)', minWidth: 1, maxWidth: 3,
+                });
+            },
+            clearCanvas() { if (this.signaturePad) this.signaturePad.clear(); },
+            generateTypedSignature(name, isInitial = false) {
+                const canvas = this.$refs.typedCanvas;
+                if (!canvas) return null;
+                const scale = 4; const cW = isInitial ? 200 : 400; const cH = 100;
+                canvas.width = cW * scale; canvas.height = cH * scale;
+                const ctx = canvas.getContext('2d');
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.scale(scale, scale);
+                if (isInitial) {
+                    ctx.font = 'bold 80px Arial, Helvetica, sans-serif'; ctx.fillStyle = '#000000';
+                    ctx.textBaseline = 'middle'; ctx.textAlign = 'center'; ctx.imageSmoothingEnabled = true;
+                    ctx.fillText(name, cW / 2, cH / 2);
+                } else {
+                    ctx.font = '48px \'Dancing Script\', cursive'; ctx.fillStyle = '#000000';
+                    ctx.textBaseline = 'middle'; ctx.imageSmoothingEnabled = true;
+                    ctx.fillText(name, 10, cH / 2);
+                }
+                return canvas.toDataURL('image/png');
+            },
+            paintChangeInitialSlot(changeId, partyKey, imageDataUrl) {
+                const esc = (window.CSS && CSS.escape) ? CSS.escape : (s => String(s).replace(/[\x22\x27\\]/g, '\\$&'));
+                const sel = '.cir-slot[data-change-id=\'' + esc(changeId) + '\'][data-party-key=\'' + esc(partyKey) + '\']';
+                document.querySelectorAll(sel).forEach((slot) => {
+                    slot.classList.add('cir-filled');
+                    const ink = slot.querySelector('.cir-ink');
+                    if (ink) {
+                        ink.removeAttribute('data-empty');
+                        const img = document.createElement('img');
+                        img.src = imageDataUrl;
+                        img.style.cssText = 'max-height:20px;max-width:64px;object-fit:contain;vertical-align:middle;';
+                        img.alt = 'Initial';
+                        ink.replaceChildren(img);
+                    }
+                });
+            },
+            applyToAllSignatureMarkers() { this.showApplyAll = false; },
+            // signature-modal.blade.php's default $title expression calls this directly (not
+            // this.markerLabel — Alpine evaluates title in the component's own scope) — sign.blade.php's
+            // verbatim body. Only ever called here with { assigned_party: 'agent', type: 'initial' },
+            // producing 'Agent Initial'.
+            markerLabel(m) {
+                const partyLabel = m.assigned_party.replace('_', ' ');
+                const typeLabel = m.type.charAt(0).toUpperCase() + m.type.slice(1);
+                return partyLabel.charAt(0).toUpperCase() + partyLabel.slice(1) + ' ' + typeLabel;
+            },
+            async applySignature() {
+                if (!this.activeMarker) return;
+                this.applying = true;
+                let signatureData = null;
+                if (this.captureMode === 'saved') {
+                    signatureData = this.savedImageForActiveMarker();
+                    if (!signatureData) { this.applying = false; return; }
+                } else if (this.captureMode === 'draw') {
+                    if (!this.signaturePad || this.signaturePad.isEmpty()) { this.applying = false; return; }
+                    signatureData = this.signaturePad.toDataURL('image/png');
+                } else {
+                    if (!this.typedName.trim()) { this.applying = false; return; }
+                    signatureData = this.generateTypedSignature(this.typedName.trim(), this.activeMarker.type === 'initial');
+                }
+                if (this.activeMarker.isChangeInitial) {
+                    const kind = this.activeMarker.kind || 'body';
+                    const itemId = this.activeMarker.itemId;
+                    const ok = kind === 'condition'
+                        ? await window.__corexApplyConditionInitial(itemId, signatureData)
+                        : await window.__corexApplyChangeInitial(this.activeMarker.changeId, this.activeMarker.partyKey, signatureData);
+                    this.changeInitialApplied = ok;
+                    this.showSignModal = false;
+                    this.applying = false;
+                    if (ok) {
+                        if (kind !== 'condition') {
+                            this.paintChangeInitialSlot(this.activeMarker.changeId, this.activeMarker.partyKey, signatureData);
+                        }
+                        document.dispatchEvent(new CustomEvent('corex-change-initialed', { detail: { itemId: itemId, kind: kind } }));
+                    }
+                    return;
+                }
+                this.applying = false;
+            },
+         }">
+        @include('docuperfect.signatures.partials.signature-modal', ['savedSignatureSupport' => true])
+
+        {{-- Saved-signature PIN unlock (agent-only) — same markup/behaviour as sign.blade.php's own modal.
+             This small block isn't itself an @include-able partial upstream (a pre-existing gap, not
+             introduced here); everything it calls (route('signature.unlock'), submitSavedPin()) is the
+             SAME real backend sign.blade.php uses. This markup is plain HTML content, not inside the
+             x-data attribute, so ordinary double-quoted HTML attributes are fine here. --}}
+        <div x-show="savedPinOpen" x-cloak x-transition.opacity
+             class="fixed inset-0 z-[70] flex items-center justify-center"
+             style="background:rgba(0,0,0,0.6);"
+             @keydown.escape.window="savedPinOpen = false">
+            <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 overflow-hidden" @click.stop>
+                <div class="px-6 py-4" style="background:#0b2a4a;">
+                    <h3 class="text-white font-semibold text-base">Unlock your saved signature</h3>
+                </div>
+                <div class="p-6 space-y-3">
+                    <p class="text-sm text-slate-600">Enter your <strong>signing PIN</strong> to place your saved signature on this document.</p>
+                    <input type="password" x-model="savedPin" inputmode="numeric" autocomplete="off"
+                           placeholder="Signing PIN" @keydown.enter="submitSavedPin()"
+                           class="w-full rounded-lg border border-slate-300 text-sm px-3 py-2.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                    <p x-show="savedPinError" x-cloak class="text-xs text-red-600" x-text="savedPinError"></p>
+                    <div class="flex items-center justify-end gap-3 pt-1">
+                        <button @click="savedPinOpen = false" class="px-4 py-2 text-sm text-slate-600 hover:text-slate-800 font-medium">Cancel</button>
+                        <button @click="submitSavedPin()" :disabled="savedPinLoading || !savedPin"
+                                class="rounded-lg px-5 py-2 text-sm font-semibold text-white"
+                                :class="(savedPinLoading || !savedPin) ? 'opacity-50 cursor-not-allowed' : ''"
+                                style="background:#0b2a4a;"
+                                x-text="savedPinLoading ? 'Unlocking…' : 'Unlock'"></button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/signature_pad@4.1.7/dist/signature_pad.umd.min.js"></script>
     </div>{{-- /review-columns --}}
     @endif
 
