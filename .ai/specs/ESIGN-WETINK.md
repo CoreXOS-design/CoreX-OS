@@ -841,31 +841,58 @@ Johan's exact traced scenario exactly; compiled view cache cleared. Nobody
 should assume this was seen rendering on screen — the next real amendment
 review on Staging is the first live confirmation.
 
-### Related, separately reported — PIN sign missing on the agent review page
+### PIN sign missing on the agent review page — investigated further, PARKED as its own ticket (2026-08-28)
 
 `resources/views/docuperfect/signatures/review.blade.php` never includes
 `_capture-modal.blade.php` (or `signature-modal.blade.php`, which does) —
 confirmed by its complete include list (4 entries, neither present). That
-partial is the only place the "Use my saved signature 🔒" PIN option exists,
-gated on a `$savedSignatureSupport` param the review page never has occasion
-to pass. Not fixed in this pass (Johan named this specifically as Finding 1,
-separate from the double-approval investigation) — reported only.
+partial is the only place the "Use my saved signature 🔒" PIN option exists.
 
-### Redirect after amendment approval — investigated, not changed
+**A first attempt to fix this (2026-08-28) found the approved approach doesn't
+work, and was reverted in full — nothing from that attempt is live.** The
+actual trigger for initialing a change on this page is NOT a document-body
+slot click reaching `_capture-modal.blade.php` — it's the right-rail
+Amendments panel's "Accept & Initial" button
+(`_agent-amendments-panel.blade.php`), which turns out to own **its own,
+separate, self-contained capture modal** (`#agentCiModal` / `window.AgentCI`,
+plain vanilla JS, its own `<canvas>`, its own Draw/Type tabs) — not
+`_capture-modal.blade.php`, never has been. It has no saved-signature/PIN
+concept because that bespoke implementation was never built with one — not
+hidden, not gated, just absent. This is a genuine second, independent
+capture-modal implementation already sitting in the codebase, separate from
+the one `sign.blade.php` uses.
+
+**Correct fix (not yet built):** replace `_agent-amendments-panel.blade.php`'s
+bespoke `#agentCiModal`/`AgentCI` canvas with the real shared modal
+(`signature-modal.blade.php`, `savedSignatureSupport: true`), keeping
+`AgentCI.capture(item)`'s existing `Promise<bool>` contract (the panel's
+`accept(it)` already awaits it) so only what happens *inside* `capture()`
+changes — the `window.__corexApplyChangeInitial()` /
+`__corexApplyConditionInitial()` persistence calls need no changes. Real
+feature work, not a one-line include — needs a careful, non-live-tested pass.
+**Parked as its own ticket by Johan's explicit decision** — do not build
+without a fresh, explicit go-ahead.
+
+### Fix — redirect after amendment approval now returns to the document (2026-08-28)
 
 `SignatureController::approveAmendmentNode()` (`app/Http/Controllers/
-Docuperfect/SignatureController.php:3196`) unconditionally redirects to
-`docuperfect.esign.myDocuments` after a successful approval, regardless of
-outcome. Checked whether redirecting back to `docuperfect.signatures.review`
-for the same document instead (so the agent lands straight on the
-now-normal-mode review page with the real "Approve and Finalise" button
-visible) is safe: the review page's own status guard
+Docuperfect/SignatureController.php`, ~line 3196) used to unconditionally
+redirect to `docuperfect.esign.myDocuments` after a successful approval,
+regardless of outcome — meaning the agent had to reopen the document to reach
+the separate final-release gate (see the mislabelled-button fix above).
+Changed to redirect to `docuperfect.signatures.review` for the same document
+instead. Safe because: the review page's own status guard
 (`SignatureController.php:2644-2660`) explicitly includes
 `STATUS_PENDING_AGENT_APPROVAL` — the exact status this action leaves the
-document in — in its `$reviewableStatuses` allow-list, so the redirect would
-pass cleanly and re-render in the normal (non-amendment) branch. `review()`
-has no side effects (no writes, no mail, no dispatch) on GET, so revisiting
-it is safe to repeat. Only one caller submits this route (a plain form POST
-on the panel above), so there's no other consumer to break. Appears to be a
-genuine one-line change with no entanglement found — not made; awaiting
-Johan's go-ahead.
+document in — in its `$reviewableStatuses` allow-list, so the redirect passes
+cleanly; `review()` has no side effects on GET; only one caller (a plain form
+POST on the panel above) submits this route.
+
+**Verified**, on a disposable test document (526, not any of Johan's), never
+Johan's own documents: with the template set to `STATUS_PENDING_AGENT_APPROVAL`,
+`docuperfect.signatures.review` renders the normal (non-amendment) branch —
+"Review Actions" heading present, the real `approveAndAdvance()`-backed
+"Approve & Finalise" button present, `#approveAmendmentBtn` (the
+amendment-mode button) absent. Combined with the code diff itself (the
+redirect target is the only change), both halves of the fix are confirmed:
+where it goes, and what the agent sees once there.

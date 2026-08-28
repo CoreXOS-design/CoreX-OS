@@ -3191,9 +3191,17 @@ class SignatureController extends Controller
         $msg = ($result['action'] ?? null) === 'advanced_chain'
             ? 'Amendment approved — sent to the next approver.'
             : 'Amendment approved. Earlier signers are being asked to initial the change before the document continues.';
-        // AT-373 — return the agent to My E-Sign Documents (where they came from), NEVER /docuperfect/rental
-        // (that stray dashboard redirect tripped a browser "dangerous site" warning).
-        return redirect()->route('docuperfect.esign.myDocuments')->with('status', $msg);
+        // AT-373 — return the agent to My E-Sign Documents was the original destination here; NEVER
+        // /docuperfect/rental (that stray dashboard redirect tripped a browser "dangerous site" warning).
+        // Fix B (2026-08-28, Johan) — once the chain is exhausted and nobody else owes an initial, this
+        // action hands off to the SAME unconditional final-release gate every document passes through
+        // (pending_agent_approval), which the agent then has to separately approve. Landing them back on
+        // My E-Sign Documents meant reopening the document to find that gate. docuperfect.signatures.review
+        // is just as safe a destination: its own status guard (STATUS_PENDING_AGENT_APPROVAL is in
+        // $reviewableStatuses) accepts this exact status, and review() has no side effects on GET — so the
+        // agent lands straight back on the document, now in normal mode, with the real "Approve and
+        // Finalise" button visible.
+        return redirect()->route('docuperfect.signatures.review', $document)->with('status', $msg);
     }
 
     /**
