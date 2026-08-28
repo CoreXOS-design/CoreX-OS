@@ -758,7 +758,17 @@ function restoreStoredDisclosure(container, disclosureAnswers) {
                     else if (t === 'N/A' || t === 'NA') col.na = ci;
                 });
                 var tds = row.querySelectorAll('td');
+                // A certificate row carries extra leading cells (spacer + cert
+                // name in place of the single statement cell a normal row has)
+                // that the header's column position alone doesn't account for —
+                // the header says YES is column 1, but on a 5-cell certificate
+                // row YES actually sits at index 2 (the same shift
+                // _processCertificateRow itself uses: cells[2]/cells[3], not
+                // cells[1]/cells[2]). Without this offset the tick landed on
+                // the certificate-name cell instead of the YES/NO cell.
+                var offset = Math.max(0, tds.length - ths.length);
                 var target = val === 'yes' ? col.yes : (val === 'no' ? col.no : col.na);
+                if (target !== undefined) target += offset;
                 if (target === undefined || !tds[target]) return;
                 tds[target].textContent = '✓';
                 tds[target].style.textAlign = 'center';
@@ -767,6 +777,26 @@ function restoreStoredDisclosure(container, disclosureAnswers) {
                     r.checked = ((r.value || '').trim().toLowerCase() === val);
                     r.disabled = true;
                 });
+                // Certificate issue date — captured on signing
+                // (external/sign.blade.php _processCertificateRow) but never
+                // shown back to the agent until now. dateKeyForRow uses the
+                // SAME unmutated-DOM ordinal derivation as keyForRow above, so
+                // on this never-mutated review DOM it lines up with whatever
+                // key the (two-pass) signing flow actually stored under.
+                if (offset > 0 && val === 'yes') {
+                    var dateKey = CD.dateKeyForRow(row);
+                    var dateVal = disclosureAnswers[dateKey];
+                    if (dateVal) {
+                        var dateCell = tds[4] || tds[3];
+                        if (dateCell) {
+                            var dateNote = document.createElement('div');
+                            dateNote.className = 'corex-disclosure-date-restored';
+                            dateNote.style.cssText = 'font-size:10px;color:#475569;margin-top:2px;white-space:nowrap;';
+                            dateNote.textContent = 'Date issued: ' + dateVal;
+                            dateCell.appendChild(dateNote);
+                        }
+                    }
+                }
             });
         });
     } catch (e) {
