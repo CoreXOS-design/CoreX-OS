@@ -1,12 +1,14 @@
 @component('mail::message')
 # Queue backlog on {{ $host }}
 
-Checked at {{ $checkedAt }}. The oldest job waiting in the database queue is **{{ $ageSeconds }}s** old, past the
-configured threshold. Current backlog: **{{ $backlog }}** job{{ $backlog === 1 ? '' : 's' }} waiting.
+Checked at {{ $checkedAt }}.
 
-This means the queue worker is down or wedged — jobs are piling up unprocessed.
+The **{{ $lane }}** lane is not draining. Its oldest waiting job is **{{ $ageSeconds }}s** old, past this lane's
+**{{ $maxAge }}s** threshold. Currently waiting on this lane: **{{ $backlog }}** job{{ $backlog === 1 ? '' : 's' }}.
 
-To restart manually: `sudo supervisorctl status` then `sudo supervisorctl restart corex-worker-live:*`
+Only this lane is affected — every other lane was judged separately and is within its own limits.
+
+To investigate: `sudo supervisorctl status` then `sudo supervisorctl restart {{ $supervisor }}`
 
 Thanks,
 {{ config('app.name') }}
