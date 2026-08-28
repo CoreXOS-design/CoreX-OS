@@ -15,6 +15,30 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Email attachment memory ceilings (2026-08-27)
+    |--------------------------------------------------------------------------
+    | The mail worker runs on a fixed memory budget (see the --memory flag on
+    | supervisor program corex-worker-*-mail). Booting CoreX already consumes
+    | ~56MB of it, so the headroom left for ONE message is small and finite.
+    |
+    | max_attachment_bytes     — per-file ceiling. A file above it is RECORDED
+    |   (row with filename + size, media_status=failed) but its bytes are never
+    |   carried, so the archive still shows the file existed.
+    | max_message_total_bytes  — per-MESSAGE ceiling across all its attachments.
+    |   Ten 4MB files each clear the per-file cap but together blow the budget;
+    |   this is the ceiling that catches that. Everything past it is recorded,
+    |   not carried.
+    |
+    | Both are authoritative against the DECODED byte length, never against the
+    | size the mail server declares — see ImapMailboxPoller::attachments().
+    */
+    'attachments' => [
+        'max_attachment_bytes'    => (int) env('COMMUNICATIONS_MAX_ATTACHMENT_BYTES', 25 * 1024 * 1024),
+        'max_message_total_bytes' => (int) env('COMMUNICATIONS_MAX_MESSAGE_ATTACHMENT_BYTES', 40 * 1024 * 1024),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | WA dropped-payload debug probe (AT-133, TEMPORARY)
     |--------------------------------------------------------------------------
     | When ON, WaArchiveIngestor dumps the ENTIRE raw payload of every inbound

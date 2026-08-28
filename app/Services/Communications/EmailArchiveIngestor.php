@@ -222,21 +222,60 @@ class EmailArchiveIngestor
             ->exists();
     }
 
+    /**
+     * Persist a message's attachments.
+     *
+     * Accepts three shapes, so no caller had to change:
+     *   ['oversized' => true, ...]  — over a ceiling; the row is written WITHOUT
+     *       bytes so the archive still shows the file existed (name + size),
+     *       marked media_status=failed with the reason in last_media_error.
+     *   ['path' => '/tmp/...']      — spooled to disk by ImapMailboxPoller so the
+     *       decoded payload never sits in the mail worker's heap.
+     *   ['bytes' => '...']          — inline, for adapters that already hold them.
+     */
     private function storeAttachments(Communication $communication, int $agencyId, array $attachments): void
     {
         foreach ($attachments as $att) {
-            $bytes = (string) ($att['bytes'] ?? '');
+            if (! empty($att['oversized'])) {
+                $size = (int) ($att['size'] ?? 0);
+
+                CommunicationAttachment::create([
+                    'agency_id'        => $agencyId,
+                    'communication_id' => $communication->id,
+                    'filename'         => $att['filename'] ?? null,
+                    'mime'             => $att['mime'] ?? null,
+                    'size_bytes'       => $size,
+                    // content_hash is NOT NULL and content-addressed; there is no
+                    // content here to address, so this is a stable synthetic id that
+                    // can never collide with a real stored object's hash.
+                    'content_hash'     => hash('sha256', 'not-stored:' . $communication->id . ':' . ($att['filename'] ?? '') . ':' . $size),
+                    'storage_path'     => null,
+                    'media_status'     => CommunicationAttachment::MEDIA_FAILED,
+                    'last_media_error' => Str::limit((string) ($att['error'] ?? 'attachment_too_large'), 480, ''),
+                ]);
+
+                continue;
+            }
+
+            $spooled = $att['path'] ?? null;
+            $bytes = (is_string($spooled) && $spooled !== '' && is_file($spooled))
+                ? (string) @file_get_contents($spooled)
+                : (string) ($att['bytes'] ?? '');
+
             if ($bytes === '') {
                 continue;
             }
+
+            $size = strlen($bytes);
             $stored = $this->storage->store($agencyId, 'attachment', $bytes);
+            unset($bytes);
 
             CommunicationAttachment::create([
                 'agency_id'        => $agencyId,
                 'communication_id' => $communication->id,
                 'filename'         => $att['filename'] ?? null,
                 'mime'             => $att['mime'] ?? null,
-                'size_bytes'       => strlen($bytes),
+                'size_bytes'       => $size,
                 'content_hash'     => $stored['content_hash'],
                 'storage_path'     => $stored['path'],
             ]);
