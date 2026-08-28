@@ -3461,6 +3461,26 @@ function externalSign() {
          * Process disclosure tables (corex-table with YES/NO/N/A headers)
          * and inject radio button inputs into each data row.
          */
+        // AT-COLLISION-FIX (proven ordinal collision, 2026-08-28) — TWO-PASS by
+        // design. rowsInWrapper() (a4-page-styles.blade.php) classifies a bare
+        // disclosure row by reading its cell text — critically, a certificate
+        // row's "If Yes, when was it issued?" phrase, which _processCertificateRow
+        // below PERMANENTLY REWRITES to just the certificate name once it runs.
+        // The old single-pass version computed each row's key (_disclosureKeyFor
+        // -> rowsInWrapper) INTERLEAVED with mutating earlier rows, so by the time
+        // row N's key was computed, every already-processed certificate row before
+        // it had already stopped matching the classifier and silently DROPPED OUT
+        // of rowsInWrapper()'s count — shifting every row after it onto the wrong,
+        // already-claimed key. Proven: 4 consecutive certificate rows all collapsed
+        // onto ONE key; a single certificate row followed by ordinary rows collided
+        // the very next row and shifted every row after that. Two-pass removes the
+        // dependency entirely: PASS 1 classifies and keys every row, in every table
+        // in this scope, while NOTHING has been mutated yet, anywhere — including
+        // across tables, since rowsInWrapper() scores a row by its position across
+        // the WHOLE wrapper, not just its own table. PASS 2 only ever reads back
+        // what pass 1 already decided (the closure values in `plan`, plus the
+        // data-disclosure-key/data-disclosure-date-key attributes stamped for any
+        // other code that needs them) — it never re-derives a key from cell text.
         _processDisclosureTable(root) {
             const container = root || this.$refs.webDocContent || null;
             if (!container) return;
@@ -3469,6 +3489,9 @@ function externalSign() {
             const tables = container.querySelectorAll('table.corex-table, table');
             let totalRows = 0;
 
+            // PASS 1 — classify + key every qualifying row, in every table,
+            // before any DOM write happens anywhere in this scope.
+            const plan = [];
             tables.forEach(table => {
                 // §19/§20 — a checklist-owned table is processed SOLELY by
                 // processWebDisclosureChecklists(). Double-processing here
@@ -3495,9 +3518,9 @@ function externalSign() {
                 if (noIdx >= 0) optionCols.push({ idx: noIdx, value: 'NO' });
                 if (naIdx >= 0) optionCols.push({ idx: naIdx, value: 'N/A' });
 
-                // Process each body row
+                const entries = [];
                 const rows = table.querySelectorAll('tbody tr');
-                rows.forEach((row, rowIdx) => {
+                rows.forEach(row => {
                     const cells = row.querySelectorAll('td');
                     if (cells.length < headers.length) return; // Skip spacer/header rows
 
@@ -3510,8 +3533,11 @@ function externalSign() {
                     const cell1Text = (cells[1]?.textContent || '').trim();
 
                     if (cells.length > headers.length && !cell0Text && cell1Text.includes('If Yes, when was it issued')) {
-                        self._processCertificateRow(row, cells, rowIdx);
-                        totalRows++;
+                        const radioGroupName = self._disclosureKeyFor(row);
+                        const dateKey = self._disclosureDateKeyFor(row);
+                        row.setAttribute('data-disclosure-key', radioGroupName);
+                        row.setAttribute('data-disclosure-date-key', dateKey);
+                        entries.push({ kind: 'certificate', row, cells, radioGroupName, dateKey });
                         return;
                     }
 
@@ -3526,32 +3552,47 @@ function externalSign() {
 
                     const radioGroupName = self._disclosureKeyFor(row);
                     row.setAttribute('data-disclosure-key', radioGroupName);
-                    totalRows++;
+                    entries.push({ kind: 'normal', row, cells, radioGroupName });
+                });
 
-                    optionCols.forEach(opt => {
-                        const cell = cells[opt.idx];
-                        if (!cell) return;
+                plan.push({ table, optionCols, entries });
+            });
 
-                        const label = document.createElement('label');
-                        label.style.cssText = 'display:flex;align-items:center;justify-content:center;cursor:pointer;width:100%;height:100%;min-height:20px;';
+            // PASS 2 — inject the interactive controls for every planned row.
+            // Reads type/keys only from `plan`/row attributes below — never
+            // touches cell text to decide anything at this point.
+            plan.forEach(({ table, optionCols, entries }) => {
+                entries.forEach(entry => {
+                    if (entry.kind === 'certificate') {
+                        self._processCertificateRow(entry.row, entry.cells, entry.radioGroupName, entry.dateKey);
+                    } else {
+                        const { cells, radioGroupName } = entry;
+                        optionCols.forEach(opt => {
+                            const cell = cells[opt.idx];
+                            if (!cell) return;
 
-                        const radio = document.createElement('input');
-                        radio.type = 'radio';
-                        radio.name = radioGroupName;
-                        radio.value = opt.value;
-                        radio.style.cssText = 'width:16px;height:16px;cursor:pointer;accent-color:#0d9488;';
+                            const label = document.createElement('label');
+                            label.style.cssText = 'display:flex;align-items:center;justify-content:center;cursor:pointer;width:100%;height:100%;min-height:20px;';
 
-                        radio.addEventListener('change', () => {
-                            self.webDisclosureAnswers[radioGroupName] = opt.value;
-                            self.updateIncompleteCount();
+                            const radio = document.createElement('input');
+                            radio.type = 'radio';
+                            radio.name = radioGroupName;
+                            radio.value = opt.value;
+                            radio.style.cssText = 'width:16px;height:16px;cursor:pointer;accent-color:#0d9488;';
+
+                            radio.addEventListener('change', () => {
+                                self.webDisclosureAnswers[radioGroupName] = opt.value;
+                                self.updateIncompleteCount();
+                            });
+
+                            label.appendChild(radio);
+                            cell.innerHTML = '';
+                            cell.style.textAlign = 'center';
+                            cell.style.verticalAlign = 'middle';
+                            cell.appendChild(label);
                         });
-
-                        label.appendChild(radio);
-                        cell.innerHTML = '';
-                        cell.style.textAlign = 'center';
-                        cell.style.verticalAlign = 'middle';
-                        cell.appendChild(label);
-                    });
+                    }
+                    totalRows++;
                 });
 
                 // Process Additional Information rows — make them editable
@@ -3568,14 +3609,15 @@ function externalSign() {
          * Process a certificate compliance row with YES/NO radios + conditional date input.
          * These rows have 5 cells: [spacer] | [Cert Name – If Yes, when was it issued?] | [] | [] | []
          * Radio buttons go in cells[2] (YES) and cells[3] (NO). Date input in cells[4].
+         *
+         * radioGroupName/dateKey are supplied by the CALLER (_processDisclosureTable's
+         * pass 1), computed before any row in this table was mutated. Do not recompute
+         * them here — recomputing against a table other rows have already been
+         * processed in is exactly the bug this two-pass split exists to prevent (see
+         * the AT-COLLISION-FIX note on _processDisclosureTable).
          */
-        _processCertificateRow(row, cells, rowIdx) {
+        _processCertificateRow(row, cells, radioGroupName, dateKey) {
             const self = this;
-            // §20 intrinsic keys (docKey + per-doc index), identical
-            // derivation as the checklist + normal bare-table rows.
-            const radioGroupName = self._disclosureKeyFor(row);
-            const dateKey = self._disclosureDateKeyFor(row);
-            row.setAttribute('data-disclosure-key', radioGroupName);
 
             // Extract certificate name from cells[1] (everything before the dash)
             const fullText = cells[1].textContent.trim();
