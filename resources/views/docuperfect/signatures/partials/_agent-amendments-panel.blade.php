@@ -102,7 +102,7 @@
             <button type="submit" :disabled="outstanding>0 || rejectedCount>0"
                     :style="(outstanding>0 || rejectedCount>0) ? 'opacity:0.5;cursor:not-allowed;' : 'cursor:pointer;'"
                     style="width:100%; font-size:13px; font-weight:600; color:#fff; background:#059669; border-radius:9px; padding:9px 12px;"
-                    @click.prevent="if (outstanding>0 || rejectedCount>0) return; if (confirm('{{ $nextParty ? 'Approve and send to ' . ($amendNextName ?? 'the next recipient') . '?' : 'Approve and finalise the document?' }}')) { $el.closest('form').submit(); }">
+                    @click.prevent="if (outstanding>0 || rejectedCount>0) return; if (confirm('{{ $nextParty ? 'Approve and send to ' . ($amendNextName ?? 'the next recipient') . '?' : 'Approve the amendments?' }}')) { $el.closest('form').submit(); }">
                 {!! $approveLabel !!} &rarr;
             </button>
         </form>
