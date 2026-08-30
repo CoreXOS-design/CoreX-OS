@@ -710,6 +710,25 @@ class RecipientTemplate extends Model
 
             $repText = self::displayNameFromRecipientArray($match);
 
+            // cc3, 2026-08-30 (Shape 5 fix) — must mirror
+            // resolveSlotDisplayName()'s type='recipient' branch's own
+            // party_clause_text preference EXACTLY (this pair's standing
+            // "must never drift" rule): WebTemplateDataService::
+            // resolvedPartyName() — the SAME resolution the wizard preview
+            // AND the final generated document body both merge through —
+            // calls this array-shaped method at GENERATION time too, not
+            // only pre-generation, by which point expandEntityRecipients()
+            // has already frozen the matched row's own composed clause
+            // onto _party_clause_text. Without this, the final document
+            // named the executor company via the DB-shape fix but the
+            // ARRAY-shape twin used by the actual compose step still
+            // dropped it — the bug survived in practice even after
+            // resolveSlotDisplayName() itself was fixed.
+            $clauseText = trim((string) ($match['_party_clause_text'] ?? ''));
+            if ($clauseText !== '') {
+                return $clauseText;
+            }
+
             // Mirrors resolveSlotDisplayName()'s type:'recipient' branch
             // above — must never drift from it (Johan's standing rule for
             // this preview/generation pair). Reads the wizard array's own
@@ -766,11 +785,18 @@ class RecipientTemplate extends Model
                 return self::EMPTY_SUB_TOKENS;
             }
 
+            // cc3, 2026-08-30 (Shape 5 fix) — same preference/blanking as
+            // resolveSlotSubTokens()'s type='recipient' branch; see that
+            // method and resolveSlotDisplayNameFromArray() just above for
+            // why this array-shaped twin needs the identical fix.
+            $clauseText = trim((string) ($match['_party_clause_text'] ?? ''));
+
             return [
                 'company' => (string) ($match['_supplier_firm_name'] ?? ''),
                 'company_reg' => (string) ($match['_supplier_firm_registration_number'] ?? ''),
-                'representative' => trim(($match['first_name'] ?? '') . ' ' . ($match['last_name'] ?? '')) ?: (string) ($match['name'] ?? ''),
-                'representative_id' => (string) ($match['id_number'] ?? ''),
+                'representative' => $clauseText !== '' ? $clauseText
+                    : (trim(($match['first_name'] ?? '') . ' ' . ($match['last_name'] ?? '')) ?: (string) ($match['name'] ?? '')),
+                'representative_id' => $clauseText !== '' ? '' : (string) ($match['id_number'] ?? ''),
             ];
         }
 
