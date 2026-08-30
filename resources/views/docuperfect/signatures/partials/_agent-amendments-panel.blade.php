@@ -110,7 +110,7 @@
             <button type="submit" :disabled="outstanding>0 || rejectedCount>0"
                     :style="(outstanding>0 || rejectedCount>0) ? 'opacity:0.5;cursor:not-allowed;' : 'cursor:pointer;'"
                     style="width:100%; font-size:13px; font-weight:600; color:#fff; background:#059669; border-radius:9px; padding:9px 12px;"
-                    @click="return (outstanding>0 || rejectedCount>0) ? $event.preventDefault() : confirm('{{ $nextParty ? 'Approve and send to ' . ($amendNextName ?? 'the next recipient') . '?' : 'Approve the amendments?' }}')">
+                    @click.prevent="if (outstanding>0 || rejectedCount>0) return; if (confirm('{{ $nextParty ? 'Approve and send to ' . ($amendNextName ?? 'the next recipient') . '?' : 'Approve the amendments?' }}')) { $el.closest('form').submit(); }">
                 {!! $approveLabel !!} &rarr;
             </button>
         </form>
@@ -119,7 +119,7 @@
              (they own their own words) before re-signing. Armed only once every change is decided and at
              least one is rejected (canSendBack). Accepted-and-initialed changes stay. --}}
         <form method="POST" action="{{ route('docuperfect.signatures.amendment.sendBack', $document) }}" style="margin-top:8px;"
-              @submit="return canSendBack ? confirm('Send this document back to {{ $completedRequest?->signer_name ?? 'the recipient' }} to REMOVE the rejected change(s) and re-sign? They will get a fresh signing link by email.') : $event.preventDefault()">
+              @submit.prevent="if (!canSendBack) return; if (confirm('Send this document back to {{ $completedRequest?->signer_name ?? 'the recipient' }} to REMOVE the rejected change(s) and re-sign? They will get a fresh signing link by email.')) { $el.submit(); }">
             @csrf
             <button type="submit" :disabled="!canSendBack"
                     :style="canSendBack ? 'color:#fff;background:#dc2626;border:1px solid #dc2626;cursor:pointer;' : 'color:#b91c1c;background:#fff;border:1px solid #fecaca;opacity:0.5;cursor:not-allowed;'"
