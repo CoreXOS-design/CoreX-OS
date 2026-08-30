@@ -722,4 +722,57 @@ class SignaturePdfService
             default => ucfirst(str_replace('_', ' ', $log->action)),
         };
     }
+
+    /**
+     * THE SEAM (Johan, 2026-08-30) — the certificate's document-level legal
+     * statement, resolved from what the signers actually did rather than a
+     * hardcoded claim. This is the ONE place these three texts live; the
+     * blade view (audit-certificate.blade.php) only ever calls this method,
+     * never holds a copy of the wording itself.
+     *
+     * TODAY: three hardcoded, agency-wide defaults, no override. NEXT (not
+     * this ticket — belongs with the wet-ink block): each agency sets its
+     * own text for the three cases; that work changes ONLY the three
+     * DEFAULT_FOOTER_* reads below (e.g. an agency-settings lookup that
+     * falls back to these same constants), never this method's signature,
+     * never the blade view. Do not scatter this wording anywhere else.
+     *
+     * Derived from each party's own `signing_method`
+     * (SignatureTemplate::partyProgress()) — the exact same field the
+     * per-party rows above already read. A party with no matching
+     * SignatureRequest (e.g. not_required/deceased — never invited, never
+     * signs) falls back to 'electronic' inside partyProgress() itself, so
+     * it can never force a false "mixed" reading here.
+     *
+     * @param array<string,array{signing_method:?string}> $progress SignatureTemplate::partyProgress() shape
+     */
+    public static function certificateSigningMethodStatement(array $progress): string
+    {
+        $methods = collect($progress)->pluck('signing_method');
+        $allWetInk = $methods->isNotEmpty() && $methods->every(fn ($m) => $m === 'wet_ink');
+        $anyWetInk = $methods->contains('wet_ink');
+        $isMixed = $anyWetInk && ! $allWetInk;
+
+        if ($allWetInk) {
+            return self::DEFAULT_FOOTER_WET_INK;
+        }
+        if ($isMixed) {
+            return self::DEFAULT_FOOTER_MIXED;
+        }
+
+        return self::DEFAULT_FOOTER_ELECTRONIC;
+    }
+
+    /**
+     * DRAFT wording — pending Johan/Andre legal review, not yet approved.
+     * Deliberately plain and factual (no embedded HTML/formatting) rather
+     * than a styled legal sentence: these become the per-agency DEFAULT
+     * once the settings screen exists, so the text itself needs to survive
+     * being read out of a plain textarea later, not just look good today.
+     */
+    public const DEFAULT_FOOTER_ELECTRONIC = 'This document was signed electronically in accordance with the Electronic Communications and Transactions Act 25 of 2002 (ECT Act), Republic of South Africa.';
+
+    public const DEFAULT_FOOTER_WET_INK = 'This document was signed in wet ink. Each signature was captured on a physical copy of the document, uploaded as a scanned copy, and verified by the agency.';
+
+    public const DEFAULT_FOOTER_MIXED = 'This document was signed using a mixture of electronic and wet-ink signatures. Electronic signatures on this document were made in accordance with the Electronic Communications and Transactions Act 25 of 2002 (ECT Act), Republic of South Africa; wet-ink signatures were captured on a physical copy, uploaded as a scanned copy, and verified by the agency. See the Signing Parties section above for the method used by each signer.';
 }
