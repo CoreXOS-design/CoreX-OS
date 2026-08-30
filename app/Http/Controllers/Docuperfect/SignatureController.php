@@ -2214,7 +2214,7 @@ class SignatureController extends Controller
             return redirect()->back()->with('error', 'Signed PDF file not found.');
         }
 
-        $filename = "Signed - {$document->name}.pdf";
+        $filename = self::sanitizeDownloadFilename("Signed - {$document->name}.pdf");
 
         return response()->download($disk->path($path), $filename);
     }
@@ -2239,9 +2239,32 @@ class SignatureController extends Controller
             return redirect()->back()->with('error', 'Certificate could not be generated.');
         }
 
-        $filename = "Certificate - {$document->name}.pdf";
+        $filename = self::sanitizeDownloadFilename("Certificate - {$document->name}.pdf");
 
         return response()->download($path, $filename)->deleteFileAfterSend(true);
+    }
+
+    /**
+     * AT-387-filename-slash (Johan 2026-08-30) — a Document::name is a
+     * free-text agent-editable field (agents can rename documents to
+     * anything, per Johan), used verbatim here as an HTTP download filename.
+     * Symfony's HeaderUtils::makeDisposition() throws InvalidArgumentException
+     * for any filename containing "/" or "\" (a same-day pack/mandate name
+     * carrying a d/m/y-style date hit exactly this — every download and
+     * certificate route 500'd). Belt and braces alongside fixing the actual
+     * date format at the source (ESignWizardController::
+     * buildDefaultDocumentName()): a name someone typed must never be able
+     * to break a download, regardless of what future naming code produces.
+     * Replaces path separators with a hyphen (readable, keeps the segments
+     * distinguishable) and strips raw control characters (defense against
+     * header injection via a pasted/typed name) — nothing else about the
+     * name is altered.
+     */
+    private static function sanitizeDownloadFilename(string $filename): string
+    {
+        $filename = str_replace(['/', '\\'], '-', $filename);
+
+        return preg_replace('/[\x00-\x1F\x7F]/', '', $filename);
     }
 
     // ──────────────────────────────────────────────
