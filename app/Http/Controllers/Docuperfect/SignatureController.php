@@ -3166,6 +3166,14 @@ class SignatureController extends Controller
                 ->with('status', "Approved. Document sent to {$nextName} ({$result['next_party']}) for signing.");
         }
 
+        // AT-387-completion — not every party has actually completed signing
+        // (a straggler stuck at pending/viewed/partially_signed, or an
+        // unresolved disclosure-mark amendment). Refuse cleanly, back to the
+        // review page, naming exactly who — never a silent no-op button.
+        if ($result['action'] === 'blocked') {
+            return back()->with('error', $result['message']);
+        }
+
         return redirect()->route($dashboardRoute)
             ->with('status', 'All signatures approved. Document completed!');
     }

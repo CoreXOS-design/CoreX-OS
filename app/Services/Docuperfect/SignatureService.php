@@ -1689,6 +1689,25 @@ class SignatureService
                 return ['action' => 'deferred', 'deferred_party' => $deferredRequest->party_role];
             }
 
+            // No next WAITING party to advance to, and no DEFERRED party to pause
+            // on — but that is NOT the same thing as "every party has actually
+            // signed". A party who raised a condition (or simply never opened
+            // their link) sits at PENDING/VIEWED/PARTIALLY_SIGNED, not WAITING,
+            // so the checks above never see them. isFullyComplete() is the SAME
+            // authority handlePartyCompletion() already trusts at the automatic
+            // per-signer completion path (line ~1920) — wiring it in here too,
+            // rather than inventing a second completeness check, so the two
+            // paths can never drift apart again. AT-387-completion (Johan
+            // 2026-08-30) — reproduced on plain natural persons: an agent could
+            // reach Approve & Finalise and produce a signed PDF with one
+            // party's signature block empty.
+            if (! $this->isFullyComplete($template)) {
+                return [
+                    'action'  => 'blocked',
+                    'message' => $this->outstandingCompletionMessage($template),
+                ];
+            }
+
             // All parties done — complete the document
             $this->completeDocument($template);
 
@@ -1703,6 +1722,54 @@ class SignatureService
 
             return ['action' => 'completed'];
         });
+    }
+
+    /**
+     * Human message naming exactly who (or what) is blocking finalisation, for
+     * the agent-facing "not fully complete" refusal in approveAndAdvance().
+     * Reads the SAME signal isFullyComplete() checks — kept next to it so the
+     * two can never drift silently apart. Mirrors the existing
+     * outstandingChangeInitialsMessage() convention for this kind of
+     * agent-facing blocking message.
+     */
+    private function outstandingCompletionMessage(SignatureTemplate $template): string
+    {
+        $outstandingRequests = $template->requests()
+            ->whereIn('status', [
+                SignatureRequest::STATUS_WAITING,
+                SignatureRequest::STATUS_PENDING,
+                SignatureRequest::STATUS_VIEWED,
+                SignatureRequest::STATUS_PARTIALLY_SIGNED,
+                SignatureRequest::STATUS_DEFERRED,
+            ])
+            ->orderBy('signing_order')
+            ->get();
+
+        $names = $outstandingRequests
+            ->map(fn ($r) => $r->signer_name ?: ucfirst(str_replace('_', ' ', (string) $r->party_role)))
+            ->unique()
+            ->values()
+            ->all();
+
+        $hasPendingDisclosureAmendment = $template->amendments()
+            ->where('section_reference', 'Disclosure')
+            ->where('status', DocumentAmendment::STATUS_PENDING)
+            ->exists();
+
+        if (empty($names)) {
+            return $hasPendingDisclosureAmendment
+                ? 'This document cannot be finalised yet — a disclosure-mark amendment is still awaiting resolution.'
+                : 'This document cannot be finalised yet — not every party has completed signing.';
+        }
+
+        $list = implode(', ', $names);
+        $suffix = $hasPendingDisclosureAmendment
+            ? ' A disclosure-mark amendment is also still awaiting resolution.'
+            : '';
+
+        return count($names) === 1
+            ? "This document cannot be finalised yet — still waiting on {$list} to sign.{$suffix}"
+            : "This document cannot be finalised yet — still waiting on: {$list}.{$suffix}";
     }
 
     /**
