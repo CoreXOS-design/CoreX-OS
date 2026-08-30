@@ -87,7 +87,7 @@ final class FiledDocumentNamingTest extends TestCase
         $document = Document::create([
             // Already correctly named at send time, by the SAME formatter — the
             // invariant fileSingleDocument() relies on instead of re-deriving it.
-            'name' => 'ZZZ EXCLUSIVE AUTHORITY TO SELL — ' . $property->address . ' — ' . now()->format('d/m/y'),
+            'name' => 'ZZZ EXCLUSIVE AUTHORITY TO SELL — ' . $property->address . ' — ' . now()->format('d-m-y'),
             'document_type' => 'mandate', 'agency_id' => $agencyId,
             'owner_id' => $agent->id, 'template_id' => $docTmpl->id, 'property_id' => $property->id,
             'web_template_data' => ['merged_html' => '<div class="corex-document-wrapper"><p>Body</p></div>'],
@@ -115,8 +115,9 @@ final class FiledDocumentNamingTest extends TestCase
         $this->assertNotNull($filed);
         $this->assertSame($document->name . ' (Signed).pdf', $filed['name']);
         $this->assertStringContainsString('20 Filing Test Road', $filed['name']);
-        $this->assertStringContainsString(now()->format('d/m/y'), $filed['name']);
+        $this->assertStringContainsString(now()->format('d-m-y'), $filed['name']);
         $this->assertStringEndsWith('(Signed).pdf', $filed['name']);
+        $this->assertStringNotContainsString('/', $filed['name'], 'AT-387-filename-slash — a filed name must never contain a "/", or the download route 500s');
     }
 
     public function test_pack_filed_documents_are_each_named_with_own_template_name_address_and_date(): void
@@ -150,12 +151,14 @@ final class FiledDocumentNamingTest extends TestCase
         ]);
 
         $this->assertCount(2, $filed);
-        $today = now()->format('d/m/y');
+        $today = now()->format('d-m-y');
 
         $this->assertSame('ZZZ EXCLUSIVE AUTHORITY TO SELL — Erf 1234, 20 Filing Test Road — ' . $today . ' (Signed).pdf', $filed[0]['name']);
         $this->assertSame('ZZZ EXCLUSIVE AUTHORITY TO SELL - VL — Erf 1234, 20 Filing Test Road — ' . $today . ' (Signed).pdf', $filed[1]['name']);
         // Each member kept ITS OWN name — not collapsed into the pack's shared name.
         $this->assertNotSame($filed[0]['name'], $filed[1]['name']);
+        $this->assertStringNotContainsString('/', $filed[0]['name'], 'AT-387-filename-slash — a filed name must never contain a "/", or the download route 500s');
+        $this->assertStringNotContainsString('/', $filed[1]['name']);
     }
 
     public function test_property_with_no_erf_number_falls_back_cleanly(): void
@@ -193,6 +196,6 @@ final class FiledDocumentNamingTest extends TestCase
         $this->assertStringContainsString('5 Freehold Avenue', $filed[0]['name']);
         $this->assertStringNotContainsString('Erf', $filed[0]['name'], 'no erf number set — no "Erf" segment at all');
         $this->assertStringNotContainsString(',,', $filed[0]['name'], 'no doubled-comma artefact from a skipped segment');
-        $this->assertMatchesRegularExpression('/^ZZZ Freehold Naming Template — 5 Freehold Avenue — \d{2}\/\d{2}\/\d{2} \(Signed\)\.pdf$/', $filed[0]['name']);
+        $this->assertMatchesRegularExpression('/^ZZZ Freehold Naming Template — 5 Freehold Avenue — \d{2}-\d{2}-\d{2} \(Signed\)\.pdf$/', $filed[0]['name']);
     }
 }

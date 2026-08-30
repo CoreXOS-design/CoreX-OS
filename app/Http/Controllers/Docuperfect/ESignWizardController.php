@@ -3726,11 +3726,20 @@ class ESignWizardController extends Controller
      *    erf_number is prepended for a freehold property because no existing
      *    accessor carries it and Johan explicitly asked for it; everything
      *    else here is read, never assembled from scratch.
-     *  - Short date: d/m/y — purely to separate same-property documents by
+     *  - Short date: d-m-y — purely to separate same-property documents by
      *    day, not a full date. Two documents on the SAME property on the SAME
      *    day still produce the identical name (docuperfect_documents.name has
      *    no uniqueness constraint) — flagged to Johan, not silently patched
      *    with an unrequested disambiguator.
+     *
+     *    AT-387-filename-slash (Johan 2026-08-30) — was d/m/y. A document
+     *    name is used verbatim as an HTTP download filename by
+     *    SignatureController::download()/downloadCertificate(); Symfony's
+     *    HeaderUtils::makeDisposition() rejects any filename containing "/"
+     *    or "\", so every document named by this function 500'd on download
+     *    from the day this shipped. Hyphens carry the same "separate same-
+     *    property documents by day" meaning with no character a filename can
+     *    never contain.
      *
      * Second caller (Johan 2026-08-30, AT-387-filename) — SignatureService's
      * filePackDocuments() reuses this same naming rule for each individually
@@ -3772,7 +3781,7 @@ class ESignWizardController extends Controller
         $docName = $isPackFlow ? ($stepData['pack_name'] ?? $template->name)
                  : ($isPdfPack ? ($stepData['pdf_pack_name'] ?? $template->name) : $template->name);
         if ($propertySegment !== '') $docName .= ' — ' . $propertySegment;
-        $docName .= ' — ' . now()->format('d/m/y');
+        $docName .= ' — ' . now()->format('d-m-y');
 
         return $docName;
     }

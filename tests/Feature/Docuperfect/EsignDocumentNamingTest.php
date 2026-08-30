@@ -72,7 +72,7 @@ final class EsignDocumentNamingTest extends TestCase
         $name = $this->buildDefaultDocumentName($template, $flow, ['property' => ['_property_source' => 'properties']]);
 
         $this->assertStringStartsWith('Sole Mandate — Erf 1234, 14 Hillside Crescent — ', $name);
-        $this->assertStringEndsWith(now()->format('d/m/y'), $name);
+        $this->assertStringEndsWith(now()->format('d-m-y'), $name);
         $this->assertStringNotContainsString('Ramsgate', $name, 'the short property-line address must not include suburb/city');
     }
 
@@ -136,7 +136,7 @@ final class EsignDocumentNamingTest extends TestCase
             $names[$label] = $this->buildDefaultDocumentName($template, $flow, $stepData);
         }
 
-        $expected = 'Sole Mandate — Erf 99, 1 Shape Close — ' . now()->format('d/m/y');
+        $expected = 'Sole Mandate — Erf 99, 1 Shape Close — ' . now()->format('d-m-y');
         foreach ($names as $label => $name) {
             $this->assertSame($expected, $name, "shape '{$label}' must produce the same name shape as every other shape");
             $this->assertStringNotContainsString('Anna', $name);
