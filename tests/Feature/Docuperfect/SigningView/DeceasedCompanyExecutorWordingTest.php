@@ -182,6 +182,74 @@ final class DeceasedCompanyExecutorWordingTest extends TestCase
         );
     }
 
+    /**
+     * (d, array-shape) — the SAME fix, but through resolveBoundTextFromArray(),
+     * the twin resolveBoundText() actually calls at real GENERATION time via
+     * WebTemplateDataService::resolvedPartyName() (both the wizard preview AND
+     * the final document body merge through it). Caught the hard way: the
+     * DB-shape fix alone left the finished document still missing the company
+     * — this array-shape twin is what the real send path actually uses to
+     * build the document body's "seller_full" field content.
+     */
+    public function test_company_executor_chain_names_all_four_parties_via_array_shape(): void
+    {
+        $executorCo = Contact::create([
+            'agency_id' => $this->agencyId, 'branch_id' => $this->branchId,
+            'contact_kind' => Contact::TYPE_ENTITY, 'entity_name' => 'Estate Trustees (Pty) Ltd',
+            'entity_reg_no' => '2020/555001/07', 'first_name' => 'Estate Trustees (Pty) Ltd', 'last_name' => '',
+        ]);
+        $rep = Contact::create([
+            'agency_id' => $this->agencyId, 'branch_id' => $this->branchId,
+            'contact_kind' => Contact::TYPE_NATURAL_PERSON, 'first_name' => 'Jane', 'last_name' => 'Director',
+            'id_number' => '8001015800111', 'email' => 'jane.director@x.test',
+        ]);
+        ContactRepresentative::create([
+            'entity_contact_id' => $executorCo->id, 'representative_contact_id' => $rep->id,
+            'capacity' => 'Director', 'signs_as_proxy' => false, 'is_primary' => true,
+        ]);
+
+        $template = RecipientTemplate::create([
+            'agency_id' => null, 'role_token' => 'seller', 'key' => 'late_estate_company_test_array',
+            'name' => 'Estate Late Company',
+            'text_template' => 'Estate Late {deceased_representative} duly represented by the '
+                . 'Executor/Executrix of the estate {executor_representative} {executor_representative_id}.',
+            'party_slots' => [
+                ['key' => 'deceased', 'label' => 'Deceased'],
+                ['key' => 'executor', 'label' => 'Executor'],
+            ],
+            'is_default' => false,
+        ]);
+
+        $deceasedRow = [
+            'name' => 'John Smith', 'first_name' => 'John', 'last_name' => 'Smith', 'id_number' => '',
+            '_recipient_local_key' => 'deceased-key-array', '_is_deceased' => true,
+            '_recipient_template_id' => $template->id,
+            '_slot_bindings' => [
+                'deceased' => ['type' => 'self'],
+                'executor' => ['type' => 'recipient', 'recipient_local_key' => 'executor-key-array'],
+            ],
+        ];
+        // Exactly what expandEntityRecipients() produces for the executor
+        // company row — including the frozen _party_clause_text — BEFORE any
+        // SignatureRequest exists. This is the live wizard array's own shape.
+        $executorRow = [
+            'name' => (string) $rep->full_name, 'first_name' => 'Jane', 'last_name' => 'Director',
+            'id_number' => $rep->id_number, '_recipient_local_key' => 'executor-key-array',
+            '_is_deceased' => false, '_contact_id' => $rep->id,
+            '_party_clause_text' => app(\App\Services\Docuperfect\RoleBlockExpansionService::class)
+                ->composeEntityPartyText($executorCo, true),
+        ];
+
+        $text = $template->resolveBoundTextFromArray($deceasedRow, [$deceasedRow, $executorRow], $deceasedRow['_slot_bindings']);
+
+        $this->assertSame(
+            'Estate Late John Smith duly represented by the Executor/Executrix of the estate '
+            . 'Estate Trustees (Pty) Ltd (Reg: 2020/555001/07), herein represented by '
+            . 'Jane Director (ID: 8001015800111, Director).',
+            $text
+        );
+    }
+
     /** (c) REGRESSION — cc6's natural-executor wording must be completely unaffected by this fix. */
     public function test_natural_person_executor_wording_unchanged(): void
     {
