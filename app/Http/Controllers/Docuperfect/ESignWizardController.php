@@ -3731,8 +3731,17 @@ class ESignWizardController extends Controller
      *    day still produce the identical name (docuperfect_documents.name has
      *    no uniqueness constraint) — flagged to Johan, not silently patched
      *    with an unrequested disambiguator.
+     *
+     * Second caller (Johan 2026-08-30, AT-387-filename) — SignatureService's
+     * filePackDocuments() reuses this same naming rule for each individually
+     * filed pack member's PDF (cc1 found filed copies coming out as bare
+     * template names, no address/date). That call site has no live wizard
+     * Flow — it constructs a minimal UNSAVED Flow(['property_id' => ...]) and
+     * a matching minimal $stepData purely to satisfy this signature; nothing
+     * about the naming LOGIC above changes for that caller. Visibility
+     * widened to public for exactly this reuse — no other change.
      */
-    private function buildDefaultDocumentName(
+    public function buildDefaultDocumentName(
         Template $template,
         Flow $flow,
         array $stepData,
