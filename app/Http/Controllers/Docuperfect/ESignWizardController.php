@@ -4675,6 +4675,25 @@ class ESignWizardController extends Controller
                     // proxy state and undo everything just set above.
                     '_entity_proxy_contact_id' => $overrideProxyRepId,
                     '_entity_rep_order'     => $effectiveOrder,
+                    // cc3, 2026-08-30 (Shape 5 fix — deceased seller, company
+                    // executor) — the ORIGINAL row's own recipient_local_key
+                    // (and, if it was auto-created for a deceased party's
+                    // "Replace this party" chain, _deceased_substitute_for)
+                    // must survive expansion. Without this, an executor
+                    // recipient that is itself an entity gets replaced here
+                    // with no local key at all, so the deceased row's
+                    // _slot_bindings (which points AT that local key) can
+                    // never resolve it again — assertDeceasedRecipientsHave
+                    // SubstituteSigner() then hard-blocks the send with "no
+                    // substitute signer has been chosen" even though one
+                    // genuinely was. Carried onto every representative row
+                    // this contact expands to (ordinarily one, per the
+                    // signersOnly/proxy narrowing above); a lookup by this
+                    // key only ever needs to find ONE matching row, exactly
+                    // as RecipientTemplate::resolveSlotContactId()'s own
+                    // ->first() already assumes.
+                    '_recipient_local_key'     => $r['_recipient_local_key'] ?? null,
+                    '_deceased_substitute_for' => $r['_deceased_substitute_for'] ?? null,
                     'bank_name'             => $rep->bank_name ?? '',
                     'bank_account_name'     => $rep->bank_account_name ?? '',
                     'bank_account_number'   => $rep->bank_account_number ?? '',
