@@ -2687,9 +2687,23 @@ class SignatureController extends Controller
             ->values()
             ->toArray();
 
+        // AT-387-label (Johan 2026-08-30) — a deceased/non-participant party
+        // (STATUS_NOT_REQUIRED) is never in $completedParties either (they were
+        // exempted, not completed), so the loop below used to pick THEM as
+        // "next" and the button read "Approve & Send to [deceased name]" at the
+        // terminal step. SignatureService::advanceToNextSigningParticipant()
+        // already skips STATUS_NOT_REQUIRED when actually routing the document;
+        // mirror that here so the LABEL agrees with what the flow actually does
+        // — never contacts them, so the button should never offer to.
+        $notRequiredParties = $template->requests
+            ->where('status', SignatureRequest::STATUS_NOT_REQUIRED)
+            ->map(fn ($r) => $r->canonicalPartyKey())
+            ->values()
+            ->toArray();
+
         $nextParty = null;
         foreach ($order as $party) {
-            if ($party !== 'agent' && !in_array($party, $completedParties)) {
+            if ($party !== 'agent' && !in_array($party, $completedParties) && !in_array($party, $notRequiredParties)) {
                 $nextParty = $party;
                 break;
             }
