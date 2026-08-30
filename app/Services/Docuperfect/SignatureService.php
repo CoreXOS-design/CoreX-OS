@@ -3970,6 +3970,14 @@ class SignatureService
         }
 
         $docTemplate = $document->template;
+        // AT-387-filename (Johan 2026-08-30) — checked against the same naming
+        // rule as the pack path: $document->name is ALREADY built via
+        // ESignWizardController::buildDefaultDocumentName() at send time (web
+        // doc name + property address + short date), including any custom name
+        // the agent typed over the default. Re-deriving it here would either
+        // duplicate that work or silently overwrite an agent's own name — cc5's
+        // own docblock is explicit that nothing ever rebuilds Document::name
+        // after creation. Verified correct as-is; no change.
         $docName = ($document->name ?? 'Signed Document') . ' (Signed).pdf';
 
         // FIX 2 — never file a Document that points at a non-existent PDF.
@@ -4093,7 +4101,29 @@ class SignatureService
                 continue;
             }
 
-            $docName = ($tpl->name ?? 'Document') . ' (Signed).pdf';
+            // AT-387-filename (Johan 2026-08-30) — was ($tpl->name ?? 'Document'),
+            // the bare template name with no property address or date, unlike the
+            // in-flight document's own name (which already follows the real
+            // naming rule). Reuse the SAME formatter cc5 wrote
+            // (ESignWizardController::buildDefaultDocumentName()) rather than a
+            // second one — there's no live wizard Flow at filing time, so a
+            // minimal unsaved Flow + matching stepData stand in for it; per cc5's
+            // own docblock the ONLY things that function reads are
+            // $flow->property_id and $stepData['property']['_property_source']
+            // (plus the rental-only property_id fallback, not used here).
+            // $isPackFlow=false deliberately — each filed member is named after
+            // ITS OWN template ($tpl->name), not the pack's collective name;
+            // that per-member distinction is already correct and must not
+            // collapse into one shared name.
+            $docName = app(\App\Http\Controllers\Docuperfect\ESignWizardController::class)
+                ->buildDefaultDocumentName(
+                    $tpl,
+                    new \App\Models\Docuperfect\Flow(['property_id' => $propertyId]),
+                    ['property' => ['_property_source' => 'properties']],
+                    '',
+                    false,
+                    false,
+                ) . ' (Signed).pdf';
 
             // FIX 2 — validate via the SAME disk Document::downloadResponse()
             // reads (Storage::disk('local')) so a guard pass GUARANTEES the
