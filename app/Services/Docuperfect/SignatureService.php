@@ -6186,6 +6186,39 @@ class SignatureService
                 'status' => DocumentAmendment::STATUS_REJECTED,
             ]);
 
+            // cc2, 2026-08-30 — sibling of the bug cc1 fixed the same morning
+            // in SigningController::removeRejectedItem(): rejecting the AMENDMENT
+            // record alone never told the CONDITION rows or the frozen document
+            // body. document_conditions kept rejected_at/rejected_by_user_id/
+            // superseded_at all null, canonical_html was never re-baked, so the
+            // rejected condition's text (and its "Amendment pending agent
+            // review" badge — InsertableBlockRenderer::renderConditionRow(),
+            // which reads $condition->amendment->status off the SAME frozen
+            // HTML) still reached the client in the finished, completed
+            // document. Mirrors cc1's exact mechanism (soft-delete + a fresh
+            // refreshInsertableBlocks() bake), applied to every condition this
+            // amendment covers rather than a single condition id, and also
+            // stamps the reject fields the recipient-side reject path
+            // (SignatureController::rejectAmendmentItem()) already uses, so a
+            // condition rejected via either route carries the same audit trail.
+            $rejectedConditions = \App\Models\Docuperfect\DocumentCondition::where('amendment_id', $amendment->id)
+                ->whereNull('superseded_at')
+                ->whereNull('deleted_at')
+                ->get();
+            if ($rejectedConditions->isNotEmpty()) {
+                $now = now();
+                $actorId = auth()->id();
+                foreach ($rejectedConditions as $rejectedCondition) {
+                    $rejectedCondition->rejected_at = $now;
+                    $rejectedCondition->rejected_by_user_id = $actorId;
+                    $rejectedCondition->superseded_at = $now;
+                    $rejectedCondition->save();
+                    $rejectedCondition->delete(); // soft delete — recoverable; no hard deletes (non-negotiable #1)
+                }
+                app(\App\Services\Docuperfect\CanonicalDocumentRenderer::class)
+                    ->refreshInsertableBlocks($amendment->template);
+            }
+
             SignatureAuditLog::log(
                 $amendment->template,
                 'amendment_agent_rejected',
