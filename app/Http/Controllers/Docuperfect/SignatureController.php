@@ -3149,6 +3149,27 @@ class SignatureController extends Controller
             ]);
         }
 
+        // Sync parties_json so the certificate (SignatureTemplate::partyProgress(),
+        // which reads name/email from parties_json rather than the live request --
+        // see audit-certificate.blade.php) shows the real authoriser instead of the
+        // "Authorised Practitioner" placeholder written at document-creation time
+        // (candidate flow: the authoriser is unknown until someone claims this
+        // shared-queue item, ESignWizardController.php ~3285). Same parties_json
+        // sync SignatureService::resumeDeferredSigning() already does for a
+        // deferred ordinary party -- $supervisorRole above is already resolved to
+        // whichever checkpoint applies (supervisor / supervisor_final), so matching
+        // on it directly covers both without a separate role-alias check.
+        $parties = $template->parties_json ?? [];
+        foreach ($parties as &$party) {
+            if (($party['role'] ?? null) === $supervisorRole) {
+                $party['name'] = $user->name;
+                $party['email'] = $user->email;
+                break;
+            }
+        }
+        unset($party);
+        $template->update(['parties_json' => $parties]);
+
         // Redirect to the external signing view with the token
         return redirect()->route('signatures.external', $supervisorRequest->token);
     }
