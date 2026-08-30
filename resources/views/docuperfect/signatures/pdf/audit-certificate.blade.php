@@ -97,10 +97,14 @@
     </div>
 
     {{-- Legal Footer --}}
+    {{-- The document-level statement text lives in ONE place:
+         SignaturePdfService::certificateSigningMethodStatement() — never add
+         a second copy of this wording here. That method is also the seam
+         for the future per-agency setting (Johan, 2026-08-30): when that
+         setting exists, only that method's own source changes, never this
+         view. --}}
     <div class="audit-footer">
-        <p>This document was signed electronically in accordance with the<br>
-        <strong>Electronic Communications and Transactions Act 25 of 2002 (ECT Act)</strong>,<br>
-        Republic of South Africa.</p>
+        <p>{{ \App\Services\Docuperfect\SignaturePdfService::certificateSigningMethodStatement($progress) }}</p>
 
         @if($documentHash)
             <p style="margin-top: 10px;">
