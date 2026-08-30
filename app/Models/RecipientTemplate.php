@@ -141,6 +141,16 @@ class RecipientTemplate extends Model
      *     (the company-then-person chain, with the company half now empty)
      *     collapses to the LAST one — the chain still reads correctly
      *     against whoever remains.
+     *
+     * cc3, 2026-08-30 (Shape 5 wording fix) — a third narrow rule, same
+     * shape as the two above: a raw {key}_representative_id token left
+     * deliberately blank (because the preceding {key}_representative
+     * token already carries that same ID baked into its own composed
+     * clause — see resolveSlotSubTokens()'s type='recipient' branch)
+     * leaves a stray space directly before the template's own trailing
+     * punctuation. Collapses "word ." / "word ," to "word." / "word," —
+     * removes only whitespace immediately before punctuation, never
+     * content, so an existing template with no blank tokens is unaffected.
      */
     public static function substitute(string $template, array $tokens): string
     {
@@ -148,6 +158,7 @@ class RecipientTemplate extends Model
         $out = preg_replace('/\(\s*\)/', '', $out);
         $out = preg_replace('/\(\s*[A-Za-z][A-Za-z \t]*:\s*\)/', '', $out);
         $out = preg_replace('/\brepresented by\s+(?=represented by\b)/i', '', $out);
+        $out = preg_replace('/ +([.,;:])/', '$1', $out);
 
         return trim(preg_replace('/\s{2,}/', ' ', $out));
     }
@@ -548,6 +559,26 @@ class RecipientTemplate extends Model
 
             $repText = self::withIdSuffix((string) $recipient->signer_name, $recipient->signer_id_number);
 
+            // cc3, 2026-08-30 (Shape 5 fix — deceased seller, company
+            // executor) — an entity-Contact-sourced representative
+            // (expandEntityRecipients()) freezes the FULL "Company (Reg),
+            // herein represented by Rep (Capacity)" clause onto
+            // party_clause_text at generation time
+            // (RoleBlockExpansionService::composeEntityPartyText()) — the
+            // SAME text the document body itself already uses to name this
+            // party (see that party's own role block). A chain-bound slot
+            // naming this SAME recipient must say the SAME thing, not a
+            // second, poorer description that drops the company entirely.
+            // Checked BEFORE the supplier branch below: the two sources are
+            // mutually exclusive in practice (a recipient is either
+            // Contact-sourced or supplier-sourced), but an ordinary
+            // Contact-sourced entity has no supplier_firm_name at all, so
+            // this must win first or it never gets a chance to.
+            $clauseText = trim((string) $recipient->party_clause_text);
+            if ($clauseText !== '') {
+                return $clauseText;
+            }
+
             // Johan, 2026-08-26 — the three-part chain: "late estate of piet
             // (id) herein represented by exec pty ltd (reg) represented by
             // Koos (id)." A supplier-sourced representative (frozen at
@@ -610,11 +641,26 @@ class RecipientTemplate extends Model
                 return self::EMPTY_SUB_TOKENS; // resolveSlotDisplayName() already threw for this binding.
             }
 
+            // cc3, 2026-08-30 (Shape 5 fix) — same preference order as
+            // resolveSlotDisplayName()'s type='recipient' branch: an
+            // entity-Contact-sourced representative's own composed clause
+            // (party_clause_text — already names the company + rep +
+            // capacity) wins over the bare signer name, so a template using
+            // the raw {executor_representative} token gets the same full
+            // naming a template using the welded {executor} token does.
+            // representative_id is deliberately blanked in this branch —
+            // composeEntityPartyText() already bakes the rep's own ID INTO
+            // the clause ("Name (ID: x, Capacity)"); a template that also
+            // appends the raw {executor_representative_id} token (as
+            // estate_late_natural's proven pattern does, correctly, for the
+            // bare-name case below) would print that same ID twice.
+            $clauseText = trim((string) $recipient->party_clause_text);
+
             return [
                 'company' => (string) ($recipient->supplier_firm_name ?? ''),
                 'company_reg' => (string) ($recipient->supplier_firm_registration_number ?? ''),
-                'representative' => (string) $recipient->signer_name,
-                'representative_id' => (string) ($recipient->signer_id_number ?? ''),
+                'representative' => $clauseText !== '' ? $clauseText : (string) $recipient->signer_name,
+                'representative_id' => $clauseText !== '' ? '' : (string) ($recipient->signer_id_number ?? ''),
             ];
         }
 
