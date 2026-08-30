@@ -4548,6 +4548,17 @@ CSS;
                 ->first();
             if ($cond) {
                 $cond->delete(); // soft delete — recoverable; no hard deletes (non-negotiable #1)
+
+                // The soft delete alone leaves the condition's content sitting in the
+                // ALREADY-BAKED canonical_html (addCondition() bakes it in via the same
+                // call below — see that method — so removal must undo it the same way).
+                // Without this, a rejected-and-removed Other Condition still finalises
+                // into the signed document, because canonical_html never learns the
+                // condition is gone. refreshInsertableBlocks() re-renders the
+                // other_conditions block from the current live (non-deleted) rows —
+                // the just-deleted condition is excluded automatically.
+                app(\App\Services\Docuperfect\CanonicalDocumentRenderer::class)
+                    ->refreshInsertableBlocks($template);
             }
         }
 
