@@ -1843,7 +1843,13 @@
                                     </p>
                                 @else
                                     @php $ltOther = $property->listing_type === 'rental' ? 'sale' : 'rental'; @endphp
-                                    <input type="hidden" name="listing_type" value="{{ $property->listing_type }}">
+                                    {{-- Posts the CANON, never the raw column. A listing whose stored
+                                         type was written non-canonically (the P24 CSV import stored a
+                                         capitalised 'Sale'/'Rental') otherwise handed its own value straight
+                                         back to the case-sensitive `in:sale,rental` validator, and the save
+                                         died with "The selected listing type is invalid" on a type the agent
+                                         never chose. Null stays null — a typeless listing is not given one. --}}
+                                    <input type="hidden" name="listing_type" value="{{ \App\Models\Property::normaliseListingType($property->listing_type) }}">
                                     <input type="text" value="For {{ ucfirst($property->listing_type) }}" disabled class="prop-input prop-field-enum">
                                     {{-- AT-262 (Johan's gate): change-type is a "loaded as the wrong type" fix —
                                          available ONLY on a draft that has NEVER been advertised. An advertised /

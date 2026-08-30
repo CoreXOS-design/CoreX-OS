@@ -1695,6 +1695,52 @@ class Property extends Model
     }
 
     /**
+     * The canonical vocabulary for `properties.listing_type` — the ONLY two
+     * values that may ever reach the column (plus null, for a listing that
+     * genuinely has no type yet). The form validators (`in:sale,rental`) accept
+     * exactly this list, so anything else in the column is unsaveable data.
+     */
+    public const LISTING_TYPES = ['sale', 'rental'];
+
+    /**
+     * Map any inbound spelling of a listing type onto the canon above. THE one
+     * place that knows the wider vocabulary exists on the WRITE side, exactly
+     * as isRental() is the one place that knows it on the READ side.
+     *
+     * Why this must exist: the column was never normalised on write, so the P24
+     * CSV importer's capitalised 'Sale'/'Rental' sat happily alongside the UI's
+     * lowercase 'sale'/'rental'. Reads tolerated both (isRental()), but the save
+     * validator is case-SENSITIVE `in:sale,rental` — so every imported listing
+     * handed its own stored value back to the validator and was rejected with
+     * "The selected listing type is invalid". 4,755 listings on one agency could
+     * not be edited at all. Tolerating divergence on read while forbidding it on
+     * write is what made the data unsaveable; normalising on write is the fix.
+     *
+     * An unrecognised value is lowercased and passed through UNCHANGED, never
+     * coerced to a guess — a listing's type is never silently invented here.
+     */
+    public static function normaliseListingType(mixed $value): ?string
+    {
+        $v = strtolower(trim((string) ($value ?? '')));
+
+        if ($v === '') {
+            return null;
+        }
+
+        return in_array($v, ['rental', 'to_let', 'to-let', 'lease'], true) ? 'rental' : $v;
+    }
+
+    /**
+     * Write-side guard. Every Eloquent write to the column runs through the
+     * canon, so a non-canonical listing_type can no longer be persisted — by
+     * the importer, a seeder, an API, or anything written later.
+     */
+    public function setListingTypeAttribute(mixed $value): void
+    {
+        $this->attributes['listing_type'] = self::normaliseListingType($value);
+    }
+
+    /**
      * THE single source of truth for "is this listing a rental?". Every surface
      * that renders, prices, or labels a listing asks this — never `listing_type
      * === 'rental'` inline.
