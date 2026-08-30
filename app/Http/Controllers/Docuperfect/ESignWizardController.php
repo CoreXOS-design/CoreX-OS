@@ -2665,24 +2665,7 @@ class ESignWizardController extends Controller
         $isPdfPack = !empty($stepData['is_pdf_pack']);
         $docName = $stepData['document_name'] ?? null;
         if (empty($docName)) {
-            // Johan, 2026-08-27 (found on the late-estate walkthrough) — a
-            // deceased party is not a party to the agreement (Elize's
-            // ruling); naming the document, and therefore the "Please sign"
-            // email subject, after the deceased ("...— Anine Van der
-            // Westhuizen") instead of a living owner or the executor reads
-            // as a genuine error on an executed legal document, not a
-            // cosmetic one.
-            $firstRecipientName = '';
-            foreach ($recipients as $r) {
-                if (($r['role'] ?? '') !== 'agent' && empty($r['_is_deceased']) && !empty($r['name'])) {
-                    $firstRecipientName = $r['name'];
-                    break;
-                }
-            }
-            $docName = $isPackFlow ? ($stepData['pack_name'] ?? $template->name)
-                     : ($isPdfPack ? ($stepData['pdf_pack_name'] ?? $template->name) : $template->name);
-            if ($firstRecipientName) $docName .= ' — ' . $firstRecipientName;
-            $docName .= ' — ' . now()->format('Y-m-d');
+            $docName = $this->buildDefaultDocumentName($template, $flow, $stepData, $propertyAddress, $isPackFlow, $isPdfPack);
         }
 
         $signatureService = app(SignatureService::class);
@@ -3714,6 +3697,75 @@ class ESignWizardController extends Controller
             return redirect()->route('docuperfect.esign.create')
                 ->withErrors(['error' => $message]);
         }
+    }
+
+    /**
+     * Johan, 2026-08-30 (party-shape audit) — the default document name, used
+     * only when the agent has not already set one (`$stepData['document_name']`
+     * is checked by the caller BEFORE this ever runs, so an agent's own name
+     * is never touched here or anywhere else — nothing rebuilds `Document::name`
+     * after creation; every other reference in the codebase only ever READS it).
+     *
+     * A document is identified by WHAT and WHERE, never by WHO: <web doc name>
+     * <property address> <short date>. Naming it after a party (a director, a
+     * proxy, an executor — the previous 2026-08-27 fix only chose WHICH party)
+     * means the name changes depending on who happens to sign, which is a
+     * worse problem than the one that fix solved — this replaces that rule
+     * rather than layering on top of it.
+     *
+     *  - Web doc name: $template->name verbatim — never a hardcoded document-
+     *    type string. Johan: "100 agencies each wanting their docs called
+     *    something else." (A shared generic label like document_types.label
+     *    would be exactly that hardcoding under a different name, so this
+     *    deliberately does NOT use it.)
+     *  - Property address: Property::address is already the ONE reused,
+     *    self-maintained short-form composition (PropertyObserver::saving()
+     *    keeps it in sync via composeAddressFromParts(), Property.php:
+     *    1145-1172) — deliberately NOT buildDisplayAddress(), which also
+     *    appends suburb/city and reads longer than Johan's own example.
+     *    erf_number is prepended for a freehold property because no existing
+     *    accessor carries it and Johan explicitly asked for it; everything
+     *    else here is read, never assembled from scratch.
+     *  - Short date: d/m/y — purely to separate same-property documents by
+     *    day, not a full date. Two documents on the SAME property on the SAME
+     *    day still produce the identical name (docuperfect_documents.name has
+     *    no uniqueness constraint) — flagged to Johan, not silently patched
+     *    with an unrequested disambiguator.
+     */
+    private function buildDefaultDocumentName(
+        Template $template,
+        Flow $flow,
+        array $stepData,
+        string $propertyAddressFallback,
+        bool $isPackFlow,
+        bool $isPdfPack
+    ): string {
+        $propSource = $stepData['property']['_property_source'] ?? 'properties';
+        $docPropertyId = $flow->property_id ?: ($propSource === 'rental_properties' ? ($stepData['property']['property_id'] ?? null) : null);
+        $propertySegment = '';
+        if ($docPropertyId && $propSource !== 'rental_properties') {
+            $docProperty = Property::withoutGlobalScopes()->find($docPropertyId);
+            if ($docProperty) {
+                $addr = trim((string) $docProperty->address) ?: trim($docProperty->composeAddressFromParts());
+                if (!empty($docProperty->erf_number) && $docProperty->title_type !== \App\Models\PropertySettingItem::TITLE_SECTIONAL) {
+                    $addr = trim('Erf ' . $docProperty->erf_number . ($addr !== '' ? ', ' . $addr : ''));
+                }
+                $propertySegment = $addr;
+            }
+        }
+        if ($propertySegment === '' && !empty($propertyAddressFallback)) {
+            // Rental-sourced property (no Property::address/erf equivalent
+            // exists on RentalProperty) or the Property row itself has no
+            // address parts — fall back to the address string the caller
+            // already had in hand rather than leaving the name bare.
+            $propertySegment = $propertyAddressFallback;
+        }
+        $docName = $isPackFlow ? ($stepData['pack_name'] ?? $template->name)
+                 : ($isPdfPack ? ($stepData['pdf_pack_name'] ?? $template->name) : $template->name);
+        if ($propertySegment !== '') $docName .= ' — ' . $propertySegment;
+        $docName .= ' — ' . now()->format('d/m/y');
+
+        return $docName;
     }
 
     /**
