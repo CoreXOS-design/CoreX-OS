@@ -125,7 +125,10 @@ class P24ListingsCsvParser
                 'title'                => $raw['DescriptionHeader'] ?? null,
                 'headline'             => $raw['DescriptionHeader'] ?? null,
                 'description'          => $raw['Description'] ?? null,
-                'listing_type'         => $isRental ? 'Rental' : 'Sale',
+                // Property::LISTING_TYPES canon — lowercase, always. Capitalised
+                // 'Sale'/'Rental' here is what made 4,755 imported listings fail the
+                // case-sensitive `in:sale,rental` save validator.
+                'listing_type'         => $isRental ? 'rental' : 'sale',
                 'status'               => $this->normaliseStatus($status),
                 'price'                => $isRental ? null : $price,
                 'rental_amount'        => $isRental ? ($rentalRate ?: $price) : null,
