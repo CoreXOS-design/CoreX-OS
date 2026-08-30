@@ -28,14 +28,22 @@ use Illuminate\Http\Response;
  *   POST /docuperfect/amendments/{amendment}/reject-change
  *   POST /docuperfect/amendments/{amendment}/reject-document
  *
- * Permission: `manage_documents` (existing — gates the e-sign module).
+ * Permission: `documents.edit` — the SAME key DocumentController's own document
+ * mutators check (`hasPermission('documents.edit')`, see DocumentController.php:156).
+ * AT-387-flag (Johan 2026-08-30): this used to check `manage_documents`, a key that
+ * was never registered in config/corex-permissions.php and appears nowhere else in
+ * the codebase — hasPermission() fails closed on an unknown key, so EVERY non-owner
+ * user was 403'd here, unconditionally. guardDocument() below already does the real
+ * per-record agency/branch/owner scoping (unaffected by this fix); the permission
+ * key is the coarse "may this role touch documents at all" gate, mirroring
+ * DocumentController's own pattern.
  *
  * Spec: .ai/specs/esign-v3-complete-spec.md §7.5.6, §8
  */
 class AmendmentController extends Controller
 {
     // AT-267 H5 — approve/reject bound a DocumentAmendment by id (no global scope) and checked only
-    // the manage_documents key, so any holder could act on ANY agency's amendment. Add the per-record
+    // the permission key, so any holder could act on ANY agency's amendment. Add the per-record
     // guard on the underlying document.
     use \App\Http\Controllers\Concerns\AuthorizesDocumentAccess;
 
@@ -44,7 +52,7 @@ class AmendmentController extends Controller
     public function review(Request $request, DocumentAmendment $amendment): Response
     {
         $user = $request->user();
-        if (! $user->hasPermission('manage_documents')) {
+        if (! $user->hasPermission('documents.edit')) {
             abort(403);
         }
         abort_unless($amendment->document !== null, 404);
@@ -77,7 +85,7 @@ class AmendmentController extends Controller
     public function approve(Request $request, DocumentAmendment $amendment): RedirectResponse
     {
         $user = $request->user();
-        if (! $user->hasPermission('manage_documents')) {
+        if (! $user->hasPermission('documents.edit')) {
             abort(403);
         }
         abort_unless($amendment->document !== null, 404);
@@ -112,7 +120,7 @@ class AmendmentController extends Controller
     public function rejectChange(Request $request, DocumentAmendment $amendment): RedirectResponse
     {
         $user = $request->user();
-        if (! $user->hasPermission('manage_documents')) {
+        if (! $user->hasPermission('documents.edit')) {
             abort(403);
         }
         abort_unless($amendment->document !== null, 404);
@@ -136,7 +144,7 @@ class AmendmentController extends Controller
     public function rejectDocument(Request $request, DocumentAmendment $amendment): RedirectResponse
     {
         $user = $request->user();
-        if (! $user->hasPermission('manage_documents')) {
+        if (! $user->hasPermission('documents.edit')) {
             abort(403);
         }
         abort_unless($amendment->document !== null, 404);

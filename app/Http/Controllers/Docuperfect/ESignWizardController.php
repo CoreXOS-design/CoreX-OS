@@ -7773,14 +7773,26 @@ class ESignWizardController extends Controller
             // Surface it FIRST as "FLAGGED — review required".
             'flagged'          => $allTemplates->where('status', SignatureTemplate::STATUS_AMENDMENT_REVIEW)
                 ->each(function ($tpl) {
-                    // AT-300 — attach the pending flag amendment so the list CTA
-                    // deep-links to the FLAG-RESOLVE view (AmendmentController::review).
-                    // The doc-level signatures.review REJECTS an AMENDMENT_REVIEW
-                    // status (redirects "not pending approval") — that is why the
-                    // Review Flag button did nothing.
+                    // AT-300 — attach the pending amendment so the list CTA deep-links to
+                    // the FLAG-RESOLVE view (AmendmentController::review). The doc-level
+                    // signatures.review REJECTS an AMENDMENT_REVIEW status (redirects "not
+                    // pending approval") — that is why the Review Flag button did nothing.
+                    //
+                    // AT-387-flag (Johan 2026-08-30) — this used to filter on
+                    // amendment_type === TYPE_FLAG_RAISED ('flag_raised'), a value NO code
+                    // path in this codebase ever writes (grep confirms — only this query and
+                    // the TYPE_FLAG_RAISED constant itself reference it). Every real
+                    // recipient-raised amendment that lands a template in
+                    // STATUS_AMENDMENT_REVIEW is created as TYPE_ADDITION or
+                    // TYPE_MODIFICATION (SigningController::addCondition() /
+                    // SignatureService::createAmendment()), so the old filter matched
+                    // nothing, flag_amendment_id was always null, and the CTA silently fell
+                    // through to the broken doc-level fallback below. The status itself
+                    // (STATUS_AMENDMENT_REVIEW, set only by the amendment that froze this
+                    // template) is what identifies the blocking amendment — no type filter
+                    // needed.
                     $tpl->flag_amendment_id = \App\Models\Docuperfect\DocumentAmendment::query()
                         ->where('signature_template_id', $tpl->id)
-                        ->where('amendment_type', \App\Models\Docuperfect\DocumentAmendment::TYPE_FLAG_RAISED)
                         ->where('status', \App\Models\Docuperfect\DocumentAmendment::STATUS_PENDING)
                         ->latest('id')->value('id');
                 })
