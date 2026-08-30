@@ -48,7 +48,21 @@ final class LegacyOtherConditionsBridge
             return 0;
         }
 
-        $blockId = $this->resolveOtherConditionsBlockId($doc);
+        // PACK-SCOPING (fix, 2026-08-30) — resolveOtherConditionsBlockId() alone
+        // only ever returns the BARE id (it walks the primary template's own
+        // insertable_blocks, which knows nothing about pack merging). For a real
+        // multi-document pack the renderer looks the condition up by the SCOPED
+        // id (`other_conditions__<docKey>`, from the actual merged_html) —
+        // syncFramesToStructuredRows() already resolves that correctly via
+        // resolvePackDocKeys()/blockIdForFrame(); this method didn't, so a
+        // flat-textarea condition on a pack document was written under a block
+        // id nothing ever renders, and printed "No conditions yet" on a signed,
+        // initialled document. Route through the SAME resolver frames already
+        // use — untagged (null target) defaults to the pack's first document,
+        // matching blockIdForFrame()'s own convention. Single documents are
+        // unaffected: resolvePackDocKeys() returns [] for them, so this call
+        // collapses back to the bare id exactly as before.
+        $blockId = $this->blockIdForFrame(null, $this->resolvePackDocKeys($doc), $this->resolveOtherConditionsBlockId($doc));
         $agencyId = $this->resolveAgencyId($doc);
 
         $signature = sha1($text);
