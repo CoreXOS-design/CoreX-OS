@@ -1845,6 +1845,30 @@ class SigningController extends Controller
         $docTemplate    = $document->template;
         $fieldMappings  = is_array($docTemplate?->field_mappings ?? null) ? $docTemplate->field_mappings : [];
         $editableFields = $this->getEditableFieldsFromMappings($fieldMappings, $signingRequest->party_role);
+        // AT-410b (Johan 2026-08-31) — a field sourced from the Property record
+        // (sourceType: 'property', e.g. the property address) is creation-time
+        // data linked to the property the document was made against. It is
+        // NEVER recipient-editable by design — a recipient changing it in
+        // flight would detach the document from the property it was created
+        // for. editable_by on such a field only ever governs display/other
+        // surfaces, not this completion requirement, so it must not gate
+        // submission here even though it is present in field_mappings.
+        if (!empty($editableFields)) {
+            $propertySourcedVars = [];
+            foreach ($fieldMappings as $mapping) {
+                if (!is_array($mapping) || ($mapping['sourceType'] ?? null) !== 'property') {
+                    continue;
+                }
+                $name = $mapping['field_name'] ?? $mapping['label'] ?? '';
+                if ($name === '') {
+                    continue;
+                }
+                $varName = str_replace('.', '_', $name);
+                $varName = preg_replace('/[^a-zA-Z0-9_]/', '_', $varName);
+                $propertySourcedVars[] = $varName;
+            }
+            $editableFields = array_values(array_diff($editableFields, $propertySourcedVars));
+        }
         if (!empty($editableFields)
             && !collect((array) $request->input('field_values', []))->contains($nonEmpty)
         ) {

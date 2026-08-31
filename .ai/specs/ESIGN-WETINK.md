@@ -959,3 +959,178 @@ canonical compose — must run role-block normalize + expansion before
 showing it, whenever recipients exist to expand against. A future body-
 rendering surface that skips this pair will reproduce this exact bug class
 under a different name.
+
+---
+
+### Bug — the last recipient in a multi-document pack could never enable Submit: disclosure-answer count scoped to the whole pack, not to the document (fixed 2026-08-31, AT-410)
+
+Johan's report: on a natural-persons web pack, the last recipient in the
+signing chain reached the end with the ECTA consent box ticked, nothing
+outstanding on screen, and the "Submit Signed Document" button permanently
+disabled — no way forward. Reproduced live in a real headless-Chromium
+browser (never the PHPUnit harness — Alpine reactivity has to actually run)
+on a throwaway 3-document pack (EATS + MDF + Addendum B), 2 sellers + agent,
+sequential signing order. Agent and seller 1 completed cleanly; seller 2
+(the last recipient) measured `webIncompleteCount: -6`, `totalRequired: 46`,
+`signedCount: 52` (the derived `total - incomplete`, not an independent
+count), `incompleteItems: []` (empty — nothing left to show).
+
+**Root cause.** `canSubmitWeb()` is `webConsented && webIncompleteCount === 0`
+— a strict equality, so once the counter overshoots past zero it can never
+recover. `webIncompleteCount` is built by `_computeWebCounts()`
+(`external/sign.blade.php`, mirrored in `sign.blade.php` for the agent), one
+section of which is disclosure:
+
+```js
+if (this._signerIsDisclosingParty() && this.totalDisclosureRows > 0) {
+    total += this.totalDisclosureRows;
+    const answered = Object.keys(this.webDisclosureAnswers)
+        .filter(k => this._isDisclosureAnswerKey(k)).length;
+    incomplete += (this.totalDisclosureRows - answered);
+}
+```
+
+`totalDisclosureRows` (the denominator) is built PER DOCUMENT, correctly
+scoped to only the rows required of THIS signer right now — gated by
+`_disclosureEditable()`, which returns `false` once an earlier owner-party
+recipient has locked the grid (`disclosureMarksLocked`). But `answered` (the
+numerator) counted **every key in `webDisclosureAnswers`**, seeded wholesale
+via `_seedDisclosureFromStore()` from the single, pack-wide,
+document-unscoped `documents.web_template_data['disclosure_lock']['answers']`
+blob. A pack merges N disclosure-bearing documents into that ONE flat
+answer store; the denominator only ever reflected ONE document's rows, the
+numerator counted all of them.
+
+Confirmed on the real repro document: `disclosure_lock.answers` held 17
+keys split across two `docKey` prefixes — 11 from the MDF's legacy
+bare-table converter (`_processDisclosureTable`, which counts every
+qualifying row unconditionally — no lock gate) and 6 from Addendum B's
+`.corex-disclosure-checklist` converter (`processWebDisclosureChecklists`,
+correctly excluded from `totalDisclosureRows` for this signer because it was
+locked). `totalDisclosureRows` measured 11 (MDF only); `answered` measured
+17 (both documents); `11 − 17 = −6`, matching the live counter exactly.
+Every other `_computeWebCounts()` section (DB markers, inline signatures,
+page initials, ceremony fields, consent, B3 editable fields, condition
+initials) measured a clean 0 — the entire defect was isolated to this one
+subtraction. This is the same bug class as the AT-391 entry above in spirit
+(a pack-merge assumption that held for a single document breaking once a
+second document enters the same flat, unscoped state) but a different
+mechanism — trigger condition is specifically **any pack containing more
+than one disclosure-bearing sub-document**, regardless of party shape.
+
+**Fix**: scope the numerator to the denominator. `_gatedDisclosureRowKeys` (a
+`Set`, contract state alongside `webDisclosureAnswers`/`totalDisclosureRows`/
+`storedDisclosure` in `disclosure-logic.blade.php`'s shared header) is reset
+every pass in `_processAllDisclosures()` and populated 1:1 with every
+`totalDisclosureRows` increment — unconditionally in the bare-table
+converter (matching its unconditional `totalRows++`), only when `editable`
+in the checklist converter (matching its conditional `gatedIdx++`). Every
+site that compares an "answered" count against `totalDisclosureRows` now
+filters through it: `Object.keys(webDisclosureAnswers).filter(k =>
+isDisclosureAnswerKey(k) && gatedKeys.has(k))`. `answered` can now never
+exceed `totalDisclosureRows` (it counts a subset of the same set), so
+`incomplete` can never go negative and `canSubmitWeb()`'s strict `=== 0`
+check is left untouched — the arithmetic is correct, not loosened. Fixed in
+both consuming views (all four call sites: `_computeIncompleteItems()`,
+`_computeWebCounts()`, and `completeWebSigning()`'s pre-submit warning in
+`external/sign.blade.php`; the equivalent `_computeWebCounts()`-analogue in
+`sign.blade.php` for the agent) and in the shared
+`processWebDisclosureChecklists()`/`_processDisclosureTable()` converters —
+the SAME single source both views already pull from, so the fix does not
+fork per view.
+
+**Verified** on Staging (throwaway agency/pack/documents only — never
+touching Johan's document 896, template 106, or any real data), in a real
+headless-Chromium browser driving the actual rendered page and the actual
+"Submit Signed Document" button — never a direct POST to `complete-web`:
+- Pack with 2 disclosure-bearing documents, 3 recipients (agent, seller 1,
+  seller 2, sequential order): all three recipients' `webIncompleteCount`
+  landed on exactly 0, `canSubmitWeb: true`, the button enabled, submit
+  succeeded, each reached "Thank You! You have successfully signed the
+  document."
+- Single document (no pack merge, one disclosure-bearing document), 2
+  recipients: both completed exactly as before — no regression.
+
+**Server-side note, explicitly NOT addressed by this fix, on Johan's
+instruction**: `SigningController::completeWeb()`'s floor check (≥1
+non-empty signature/initial anywhere in the request body, ≥1 non-empty
+field value if the party has editable fields, `consented: true`) does not
+verify the payload actually covers every genuinely-required marker. A direct
+POST to `/sign/{token}/complete-web` with a minimal fabricated payload was
+confirmed to return `200 {"ok":true,"completed":true,"fully_complete":true}`
+against a fresh, genuinely-incomplete recipient session (button correctly
+disabled, consent never given, 16 real items outstanding). This means every
+automated/test pass that completes a recipient's turn via a direct request
+rather than the real enabled button is not proof a human could have done the
+same. Logged here so it isn't lost; a separate authorised task, not this
+one.
+
+**The general rule this establishes**: any per-signer "required" count built
+from a pack-wide, document-unscoped store (here, `webDisclosureAnswers`
+seeded from a flat `disclosure_lock.answers` blob) must track WHICH keys
+were actually counted into the denominator this pass, and score the
+numerator against that same set — never against every key the flat store
+happens to hold. A future disclosure-like gate (any "N of M required,
+M computed per-signer, sourced from a shared multi-document store") that
+skips this scoping will reproduce this exact bug class under a different
+name.
+
+---
+
+### Bug — a pre-filled, property-linked field could permanently block Submit: the guard demanded a value no recipient can ever provide (fixed 2026-08-31, AT-410b)
+
+Johan's report, reproduced live on the Mandatory Disclosure Form (MDF,
+template 100): the Seller recipient reached the end of the document with
+consent ticked, every marker signed, every disclosure row answered, the
+progress counter at 0 outstanding, "Ready to submit" on screen, and the
+"Submit Signed Document" button enabled. Clicking it returned "Please
+complete the fields assigned to you before submitting." — an unsatisfiable
+requirement, since nothing on the page was left for the recipient to fill.
+
+**Business rule (Johan, authoritative — encode this, do not work around
+it):** a document's property address is creation-time data, resolved from
+the Property record the document was linked to when it was made. It is
+**never editable by a recipient, by design** — a recipient changing "1 Steve
+Street, Uvongo" to "10 Pete Street, Uvongo" in flight would detach the
+document from the property it was created for and exposes the agency to an
+accusation of altering paperwork after the fact. If the address is wrong,
+it is corrected AT CREATION by re-linking the correct property — never by a
+recipient editing the rendered document. The field correctly renders as
+static, non-editable text. That render behaviour is correct and stays.
+
+**Root cause.** `SigningController::completeWeb()`'s completion floor
+(~line 1845) decided "this recipient still has fields to fill" purely from
+`docuperfect_templates.field_mappings[tag].editable_by` — a config value
+recording who is *permitted* to reference/see a field, not whether the
+field is actually a recipient-fillable input on the rendered page. The MDF's
+one field (`tag-mtgzu4ye-larlqr`, "Property Address") carries
+`editable_by: ["agent", "owner_party"]` but `sourceType: "property"` — it is
+sourced from the linked Property record, not typed by any signer. Because
+the guard read `editable_by` alone, it demanded a non-empty
+`field_values` entry for a field no recipient interface will ever submit a
+value for. Unsatisfiable by construction — the correctly-static render (see
+the business rule above) and the guard's requirement disagreed, and the
+guard was the one asserting something false.
+
+**Fix, server-side only** (`SigningController::completeWeb()`, ~line
+1845-1855; nothing else touched — no render-path change, no
+`RoleBlockExpansionService` change, no `sign.blade.php` change): before
+checking whether the recipient has outstanding fields, the guard now
+excludes any `field_mappings` entry whose `sourceType === 'property'` from
+the "must supply a value" set. A field's presence in `editable_by` still
+gates every other surface it always has; it just no longer, on its own,
+manufactures a submission requirement for a field sourced from the
+property record. Genuinely recipient-fillable fields (`sourceType` anything
+else) are completely unaffected — a recipient with real fields to complete
+is still correctly blocked until they fill them.
+
+**The general rule this establishes**: a completion gate must never derive
+"the recipient still owes a value here" from a permission list alone —
+`editable_by` says who is allowed to reference a field, not who is expected
+to type into it. Where a field's `sourceType` marks it as sourced from
+another pillar record (here, Property) rather than signer input, that
+field is definitionally not something a signing completion floor may
+require a submitted value for, regardless of what `editable_by` lists.
+A future completion gate that reads only the permission list and not the
+field's data-source will reproduce this exact "unsatisfiable requirement"
+bug class under a different name.
