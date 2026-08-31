@@ -2086,31 +2086,33 @@ class CdsParserService
 
     /**
      * Post-process: detect signature sections at the end of the document.
-     * Scans backwards for signature trigger phrases and collects all
-     * remaining sections into a single signature_section with party roles.
+     *
+     * AT-390 (Johan 2026-08-31, Letting Mandate V5 half-vanishing on import)
+     * — this used to ALWAYS backward-scan for signature trigger PHRASES as
+     * raw substrings, e.g. str_contains($text, 'signature'). Every document
+     * in this estate marks its real signature line explicitly (%%%%,
+     * detected by detectMarkers() earlier in this same pipeline — see
+     * parseDocument()), so a marker WITHIN REACH of the true document end
+     * is authoritative and checked FIRST — see findSignatureMarkerSectionIndex()
+     * for why "within reach" (the same 15-section window the fallback
+     * always used) matters: not every %%%% in a real document is the
+     * terminal ceremony.
+     *
+     * The substring scan is kept ONLY as a fallback for documents with no
+     * explicit marker, and is tightened: word-boundary matching (never a
+     * substring inside another word — "signed" must not match inside
+     * "assigned"/"designated"/"co-signed"/"unsigned"), plus a length sanity
+     * check, since a real signature LINE is a handful of words, never a
+     * 400-character clause that happens to mention "signature" in passing
+     * ("...shall commence on date of signature hereof...", an ordinary
+     * mandate-period clause — this exact phrase was the trigger that
+     * swallowed clauses 3-7, the bank-details block, and the Other
+     * Conditions block into one unrendered "preamble" string).
      */
     private function detectSignatureSections(array $sections): array
     {
-        $sigStart = null;
-        $sigKeywords = [
-            'signed', 'signature', 'thus done', 'accepted and signed',
-            'signed at', 'hereto set',
-        ];
-
-        // Scan backwards for the signature area trigger
-        for ($i = count($sections) - 1; $i >= 0; $i--) {
-            $text = strtolower($this->contentToPlainText($sections[$i]['content'] ?? []));
-
-            foreach ($sigKeywords as $keyword) {
-                if (str_contains($text, $keyword)) {
-                    $sigStart = $i;
-                    break 2;
-                }
-            }
-
-            // If we've gone more than 15 sections from the end without finding a trigger, stop
-            if (count($sections) - $i > 15) break;
-        }
+        $sigStart = $this->findSignatureMarkerSectionIndex($sections)
+            ?? $this->findSignatureKeywordSectionIndex($sections);
 
         if ($sigStart === null) return $sections;
 
@@ -2129,6 +2131,76 @@ class CdsParserService
         ];
 
         return $mainSections;
+    }
+
+    /**
+     * AT-390 — the authoritative trigger: the section containing the
+     * explicit %%%% signature marker (detectMarkers() converts it to a
+     * 'signature_placeholder' content item). Scans backward so a document
+     * with more than one such marker anchors on the one closest to the true
+     * end-of-document signature block, matching the old scan's direction.
+     *
+     * CAPPED to the same 15-section backward window the original text-scan
+     * always used — proven necessary against a real document: EXCLUSIVE
+     * AUTHORITY TO SELL carries THREE %%%% markers, none of them the
+     * terminal ceremony (they sign off individual clauses/fee schedules
+     * mid-document — a warranty clause, "Other" conditions, then 17 more
+     * sections of real content: Show House Security, the HFC Pledge, POPI
+     * consent). The nearest marker sits 18 sections from the true end.
+     * Without this cap, an uncapped "last marker wins" would treat that
+     * mid-document marker as the whole document's signature start and
+     * collapse all 18 trailing real sections into one unrendered blob —
+     * exactly the AT-390 failure mode, self-inflicted on a document that
+     * has never had this problem (confirmed: it has never produced a
+     * synthetic signature_section at all — this function has always
+     * legitimately returned null for it, and must keep doing so).
+     * Returns null when no marker exists within reach — the caller falls
+     * back to the tightened text scan.
+     */
+    private function findSignatureMarkerSectionIndex(array $sections): ?int
+    {
+        for ($i = count($sections) - 1; $i >= 0; $i--) {
+            foreach (($sections[$i]['content'] ?? []) as $item) {
+                if (is_array($item) && ($item['type'] ?? null) === 'signature_placeholder') {
+                    return $i;
+                }
+            }
+            if (count($sections) - $i > 15) break;
+        }
+        return null;
+    }
+
+    /**
+     * AT-390 — fallback for documents with no explicit signature marker.
+     * Word-boundary matching (not substring) against a SHORT section only
+     * — a real signature line is a handful of words. $maxSignatureLineLength
+     * is generous for genuine signature-block phrasing ("SIGNED at Uvongo
+     * on this 3rd day of March 2026 by the duly authorised representative
+     * of the Agency") while still ruling out any ordinary body clause.
+     */
+    private function findSignatureKeywordSectionIndex(array $sections): ?int
+    {
+        $sigKeywords = [
+            'signed', 'signature', 'thus done', 'accepted and signed',
+            'signed at', 'hereto set',
+        ];
+        $maxSignatureLineLength = 120;
+
+        for ($i = count($sections) - 1; $i >= 0; $i--) {
+            $text = strtolower($this->contentToPlainText($sections[$i]['content'] ?? []));
+
+            if ($text !== '' && strlen($text) <= $maxSignatureLineLength) {
+                foreach ($sigKeywords as $keyword) {
+                    if (preg_match('/\b' . preg_quote($keyword, '/') . '\b/', $text)) {
+                        return $i;
+                    }
+                }
+            }
+
+            // If we've gone more than 15 sections from the end without finding a trigger, stop
+            if (count($sections) - $i > 15) break;
+        }
+        return null;
     }
 
     /**
