@@ -22,6 +22,44 @@
     </div>
 @endif
 
+{{-- AT-390 — a CoreX (owner-role, no agency of their own) account has no
+     "own agency" for cdsGenerate() to stamp this template with. Surfaces the
+     EXISTING agency switcher (session active_agency_id / effectiveAgencyId())
+     right here rather than adding a second, competing selector -- selecting
+     an agency below posts to the same route the sidebar switcher uses and
+     simply reloads this page. Ordinary agency users never see this block;
+     isOwnerRole() is the identical gate the sidebar switcher itself uses. --}}
+@if(isset($errors) && $errors->has('agency'))
+    <div class="mx-4 mt-3 rounded-md px-4 py-3 text-sm font-semibold" style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent); border: 1px solid color-mix(in srgb, var(--ds-crimson) 35%, transparent); color: var(--ds-crimson);">
+        {{ $errors->first('agency') }}
+    </div>
+@endif
+
+@if($isPlatformUser ?? false)
+    <div class="mx-4 mt-3 rounded-md px-4 py-3 text-sm flex items-center gap-3 flex-wrap"
+         style="background: color-mix(in srgb, var(--brand-icon) 8%, transparent); border: 1px solid color-mix(in srgb, var(--brand-icon) 30%, transparent); color: var(--text-primary);">
+        @if($activeAgencyName)
+            <span>Building for <strong>{{ $activeAgencyName }}</strong>. This template will belong to that agency only.</span>
+        @else
+            <span class="font-semibold" style="color: var(--ds-amber);">No agency selected — this template cannot be saved to a specific agency until you pick one.</span>
+        @endif
+        {{-- Posts to cdsSwitchAgencyContext(), not the raw sidebar-switcher route
+             directly -- this draft's own agency_id (CdsDraft uses BelongsToAgency)
+             must be backfilled in the SAME request, or the next page load's
+             {draft} route-model-binding 404s the moment the context changes. --}}
+        <form method="POST" action="{{ route('docuperfect.cds.switchAgency', ['draft' => $draftId, 'agency' => $activeAgencyId ?: ($switchableAgencies->first()->id ?? 0)]) }}" class="flex items-center gap-2" id="cdsAgencySwitchForm">
+            @csrf
+            <select name="_cds_agency_display_only" class="text-xs border border-gray-300 rounded px-2 py-1 bg-white"
+                    onchange="document.getElementById('cdsAgencySwitchForm').action = '{{ url('/docuperfect/templates/cds/builder/' . $draftId . '/switch-agency') }}/' + this.value; document.getElementById('cdsAgencySwitchForm').submit();">
+                <option value="" disabled {{ !$activeAgencyId ? 'selected' : '' }}>Select agency&hellip;</option>
+                @foreach($switchableAgencies as $ag)
+                    <option value="{{ $ag->id }}" {{ (int) $activeAgencyId === (int) $ag->id ? 'selected' : '' }}>{{ $ag->name }}</option>
+                @endforeach
+            </select>
+        </form>
+    </div>
+@endif
+
 <div class="flex flex-col h-full overflow-hidden"
      x-data="cdsEditor()"
      x-init="init()">
