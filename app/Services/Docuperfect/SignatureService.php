@@ -4109,12 +4109,17 @@ class SignatureService
         $templateIds = $webTemplateData['template_ids'] ?? [];
         // §19 Option 2 — split/file from the EXACT signed-and-paginated DOM
         // (per-document .corex-a4-page + per-page initials, as the signer
-        // saw). Fall back to canonical merged_html for legacy / never-web-
-        // signed documents. The server never re-paginates here.
+        // saw). Fall back to canonical_html — the fully-baked insertable-block
+        // source (see CanonicalDocumentRenderer) — and only then to the raw
+        // merged_html compose-time snapshot, which still carries unbaked
+        // ~~~~OTHER_CONDITIONS__x~~~~-style markers instead of rendered
+        // conditions/included/excluded blocks. Matches the canonical-first
+        // idiom used elsewhere in this class/DocumentSealService for "give me
+        // the authoritative final HTML". The server never re-paginates here.
         $signedPaginated = $document->signed_paginated_html;
         $mergedHtml = (is_string($signedPaginated) && trim($signedPaginated) !== '')
             ? $signedPaginated
-            : ($webTemplateData['merged_html'] ?? '');
+            : ($webTemplateData['canonical_html'] ?? $webTemplateData['merged_html'] ?? '');
         $propertyId = $document->property_id;
 
         // Resolve signing contacts once (shared across all filed documents)
