@@ -184,6 +184,205 @@ final class TemplateCreationDefaultsTest extends TestCase
         $this->assertSame($agency->id, $fresh->agency_id);
     }
 
+    // ── AT-390 — a CoreX (owner-role, no agency of its own) account creating or
+    // editing a template on an agency's behalf via cdsGenerate(), driven by the
+    // EXISTING agency switcher (session active_agency_id) rather than a second
+    // selector. This is what closed template 96's original defect: cdsGenerate()
+    // stamped agency_id from the creator's OWN effectiveAgencyId(), which for a
+    // CoreX account is NULL. ──
+
+    /** @return User an owner-role account with NO agency of its own. */
+    private function seedOwnerUser(): User
+    {
+        $ownerRole = Role::create(['name' => 'super_admin_' . uniqid(), 'label' => 'System Owner']);
+        $ownerRole->is_owner = true;
+        $ownerRole->save();
+        Role::clearCache();
+
+        return User::factory()->create([
+            'agency_id' => null, 'branch_id' => null, 'role' => $ownerRole->name, 'is_active' => true,
+        ]);
+    }
+
+    public function test_owner_creating_a_template_with_no_agency_selected_is_refused(): void
+    {
+        $owner = $this->seedOwnerUser();
+        $draft = CdsDraft::create([
+            'user_id' => $owner->id, 'agency_id' => null, 'template_name' => 'Orphan Attempt',
+            'cds_json' => ['sections' => []], 'mappings' => [], 'tags' => [], 'tagged_html' => '<p>Body</p>',
+            'settings' => [], 'source_template_id' => null, 'status' => 'draft',
+        ]);
+
+        // No active_agency_id in session -- exactly Johan's shape before he
+        // used the switcher.
+        $this->actingAs($owner)->post('/docuperfect/templates/cds/generate', [
+            'draft_id' => $draft->id, 'template_name' => 'Orphan Attempt', 'is_esign' => 1, 'party_mode' => 'shared',
+        ])->assertSessionHasErrors('agency');
+
+        $this->assertDatabaseMissing('docuperfect_templates', ['name' => 'Orphan Attempt']);
+    }
+
+    public function test_owner_creating_a_template_with_an_agency_selected_stamps_that_agency(): void
+    {
+        $owner = $this->seedOwnerUser();
+        $target = Agency::create(['name' => 'Target Agency', 'slug' => 'target-agency-' . uniqid()]);
+        $draft = CdsDraft::create([
+            'user_id' => $owner->id, 'agency_id' => null, 'template_name' => 'On Behalf Of Target',
+            'cds_json' => ['sections' => []], 'mappings' => [], 'tags' => [], 'tagged_html' => '<p>Body</p>',
+            'settings' => [], 'source_template_id' => null, 'status' => 'draft',
+        ]);
+
+        // Drive the REAL flow: the agency-switch control surfaced on the
+        // builder page, not a raw session poke -- this also backfills the
+        // draft's own (BelongsToAgency-scoped) agency_id, which the switch
+        // must do or the draft becomes unreachable to itself.
+        $this->actingAs($owner)
+            ->post(route('docuperfect.cds.switchAgency', ['draft' => $draft->id, 'agency' => $target->id]))
+            ->assertRedirect();
+
+        $this->actingAs($owner)
+            ->post('/docuperfect/templates/cds/generate', [
+                'draft_id' => $draft->id, 'template_name' => 'On Behalf Of Target', 'is_esign' => 1, 'party_mode' => 'shared',
+            ])->assertRedirect();
+
+        $template = Template::where('name', 'On Behalf Of Target')->firstOrFail();
+        $this->assertSame($target->id, $template->agency_id);
+        $this->assertFalse((bool) $template->is_global);
+    }
+
+    public function test_owner_editing_an_existing_template_reassigns_it_to_the_switched_agency(): void
+    {
+        // The exact repro for template 96: created (or previously stranded)
+        // under the wrong agency; a CoreX user opens it, switches to the
+        // correct agency, and saves -- through the interface, no data patch.
+        $owner = $this->seedOwnerUser();
+        $wrongAgency = Agency::create(['name' => 'Wrong Agency', 'slug' => 'wrong-agency-' . uniqid()]);
+        $correctAgency = Agency::create(['name' => 'Correct Agency', 'slug' => 'correct-agency-' . uniqid()]);
+
+        $template = Template::create([
+            'name' => 'Stranded Template', 'render_type' => 'web', 'template_type' => 'cds',
+            'fields_json' => [], 'is_global' => false, 'agency_id' => $wrongAgency->id, 'owner_id' => $owner->id,
+        ]);
+        $draft = CdsDraft::create([
+            'user_id' => $owner->id, 'agency_id' => null, 'template_name' => $template->name,
+            'cds_json' => ['sections' => []], 'mappings' => [], 'tags' => [], 'tagged_html' => '<p>Body</p>',
+            'settings' => [], 'source_template_id' => $template->id, 'status' => 'draft',
+        ]);
+
+        $this->actingAs($owner)
+            ->post(route('docuperfect.cds.switchAgency', ['draft' => $draft->id, 'agency' => $correctAgency->id]))
+            ->assertRedirect();
+
+        $this->actingAs($owner)
+            ->post('/docuperfect/templates/cds/generate', [
+                'draft_id' => $draft->id, 'template_name' => $template->name, 'is_esign' => 1, 'party_mode' => 'shared',
+            ])->assertRedirect();
+
+        $fresh = $template->fresh();
+        $this->assertSame($correctAgency->id, $fresh->agency_id, 'the interface must be able to reassign a stranded template');
+        $this->assertNotSame($wrongAgency->id, $fresh->agency_id);
+    }
+
+    // ── TemplateController::cdsSwitchAgencyContext() — the endpoint itself ──
+
+    public function test_switch_agency_context_backfills_a_null_draft_agency_id(): void
+    {
+        $owner = $this->seedOwnerUser();
+        $target = Agency::create(['name' => 'Backfill Target', 'slug' => 'backfill-target-' . uniqid()]);
+        $draft = CdsDraft::create([
+            'user_id' => $owner->id, 'agency_id' => null, 'template_name' => 'Backfill Draft',
+            'cds_json' => ['sections' => []], 'mappings' => [], 'tags' => [], 'tagged_html' => '<p>Body</p>',
+            'settings' => [], 'source_template_id' => null, 'status' => 'draft',
+        ]);
+
+        $this->actingAs($owner)
+            ->post(route('docuperfect.cds.switchAgency', ['draft' => $draft->id, 'agency' => $target->id]))
+            ->assertRedirect(route('docuperfect.cds.builder', $draft));
+
+        $this->assertSame($target->id, $draft->fresh()->agency_id);
+    }
+
+    public function test_switch_agency_context_never_overwrites_an_already_set_draft_agency_id(): void
+    {
+        // Re-opening an EXISTING template's draft (agency_id already set from
+        // a prior save) must not have that silently reassigned by a routine
+        // context switch -- only cdsGenerate()'s explicit save path reassigns,
+        // and only for the template, never speculatively on this draft.
+        $owner = $this->seedOwnerUser();
+        $original = Agency::create(['name' => 'Original', 'slug' => 'original-' . uniqid()]);
+        $other = Agency::create(['name' => 'Other', 'slug' => 'other-' . uniqid()]);
+        $draft = CdsDraft::create([
+            'user_id' => $owner->id, 'agency_id' => $original->id, 'template_name' => 'Already Scoped Draft',
+            'cds_json' => ['sections' => []], 'mappings' => [], 'tags' => [], 'tagged_html' => '<p>Body</p>',
+            'settings' => [], 'source_template_id' => null, 'status' => 'draft',
+        ]);
+
+        $this->actingAs($owner)
+            ->post(route('docuperfect.cds.switchAgency', ['draft' => $draft->id, 'agency' => $other->id]))
+            ->assertRedirect();
+
+        $this->assertSame($original->id, $draft->fresh()->agency_id, 'an already-scoped draft\'s agency_id must not change on a routine context switch');
+    }
+
+    public function test_switch_agency_context_refuses_a_non_owner(): void
+    {
+        ['agency' => $agency, 'manager' => $user] = $this->seedAgencyWithManager('NonOwnerSwitchAttempt');
+        $target = Agency::create(['name' => 'Non-owner Target', 'slug' => 'non-owner-target-' . uniqid()]);
+
+        // Created WHILE authenticated as this user, matching real usage --
+        // BelongsToAgency's creating() hook auto-stamps a non-owner's own
+        // agency_id regardless of what's passed, so this is the draft an
+        // ordinary user actually has (an ordinary user can never legitimately
+        // end up with a null-agency draft -- that shape is owner-only).
+        $this->actingAs($user);
+        $draft = CdsDraft::create([
+            'user_id' => $user->id, 'template_name' => 'Non-owner Draft',
+            'cds_json' => ['sections' => []], 'mappings' => [], 'tags' => [], 'tagged_html' => '<p>Body</p>',
+            'settings' => [], 'source_template_id' => null, 'status' => 'draft',
+        ]);
+        $this->assertSame($agency->id, $draft->agency_id, 'sanity check: an ordinary user\'s own draft is always agency-stamped, never null');
+
+        // Whatever the exact HTTP status, this owner-only endpoint must not let
+        // an ordinary agency user change agency context or touch this draft.
+        $response = $this->actingAs($user)
+            ->post(route('docuperfect.cds.switchAgency', ['draft' => $draft->id, 'agency' => $target->id]));
+        $this->assertContains($response->getStatusCode(), [403, 404], 'must refuse, whether by 403 (owner check) or 404 (agency-scope invisibility)');
+
+        $this->assertSame($agency->id, $draft->fresh()->agency_id, 'the switch must not have taken effect');
+        $this->assertNull(session('active_agency_id'), 'the switch must not have taken effect');
+    }
+
+    public function test_ordinary_agency_user_editing_their_own_template_never_has_agency_id_touched(): void
+    {
+        // Regression guard: an ordinary agency user must never be able to
+        // reassign a template out of their own agency -- not via a session
+        // value, not by accident. This exercises cdsGenerate()'s update
+        // branch for a NON-owner, which must behave exactly as before this
+        // change (agency_id absent from the update payload entirely).
+        ['agency' => $agency, 'manager' => $user] = $this->seedAgencyWithManager('OrdinaryEditor');
+        $foreignAgency = Agency::create(['name' => 'Foreign Agency', 'slug' => 'foreign-agency-' . uniqid()]);
+
+        $template = Template::create([
+            'name' => 'Ordinary Template', 'render_type' => 'web', 'template_type' => 'cds',
+            'fields_json' => [], 'is_global' => false, 'agency_id' => $agency->id, 'owner_id' => $user->id,
+        ]);
+        $draft = CdsDraft::create([
+            'user_id' => $user->id, 'agency_id' => $agency->id, 'template_name' => $template->name,
+            'cds_json' => ['sections' => []], 'mappings' => [], 'tags' => [], 'tagged_html' => '<p>Edited</p>',
+            'settings' => [], 'source_template_id' => $template->id, 'status' => 'draft',
+        ]);
+
+        // Even if a foreign agency_id somehow ended up in this non-owner's
+        // session (it never legitimately could -- userCanSwitchTo() blocks
+        // it), the update branch must not consult it for a non-owner at all.
+        $this->actingAs($user)->withSession(['active_agency_id' => $foreignAgency->id])
+            ->post('/docuperfect/templates/cds/generate', [
+                'draft_id' => $draft->id, 'template_name' => $template->name, 'is_esign' => 1, 'party_mode' => 'shared',
+            ])->assertRedirect();
+
+        $this->assertSame($agency->id, $template->fresh()->agency_id, 'an ordinary user\'s edit must never change agency_id');
+    }
+
     // ── Edit-screen footgun guard (TemplateController::saveFields()) ──
     // Note: is_global can no longer be toggled through this endpoint at all (see the
     // "no request-input path" tests below) -- these two exercise the guard purely on

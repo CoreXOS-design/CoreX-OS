@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Docuperfect;
 
 use App\Http\Controllers\Controller;
+use App\Models\Agency;
 use App\Models\Docuperfect\AgencySigningParty;
 use App\Models\Docuperfect\CdsDraft;
 use App\Models\Docuperfect\DocumentType;
@@ -426,6 +427,38 @@ class TemplateController extends Controller
 
     // ===== CDS Document Engine — DB-backed draft pipeline =====
 
+    /**
+     * AT-390 — set the agency context for this draft's builder session,
+     * wrapping the existing sidebar agency switcher (session active_agency_id)
+     * rather than adding a second, competing mechanism. Owner-role only —
+     * mirrors AgencySwitcherController's own gate.
+     *
+     * Also backfills THIS draft's own agency_id when it is still null.
+     * CdsDraft uses BelongsToAgency (App\Models\Concerns\BelongsToAgency), so
+     * switching context alone would otherwise orphan the draft from itself:
+     * the very next request's {draft} route-model-binding would 404, since
+     * the draft's agency_id (null) would no longer match the newly-active
+     * agency. Never overwrites an already-set agency_id — an existing
+     * template's re-edit must not have its scope silently reassigned by a
+     * routine context switch (only cdsGenerate()'s explicit owner-reassign
+     * path does that, and only on save).
+     */
+    public function cdsSwitchAgencyContext(CdsDraft $draft, Agency $agency)
+    {
+        $user = auth()->user();
+        abort_unless($user && $user->isOwnerRole(), 403);
+        abort_if($draft->user_id !== $user->id, 403);
+
+        session(['active_agency_id' => $agency->id]);
+
+        if ($draft->agency_id === null) {
+            $draft->update(['agency_id' => $agency->id]);
+        }
+
+        return redirect()->route('docuperfect.cds.builder', $draft)
+            ->with('success', "Building for {$agency->name}.");
+    }
+
     public function cdsBuilder(CdsDraft $draft)
     {
         $user = auth()->user();
@@ -525,6 +558,19 @@ class TemplateController extends Controller
             ? Template::find($draft->source_template_id)
             : null;
 
+        // AT-390 — a CoreX (owner-role, no agency of their own) account has no
+        // "own agency" for cdsGenerate() to stamp a saved template with. Surface
+        // the existing agency switcher (session active_agency_id, read by
+        // effectiveAgencyId()) right here instead of adding a second, competing
+        // selector. Ordinary agency users never see this — isOwnerRole() is the
+        // same gate the sidebar switcher itself already uses.
+        $isPlatformUser = $user->isOwnerRole();
+        $switchableAgencies = $isPlatformUser ? Agency::orderBy('name')->get(['id', 'name']) : collect();
+        $activeAgencyId = $user->effectiveAgencyId();
+        $activeAgencyName = $activeAgencyId
+            ? optional($switchableAgencies->firstWhere('id', $activeAgencyId) ?? Agency::find($activeAgencyId))->name
+            : null;
+
         return view('docuperfect.templates.cds-builder', [
             'draftId' => $draft->id,
             'cds' => $draft->cds_json,
@@ -548,6 +594,10 @@ class TemplateController extends Controller
             'savedMappings' => $draft->mappings ?? (object)[],
             'savedTaggedHtml' => $draft->tagged_html ?? '',
             'savedSettings' => $draft->settings ?? [],
+            'isPlatformUser' => $isPlatformUser,
+            'switchableAgencies' => $switchableAgencies,
+            'activeAgencyId' => $activeAgencyId,
+            'activeAgencyName' => $activeAgencyName,
         ]);
     }
 
@@ -637,8 +687,27 @@ class TemplateController extends Controller
 
         if ($draft->source_template_id) {
             $template = Template::findOrFail($draft->source_template_id);
+            // AT-390 — a CoreX (owner-role) account has no agency of its own, so
+            // it has no "own agency" to accidentally reassign a template AWAY
+            // from on a routine edit — unlike an ordinary agency user, for whom
+            // agency_id must stay untouched here exactly as before (see the
+            // 2026-08-24 note above re: is_global). This is what lets a CoreX
+            // user fix a template that landed under the wrong agency: pick the
+            // correct one via the switcher surfaced on this page, then save.
+            if ($user->isOwnerRole()) {
+                $templateData['agency_id'] = $user->effectiveAgencyId();
+            }
             $template->update($templateData);
         } else {
+            // AT-390 — a CoreX account with no agency selected must not silently
+            // strand a new template with agency_id NULL again (the exact defect
+            // that stranded template 96). Ordinary agency users always have an
+            // effectiveAgencyId(), so this only ever fires for a CoreX account
+            // that skipped the switcher surfaced on this page.
+            if ($user->isOwnerRole() && ! $user->effectiveAgencyId()) {
+                return back()->withErrors(['agency' => 'Select an agency above before saving this template.']);
+            }
+
             // New template: agency_id stamped to the creator's own agency,
             // is_global stays false. Reachability comes from
             // Template::assertAccessibleBy()'s zero-branches -> agency-match
