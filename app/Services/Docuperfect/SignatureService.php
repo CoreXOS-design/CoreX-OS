@@ -6053,11 +6053,28 @@ class SignatureService
 
             // Mark conditions tied to this amendment as superseded (soft-
             // delete so they remain auditable).
+            $hadLiveConditions = \App\Models\Docuperfect\DocumentCondition::where('amendment_id', $amendment->id)
+                ->whereNull('superseded_at')
+                ->whereNull('deleted_at')
+                ->exists();
             \App\Models\Docuperfect\DocumentCondition::where('amendment_id', $amendment->id)
                 ->update([
                     'superseded_at' => now(),
                 ]);
             \App\Models\Docuperfect\DocumentCondition::where('amendment_id', $amendment->id)->delete();
+
+            if ($hadLiveConditions) {
+                // AT-389, 2026-08-31 — sibling of the fix in agentAmendmentAction()'s reject
+                // branch (778b723af, 2026-08-30): soft-deleting the condition row alone leaves
+                // its content sitting in the ALREADY-BAKED canonical_html, so a rejected change
+                // still finalised into the signed PDF/filed copies with the rejected text — and
+                // its "Amendment pending agent review" badge — intact. refreshInsertableBlocks()
+                // re-renders the other_conditions block from the current live (non-superseded,
+                // non-deleted) rows, so the just-rejected condition is excluded entirely rather
+                // than left in place under a stale label.
+                app(\App\Services\Docuperfect\CanonicalDocumentRenderer::class)
+                    ->refreshInsertableBlocks($template);
+            }
 
             \App\Models\Docuperfect\DocumentClauseStrikethrough::where('amendment_id', $amendment->id)
                 ->update([
