@@ -110,6 +110,10 @@ would have hidden the 2026-08-31 finding.
 - [x] Another agency's listing is refused.
 - [x] The server records `received` itself on every successful mobile upload.
 - [x] The report page is reachable from the sidebar and permission-gated.
+- [x] A photo the agent deleted in review counts as `dropped`, not as
+      "never arrived" — added 2026-08-31 once shutter-time enqueue made
+      `dropped` a NORMAL outcome. Counting deliberate deletions as losses would
+      paint a healthy shoot as broken and bury the real losses in noise.
 - [ ] **Mobile app**: reports the six client phases, durably, replayed on failure.
 
 ## 8. Deliberately NOT in this pass

@@ -66,6 +66,25 @@ No migration. Existing columns only:
 | Method | Path | Purpose |
 |---|---|---|
 | PUT | `/api/v1/mobile/properties/{property}/gallery/assign` | File already-uploaded photos under a room, or return them to unsorted |
+| POST | `/api/v1/mobile/properties/{property}/images/delete` | Take already-uploaded photos back off the listing |
+
+### Why delete exists (added 2026-08-31, second pass)
+
+The mobile app now enqueues at the shutter and drains without waiting for the
+camera to close, so **a photo the agent deletes in review may already be on the
+server**. Before this endpoint the app could add photos and never remove them —
+the agent was told to go and open the web app, which is the same "put in, can't
+take out" gap the assign endpoint fixed for tagging.
+
+Mirrors the web `deleteImages()`: assistants refused (AT-267), references dropped
+inside the row lock, files unlinked only AFTER the references are gone so a failed
+update cannot leave a dangling reference (a dangling reference blocks the entire
+PrivateProperty listing update — see `RepairGalleryReferences`).
+
+`gallery_upload_keys` is deliberately **left intact** on delete, exactly as the web
+delete leaves it. That key is what makes `uploadImage()` short-circuit a retry;
+clearing it would let an in-flight retry of the just-deleted photo re-upload and
+resurrect it. A deleted photo stays deleted even if the phone tries again.
 
 Named `v1.mobile.properties.gallery.assign`, inside the existing
 `mobile/properties` group, so it inherits Sanctum auth and the
@@ -109,6 +128,8 @@ unaffected.
       reopening the gallery screen.
 - [ ] **Mobile app**: the Unsorted bucket is rendered and photos can be filed
       from it.
+- [x] An already-uploaded photo can be deleted from the phone, by url or by
+      `client_upload_id`, and a retry does not resurrect it.
 
 ## 7. Files changed
 

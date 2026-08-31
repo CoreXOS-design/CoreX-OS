@@ -33,11 +33,12 @@
     @if($property)
         {{-- Verdict, in four numbers --}}
         @php $s = $summary; @endphp
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
             @foreach ([
                 ['Taken on the phone', $s['captured'], 'var(--text-primary)'],
                 ['Queued to upload',   $s['queued'],   'var(--text-primary)'],
                 ['Reached CoreX',      $s['received'], '#10b981'],
+                ['Deleted in review',  $s['dropped'],  'var(--text-muted)'],
                 ['Never arrived',      $s['missing'],  $s['missing'] > 0 ? '#ef4444' : 'var(--text-muted)'],
             ] as [$label, $value, $colour])
                 <div class="corex-kpi-card">
