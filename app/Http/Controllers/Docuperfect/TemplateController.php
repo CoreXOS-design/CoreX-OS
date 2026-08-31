@@ -448,15 +448,23 @@ class TemplateController extends Controller
      * rather than adding a second, competing mechanism. Owner-role only —
      * mirrors AgencySwitcherController's own gate.
      *
-     * Also backfills THIS draft's own agency_id when it is still null.
-     * CdsDraft uses BelongsToAgency (App\Models\Concerns\BelongsToAgency), so
-     * switching context alone would otherwise orphan the draft from itself:
-     * the very next request's {draft} route-model-binding would 404, since
-     * the draft's agency_id (null) would no longer match the newly-active
-     * agency. Never overwrites an already-set agency_id — an existing
-     * template's re-edit must not have its scope silently reassigned by a
-     * routine context switch (only cdsGenerate()'s explicit owner-reassign
-     * path does that, and only on save).
+     * ALWAYS syncs this draft's own agency_id to match, even overwriting an
+     * already-set value. Found via a real end-to-end run, not designed up
+     * front: CdsDraft uses BelongsToAgency, so a mismatch between the
+     * session's active agency and the draft's own agency_id 404s the very
+     * next request's {draft} route-model-binding -- including THIS action's
+     * own redirect back to the builder. An earlier version only backfilled
+     * when agency_id was null, on the theory that a routine edit shouldn't
+     * silently reassign scope -- but this endpoint is owner-only and its
+     * entire purpose IS a deliberate "I'm working on this on behalf of X"
+     * signal, whether the draft is new (null -> X) or being reassigned away
+     * from a wrong agency (Y -> X). It's a safe, low-stakes sync too: only
+     * the DRAFT changes here (the same non-final record "Save Draft" already
+     * mutates freely); the TEMPLATE itself is untouched until the owner
+     * explicitly clicks Save (cdsGenerate()'s update-branch reassignment).
+     * An ordinary agency user can never reach this action at all (the
+     * isOwnerRole() check above), so there is no accidental-reassignment
+     * risk on their side to protect against.
      */
     public function cdsSwitchAgencyContext(CdsDraft $draft, Agency $agency)
     {
@@ -466,7 +474,7 @@ class TemplateController extends Controller
 
         session(['active_agency_id' => $agency->id]);
 
-        if ($draft->agency_id === null) {
+        if ($draft->agency_id !== $agency->id) {
             $draft->update(['agency_id' => $agency->id]);
         }
 

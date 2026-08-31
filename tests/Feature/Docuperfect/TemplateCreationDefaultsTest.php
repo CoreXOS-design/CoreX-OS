@@ -283,6 +283,29 @@ final class TemplateCreationDefaultsTest extends TestCase
         $this->assertNotSame($wrongAgency->id, $fresh->agency_id);
     }
 
+    public function test_owner_can_switch_a_draft_to_a_second_different_agency_and_still_reach_it(): void
+    {
+        // The exact live repro: a draft already carrying agency_id from an
+        // earlier switch (not null -- the shape a reused/revisited draft is
+        // actually in) is switched AGAIN to a different agency. Must not
+        // 404 -- this is the case the null-only backfill missed.
+        $owner = $this->seedOwnerUser();
+        $first = Agency::create(['name' => 'First', 'slug' => 'first-' . uniqid()]);
+        $second = Agency::create(['name' => 'Second', 'slug' => 'second-' . uniqid()]);
+        $draft = CdsDraft::create([
+            'user_id' => $owner->id, 'agency_id' => $first->id, 'template_name' => 'Twice-switched Draft',
+            'cds_json' => ['sections' => []], 'mappings' => [], 'tags' => [], 'tagged_html' => '<p>Body</p>',
+            'settings' => [], 'source_template_id' => null, 'status' => 'draft',
+        ]);
+
+        $redirect = $this->actingAs($owner)
+            ->post(route('docuperfect.cds.switchAgency', ['draft' => $draft->id, 'agency' => $second->id]))
+            ->assertRedirect(route('docuperfect.cds.builder', $draft));
+
+        $this->assertSame($second->id, $draft->fresh()->agency_id);
+        $this->actingAs($owner)->get($redirect->headers->get('Location'))->assertOk();
+    }
+
     // ── TemplateController::cdsSwitchAgencyContext() — the endpoint itself ──
 
     public function test_switch_agency_context_backfills_a_null_draft_agency_id(): void
@@ -295,19 +318,27 @@ final class TemplateCreationDefaultsTest extends TestCase
             'settings' => [], 'source_template_id' => null, 'status' => 'draft',
         ]);
 
-        $this->actingAs($owner)
+        $redirect = $this->actingAs($owner)
             ->post(route('docuperfect.cds.switchAgency', ['draft' => $draft->id, 'agency' => $target->id]))
             ->assertRedirect(route('docuperfect.cds.builder', $draft));
 
         $this->assertSame($target->id, $draft->fresh()->agency_id);
+        $this->actingAs($owner)->get($redirect->headers->get('Location'))->assertOk();
     }
 
-    public function test_switch_agency_context_never_overwrites_an_already_set_draft_agency_id(): void
+    public function test_switch_agency_context_resyncs_an_already_set_draft_agency_id(): void
     {
-        // Re-opening an EXISTING template's draft (agency_id already set from
-        // a prior save) must not have that silently reassigned by a routine
-        // context switch -- only cdsGenerate()'s explicit save path reassigns,
-        // and only for the template, never speculatively on this draft.
+        // Found via a real end-to-end run, not designed up front: an EARLIER
+        // version of this endpoint only backfilled a NULL draft agency_id,
+        // never overwriting one already set -- on the theory that a routine
+        // edit shouldn't silently reassign scope. That broke the exact flow
+        // this endpoint exists for: switching an EXISTING (wrongly-scoped)
+        // draft to a DIFFERENT agency left session and draft.agency_id
+        // mismatched, and CdsDraft's BelongsToAgency scope then 404'd this
+        // action's OWN redirect back to the builder. This asserts the fix --
+        // the draft's agency_id must track every switch -- AND explicitly
+        // follows the redirect (assertRedirect() alone does not; that's how
+        // the original bug shipped past the first version of this test).
         $owner = $this->seedOwnerUser();
         $original = Agency::create(['name' => 'Original', 'slug' => 'original-' . uniqid()]);
         $other = Agency::create(['name' => 'Other', 'slug' => 'other-' . uniqid()]);
@@ -317,11 +348,14 @@ final class TemplateCreationDefaultsTest extends TestCase
             'settings' => [], 'source_template_id' => null, 'status' => 'draft',
         ]);
 
-        $this->actingAs($owner)
+        $redirect = $this->actingAs($owner)
             ->post(route('docuperfect.cds.switchAgency', ['draft' => $draft->id, 'agency' => $other->id]))
-            ->assertRedirect();
+            ->assertRedirect(route('docuperfect.cds.builder', $draft));
 
-        $this->assertSame($original->id, $draft->fresh()->agency_id, 'an already-scoped draft\'s agency_id must not change on a routine context switch');
+        $this->assertSame($other->id, $draft->fresh()->agency_id, 'switching agency on an existing draft must resync its own agency_id, or the redirect target 404s');
+
+        // Follow the redirect for real -- the actual bug this guards.
+        $this->actingAs($owner)->get($redirect->headers->get('Location'))->assertOk();
     }
 
     public function test_switch_agency_context_refuses_a_non_owner(): void

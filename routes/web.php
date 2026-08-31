@@ -4073,11 +4073,12 @@ Route::prefix('docuperfect')->middleware(['auth', 'permission:access_docuperfect
     Route::get('/templates/cds/builder/{draft}', [\App\Http\Controllers\Docuperfect\TemplateController::class, 'cdsBuilder'])->name('docuperfect.cds.builder');
     // AT-390 — CoreX-account agency context, scoped to this draft. Wraps the
     // existing agency switcher (session active_agency_id) rather than adding a
-    // second one, and additionally backfills THIS draft's own agency_id when it
-    // is still null -- CdsDraft uses BelongsToAgency, so switching context alone
-    // would otherwise make the draft itself invisible (route-model-binding 404)
-    // the moment a CoreX user selects an agency mid-import. Owner-only; see
-    // cdsSwitchAgencyContext().
+    // second one, and always syncs THIS draft's own agency_id to match --
+    // CdsDraft uses BelongsToAgency, so switching context alone would otherwise
+    // make the draft itself invisible (route-model-binding 404), including on
+    // this action's own redirect back to the builder. Owner-only; see
+    // cdsSwitchAgencyContext() for why syncing (not just backfilling null) is
+    // the correct, safe behaviour here.
     Route::post('/templates/cds/builder/{draft}/switch-agency/{agency}', [\App\Http\Controllers\Docuperfect\TemplateController::class, 'cdsSwitchAgencyContext'])->name('docuperfect.cds.switchAgency');
     Route::post('/templates/cds/mappings', [\App\Http\Controllers\Docuperfect\TemplateController::class, 'cdsSaveMappings'])->name('docuperfect.cds.mappings');
     Route::post('/templates/cds/draft/save', [\App\Http\Controllers\Docuperfect\TemplateController::class, 'cdsSaveDraft'])->name('docuperfect.cds.draft.save');
