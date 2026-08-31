@@ -85,6 +85,8 @@ class PhotoUploadDiagnosticsController extends Controller
 
             $failed  = $byPhase['upload_failed'] ?? null;
             $dropRow = $byPhase['dropped'] ?? null;
+            $okRow   = $byPhase['upload_ok'] ?? null;
+            $bake    = $okRow->meta['bake'] ?? null;
 
             return (object) [
                 'client_upload_id' => $key,
@@ -95,6 +97,9 @@ class PhotoUploadDiagnosticsController extends Controller
                 'received_at'      => $received,
                 'dropped'          => isset($byPhase['dropped']),
                 'drop_reason'      => $dropRow->meta['reason'] ?? null,
+                'bake'             => $bake,
+                'sensor_reading'   => $okRow->meta['sensor_reading'] ?? null,
+                'orientation_risk' => MobilePhotoEvent::isOrientationUnconfirmed($bake),
                 'recall'           => $dropRow->meta['recall'] ?? null,
                 'error'            => $failed->meta['error'] ?? null,
                 'room_tag'         => $byPhase[MobilePhotoEvent::PHASE_RECEIVED]->meta['room_tag'] ?? null,
@@ -176,7 +181,22 @@ class PhotoUploadDiagnosticsController extends Controller
             ->unique()
             ->count();
 
+        // The app reports how each photo's orientation was resolved (meta.bake on
+        // upload_ok). This is the ONLY reliable orientation signal: the server
+        // cannot infer it, because "no EXIF tag + landscape canvas" is equally
+        // the signature of a correctly baked photo and a sideways one.
+        $bakes = MobilePhotoEvent::where('property_id', $propertyId)
+            ->where('phase', 'upload_ok')
+            ->get()
+            ->groupBy('client_upload_id')
+            ->map(fn ($g) => $g->first()->meta['bake'] ?? null);
+
+        $unconfirmed = $bakes->filter(fn ($b) => MobilePhotoEvent::isOrientationUnconfirmed($b))->count();
+        $sensorSaved = $bakes->filter(fn ($b) => MobilePhotoEvent::dropReasonKey($b) === 'sensor')->count();
+
         return [
+            'orientation_unconfirmed' => $unconfirmed,
+            'orientation_sensor_saved' => $sensorSaved,
             'captured' => $captured,
             'queued'   => $distinct('queued'),
             'received' => $received,

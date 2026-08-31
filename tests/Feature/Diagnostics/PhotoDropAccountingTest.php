@@ -118,6 +118,24 @@ class PhotoDropAccountingTest extends TestCase
         $this->assertSame(1, $this->summary()['missing']);
     }
 
+    public function test_an_unresolved_bake_is_flagged_but_a_missing_one_is_not(): void
+    {
+        // Asymmetry with drop reasons, on purpose. A drop with NO reason is a
+        // loss (a photo we cannot account for). A bake with NO value is fine —
+        // it means an app build older than bake reporting, and flagging every
+        // pre-telemetry photo as suspect would bury the real ones.
+        $this->event('g_1', 'upload_ok', ['bake' => 'unknown']);
+        $this->event('g_2', 'upload_ok', ['bake' => 'exif']);
+        $this->event('g_3', 'upload_ok');                       // older build
+        $this->event('g_4', 'upload_ok', ['bake' => 'sensor']);
+
+        $s = $this->summary();
+
+        $this->assertSame(1, $s['orientation_unconfirmed'], 'Only the explicit unknown counts.');
+        $this->assertSame(1, $s['orientation_sensor_saved'],
+            'A sensor rescue is worth counting — it is work nothing else could have done.');
+    }
+
     public function test_a_photo_that_arrived_is_never_double_counted(): void
     {
         $this->event('d_1', 'captured');

@@ -64,6 +64,36 @@ class MobilePhotoEvent extends Model
         return strtolower(str_replace(['_', '-', ' '], '', trim((string) $reason)));
     }
 
+    /**
+     * Bake outcomes the app reports on `upload_ok` (meta.bake) that mean the
+     * photo's orientation was NOT resolved — it may be sideways on the listing.
+     *
+     * `exif` and `sensor` are both confirmed-upright. `sensor` is the interesting
+     * one: it is proof the capture-time sensor reading did work nothing else
+     * could have done, since neither the file nor the server had a usable tag.
+     */
+    public const UNCONFIRMED_BAKE_OUTCOMES = ['unknown', 'unbaked', 'error'];
+
+    /**
+     * Does this bake outcome mean "may be sideways"?
+     *
+     * NOTE THE ASYMMETRY WITH DROP REASONS, WHICH IS DELIBERATE. A drop with no
+     * reason counts as a LOSS, because a photo we cannot account for is the thing
+     * this page exists to surface. A bake with no value counts as FINE, because
+     * absence here means "an app build that predates bake reporting", not "an
+     * unresolved photo" — treating every pre-telemetry photo as suspect would
+     * bury the real ones. Absence means "no information" in both cases; what
+     * differs is which way no-information should fail.
+     */
+    public static function isOrientationUnconfirmed(?string $bake): bool
+    {
+        if ($bake === null || trim($bake) === '') {
+            return false;
+        }
+
+        return in_array(self::dropReasonKey($bake), self::UNCONFIRMED_BAKE_OUTCOMES, true);
+    }
+
     /** Is this drop reason one the agent chose — i.e. NOT a lost photo? */
     public static function isAgentDropReason(?string $reason): bool
     {
