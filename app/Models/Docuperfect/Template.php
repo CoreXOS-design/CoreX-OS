@@ -320,11 +320,18 @@ class Template extends Model
         // agency's own templates, plus anything genuinely global.
         if ($scope === 'all') {
             $agencyId = method_exists($user, 'effectiveAgencyId') ? $user->effectiveAgencyId() : $user->agency_id;
+            // AT-390 — a data-scope 'all' user with NO agency of their own (a
+            // platform super_admin) has no "own agency" for the clause below to
+            // narrow to. The 2026-08-15 rewrite above didn't account for that
+            // case, so the query silently collapsed to is_global-only (2 rows
+            // platform-wide) instead of "all" meaning all, as it did before
+            // that change. Confirmed: Johan's own super_admin account (agency_id
+            // NULL) saw a completely blank Template Management list on Staging.
+            if (! $agencyId) {
+                return $query;
+            }
             return $query->where(function ($q) use ($agencyId) {
-                $q->where('is_global', true);
-                if ($agencyId) {
-                    $q->orWhere('agency_id', $agencyId);
-                }
+                $q->where('is_global', true)->orWhere('agency_id', $agencyId);
             });
         }
 
