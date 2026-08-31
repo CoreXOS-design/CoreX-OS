@@ -65,6 +65,21 @@ class TemplateController extends Controller
             $query->where('template_type', $type);
         }
 
+        // AT-390 — PDF vs Web filter, in the words an agent uses ("PDF" /
+        // "Web"), not the schema's (render_type). Persisted in session so
+        // the choice survives a plain revisit of the page with no query
+        // string -- cheap (one session key, no extra query), skipped for
+        // every other filter on this page since none of them asked for it.
+        $format = $request->input('format');
+        if ($format === null) {
+            $format = session('docuperfect_templates_format', 'all');
+        } else {
+            session(['docuperfect_templates_format' => $format]);
+        }
+        if (in_array($format, ['pdf', 'web'], true)) {
+            $query->where('render_type', $format);
+        }
+
         // Visibility filter
         if ($visibility = $request->input('visibility')) {
             if ($visibility === 'global') {
@@ -84,7 +99,7 @@ class TemplateController extends Controller
         $documentTypes = DocumentType::orderBy('sort_order')->get();
         $showArchived = $status === 'archived';
 
-        return view('docuperfect.templates.index', compact('templates', 'showArchived', 'documentTypes', 'user'));
+        return view('docuperfect.templates.index', compact('templates', 'showArchived', 'documentTypes', 'user', 'format'));
     }
 
     public function upload(Request $request)
