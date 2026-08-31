@@ -38,10 +38,21 @@ $d = function(string $field) use ($headerBranch, $headerAgency): string {
     }
     return $headerAgency?->{$field} ?? '';
 };
+// AT-390 (Johan, 2026-08-31) — a logo_path being set on the row proves
+// nothing about the file actually being on disk (three HFC branches carry
+// a logo_path pointing at a file that was never copied into this
+// environment's storage). Rendering an <img> against a missing file shows
+// a broken-image icon on a signed legal document — in-app AND in the
+// finished PDF. Check existence before trusting either path, and fall
+// back branch -> agency -> no image (the existing text-name fallback
+// below) exactly the way a document with no logo_path at all already
+// renders cleanly. Never render an <img src> we haven't confirmed exists.
 $logoPath = null;
-if ($headerBranch && $headerBranch->logo_path) {
+if ($headerBranch && $headerBranch->logo_path
+    && \Illuminate\Support\Facades\Storage::disk('public')->exists($headerBranch->logo_path)) {
     $logoPath = asset('storage/' . $headerBranch->logo_path);
-} elseif ($headerAgency && $headerAgency->logo_path) {
+} elseif ($headerAgency && $headerAgency->logo_path
+    && \Illuminate\Support\Facades\Storage::disk('public')->exists($headerAgency->logo_path)) {
     $logoPath = asset('storage/' . $headerAgency->logo_path);
 }
 if (isset($logo_url)) $logoPath = $logo_url;
