@@ -190,4 +190,116 @@ class MobileAppConfigTest extends TestCase
         $this->assertSame(13, $body['min_build']);
         $this->assertSame(20, $body['latest_build']);
     }
+
+    // ── update_available_message ────────────────────────────────────────────
+    // The dismissible notice needs its OWN copy. `message` is the forced-gate
+    // wording ("no longer supported"), which on a dialog the agent can dismiss
+    // is simply false — and a false blocking message is how agents learn to
+    // dismiss the real one without reading it.
+
+    public function test_the_notice_copy_is_returned_when_set(): void
+    {
+        DevSetting::set('mobile_update_available_message', 'Version 1.1 adds offline photo uploads.');
+
+        $this->assertSame(
+            'Version 1.1 adds offline photo uploads.',
+            $this->fetchConfig('android', 10)['update_available_message']
+        );
+    }
+
+    public function test_the_notice_copy_is_null_when_blank_so_the_app_uses_its_own(): void
+    {
+        DevSetting::set('mobile_update_available_message', '   ');
+
+        $this->assertNull($this->fetchConfig('android', 10)['update_available_message']);
+    }
+
+    public function test_the_notice_copy_is_never_confused_with_the_blocking_copy(): void
+    {
+        DevSetting::set('mobile_update_message', 'This version is no longer supported.');
+        DevSetting::set('mobile_update_available_message', 'A new version is available.');
+
+        $body = $this->fetchConfig('android', 10);
+
+        $this->assertSame('This version is no longer supported.', $body['message']);
+        $this->assertSame('A new version is available.', $body['update_available_message']);
+    }
+
+    // ── per-platform latest_version ─────────────────────────────────────────
+
+    public function test_latest_version_resolves_per_platform(): void
+    {
+        DevSetting::set('mobile_latest_version_android', '1.0.11');
+        DevSetting::set('mobile_latest_version_ios', '1.2.0');
+
+        $this->assertSame('1.0.11', $this->fetchConfig('android', 1)['latest_version']);
+        $this->assertSame('1.2.0', $this->fetchConfig('ios', 1)['latest_version']);
+    }
+
+    public function test_latest_version_falls_back_to_the_global_key(): void
+    {
+        // Set before the per-platform split; must keep working mid-flight.
+        DevSetting::set('mobile_latest_version', '1.0.9');
+
+        $this->assertSame('1.0.9', $this->fetchConfig('android', 1)['latest_version']);
+    }
+
+    public function test_a_per_platform_version_wins_over_the_global_one(): void
+    {
+        DevSetting::set('mobile_latest_version', '1.0.9');
+        DevSetting::set('mobile_latest_version_ios', '1.2.0');
+
+        $this->assertSame('1.2.0', $this->fetchConfig('ios', 1)['latest_version']);
+        $this->assertSame('1.0.9', $this->fetchConfig('android', 1)['latest_version']);
+    }
+
+    // ── the "nowhere to send them" rule ─────────────────────────────────────
+
+    public function test_a_platform_with_no_update_url_has_both_dials_forced_off(): void
+    {
+        // iOS has no derivable store URL, so it stays inert until one is set —
+        // however loudly the dials are turned up. Blocking or nagging an agent
+        // behind a button that opens nothing is worse than staying quiet.
+        DevSetting::set('mobile_min_build_ios', '30');
+        DevSetting::set('mobile_latest_build_ios', '31');
+        DevSetting::set('mobile_update_url_ios', '');
+
+        $body = $this->fetchConfig('ios', 1);
+
+        $this->assertSame(0, $body['min_build']);
+        $this->assertSame(0, $body['latest_build']);
+        $this->assertFalse($body['update_required']);
+        $this->assertFalse($body['update_available']);
+    }
+
+    public function test_setting_the_ios_url_arms_the_dials_that_were_already_set(): void
+    {
+        DevSetting::set('mobile_min_build_ios', '30');
+        DevSetting::set('mobile_latest_build_ios', '31');
+        DevSetting::set('mobile_update_url_ios', 'https://apps.apple.com/za/app/corex-os/id123456789');
+
+        $body = $this->fetchConfig('ios', 29);
+
+        $this->assertSame(30, $body['min_build']);
+        $this->assertSame(31, $body['latest_build']);
+        $this->assertTrue($body['update_required']);
+    }
+
+    // ── unknown platforms ───────────────────────────────────────────────────
+
+    public function test_an_unrecognised_platform_is_never_gated(): void
+    {
+        DevSetting::set('mobile_min_build_android', '99');
+        DevSetting::set('mobile_latest_build_android', '99');
+
+        foreach (['web', 'huawei', ''] as $platform) {
+            $body = $this->getJson("/api/v1/mobile/app-config?platform={$platform}&build=1")->assertOk()->json();
+
+            $this->assertSame(0, $body['min_build'], "platform '{$platform}' must not be gated");
+            $this->assertSame(0, $body['latest_build']);
+            $this->assertFalse($body['update_required']);
+            $this->assertArrayHasKey('update_available_message', $body,
+                'The key must exist for every platform so the client never has to feature-detect it.');
+        }
+    }
 }
