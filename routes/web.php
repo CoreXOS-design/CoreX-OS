@@ -4218,6 +4218,16 @@ Route::prefix('docuperfect')->middleware(['auth', 'permission:access_docuperfect
             Route::delete('/{recipientTemplate}', [\App\Http\Controllers\Docuperfect\RecipientTemplateController::class, 'destroy'])->name('destroy');
         });
 
+    // Finalisation settings (Johan, 2026-08-31) — agency-scoped async-completion
+    // toggle + stuck-finalisation threshold, gated the same way every other
+    // e-sign settings screen is.
+    Route::middleware(['permission:esign.settings', 'agency.required'])
+        ->prefix('esign/settings/finalization')
+        ->group(function () {
+            Route::get('/', [\App\Http\Controllers\Docuperfect\EsignFinalizationSettingsController::class, 'edit'])->name('docuperfect.esign.settings.finalization');
+            Route::post('/', [\App\Http\Controllers\Docuperfect\EsignFinalizationSettingsController::class, 'update'])->name('docuperfect.esign.settings.finalization.update');
+        });
+
     // Page images (authenticated)
     Route::get('/templates/{id}/page/{page}', [\App\Http\Controllers\Docuperfect\PageImageController::class, 'show'])->name('docuperfect.page.image');
 
@@ -4502,6 +4512,10 @@ Route::prefix('docuperfect')->middleware(['auth', 'permission:access_docuperfect
 
     // Deferred signing
     Route::post('/documents/{document}/signatures/resume-deferred', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'resumeDeferred'])->name('docuperfect.signatures.resumeDeferred');
+
+    // Retry a failed/stuck finalisation (Johan, 2026-08-31) — idempotent, see
+    // SignatureController::retryFinalization().
+    Route::post('/documents/{document}/signatures/retry-finalization', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'retryFinalization'])->name('docuperfect.signatures.retryFinalization');
 
     // Property document dashboard
     Route::get('/property/{propertyId}/documents', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'propertyDocuments'])->name('docuperfect.property.documents');

@@ -3727,9 +3727,13 @@ class SignatureService
             }
         }
 
-        // Async e-sign completion (config('docuperfect.async_completion'), default OFF).
-        // Decided once, up front, so every branch below reads the same values.
-        $asyncCompletion = (bool) config('docuperfect.async_completion');
+        // Async e-sign completion — agency setting wins, config('docuperfect.async_completion')
+        // (the old DOCUPERFECT_ASYNC_COMPLETION env flag) is the fallback ONLY when the agency
+        // has never saved the Finalisation Settings screen (Johan, 2026-08-31 — see
+        // App\Models\Docuperfect\EsignSettings::forAgency()). Decided once, up front, so every
+        // branch below reads the same values.
+        $asyncCompletion = \App\Models\Docuperfect\EsignSettings::forAgency((int) ($template->agency_id ?: 0))
+            ->asyncCompletionEnabled();
         $pdfSync = $asyncCompletion && (bool) config('docuperfect.async_completion_pdf_sync');
 
         // 1. Lock the document, write the audit log, and seal — wrapped in one explicit

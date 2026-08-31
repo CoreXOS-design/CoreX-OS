@@ -1127,6 +1127,136 @@ verified as reachable for an indexed same-role party, reported not fixed.
 
 ---
 
+## Async completion becomes an agency setting, and finalisation failure is never silent (2026-08-31, Johan authorised overnight)
+
+Johan tested tonight's async-completion switch live and approved it ("for the
+user its massively faster... can easily live with" a ~30s email delay on a
+pack). Two follow-on instructions, in his words: *"the async turn on should be
+in settings under esign. and the queue worker should trigger off it too. plus
+failure notifications... we cannot have it fail silently."* Built overnight,
+unsupervised — Johan is asleep and unavailable to confirm design choices, so
+every assumption below is stated explicitly for his morning review, per his
+own instruction to keep moving rather than stall on an unanswerable question.
+
+### Priority order (deliberate, per Johan)
+
+Stage 2 (failure must never be silent) matters more than Stage 1 (the
+setting). If anything had to be cut, Stage 1 would be cut first. Both were
+completed.
+
+### Stage 1 — the setting
+
+- New table `docuperfect_esign_settings` (one row per agency): `async_completion_enabled`
+  (bool, default true), `finalization_stuck_threshold_minutes` (int, default 15).
+- New model `App\Models\Docuperfect\EsignSettings::forAgency($agencyId)` — Rule 17
+  guarded (`$agencyId <= 0` returns in-memory defaults, no DB row). Resolution order,
+  exactly as instructed: an agency's own saved row wins; `config('docuperfect.async_completion')`
+  (the pre-existing `DOCUPERFECT_ASYNC_COMPLETION` env flag) is consulted ONLY when no
+  row has ever been saved for that agency — the env handling is not deleted.
+- `SignatureService::completeDocument()` now resolves the dispatch decision through
+  `EsignSettings::forAgency($template->agency_id)->asyncCompletionEnabled()` instead of
+  reading `config('docuperfect.async_completion')` directly — turning the setting off
+  for one agency makes that agency's finalisation run inline again, every other agency
+  unaffected. This is the reading of "the queue worker should trigger off it too" this
+  build implements — the dispatch decision, not the worker process itself; a worker is
+  either running on the box or it isn't, and Stage 2's stuck-detection below is what
+  catches "async is on but no worker is picking jobs up," which is a different failure
+  mode than "should the switch use the queue."
+- Settings screen: `docuperfect.esign.settings.finalization` (E-Sign → Finalisation
+  Settings in the sidebar, same `permission:esign.settings` gate as every other e-sign
+  settings screen), `EsignFinalizationSettingsController@edit/update`.
+- **Assumption — DEFAULT ON.** Per Johan's explicit instruction ("He has tested it
+  tonight and wants the speed"). New agencies, and any agency saving this screen for
+  the first time with the box left checked, get `async_completion_enabled = true`.
+- **Assumption — deliberately NOT added to the Agency Onboarding Setup Wizard tonight,
+  flagged per CLAUDE.md #10a's "Deliberately NOT in the wizard" list, not silently
+  skipped.** `config/agency-onboarding-copy.php`'s controls are read via a generic
+  `source: 'agency'|'perf'` key-value mechanism (a direct Agency column or a
+  PerformanceSetting key); wiring a third source type for a dedicated settings model
+  means touching the wizard's generic step-rendering engine itself, not just adding a
+  config entry — a change with a much larger blast radius (every onboarding step, every
+  agency) that cannot be verified against a live wizard run with Johan asleep. This is
+  exactly the "ask Johan" case CLAUDE.md #10a describes; asking isn't possible tonight,
+  so it stays out and is recorded here rather than guessed at. Needs his explicit call
+  in the morning: either wire the wizard's engine to support a model-backed control
+  source properly, or accept this as a settings-page-only control (some settings are
+  legitimately expert/rarely-touched, per #10a's own carve-out).
+
+### Stage 2 — failure must never be silent (the priority)
+
+**New state, deliberately separate from the signing status** (`signature_templates`
+migration `2026_08_31_240001`): `finalization_status` (`running`|`succeeded`|`failed`,
+null = never attempted — e.g. a document that hasn't been async-completed at all),
+`finalization_error` (text), `finalization_attempts` (int), `finalization_started_at`,
+`finalization_finished_at`. `SignatureTemplate::status` still reads `completed` — a
+legally completed signing is never touched by this; finalisation is the separate
+post-completion work (PDF, filing, contact linking, emails, lease extraction) and its
+outcome is tracked independently.
+
+**Detection, both paths (fix the class, not the instance):**
+- `FinalizeSignedDocumentJob` (the async path) — `handle()` records `running` +
+  increments `finalization_attempts` before the cascade, `succeeded` after; a
+  `failed(Throwable $e)` handler (Laravel's own job-failure hook, called once retries
+  are exhausted) records `failed` + the error and fires the notification below.
+- The pre-existing SYNCHRONOUS inline cascade (`completeDocument()`'s `DB::afterCommit`
+  closure, used when the setting is off) already had its own try/catch that only
+  logged; it now records the SAME `running`/`succeeded`/`failed` states through one
+  shared pair of methods (`SignatureService::recordFinalizationStarted/Succeeded/Failed()`)
+  both paths call — one recorder, not two copies that could drift apart.
+- **Stuck detection (the queue-with-no-worker scenario Johan named specifically):** a
+  new scheduled command, `docuperfect:detect-stuck-finalizations`, finds any
+  `SignatureTemplate` whose `finalization_status` is `running` (or null while
+  `completed_at` is old — covers a job that never even started, e.g. dispatched to a
+  queue nothing is consuming) for longer than that agency's own
+  `finalization_stuck_threshold_minutes` (Stage 1 setting, default 15) and marks it
+  `failed` with a clear "no worker picked this up in time" error, through the same
+  recorder — so it surfaces identically to a genuine job failure. Scheduled
+  `everyFiveMinutes()` in `routes/console.php`.
+  **CONFIRMED gap, not fixed tonight, needs Johan's decision:** checked the box's
+  actual crontab — `/corex-staging`'s `schedule:run` line is present but COMMENTED
+  OUT (`#* * * * * cd /corex-staging && ... schedule:run`); only `/hfc-staging` (a
+  different, older directory) and the demo host have an active line. **This means
+  Laravel's scheduler does not currently run at all for /corex-staging**, so this
+  stuck-detector — and every other already-existing scheduled command in this
+  codebase (`signatures:send-reminders`, `signatures:expire`, etc.) — will not fire
+  until that cron line is uncommented. Deliberately NOT changed tonight: uncommenting
+  it activates every scheduled command for Staging at once, not just this one, which
+  is a bigger decision than tonight's scope and needs Johan's or the conductor's eyes
+  on the full list before flipping it live. Job-level failure detection (the `failed()`
+  handler + inline-cascade recording, above) does NOT depend on this — it fires
+  synchronously regardless of the scheduler — so only the specific "queue on, worker
+  not running at all" scenario Johan named is blocked by this gap; a genuine job
+  failure is still caught and surfaced tonight.
+- Notification reuses the existing mechanism, not a new one: a new factory method,
+  `SignatureActivityNotification::finalizationFailed(...)` (same class every other
+  e-sign in-app notification already uses, database channel). Sent to the approving
+  agent (`SignatureTemplate::creator`) and, separately, the agency's admin, resolved via
+  the existing shared `User::resolveBranchManagerOrAdminFallback($agencyId)` (already
+  used elsewhere for exactly this "who do we tell" question) — no new admin-lookup
+  query invented.
+- Visible on the one screen Johan actually watches: My E-Sign Documents. A document
+  whose `finalization_status = 'failed'` gets a prominent red banner ("Finalisation
+  failed — the signed PDF, filing or emails may be missing") on its card in the
+  Completed section, with a **Retry Finalisation** button.
+- **Recovery, idempotent:** `SignatureController::retryFinalization()` re-dispatches
+  `FinalizeSignedDocumentJob` for the template. Every step inside the cascade already
+  had its own idempotency guard before tonight (confirmed by direct testing on template
+  466 earlier tonight) — PDF generation checks the file already exists, filing checks
+  storage_path+source_type, and completion emails are gated by the atomic
+  `completion_emails_sent_at` claim (`whereNull(...)->update(...)`), which this build
+  does not touch or bypass. A retry after a genuine partial failure resumes only the
+  steps that didn't complete; it cannot send a second copy of a signed document to
+  anyone who already received one.
+
+### Not touched tonight (explicitly out of scope, per the hard constraints)
+
+The disclosure counter, the MDF completion guard, the four redirect fixes, the
+deferred-party rendering, and the `set_time_limit(300)` backstop in
+`approveAndAdvance()` — all tested and pushed earlier tonight, none of it touched by
+this build.
+
+---
+
 ### Bug — a pre-filled, property-linked field could permanently block Submit: the guard demanded a value no recipient can ever provide (fixed 2026-08-31, AT-410b)
 
 Johan's report, reproduced live on the Mandatory Disclosure Form (MDF,
