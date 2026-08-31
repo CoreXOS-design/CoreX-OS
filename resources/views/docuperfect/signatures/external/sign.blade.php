@@ -1526,6 +1526,7 @@ function externalSign() {
         webCeremonyValues: {},
         otherConditionsText: '',
         totalDisclosureRows: 0,
+        _gatedDisclosureRowKeys: new Set(),   // AT-410 — keys actually counted in totalDisclosureRows this pass
         webIsDrawing: false,
         webSigCtx: null,
         webInitialElements: [],
@@ -2003,7 +2004,9 @@ function externalSign() {
 
             // 4. Unanswered disclosure rows
             if (this.totalDisclosureRows > 0) {
-                const answered = Object.keys(this.webDisclosureAnswers).filter(k => this._isDisclosureAnswerKey(k)).length;
+                const gatedKeys4 = this._gatedDisclosureRowKeys || new Set();
+                const answered = Object.keys(this.webDisclosureAnswers)
+                    .filter(k => this._isDisclosureAnswerKey(k) && gatedKeys4.has(k)).length;
                 if (answered < this.totalDisclosureRows) {
                     if (container) {
                         const allRadioGroups = container.querySelectorAll('input[type="radio"][name^="disclosure_"]');
@@ -2127,7 +2130,17 @@ function externalSign() {
             //    sees the grid read-only and is NOT gated on it (PPA s70).
             if (this._signerIsDisclosingParty() && this.totalDisclosureRows > 0) {
                 total += this.totalDisclosureRows;
-                const answered = Object.keys(this.webDisclosureAnswers).filter(k => this._isDisclosureAnswerKey(k)).length;
+                // AT-410 — scope "answered" to keys that are actually part of
+                // THIS signer's totalDisclosureRows this pass. A pack merges
+                // multiple disclosure-bearing documents into one flat
+                // webDisclosureAnswers store; counting every key in it
+                // (rather than just the gated ones) lets an already-locked
+                // answer from a DIFFERENT document in the pack inflate
+                // "answered" past totalDisclosureRows and drive incomplete
+                // negative — canSubmitWeb's strict === 0 then never recovers.
+                const gatedKeys = this._gatedDisclosureRowKeys || new Set();
+                const answered = Object.keys(this.webDisclosureAnswers)
+                    .filter(k => this._isDisclosureAnswerKey(k) && gatedKeys.has(k)).length;
                 incomplete += (this.totalDisclosureRows - answered);
             }
 
@@ -3593,6 +3606,13 @@ function externalSign() {
                         });
                     }
                     totalRows++;
+                    // AT-410 — the bare-table path counts every qualifying row
+                    // unconditionally (no editable/lock gate here), so its key
+                    // is always part of THIS signer's required set. Track it
+                    // alongside totalRows so "answered" can be scoped to it,
+                    // never to every key in the pack-wide webDisclosureAnswers
+                    // store (see disclosure-logic.blade.php's AT-410 note).
+                    self._gatedDisclosureRowKeys.add(entry.radioGroupName);
                 });
 
                 // Process Additional Information rows — make them editable
@@ -4067,7 +4087,9 @@ function externalSign() {
                     this.showNotification('Please accept the consent checkbox to continue.', 'warning');
                     return;
                 }
-                const answeredRows = Object.keys(this.webDisclosureAnswers).filter(k => this._isDisclosureAnswerKey(k)).length;
+                const gatedKeysSubmit = this._gatedDisclosureRowKeys || new Set();
+                const answeredRows = Object.keys(this.webDisclosureAnswers)
+                    .filter(k => this._isDisclosureAnswerKey(k) && gatedKeysSubmit.has(k)).length;
                 if (this.totalDisclosureRows > 0 && answeredRows < this.totalDisclosureRows) {
                     this.showNotification('Please complete all disclosure items before signing. (' + answeredRows + ' of ' + this.totalDisclosureRows + ' answered)', 'warning');
                     return;

@@ -7,10 +7,26 @@
 
     Contract:
       * Each consuming component MUST define _currentSignerRole() and have
-        state: webDisclosureAnswers:{}, totalDisclosureRows:0, storedDisclosure:{}.
+        state: webDisclosureAnswers:{}, totalDisclosureRows:0, storedDisclosure:{},
+        _gatedDisclosureRowKeys:new Set().
       * The bare-table converter _processDisclosureTable()/_processCertificateRow()
         remains external-only (legacy path; #119 uses the checklist structure).
         _processAllDisclosures() calls it only when present (typeof guard).
+
+      * AT-410 — _gatedDisclosureRowKeys is the SET of disclosure-answer keys
+        that actually count toward THIS signer's totalDisclosureRows this pass
+        (populated 1:1 alongside every totalDisclosureRows increment, in both
+        the bare-table converter and the checklist converter below). A pack
+        merges multiple disclosure-bearing documents into ONE flat
+        webDisclosureAnswers store (seeded from the single, document-unscoped
+        disclosure_lock.answers blob), so counting "answered" as ALL keys in
+        that store — instead of only the keys in _gatedDisclosureRowKeys —
+        double-counts any OTHER document's already-locked answers as if they
+        belonged to this signer's total, driving answered > totalDisclosureRows
+        and the incomplete count negative. Every site that compares an
+        "answered" count against totalDisclosureRows MUST filter through
+        _gatedDisclosureRowKeys, never count Object.keys(webDisclosureAnswers)
+        directly.
 
     Legal rule (Johan-approved, PPA s70): the mandatory-disclosure grid is
     EDITABLE only for owner_party (the seller discloses). The agent and every
@@ -197,7 +213,10 @@
                     // Count toward the gate ONLY for the disclosing party.
                     // Non-disclosing signers (agent, buyer) see the grid
                     // read-only and must NOT be gated on it (PPA s70).
-                    if (editable) gatedIdx++;
+                    // AT-410 — track the key alongside the count so "answered"
+                    // can be scoped to exactly these rows, never to every key
+                    // in the pack-wide webDisclosureAnswers store.
+                    if (editable) { gatedIdx++; self._gatedDisclosureRowKeys.add(rowKey); }
                 });
             });
 
@@ -209,6 +228,9 @@
         // across §19 re-pagination. Replaces the prior pair of direct calls.
         _processAllDisclosures() {
             this.totalDisclosureRows = 0;
+            // AT-410 — reset alongside totalDisclosureRows every pass; the
+            // two converters below repopulate it 1:1 with every increment.
+            this._gatedDisclosureRowKeys = new Set();
             // Keys are stateless (window.CoreXDisclosure) — no per-pass
             // counters to reset; identical to what the store/restore use.
             this._seedDisclosureFromStore();

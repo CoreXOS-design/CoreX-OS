@@ -966,6 +966,7 @@ function signDocument() {
         // (PPA s70) but must SEE + gate-count it and persist it on submit.
         webDisclosureAnswers: {},
         totalDisclosureRows: 0,
+        _gatedDisclosureRowKeys: new Set(),   // AT-410 — keys actually counted in totalDisclosureRows this pass
         storedDisclosure: @json($storedDisclosure ?? new \stdClass),
         webSigTotal: 0,
         webSigSigned: 0,
@@ -1547,8 +1548,14 @@ function signDocument() {
             // seller is the sole discloser).
             if (this._signerIsDisclosingParty() && this.totalDisclosureRows > 0) {
                 total += this.totalDisclosureRows;
+                // AT-410 — scope "answered" to keys actually part of THIS
+                // signer's totalDisclosureRows this pass (see disclosure-logic
+                // .blade.php's AT-410 note) — a pack-wide flat answer store
+                // must not let another document's already-locked answers
+                // inflate "answered" past totalDisclosureRows.
+                const gatedKeys = this._gatedDisclosureRowKeys || new Set();
                 const answered = Object.keys(this.webDisclosureAnswers)
-                    .filter(k => this._isDisclosureAnswerKey(k)).length;
+                    .filter(k => this._isDisclosureAnswerKey(k) && gatedKeys.has(k)).length;
                 incomplete += (this.totalDisclosureRows - answered);
             }
 
