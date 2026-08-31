@@ -3013,7 +3013,12 @@ class SigningController extends Controller
             mkdir($tempDir, 0755, true);
         }
 
-        $timestamp = time();
+        // Random entropy, not just a higher-resolution clock -- two calls for
+        // the same $documentId (e.g. a retried/queued finalize job racing the
+        // original, see filePackDocuments()'s dedup-check docblock) can still
+        // land in the same microsecond under load, so time()/microtime() alone
+        // is not enough to keep their temp files apart.
+        $timestamp = time() . '_' . bin2hex(random_bytes(6));
         $htmlPath = $tempDir . '/doc_' . $documentId . '_' . $timestamp . '.html';
         $pdfPath = $tempDir . '/doc_' . $documentId . '_' . $timestamp . '.pdf';
 
