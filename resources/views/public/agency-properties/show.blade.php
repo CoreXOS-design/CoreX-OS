@@ -1,5 +1,9 @@
 @php
-    $images = is_array($property->images_json) ? $property->images_json : (json_decode($property->images_json ?? '[]', true) ?: []);
+    // Every photo the agent actually put on this listing, as loadable URLs.
+    // Was `images_json` alone (a column no agent-facing upload path writes) and
+    // then double-prefixed with asset('storage/'.…) — so a self-shot listing
+    // rendered zero photos here while showing 35 inside CoreX.
+    $images = $property->publicGalleryUrls();
     $ogTitle = $property->headline ?? $property->title ?? 'Property';
     $ogImageUrl = \App\Models\Property::publicImageUrl($property->allImages()[0] ?? null) ?: ($agency->logo_path ? asset('storage/'.$agency->logo_path) : null);
     $ogDescription = trim(preg_replace('/\s+/', ' ', strip_tags((string) $property->description)));
@@ -52,7 +56,7 @@
     <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
         @foreach (array_slice($images, 0, 9) as $i => $img)
             <div class="{{ $i === 0 ? 'md:col-span-2 md:row-span-2 aspect-[4/3]' : 'aspect-[4/3]' }} bg-surface-2 rounded-md overflow-hidden">
-                <img src="{{ asset('storage/'.$img) }}" class="w-full h-full object-cover">
+                <img src="{{ $img }}" class="w-full h-full object-cover">
             </div>
         @endforeach
     </div>
