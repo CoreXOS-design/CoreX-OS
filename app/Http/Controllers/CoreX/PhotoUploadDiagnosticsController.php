@@ -138,11 +138,29 @@ class PhotoUploadDiagnosticsController extends Controller
         $captured = $distinct('captured');
         $received = $distinct(MobilePhotoEvent::PHASE_RECEIVED);
 
+        // A photo the agent deleted in review is NOT a lost photo. Since the app
+        // began enqueuing at the shutter and draining without waiting for the
+        // camera to close, `dropped` became a normal outcome — the agent shoots,
+        // reviews, bins one. Counting those as "never arrived" would paint a
+        // healthy shoot as broken and bury the real losses in noise, which is the
+        // one thing this page exists not to do.
+        $dropped = MobilePhotoEvent::where('property_id', $propertyId)
+            ->where('phase', 'dropped')
+            ->whereNotIn('client_upload_id', function ($q) use ($propertyId) {
+                $q->select('client_upload_id')
+                  ->from('mobile_photo_events')
+                  ->where('property_id', $propertyId)
+                  ->where('phase', MobilePhotoEvent::PHASE_RECEIVED);
+            })
+            ->distinct()
+            ->count('client_upload_id');
+
         return [
             'captured' => $captured,
             'queued'   => $distinct('queued'),
             'received' => $received,
-            'missing'  => max(0, $captured - $received),
+            'dropped'  => $dropped,
+            'missing'  => max(0, $captured - $received - $dropped),
         ];
     }
 }

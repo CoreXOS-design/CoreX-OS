@@ -523,6 +523,11 @@ Route::middleware(['auth:sanctum', 'app_access'])->group(function () {
             // itself, so anything that arrived untagged stayed untagged forever
             // on mobile. See MobilePropertyController::assignGalleryTag().
             Route::put('/{property}/gallery/assign',        [MobilePropertyController::class, 'assignGalleryTag'])->name('v1.mobile.properties.gallery.assign');
+            // Take a photo back off the listing. Needed once the app enqueues at
+            // the shutter and drains without waiting for the camera to close: a
+            // photo deleted in review may already be on the server, and until now
+            // the app could add photos but never remove them.
+            Route::post('/{property}/images/delete',       [MobilePropertyController::class, 'deleteImages'])->name('v1.mobile.properties.images.delete');
 
             Route::get('/{property}/spaces', [MobilePropertyController::class, 'spacesShow'])->name('v1.mobile.properties.spaces.show');
             Route::put('/{property}/spaces', [MobilePropertyController::class, 'spacesUpdate'])->name('v1.mobile.properties.spaces.update');
