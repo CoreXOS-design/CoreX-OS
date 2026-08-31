@@ -682,6 +682,9 @@ return [
         // Multi-agent addendum (assistants-multi-agent-spec.md §7) — linking/unlinking a Sub-Agent
         // is admin/super_admin ONLY (M2): never the Main Agent, never the Sub-Agent themselves.
         ['key' => 'assistants.manage_linked_agents',  'label' => 'Link/Unlink Additional Agents',      'section' => 'assistants', 'type' => 'action', 'module' => 'assistants', 'sort_order' => 6],
+
+        // ── Diagnostics ──
+        ['key' => 'view_photo_upload_report', 'label' => 'View Photo Upload Report',  'section' => 'system', 'type' => 'access', 'module' => 'diagnostics', 'sort_order' => 90],
     ],
 
     // ──────────────────────────────────────────────────────────

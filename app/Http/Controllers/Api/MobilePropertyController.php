@@ -768,6 +768,31 @@ class MobilePropertyController extends Controller
             return $this->uploadedImageResponse($duplicateUrl, $roomTag, null, true);
         }
 
+        // Telemetry: the SERVER's own record that these bytes landed. Deliberately
+        // not taken from the client — "did it actually arrive?" is the one question
+        // the client cannot be trusted to answer, and it is the question the whole
+        // photo-upload log exists to settle. recordQuietly() swallows every failure:
+        // a diagnostics write must never cost an agent their photo.
+        // Spec: .ai/specs/mobile-photo-upload-telemetry.md
+        if ($clientUploadId !== null) {
+            \App\Models\MobilePhotoEvent::recordQuietly([
+                'agency_id'        => $property->agency_id,
+                'user_id'          => $request->user()?->id,
+                'property_id'      => $property->id,
+                'client_upload_id' => mb_substr($clientUploadId, 0, 191),
+                'phase'            => \App\Models\MobilePhotoEvent::PHASE_RECEIVED,
+                'occurred_at'      => now(),
+                'meta'             => [
+                    'room_tag'  => $roomTag,
+                    // NOT $file->getSize(): store() has already moved the temp
+                    // upload, so the UploadedFile no longer points at anything. Read
+                    // the stored file instead, and never let a stat cost an upload.
+                    'bytes'     => @filesize(Storage::disk('public')->path($path)) ?: null,
+                    'stored_as' => $path,
+                ],
+            ]);
+        }
+
         // Queue AI vision analysis (gated by user permission — AI is universal
         // at the agency level, so there is no per-agency enable flag).
         $analysisId = null;

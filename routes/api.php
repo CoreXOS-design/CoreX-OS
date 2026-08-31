@@ -546,6 +546,17 @@ Route::middleware(['auth:sanctum', 'app_access'])->group(function () {
         Route::get('/mobile/features', [\App\Http\Controllers\Api\MobileFeatureFlagController::class, 'index'])
             ->name('v1.mobile.features');
 
+        // Photo upload telemetry — the app reports what it observed happening to
+        // each photo (captured / queued / attempted / failed / dropped) so a
+        // photo that dies BEFORE the upload queue still leaves a trace. Without
+        // it the server only ever sees the survivors, and "40 taken, 28 landed"
+        // is unanswerable. Throttled generously: a 40-photo shoot is ~200 events
+        // and the client batches, so this should be a handful of calls per shoot.
+        // Spec: .ai/specs/mobile-photo-upload-telemetry.md
+        Route::post('/mobile/photo-events', [\App\Http\Controllers\Api\MobilePhotoEventController::class, 'store'])
+            ->middleware('throttle:60,1')
+            ->name('v1.mobile.photo-events.store');
+
         // ── Mobile calendar (auth-user-only, web-parity filters) ─────
         Route::get('/mobile/calendar', [\App\Http\Controllers\Api\MobileCalendarController::class, 'index'])
             ->name('v1.mobile.calendar.index');

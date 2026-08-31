@@ -3207,6 +3207,15 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::get('/api/v1/system-health', [\App\Http\Controllers\Admin\ServerHealthController::class, 'data'])->name('api.v1.system-health');
     });
 
+    // Photo Upload Report — "where did my photos go?". Puts the phone's own
+    // account of each photo next to the server's record of arrival, so a photo
+    // lost BEFORE the upload queue is visible instead of silent.
+    // Spec: .ai/specs/mobile-photo-upload-telemetry.md
+    Route::middleware('permission:view_photo_upload_report')->group(function () {
+        Route::get('/corex/diagnostics/photo-uploads', [\App\Http\Controllers\CoreX\PhotoUploadDiagnosticsController::class, 'index'])
+            ->name('corex.diagnostics.photo-uploads');
+    });
+
     // AT-173 — media-encryption status (admin visibility of encryption at rest).
     // Moved from Compliance to Admin — server-side encryption CONFIGURATION, the
     // same category as Backups / Server Health / API above.
