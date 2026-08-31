@@ -896,3 +896,66 @@ Johan's own documents: with the template set to `STATUS_PENDING_AGENT_APPROVAL`,
 amendment-mode button) absent. Combined with the code diff itself (the
 redirect target is the only change), both halves of the fix are confirmed:
 where it goes, and what the agent sees once there.
+
+## Rule — role-block/domicilium expansion runs on EVERY body-rendering path, wizard steps included
+
+### Bug — domicilium rendered correctly in a single document but not inside a web pack, at the wizard's own steps (fixed 2026-08-31, AT-391)
+
+Johan's report, confirmed identical on both QA1 and Staging: a single
+EXCLUSIVE AUTHORITY TO SELL document showed the domicilium block correctly
+split per seller ("Seller 1" / "Seller 2", each with their own address/tel/
+email slots) throughout the wizard steps. The SAME document inside a 3-
+template web pack (EATS + MDF + Addendum B) showed one generic, unsplit
+"Seller" block during the pack's own wizard steps — but rendered correctly
+again at the preview immediately before agent signing, and at the agent-
+signing screen itself.
+
+This is the doctrine's §2 canonical-pipeline rule violated in one specific
+spot, not a new render path: `ESignWizardController::templatePages()`
+(`app/Http/Controllers/Docuperfect/ESignWizardController.php:1823`) is the
+ONE shared, client-side-AJAX-driven preview renderer every wizard step calls
+after every field edit (`loadTemplatePreview()` in `wizard.blade.php`) —
+there is no separate per-step screen. Its single-template branch (~line
+2029) correctly runs every preview through `RoleBlockNormalizer::normalize()`
+then `RoleBlockExpansionService::expandWithLooping()` before rendering — the
+same pair the recipient/agent signing screen (`SigningController::show()`,
+lines 294/458) and the final canonical compose (`CanonicalDocumentRenderer::
+compose()`, line 151, reached via `prepareSigning()`) already run. Its PACK
+branch (~lines 1904-1968, "Pack flow — merge all templates") built the merged
+preview by calling `WebTemplateBladeEnsurer::renderOrFallback()` per member
+template and concatenating directly — it never called either. An imported
+blade view carries no `data-role-block` contract by default (confirmed:
+`template-85.blade.php` line 26 is a bare `<div class="corex-h2">Seller</div>`
+with no stamped attribute), so without `normalize()` first,
+`expandWithLooping()` was never even reached with a usable contract for the
+pack case — the generic block simply passed through unexpanded. Single
+documents were never affected because they never entered this branch; the
+preview-before-signing and agent-signing screens were never affected because
+they run an entirely separate, already-correct code path
+(`CanonicalDocumentRenderer::compose()` / `SigningController::show()`), not
+`templatePages()` at all.
+
+**Fix**: the pack branch now builds `$wizardRecipients` once (same source as
+the single-template branch — `buildTransientSignatureRequestsForPreview()`
+over the flow's raw, un-deduped recipients) and runs the identical
+`RoleBlockNormalizer::normalize()` + `RoleBlockExpansionService::
+expandWithLooping()` pair per pack member before concatenating into
+`$mergedHtml`. No new expansion logic, no new renderer — the one shared base
+screen now runs the same step for a pack member it already ran for a single
+document.
+
+**Verified** on Staging (throwaway pack container id 6, EATS+MDF+AddendumB,
+throwaway contacts only — never touching `web_packs` id 5 or Johan's own
+data): a 2-seller pack now shows "Seller 1"/"Seller 2" correctly split at
+steps 4, 5, and 6. Confirmed no regression on three adjacent shapes: a
+1-seller pack (exactly one "Physical address" occurrence within the
+domicilium segment — no double-render), a 2-seller single document
+(unaffected, still correct), and a 1-seller single document (unaffected,
+still correct, no double-render).
+
+**The general rule this establishes**: any code path that renders a
+template's body HTML for display — preview, wizard step, signing screen, or
+canonical compose — must run role-block normalize + expansion before
+showing it, whenever recipients exist to expand against. A future body-
+rendering surface that skips this pair will reproduce this exact bug class
+under a different name.

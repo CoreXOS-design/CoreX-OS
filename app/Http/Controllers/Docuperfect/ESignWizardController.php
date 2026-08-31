@@ -1904,6 +1904,30 @@ class ESignWizardController extends Controller
         if ($template->render_type === 'web' && $template->blade_view) {
             if ($packTemplateIds) {
                 // Pack flow — merge all templates
+
+                // AT-391 (Johan, 2026-08-31) — "domicilium renders in a single
+                // document but not in a web pack." Root cause: the single-
+                // template branch below (search "E-sign walk-fix FIX 1") runs
+                // every preview through RoleBlockNormalizer::normalize() +
+                // RoleBlockExpansionService::expandWithLooping() so an N-seller
+                // session shows N seller blocks instead of one generic,
+                // un-stamped block. This pack branch built $mergedHtml by
+                // concatenating each member's raw WebTemplateBladeEnsurer
+                // output directly, never routing it through that same pair of
+                // calls — the ONE shared preview renderer was simply never
+                // asked to run this step for the pack case. $wizardRecipients
+                // is recipient data, not per-template data, so it is built
+                // once here and reused for every pack member — same source
+                // (buildTransientSignatureRequestsForPreview() over the flow's
+                // raw, un-deduped recipients) the single-template branch uses.
+                $wizardRecipients = collect();
+                if ($flow) {
+                    $wizardRecipients = $this->buildTransientSignatureRequestsForPreview(
+                        $flow,
+                        $this->expandEntityRecipients($rawMergeStepData['recipients']['recipients'] ?? [], $user),
+                    );
+                }
+
                 $mergedHtml = '';
                 foreach ($packTemplateIds as $idx => $tplId) {
                     $tpl = Template::find($tplId);
@@ -1936,6 +1960,24 @@ class ESignWizardController extends Controller
                     // Blank-preview fix: regenerate the generated blade if its file is
                     // missing, and never blank on a render failure (stored-HTML fallback).
                     $html = app(\App\Services\Docuperfect\WebTemplateBladeEnsurer::class)->renderOrFallback($tpl, $tplData);
+
+                    // AT-391 — same normalize+expand pair the single-template
+                    // branch runs, applied per pack member before it's split
+                    // into styles/body and concatenated. Stamping the
+                    // data-role-block contract (normalize) is required first —
+                    // an imported blade carries none, so expandWithLooping
+                    // would otherwise fall to the legacy clustering path.
+                    if ($wizardRecipients->isNotEmpty()) {
+                        $html = app(\App\Services\Docuperfect\RoleBlockNormalizer::class)
+                            ->normalize($html);
+                        $html = app(\App\Services\Docuperfect\RoleBlockExpansionService::class)
+                            ->expandWithLooping(
+                                $tpl,
+                                $html,
+                                $wizardRecipients,
+                            );
+                    }
+
                     $styles = '';
                     preg_match_all('/<style[^>]*>.*?<\/style>/si', $html, $sm);
                     if (!empty($sm[0])) {
