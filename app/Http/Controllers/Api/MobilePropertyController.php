@@ -661,27 +661,9 @@ class MobilePropertyController extends Controller
         // was stored under would otherwise fail the old strict in_array(...,
         // true) check and 422 on a tag that is genuinely valid. Normalising
         // here also files the photo under the SAME category the library shows.
-        $roomTag = $request->input('room_tag');
-
-        if ($roomTag !== null && trim($roomTag) !== '') {
-            $available = $property->getAvailableGalleryTags();
-            $canonical = null;
-            foreach ($available as $t) {
-                if (strcasecmp(trim((string) $t), trim($roomTag)) === 0) {
-                    $canonical = $t;
-                    break;
-                }
-            }
-            if ($canonical === null) {
-                return response()->json([
-                    'message' => "Tag '{$roomTag}' is not available on this property. Add the matching space first.",
-                    'errors'  => ['room_tag' => ["Tag '{$roomTag}' is not on this property's space list."]],
-                    'available_tags' => $available,
-                ], 422);
-            }
-            $roomTag = $canonical;
-        } else {
-            $roomTag = null;
+        $roomTag = $this->canonicalGalleryTag($property, $request->input('room_tag'), $tagError);
+        if ($tagError !== null) {
+            return response()->json($tagError, 422);
         }
 
         $file = $request->file('image');
@@ -1342,6 +1324,183 @@ class MobilePropertyController extends Controller
         ]);
     }
 
+    // ── PUT /api/mobile/properties/{id}/gallery/assign ─────────────
+    // Files ALREADY-UPLOADED photos under a room tag (or back into unsorted).
+    // Body: { "images": ["<url>", ...], "room_tag": "Kitchen" }  — room_tag
+    // null/omitted moves them to unsorted.
+    //
+    // Until this existed, a room tag could only ever be set at upload time, in
+    // the same request as the bytes. That made an untagged photo permanently
+    // untaggable from the phone: the agent's only remedy was to open the web
+    // app on a desktop, or delete and re-shoot. Combined with the app's offline
+    // queue dropping room_tag (so a whole shoot can arrive untagged — property
+    // 15936, 2026-08-28) that left 27 photos an agent could neither see under a
+    // room nor move into one. Tagging must be a property of the PHOTO, not of
+    // the upload moment.
+    public function assignGalleryTag(Request $request, Property $property): JsonResponse
+    {
+        $this->authorizeProperty($request->user(), $property);
+
+        $data = $request->validate([
+            'images'   => 'required|array|min:1',
+            'images.*' => 'required|string|max:2048',
+            'room_tag' => 'nullable|string|max:100',
+        ]);
+
+        $roomTag = $this->canonicalGalleryTag($property, $data['room_tag'] ?? null, $error);
+        if ($error !== null) {
+            return response()->json($error, 422);
+        }
+
+        $unknown = [];
+        $moved   = 0;
+
+        DB::transaction(function () use ($property, $data, $roomTag, &$unknown, &$moved) {
+            /** @var Property $locked */
+            $locked = Property::whereKey($property->getKey())->lockForUpdate()->firstOrFail();
+
+            // The client echoes back the ABSOLUTE urls we handed it, while the
+            // gallery may store host-relative ones. Match on the path so the two
+            // shapes resolve to the same photo instead of silently missing.
+            $stored = [];
+            foreach (($locked->gallery_images_json ?? []) as $u) {
+                if (is_string($u)) {
+                    $stored[$this->imageMatchKey($u)] = $u;
+                }
+            }
+
+            $targets = [];
+            foreach ($data['images'] as $u) {
+                $key = $this->imageMatchKey($u);
+                if (isset($stored[$key])) {
+                    $targets[$stored[$key]] = true;
+                } else {
+                    $unknown[] = $u;
+                }
+            }
+
+            if ($targets === []) {
+                return;
+            }
+
+            $cats = $locked->gallery_categories_json ?? ['categories' => [], 'unsorted' => []];
+
+            // Lift every target out of whatever bucket currently holds it, so a
+            // photo can never end up filed under two rooms at once.
+            $newCategories = [];
+            foreach (($cats['categories'] ?? []) as $cat) {
+                $cat['images'] = array_values(array_filter(
+                    $cat['images'] ?? [],
+                    fn ($u) => ! isset($targets[$u])
+                ));
+                $newCategories[] = $cat;
+            }
+            $unsorted = array_values(array_filter(
+                $cats['unsorted'] ?? [],
+                fn ($u) => ! isset($targets[$u])
+            ));
+
+            $list = array_keys($targets);
+            $moved = count($list);
+
+            if ($roomTag === null) {
+                $unsorted = array_merge($unsorted, $list);
+            } else {
+                $found = false;
+                foreach ($newCategories as &$cat) {
+                    if (($cat['name'] ?? null) === $roomTag) {
+                        $cat['images'] = array_merge($cat['images'] ?? [], $list);
+                        $found = true;
+                        break;
+                    }
+                }
+                unset($cat);
+                if (! $found) {
+                    $newCategories[] = ['name' => $roomTag, 'images' => $list];
+                }
+            }
+
+            // Drop categories left empty by the move so the picker doesn't grow
+            // a tail of dead rooms — except derived ones, which the space list
+            // owns and which must survive an empty state.
+            $derived = array_map('strtolower', $locked->derivedGalleryTags());
+            $newCategories = array_values(array_filter(
+                $newCategories,
+                fn ($c) => ! empty($c['images']) || in_array(strtolower($c['name'] ?? ''), $derived, true)
+            ));
+
+            $locked->gallery_categories_json = [
+                'categories' => $newCategories,
+                'unsorted'   => array_values(array_unique($unsorted)),
+            ];
+            $locked->saveQuietly();
+        });
+
+        $fresh = $property->fresh();
+
+        return response()->json([
+            'message'            => $moved === 0
+                ? 'No matching photos on this property — nothing moved.'
+                : ($roomTag === null
+                    ? "{$moved} photo(s) moved to unsorted."
+                    : "{$moved} photo(s) filed under '{$roomTag}'."),
+            'moved'              => $moved,
+            'unknown_images'     => $unknown,
+            'room_tag'           => $roomTag,
+            'gallery_categories' => $this->buildGalleryCategories($fresh),
+            'available_tags'     => $fresh->getAvailableGalleryTags(),
+        ], $moved === 0 && $unknown !== [] ? 422 : 200);
+    }
+
+    /**
+     * Resolve a client-supplied room tag against the property's live tag
+     * library, case- and whitespace-insensitively, returning the library's
+     * CANONICAL casing (or null for "no tag").
+     *
+     * Shared by the upload and the assign endpoints on purpose: two copies of
+     * this resolution would drift, and a tag accepted by one path but rejected
+     * by the other is exactly the kind of inconsistency that makes tagging feel
+     * broken to an agent.
+     *
+     * @param  array<string,mixed>|null  $error  set to the 422 body when invalid
+     */
+    private function canonicalGalleryTag(Property $property, ?string $roomTag, ?array &$error): ?string
+    {
+        $error = null;
+
+        if ($roomTag === null || trim($roomTag) === '') {
+            return null;
+        }
+
+        $available = $property->getAvailableGalleryTags();
+        foreach ($available as $t) {
+            if (strcasecmp(trim((string) $t), trim($roomTag)) === 0) {
+                return $t;
+            }
+        }
+
+        $error = [
+            'message'        => "Tag '{$roomTag}' is not available on this property. Add the matching space first.",
+            'errors'         => ['room_tag' => ["Tag '{$roomTag}' is not on this property's space list."]],
+            'available_tags' => $available,
+        ];
+
+        return null;
+    }
+
+    /**
+     * Comparison key for "is this the same stored image?" — the URL path with
+     * any scheme/host stripped. Lets an absolute URL handed to the client match
+     * the host-relative value the gallery may actually hold.
+     */
+    private function imageMatchKey(string $url): string
+    {
+        $url  = trim($url);
+        $path = parse_url($url, PHP_URL_PATH);
+
+        return ltrim(is_string($path) && $path !== '' ? $path : $url, '/');
+    }
+
     private function fullPropertyResponse(Property $property): array
     {
         // Absolute URLs so every image loads on a mobile device (relative
@@ -1432,7 +1591,22 @@ class MobilePropertyController extends Controller
 
     /**
      * Transform the internal gallery_categories_json (array of {name, images})
-     * into the mobile-friendly format: { "categories": { "Kitchen": [...], "Lounge": [...] } }
+     * into the mobile-friendly format:
+     * { "categories": { "Kitchen": [...] }, "unsorted": [...] }
+     *
+     * `unsorted` is NOT optional. This method used to return the categories map
+     * alone and silently drop the unsorted bucket, so a photo that arrived
+     * without a room_tag existed on the property, counted in `gallery_images`,
+     * synced to the portals — and yet appeared under no room in the app's
+     * room-by-room view. There was no screen on which an agent could see it,
+     * let alone file it. On property 15936 (2026-08-28) that hid 27 of 35
+     * photos: they uploaded from the app's offline queue, which does not carry
+     * the room_tag, so every one of them landed untagged and vanished from the
+     * gallery view the agent was looking at. She reported them as "did not
+     * upload". They had.
+     *
+     * A photo that exists must be visible somewhere. Anything untagged belongs
+     * in this bucket, and the bucket ships in the payload.
      */
     private function buildGalleryCategories(Property $property): array
     {
@@ -1443,7 +1617,10 @@ class MobilePropertyController extends Controller
             $mapped[$cat['name']] = $this->absoluteImageUrls($cat['images'] ?? []);
         }
 
-        return ['categories' => (object) $mapped];
+        return [
+            'categories' => (object) $mapped,
+            'unsorted'   => $this->absoluteImageUrls($raw['unsorted'] ?? []),
+        ];
     }
 
     // ── Image URL helpers ───────────────────────────────────────
