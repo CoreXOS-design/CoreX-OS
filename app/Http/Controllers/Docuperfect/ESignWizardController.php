@@ -3144,12 +3144,26 @@ class ESignWizardController extends Controller
             $resolvedPropertyId = $stepData['property']['property_id'];
         }
 
-        $result = DB::transaction(function () use ($user, $flow, $template, $fields, $recipients, $signingSetup, $docName, $propertyAddress, $signatureService, $webTemplateData, $packInstanceId, $resolvedDocType, $resolvedPropertyId, $candidateService, $isCandidateFlow, $stepData) {
+        // AT-390-emergency — resolve BEFORE the transaction so an unresolvable
+        // agency fails cleanly (matching this method's existing HARD BLOCK
+        // pattern above) instead of a raw QueryException from inside it.
+        try {
+            $resolvedAgencyId = $this->resolveDocumentAgencyId($user, $resolvedPropertyId, $propSource, $template);
+        } catch (\RuntimeException $e) {
+            if ($request->expectsJson()) {
+                return response()->json(['ok' => false, 'error' => $e->getMessage()], 422);
+            }
+            return redirect()->route('docuperfect.esign.step', [$flowId, 6])
+                ->with('error', $e->getMessage());
+        }
+
+        $result = DB::transaction(function () use ($user, $flow, $template, $fields, $recipients, $signingSetup, $docName, $propertyAddress, $signatureService, $webTemplateData, $packInstanceId, $resolvedDocType, $resolvedPropertyId, $resolvedAgencyId, $candidateService, $isCandidateFlow, $stepData) {
             // 1. Create Document
             $document = Document::create([
                 'name'             => $docName,
                 'template_id'      => $template->id,
                 'fields_json'      => $fields,
+                'agency_id'        => $resolvedAgencyId,
                 // AT-267 / AUDIT 2026-07-26 (F3) — an assistant's document files under the AGENT.
                 // Document::scopeVisibleTo() resolves an agent's 'own' as [agent] only, so an
                 // assistant-owned OTP/mandate was invisible to the practitioner it was prepared
@@ -3310,6 +3324,13 @@ class ESignWizardController extends Controller
                 'status'              => SignatureTemplate::STATUS_DRAFT,
                 'parties_json'        => $parties,
                 'signing_order_json'  => $signingOrder,
+                // AT-390-emergency — this column is nullable, so the same
+                // unscoped-owner gap that crashed Document::create() would
+                // NOT crash here; it would silently write agency_id=NULL,
+                // and AgencyScope treats a NULL agency_id as an orphan row
+                // that ordinary scoped queries never see again. Same
+                // resolved value as the Document row above.
+                'agency_id'           => $resolvedAgencyId,
                 // HD-6 (§4) — a MANDATE signs `sellers → agent`: joint sellers are one group, so the
                 // agent is not asked to authorise the gap between two people signing the same document
                 // for the same reason. Scoped to mandates ON PURPOSE — every other ceremony (leases in
@@ -5423,6 +5444,57 @@ class ESignWizardController extends Controller
         return $out ?? $html;
     }
 
+    /**
+     * AT-390-emergency (Johan, 2026-08-31) — resolve the agency_id a wizard-
+     * created docuperfect_documents row must carry. The column is NOT NULL
+     * with no default; nothing wrote it explicitly before this fix, and the
+     * automatic tenant-stamp (BelongsToAgency::bootBelongsToAgency) has no
+     * fallback for a platform-owner account with no agency of its own and no
+     * active agency-switcher session — that combination hit a raw
+     * "Field 'agency_id' doesn't have a default value" QueryException on
+     * INSERT. Ordinary agency-scoped users (any real agent/assistant) were
+     * never affected: effectiveAgencyId() already resolves for them.
+     *
+     * Resolution order, all from sources the document is unambiguously
+     * ABOUT, never a guess:
+     *   1. The acting user's own effective agency (covers every ordinary
+     *      user, and an owner with an active agency-switcher override).
+     *   2. The selected property's own agency (Property or RentalProperty,
+     *      per $propertySource) — the property belongs to exactly one agency.
+     *   3. The template's own agency — same reasoning.
+     * If none of the three resolve, this throws rather than inserting a
+     * null/guessed value — an orphaned, agency-less document is exactly the
+     * class of bug the 2026-08-31 09:06 template-visibility incident was.
+     *
+     * @throws \RuntimeException when no agency can be resolved at all
+     */
+    private function resolveDocumentAgencyId(\App\Models\User $user, ?int $propertyId, string $propertySource, Template $template): int
+    {
+        $agencyId = $user->effectiveAgencyId();
+        if ($agencyId) {
+            return (int) $agencyId;
+        }
+
+        if ($propertyId) {
+            $propertyAgencyId = $propertySource === 'rental_properties'
+                ? RentalProperty::find($propertyId)?->agency_id
+                : \App\Models\Property::find($propertyId)?->agency_id;
+            if ($propertyAgencyId) {
+                return (int) $propertyAgencyId;
+            }
+        }
+
+        if ($template->agency_id) {
+            return (int) $template->agency_id;
+        }
+
+        throw new \RuntimeException(
+            'This document cannot be created without a clear agency to file it under. '
+            . 'Select an agency (via the agency switcher) before sending, or choose a '
+            . 'property or template that belongs to one.'
+        );
+    }
+
     private function autoFillFields(array $fields, array $stepData): array
     {
         // Load named field source mappings (non-manual for auto-resolve)
@@ -7068,10 +7140,23 @@ class ESignWizardController extends Controller
             $webTemplateData['merged_html'] = $styles . $bodyHtml;
         }
 
+        // AT-390-emergency — see resolveDocumentAgencyId() docblock.
+        $downloadPropertySource = $stepData['property']['_property_source'] ?? 'properties';
+        $downloadPropertyId = $stepData['property']['property_id'] ?? null;
+        try {
+            $downloadAgencyId = $this->resolveDocumentAgencyId($user, $downloadPropertyId, $downloadPropertySource, $template);
+        } catch (\RuntimeException $e) {
+            if ($request->expectsJson()) {
+                return response()->json(['ok' => false, 'error' => $e->getMessage()], 422);
+            }
+            return back()->with('error', $e->getMessage());
+        }
+
         $document = Document::create([
             'name' => $docName,
             'template_id' => $template->id,
             'fields_json' => $fields,
+            'agency_id' => $downloadAgencyId,
             'owner_id' => $user->ownershipUserId(request()->integer('acting_for_user_id') ?: null), // AT-267 / AUDIT 2026-07-26 (F3) — files as the agent
             'branch_id' => $user->effectiveBranchId(),
             'document_type' => $template->template_type,
@@ -7321,12 +7406,23 @@ class ESignWizardController extends Controller
             'spouse' => 'spouse', 'other' => 'other',
         ];
 
-        $result = DB::transaction(function () use ($user, $flow, $template, $fields, $recipients, $signingSetup, $docName, $propertyAddress, $signatureService, $webTemplateData, $resolvedDocType, $resolvedPropertyId, $roleAliases, $stepData) {
+        // AT-390-emergency — see resolveDocumentAgencyId() docblock.
+        try {
+            $resolvedAgencyId = $this->resolveDocumentAgencyId($user, $resolvedPropertyId, $propSource, $template);
+        } catch (\RuntimeException $e) {
+            if ($request->expectsJson()) {
+                return response()->json(['ok' => false, 'error' => $e->getMessage()], 422);
+            }
+            return back()->with('error', $e->getMessage());
+        }
+
+        $result = DB::transaction(function () use ($user, $flow, $template, $fields, $recipients, $signingSetup, $docName, $propertyAddress, $signatureService, $webTemplateData, $resolvedDocType, $resolvedPropertyId, $resolvedAgencyId, $roleAliases, $stepData) {
             // 1. Create Document
             $document = Document::create([
                 'name'             => $docName,
                 'template_id'      => $template->id,
                 'fields_json'      => $fields,
+                'agency_id'        => $resolvedAgencyId,
                 'owner_id'         => $user->ownershipUserId(request()->integer('acting_for_user_id') ?: null), // AT-267 / AUDIT 2026-07-26 (F3) — files as the agent
                 'branch_id'        => $user->effectiveBranchId(),
                 'property_address' => $propertyAddress,
@@ -7416,6 +7512,8 @@ class ESignWizardController extends Controller
                 'status'              => SignatureTemplate::STATUS_READY,
                 'parties_json'        => $parties,
                 'signing_order_json'  => $signingOrder,
+                // AT-390-emergency — see the sibling create() in prepareSigning().
+                'agency_id'           => $resolvedAgencyId,
                 'created_by'          => $user->id,
                 'sections_json'       => $template->sections,
                 'other_conditions_text' => trim($stepData['fill_review']['other_conditions_text'] ?? '') ?: null,
