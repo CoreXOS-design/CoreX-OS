@@ -388,6 +388,58 @@ final class CrossAgencyTemplateAccessTest extends TestCase
         $this->assertNotContains($foreignTemplate->id, $visibleIds);
     }
 
+    // ── AT-390 — Template Management's PDF/Web filter composes with agency
+    // scoping (a WHERE render_type=… layered on the already-scoped query),
+    // rather than fighting it. Uses `type`/`document_type` is EXISTING request
+    // params for OTHER filters -- this is `format`, deliberately distinct. ──
+
+    public function test_format_filter_shows_only_pdf_within_the_callers_own_agency(): void
+    {
+        $own = $this->makeAgencyWithAdmin('FormatOwn');
+        $foreign = $this->makeAgencyWithAdmin('FormatForeign');
+        $ownPdf = Template::create([
+            'name' => 'Own PDF Template', 'template_type' => 'sales', 'page_count' => 1,
+            'fields_json' => [], 'is_global' => false, 'agency_id' => $own['agency']->id, 'render_type' => 'pdf',
+        ]);
+        $ownWeb = Template::create([
+            'name' => 'Own Web Template', 'template_type' => 'sales', 'page_count' => 1,
+            'fields_json' => [], 'is_global' => false, 'agency_id' => $own['agency']->id, 'render_type' => 'web',
+        ]);
+        $foreignPdf = Template::create([
+            'name' => 'Foreign PDF Template', 'template_type' => 'sales', 'page_count' => 1,
+            'fields_json' => [], 'is_global' => false, 'agency_id' => $foreign['agency']->id, 'render_type' => 'pdf',
+        ]);
+
+        $this->actingAs($own['admin'])
+            ->get(route('docuperfect.templates.index', ['format' => 'pdf']))
+            ->assertOk()
+            ->assertSee('Own PDF Template')
+            ->assertDontSee('Own Web Template')
+            ->assertDontSee('Foreign PDF Template'); // agency scoping still applies
+    }
+
+    public function test_format_filter_persists_across_a_plain_revisit(): void
+    {
+        $own = $this->makeAgencyWithAdmin('FormatPersist');
+        Template::create([
+            'name' => 'Persisted PDF Template', 'template_type' => 'sales', 'page_count' => 1,
+            'fields_json' => [], 'is_global' => false, 'agency_id' => $own['agency']->id, 'render_type' => 'pdf',
+        ]);
+        Template::create([
+            'name' => 'Persisted Web Template', 'template_type' => 'sales', 'page_count' => 1,
+            'fields_json' => [], 'is_global' => false, 'agency_id' => $own['agency']->id, 'render_type' => 'web',
+        ]);
+
+        $this->actingAs($own['admin'])->get(route('docuperfect.templates.index', ['format' => 'web']))->assertOk();
+
+        // Plain revisit, no ?format= in the URL -- the session value must win.
+        $this->actingAs($own['admin'])
+            ->get(route('docuperfect.templates.index'))
+            ->assertOk()
+            ->assertSee('Persisted Web Template')
+            ->assertDontSee('Persisted PDF Template');
+    }
+
     // ── PackController::resolveSelectableTemplates — a different mechanism
     // (Template::visibleTo() scope, not assertAccessibleBy) ──
 

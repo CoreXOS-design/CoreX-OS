@@ -109,6 +109,15 @@
                 <option value="global" {{ request('visibility') === 'global' ? 'selected' : '' }}>Global</option>
                 <option value="branch" {{ request('visibility') === 'branch' ? 'selected' : '' }}>Branch-specific</option>
             </select>
+            {{-- AT-390 — PDF vs Web, in agent words. $format carries the
+                 persisted (session) value when the URL has no explicit
+                 ?format=, so a plain revisit of this page remembers the
+                 last choice. --}}
+            <select name="format" onchange="this.form.submit()" class="list-header-filter">
+                <option value="all" {{ ($format ?? 'all') === 'all' ? 'selected' : '' }}>All documents</option>
+                <option value="pdf" {{ ($format ?? 'all') === 'pdf' ? 'selected' : '' }}>PDF</option>
+                <option value="web" {{ ($format ?? 'all') === 'web' ? 'selected' : '' }}>Web</option>
+            </select>
 
             <button type="submit" class="corex-btn-outline text-xs px-3 py-2">Search</button>
             @if($hasActiveFilters)
