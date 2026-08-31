@@ -83,7 +83,10 @@ class PhotoUploadDiagnosticsController extends Controller
             // remembers it — and makes a gap obvious at a glance.
             $index = preg_match('/_(\d+)$/', (string) $key, $m) ? (int) $m[1] : null;
 
-            $failed = $byPhase['upload_failed'] ?? null;
+            $failed  = $byPhase['upload_failed'] ?? null;
+            $dropRow = $byPhase['dropped'] ?? null;
+            $okRow   = $byPhase['upload_ok'] ?? null;
+            $bake    = $okRow->meta['bake'] ?? null;
 
             return (object) [
                 'client_upload_id' => $key,
@@ -93,6 +96,11 @@ class PhotoUploadDiagnosticsController extends Controller
                 'attempted_at'     => $byPhase['upload_started']->occurred_at ?? null,
                 'received_at'      => $received,
                 'dropped'          => isset($byPhase['dropped']),
+                'drop_reason'      => $dropRow->meta['reason'] ?? null,
+                'bake'             => $bake,
+                'sensor_reading'   => $okRow->meta['sensor_reading'] ?? null,
+                'orientation_risk' => MobilePhotoEvent::isOrientationUnconfirmed($bake),
+                'recall'           => $dropRow->meta['recall'] ?? null,
                 'error'            => $failed->meta['error'] ?? null,
                 'room_tag'         => $byPhase[MobilePhotoEvent::PHASE_RECEIVED]->meta['room_tag'] ?? null,
                 'lag_seconds'      => ($captured && $received) ? $received->diffInSeconds($captured) : null,
@@ -113,7 +121,11 @@ class PhotoUploadDiagnosticsController extends Controller
             return 'landed';
         }
         if (isset($byPhase['dropped'])) {
-            return 'dropped by app';
+            $reason = $byPhase['dropped']->meta['reason'] ?? null;
+
+            return MobilePhotoEvent::isAgentDropReason($reason)
+                ? 'deleted by agent'
+                : 'dropped before upload';   // an enqueue failure, not a choice
         }
         if (isset($byPhase['upload_failed'])) {
             return 'upload failed';
@@ -144,18 +156,47 @@ class PhotoUploadDiagnosticsController extends Controller
         // reviews, bins one. Counting those as "never arrived" would paint a
         // healthy shoot as broken and bury the real losses in noise, which is the
         // one thing this page exists not to do.
+        // ONLY an agent's own deletion may be subtracted. The app also emits
+        // `dropped` when an ENQUEUE FAILS — a real loss wearing the same label —
+        // and subtracting that would hide exactly the class of bug this page
+        // exists to catch. Anything not on the allow-list, including a drop with
+        // no reason at all, stays counted as missing. Fail safe: over-reporting a
+        // loss is recoverable, hiding one is how a photo-loss bug survives days.
+        //
+        // Decided in PHP rather than SQL so the tile and the per-photo verdict
+        // share ONE definition of "the agent chose this" — and so the matching can
+        // be spelling-insensitive (the Dart client may send removedInReview where
+        // this list says removed_in_review). See MobilePhotoEvent::isAgentDropReason().
+        $receivedIds = MobilePhotoEvent::where('property_id', $propertyId)
+            ->where('phase', MobilePhotoEvent::PHASE_RECEIVED)
+            ->pluck('client_upload_id')
+            ->flip();
+
         $dropped = MobilePhotoEvent::where('property_id', $propertyId)
             ->where('phase', 'dropped')
-            ->whereNotIn('client_upload_id', function ($q) use ($propertyId) {
-                $q->select('client_upload_id')
-                  ->from('mobile_photo_events')
-                  ->where('property_id', $propertyId)
-                  ->where('phase', MobilePhotoEvent::PHASE_RECEIVED);
-            })
-            ->distinct()
-            ->count('client_upload_id');
+            ->get()
+            ->reject(fn ($e) => $receivedIds->has($e->client_upload_id))
+            ->filter(fn ($e) => MobilePhotoEvent::isAgentDropReason($e->meta['reason'] ?? null))
+            ->pluck('client_upload_id')
+            ->unique()
+            ->count();
+
+        // The app reports how each photo's orientation was resolved (meta.bake on
+        // upload_ok). This is the ONLY reliable orientation signal: the server
+        // cannot infer it, because "no EXIF tag + landscape canvas" is equally
+        // the signature of a correctly baked photo and a sideways one.
+        $bakes = MobilePhotoEvent::where('property_id', $propertyId)
+            ->where('phase', 'upload_ok')
+            ->get()
+            ->groupBy('client_upload_id')
+            ->map(fn ($g) => $g->first()->meta['bake'] ?? null);
+
+        $unconfirmed = $bakes->filter(fn ($b) => MobilePhotoEvent::isOrientationUnconfirmed($b))->count();
+        $sensorSaved = $bakes->filter(fn ($b) => MobilePhotoEvent::dropReasonKey($b) === 'sensor')->count();
 
         return [
+            'orientation_unconfirmed' => $unconfirmed,
+            'orientation_sensor_saved' => $sensorSaved,
             'captured' => $captured,
             'queued'   => $distinct('queued'),
             'received' => $received,

@@ -48,6 +48,27 @@
             @endforeach
         </div>
 
+        @if($s['orientation_unconfirmed'] > 0)
+            <div class="corex-panel corex-panel-body text-sm"
+                 style="border-left: 3px solid #f59e0b;">
+                <span class="font-semibold" style="color: #f59e0b;">
+                    {{ $s['orientation_unconfirmed'] }} photo(s) may be sideways.
+                </span>
+                <span style="color: var(--text-muted);">
+                    The phone could not work out which way up they were, so they went up
+                    as shot. Worth opening the listing and checking those before it goes
+                    to the portals. Marked below.
+                </span>
+            </div>
+        @endif
+
+        @if($s['orientation_sensor_saved'] > 0)
+            <div class="text-xs" style="color: var(--text-muted);">
+                {{ $s['orientation_sensor_saved'] }} photo(s) were straightened using the phone's
+                tilt sensor — those carried no orientation tag, so nothing else could have fixed them.
+            </div>
+        @endif
+
         @if($s['captured'] === 0)
             <div class="corex-panel corex-panel-body text-sm" style="color: var(--text-muted);">
                 The phone hasn't reported anything for this listing. Either the photos were
@@ -88,7 +109,7 @@
                             </td>
                             <td class="px-4 py-3">{{ $p->room_tag ?? '—' }}</td>
                             <td class="px-4 py-3">
-                                @php $ok = $p->status === 'landed'; @endphp
+                                @php $ok = in_array($p->status, ['landed', 'deleted by agent'], true); @endphp
                                 <span class="px-2 py-1 rounded text-xs font-semibold"
                                       style="background: {{ $ok ? 'rgba(16,185,129,.15)' : 'rgba(239,68,68,.15)' }};
                                              color: {{ $ok ? '#10b981' : '#ef4444' }};">
@@ -96,6 +117,16 @@
                                 </span>
                                 @if($p->error)
                                     <div class="text-xs mt-1" style="color: var(--text-muted);">{{ $p->error }}</div>
+                                @endif
+                                @if($p->orientation_risk)
+                                    <div class="text-xs mt-1 font-semibold" style="color: #f59e0b;">
+                                        may be sideways@if($p->bake) ({{ $p->bake }})@endif
+                                    </div>
+                                @endif
+                                @if($p->drop_reason)
+                                    <div class="text-xs mt-1" style="color: var(--text-muted);">
+                                        {{ str_replace('_', ' ', $p->drop_reason) }}@if($p->recall) · recall: {{ $p->recall }}@endif
+                                    </div>
                                 @endif
                             </td>
                         </tr>
