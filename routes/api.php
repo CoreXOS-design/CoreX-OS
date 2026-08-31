@@ -428,6 +428,11 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::get('/{property}/gallery/tags',          [MobilePropertyController::class, 'galleryTags'])->name('v1.mobile.properties.gallery.tags.index');
             Route::post('/{property}/gallery/tags',         [MobilePropertyController::class, 'addCustomTag'])->name('v1.mobile.properties.gallery.tags.add');
             Route::delete('/{property}/gallery/tags',       [MobilePropertyController::class, 'removeCustomTag'])->name('v1.mobile.properties.gallery.tags.remove');
+            // File already-uploaded photos under a room (or back to unsorted).
+            // Without this, room_tag could only be set in the upload request
+            // itself, so anything that arrived untagged stayed untagged forever
+            // on mobile. See MobilePropertyController::assignGalleryTag().
+            Route::put('/{property}/gallery/assign',        [MobilePropertyController::class, 'assignGalleryTag'])->name('v1.mobile.properties.gallery.assign');
 
             Route::get('/{property}/spaces', [MobilePropertyController::class, 'spacesShow'])->name('v1.mobile.properties.spaces.show');
             Route::put('/{property}/spaces', [MobilePropertyController::class, 'spacesUpdate'])->name('v1.mobile.properties.spaces.update');

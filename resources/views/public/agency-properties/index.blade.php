@@ -52,14 +52,15 @@
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
             @foreach ($properties as $p)
                 @php
-                    $images = is_array($p->images_json) ? $p->images_json : (json_decode($p->images_json ?? '[]', true) ?: []);
-                    $cover  = $images[0] ?? null;
+                    // See show.blade.php — same fix: the cover has to come from
+                    // the property's real photo set, already URL-normalised.
+                    $cover = $p->publicGalleryUrls()[0] ?? null;
                 @endphp
                 <a href="{{ route('public.agency.properties.show', [$agency->slug, $p->id]) }}"
                    class="rounded-md bg-surface-2 border border-subtle/40 overflow-hidden block hover:border-subtle transition">
                     <div class="aspect-[4/3] bg-surface overflow-hidden">
                         @if($cover)
-                            <img src="{{ asset('storage/'.$cover) }}" alt="" class="w-full h-full object-cover">
+                            <img src="{{ $cover }}" alt="" class="w-full h-full object-cover">
                         @else
                             <div class="w-full h-full flex items-center justify-center text-muted text-xs">No image</div>
                         @endif
