@@ -80,6 +80,77 @@ best-effort-email doctrine already used by `QueueWorkerLivenessAlert` below, app
   reads `DB::table('jobs')`, which is already environment-isolated by each deployment's own DB
   connection — there's no shared-host double-detection risk like `SupervisorWorkerStatusService` has.
 
+### Per-lane thresholds (2026-08-28)
+
+`checkStalledQueue()` originally scanned the WHOLE `jobs` table as one pile and judged it
+against a single 600s deadline. That was a correct measure of health for exactly as long as
+every job shared the `default` queue. It stopped being one the moment slow work was given
+its own lane.
+
+The trigger: on 2026-08-27 `TranscribeVoiceNoteJob` was moved to a dedicated `transcription`
+lane so a batch of voice notes could no longer head-of-line-block the fast scheduled work.
+That fix worked — but the alarm still counted those notes as one undifferentiated backlog.
+A voice note costs ~30-90s of whisper.cpp and box-wide transcription concurrency is exactly 1
+by design (`TranscriptionService::WHISPER_LOCK`), so the nightly batch takes ~17 minutes to
+drain and ALWAYS parks its own head well past 600s. The alarm fired at 22:15 on 2026-08-26,
+08-27 and 08-28 — three consecutive nights — while every worker was RUNNING, `default` was
+draining on time, and nothing was wrong. On the 08-28 occurrence the worker log shows 18
+notes processed cleanly from 22:03 to 22:19 while the alarm was calling the queue wedged.
+
+A false alarm every night is worse than no alarm: it trains the owner to ignore the one night
+it is real, and the alert's own advice (restart the worker) would have killed a note in
+flight for no gain. So each lane is now judged against what is normal FOR THAT LANE, via
+`config/queue_alerting.php` → `backlog.lanes`.
+
+**Latency lanes** (`default`, `mail`, `webhooks`, `matching`, `buyer-matching`, `p24import`,
+`p24images`, `bg_removal`, and any lane not listed) — something is waiting on these, so depth
+over time is itself the fault. Behaviour is UNCHANGED: oldest waiting job older than
+`--max-age` (600s) alarms, exactly as fast as before. An unrecognised/new lane falls back to
+this, so a lane nobody has tuned can never be silently unmonitored.
+
+**Batch lanes** (`requires_progress => true`; currently only `transcription`) — a deep queue
+is the normal steady state, so depth proves nothing. What proves a fault is the queue not
+MOVING. A batch lane alarms only when the oldest waiting job is past its own `max_age` AND
+the head of that lane has not advanced for `progress_window` seconds.
+
+Head-advance is used rather than `reserved_at` deliberately. With `--sleep=3` there is a ~3s
+window between a worker finishing one job and reserving the next in which NOTHING on the lane
+is reserved; a 5-minute check landing in that window would read a healthy worker as dead
+(~1% per run, ~4% across a nightly batch — i.e. it would have reintroduced the very false
+alarm this change removes). The head of the waiting queue has no such flicker: it advances
+the instant a job is picked up and never moves backwards. The marker lives in the cache
+(`queue-healthcheck:lane-head:{queue}`, 6h TTL) and any cache failure reports "just advanced"
+— fail-quiet, matching the growth checkpoint's doctrine.
+
+`progress_window` must exceed the longest a single job on that lane can legitimately hold the
+head, i.e. that job's own `$timeout`. `TranscribeVoiceNoteJob` has `$timeout = 1200`, so
+`transcription` uses 1500. Worker-process DEATH is not this alarm's job in any case:
+`corex:queue-worker-liveness-alert` catches a FATAL/STOPPED process within a minute, on a
+completely independent mechanism (supervisorctl, not the database).
+
+Two further consequences, both deliberate:
+
+- The email throttle key became **per lane** (`queue-backlog-alert:{queue}`). Under the old
+  single global key, a lane that was legitimately noisy would swallow the first page from a
+  different lane that had genuinely just died, for up to 15 minutes.
+- `QueueBacklogAlertMail` now carries the lane, that lane's own threshold, and the supervisor
+  program for that lane. Previously every backlog email read identically no matter which lane
+  was stalled and told the reader to restart `corex-worker-live:*` — wrong, and actively
+  misleading, for all seven other lanes. The lane→program map was read off
+  `/etc/supervisor/conf.d/*.conf` on the live host, 2026-08-28.
+
+**Acceptance criteria**
+
+- [x] The exact 08-28 22:15 condition (23 jobs on `transcription`, oldest 713s) is silent.
+- [x] A batch lane past its own threshold but still moving is silent.
+- [x] A batch lane whose head has not advanced past `progress_window` alarms.
+- [x] A latency lane at 700s still alarms, unchanged.
+- [x] A deep batch lane never masks or delays a real stall on another lane.
+- [x] Each lane's alert email is throttled independently.
+- [x] An unknown lane falls back to the 600s latency default.
+- [ ] Observed silent on live through a real 22:00 voice-note batch (first opportunity
+      2026-08-29 22:00 SAST).
+
 ## Alerting — worker liveness (`corex:queue-worker-liveness-alert`)
 
 `app/Console/Commands/QueueWorkerLivenessAlert.php` (`corex:queue-worker-liveness-alert`),

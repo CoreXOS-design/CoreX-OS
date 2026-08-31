@@ -6,6 +6,7 @@ namespace App\Services\Map;
 
 use App\Models\Prospecting\TrackedPropertyAddress;
 use App\Support\MarketAnalytics\OutlierGuard;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
@@ -32,11 +33,82 @@ use Illuminate\Support\Facades\Schema;
  */
 final class MapPinService
 {
+    /** @var array<int, array<string, array<int, int|null>>> */
+    private static array $addressIndexCache = [];
+
+    private const ADDRESS_INDEX_CACHE_TTL_SECONDS = 1800;
+
     public function __construct(private readonly ?LocationGrouper $grouper = null) {}
 
     private function grouper(): LocationGrouper
     {
         return $this->grouper ?? new LocationGrouper();
+    }
+
+    private static function addressIndexCacheKey(int $agencyId): string
+    {
+        return "map:address-index:agency:{$agencyId}";
+    }
+
+    /**
+     * Map perf (Johan, 2026-08-27) — bust the agency address index used by
+     * trackedProperties()'s Stock-fold step. Called from PropertyObserver
+     * saved()/deleted()/restored(), same three call sites as the existing
+     * OnMarketStockService::forgetAgency() (app/Services/Prospecting/
+     * OnMarketStockService.php) — same shape, same discipline: correctness is
+     * carried by this synchronous bust-on-write, not by the TTL below, which
+     * exists only as a safety net for a write that bypasses Eloquent (none do
+     * today).
+     */
+    public static function forgetAgencyAddressIndex(int $agencyId): void
+    {
+        unset(self::$addressIndexCache[$agencyId]);
+        Cache::forget(self::addressIndexCacheKey($agencyId));
+    }
+
+    /**
+     * Agency-wide (street_number|street_name_normalised|suburb_normalised) =>
+     * [unit_number, ...] index over `properties`, used by trackedProperties()'s
+     * Stock-fold step (a tracked property whose address exactly matches an
+     * existing agency Property is folded away rather than drawing its own pin).
+     * Previously rebuilt from scratch on every single map pins request — a
+     * ~160ms double-IN query that MySQL's optimizer wouldn't use the composite
+     * idx_properties_address_key index for even after 2026-08-27's bbox-bounded
+     * narrowing. Cached per agency, mirroring OnMarketStockService::
+     * identitySets() exactly (same key style, same 30-min TTL, same
+     * PropertyObserver-driven invalidation — no new caching mechanism).
+     */
+    private function agencyAddressIndex(int $agencyId): array
+    {
+        if (array_key_exists($agencyId, self::$addressIndexCache)) {
+            return self::$addressIndexCache[$agencyId];
+        }
+
+        self::$addressIndexCache[$agencyId] = Cache::remember(
+            self::addressIndexCacheKey($agencyId),
+            self::ADDRESS_INDEX_CACHE_TTL_SECONDS,
+            function () use ($agencyId) {
+                $index = [];
+                DB::table('properties')
+                    ->where('agency_id', $agencyId)
+                    ->whereNull('deleted_at')
+                    ->whereNotNull('street_number')
+                    ->whereNotNull('street_name_normalised')
+                    ->whereNotNull('suburb_normalised')
+                    ->select(['street_number', 'street_name_normalised', 'suburb_normalised', 'unit_number'])
+                    ->orderBy('id')
+                    ->chunk(2000, function ($rows) use (&$index) {
+                        foreach ($rows as $pr) {
+                            $key = trim((string) $pr->street_number) . '|' . $pr->street_name_normalised . '|' . $pr->suburb_normalised;
+                            $index[$key][] = TrackedPropertyAddress::normaliseNumericIdentifier($pr->unit_number);
+                        }
+                    });
+
+                return $index;
+            }
+        );
+
+        return self::$addressIndexCache[$agencyId];
     }
 
     /**
@@ -411,10 +483,22 @@ final class MapPinService
         };
         if ($months !== null) {
             $cutoff = \Carbon\CarbonImmutable::now()->subMonths($months)->toDateString();
-            $q->whereExists(function ($sub) use ($cutoff) {
-                $sub->from('property_sold_records as psr')
-                    ->whereColumn('psr.property_id', 'properties.id')
-                    ->where('psr.sold_date', '>=', $cutoff);
+            // A sold property with NO linked property_sold_records row has an
+            // UNKNOWN sold date, not a disqualifying one — it stays visible
+            // regardless of window rather than being silently dropped (Johan
+            // 2026-08-27: the map found only 1 of 509 live-linked Staging sold
+            // properties because this used to hard-require the join). A
+            // property that DOES have a linked record is still windowed by its
+            // own sold_date exactly as before.
+            $q->where(function ($outer) use ($cutoff) {
+                $outer->whereExists(function ($sub) use ($cutoff) {
+                    $sub->from('property_sold_records as psr')
+                        ->whereColumn('psr.property_id', 'properties.id')
+                        ->where('psr.sold_date', '>=', $cutoff);
+                })->orWhereNotExists(function ($sub) {
+                    $sub->from('property_sold_records as psr')
+                        ->whereColumn('psr.property_id', 'properties.id');
+                });
             });
         }
 
@@ -474,7 +558,16 @@ final class MapPinService
      */
     private function trackedProperties(MapBoundsRequest $req, int $limit): array
     {
-        $q = DB::table('tracked_properties')
+        // Map perf (Johan, 2026-08-27) — idx_tp_agency_status_promoted_geo exists
+        // (this migration) covering exactly this filter shape, but MySQL's
+        // optimizer will not choose it here even after ANALYZE TABLE — it
+        // prefers an index_merge of idx_tracked_props_agency_status and
+        // idx_tracked_props_promoted, which examines 8,764+ rows and applies
+        // lat/lng as a post-filter. Measured directly: forcing this index cuts
+        // the count query from 115ms to 35-40ms and the row select from 119ms
+        // to 40ms (Staging, agency 1, Johan's bounds). Forced rather than left
+        // for the optimizer to find on its own.
+        $q = DB::table(DB::raw('tracked_properties USE INDEX (idx_tp_agency_status_promoted_geo)'))
             ->whereNull('deleted_at')
             ->whereNotNull('latitude')->whereNotNull('longitude')
             ->whereNull('promoted_to_property_id')
@@ -538,38 +631,13 @@ final class MapPinService
         // propertyIdentityConflicts() already guards for promotion itself.
         if ($rows->isNotEmpty()) {
             $preFoldCount = $rows->count();
-            // Bounded to the address keys THIS bbox page actually asks about
-            // (audit, 2026-08-27). This ran on every pan/zoom and previously
-            // loaded EVERY property in the agency to build an index that is
-            // only ever probed with keys derived from $rows. A fold requires
-            // street_name_normalised AND suburb_normalised to be equal to some
-            // $rows value, so restricting the fetch to the normalised suburbs
-            // and streets present in $rows cannot drop a row that would have
-            // matched — same result, index-aligned with idx_properties_address_key
-            // (agency_id, suburb_normalised, street_name_normalised, ...).
-            $tpSuburbKeys = [];
-            $tpStreetKeys = [];
-            foreach ($rows as $r) {
-                $s = TrackedPropertyAddress::normaliseSuburb($r->suburb);
-                $n = TrackedPropertyAddress::normaliseStreet($r->street_name);
-                if ($s !== null) { $tpSuburbKeys[$s] = true; }
-                if ($n !== null) { $tpStreetKeys[$n] = true; }
-            }
-            $propertyRows = (empty($tpSuburbKeys) || empty($tpStreetKeys))
-                ? collect()
-                : DB::table('properties')
-                    ->where('agency_id', $req->agencyId)
-                    ->whereNull('deleted_at')
-                    ->whereNotNull('street_number')
-                    ->whereIn('suburb_normalised', array_keys($tpSuburbKeys))
-                    ->whereIn('street_name_normalised', array_keys($tpStreetKeys))
-                    ->select(['street_number', 'street_name_normalised', 'suburb_normalised', 'unit_number'])
-                    ->get();
-            $propertyIndex = [];
-            foreach ($propertyRows as $pr) {
-                $key = trim((string) $pr->street_number) . '|' . $pr->street_name_normalised . '|' . $pr->suburb_normalised;
-                $propertyIndex[$key][] = TrackedPropertyAddress::normaliseNumericIdentifier($pr->unit_number);
-            }
+            // Map perf (Johan, 2026-08-27) — was a per-request bbox-bounded
+            // whereIn/whereIn query (2026-08-27 audit); MySQL's optimizer
+            // wouldn't use idx_properties_address_key for the double IN even
+            // bounded, so it still cost ~160ms scanning the whole agency's
+            // properties on every pins request. Now a single cached agency-wide
+            // lookup — see agencyAddressIndex() docblock.
+            $propertyIndex = $this->agencyAddressIndex($req->agencyId);
 
             $rows = $rows->reject(function ($r) use ($propertyIndex) {
                 if (!$r->street_number || !$r->street_name || !$r->suburb) {
@@ -832,17 +900,34 @@ final class MapPinService
         // available here; address lives inside raw_row_json (not LIKE-able).
         $this->applySearchFilter($pscQ, $req, ['psc.suburb']);
 
-        foreach ($pscQ->limit($limit * 2)->get() as $r) {
+        $pscRows = $pscQ->limit($limit * 2)->get();
+
+        // Map perf (Johan, 2026-08-27) — this loop fired one
+        // market_report_comp_rows lookup PER psc row (29 queries measured for
+        // 31 comps in one viewport). Batched into a single whereIn(), same
+        // filters (deleted_at, lat/lng not null) applied once up front.
+        $pscCompRowIds = [];
+        foreach ($pscRows as $r) {
+            $raw = is_string($r->raw_row_json) ? (json_decode($r->raw_row_json, true) ?: []) : ((array) $r->raw_row_json ?: []);
+            if (!empty($raw['mic_comp_row_id'])) {
+                $pscCompRowIds[] = $raw['mic_comp_row_id'];
+            }
+        }
+        $pscGpsById = $pscCompRowIds
+            ? DB::table('market_report_comp_rows')
+                ->whereIn('id', array_unique($pscCompRowIds))
+                ->whereNull('deleted_at')
+                ->whereNotNull('latitude')->whereNotNull('longitude')
+                ->select(['id', 'latitude', 'longitude', 'address'])
+                ->get()->keyBy('id')
+            : collect();
+
+        foreach ($pscRows as $r) {
             $raw = is_string($r->raw_row_json) ? (json_decode($r->raw_row_json, true) ?: []) : ((array) $r->raw_row_json ?: []);
             $compRowId = $raw['mic_comp_row_id'] ?? null;
             if (!$compRowId) continue; // V1 — only MIC-sourced rows have lat/lng
 
-            $gps = DB::table('market_report_comp_rows')
-                ->where('id', $compRowId)
-                ->whereNull('deleted_at')
-                ->whereNotNull('latitude')->whereNotNull('longitude')
-                ->select(['latitude', 'longitude', 'address'])
-                ->first();
+            $gps = $pscGpsById->get($compRowId);
             if (!$gps) continue;
 
             $lat = (float) $gps->latitude;

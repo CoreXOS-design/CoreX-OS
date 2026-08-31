@@ -682,6 +682,7 @@ class PropertyMatchScoringService
                 ->where('agency_id', $contact->agency_id)
                 ->where('is_active', 1)
                 ->whereNull('deleted_at')
+                ->select(self::PROSPECTING_POOL_COLUMNS)
                 ->get();
         }
 
@@ -1002,6 +1003,38 @@ class PropertyMatchScoringService
      * onto an in-memory Property so scorers work uniformly. Maps the prospecting
      * `bedrooms` column → Property `beds`, and copies features_json if present.
      */
+    /**
+     * The ONLY prospecting-listing columns wrapCaptureAsProperty() reads, plus
+     * the `id` used as the match key.
+     *
+     * A caller that pre-fetches a pool (RegenerateBuyerMatchesJob) was hydrating
+     * all 50 columns of ~33,700 rows: 176MB held for the whole run, on a worker
+     * whose memory ceiling was Laravel's 128MB default. It finished each job and
+     * then exited 12 every single time — 335 restarts. Selecting this set instead
+     * costs 92MB for the same pool.
+     *
+     * Verified score-identical, not assumed: every field wrapCaptureAsProperty
+     * produces (price, suburb, property_type, beds, baths, garages, size_m2,
+     * erf_size_m2, features_json, p24_suburb_id) matched byte-for-byte between a
+     * full and a slim hydration. The aliases the wrapper falls back through —
+     * beds, baths, size_m2, features_json — are NOT columns on
+     * prospecting_listings, so they resolve to null under either hydration.
+     *
+     * KEEP IN SYNC with wrapCaptureAsProperty(). Adding a field there without
+     * adding its column here silently feeds the scorer a null.
+     */
+    public const PROSPECTING_POOL_COLUMNS = [
+        'id',
+        'price',
+        'suburb',
+        'property_type',
+        'bedrooms',
+        'bathrooms',
+        'garages',
+        'property_size_m2',
+        'erf_size_m2',
+    ];
+
     private function wrapCaptureAsProperty(object $data): Property
     {
         $p = new Property();

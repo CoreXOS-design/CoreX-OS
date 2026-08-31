@@ -335,7 +335,7 @@
                 <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.8125rem;">
                     <input type="checkbox" id="buyer-demand-toggle" style="margin: 0;">
                     <span style="color: var(--text-primary); font-weight: 500;">Buyer Demand</span>
-                    <span id="buyer-demand-count" style="margin-left: auto; font-size: 0.6875rem; color: var(--text-muted); font-variant-numeric: tabular-nums;"></span>
+                    <span id="buyer-demand-count" title="&quot;From portals&quot; = buyer interest that arrived via a Property24 or Private Property lead, rather than being captured by hand." style="margin-left: auto; font-size: 0.6875rem; color: var(--text-muted); font-variant-numeric: tabular-nums;"></span>
                 </label>
                 <div style="font-size: 0.625rem; color: var(--text-muted); margin-top: 3px; line-height: 1.4;">
                     Suburb-level buyer demand from seeded wishlists. Intensity = buyers wanting that area.
@@ -3820,7 +3820,7 @@ document.addEventListener('DOMContentLoaded', function () {
             const cntEl = document.getElementById('buyer-demand-count');
             if (cntEl) {
                 const t = data.totals || {};
-                cntEl.textContent = (t.total || 0) + ' buyers · ' + (t.portal_lead || 0) + ' portal · ' + (t.suburbs || 0) + ' areas';
+                cntEl.textContent = (t.total || 0) + ' buyers · ' + (t.portal_lead || 0) + ' from portals · ' + (t.suburbs || 0) + ' areas';
             }
         } catch (e) { /* demand overlay is best-effort */ }
     }

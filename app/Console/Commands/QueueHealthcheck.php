@@ -41,6 +41,17 @@ use Illuminate\Support\Facades\Mail;
  * per-job-class alert (App\Support\Queue\QueueFailureAlerter): this one still
  * fires even if that in-process hook were ever silently broken again, because
  * it runs on the independent scheduler, not inside the worker.
+ *
+ * 2026-08-28 — LANE AWARENESS: checkStalledQueue() used to scan the whole `jobs`
+ * table as one pile against one 600s deadline. Once slow work was given its own
+ * lane (TranscribeVoiceNoteJob -> `transcription`, 2026-08-27) that stopped being
+ * a measure of health: a nightly voice-note batch drains one note at a time by
+ * design and always parks its own head past 600s, so the alarm fired at 22:15
+ * three nights running while every latency-sensitive lane was on time and every
+ * worker was RUNNING. The check is now per-lane, judged against per-lane config in
+ * config/queue_alerting.php ('backlog.lanes'). Latency lanes keep the exact
+ * age-threshold behaviour they have today; batch lanes alarm only when the lane
+ * stops MOVING. Full reasoning lives in that config file's docblock.
  */
 class QueueHealthcheck extends Command
 {
@@ -56,6 +67,9 @@ class QueueHealthcheck extends Command
     /** Checkpoint TTL for the failed_jobs growth baseline — long enough to survive gaps between runs. */
     private const GROWTH_CHECKPOINT_TTL_HOURS = 24;
 
+    /** TTL for a lane's head-position marker. Comfortably longer than any lane's stall window. */
+    private const HEAD_MARKER_TTL_HOURS = 6;
+
     public function handle(): int
     {
         $stalled = $this->checkStalledQueue();
@@ -64,42 +78,162 @@ class QueueHealthcheck extends Command
         return ($stalled || $growing) ? self::FAILURE : self::SUCCESS;
     }
 
-    /** @return bool true if the worker looks down/wedged (unhealthy) */
+    /**
+     * Per-lane stall detection. See the class docblock and
+     * config/queue_alerting.php ('backlog') for why this is per-lane.
+     *
+     * @return bool true if ANY lane looks down/wedged (unhealthy)
+     */
     private function checkStalledQueue(): bool
     {
-        $maxAge = (int) $this->option('max-age');
-        $now    = now()->timestamp;
+        $now = now()->timestamp;
 
-        // Oldest job that is runnable (available_at reached) but NOT yet reserved
-        // by a worker. A healthy worker keeps this near-zero; a large value means
-        // jobs are piling up unprocessed.
-        $oldestAvailableAt = DB::table('jobs')
-            ->whereNull('reserved_at')
-            ->where('available_at', '<=', $now)
-            ->min('available_at');
+        // One pass, grouped by lane. `oldest_available` is the HEAD of that lane's
+        // waiting queue (runnable, not yet reserved); `waiting` is its depth.
+        $lanes = DB::table('jobs')
+            ->selectRaw('queue')
+            ->selectRaw('MIN(CASE WHEN reserved_at IS NULL AND available_at <= ? THEN available_at END) AS oldest_available', [$now])
+            ->selectRaw('SUM(CASE WHEN reserved_at IS NULL THEN 1 ELSE 0 END) AS waiting')
+            ->groupBy('queue')
+            ->get();
 
-        if ($oldestAvailableAt === null) {
+        if ($lanes->isEmpty()) {
             $this->info('Queue healthy: no jobs waiting for a worker.');
             return false;
         }
 
-        $ageSeconds = $now - (int) $oldestAvailableAt;
-        if ($ageSeconds <= $maxAge) {
-            $this->info("Queue healthy: oldest waiting job is {$ageSeconds}s old.");
-            return false;
+        $unhealthy = false;
+
+        foreach ($lanes as $lane) {
+            $name = (string) $lane->queue;
+
+            if ($lane->oldest_available === null) {
+                // Nothing runnable waiting here (empty, all reserved, or all delayed).
+                // Drop the head marker so a later batch is never compared against a
+                // stale position from a previous one.
+                $this->forgetHeadPosition($name);
+                continue;
+            }
+
+            $laneConfig = $this->laneConfig($name);
+            $age        = $now - (int) $lane->oldest_available;
+            $waiting    = (int) $lane->waiting;
+
+            // Record BEFORE the threshold checks: the marker has to track the head on
+            // every run, including healthy ones, or a lane that dips under threshold
+            // and comes back would look frozen the moment it next exceeds it.
+            $headStillSince = $this->recordHeadPosition($name, (int) $lane->oldest_available, $now);
+
+            if ($age <= $laneConfig['max_age']) {
+                $this->info("Lane [{$name}] healthy: oldest waiting job is {$age}s old (threshold {$laneConfig['max_age']}s).");
+                continue;
+            }
+
+            // BATCH lane: a deep queue is its normal steady state, so depth alone proves
+            // nothing. Only a lane that has stopped MOVING is a fault.
+            if ($laneConfig['requires_progress'] && $headStillSince <= $laneConfig['progress_window']) {
+                $this->info(
+                    "Lane [{$name}] draining normally: {$waiting} waiting, oldest {$age}s, "
+                    . "head advanced {$headStillSince}s ago (batch lane, stall window {$laneConfig['progress_window']}s)."
+                );
+                continue;
+            }
+
+            $unhealthy = true;
+
+            $message = "Queue worker DOWN or WEDGED on lane [{$name}]: oldest waiting job is {$age}s old "
+                . "(> {$laneConfig['max_age']}s threshold for this lane), backlog={$waiting}. "
+                . "Check `sudo supervisorctl status` and restart {$laneConfig['supervisor']}.";
+
+            Log::critical($message, [
+                'queue'              => $name,
+                'oldest_age_seconds' => $age,
+                'backlog'            => $waiting,
+                'max_age'            => $laneConfig['max_age'],
+                'head_still_since'   => $headStillSince,
+            ]);
+            $this->error($message);
+
+            $this->notifyStalled($name, $age, $waiting, $laneConfig);
         }
 
-        $backlog = (int) DB::table('jobs')->whereNull('reserved_at')->count();
-        $message = "Queue worker DOWN or WEDGED: oldest waiting job is {$ageSeconds}s old "
-            . "(> {$maxAge}s threshold), backlog={$backlog}. "
-            . 'Check `sudo supervisorctl status` and restart corex-worker-live.';
+        return $unhealthy;
+    }
 
-        Log::critical($message, ['oldest_age_seconds' => $ageSeconds, 'backlog' => $backlog]);
-        $this->error($message);
+    /**
+     * Effective thresholds for one lane. Anything the lane does not override falls
+     * back to the command's own --max-age (the pre-2026-08-28 single threshold), so
+     * a lane nobody has tuned behaves exactly as it always did.
+     *
+     * @return array{max_age:int,requires_progress:bool,progress_window:int,supervisor:string}
+     */
+    private function laneConfig(string $queue): array
+    {
+        $lanes = (array) config('queue_alerting.backlog.lanes', []);
+        $lane  = (array) ($lanes[$queue] ?? []);
 
-        $this->notifyStalled($ageSeconds, $backlog);
+        return [
+            'max_age'           => (int) ($lane['max_age'] ?? (int) $this->option('max-age')),
+            'requires_progress' => (bool) ($lane['requires_progress'] ?? false),
+            'progress_window'   => (int) ($lane['progress_window'] ?? 0),
+            'supervisor'        => (string) ($lane['supervisor']
+                ?? config('queue_alerting.backlog.default_supervisor', 'corex-worker-live:*')),
+        ];
+    }
 
-        return true;
+    /**
+     * Track how long this lane's head has been stuck on the SAME job, and return
+     * that in seconds (0 = it just advanced).
+     *
+     * Head-advance rather than `reserved_at` is deliberate. With `--sleep=3` there is
+     * a ~3s window between a worker finishing one job and reserving the next in which
+     * NOTHING on the lane is reserved; a run landing in that window would read a
+     * perfectly healthy worker as dead. The head of the waiting queue has no such
+     * flicker — it advances the instant a job is picked up and never moves backwards.
+     *
+     * Cache failure is not allowed to turn into a false alarm: on any error this
+     * reports "just advanced", matching the fail-quiet doctrine of the growth
+     * checkpoint above. A batch lane that has genuinely died is still caught within
+     * a minute by corex:queue-worker-liveness-alert, which reads supervisor rather
+     * than the database and shares none of this machinery.
+     */
+    private function recordHeadPosition(string $queue, int $headAvailableAt, int $now): int
+    {
+        try {
+            $key    = $this->headKey($queue);
+            $stored = Cache::get($key);
+
+            if (!is_array($stored) || ($stored['head'] ?? null) !== $headAvailableAt) {
+                Cache::put(
+                    $key,
+                    ['head' => $headAvailableAt, 'since' => $now],
+                    now()->addHours(self::HEAD_MARKER_TTL_HOURS)
+                );
+
+                return 0;
+            }
+
+            return max(0, $now - (int) ($stored['since'] ?? $now));
+        } catch (\Throwable $e) {
+            Log::warning('corex:queue-healthcheck: head-position marker unavailable for lane '
+                . $queue . ': ' . $e->getMessage());
+
+            return 0;
+        }
+    }
+
+    private function forgetHeadPosition(string $queue): void
+    {
+        try {
+            Cache::forget($this->headKey($queue));
+        } catch (\Throwable $e) {
+            // Non-fatal: a stale marker only ever costs one extra stall window.
+        }
+    }
+
+    private function headKey(string $queue): string
+    {
+        return 'queue-healthcheck:lane-head:' . $queue;
     }
 
     /**
@@ -144,22 +278,31 @@ class QueueHealthcheck extends Command
         return true;
     }
 
-    private function notifyStalled(int $ageSeconds, int $backlog): void
+    /**
+     * @param array{max_age:int,requires_progress:bool,progress_window:int,supervisor:string} $laneConfig
+     */
+    private function notifyStalled(string $queue, int $ageSeconds, int $backlog, array $laneConfig): void
     {
         try {
-            if (!Cache::add('queue-backlog-alert', 1, now()->addMinutes(self::ALERT_TTL_MINUTES))) {
+            // Throttled PER LANE, not globally: a lane that is legitimately noisy must
+            // never swallow the first alert from a different lane that has just died.
+            if (!Cache::add('queue-backlog-alert:' . $queue, 1, now()->addMinutes(self::ALERT_TTL_MINUTES))) {
                 return;
             }
 
             $emails = DevSetting::queueBacklogAlertEmails();
             if (empty($emails)) {
-                Log::warning('corex:queue-healthcheck: backlog stalled but no alert emails configured in Dev Settings.');
+                Log::warning('corex:queue-healthcheck: backlog stalled on lane ' . $queue
+                    . ' but no alert emails configured in Dev Settings.');
                 return;
             }
 
             Mail::to($emails)->send(new QueueBacklogAlertMail(
+                lane: $queue,
                 ageSeconds: $ageSeconds,
                 backlog: $backlog,
+                maxAge: $laneConfig['max_age'],
+                supervisor: $laneConfig['supervisor'],
                 host: gethostname() ?: config('app.env'),
                 checkedAt: now()->toDateTimeString(),
             ));

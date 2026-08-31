@@ -32,9 +32,11 @@ class PeekingMessageFetcher
      * Fetch a message by UID with a true peek. Returns a rehydrated Message, or
      * null when the peek yields no usable content (caller skips + counts an error).
      * The message's folder must already be selected on $client (the caller is
-     * iterating that folder).
+     * iterating that folder); pass its path as $folderPath so the rehydrated
+     * Message can be given a folder path even when the client's active_folder is
+     * null -- see the note at the Message::make() call below.
      */
-    public static function peek($client, int $uid): ?Message
+    public static function peek($client, int $uid, ?string $folderPath = null): ?Message
     {
         $conn = $client->getConnection();
 
@@ -54,7 +56,28 @@ class PeekingMessageFetcher
         $flagsData = $conn->flags([$uid], IMAP::ST_UID)->validatedData();
         $flags = (is_array($flagsData[$uid] ?? null)) ? $flagsData[$uid] : [];
 
-        // FT_PEEK so the constructed message never triggers a seen-setting refetch.
-        return Message::make($uid, null, $client, $header, $body, $flags, IMAP::FT_PEEK, IMAP::ST_UID);
+        // Message::make() does `setFolderPath($client->getFolderPath())`, and that
+        // getter returns the client's active_folder, which is nullable and is NOT
+        // set by the raw-connection fetch above (we deliberately bypass the
+        // openFolder() path webklex normally routes through). When it happens to
+        // be null, webklex's own typed `string $folder_path` property rejects it
+        // with a TypeError that escapes the poller's per-message guard and fails
+        // the WHOLE PollMailboxJob -- 83 aborted polls between 2026-08-18 and
+        // 2026-08-27. The caller knows which folder it is iterating, so supply it.
+        // The previous value is restored so webklex's own select-state machine is
+        // left exactly as it was found.
+        $previousFolder = $client->getFolderPath();
+        if ($previousFolder === null && $folderPath !== null && $folderPath !== '') {
+            $client->setActiveFolder($folderPath);
+        }
+
+        try {
+            // FT_PEEK so the constructed message never triggers a seen-setting refetch.
+            return Message::make($uid, null, $client, $header, $body, $flags, IMAP::FT_PEEK, IMAP::ST_UID);
+        } finally {
+            if ($previousFolder === null && $folderPath !== null && $folderPath !== '') {
+                $client->setActiveFolder($previousFolder);
+            }
+        }
     }
 }
