@@ -11,6 +11,9 @@
     via the var(--token, #fallback) pattern.
       - STAGING : --ds-amber  bg  +  --ds-navy text  (dark-on-amber,
                   theme-independent — both tokens are single-value)
+      - LIVE-TESTING : same amber/navy pairing as STAGING (this is the
+                  former live checkout, now used for testing — same
+                  "not live" warning applies)
       - DEMO    : --ds-navy   bg  +  white text       (the DS "Info"
                   token; theme-independent; high contrast both modes)
       - LOCAL   : --surface-2 bg  +  --text-primary    (neutral, the
@@ -33,6 +36,11 @@
                 'bg'   => 'var(--ds-amber, #f59e0b)',
                 'fg'   => 'var(--ds-navy, #0b2a4a)',
                 'text' => 'STAGING · ' . $host . ' · testing only — not live',
+            ],
+            'LIVE-TESTING' => [
+                'bg'   => 'var(--ds-amber, #f59e0b)',
+                'fg'   => 'var(--ds-navy, #0b2a4a)',
+                'text' => 'LIVE TESTING · ' . $host . ' · testing only — not live',
             ],
             'LOCAL' => [
                 'bg'   => 'var(--surface-2, #f0f2f8)',

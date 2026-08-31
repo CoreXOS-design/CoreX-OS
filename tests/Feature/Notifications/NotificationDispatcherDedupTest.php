@@ -186,12 +186,20 @@ final class NotificationDispatcherDedupTest extends TestCase
 
     /**
      * The caller SHOULD pass an explicit, stable threshold. When it does, dedup is
-     * exact — this is the correct usage (ScanPropertyNotifications passes
-     * now()->startOfHour()).
+     * exact.
+     *
+     * NB: this docblock used to cite "ScanPropertyNotifications passes
+     * now()->startOfHour()" as the example of correct usage. It was not correct —
+     * it was the next storm, already shipped, being held up as the model to copy.
+     * property.documents_missing re-fired every hour on that key and sent 23,792
+     * alerts before anyone noticed (see ScanPropertyDocumentsMissingDedupTest).
+     * A clock bucket is never a fact, in a docblock or anywhere else; the real
+     * examples are ScanPropertyNotifications' `$property->created_at->startOfDay()`
+     * and `$property->expiry_date->startOfDay()`.
      */
     public function test_an_explicit_stable_threshold_dedups_exactly(): void
     {
-        $stable = now()->startOfHour();
+        $stable = $this->contact->created_at->copy()->startOfDay();
 
         $this->assertTrue($this->fire(['threshold_hit_at' => $stable]));
         $count = $this->dispatchCount();

@@ -54,7 +54,12 @@ class ScanPropertyNotifications extends Command
                         : null;
                     if ($eff && $eff['enabled'] && $eff['threshold']) {
                         $ageHours = AgeFormatter::wholeHours($property->created_at);
-                        if ($ageHours >= (int) $eff['threshold']) {
+                        // created_at is the dedup key below, so it must exist. wholeHours()
+                        // returns 0 for a null timestamp, which already fails any sane
+                        // threshold — but this scan runs for EVERY agency in one process,
+                        // so a null dereference here would take the whole nightly sweep
+                        // down, not just this row. Assert it rather than infer it.
+                        if ($property->created_at && $ageHours >= (int) $eff['threshold']) {
                             $hasAny = $hasDocs
                                 ? \DB::table('property_documents')->where('property_id', $property->id)->exists()
                                 : false;
@@ -69,7 +74,28 @@ class ScanPropertyNotifications extends Command
                                     'subject_label' => $label,
                                     'action_url' => "/properties/{$property->id}",
                                     'severity' => 'warning',
-                                    'threshold_hit_at' => now()->startOfHour(),
+                                    // DEDUP KEY — must be derived from the FACT, never from the clock.
+                                    //
+                                    // This read `now()->startOfHour()`. The dispatcher suppresses a
+                                    // repeat only when an existing log row has
+                                    // `threshold_hit_at >= $thresholdHit`, so an hourly bucket mints a
+                                    // fresh key every hour and the idempotency ledger never matches.
+                                    // The 6h cooldown was the ONLY thing left holding it back, which
+                                    // capped it at ~4 alerts per property per agent per DAY — forever,
+                                    // for as long as the listing had no documents. 23,792 alerts went
+                                    // out this way (26 May - 31 Aug 2026); one agent was taking 39
+                                    // pushes a day about 19 listings she already knew about.
+                                    //
+                                    // This is the same defect that produced the 1.9M
+                                    // contact.fica_missing storm, and NotificationDispatcherDedupTest
+                                    // named it in advance — "a time bucket is not a fact".
+                                    //
+                                    // "This listing has no documents" is a PERSISTENT condition, so the
+                                    // key is the listing's own creation day: stable forever, identical
+                                    // on every tick, and independent of the agent's threshold setting
+                                    // (so changing that setting cannot re-open the tap). One alert per
+                                    // listing per agent, then silence until the documents land.
+                                    'threshold_hit_at' => $property->created_at->copy()->startOfDay(),
                                 ]);
                             }
                         }
