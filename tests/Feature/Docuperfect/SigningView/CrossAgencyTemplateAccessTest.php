@@ -343,6 +343,51 @@ final class CrossAgencyTemplateAccessTest extends TestCase
         $this->assertDatabaseMissing('docuperfect_templates', ['id' => $ownTemplate->id, 'archived_at' => null]);
     }
 
+    // ── AT-390 — scopeVisibleTo()'s 'all' branch for a data-scope-'all' user
+    // with NO agency of their own (a platform super_admin/owner role). The
+    // 2026-08-15 rewrite (d5a73eecd) narrowed 'all' to "own agency + global"
+    // but never accounted for a NULL effectiveAgencyId() — the "own agency"
+    // half silently dropped out, collapsing the query to is_global-only.
+    // Confirmed live on Staging: a real super_admin account with agency_id
+    // NULL saw a completely blank Template Management list, even though 90
+    // non-deleted templates existed. 'all' must mean all when there is no
+    // agency to narrow to, exactly as it did before that commit. ──
+
+    public function test_visible_to_all_scope_no_agency_owner_sees_every_agencys_templates(): void
+    {
+        $agencyA = $this->makeAgencyWithAdmin('AgencyA');
+        $agencyB = $this->makeAgencyWithAdmin('AgencyB');
+        $templateA = $this->makeBranchTemplate($agencyA['branch'], 'AgencyA template');
+        $templateB = $this->makeBranchTemplate($agencyB['branch'], 'AgencyB template');
+
+        $ownerRole = Role::create(['name' => 'super_admin', 'label' => 'System Owner']);
+        $ownerRole->is_owner = true;
+        $ownerRole->save();
+        Role::clearCache();
+        $owner = User::factory()->create(['agency_id' => null, 'branch_id' => null, 'role' => 'super_admin']);
+
+        $visibleIds = Template::visibleTo($owner)->pluck('id')->all();
+
+        $this->assertContains($templateA->id, $visibleIds, "'all' scope with no agency must not collapse to is_global-only");
+        $this->assertContains($templateB->id, $visibleIds);
+    }
+
+    public function test_visible_to_all_scope_with_an_agency_is_unaffected_by_the_no_agency_fix(): void
+    {
+        // Regression guard for the branch ABOVE this fix touches nothing here:
+        // an ordinary agency admin (data-scope 'all', but WITH an agency) must
+        // still see only their own agency's templates plus global ones.
+        $own = $this->makeAgencyWithAdmin('Own');
+        $foreign = $this->makeAgencyWithAdmin('Foreign');
+        $ownTemplate = $this->makeBranchTemplate($own['branch'], 'Own template');
+        $foreignTemplate = $this->makeBranchTemplate($foreign['branch'], 'Foreign template');
+
+        $visibleIds = Template::visibleTo($own['admin'])->pluck('id')->all();
+
+        $this->assertContains($ownTemplate->id, $visibleIds);
+        $this->assertNotContains($foreignTemplate->id, $visibleIds);
+    }
+
     // ── PackController::resolveSelectableTemplates — a different mechanism
     // (Template::visibleTo() scope, not assertAccessibleBy) ──
 
