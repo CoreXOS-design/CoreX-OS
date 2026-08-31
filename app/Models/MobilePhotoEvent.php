@@ -28,6 +28,22 @@ class MobilePhotoEvent extends Model
     /** Written by the server in uploadImage(), never accepted from a client. */
     public const PHASE_RECEIVED = 'received';
 
+    /**
+     * `dropped` reasons that mean the AGENT chose to remove the photo — the only
+     * ones the report may subtract from "never arrived".
+     *
+     * The app also emits `dropped` for an enqueue failure and for camera-close on
+     * the no-target path. Those are genuine losses wearing the same label, so the
+     * list is an explicit allow-list rather than an exclusion: a new reason, or a
+     * drop with no reason at all, counts as a loss until someone decides it isn't.
+     * Over-reporting a loss is recoverable; hiding one is how a photo-loss bug
+     * survives four days.
+     */
+    public const AGENT_DROP_REASONS = [
+        'removed_in_review',
+        'discarded_by_agent',
+    ];
+
     protected $fillable = [
         'agency_id',
         'user_id',

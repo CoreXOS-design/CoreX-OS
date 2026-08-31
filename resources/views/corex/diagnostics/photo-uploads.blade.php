@@ -88,7 +88,7 @@
                             </td>
                             <td class="px-4 py-3">{{ $p->room_tag ?? '—' }}</td>
                             <td class="px-4 py-3">
-                                @php $ok = $p->status === 'landed'; @endphp
+                                @php $ok = in_array($p->status, ['landed', 'deleted by agent'], true); @endphp
                                 <span class="px-2 py-1 rounded text-xs font-semibold"
                                       style="background: {{ $ok ? 'rgba(16,185,129,.15)' : 'rgba(239,68,68,.15)' }};
                                              color: {{ $ok ? '#10b981' : '#ef4444' }};">
@@ -96,6 +96,11 @@
                                 </span>
                                 @if($p->error)
                                     <div class="text-xs mt-1" style="color: var(--text-muted);">{{ $p->error }}</div>
+                                @endif
+                                @if($p->drop_reason)
+                                    <div class="text-xs mt-1" style="color: var(--text-muted);">
+                                        {{ str_replace('_', ' ', $p->drop_reason) }}@if($p->recall) · recall: {{ $p->recall }}@endif
+                                    </div>
                                 @endif
                             </td>
                         </tr>

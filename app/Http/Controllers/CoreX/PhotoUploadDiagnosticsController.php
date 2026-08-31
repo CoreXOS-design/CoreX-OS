@@ -83,7 +83,8 @@ class PhotoUploadDiagnosticsController extends Controller
             // remembers it — and makes a gap obvious at a glance.
             $index = preg_match('/_(\d+)$/', (string) $key, $m) ? (int) $m[1] : null;
 
-            $failed = $byPhase['upload_failed'] ?? null;
+            $failed  = $byPhase['upload_failed'] ?? null;
+            $dropRow = $byPhase['dropped'] ?? null;
 
             return (object) [
                 'client_upload_id' => $key,
@@ -93,6 +94,8 @@ class PhotoUploadDiagnosticsController extends Controller
                 'attempted_at'     => $byPhase['upload_started']->occurred_at ?? null,
                 'received_at'      => $received,
                 'dropped'          => isset($byPhase['dropped']),
+                'drop_reason'      => $dropRow->meta['reason'] ?? null,
+                'recall'           => $dropRow->meta['recall'] ?? null,
                 'error'            => $failed->meta['error'] ?? null,
                 'room_tag'         => $byPhase[MobilePhotoEvent::PHASE_RECEIVED]->meta['room_tag'] ?? null,
                 'lag_seconds'      => ($captured && $received) ? $received->diffInSeconds($captured) : null,
@@ -113,7 +116,11 @@ class PhotoUploadDiagnosticsController extends Controller
             return 'landed';
         }
         if (isset($byPhase['dropped'])) {
-            return 'dropped by app';
+            $reason = $byPhase['dropped']->meta['reason'] ?? null;
+
+            return in_array($reason, MobilePhotoEvent::AGENT_DROP_REASONS, true)
+                ? 'deleted by agent'
+                : 'dropped before upload';   // an enqueue failure, not a choice
         }
         if (isset($byPhase['upload_failed'])) {
             return 'upload failed';
@@ -144,8 +151,19 @@ class PhotoUploadDiagnosticsController extends Controller
         // reviews, bins one. Counting those as "never arrived" would paint a
         // healthy shoot as broken and bury the real losses in noise, which is the
         // one thing this page exists not to do.
+        // ONLY an agent's own deletion may be subtracted. The app also emits
+        // `dropped` when an ENQUEUE FAILS and when the camera closes on the
+        // no-target path — those are real losses wearing the same label, and
+        // subtracting them would hide exactly the class of bug this page exists
+        // to catch. So the allow-list is explicit and everything else (including
+        // a drop with no reason at all) stays counted as missing. Fail safe:
+        // over-reporting a loss is recoverable, hiding one is not.
         $dropped = MobilePhotoEvent::where('property_id', $propertyId)
             ->where('phase', 'dropped')
+            ->whereIn(
+                DB::raw("JSON_UNQUOTE(JSON_EXTRACT(meta, '$.reason'))"),
+                MobilePhotoEvent::AGENT_DROP_REASONS
+            )
             ->whereNotIn('client_upload_id', function ($q) use ($propertyId) {
                 $q->select('client_upload_id')
                   ->from('mobile_photo_events')
