@@ -2208,7 +2208,31 @@ class Property extends Model
      */
     public function derivedGalleryTags(): array
     {
-        $allowed = ['Bedroom','Bathroom','Kitchen','Lounge','Dining Room','Study','Patio','Garden','Pool','Flatlet','Garage'];
+        // The tag whitelist IS the space catalogue — never a second, shorter
+        // hand-written list. The two drifted: the Spaces editor (web and mobile)
+        // offers all 50 types from config('property-spaces'), while this method
+        // only ever admitted 11 of them. An agent who added an Entrance Hall,
+        // Scullery, Braai Room, Office, Laundry Room (or any of the other 39)
+        // could create the space but then had no tag to file its photos under —
+        // the photos fell into "unsorted" with no way to sort them (property
+        // 15936, 2026-08-28). Deriving from the same config both editors read
+        // means adding a space type to the catalogue can never again produce a
+        // room that exists but cannot be photographed.
+        // app()->bound() guard: this method is also exercised by a deliberately
+        // pure unit test (Tests\Unit\Properties\GalleryTagsTest) that boots no
+        // Laravel container, where calling config() would fatal. No container →
+        // fall through to the historical list below.
+        $allowed = app()->bound('config')
+            ? (array) config('property-spaces.all_space_types', [])
+            : [];
+
+        // Absorb a missing or empty config rather than returning an EMPTY tag list:
+        // an empty $allowed would filter out every space and silently strip the
+        // whole tag library from the gallery picker, which is a worse failure
+        // than the narrow list we are replacing. Falls back to the historical 11.
+        if ($allowed === []) {
+            $allowed = ['Bedroom','Bathroom','Kitchen','Lounge','Dining Room','Study','Patio','Garden','Pool','Flatlet','Garage'];
+        }
 
         // Prefer spaces_json — it's the canonical source after the
         // user has touched the Spaces editor.
@@ -2454,6 +2478,40 @@ class Property extends Model
      * So we re-home any of-our-storage URL onto the CURRENT app host, and leave
      * genuinely external URLs untouched.
      */
+    /**
+     * Every photo of this property as an absolute, browser-loadable URL, for
+     * PUBLIC (unauthenticated) surfaces — the agency website listing grid and
+     * listing page.
+     *
+     * Exists because those pages hand-rolled their own image handling and got
+     * both halves wrong (property 15936, 2026-08-28):
+     *
+     *   1. They read `images_json` ALONE. Nothing in the normal agent workflow
+     *      writes that column — not the web gallery uploader, not the mobile
+     *      uploader. It is only ever populated by the P24 row-image downloader
+     *      and the sold-listing importer. So a listing an agent shot themselves
+     *      showed ZERO photos publicly while showing 35 internally, and the
+     *      breakage was masked on older stock that happened to have been
+     *      scraped at some point. allImages() is what every other consumer
+     *      (Property24, PrivateProperty, the mobile API, readiness) already
+     *      reads — the public site is now no exception.
+     *
+     *   2. They then wrapped each value in `asset('storage/'.$value)`, but the
+     *      stored values are already either `/storage/...` or a fully-qualified
+     *      URL — so the src came out as `/storage//storage/...`, a 404. Routing
+     *      every value through publicImageUrl() (the same normaliser the page's
+     *      own og:image tag already used) handles both stored shapes.
+     *
+     * @return array<int, string>
+     */
+    public function publicGalleryUrls(): array
+    {
+        return array_values(array_filter(array_map(
+            static fn ($u) => self::publicImageUrl(is_string($u) ? $u : null),
+            $this->allImages()
+        )));
+    }
+
     public static function publicImageUrl(?string $u): ?string
     {
         if ($u === null) {
