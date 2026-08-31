@@ -1084,6 +1084,47 @@ completed/filed-and-emailed exit), the agent now returns to My E-Sign Documents
 (`docuperfect.esign.myDocuments`) instead of the unrelated `/docuperfect/sales`
 dashboard.
 
+Same fix applied to `SignatureController::resumeDeferred()` (2026-08-31, Johan)
+— submitting a deferred party's details now also returns to My E-Sign Documents
+instead of `/docuperfect/sales`. Five other occurrences of this same wrong-redirect
+pattern remain, deliberately unfixed until Johan reports each one.
+
+---
+
+## Rule (BUG3 class) — an indexed same-role party never matches by literal role string
+
+`parties_json` names the Nth same-role party `{role}_N` (e.g. `seller_2`), but its
+`SignatureRequest` stores the BASE role (`party_role = "seller"`) plus a separate
+`role_index = N`. Any lookup that matches `party_role` against the literal
+`parties_json` role string (`firstWhere('party_role', $role)`) never finds the
+indexed party — they resolve as null/unknown and any control gated on finding
+them (a deferred-party name, a resume-signing button) never draws. This is a
+class, not a seller-specific or index-2-specific bug: it applies to any
+seller_N, buyer_N, landlord_N, tenant_N, etc.
+
+**The canonical resolution** (already correct in `SignatureTemplate::
+partyProgress()`): parse the trailing `_N` off the parties_json role (bare =
+index 1), then match `party_role === $baseRole && role_index === $N`, falling
+back to a plain `firstWhere` only for safety. Any new code resolving a
+parties_json party to its `SignatureRequest` MUST use this pattern — never a
+bare `firstWhere('party_role', $role)`.
+
+**Fixed by this same rule (2026-08-31):** `SignatureController::
+propertyDocuments()` (per-party status on the property Documents page) used
+the broken bare match; now uses the base-role+index resolution. Separately,
+`resources/views/docuperfect/esign/my-documents.blade.php`'s per-request
+status list had no rendering branch at all for `deferred` (or a resume
+action) — a deferred party was invisible on the agent's own My E-Sign
+Documents card with no way to supply their details. Added a `deferred`
+branch showing the party's name and a "Resume Signing" control that posts to
+the existing, unchanged `resumeDeferred()` (which resolves by `request_id`,
+never by role string, so it was already sound).
+
+**Not touched, flagged for a future authorised pass:** `SignaturePdfService.php:470`
+and `SignatureController.php:2869` also do a bare `firstWhere('party_role', ...)`
+against markers/agent lookups respectively — out of tonight's scope, not
+verified as reachable for an indexed same-role party, reported not fixed.
+
 ---
 
 ### Bug — a pre-filled, property-linked field could permanently block Submit: the guard demanded a value no recipient can ever provide (fixed 2026-08-31, AT-410b)

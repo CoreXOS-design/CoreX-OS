@@ -506,6 +506,42 @@
                                                 @endif
                                             @endif
                                         </div>
+                                    @elseif($req->status === 'deferred')
+                                        {{-- A deferred party (contact details not yet known) previously had NO
+                                             branch here at all — the row rendered blank, so the party never
+                                             appeared and there was no way to see or resolve them. --}}
+                                        <span class="mt-0.5" style="color: var(--ds-amber);">&#9203;</span>
+                                        <div>
+                                            <span class="capitalize" style="color: var(--text-secondary);">{{ $req->party_role ?? 'Party' }}</span>
+                                            <span class="font-medium" style="color: var(--ds-amber);">{{ $req->signer_name ?: 'Details needed' }} — awaiting details</span>
+                                            <div>
+                                                <button type="button"
+                                                        onclick="document.getElementById('resume-deferred-{{ $req->id }}').showModal()"
+                                                        class="text-[11px] font-semibold hover:underline" style="color: var(--ds-amber);">
+                                                    Enter details &amp; resume
+                                                </button>
+                                                <dialog id="resume-deferred-{{ $req->id }}" class="rounded-2xl p-0 w-full max-w-md backdrop:bg-black/30">
+                                                    <form method="POST" action="{{ route('docuperfect.signatures.resumeDeferred', $doc) }}" class="p-6 space-y-3">
+                                                        @csrf
+                                                        <input type="hidden" name="request_id" value="{{ $req->id }}">
+                                                        <h3 class="text-base font-semibold" style="color: var(--text-primary);">Resume Signing</h3>
+                                                        <p class="text-xs" style="color: var(--text-secondary);">
+                                                            Enter the details for the <strong class="capitalize">{{ str_replace('_', ' ', $req->party_role ?? 'party') }}</strong> to resume the signing flow.
+                                                        </p>
+                                                        <div class="space-y-2">
+                                                            <input type="text" name="signer_name" required placeholder="Full name" value="{{ $req->signer_name }}" class="w-full text-sm rounded-lg border px-3 py-1.5" style="border-color: var(--border);">
+                                                            <input type="email" name="signer_email" required placeholder="Email address" class="w-full text-sm rounded-lg border px-3 py-1.5" style="border-color: var(--border);">
+                                                            <input type="text" name="signer_id_number" placeholder="ID number (optional)" class="w-full text-sm rounded-lg border px-3 py-1.5" style="border-color: var(--border);">
+                                                            <input type="text" name="signer_cell" placeholder="Cell number (optional)" class="w-full text-sm rounded-lg border px-3 py-1.5" style="border-color: var(--border);">
+                                                        </div>
+                                                        <div class="flex justify-end gap-2 pt-1">
+                                                            <button type="button" onclick="document.getElementById('resume-deferred-{{ $req->id }}').close()" class="text-xs font-medium px-3 py-1.5" style="color: var(--text-secondary);">Cancel</button>
+                                                            <button type="submit" class="text-xs font-semibold px-3 py-1.5 rounded-lg" style="background: var(--ds-amber); color: #fff;">Resume Signing</button>
+                                                        </div>
+                                                    </form>
+                                                </dialog>
+                                            </div>
+                                        </div>
                                     @endif
                                 </div>
                                 @endforeach

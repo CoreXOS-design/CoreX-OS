@@ -3179,6 +3179,13 @@ class SignatureController extends Controller
      */
     public function approveAndAdvance(Request $request, Document $document)
     {
+        // Scoped backstop, not a global server setting — a multi-document pack's
+        // final approval can chain several Puppeteer PDF renders inline (see
+        // ESIGN-WETINK.md), which can exceed the box's default 30s max_execution_time.
+        // 300s covers that with headroom. Kept as a backstop even with async
+        // completion on, since the synchronous branch still runs when it's off.
+        set_time_limit(300);
+
         $user = $request->user();
         $this->authorizeDocument($user, $document);
 
@@ -4036,10 +4043,7 @@ class SignatureController extends Controller
             $request->signer_cell
         );
 
-        // isSalesDocument(), never raw template_type — see ~line 1900.
-        $dashboardRoute = $document->template?->isSalesDocument() ? 'docuperfect.sales' : 'docuperfect.rental';
-
-        return redirect()->route($dashboardRoute)
+        return redirect()->route('docuperfect.esign.myDocuments')
             ->with('status', "Signing resumed — {$request->signer_name} will be sent the document for signing.");
     }
 
@@ -4064,7 +4068,20 @@ class SignatureController extends Controller
             $partyStatuses = [];
 
             foreach ($parties as $party) {
-                $req = $sigTemplate->requests->firstWhere('party_role', $party['role']);
+                // ESIGN-WETINK BUG3 (same class as SignatureTemplate::partyProgress()) —
+                // parties_json names an indexed same-role party "seller_2", but its
+                // SignatureRequest stores party_role="seller" + role_index=2. A plain
+                // firstWhere('party_role', $role) never matches the indexed form, so
+                // Elize/seller_2 (or any buyer_2, landlord_2, tenant_2, …) resolved to
+                // null here and rendered as "unknown" with no deferred-resume control.
+                if (preg_match('/^(.*)_(\d+)$/', (string) $party['role'], $mm)) {
+                    [$baseRole, $roleIndex] = [$mm[1], (int) $mm[2]];
+                } else {
+                    [$baseRole, $roleIndex] = [(string) $party['role'], 1];
+                }
+                $req = $sigTemplate->requests->first(
+                    fn ($r) => $r->party_role === $baseRole && (int) ($r->role_index ?? 1) === $roleIndex
+                ) ?? $sigTemplate->requests->firstWhere('party_role', $party['role']);
                 $partyStatuses[] = [
                     'role' => $party['role'],
                     'role_label' => $party['role_label'] ?? $party['role'],
