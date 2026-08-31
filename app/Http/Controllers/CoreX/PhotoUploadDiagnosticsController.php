@@ -118,7 +118,7 @@ class PhotoUploadDiagnosticsController extends Controller
         if (isset($byPhase['dropped'])) {
             $reason = $byPhase['dropped']->meta['reason'] ?? null;
 
-            return in_array($reason, MobilePhotoEvent::AGENT_DROP_REASONS, true)
+            return MobilePhotoEvent::isAgentDropReason($reason)
                 ? 'deleted by agent'
                 : 'dropped before upload';   // an enqueue failure, not a choice
         }
@@ -152,26 +152,29 @@ class PhotoUploadDiagnosticsController extends Controller
         // healthy shoot as broken and bury the real losses in noise, which is the
         // one thing this page exists not to do.
         // ONLY an agent's own deletion may be subtracted. The app also emits
-        // `dropped` when an ENQUEUE FAILS and when the camera closes on the
-        // no-target path — those are real losses wearing the same label, and
-        // subtracting them would hide exactly the class of bug this page exists
-        // to catch. So the allow-list is explicit and everything else (including
-        // a drop with no reason at all) stays counted as missing. Fail safe:
-        // over-reporting a loss is recoverable, hiding one is not.
+        // `dropped` when an ENQUEUE FAILS — a real loss wearing the same label —
+        // and subtracting that would hide exactly the class of bug this page
+        // exists to catch. Anything not on the allow-list, including a drop with
+        // no reason at all, stays counted as missing. Fail safe: over-reporting a
+        // loss is recoverable, hiding one is how a photo-loss bug survives days.
+        //
+        // Decided in PHP rather than SQL so the tile and the per-photo verdict
+        // share ONE definition of "the agent chose this" — and so the matching can
+        // be spelling-insensitive (the Dart client may send removedInReview where
+        // this list says removed_in_review). See MobilePhotoEvent::isAgentDropReason().
+        $receivedIds = MobilePhotoEvent::where('property_id', $propertyId)
+            ->where('phase', MobilePhotoEvent::PHASE_RECEIVED)
+            ->pluck('client_upload_id')
+            ->flip();
+
         $dropped = MobilePhotoEvent::where('property_id', $propertyId)
             ->where('phase', 'dropped')
-            ->whereIn(
-                DB::raw("JSON_UNQUOTE(JSON_EXTRACT(meta, '$.reason'))"),
-                MobilePhotoEvent::AGENT_DROP_REASONS
-            )
-            ->whereNotIn('client_upload_id', function ($q) use ($propertyId) {
-                $q->select('client_upload_id')
-                  ->from('mobile_photo_events')
-                  ->where('property_id', $propertyId)
-                  ->where('phase', MobilePhotoEvent::PHASE_RECEIVED);
-            })
-            ->distinct()
-            ->count('client_upload_id');
+            ->get()
+            ->reject(fn ($e) => $receivedIds->has($e->client_upload_id))
+            ->filter(fn ($e) => MobilePhotoEvent::isAgentDropReason($e->meta['reason'] ?? null))
+            ->pluck('client_upload_id')
+            ->unique()
+            ->count();
 
         return [
             'captured' => $captured,

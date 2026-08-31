@@ -94,6 +94,30 @@ class PhotoDropAccountingTest extends TestCase
         $this->assertSame(1, $this->summary()['missing']);
     }
 
+    public function test_the_dart_camelcase_spelling_is_accepted(): void
+    {
+        // The client is Dart; an enum's .name serialises camelCase. This list is
+        // snake_case. An unmatched reason would make every deliberate deletion
+        // read as a LOST photo — worse than the bug the reason was added to fix —
+        // so the server matches spelling-insensitively rather than relying on a
+        // convention holding across two repos.
+        $this->event('e_1', 'captured');
+        $this->event('e_1', 'dropped', ['reason' => 'removedInReview']);
+
+        $s = $this->summary();
+
+        $this->assertSame(1, $s['dropped']);
+        $this->assertSame(0, $s['missing']);
+    }
+
+    public function test_an_unrecognised_reason_still_counts_as_a_loss(): void
+    {
+        $this->event('f_1', 'captured');
+        $this->event('f_1', 'dropped', ['reason' => 'somethingNobodyToldUsAbout']);
+
+        $this->assertSame(1, $this->summary()['missing']);
+    }
+
     public function test_a_photo_that_arrived_is_never_double_counted(): void
     {
         $this->event('d_1', 'captured');

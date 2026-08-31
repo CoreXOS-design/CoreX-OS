@@ -44,6 +44,40 @@ class MobilePhotoEvent extends Model
         'discarded_by_agent',
     ];
 
+    /**
+     * Collapse a drop reason to a spelling-insensitive key.
+     *
+     * The client is Dart: an enum's `.name` serialises camelCase
+     * (`removedInReview`), while this list and every other reason in CoreX are
+     * snake_case. Nobody has verified which one actually goes on the wire, and
+     * the failure mode of guessing wrong is silent and bad — an unmatched reason
+     * makes every deliberate deletion count as a LOST photo, which is worse than
+     * the bug the reason was introduced to fix.
+     *
+     * So the server refuses to care. Case and underscores are stripped from both
+     * sides before comparison, which accepts `removed_in_review`,
+     * `removedInReview` and `Removed_In_Review` alike. Fixing the class beats
+     * agreeing a convention across two repos and hoping it holds.
+     */
+    public static function dropReasonKey(?string $reason): string
+    {
+        return strtolower(str_replace(['_', '-', ' '], '', trim((string) $reason)));
+    }
+
+    /** Is this drop reason one the agent chose — i.e. NOT a lost photo? */
+    public static function isAgentDropReason(?string $reason): bool
+    {
+        if ($reason === null || trim($reason) === '') {
+            return false; // no reason = a loss, by design
+        }
+
+        return in_array(
+            self::dropReasonKey($reason),
+            array_map([self::class, 'dropReasonKey'], self::AGENT_DROP_REASONS),
+            true
+        );
+    }
+
     protected $fillable = [
         'agency_id',
         'user_id',
