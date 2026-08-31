@@ -3859,6 +3859,7 @@ class SignatureService
         // change at all beyond the gate.
         if (!$asyncCompletion) {
             DB::afterCommit(function () use ($template) {
+                $this->recordFinalizationStarted($template);
                 try {
                     // 2. Generate both signed PDF versions (internal + client)
                     $pdfPaths = $this->pdfService->generate($template);
@@ -3911,6 +3912,8 @@ class SignatureService
                     if ($this->isLeaseDocument($template)) {
                         $this->createLeaseRecord($template);
                     }
+
+                    $this->recordFinalizationSucceeded($template);
                 } catch (\Throwable $e) {
                     // The signing is already COMPLETED and committed. Post-
                     // completion delivery/filing failure is logged and
@@ -3922,8 +3925,92 @@ class SignatureService
                         'error' => $e->getMessage(),
                         'trace' => $e->getTraceAsString(),
                     ]);
+                    $this->recordFinalizationFailed($template, $e->getMessage());
                 }
             });
+        }
+    }
+
+    /**
+     * Johan, 2026-08-31 — "we cannot have it fail silently". These three are
+     * the ONE shared recorder pair the synchronous inline cascade above AND
+     * FinalizeSignedDocumentJob (the async path) both call — one place that
+     * knows how to mark finalisation running/succeeded/failed, not two copies
+     * that could drift. `SignatureTemplate::status` is never touched here —
+     * a legally completed signing stays `completed` regardless of this
+     * outcome; this is the separate post-completion (PDF/filing/email) state.
+     */
+    public function recordFinalizationStarted(SignatureTemplate $template): void
+    {
+        $template->update([
+            'finalization_status' => SignatureTemplate::FINALIZATION_RUNNING,
+            'finalization_error' => null,
+            'finalization_attempts' => $template->finalization_attempts + 1,
+            'finalization_started_at' => now(),
+            'finalization_finished_at' => null,
+        ]);
+    }
+
+    public function recordFinalizationSucceeded(SignatureTemplate $template): void
+    {
+        $template->update([
+            'finalization_status' => SignatureTemplate::FINALIZATION_SUCCEEDED,
+            'finalization_error' => null,
+            'finalization_finished_at' => now(),
+        ]);
+    }
+
+    /**
+     * Records the failure AND fires the notification — the two must never be
+     * split (a recorded failure nobody was told about is the exact silent
+     * failure Johan reported). Notifies the approving agent (the template's
+     * creator) and, separately, the agency admin, via the SAME shared
+     * resolver used elsewhere in this codebase for "who do we tell" — no new
+     * admin lookup invented.
+     */
+    public function recordFinalizationFailed(SignatureTemplate $template, string $error): void
+    {
+        $template->update([
+            'finalization_status' => SignatureTemplate::FINALIZATION_FAILED,
+            'finalization_error' => $error,
+            'finalization_finished_at' => now(),
+        ]);
+
+        $this->notifyFinalizationFailure($template, $error);
+    }
+
+    private function notifyFinalizationFailure(SignatureTemplate $template, string $error): void
+    {
+        try {
+            $template->loadMissing(['document', 'creator']);
+            $documentName = $template->document->name ?? 'Document';
+            $viewUrl = url("/docuperfect/documents/{$template->document_id}/signatures/audit");
+
+            $notification = \App\Notifications\SignatureActivityNotification::finalizationFailed(
+                $documentName,
+                $template->document_id,
+                $error,
+                $viewUrl,
+            );
+
+            $notified = [];
+            if ($template->creator) {
+                $template->creator->notify($notification);
+                $notified[] = $template->creator->id;
+            }
+
+            $admin = \App\Models\User::resolveBranchManagerOrAdminFallback((int) $template->agency_id);
+            if ($admin && !in_array($admin->id, $notified, true)) {
+                $admin->notify($notification);
+            }
+        } catch (\Throwable $e) {
+            // The failure is already recorded on the template — that record is
+            // the source of truth and does not depend on this notify succeeding.
+            // Never let a notification failure mask the underlying one.
+            Log::error('SignatureService: failed to send finalisation-failure notification', [
+                'template_id' => $template->id,
+                'error' => $e->getMessage(),
+            ]);
         }
     }
 

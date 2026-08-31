@@ -298,6 +298,55 @@
     </div>
     @endif
 
+    {{-- ===== FINALISATION FAILED (Johan, 2026-08-31) ===== --}}
+    {{-- The signing completed cleanly and stays "Completed" — this is the
+         SEPARATE post-completion work (signed PDF / filing / emails) failing
+         or never finishing (e.g. a queue with no worker running). Surfaced
+         FIRST, above Flagged, per Johan's explicit "this is the real job". --}}
+    @if(($groups['finalization_failed'] ?? collect())->isNotEmpty())
+    <div id="section-finalization-failed" class="space-y-3 scroll-mt-4">
+        <h3 class="text-sm font-semibold uppercase tracking-wider flex items-center gap-2" style="color: var(--ds-crimson);">
+            <span class="inline-flex items-center justify-center w-5 h-5 text-white text-[0.6875rem] font-bold rounded-full" style="background: var(--ds-crimson);">{{ number_format($groups['finalization_failed']->count()) }}</span>
+            Finalisation Failed &mdash; Action Needed
+        </h3>
+        <div class="space-y-3">
+            @foreach($groups['finalization_failed'] as $tpl)
+                @php $doc = $tpl->document; @endphp
+                <div class="rounded-md p-4" style="border: 2px solid var(--ds-crimson); background: color-mix(in srgb, var(--ds-crimson) 8%, transparent);">
+                    <div class="flex items-start justify-between gap-3">
+                        <div class="flex-1 min-w-0">
+                            <div class="font-semibold" style="color: var(--text-primary);">
+                                {{ $doc->name ?? 'Untitled' }}
+                                <span class="ds-badge ml-2" style="background: var(--ds-crimson); color: #fff;">FINALISATION FAILED</span>
+                            </div>
+                            <div class="text-xs mt-2" style="color: var(--ds-crimson);">
+                                Every party signed this document, but generating the signed PDF, filing it, or
+                                emailing it out did not finish{{ $tpl->finalization_error ? ' — ' . \Illuminate\Support\Str::limit($tpl->finalization_error, 160) : '.' }}
+                                The document itself is safe; nothing here can affect the signing record.
+                            </div>
+                            <div class="text-xs mt-1" style="color: var(--text-muted);">
+                                {{ $tpl->finalization_attempts }} attempt{{ $tpl->finalization_attempts === 1 ? '' : 's' }} &mdash;
+                                last tried {{ ($tpl->finalization_finished_at ?? $tpl->finalization_started_at ?? $tpl->updated_at)?->format('d M Y H:i') }}
+                            </div>
+                        </div>
+                        <div class="flex flex-col gap-2">
+                            @if($doc)
+                            <form method="POST" action="{{ route('docuperfect.signatures.retryFinalization', $doc) }}">
+                                @csrf
+                                <button type="submit" class="corex-btn-primary whitespace-nowrap text-center w-full"
+                                        onclick="return confirm('Retry finishing this document? Anyone who already received their signed copy will not be emailed again.')">
+                                    Retry Finalisation
+                                </button>
+                            </form>
+                            @endif
+                        </div>
+                    </div>
+                </div>
+            @endforeach
+        </div>
+    </div>
+    @endif
+
     {{-- ===== NEEDS YOUR APPROVAL ===== --}}
     {{-- AT-299 — a document frozen by a recipient's clause flag
          (STATUS_AMENDMENT_REVIEW) was previously in NO group and fell out of the

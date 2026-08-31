@@ -104,6 +104,24 @@ class SignatureActivityNotification extends Notification
         );
     }
 
+    /**
+     * Johan, 2026-08-31 — "we cannot have it fail silently". The signing itself
+     * is done and stays COMPLETED; this is the separate post-completion work
+     * (signed PDF / filing / emails) failing or never running. Sent to both the
+     * approving agent and the agency admin — see SignatureService's finalisation
+     * recorder for the two call sites.
+     */
+    public static function finalizationFailed(string $documentName, int $documentId, string $error, string $viewUrl): self
+    {
+        return new self(
+            type: 'finalization_failed',
+            message: "Action needed: \"{$documentName}\" signed successfully, but finishing it up (PDF, filing or emailing) failed — {$error}",
+            url: $viewUrl,
+            documentId: $documentId,
+            metadata: ['error' => $error],
+        );
+    }
+
     public static function amendmentDetected(string $documentName, int $documentId, string $reviewUrl): self
     {
         return new self(

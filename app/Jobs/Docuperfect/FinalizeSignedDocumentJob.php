@@ -81,21 +81,31 @@ class FinalizeSignedDocumentJob implements ShouldQueue
             return;
         }
 
+        // Johan, 2026-08-31 — "we cannot have it fail silently". Recorded on
+        // SignatureTemplate (never on `status`, which stays COMPLETED) so a
+        // failure is visible on the document even before retries are exhausted.
+        $signatureService->recordFinalizationStarted($template);
+
         // Deliberately NOT wrapped in try/catch — an exception here must propagate
         // so Laravel's retry/backoff runs and, on final failure, the job lands in
-        // failed_jobs with its exception recorded. The signing itself is already
-        // COMPLETED and committed (this job only runs after that transaction lands);
-        // this failure is about delivery/filing, never about undoing the signing.
+        // failed_jobs with its exception recorded AND failed() below fires. The
+        // signing itself is already COMPLETED and committed (this job only runs
+        // after that transaction lands); this failure is about delivery/filing,
+        // never about undoing the signing.
         $signatureService->runPostCompletionCascade($template, $this->pdfPaths);
+
+        $signatureService->recordFinalizationSucceeded($template);
     }
 
     /**
-     * Final-failure visibility only — this does NOT build new alerting. cc6 is
-     * separately fixing queue failure alerting/failed_jobs visibility right now;
-     * this job populates failed_jobs the normal way (by letting handle() throw) so
-     * whatever that alerting watches picks it up. Logged here so the specific
-     * document/template is identifiable without having to decode the failed_jobs
-     * payload first.
+     * Retries exhausted (or the job died in a way Laravel can't recover from) —
+     * the terminal failure. Records `finalization_status = failed` on the
+     * template AND notifies the approving agent + agency admin in the SAME call
+     * (SignatureService::recordFinalizationFailed — record and notify are never
+     * split, an unnotified recorded failure is the exact silent failure Johan
+     * reported). This job still populates failed_jobs the normal way (by
+     * letting handle() throw), for whatever queue-failure tooling also watches
+     * that table — this is the document-level visibility layer on top of it.
      */
     public function failed(\Throwable $e): void
     {
@@ -103,5 +113,10 @@ class FinalizeSignedDocumentJob implements ShouldQueue
             'signature_template_id' => $this->signatureTemplateId,
             'error' => $e->getMessage(),
         ]);
+
+        $template = SignatureTemplate::find($this->signatureTemplateId);
+        if ($template) {
+            app(SignatureService::class)->recordFinalizationFailed($template, $e->getMessage());
+        }
     }
 }

@@ -48,6 +48,11 @@ class SignatureTemplate extends Model
         'cancelled_at',
         'legal_deadline_at',
         'deadline_source',
+        'finalization_status',
+        'finalization_error',
+        'finalization_attempts',
+        'finalization_started_at',
+        'finalization_finished_at',
     ];
 
     protected $casts = [
@@ -61,7 +66,16 @@ class SignatureTemplate extends Model
         'legal_deadline_at' => 'datetime',
         'rejected_at' => 'datetime',
         'cancelled_at' => 'datetime',
+        'finalization_attempts' => 'integer',
+        'finalization_started_at' => 'datetime',
+        'finalization_finished_at' => 'datetime',
     ];
+
+    // Finalisation state (POST-completion work: PDF, filing, emails) — separate
+    // from `status`, which stays `completed` regardless of this outcome.
+    const FINALIZATION_RUNNING = 'running';
+    const FINALIZATION_SUCCEEDED = 'succeeded';
+    const FINALIZATION_FAILED = 'failed';
 
     // Status constants
     const STATUS_DRAFT = 'draft';

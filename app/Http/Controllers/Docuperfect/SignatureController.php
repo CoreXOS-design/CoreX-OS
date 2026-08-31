@@ -4048,6 +4048,37 @@ class SignatureController extends Controller
     }
 
     /**
+     * Johan, 2026-08-31 — recovery action for a failed/stuck finalisation
+     * (signed PDF / filing / completion emails). Re-dispatches
+     * FinalizeSignedDocumentJob, same shape as resumeDeferred() above (a
+     * simple POST back to My E-Sign Documents). Idempotent: every step inside
+     * the cascade already guards itself (PDF generation checks the file
+     * exists, filing checks storage_path+source_type, and completion emails
+     * are gated by the atomic completion_emails_sent_at claim) — a retry
+     * resumes only what didn't finish and never sends a second copy of a
+     * signed document to anyone who already received one. Always queued
+     * (never run inline in this request), regardless of the agency's current
+     * Finalisation Settings choice — retrying a failure inline risks hitting
+     * the same request-timeout class of problem the failure may already be.
+     */
+    public function retryFinalization(Request $request, Document $document)
+    {
+        $user = $request->user();
+        $this->authorizeDocument($user, $document);
+
+        $template = SignatureTemplate::where('document_id', $document->id)->firstOrFail();
+
+        if ($template->status !== SignatureTemplate::STATUS_COMPLETED) {
+            return back()->with('error', 'This document is not in a completed state — nothing to retry.');
+        }
+
+        \App\Jobs\Docuperfect\FinalizeSignedDocumentJob::dispatch($template->id);
+
+        return redirect()->route('docuperfect.esign.myDocuments')
+            ->with('status', 'Finalisation retry queued — the signed PDF, filing and any missing emails will follow shortly.');
+    }
+
+    /**
      * Show property documents with signing status (property document dashboard).
      */
     public function propertyDocuments(Request $request, $propertyId)

@@ -7827,6 +7827,14 @@ class ESignWizardController extends Controller
 
         // Group templates by status category
         $groups = [
+            // Johan, 2026-08-31 — "we cannot have it fail silently". A document
+            // whose signing completed cleanly (status stays COMPLETED, the legal
+            // record) but whose post-completion work (signed PDF / filing /
+            // emails) failed or never finished was previously invisible — same
+            // defect class as AT-299/BUG-2 below (a real state with no bucket).
+            // Surfaced FIRST, above even Flagged, since Johan explicitly named
+            // this "the real job" of tonight's build.
+            'finalization_failed' => $allTemplates->where('finalization_status', SignatureTemplate::FINALIZATION_FAILED)->values(),
             // AT-299 — a document frozen by a recipient's clause flag
             // (STATUS_AMENDMENT_REVIEW) was in NO bucket, so it fell out of the
             // list entirely and the agent could not see the frozen ceremony.
@@ -7973,6 +7981,7 @@ class ESignWizardController extends Controller
             ->filter()->sortByDesc('filed_at')->values();
 
         $counts = [
+            'finalization_failed' => $groups['finalization_failed']->count(),
             'flagged'             => $groups['flagged']->count(), // AT-299
             'returned'            => $groups['returned']->count(), // BUG 2 — returned-to-candidate
             'amendment_approval'  => $groups['amendment_approval']->count(), // AT-373 — recipient amendment returned to agent

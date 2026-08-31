@@ -65,6 +65,11 @@ Schedule::command('tfs:ingest')->dailyAt('03:00')->withoutOverlapping();
 // Expire outstanding signature requests — runs daily at 07:00
 Schedule::command('signatures:expire')->dailyAt('07:00');
 
+// Johan, 2026-08-31 — catches "async completion on, queue worker not running"
+// (a finalisation job dispatched but never picked up). See
+// App\Console\Commands\Docuperfect\DetectStuckFinalizations.
+Schedule::command('docuperfect:detect-stuck-finalizations')->everyFiveMinutes()->withoutOverlapping();
+
 // Sales document reminders — runs daily at 09:00
 Schedule::command('sales-documents:send-reminders')->dailyAt('09:00');
 
