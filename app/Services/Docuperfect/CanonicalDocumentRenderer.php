@@ -911,32 +911,77 @@ class CanonicalDocumentRenderer
             );
             $xpath   = new \DOMXPath($dom);
 
-            $blocksMeta = $document->template?->insertable_blocks ?? [];
-            if (! is_array($blocksMeta) || $blocksMeta === []) {
-                // Step 2 — raw-marker templates (the real Exclusive mandate,
-                // Mandatory Disclosure, etc.) carry NO insertable_blocks metadata:
-                // their `~~~~OTHER_CONDITIONS~~~~` marker was expanded via the
-                // unbound-marker fallback at compose time. Without this, the
-                // surgical re-bake below was a no-op for exactly those templates,
-                // so a per-condition initial captured after v1 (e.g. the KICKER
-                // re-engagement cascade) never reached the stored canonical / PDF.
-                // Synthesise the block list from the already-rendered
-                // `<div class="insertable-block" data-block-id=…>` nodes so the
-                // re-bake works regardless of whether metadata exists.
-                $blocksMeta = [];
-                foreach ($xpath->query('//*[contains(concat(" ", normalize-space(@class), " "), " insertable-block ")][@data-block-id]') as $node) {
-                    if (! $node instanceof \DOMElement) {
-                        continue;
+            $declaredBlocksMeta = $document->template?->insertable_blocks ?? [];
+            if (! is_array($declaredBlocksMeta)) {
+                $declaredBlocksMeta = [];
+            }
+
+            // Step 2 — raw-marker templates (the real Exclusive mandate, Mandatory
+            // Disclosure, etc.) carry NO insertable_blocks metadata: their
+            // `~~~~OTHER_CONDITIONS~~~~` marker was expanded via the unbound-marker
+            // fallback at compose time. ALSO covers packs: a pack's declared
+            // metadata comes from $document->template, which is only the pack's
+            // PRIMARY member template and names its BARE block id (e.g.
+            // 'other_conditions'), while each pack segment's own container is
+            // scoped per-document at compose time (InsertableBlockRenderer::
+            // synthBlockFromToken — 'other_conditions__<docKey>'), so the bare id
+            // never matches any node in a pack's canonical_html and the surgical
+            // re-bake below was a silent no-op for every pack. Always synthesise
+            // the block list from the already-rendered
+            // `<div class="insertable-block" data-block-id=…>` nodes — this is
+            // ground truth (the node's own data-purpose/data-auto-number match
+            // what compose actually stamped) — and use it for ANY declared id that
+            // doesn't resolve to a real node, whether because no metadata exists at
+            // all or because the declared bare id was scoped away by a pack.
+            $domBlocksMeta = [];
+            foreach ($xpath->query('//*[contains(concat(" ", normalize-space(@class), " "), " insertable-block ")][@data-block-id]') as $node) {
+                if (! $node instanceof \DOMElement) {
+                    continue;
+                }
+                $domBlocksMeta[] = [
+                    'id'          => $node->getAttribute('data-block-id'),
+                    'purpose'     => $node->getAttribute('data-purpose') ?: 'other_conditions',
+                    'auto_number' => $node->getAttribute('data-auto-number') === '1',
+                ];
+            }
+            $domIds = array_column($domBlocksMeta, 'id');
+
+            $blocksMeta = [];
+            $coveredDomIds = [];
+            foreach ($declaredBlocksMeta as $declared) {
+                $declaredId = (string) ($declared['id'] ?? '');
+                if ($declaredId !== '' && in_array($declaredId, $domIds, true)) {
+                    // Exact match (single-document case, unchanged behaviour).
+                    $blocksMeta[] = $declared;
+                    $coveredDomIds[] = $declaredId;
+                    continue;
+                }
+                // No exact node for this declared id — it may have been scoped per
+                // pack-segment (id__<docKey>). Pull in every DOM-discovered block of
+                // the SAME purpose whose id is a scoped derivative of this one; a
+                // pack can bundle more than one segment declaring the same purpose,
+                // each with its own distinct scoped id, so add all of them.
+                $declaredPurpose = (string) ($declared['purpose'] ?? '');
+                foreach ($domBlocksMeta as $domBlock) {
+                    if ($domBlock['purpose'] === $declaredPurpose
+                        && $declaredId !== ''
+                        && str_starts_with($domBlock['id'], $declaredId . '__')
+                    ) {
+                        $blocksMeta[] = $domBlock;
+                        $coveredDomIds[] = $domBlock['id'];
                     }
-                    $blocksMeta[] = [
-                        'id'          => $node->getAttribute('data-block-id'),
-                        'purpose'     => $node->getAttribute('data-purpose') ?: 'other_conditions',
-                        'auto_number' => $node->getAttribute('data-auto-number') === '1',
-                    ];
                 }
-                if ($blocksMeta === []) {
-                    return;
+            }
+            // Any DOM block not already covered above (no declared metadata names
+            // it at all — e.g. a template with no insertable_blocks declared).
+            foreach ($domBlocksMeta as $domBlock) {
+                if (! in_array($domBlock['id'], $coveredDomIds, true)) {
+                    $blocksMeta[] = $domBlock;
                 }
+            }
+
+            if ($blocksMeta === []) {
+                return;
             }
 
             $changed = false;
