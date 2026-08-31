@@ -1077,6 +1077,15 @@ name.
 
 ---
 
+## Fix — agent lands on My E-Sign Documents after final approval (2026-08-31)
+
+After the agent's final approval (`SignatureController::approveAndAdvance()`'s
+completed/filed-and-emailed exit), the agent now returns to My E-Sign Documents
+(`docuperfect.esign.myDocuments`) instead of the unrelated `/docuperfect/sales`
+dashboard.
+
+---
+
 ### Bug — a pre-filled, property-linked field could permanently block Submit: the guard demanded a value no recipient can ever provide (fixed 2026-08-31, AT-410b)
 
 Johan's report, reproduced live on the Mandatory Disclosure Form (MDF,

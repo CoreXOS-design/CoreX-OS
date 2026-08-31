@@ -3232,7 +3232,7 @@ class SignatureController extends Controller
             return back()->with('error', $result['message']);
         }
 
-        return redirect()->route($dashboardRoute)
+        return redirect()->route('docuperfect.esign.myDocuments')
             ->with('status', 'All signatures approved. Document completed!');
     }
 
