@@ -768,6 +768,31 @@ class MobilePropertyController extends Controller
             return $this->uploadedImageResponse($duplicateUrl, $roomTag, null, true);
         }
 
+        // Telemetry: the SERVER's own record that these bytes landed. Deliberately
+        // not taken from the client — "did it actually arrive?" is the one question
+        // the client cannot be trusted to answer, and it is the question the whole
+        // photo-upload log exists to settle. recordQuietly() swallows every failure:
+        // a diagnostics write must never cost an agent their photo.
+        // Spec: .ai/specs/mobile-photo-upload-telemetry.md
+        if ($clientUploadId !== null) {
+            \App\Models\MobilePhotoEvent::recordQuietly([
+                'agency_id'        => $property->agency_id,
+                'user_id'          => $request->user()?->id,
+                'property_id'      => $property->id,
+                'client_upload_id' => mb_substr($clientUploadId, 0, 191),
+                'phase'            => \App\Models\MobilePhotoEvent::PHASE_RECEIVED,
+                'occurred_at'      => now(),
+                'meta'             => [
+                    'room_tag'  => $roomTag,
+                    // NOT $file->getSize(): store() has already moved the temp
+                    // upload, so the UploadedFile no longer points at anything. Read
+                    // the stored file instead, and never let a stat cost an upload.
+                    'bytes'     => @filesize(Storage::disk('public')->path($path)) ?: null,
+                    'stored_as' => $path,
+                ],
+            ]);
+        }
+
         // Queue AI vision analysis (gated by user permission — AI is universal
         // at the agency level, so there is no per-agency enable flag).
         $analysisId = null;
@@ -1450,6 +1475,135 @@ class MobilePropertyController extends Controller
             'gallery_categories' => $this->buildGalleryCategories($fresh),
             'available_tags'     => $fresh->getAvailableGalleryTags(),
         ], $moved === 0 && $unknown !== [] ? 422 : 200);
+    }
+
+    // ── POST /api/mobile/properties/{id}/images/delete ─────────────
+    // Removes already-uploaded photos. Body accepts either shape (or both):
+    //   { "images": ["<url>", …] }
+    //   { "client_upload_ids": ["1788176218829168_1", …] }
+    //
+    // Exists because the app now enqueues at the shutter and drains without
+    // waiting for the camera to close — so a photo the agent deletes in review
+    // may ALREADY be on the server. Before this there was no way to take it
+    // back from the phone: the app could put photos in and never remove them,
+    // and the agent was told to go and open the web app. Same shape as the
+    // tagging gap, same fix.
+    //
+    // Mirrors the web deleteImages() exactly: assistants are refused, references
+    // are dropped inside the lock, and files are unlinked only AFTER the
+    // references are gone so a failed update can never leave a dangling
+    // reference (a dangling reference blocks the whole PrivateProperty listing
+    // update — see RepairGalleryReferences).
+    public function deleteImages(Request $request, Property $property): JsonResponse
+    {
+        // AT-267 parity: assistants may never delete listing photos.
+        abort_if((bool) $request->user()?->is_assistant, 403, 'Assistants cannot delete listing photos.');
+
+        $this->authorizeProperty($request->user(), $property);
+
+        $data = $request->validate([
+            'images'              => 'sometimes|array',
+            'images.*'            => 'string|max:2048',
+            'client_upload_ids'   => 'sometimes|array',
+            'client_upload_ids.*' => 'string|max:255',
+        ]);
+
+        if (empty($data['images']) && empty($data['client_upload_ids'])) {
+            return response()->json([
+                'message' => 'Nothing to delete.',
+                'errors'  => ['images' => ['Provide images or client_upload_ids.']],
+            ], 422);
+        }
+
+        $removed  = [];
+        $unknown  = [];
+
+        DB::transaction(function () use ($property, $data, &$removed, &$unknown) {
+            /** @var Property $locked */
+            $locked = Property::whereKey($property->getKey())->lockForUpdate()->firstOrFail();
+
+            $keys = $locked->gallery_upload_keys ?? [];
+
+            // Build the target set from BOTH shapes. client_upload_id is the more
+            // reliable one for the app: it is the id it queued under, and it still
+            // resolves after a restart when the url is long forgotten.
+            $wanted = [];
+            foreach (($data['client_upload_ids'] ?? []) as $cid) {
+                $cid = trim($cid);
+                if ($cid !== '' && isset($keys[$cid]) && is_string($keys[$cid])) {
+                    $wanted[$this->imageMatchKey($keys[$cid])] = true;
+                } elseif ($cid !== '') {
+                    $unknown[] = $cid;
+                }
+            }
+            foreach (($data['images'] ?? []) as $u) {
+                $u = trim($u);
+                if ($u !== '') {
+                    $wanted[$this->imageMatchKey($u)] = true;
+                }
+            }
+
+            $gallery = $locked->gallery_images_json ?? [];
+            $kept    = [];
+            foreach ($gallery as $u) {
+                if (is_string($u) && isset($wanted[$this->imageMatchKey($u)])) {
+                    $removed[] = $u;
+                } else {
+                    $kept[] = $u;
+                }
+            }
+
+            if ($removed === []) {
+                return;
+            }
+
+            $removedSet = array_flip($removed);
+
+            $cats = $locked->gallery_categories_json ?? ['categories' => [], 'unsorted' => []];
+            $newCategories = [];
+            foreach (($cats['categories'] ?? []) as $cat) {
+                $cat['images'] = array_values(array_filter(
+                    $cat['images'] ?? [],
+                    fn ($u) => ! isset($removedSet[$u])
+                ));
+                $newCategories[] = $cat;
+            }
+            $unsorted = array_values(array_filter(
+                $cats['unsorted'] ?? [],
+                fn ($u) => ! isset($removedSet[$u])
+            ));
+
+            $locked->gallery_images_json    = array_values($kept);
+            $locked->gallery_categories_json = ['categories' => $newCategories, 'unsorted' => $unsorted];
+
+            // gallery_upload_keys is deliberately LEFT INTACT — same as the web
+            // delete. The key is what makes uploadImage() short-circuit a retry;
+            // clearing it would let an in-flight retry of a photo the agent just
+            // deleted re-upload and resurrect it. A deleted photo must stay deleted
+            // even if the phone tries again.
+
+            $locked->saveQuietly();
+        });
+
+        // Files last, and only files that genuinely belong to this property.
+        foreach (array_unique($removed) as $url) {
+            if (\App\Services\Images\PropertyImageGuard::belongsToProperty($property, $url)) {
+                Storage::disk('public')->delete((string) \App\Services\Images\PropertyImageGuard::relativePath($url));
+                app(\App\Services\Images\PropertyThumbnailService::class)->deleteForUrl($url);
+            }
+        }
+
+        $fresh = $property->fresh();
+
+        return response()->json([
+            'message'            => count($removed) === 0
+                ? 'Nothing matched — those photos are not on this listing.'
+                : count($removed) . ' photo(s) deleted.',
+            'deleted'            => count($removed),
+            'unknown_ids'        => array_values(array_unique($unknown)),
+            'gallery_images'     => $this->absoluteImageUrls($fresh->gallery_images_json ?? []),
+            'gallery_categories' => $this->buildGalleryCategories($fresh),
+        ], count($removed) === 0 ? 404 : 200);
     }
 
     /**

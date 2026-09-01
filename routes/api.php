@@ -523,6 +523,11 @@ Route::middleware(['auth:sanctum', 'app_access'])->group(function () {
             // itself, so anything that arrived untagged stayed untagged forever
             // on mobile. See MobilePropertyController::assignGalleryTag().
             Route::put('/{property}/gallery/assign',        [MobilePropertyController::class, 'assignGalleryTag'])->name('v1.mobile.properties.gallery.assign');
+            // Take a photo back off the listing. Needed once the app enqueues at
+            // the shutter and drains without waiting for the camera to close: a
+            // photo deleted in review may already be on the server, and until now
+            // the app could add photos but never remove them.
+            Route::post('/{property}/images/delete',       [MobilePropertyController::class, 'deleteImages'])->name('v1.mobile.properties.images.delete');
 
             Route::get('/{property}/spaces', [MobilePropertyController::class, 'spacesShow'])->name('v1.mobile.properties.spaces.show');
             Route::put('/{property}/spaces', [MobilePropertyController::class, 'spacesUpdate'])->name('v1.mobile.properties.spaces.update');
@@ -545,6 +550,17 @@ Route::middleware(['auth:sanctum', 'app_access'])->group(function () {
         // ── Mobile feature flags (advanced AI features) ─────────────
         Route::get('/mobile/features', [\App\Http\Controllers\Api\MobileFeatureFlagController::class, 'index'])
             ->name('v1.mobile.features');
+
+        // Photo upload telemetry — the app reports what it observed happening to
+        // each photo (captured / queued / attempted / failed / dropped) so a
+        // photo that dies BEFORE the upload queue still leaves a trace. Without
+        // it the server only ever sees the survivors, and "40 taken, 28 landed"
+        // is unanswerable. Throttled generously: a 40-photo shoot is ~200 events
+        // and the client batches, so this should be a handful of calls per shoot.
+        // Spec: .ai/specs/mobile-photo-upload-telemetry.md
+        Route::post('/mobile/photo-events', [\App\Http\Controllers\Api\MobilePhotoEventController::class, 'store'])
+            ->middleware('throttle:60,1')
+            ->name('v1.mobile.photo-events.store');
 
         // ── Mobile calendar (auth-user-only, web-parity filters) ─────
         Route::get('/mobile/calendar', [\App\Http\Controllers\Api\MobileCalendarController::class, 'index'])
