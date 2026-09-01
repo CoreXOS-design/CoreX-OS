@@ -373,18 +373,7 @@ class OnboardingPortalController extends Controller
                 ->finally(function () use ($runIds) {
                     // Property writes are done (galleries stream on their own lane).
                     // Mark each run completed only if nothing is still pending/processing.
-                    foreach ($runIds as $runId) {
-                        $outstanding = P24ImportRow::where('run_id', $runId)
-                            ->where('row_type', 'listing')
-                            ->where(function ($q) {
-                                $q->where('status', 'pending')->orWhereNotNull('processing_at');
-                            })->exists();
-                        if (!$outstanding) {
-                            P24ImportRun::where('id', $runId)
-                                ->whereNotIn('status', ['cancelled', 'failed'])
-                                ->update(['status' => 'completed', 'confirmed_at' => now(), 'completed_at' => now()]);
-                        }
-                    }
+                    $this->finaliseRuns($runIds);
                 })
                 ->dispatch();
         } catch (\Throwable $e) {
@@ -490,22 +479,73 @@ class OnboardingPortalController extends Controller
         // Import-All batch's finally callback for paths that don't go through it
         // (row-by-row confirm, exclude-the-rest).
         $runIds = (clone $portal->rowsQuery())->distinct()->pluck('run_id')->filter()->all();
+        $this->finaliseRuns($runIds);
+
+        $agency = $portal->agency;
+        $counts = $this->counts($portal);
+        return view('onboarding.portal.finish', compact('portal', 'agency', 'counts'));
+    }
+
+    /**
+     * Close out each run whose listing rows have stopped moving, and record what
+     * actually happened to them.
+     *
+     * 2026-09-01 (Johan) — previously this only asked "is anything still pending
+     * or processing?" and, if not, stamped the run `completed`. A row that ERRORED
+     * is neither pending nor processing, so a run that lost rows was reported as a
+     * clean success: the 2026-09-01 demo import showed `completed` while 1,343 of
+     * its 4,753 listings had failed and created no property, with nothing anywhere
+     * on the screen saying so. Silent partial loss is the worst failure this
+     * importer can have — an agency signs off on a book that is missing a quarter
+     * of its stock and nobody finds out until an agent goes looking for a listing.
+     * The run still completes (the rows really have stopped moving), but the
+     * outcome is now written onto it: per-status counts land in counts_json, which
+     * both the run screen and the runs list already render, and any failures raise
+     * the run's error banner telling the operator where to re-confirm them.
+     */
+    private function finaliseRuns(array $runIds): void
+    {
         foreach ($runIds as $runId) {
             $outstanding = P24ImportRow::where('run_id', $runId)
                 ->where('row_type', 'listing')
                 ->where(function ($q) {
                     $q->where('status', 'pending')->orWhereNotNull('processing_at');
                 })->exists();
-            if (!$outstanding) {
-                P24ImportRun::where('id', $runId)
-                    ->whereNotIn('status', ['cancelled', 'failed'])
-                    ->update(['status' => 'completed', 'confirmed_at' => now(), 'completed_at' => now()]);
+            if ($outstanding) {
+                continue;
             }
-        }
 
-        $agency = $portal->agency;
-        $counts = $this->counts($portal);
-        return view('onboarding.portal.finish', compact('portal', 'agency', 'counts'));
+            $run = P24ImportRun::whereNotIn('status', ['cancelled', 'failed'])->find($runId);
+            if (!$run) {
+                continue;
+            }
+
+            $tally = P24ImportRow::where('run_id', $runId)
+                ->where('row_type', 'listing')
+                ->selectRaw('status, COUNT(*) AS c')
+                ->groupBy('status')
+                ->pluck('c', 'status');
+
+            $confirmed = (int) ($tally['confirmed'] ?? 0);
+            $failed    = (int) ($tally['error'] ?? 0);
+            $excluded  = (int) ($tally['excluded'] ?? 0);
+            $seen      = $confirmed + $failed + $excluded;
+
+            $run->update([
+                'status'        => 'completed',
+                'confirmed_at'  => now(),
+                'completed_at'  => now(),
+                'counts_json'   => array_merge((array) ($run->counts_json ?? []), [
+                    'confirmed' => $confirmed,
+                    'failed'    => $failed,
+                    'excluded'  => $excluded,
+                ]),
+                'error_message' => $failed > 0
+                    ? "{$failed} of {$seen} listings failed to import and created no property. "
+                      . 'Re-select them on the review screen and confirm again.'
+                    : null,
+            ]);
+        }
     }
 
     private function findOwnedRow(P24OnboardingPortal $portal, int $rowId): P24ImportRow
