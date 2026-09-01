@@ -1357,6 +1357,22 @@
 
                 {{-- Signing order cards --}}
                 <h4 class="text-xs font-semibold uppercase tracking-wide mb-3" style="color: var(--text-secondary);">Signing Order</h4>
+
+                {{-- Missing party details warning (Johan) — warns, never blocks. Sending with a
+                     deferred party is a legitimate, working path; this just makes sure the agent
+                     isn't left wondering where the document went. --}}
+                <template x-if="partyDetailsWarnings.length > 0">
+                    <div class="mb-4 p-3 rounded-md text-sm space-y-1.5"
+                         style="background: color-mix(in srgb, var(--ds-amber) 10%, transparent); border: 1px solid color-mix(in srgb, var(--ds-amber) 30%, transparent); color: var(--text-primary);">
+                        <template x-for="(w, wi) in partyDetailsWarnings" :key="wi">
+                            <div class="flex items-start gap-2">
+                                <span>&#9888;</span>
+                                <span x-text="w"></span>
+                            </div>
+                        </template>
+                    </div>
+                </template>
+
                 <div class="space-y-2 mb-6">
                     <template x-for="(r, ri) in recipients" :key="r.role + '_' + (r.name || ri)">
                         <div class="p-3 rounded-md transition-all" style="background: var(--surface); border: 1px solid var(--border);">
@@ -2168,6 +2184,11 @@ function esignWizard() {
         previewRenderType: 'pdf',
         previewHtml: '',
         previewFieldValues: {},
+        // Stale-response guard for loadTemplatePreview() — a monotonically
+        // increasing sequence number. Only the response matching the MOST
+        // RECENTLY issued preview request is allowed to paint, so a slow
+        // earlier request can never overwrite a newer, correct one.
+        _previewRequestSeq: 0,
 
         // Step 2: Property
         property: {
@@ -2779,11 +2800,18 @@ function esignWizard() {
         },
 
         async loadTemplatePreview(templateId) {
+            // Stale-response guard — claim the next sequence number for THIS
+            // request before the fetch goes out. If a newer loadTemplatePreview()
+            // call is issued (and bumps _previewRequestSeq again) before this
+            // one's response arrives, this response is stale and must be
+            // discarded rather than painted over the newer one.
+            const requestSeq = ++this._previewRequestSeq;
             try {
                 let url = '/docuperfect/esign/api/template/' + templateId + '/pages';
                 if (this.flowId) url += '?flow_id=' + this.flowId;
                 const resp = await fetch(url, { cache: 'no-store' });
                 const data = await resp.json();
+                if (requestSeq !== this._previewRequestSeq) return; // stale — a newer request has since been issued
                 this.previewRenderType = data.render_type || 'pdf';
                 if (data.render_type === 'web') {
                     this.previewHtml = data.html || '';
@@ -3259,6 +3287,35 @@ function esignWizard() {
                 signerGroups: Object.values(signerCounts),
                 signatureZones: Object.values(signatureZones),
             };
+        },
+
+        // ---- Missing party details warning (Johan) ----
+        // WARNS, never blocks — deferring a party with no email is a
+        // legitimate, working path. Missing email and missing ID number are
+        // SEPARATE conditions (a party can be missing one, the other, or
+        // both): only a missing email pauses the document (mirrors the
+        // server-side deferral gate in ESignWizardController::prepareSigning()
+        // — a party is only deferred when they have no email; a missing ID
+        // number never defers). Named per party, states the real consequence
+        // based on THIS session's actual signing order (the recipient
+        // immediately before them in `recipients`), never a generic sentence.
+        get partyDetailsWarnings() {
+            const warnings = [];
+            (this.recipients || []).forEach((r, ri) => {
+                if (r.role === 'agent') return; // agent always signs first, in-app — not applicable
+                const name = (r.name || '').trim() || this.signingRoleLabel(r.role);
+                if (!(r.email || '').trim()) {
+                    const prev = ri > 0 ? this.recipients[ri - 1] : null;
+                    const prevName = prev ? ((prev.name || '').trim() || this.signingRoleLabel(prev.role)) : null;
+                    warnings.push(prevName
+                        ? `${name} has no email address. The document will pause after ${prevName} signs, and you'll be able to enter their details then.`
+                        : `${name} has no email address. The document will pause until you enter their details.`);
+                }
+                if (!(r.id_number || '').trim()) {
+                    warnings.push(`${name} has no ID number on file. This will not stop the document from being sent — you can add it later.`);
+                }
+            });
+            return warnings;
         },
 
         // ---- Signer field groups ----

@@ -467,7 +467,25 @@ class SignaturePdfService
             $markerData = [];
             foreach ($pageMarkers as $marker) {
                 $signature = $marker->signatures->first();
-                $request = $template->requests->firstWhere('party_role', $marker->assigned_party);
+
+                // ESIGN-WETINK BUG3 (same class as SignatureTemplate::partyProgress()
+                // / SignatureController::propertyDocuments()) — expandMarkersToIndividualParties()
+                // (ESignWizardController) stamps an indexed same-role marker's
+                // assigned_party as "seller_2", but its SignatureRequest stores
+                // party_role="seller" + role_index=2. A plain firstWhere('party_role', ...)
+                // never matches the indexed form, so a 2nd (or later) same-role
+                // signer's wet-ink status on this marker never resolved. Parse the
+                // trailing _N as the role_index (bare = index 1) and match on
+                // base-role + index first, falling back to the bare lookup for
+                // legacy/non-indexed markers.
+                if (preg_match('/^(.*)_(\d+)$/', (string) $marker->assigned_party, $mm)) {
+                    [$baseRole, $roleIndex] = [$mm[1], (int) $mm[2]];
+                } else {
+                    [$baseRole, $roleIndex] = [(string) $marker->assigned_party, 1];
+                }
+                $request = $template->requests->first(
+                    fn ($r) => $r->party_role === $baseRole && (int) ($r->role_index ?? 1) === $roleIndex
+                ) ?? $template->requests->firstWhere('party_role', $marker->assigned_party);
                 $isWetInk = $request && $request->signing_method === 'wet_ink' && $request->wet_ink_status === 'approved';
 
                 $markerData[] = [

@@ -1936,21 +1936,16 @@ class ESignWizardController extends Controller
                     $tplData = app(WebTemplateDataService::class)
                         ->resolve($tplId, $stepData, $user);
 
-                    // Overlay fill_review field values
-                    $frValues = $stepData['fill_review']['fieldValues'] ?? [];
-                    if (!empty($frValues)) {
-                        $fieldsJson = $stepData['fields'] ?? ($tpl->fields_json ?? []);
-                        foreach ($fieldsJson as $field) {
-                            $fId = $field['id'] ?? null;
-                            $fName = $field['field_name'] ?? null;
-                            $fTplId = $field['_pack_template_id'] ?? null;
-                            if ($fId && $fName && isset($frValues[$fId]) && $frValues[$fId] !== '') {
-                                if ($fTplId === null || (int) $fTplId === (int) $tplId) {
-                                    $tplData[$fName] = $frValues[$fId];
-                                }
-                            }
-                        }
-                    }
+                    // AT-391b — use the SAME shared Fill & Review overlay the single-document
+                    // branch uses (overlayFillReviewValues() below), scoped to this pack
+                    // template's own fields exactly as prepareSigning()'s pack branch already
+                    // does (~line 2746). Replaces the former hand-rolled overlay, which set
+                    // $tplData by the raw (unsanitised) field_name and never overlaid
+                    // per-recipient "{base}__r{n}" edits — the same defect class AT-360/AT-360b
+                    // fixed for the single-document path. "We are not building rules for a
+                    // process but rather for a document" (Johan) — one shared overlay, not a
+                    // parallel path per shape.
+                    $tplData = $this->overlayFillReviewValues($tplData, $stepData, (int) $tplId);
 
                     if (!empty($tpl->signing_parties)) {
                         $tplData['signing_parties'] = $tpl->signing_parties;
@@ -1977,6 +1972,18 @@ class ESignWizardController extends Controller
                                 $wizardRecipients,
                             );
                     }
+
+                    // AT-391b / AT-360c parity — re-assert the authoritative fill-review
+                    // overlay as the LAST word after role-block expansion, per pack member,
+                    // exactly as the single-document branch does below (~applyFillReviewAuthoritativeOverlay).
+                    // expandWithLooping just re-resolved this member's recipient fields
+                    // straight from the Contact model, which would otherwise clobber the
+                    // agent's per-recipient "{var}__r{n}" edits for THIS pack document.
+                    $html = app(\App\Services\Docuperfect\CanonicalDocumentRenderer::class)
+                        ->applyFillReviewAuthoritativeOverlay(
+                            $html,
+                            is_array($tplData['_fill_review_overlay'] ?? null) ? $tplData['_fill_review_overlay'] : [],
+                        );
 
                     $styles = '';
                     preg_match_all('/<style[^>]*>.*?<\/style>/si', $html, $sm);

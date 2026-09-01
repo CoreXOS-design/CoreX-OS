@@ -368,11 +368,22 @@ class Template extends Model
     }
 
     /**
-     * Detect if this is a sales-context document.
-     * Layered: explicit signing_parties roles > name pattern matching.
-     * Accepts optional $propertySource ('properties' or 'rental_properties') for step-data context.
+     * The genuinely-determinable half of the sales/rental question —
+     * explicit signing_parties roles, the builder's own category/
+     * template_type, or the property-source table. Returns null when NONE
+     * of those give a real signal, rather than guessing from the
+     * template's name. A caller that renders something to a human (party
+     * labels) MUST treat null as "unknown — ask the user to set
+     * Template::category" and MUST NOT silently default to either sales or
+     * rental. isSalesDocument() below still falls back to a name guess for
+     * its own long-standing bool-only callers; new/label-rendering callers
+     * should prefer THIS method instead. See ESIGN-WETINK.md for the bug
+     * this fixes: a CDS-imported template (category/document_type_id never
+     * set by the importer) with a name carrying no sales keyword ("Mandatory
+     * Disclosure", "Addendum B") was rendering confidently, but wrongly, as
+     * a rental document.
      */
-    public function isSalesDocument(?string $propertySource = null): bool
+    public function resolvedTransactionCategory(?string $propertySource = null): ?string
     {
         // Layer 1: check signing_parties for explicit sales/rental roles
         $parties = $this->signing_parties ?? [];
@@ -380,28 +391,49 @@ class Template extends Model
             $roles = array_map('strtolower', $parties);
             $hasSales = !empty(array_intersect($roles, ['seller', 'buyer']));
             $hasRental = !empty(array_intersect($roles, ['landlord', 'tenant', 'lessor', 'lessee']));
-            if ($hasSales && !$hasRental) return true;
-            if ($hasRental && !$hasSales) return false;
+            if ($hasSales && !$hasRental) return 'sales';
+            if ($hasRental && !$hasSales) return 'rentals';
         }
 
         // Layer 2: explicit category / template_type set by the builder.
         // Authoritative — covers CDS templates whose signing_parties use the
         // generic owner_party/acquiring_party tokens (so Layer 1 can't tell)
-        // and whose name carries no sales keyword. Without this a sales CDS
-        // template falls through to the name heuristic and wrongly renders
-        // Lessor. template_type 'cds' is neutral and skipped (no sale/rent
-        // substring), so category decides.
+        // and whose name carries no sales keyword. template_type 'cds' is
+        // neutral and skipped (no sale/rent substring), so category decides.
         foreach ([strtolower((string) ($this->category ?? '')), strtolower((string) ($this->template_type ?? ''))] as $sig) {
             if ($sig === '') continue;
-            if (str_contains($sig, 'sale') || $sig === 'otp') return true;
-            if (str_contains($sig, 'rent') || str_contains($sig, 'lett') || str_contains($sig, 'lease')) return false;
+            if (str_contains($sig, 'sale') || $sig === 'otp') return 'sales';
+            if (str_contains($sig, 'rent') || str_contains($sig, 'lett') || str_contains($sig, 'lease')) return 'rentals';
         }
 
         // Layer 3: property source table
-        if ($propertySource === 'properties') return true;
-        if ($propertySource === 'rental_properties') return false;
+        if ($propertySource === 'properties') return 'sales';
+        if ($propertySource === 'rental_properties') return 'rentals';
 
-        // Layer 4: template name pattern matching (last-resort fallback)
+        return null;
+    }
+
+    /**
+     * Detect if this is a sales-context document.
+     * Layered: explicit signing_parties roles > category/template_type >
+     * property source > name pattern matching (last resort).
+     * Accepts optional $propertySource ('properties' or 'rental_properties') for step-data context.
+     *
+     * Kept for existing bool-contract callers that must always receive a
+     * definite answer (dashboard routing, wizard document_context, etc.).
+     * Party-LABEL rendering must use resolvedTransactionCategory() instead
+     * and treat null explicitly — see TemplateController::generateCdsBladeView().
+     */
+    public function isSalesDocument(?string $propertySource = null): bool
+    {
+        $determined = $this->resolvedTransactionCategory($propertySource);
+        if ($determined !== null) {
+            return $determined === 'sales';
+        }
+
+        // Layer 4: template name pattern matching (last-resort fallback) —
+        // ONLY reached here, for this legacy bool-only contract. Never used
+        // by party-label rendering.
         $name = strtolower($this->name ?? '');
         return str_contains($name, 'sell') || str_contains($name, 'sale')
             || str_contains($name, 'authority') || str_contains($name, 'otp')
@@ -604,7 +636,7 @@ class Template extends Model
      * Singletons remain non-indexed (just "Buyer", not "Buyer 1").
      * Existing single-recipient callers see no behaviour change.
      */
-    public static function mapSigningPartyKeys(array $keys, bool $isSales): array
+    public static function mapSigningPartyKeys(array $keys, ?bool $isSales): array
     {
         $counts = array_count_values($keys);
         $running = [];
@@ -626,21 +658,30 @@ class Template extends Model
      */
     public static function roleDisplayLabel(
         string $roleToken,
-        bool $isSales,
+        ?bool $isSales,
         ?int $instanceIndex = null,
         int $totalInstancesForRole = 1,
     ): string {
-        $map = $isSales
-            ? ['owner_party' => 'Seller', 'acquiring_party' => 'Buyer', 'agent' => 'Agent']
-            // Wizard-side aliases — see ESignWizardController $roleAliases. These
-            // tokens land in signature_requests.party_role today.
-            : ['owner_party' => 'Lessor', 'acquiring_party' => 'Lessee', 'agent' => 'Agent'];
+        // $isSales === null means the template's sales/rental nature is
+        // genuinely undetermined (see Template::resolvedTransactionCategory()).
+        // Do NOT guess Seller/Buyer or Lessor/Lessee in that case — fall
+        // through to the raw-token label below, which is honest about not
+        // knowing rather than confidently wrong.
+        $map = $isSales === null
+            ? []
+            : ($isSales
+                ? ['owner_party' => 'Seller', 'acquiring_party' => 'Buyer', 'agent' => 'Agent']
+                // Wizard-side aliases — see ESignWizardController $roleAliases. These
+                // tokens land in signature_requests.party_role today.
+                : ['owner_party' => 'Lessor', 'acquiring_party' => 'Lessee', 'agent' => 'Agent']);
         // Also recognise the wizard's raw tokens (seller / buyer / lessor / lessee /
         // landlord / tenant) so labels work whether the caller passes the canonical
         // owner_party/acquiring_party or the wizard's per-document-type token.
-        $aliases = $isSales
-            ? ['seller' => 'Seller', 'buyer' => 'Buyer']
-            : ['lessor' => 'Lessor', 'lessee' => 'Lessee', 'landlord' => 'Lessor', 'tenant' => 'Lessee'];
+        $aliases = $isSales === null
+            ? []
+            : ($isSales
+                ? ['seller' => 'Seller', 'buyer' => 'Buyer']
+                : ['lessor' => 'Lessor', 'lessee' => 'Lessee', 'landlord' => 'Lessor', 'tenant' => 'Lessee']);
 
         $base = $map[$roleToken]
             ?? $aliases[$roleToken]
