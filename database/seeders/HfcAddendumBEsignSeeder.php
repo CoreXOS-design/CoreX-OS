@@ -7,7 +7,7 @@ use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
 
 /**
- * HFC "Addendum B" — a STANDALONE agency addendum e-sign template (heading
+ * "Addendum B" — a STANDALONE agency addendum e-sign template (heading
  * "ADDENDUM B" + the EXTRA INFORMATION table: registered building plans (Y/N)
  * and the four Certificates of Compliance — Electrical, Electrical Fence, Gas,
  * Entomology — each Y/N + a "when issued" date; plus a Seller / Purchaser /
@@ -17,12 +17,16 @@ use Illuminate\Support\Facades\DB;
  * web packs compose it alongside the mandate + MDF as an independent doc.
  *
  * Blade: resources/views/docuperfect/web-templates/cds/template-120.blade.php.
- * Idempotent: find-or-create the active row by name; document_type resolved by
- * stable slug (find-or-create) so the FK never breaks on a fresh DB.
+ * Idempotent: find-or-create the active row by blade_view (stable even across
+ * a display-name rename — see 2026-08-31: the row used to be named
+ * "HFC Addendum B", which is wrong for is_global=1 content every agency gets,
+ * not just HFC; keying on name would have left that old row orphaned instead
+ * of renaming it). document_type resolved by stable slug (find-or-create) so
+ * the FK never breaks on a fresh DB.
  */
 class HfcAddendumBEsignSeeder extends Seeder implements SyncableReferenceSeeder
 {
-    public const TEMPLATE_NAME = 'HFC Addendum B';
+    public const TEMPLATE_NAME = 'Addendum B';
     private const BLADE = 'docuperfect.web-templates.cds.template-120';
 
     public function run(): void
@@ -55,9 +59,14 @@ class HfcAddendumBEsignSeeder extends Seeder implements SyncableReferenceSeeder
             'updated_at'            => now(),
         ];
 
+        // blade_view is NOT unique on its own — a separate, unrelated template
+        // ("Seller Mandatory Addendum") renders through this same blade file —
+        // so the lookup must also pin the name (old OR new, for the rename to
+        // stay idempotent) or it can silently overwrite that other row instead.
         $existingId = DB::table('docuperfect_templates')
-            ->where('name', self::TEMPLATE_NAME)
+            ->where('blade_view', self::BLADE)
             ->where('template_type', 'cds')
+            ->whereIn('name', ['HFC Addendum B', self::TEMPLATE_NAME])
             ->whereNull('deleted_at')
             ->value('id');
 

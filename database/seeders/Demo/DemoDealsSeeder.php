@@ -9,7 +9,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Phase 3h Step 6 — synthetic registered deals (HFC sales history).
+ * Phase 3h Step 6 — synthetic registered deals (demo agency sales history).
  *
  * Picks a subset of demo properties that the property seeder marked 'sold',
  * creates a Deal row per property with plausible commission, registration

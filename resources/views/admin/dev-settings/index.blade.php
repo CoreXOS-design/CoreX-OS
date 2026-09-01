@@ -59,6 +59,12 @@
                 ],
             ],
             [
+                'label' => 'Mobile app',
+                'items' => [
+                    ['key'=>'mobile_releases', 'label'=>'Mobile app releases', 'type'=>'section', 'keywords'=>'mobile app version build update apk ios android play store app store force update release notice min build latest build'],
+                ],
+            ],
+            [
                 'label' => 'Alerts',
                 'items' => [
                     ['key'=>'queue_worker_emails', 'label'=>'Queue worker emails', 'type'=>'section', 'keywords'=>'supervisor worker down fatal stopped queue health alert email server health notification'],
@@ -259,6 +265,103 @@
                 {{-- ============================================================
                      QUEUE WORKER EMAILS
                      ============================================================ --}}
+
+                {{-- ── Mobile app releases ────────────────────────────────── --}}
+                <div x-show="activeSection === 'mobile_releases'" x-cloak class="p-6 space-y-6">
+                    <input type="hidden" name="mobile_releases_present" value="1">
+
+                    <div>
+                        <h3 class="text-xs font-semibold uppercase tracking-wider mb-3" style="color:var(--text-muted);">Mobile App Releases</h3>
+                        <p class="text-sm mb-2" style="color: var(--text-secondary);">
+                            Two independent dials per platform. <strong>Latest build</strong> shows agents a dismissible
+                            "update available" notice. <strong>Minimum build</strong> <em>blocks</em> anyone below it from
+                            using the app at all. Announcing a release and forcing one are separate decisions — you can do
+                            the first without ever doing the second.
+                        </p>
+                        <p class="text-sm mb-4" style="color: var(--text-muted);">
+                            Set any build to <strong>0</strong> to switch that dial off. Changes reach phones within an hour
+                            (settings are cached), or immediately for the next app launch after saving here.
+                        </p>
+
+                        @error('mobile_releases')
+                            <p class="text-xs mb-3" style="color: var(--ds-crimson, #c41e3a);">{{ $message }}</p>
+                        @enderror
+
+                        @foreach (['android' => 'Android', 'ios' => 'iOS'] as $pKey => $pLabel)
+                            @php $v = $mobileReleases[$pKey]; @endphp
+                            <div class="mb-5" style="background:var(--surface-2); border:1px solid var(--border); border-radius:6px; padding:1rem;">
+                                <div class="flex items-center justify-between mb-3">
+                                    <h4 class="text-sm font-semibold" style="color:var(--text-primary);">{{ $pLabel }}</h4>
+                                    @if($v['effective_url'] === '')
+                                        <span class="text-xs font-semibold" style="color: var(--ds-crimson, #c41e3a);">
+                                            No update link — both dials are inert
+                                        </span>
+                                    @endif
+                                </div>
+
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                    <label class="block">
+                                        <span class="text-xs" style="color:var(--text-muted);">Latest build (notice) — currently {{ $v['latest_build'] ?: 'off' }}</span>
+                                        <input type="number" min="0" name="mobile_latest_build_{{ $pKey }}" value="{{ $v['latest_build'] }}"
+                                               class="w-full mt-1 rounded-md px-3 py-2 text-sm"
+                                               style="background:var(--corex-card-bg); border:1px solid var(--corex-border); color:var(--text-primary);">
+                                    </label>
+                                    <label class="block">
+                                        <span class="text-xs" style="color:var(--text-muted);">Version name shown in the notice</span>
+                                        <input type="text" name="mobile_latest_version_{{ $pKey }}" value="{{ $v['latest_version'] }}" placeholder="1.0.11"
+                                               class="w-full mt-1 rounded-md px-3 py-2 text-sm"
+                                               style="background:var(--corex-card-bg); border:1px solid var(--corex-border); color:var(--text-primary);">
+                                    </label>
+                                    <label class="block md:col-span-2">
+                                        <span class="text-xs" style="color:var(--text-muted);">
+                                            Update link@if($pKey === 'android') — blank uses the Play Store listing @endif
+                                        </span>
+                                        <input type="text" name="mobile_update_url_{{ $pKey }}" value="{{ $v['update_url'] }}"
+                                               placeholder="{{ $v['effective_url'] ?: 'https://apps.apple.com/za/app/...' }}"
+                                               class="w-full mt-1 rounded-md px-3 py-2 text-sm"
+                                               style="background:var(--corex-card-bg); border:1px solid var(--corex-border); color:var(--text-primary);">
+                                    </label>
+                                </div>
+
+                                <div class="mt-4 pt-3" style="border-top:1px dashed var(--corex-border);">
+                                    <label class="block">
+                                        <span class="text-xs font-semibold" style="color: var(--ds-crimson, #c41e3a);">
+                                            Minimum build — BLOCKS every agent below it
+                                        </span>
+                                        <input type="number" min="0" name="mobile_min_build_{{ $pKey }}" value="{{ $v['min_build'] }}"
+                                               data-min-build="{{ $v['min_build'] }}" data-platform="{{ $pLabel }}"
+                                               class="js-min-build w-full mt-1 rounded-md px-3 py-2 text-sm"
+                                               style="background:var(--corex-card-bg); border:1px solid var(--ds-crimson, #c41e3a); color:var(--text-primary);">
+                                        <span class="text-xs" style="color:var(--text-muted);">
+                                            Currently {{ $v['min_build'] ?: 'off' }}. Anyone on an older build cannot use the app until they update.
+                                        </span>
+                                    </label>
+                                </div>
+                            </div>
+                        @endforeach
+
+                        <div class="grid grid-cols-1 gap-3">
+                            <label class="block">
+                                <span class="text-xs" style="color:var(--text-muted);">
+                                    Notice wording (dismissible "update available" dialog). Blank uses the app's own copy.
+                                </span>
+                                <input type="text" name="mobile_update_available_message" value="{{ $mobileReleases['update_available_message'] }}"
+                                       placeholder="A new version of CoreX is available."
+                                       class="w-full mt-1 rounded-md px-3 py-2 text-sm"
+                                       style="background:var(--corex-card-bg); border:1px solid var(--corex-border); color:var(--text-primary);">
+                            </label>
+                            <label class="block">
+                                <span class="text-xs" style="color:var(--text-muted);">
+                                    Blocking wording (forced-update screen). Only ever shown to agents who are blocked.
+                                </span>
+                                <input type="text" name="mobile_update_message" value="{{ $mobileReleases['update_message'] }}"
+                                       placeholder="This version is no longer supported."
+                                       class="w-full mt-1 rounded-md px-3 py-2 text-sm"
+                                       style="background:var(--corex-card-bg); border:1px solid var(--corex-border); color:var(--text-primary);">
+                            </label>
+                        </div>
+                    </div>
+                </div>
                 <div x-show="activeSection === 'queue_worker_emails'" x-cloak class="p-6 space-y-6">
                     <div>
                         <h3 class="text-xs font-semibold uppercase tracking-wider mb-3" style="color:var(--text-muted);">Queue Worker Emails</h3>
@@ -371,5 +474,35 @@ function devSettingsHub(initial) {
         },
     };
 }
+
+// Raising a minimum build LOCKS every agent below it out of the app. That is
+// the one control on this page with a blast radius measured in people rather
+// than settings, so it gets an explicit confirmation naming the consequence —
+// not a generic "are you sure", which nobody reads.
+document.addEventListener('submit', function (e) {
+    var raised = Array.prototype.filter.call(
+        document.querySelectorAll('.js-min-build'),
+        function (el) {
+            var now = parseInt(el.value || '0', 10);
+            var was = parseInt(el.dataset.minBuild || '0', 10);
+            return now > was && now > 0;
+        }
+    );
+
+    if (raised.length === 0) {
+        return;
+    }
+
+    var lines = raised.map(function (el) {
+        return '  \u2022 ' + el.dataset.platform + ': blocks every build below ' + el.value;
+    }).join('\n');
+
+    if (! window.confirm(
+        'This will BLOCK agents from using the mobile app:\n\n' + lines +
+        '\n\nAnyone on an older build cannot use CoreX on their phone until they update. Continue?'
+    )) {
+        e.preventDefault();
+    }
+});
 </script>
 @endsection

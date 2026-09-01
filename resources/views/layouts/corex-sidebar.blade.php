@@ -130,7 +130,7 @@
         $activeGroup = 'agency-tracker';
     } elseif (request()->routeIs('evaluation.*')) {
         $activeGroup = 'evaluation';
-    } elseif (request()->routeIs('admin.api.catalog', 'admin.backups.*', 'admin.system-health.*')) {
+    } elseif (request()->routeIs('admin.api.catalog', 'admin.backups.*', 'admin.system-health.*', 'corex.diagnostics.photo-uploads')) {
         $activeGroup = 'api-server';
     } elseif (request()->routeIs('docuperfect.sales*', 'revenue-share.*', 'training.*', 'training-help.*')) {
         // 'training.*' covers the whole LMS — the agent-facing courses AND Training
@@ -2291,6 +2291,11 @@
                 {{-- Server Health Monitor (live server vitals) --}}
                 @permission('view_server_health')
                 <a href="{{ route('admin.system-health.index') }}" class="corex-nav-subitem {{ request()->routeIs('admin.system-health.*') ? 'active' : '' }}">Server Health</a>
+                @endpermission
+
+                {{-- Photo Upload Report — where photos go between camera and CoreX --}}
+                @permission('view_photo_upload_report')
+                <a href="{{ route('corex.diagnostics.photo-uploads') }}" class="corex-nav-subitem {{ request()->routeIs('corex.diagnostics.photo-uploads') ? 'active' : '' }}">Photo Uploads</a>
                 @endpermission
 
                 {{-- Media Encryption at rest (AT-173) — moved from Compliance --}}

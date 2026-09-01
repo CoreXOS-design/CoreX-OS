@@ -50,8 +50,31 @@ use Illuminate\Http\Request;
  */
 class MobileAppConfigController extends Controller
 {
-    /** Play listing is derivable from the package name, so it always has a default. */
-    private const DEFAULT_ANDROID_URL = 'https://play.google.com/store/apps/details?id=za.co.corex_mobile';
+    /**
+     * Play listing is derivable from the package name, so it always has a default.
+     *
+     * PUBLIC because the Dev Settings screen has to mirror the "no url => both
+     * dials forced to 0" rule when it validates. Re-deriving that default there
+     * would let the two drift, and the operator would be told Android needs a url
+     * it has always had.
+     */
+    public const DEFAULT_ANDROID_URL = 'https://play.google.com/store/apps/details?id=za.co.corex_mobile';
+
+    /** Platforms this gate knows about. Anything else is never gated. */
+    public const PLATFORMS = ['android', 'ios'];
+
+    /**
+     * The update url actually in force for a platform — stored value, or the
+     * derivable Play default for Android. Empty string means "nowhere to send
+     * them", which forces both dials off.
+     */
+    public static function effectiveUpdateUrl(string $platform): string
+    {
+        return trim((string) DevSetting::get(
+            "mobile_update_url_{$platform}",
+            $platform === 'android' ? self::DEFAULT_ANDROID_URL : ''
+        ));
+    }
 
     public function show(Request $request): JsonResponse
     {
@@ -60,7 +83,7 @@ class MobileAppConfigController extends Controller
         // An unrecognised platform is never gated. A future client (or a web
         // build) asking this endpoint must not be locked out by a cutoff that
         // was never meant for it.
-        if (! in_array($platform, ['android', 'ios'], true)) {
+        if (! in_array($platform, self::PLATFORMS, true)) {
             return response()->json([
                 'platform'         => $platform ?: null,
                 'min_build'        => 0,
@@ -70,15 +93,13 @@ class MobileAppConfigController extends Controller
                 'latest_build'     => 0,
                 'latest_version'   => null,
                 'update_available' => false,
+                'update_available_message' => null,
             ]);
         }
 
         $minBuild    = (int) DevSetting::get("mobile_min_build_{$platform}", '0');
         $latestBuild = (int) DevSetting::get("mobile_latest_build_{$platform}", '0');
-        $updateUrl   = trim((string) DevSetting::get(
-            "mobile_update_url_{$platform}",
-            $platform === 'android' ? self::DEFAULT_ANDROID_URL : ''
-        ));
+        $updateUrl   = self::effectiveUpdateUrl($platform);
 
         // HARD SAFETY RULE: never gate — or announce an update for — a
         // platform we cannot send the user anywhere to update. Blocking (or
@@ -107,12 +128,26 @@ class MobileAppConfigController extends Controller
             // above. latest_build = 0 means the notice is off, same
             // off-switch semantics as min_build = 0.
             'latest_build'   => $latestBuild,
-            'latest_version' => trim((string) DevSetting::get('mobile_latest_version', '')) ?: null,
+            // Per-platform, falling back to the old global key so a value set
+            // before this split keeps working mid-flight. Android build 29 and
+            // iOS build 31 are different releases and cannot share one version
+            // name — which is what the global key forced.
+            'latest_version' => trim((string) DevSetting::get(
+                "mobile_latest_version_{$platform}",
+                trim((string) DevSetting::get('mobile_latest_version', ''))
+            )) ?: null,
             // Computed server-side purely so this endpoint is self-describing
             // when curled during an incident — the app re-derives this
             // itself, since only the client knows for certain which build is
             // running.
             'update_available' => $latestBuild > 0 && $build > 0 && $build < $latestBuild,
+
+            // Copy for the DISMISSIBLE notice. Kept strictly separate from
+            // `message` above, which is the forced-gate wording ("no longer
+            // supported") — showing that on a dialog the user can dismiss would
+            // be a plain lie, and the kind that teaches agents to ignore the
+            // real one. The app falls back to its own copy when this is null.
+            'update_available_message' => trim((string) DevSetting::get('mobile_update_available_message', '')) ?: null,
         ]);
     }
 }

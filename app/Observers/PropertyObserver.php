@@ -17,6 +17,28 @@ use Illuminate\Support\Facades\Log;
 class PropertyObserver
 {
     /**
+     * The property fields a buyer's Core Match actually depends on. A save that
+     * touches none of these cannot change any match, so it must not trigger
+     * match work of any kind.
+     *
+     * 2026-09-01 (Johan) — this list already gated MatchPropertyJob below, but
+     * the agency-wide RegenerateBuyerMatchesJob in saved() was UNGATED: every
+     * save queued a full-agency rebuild, including saves that only bumped
+     * gallery_stored_count, a syndication signature or last_activity_at.
+     * RegenerateBuyerMatchesJob self-chains 40 contacts at a time (~7min a
+     * link, ~10 links for a 388-contact agency), and any save during a
+     * rotation starts a fresh one, so the rebuild never stopped: the
+     * buyer-matching worker measured 8-11 HOURS of continuous 99%-CPU rebuild
+     * per day, every day, from 2026-08-25 onward. Hoisted to a constant so
+     * both triggers share one definition and cannot drift apart again.
+     */
+    private const MATCH_SIGNALS = [
+        'price', 'beds', 'baths', 'garages', 'size_m2', 'erf_size_m2',
+        'suburb', 'city', 'category', 'property_type', 'listing_type',
+        'status', 'features_json',
+    ];
+
+    /**
      * Ensure branch_id is populated on new properties.
      * Derives from agent's branch_id; falls back to agency's default branch.
      */
@@ -358,7 +380,16 @@ class PropertyObserver
         // Queue an ASYNC, COALESCED recompute (Freshness Option B). Never sync —
         // bulk imports must stay fast; ShouldBeUnique + delay collapse a burst into
         // one per-agency recompute. Overnight `matches:recompute` is the backstop.
-        $this->queueBuyerMatchRecompute($property);
+        //
+        // 2026-09-01 (Johan) — gated on MATCH_SIGNALS. Unconditionally rebuilding
+        // the whole agency on EVERY save is what pinned a core for 8-11h/day (see
+        // MATCH_SIGNALS). A save that changes no match-relevant field cannot change
+        // a match, so there is nothing to rebuild. A save that does still triggers
+        // exactly the rebuild it always did — this narrows the trigger, never the
+        // result. Same condition as MatchPropertyJob below, deliberately.
+        if ($this->touchesMatchSignals($property)) {
+            $this->queueBuyerMatchRecompute($property);
+        }
 
         // AT-68 — fire the renewal re-syndication reminder captured in saving().
         // In-app only, delivered directly (always reaches the bell, no queue worker
@@ -480,12 +511,7 @@ class PropertyObserver
         // Core Matches — fire on create or on any criteria-affecting change.
         // Re-saves with no relevant change won't trigger duplicate notifications
         // because MatchPropertyJob dedups via contact_match_notifications.
-        $matchSignals = [
-            'price', 'beds', 'baths', 'garages', 'size_m2', 'erf_size_m2',
-            'suburb', 'city', 'category', 'property_type', 'listing_type',
-            'status', 'features_json',
-        ];
-        if ($property->wasRecentlyCreated || array_intersect(array_keys($property->getChanges()), $matchSignals)) {
+        if ($this->touchesMatchSignals($property)) {
             try {
                 MatchPropertyJob::dispatch($property->id);
             } catch (\Throwable $e) {
@@ -738,6 +764,19 @@ class PropertyObserver
      * Also withdraw the listing from P24.
      */
     /**
+     * Did this save touch anything a Core Match is computed from?
+     *
+     * A brand-new property always counts. Otherwise only a change to one of
+     * MATCH_SIGNALS does — a gallery counter, a portal signature, an audit
+     * stamp or a last_activity_at bump provably cannot move a match score.
+     */
+    private function touchesMatchSignals(Property $property): bool
+    {
+        return $property->wasRecentlyCreated
+            || (bool) array_intersect(array_keys($property->getChanges()), self::MATCH_SIGNALS);
+    }
+
+    /**
      * AT-108 (Freshness Option B) — queue an async, coalesced recompute of the
      * agency's buyers' canonical Core Match cache after a stock change. Reuses
      * the existing RegenerateBuyerMatchesJob (no parallel job); ShouldBeUnique
@@ -753,11 +792,25 @@ class PropertyObserver
             return;
         }
         try {
+            // afterCommit() is LOAD-BEARING, not tidiness (2026-09-01, Johan).
+            // This job is ShouldBeUniqueUntilProcessing, so dispatching it writes
+            // a lock row to `cache_locks`. Dispatched from inside a caller's
+            // transaction — which is exactly what ConfirmP24PropertyRowJob does on
+            // every imported listing — ten import workers contend for the SAME
+            // per-agency lock row and MySQL deadlocks one of them (error 1213).
+            // The deadlock aborts the caller's ENTIRE transaction server-side; the
+            // catch below then swallows it as a warning, the caller carries on
+            // believing the property saved, and its commit dies with "There is no
+            // active transaction". On the 2026-09-01 demo import that silently
+            // destroyed 1,343 of 4,753 listings — 1,419 deadlocks, every one of
+            // them here. Deferring the dispatch until after commit takes the lock
+            // write out of the caller's transaction entirely, so a lock collision
+            // can never again cost the property that triggered it.
             RegenerateBuyerMatchesJob::dispatch(
                 agencyId: (int) $property->agency_id,
                 contactId: null,
                 truncate: false,
-            )->delay(now()->addSeconds(60));
+            )->delay(now()->addSeconds(60))->afterCommit();
         } catch (\Throwable $e) {
             Log::warning("Buyer-match recompute dispatch failed for property #{$property->id}: {$e->getMessage()}");
         }

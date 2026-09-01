@@ -173,6 +173,20 @@ class DemoRefresh extends Command
                 '--database' => 'demo',
                 '--force'    => true,
             ]);
+
+            $this->line('  seeding spatial data (map layers)…');
+            // Additive, not --fresh: DemoDataSeeder just created agency 1's
+            // properties/tracked_properties/deals above (all is_demo=true), and
+            // this seeder's own wipe mode deletes is_demo=true rows in those SAME
+            // tables — --fresh here would undo Stage 9's work instead of adding to
+            // it. Without a wipe it only INSERTs more is_demo rows with GPS, which
+            // is exactly what the map layers (active_listings, tracked_properties,
+            // mic_subjects, scheme_owners, sold_comps) need and DemoDataSeeder
+            // itself never populates (it doesn't set latitude/longitude at all).
+            // Every check in stageV_verifyDemoIntegrity() is a >= minimum, so
+            // adding rows here cannot make that verification fail.
+            // --agency defaults to 1, matching DemoDataSeeder::AGENCY_ID.
+            $this->callOrThrow('demo:seed-spatial');
         } catch (\Throwable $e) {
             $this->error('  REBUILD FAILED: ' . $e->getMessage());
             $this->warn('  restoring the pre-wipe backup…');
