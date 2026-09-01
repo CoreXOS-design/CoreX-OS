@@ -38,17 +38,14 @@
                     Download Certificate
                 </a>
             @endif
-            @php
-                // Back target must follow the document TYPE — this audit trail serves
-                // sales AND rental documents; a hardcoded "Back to Rental" stranded
-                // sales docs in the wrong dashboard (AT-365). Same derivation as
-                // signatures/review.blade.php.
-                $auditType      = $document->template?->template_type ?? 'rentals';
-                $auditBackRoute = $auditType === 'sales' ? route('docuperfect.sales') : route('docuperfect.rental');
-                $auditBackLabel = $auditType === 'sales' ? 'Back to Sales' : 'Back to Rental';
-            @endphp
-            <a href="{{ $auditBackRoute }}"
-               class="text-sm text-white/70 hover:text-white">{{ $auditBackLabel }}</a>
+            {{-- Johan, 2026-09-01 — this is a signature audit trail: every document reaching
+                 this screen went through e-signing, regardless of whether it originated as a
+                 sales or rental template. The old sales/rental dashboard split (AT-365) never
+                 had "e-sign documents" as an option and stranded the user on the wrong
+                 dashboard. Same shape as resumeDeferred()/retryFinalization() in
+                 SignatureController — always back to My E-Sign Documents. --}}
+            <a href="{{ route('docuperfect.esign.myDocuments') }}"
+               class="text-sm text-white/70 hover:text-white">Back to eSign Docs</a>
         </div>
     </div>
 

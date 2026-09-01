@@ -170,7 +170,8 @@
                                         <div class="amend-item-loc" x-text="a.location" x-show="a.location"></div>
                                         <div class="amend-item-sum">
                                             <span class="amend-old" x-text="a.oldText"></span>
-                                            <span class="amend-new" x-show="a.newText" x-text="a.newText"></span>
+                                            <span class="amend-new" x-show="a.newText" x-text="a.newText"
+                                                  :style="a.oldText ? '' : 'margin-left:0;'"></span>
                                         </div>
                                         <div class="amend-item-actions">
                                             <button type="button" class="amend-btn-view" @click="scrollToChange(a.id, a.kind)">View</button>
@@ -344,7 +345,14 @@
                                         out.push({
                                             key: 'c:' + id, id, kind: 'condition', badge: 'Other Condition',
                                             location: 'Other Conditions',
-                                            oldText: content.slice(0, 110), newText: '',
+                                            // Johan, 2026-09-01 — a condition row is ALWAYS inserted/added text
+                                            // (clause-library or custom), never struck-out text, regardless of
+                                            // block_purpose (other_conditions/included_items/excluded_items/
+                                            // custom_named all share this same .condition-row markup — fixing
+                                            // the class, not just OTHER CONDITION). It belongs in newText
+                                            // (green, no strike), never oldText (red strikethrough, reserved
+                                            // for genuinely-removed body text via the .change-del loop above).
+                                            oldText: '', newText: content.slice(0, 110),
                                             status, pillClass, canInitial,
                                         });
                                     });
