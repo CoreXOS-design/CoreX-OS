@@ -4281,6 +4281,24 @@ class SignatureService
             return null;
         }
 
+        // AT-402 (Johan 2026-09-01) — the filed Document must carry the SAME agency_id
+        // as its signature_template (already correctly stamped at template-creation
+        // time — never derive it any other way). Explicit, never left to
+        // BelongsToAgency's Auth::user() auto-stamp: this create() runs inside
+        // FinalizeSignedDocumentJob on a queue worker when async completion is on,
+        // where there is no authenticated user at all, so the auto-stamp has nothing
+        // to work from and silently leaves agency_id NULL — a filed Document that
+        // exists, is fully linked, but is invisible under normal agency-scoped
+        // browsing forever. This is what stranded the 9 documents backfilled in the
+        // same commit as this fix (regression window: 2026-08-31 23:33 onward, see
+        // .ai/specs/ESIGN-WETINK.md).
+        if (!$template->agency_id) {
+            Log::error('Auto-file: signature_template has no agency_id — filed Document will be orphaned (invisible under normal agency-scoped browsing)', [
+                'template_id' => $template->id,
+                'document_id' => $document->id ?? null,
+                'storage_path' => $pdfPath,
+            ]);
+        }
         $filedDoc = \App\Models\Document::create([
             'original_name'    => $docName,
             'storage_path'     => $pdfPath,
@@ -4291,6 +4309,7 @@ class SignatureService
             'source_type'      => 'esign',
             'source_id'        => $template->id,
             'uploaded_by'      => $template->created_by,
+            'agency_id'        => $template->agency_id,
         ]);
 
         $this->linkFiledDocumentToContactsAndProperty($filedDoc, $contactLinks, $propertyId);
@@ -4435,6 +4454,14 @@ class SignatureService
             }
             $fileSize = $disk->size($individualPdfPath);
 
+            // AT-402 — same explicit stamp as fileSingleDocument(); see its comment.
+            if (!$template->agency_id) {
+                Log::error('Auto-file pack: signature_template has no agency_id — filed Document will be orphaned (invisible under normal agency-scoped browsing)', [
+                    'template_id' => $template->id,
+                    'pack_template_id' => $tplId,
+                    'storage_path' => $individualPdfPath,
+                ]);
+            }
             $filedDoc = \App\Models\Document::create([
                 'original_name'    => $docName,
                 'storage_path'     => $individualPdfPath,
@@ -4445,6 +4472,7 @@ class SignatureService
                 'source_type'      => 'esign',
                 'source_id'        => $template->id,
                 'uploaded_by'      => $template->created_by,
+                'agency_id'        => $template->agency_id,
             ]);
 
             $this->linkFiledDocumentToContactsAndProperty($filedDoc, $contactLinks, $propertyId);
