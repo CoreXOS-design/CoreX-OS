@@ -9,7 +9,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 /**
- * Phase 3h Step 3 — synthetic HFC Listings (properties table).
+ * Phase 3h Step 3 — synthetic agency listings (properties table).
  *
  * Per suburb: 40 properties (24 house / 12 sectional / 4 vacant) → 240 total
  * across 6 suburbs.

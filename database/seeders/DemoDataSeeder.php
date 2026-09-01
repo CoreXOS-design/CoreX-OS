@@ -107,7 +107,7 @@ class DemoDataSeeder extends Seeder
 
     /** Strings that must NEVER appear anywhere in the seeded demo dataset. */
     private const FORBIDDEN_IN_DEMO = [
-        'hfcoastal', 'Home Finders', 'HFC Coastal', 'Reichel', 'Elize',
+        'hfcoastal', 'Home Finders', 'HFC', 'Reichel', 'Elize',
         '2017/431318', '4630287821', '2023116041', 'AI/180629', '7012310053085',
     ];
 
@@ -642,6 +642,13 @@ class DemoDataSeeder extends Seeder
             'rmcp_variables'            => ['value'],
             'fica_officer_appointments' => ['full_name', 'id_number'],
             'prospecting_listings'      => ['agency_name'],
+            // AT — caught 2026-08-31: a global reference-data seeder
+            // (SyncableReferenceSeeder, run via deploy:sync-reference-data)
+            // stamped a literal "HFC Addendum B" template name straight into
+            // this table, invisible to every OTHER guard here because it never
+            // touches agencies/users/etc. Any is_global docuperfect_templates
+            // row a demo user can see must be scanned too.
+            'docuperfect_templates'     => ['name'],
         ];
 
         foreach ($scan as $table => $columns) {
@@ -838,8 +845,13 @@ class DemoDataSeeder extends Seeder
         $this->safeSeed('PayrollDeductionTypeSeeder', fn () => $this->call([PayrollDeductionTypeSeeder::class]));
         // Per-branch letterhead values (branch_settings table).
         // Requires branches to exist — runs after the stage-1 branch
-        // creation block. Idempotent keyed (branch_id, key).
+        // creation block. Idempotent keyed (branch_id, key). BranchSettingsSeeder
+        // itself unconditionally hardcodes HFC's real company name, phone and
+        // FFC number for every branch it finds (it predates the demo and was
+        // written to backfill the real production branches) — overwritten
+        // immediately after, same pattern as overwriteRmcpDemoVariables() below.
         $this->safeSeed('BranchSettingsSeeder', fn () => $this->call([BranchSettingsSeeder::class]));
+        $this->overwriteDemoBranchSettings();
         // RMCP master (rmcp_versions + sections + variables + officer
         // appointment if missing). The section BODIES are generic compliance
         // text worth having in the demo, but the seeder also writes HFC's real
@@ -889,6 +901,39 @@ class DemoDataSeeder extends Seeder
             'created_at'   => now(),
             'updated_at'   => now(),
         ]);
+    }
+
+    /**
+     * BranchSettingsSeeder writes its four letterhead keys with updateOrInsert
+     * (unconditional), so — same as overwriteRmcpDemoVariables() below — they
+     * are overwritten here rather than pre-empted by a guard. Town names in
+     * the address (Margate / Shelly Beach / Port Shepstone) are left as-is:
+     * public geography, not HFC information.
+     */
+    private function overwriteDemoBranchSettings(): void
+    {
+        $addressByBranch = [
+            'Margate'        => self::DEMO_AGENCY_NAME . ', Margate branch, KZN South Coast',
+            'Shelly Beach'   => self::DEMO_AGENCY_NAME . ', Shop 5 The Emporium, 978 Kings Road, Shelly Beach',
+            'Port Shepstone' => self::DEMO_AGENCY_NAME . ', Gilbert on Point, Port Shepstone',
+        ];
+
+        $branches = DB::table('branches')->where('agency_id', self::AGENCY_ID)->whereNull('deleted_at')->get(['id', 'name']);
+        foreach ($branches as $b) {
+            $demoVars = [
+                'company_name'    => self::DEMO_AGENCY_NAME,
+                'company_address' => $addressByBranch[$b->name] ?? (self::DEMO_AGENCY_NAME . ', ' . $b->name . ' branch'),
+                'company_tel'     => self::DEMO_AGENCY_TEL,
+                'company_ffc'     => self::DEMO_AGENCY_FFC,
+            ];
+
+            foreach ($demoVars as $key => $value) {
+                DB::table('branch_settings')
+                    ->where('branch_id', $b->id)
+                    ->where('key', $key)
+                    ->update(['value' => $value, 'updated_at' => now()]);
+            }
+        }
     }
 
     /**
@@ -2003,14 +2048,26 @@ class DemoDataSeeder extends Seeder
 
     private function stage9_esign(): void
     {
-        // Minimal docuperfect_template so Document.template_id resolves.
-        $templateId = DB::table('docuperfect_templates')->value('id');
+        // Reuses a REAL, already-working sale-side template — never "whichever
+        // template happens to have the lowest id" (that previously latched onto
+        // an unrelated global reference template seeded by a separate seeder,
+        // showing the wrong template name against these documents) and never a
+        // fabricated stub row either (a bare name-only insert has page_count=0,
+        // so Edit renders zero page images — technically loads, but looks
+        // completely blank/broken to the user). No real Sale Agreement / OTP
+        // e-sign template exists anywhere in this codebase yet (checked both
+        // this checkout and /corex — it's a genuine content gap, not a demo-only
+        // one), so this points at the closest real, working sale-related
+        // template instead of inventing legal document content in a seeder.
+        $templateId = DB::table('docuperfect_templates')
+            ->where('name', 'Sales Mandatory Disclosure')
+            ->whereNull('deleted_at')
+            ->value('id');
         if (!$templateId) {
-            $templateId = DB::table('docuperfect_templates')->insertGetId([
-                'name'       => '[DEMO] Sale Agreement',
-                'created_at' => now(),
-                'updated_at' => now(),
-            ]);
+            throw new \RuntimeException(
+                'stage9_esign: "Sales Mandatory Disclosure" reference template is missing — '
+                . 'run deploy:sync-reference-data before demo:seed.'
+            );
         }
 
         $sigService = app(SignatureService::class);
