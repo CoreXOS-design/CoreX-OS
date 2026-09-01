@@ -347,15 +347,33 @@ Route::middleware('auth')->group(function () {
         ->name('admin.misfiled-documents.refile');
 
     // ── Admin: AI usage / cost dashboard (MIC Phase B2) ──
+    //
+    // 2026-09-01 (Johan) — DEVELOPER-ONLY. `owner_only` added on all three.
+    // This dashboard is platform-wide by construction: index() aggregates every
+    // agency's spend (monthlyCostZar(null, …), an unfiltered ai_usage_events
+    // query, and a "Top consumers (agencies)" league table naming each agency).
+    // It was gated on `permission:mic.view_ai_costs` ALONE, and an agency admin
+    // holds that permission by default — so on production a Demo Agency Test
+    // admin was shown "Home Finders Coastal · R 7.02 · 178 generations", i.e.
+    // one customer reading another customer's AI spend.
+    //
+    // A permission is not a tenant boundary: it is grantable, and one mis-click
+    // hands an agency admin the whole platform's costs. This is the identical
+    // rule already applied to /corex/admin/billing, which is owner_only with no
+    // permission key on purpose. The permission stays on as well, so an owner
+    // still needs it — owner_only is the boundary, the key is the grant.
+    //
+    // Note agency() already 403'd correctly for a foreign agency; the hole was
+    // only ever the index. Both are now closed at the route.
     Route::get('/admin/ai-usage', [\App\Http\Controllers\Admin\AiUsageController::class, 'index'])
-        ->middleware('permission:mic.view_ai_costs')
+        ->middleware(['owner_only', 'permission:mic.view_ai_costs'])
         ->name('admin.ai-usage.index');
     Route::get('/admin/ai-usage/agencies/{agency}', [\App\Http\Controllers\Admin\AiUsageController::class, 'agency'])
-        ->middleware('permission:mic.view_ai_costs')
+        ->middleware(['owner_only', 'permission:mic.view_ai_costs'])
         ->where('agency', '[0-9]+')
         ->name('admin.ai-usage.agency');
     Route::post('/admin/ai-usage/agencies/{agency}/budget', [\App\Http\Controllers\Admin\AiUsageController::class, 'updateBudget'])
-        ->middleware('permission:mic.view_ai_costs')
+        ->middleware(['owner_only', 'permission:mic.view_ai_costs'])
         ->name('admin.ai-usage.budget.update');
 
 // ── CoreX Global API v1 (session-authenticated, browser-visible XHR) ──
