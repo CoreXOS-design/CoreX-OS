@@ -165,7 +165,7 @@
                         <input type="text" name="public_contact" value="{{ old('public_contact', $agency->public_contact) }}"
                                class="w-full rounded-md px-3 py-2 text-sm"
                                style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
-                               placeholder="e.g. 079 495 5994 or info@hfcoastal.co.za">
+                               placeholder="e.g. 079 495 5994 or info@youragency.co.za">
                         <p class="text-[11px] mt-1" style="color:var(--text-muted);">The contact shown to sellers in outreach messages via the <code>{agency_contact}</code> merge field — the number or address you want them to reply to or call.</p>
                     </div>
                     <div>

@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Verify Your Identity — Home Finders Coastal</title>
+    <title>Verify Your Identity — {{ config('app.name') }}</title>
     @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>
 <body class="bg-slate-50 min-h-screen flex items-center justify-center p-4">
@@ -64,7 +64,7 @@
         </div>
 
         <div class="text-center mt-4 text-xs text-slate-400">
-            Home Finders Coastal &mdash; Document Management
+            {{ config('app.name') }} &mdash; Document Management
         </div>
     </div>
 </body>

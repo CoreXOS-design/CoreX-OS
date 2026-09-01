@@ -85,12 +85,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{ $agent->name }} — {{ $agency->name ?? 'Home Finders Coastal' }}</title>
+    <title>{{ $agent->name }} — {{ $agency->name ?? config('app.name') }}</title>
     <meta name="robots" content="noindex">
 
     {{-- Open Graph — rich link preview (WhatsApp / Facebook / iMessage / Slack) --}}
     <meta property="og:type" content="profile">
-    <meta property="og:site_name" content="{{ $agency->name ?? 'Home Finders Coastal' }}">
+    <meta property="og:site_name" content="{{ $agency->name ?? config('app.name') }}">
     <meta property="og:title" content="{{ $agent->name }}{{ optional($agency)->name ? ' — '.$agency->name : '' }}">
     <meta property="og:description" content="{{ $ogDescription }}">
     <meta property="og:url" content="{{ $ogUrl }}">
@@ -393,7 +393,7 @@
     @endif
 
     <div style="text-align:center; padding-top:2.5rem; margin-top:4rem; border-top:1px solid var(--border); color:var(--muted-2); font-size:.8125rem;">
-        {{ $agency->name ?? 'Home Finders Coastal' }}@if($agent->branch) · {{ $agent->branch->name }}@endif
+        {{ $agency->name ?? config('app.name') }}@if($agent->branch) · {{ $agent->branch->name }}@endif
         <div style="margin-top:.4rem;">Registered with the PPRA</div>
     </div>
 </div>

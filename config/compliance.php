@@ -22,7 +22,7 @@ return [
 
     'whistleblow' => [
         'ppra_live_send'  => (bool) env('WHISTLEBLOW_PPRA_LIVE_SEND', false),
-        'demo_recipient'  => env('WHISTLEBLOW_DEMO_RECIPIENT', 'johan@hfcoastal.co.za'),
+        'demo_recipient'  => env('WHISTLEBLOW_DEMO_RECIPIENT', env('MAIL_FROM_ADDRESS')),
     ],
 
 ];

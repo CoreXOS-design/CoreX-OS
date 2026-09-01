@@ -3,14 +3,14 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Return Signed Document — Home Finders Coastal</title>
+    <title>Return Signed Document — {{ config('app.name') }}</title>
     @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>
 <body class="bg-slate-50 min-h-screen flex items-center justify-center p-4">
     <div class="w-full max-w-lg">
 
         <div class="text-center mb-6">
-            <h1 class="text-xl font-bold text-slate-800">Home Finders Coastal</h1>
+            <h1 class="text-xl font-bold text-slate-800">{{ config('app.name') }}</h1>
             <p class="text-sm text-slate-500 mt-1">Return Signed Document</p>
         </div>
 
@@ -84,7 +84,7 @@
         </div>
 
         <div class="text-center mt-4 text-xs text-slate-400">
-            Home Finders Coastal &mdash; Document Management
+            {{ config('app.name') }} &mdash; Document Management
         </div>
     </div>
 

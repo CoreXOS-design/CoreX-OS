@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ csrf_token() }}">
-    <title>FICA Verification — {{ $agency->name ?? 'Home Finders Coastal' }}</title>
+    <title>FICA Verification — {{ $agency->name ?? config('app.name') }}</title>
     <link rel="preconnect" href="https://fonts.bunny.net">
     <link href="https://fonts.bunny.net/css?family=plus-jakarta-sans:400,500,600,700" rel="stylesheet">
     @vite(['resources/css/app.css'])
@@ -800,7 +800,7 @@
                     case 'rent':
                         return 'As a tenant, your deposit and monthly rental are paid via EFT to the Reos trust account — cash is never accepted. A typical answer would be: \'Deposit and monthly rental paid via EFT to the Reos trust account.\'';
                     default:
-                        return 'Describe how any payments related to this transaction will be financed. Home Finders Coastal does not accept cash — all funds are processed through the transferring attorney (sales) or Reos trust account (rentals).';
+                        return 'Describe how any payments related to this transaction will be financed. This agency does not accept cash — all funds are processed through the transferring attorney (sales) or Reos trust account (rentals).';
                 }
             },
 
@@ -812,9 +812,9 @@
                     case 'purchase':
                         return 'Cash means physical paper money, coins, or traveller\'s cheques — NOT EFT or bank transfers. Will any part of the purchase price be paid in physical cash exceeding R50,000? If paying via bond or EFT, the answer is \'No\'.';
                     case 'rent':
-                        return 'Cash means physical paper money, coins, or traveller\'s cheques — NOT EFT. Home Finders Coastal does not accept cash payments. All deposits and rent are paid via EFT to the Reos trust account. The answer is almost certainly \'No\'.';
+                        return 'Cash means physical paper money, coins, or traveller\'s cheques — NOT EFT. This agency does not accept cash payments. All deposits and rent are paid via EFT to the Reos trust account. The answer is almost certainly \'No\'.';
                     default:
-                        return 'Cash means physical paper money, coins, or traveller\'s cheques only. EFT/bank transfers are NOT cash. Home Finders Coastal does not accept physical cash — if unsure, answer \'No\'.';
+                        return 'Cash means physical paper money, coins, or traveller\'s cheques only. EFT/bank transfers are NOT cash. This agency does not accept physical cash — if unsure, answer \'No\'.';
                 }
             },
 

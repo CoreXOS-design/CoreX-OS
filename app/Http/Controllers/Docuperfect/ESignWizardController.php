@@ -38,6 +38,7 @@ class ESignWizardController extends Controller
     public function testRender(Request $request, $templateId)
     {
         $template = Template::findOrFail($templateId);
+        $template->assertAccessibleBy($request->user());
 
         $pageImages = [];
         for ($n = 0; $n < $template->page_count; $n++) {
@@ -137,6 +138,9 @@ class ESignWizardController extends Controller
         $templateId = $request->input('template_id');
         if ($templateId && !$isPackFlow && !$pdfPackId) {
             $selectedTemplate = Template::find($templateId);
+            if ($selectedTemplate) {
+                $selectedTemplate->assertAccessibleBy($request->user());
+            }
             if ($selectedTemplate && $selectedTemplate->isEsignBlocked()) {
                 return response()->json([
                     'error' => 'Sale agreements must be signed with wet ink per the Alienation of Land Act. E-signing is not permitted.',
@@ -273,6 +277,7 @@ class ESignWizardController extends Controller
             ]);
 
             $template = Template::findOrFail($request->template_id);
+            $template->assertAccessibleBy($request->user());
 
             // Copy template fields into flow step_data
             // For web templates with field_mappings, build proper fields instead of copying
@@ -333,6 +338,17 @@ class ESignWizardController extends Controller
             // PDF pack flow: concatenate page images from all templates in order
             foreach ($stepData['template_ids'] as $tplId) {
                 $tpl = Template::find($tplId);
+                // This is the agent's OWN in-progress flow — a stray inaccessible pack
+                // member (id tampering, or a pack whose membership drifted) should not
+                // 404 the whole progress page out from under a legitimate flow. Skip it,
+                // same as the existing null-tolerant check right below.
+                if ($tpl) {
+                    try {
+                        $tpl->assertAccessibleBy($request->user());
+                    } catch (\Throwable $e) {
+                        $tpl = null;
+                    }
+                }
                 if ($tpl && $tpl->page_count > 0) {
                     for ($n = 0; $n < $tpl->page_count; $n++) {
                         $pageImages[] = route('docuperfect.page.image', ['id' => $tplId, 'page' => $n]);
@@ -1824,6 +1840,7 @@ class ESignWizardController extends Controller
     {
         $template = Template::findOrFail($templateId);
         $user = $request->user();
+        $template->assertAccessibleBy($user);
 
         // Check if this is a pack flow
         $flow = null;
@@ -1880,6 +1897,16 @@ class ESignWizardController extends Controller
 
             foreach ($stepData['template_ids'] as $tplId) {
                 $tpl = Template::find($tplId);
+                // Same rationale as showStep() above — this is a "give me everything for
+                // this step" aggregator, not a single-template open; drop the one
+                // inaccessible member rather than 404 the agent's own legitimate pack.
+                if ($tpl) {
+                    try {
+                        $tpl->assertAccessibleBy($user);
+                    } catch (\Throwable $e) {
+                        $tpl = null;
+                    }
+                }
                 if ($tpl && $tpl->page_count > 0) {
                     for ($n = 0; $n < $tpl->page_count; $n++) {
                         $allPages[] = route('docuperfect.page.image', ['id' => $tplId, 'page' => $n]);
@@ -1931,6 +1958,15 @@ class ESignWizardController extends Controller
                 $mergedHtml = '';
                 foreach ($packTemplateIds as $idx => $tplId) {
                     $tpl = Template::find($tplId);
+                    if ($tpl) {
+                        try {
+                            $tpl->assertAccessibleBy($user);
+                        } catch (\Throwable $e) {
+                            // Same skip rationale as the PDF-pack loop above — this is a
+                            // merged-HTML aggregator, not a single-template open.
+                            $tpl = null;
+                        }
+                    }
                     if (!$tpl || !$tpl->blade_view) continue;
 
                     $tplData = app(WebTemplateDataService::class)
@@ -2746,6 +2782,13 @@ class ESignWizardController extends Controller
             foreach ($templateIds as $idx => $tplId) {
                 $tpl = Template::find($tplId);
                 if (!$tpl || !$tpl->blade_view) continue;
+                // Unlike the read-only preview loops above, this is the FINALIZE path —
+                // it produces the real signable Document. Silently dropping an
+                // inaccessible pack member here would hand back a legal document pack
+                // with fewer documents than the agent configured, with no error. 404 the
+                // whole request instead — the agent sees a clear failure, not a silently
+                // incomplete signing pack.
+                $tpl->assertAccessibleBy($user);
 
                 $tplData = $webTemplateDataService->resolve($tplId, $bodyStepData, $user);
                 // AT-360 — same Fill & Review typed-value overlay as the single-doc path, scoped to

@@ -1040,7 +1040,7 @@
 
 <script>
 /**
- * Home Finders Coastal Portal
+ * CoreX Portal
  * Core logic for Calculator, CMA, History and Settings.
  */
 
@@ -1051,7 +1051,7 @@ const escapeHtml = (s) => String(s).replace(/[&<>"']/g, m => ({ '&': '&amp;', '<
 // --- STATE ---
 
 const DEFAULT_SETTINGS = {
-  companyName: "Home Finders Coastal",
+  companyName: {!! json_encode(config('app.name')) !!},
   address: "The Emporium Shop 5, Shelly Beach, Margate",
   tel: "(039) 315 0857",
   ffc: "2023116041",

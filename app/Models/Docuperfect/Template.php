@@ -12,12 +12,19 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * 2026-08-15 (Johan, HFC tenant-isolation fix, Wave 2, #7) — added
  * agency_id, but deliberately WITHOUT the BelongsToAgency trait. Unlike
  * Document/SignatureTemplate/SalesDocumentSend, templates can be
- * genuinely shared across every agency (is_global=true) — the trait's
- * automatic global scope would hide a shared template whose agency_id is
- * NULL (AgencyScope treats a NULL agency_id row as an orphan, not
- * "shared"). scopeVisibleTo()'s 'all' branch and isVisibleToAgency() (used
- * by TemplateController::webPreview()) implement the is_global-aware
- * check explicitly instead.
+ * genuinely shared across every agency — the trait's automatic global
+ * scope would hide a shared template whose agency_id is NULL (AgencyScope
+ * treats a NULL agency_id row as an orphan, not "shared"). scopeVisibleTo(),
+ * isVisibleToAgency() (used by TemplateController::webPreview()) and
+ * assertAccessibleBy() implement the sharing check explicitly instead.
+ *
+ * 2026-09-01 (Johan) — "genuinely shared" means agency_id IS NULL, and
+ * nothing else. It does NOT mean is_global=true: that flag is agency-internal
+ * ("all my branches"), and reading it as platform-wide leaked two of HFC's
+ * templates to every other agency on CoreX. applySharedWith() is now the one
+ * definition all three of those paths share — never re-test `is_global` on
+ * its own; opting out of the BelongsToAgency trait means this model's
+ * isolation is hand-written, so a bare is_global check is a tenant leak.
  */
 class Template extends Model
 {
@@ -258,10 +265,16 @@ class Template extends Model
         if ($user->isOwnerRole()) {
             return;
         }
-        if ($this->is_global) {
+        $agencyId = $user->effectiveAgencyId();
+
+        // A global template ignores branch narrowing — but ONLY inside the agency
+        // that owns it. This used to be a bare `if ($this->is_global) return;`,
+        // which handed every agency on the platform a direct-open on another
+        // agency's template. isVisibleToAgency() now carries the ownership half
+        // of that test; see its docblock and sharedWithAgency() below.
+        if ($this->is_global && $this->isVisibleToAgency($agencyId)) {
             return;
         }
-        $agencyId = $user->effectiveAgencyId();
 
         // 2026-08-24 mismatch fix: a template with branches assigned is
         // explicitly narrowed to those branches -- honor that exactly as
@@ -331,14 +344,15 @@ class Template extends Model
                 return $query;
             }
             return $query->where(function ($q) use ($agencyId) {
-                $q->where('is_global', true)->orWhere('agency_id', $agencyId);
+                self::applySharedWith($q, $agencyId)->orWhere('agency_id', $agencyId);
             });
         }
 
+        $agencyId = $user->effectiveAgencyId();
         $branchId = $user->effectiveBranchId();
 
-        return $query->where(function ($q) use ($branchId) {
-            $q->where('is_global', true);
+        return $query->where(function ($q) use ($agencyId, $branchId) {
+            self::applySharedWith($q, $agencyId);
             if ($branchId) {
                 $q->orWhereHas('branches', function ($bq) use ($branchId) {
                     $bq->where('branches.id', $branchId);
@@ -348,14 +362,53 @@ class Template extends Model
     }
 
     /**
+     * The `is_global` term, written correctly — the single definition every
+     * visibility path in this model shares.
+     *
+     * 2026-09-01 (Johan, cross-agency leak on /docuperfect/create and
+     * /docuperfect/templates) — `is_global` was being read as "visible to the
+     * entire platform" everywhere it appeared, with nothing anywhere checking
+     * WHO OWNS the row. Two of Home Finders Coastal's own templates carry
+     * is_global=1 (#74 "Sales Mandatory Disclosure", #75 "HFC Addendum B"), so
+     * every user of every other agency on CoreX was shown them — reproduced on
+     * production against Demo Agency Test, which saw exactly those two and
+     * nothing else of its own.
+     *
+     * What the flag actually means, and now enforces: `is_global` is an
+     * AGENCY-INTERNAL "every branch, not just the branches I listed" flag. A
+     * template reaches beyond its agency only when it belongs to no agency at
+     * all (agency_id IS NULL) — a genuine platform template shipped by CoreX.
+     * That reading keeps an agency's own global templates working exactly as
+     * they always have for that agency's users (HFC still sees #74 and #75 on
+     * every branch) while making cross-agency reach structurally impossible
+     * rather than a matter of remembering to filter.
+     *
+     * $agencyId null = a platform user with no agency of their own; only the
+     * genuinely-ownerless globals are shared with them.
+     */
+    public static function applySharedWith($query, ?int $agencyId)
+    {
+        return $query->where(function ($g) use ($agencyId) {
+            $g->where('is_global', true)
+              ->where(function ($owner) use ($agencyId) {
+                  $owner->whereNull('agency_id');
+                  if ($agencyId) {
+                      $owner->orWhere('agency_id', $agencyId);
+                  }
+              });
+        });
+    }
+
+    /**
      * Direct-id-lookup guard for callers (TemplateController::webPreview())
-     * that fetch a Template by id outside scopeVisibleTo() — same
-     * is_global-aware rule: visible if global, or owned by the caller's
-     * own agency.
+     * that fetch a Template by id outside scopeVisibleTo() — the same rule
+     * applySharedWith() applies in SQL: a global template is reachable only
+     * from the agency that owns it (or from anywhere when it belongs to nobody),
+     * and a non-global one only from its own agency.
      */
     public function isVisibleToAgency(?int $agencyId): bool
     {
-        if ($this->is_global) {
+        if ($this->is_global && $this->agency_id === null) {
             return true;
         }
 

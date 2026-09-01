@@ -148,7 +148,7 @@
                             <input class="w-full rounded-md px-3 py-2 text-sm"
                                    style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
                                    name="email" value="{{ old('email', $branch->email) }}"
-                                   placeholder="e.g. info@hfcoastal.co.za">
+                                   placeholder="e.g. info@youragency.co.za">
                         </div>
                     </div>
 

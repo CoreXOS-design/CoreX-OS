@@ -292,7 +292,7 @@
     </div>
     <a class="back-btn" href="{{ route('presentations.show', $presentation) }}">&larr; Back</a>
   </div>
-  <div class="brand-line">Home Finders Coastal</div>
+  <div class="brand-line">{{ config('app.name') }}</div>
   <div class="price-section">
     <div class="price-label">Asking Price</div>
     <div class="price-display" id="priceDisplay">

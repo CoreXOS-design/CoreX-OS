@@ -125,4 +125,65 @@ class DocumentAgencyIsolationTest extends TestCase
         $this->assertTrue($template->isVisibleToAgency($agencyB->id));
         $this->assertTrue($template->isVisibleToAgency(null), 'is_global must survive even with no agency context');
     }
+
+    /**
+     * 2026-09-01 (Johan) — the shape that actually leaked, and the one neither
+     * test above covered: is_global=true on a template that IS owned by an
+     * agency.
+     *
+     * The two tests above pin the ends of the range — a non-global agency
+     * template (hidden) and an ownerless global (shared) — and both passed
+     * throughout. Nothing exercised the middle, so `is_global` was free to be
+     * read as "the whole platform" regardless of agency_id. On production two
+     * of HFC's own templates carry that exact combination, and every other
+     * agency on CoreX was shown them on /docuperfect/create and
+     * /docuperfect/templates.
+     *
+     * The rule this pins: `is_global` widens across BRANCHES, never across
+     * AGENCIES. Only agency_id IS NULL crosses an agency boundary.
+     */
+    public function test_agency_owned_global_template_never_leaks_to_another_agency(): void
+    {
+        $agencyA = $this->agency('Agency A');
+        $agencyB = $this->agency('Agency B');
+        $userA = $this->user($agencyA);
+
+        $ownedGlobal = Model::withoutEvents(fn () => Template::create([
+            'name' => 'Agency A firm-wide template', 'owner_id' => $userA->id,
+            'agency_id' => $agencyA->id, 'is_global' => true, 'page_count' => 1,
+        ]));
+        $platformGlobal = Model::withoutEvents(fn () => Template::create([
+            'name' => 'CoreX platform template', 'agency_id' => null,
+            'is_global' => true, 'page_count' => 1,
+        ]));
+
+        // The direct-open guard (TemplateController::webPreview, assertAccessibleBy).
+        $this->assertTrue(
+            $ownedGlobal->isVisibleToAgency($agencyA->id),
+            'its own agency must keep seeing it — is_global still means "all my branches"'
+        );
+        $this->assertFalse(
+            $ownedGlobal->isVisibleToAgency($agencyB->id),
+            'is_global must NOT carry an agency-owned template across an agency boundary'
+        );
+        $this->assertFalse(
+            $ownedGlobal->isVisibleToAgency(null),
+            'a platform user with no agency has no claim on an agency-owned template'
+        );
+
+        // The listing query — the one definition every visibility path shares.
+        $visibleToB = Template::query()
+            ->where(fn ($q) => Template::applySharedWith($q, $agencyB->id))
+            ->pluck('id');
+
+        $this->assertNotContains($ownedGlobal->id, $visibleToB->all(), 'agency A\'s global template must not list for agency B');
+        $this->assertContains($platformGlobal->id, $visibleToB->all(), 'a genuinely ownerless global template must still list for everyone');
+
+        $visibleToA = Template::query()
+            ->where(fn ($q) => Template::applySharedWith($q, $agencyA->id))
+            ->pluck('id');
+
+        $this->assertContains($ownedGlobal->id, $visibleToA->all(), 'agency A must not lose its own firm-wide template');
+        $this->assertContains($platformGlobal->id, $visibleToA->all());
+    }
 }

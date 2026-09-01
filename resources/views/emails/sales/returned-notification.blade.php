@@ -36,7 +36,7 @@
     </div>
 
     <div style="text-align: center; padding: 15px; color: #999; font-size: 11px;">
-        <p style="margin: 0;">Home Finders Coastal — Document Management System</p>
+        <p style="margin: 0;">{{ $agentFooter['agency_name'] ?? config('app.name') }} — Document Management System</p>
     </div>
 
 </body>

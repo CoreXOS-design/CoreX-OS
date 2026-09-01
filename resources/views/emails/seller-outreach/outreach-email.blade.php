@@ -15,7 +15,7 @@
 <body style="font-family: Arial, Helvetica, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
 
     <div style="background-color: #1a365d; padding: 20px; text-align: center; border-radius: 8px 8px 0 0;">
-        <h1 style="color: #ffffff; margin: 0; font-size: 22px;">{{ $agentFooter['agency_name'] ?? 'Home Finders Coastal' }}</h1>
+        <h1 style="color: #ffffff; margin: 0; font-size: 22px;">{{ $agentFooter['agency_name'] ?? config('app.name') }}</h1>
     </div>
 
     <div style="padding: 30px 20px; background-color: #ffffff; border: 1px solid #e0e0e0; border-top: none;">
@@ -29,7 +29,7 @@
     </div>
 
     <div style="text-align: center; padding: 15px; color: #999; font-size: 11px;">
-        <p style="margin: 0;">This email was sent by {{ $agentFooter['agency_name'] ?? 'Home Finders Coastal' }}.</p>
+        <p style="margin: 0;">This email was sent by {{ $agentFooter['agency_name'] ?? config('app.name') }}.</p>
         <p style="margin: 5px 0 0;">If you did not expect this email, please disregard it.</p>
     </div>
 

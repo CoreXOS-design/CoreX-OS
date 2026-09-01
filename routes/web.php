@@ -347,15 +347,33 @@ Route::middleware('auth')->group(function () {
         ->name('admin.misfiled-documents.refile');
 
     // ── Admin: AI usage / cost dashboard (MIC Phase B2) ──
+    //
+    // 2026-09-01 (Johan) — DEVELOPER-ONLY. `owner_only` added on all three.
+    // This dashboard is platform-wide by construction: index() aggregates every
+    // agency's spend (monthlyCostZar(null, …), an unfiltered ai_usage_events
+    // query, and a "Top consumers (agencies)" league table naming each agency).
+    // It was gated on `permission:mic.view_ai_costs` ALONE, and an agency admin
+    // holds that permission by default — so on production a Demo Agency Test
+    // admin was shown "Home Finders Coastal · R 7.02 · 178 generations", i.e.
+    // one customer reading another customer's AI spend.
+    //
+    // A permission is not a tenant boundary: it is grantable, and one mis-click
+    // hands an agency admin the whole platform's costs. This is the identical
+    // rule already applied to /corex/admin/billing, which is owner_only with no
+    // permission key on purpose. The permission stays on as well, so an owner
+    // still needs it — owner_only is the boundary, the key is the grant.
+    //
+    // Note agency() already 403'd correctly for a foreign agency; the hole was
+    // only ever the index. Both are now closed at the route.
     Route::get('/admin/ai-usage', [\App\Http\Controllers\Admin\AiUsageController::class, 'index'])
-        ->middleware('permission:mic.view_ai_costs')
+        ->middleware(['owner_only', 'permission:mic.view_ai_costs'])
         ->name('admin.ai-usage.index');
     Route::get('/admin/ai-usage/agencies/{agency}', [\App\Http\Controllers\Admin\AiUsageController::class, 'agency'])
-        ->middleware('permission:mic.view_ai_costs')
+        ->middleware(['owner_only', 'permission:mic.view_ai_costs'])
         ->where('agency', '[0-9]+')
         ->name('admin.ai-usage.agency');
     Route::post('/admin/ai-usage/agencies/{agency}/budget', [\App\Http\Controllers\Admin\AiUsageController::class, 'updateBudget'])
-        ->middleware('permission:mic.view_ai_costs')
+        ->middleware(['owner_only', 'permission:mic.view_ai_costs'])
         ->name('admin.ai-usage.budget.update');
 
 // ── CoreX Global API v1 (session-authenticated, browser-visible XHR) ──
@@ -4403,12 +4421,29 @@ Route::prefix('docuperfect')->middleware(['auth', 'permission:access_docuperfect
     })->name('docuperfect.parser-test.upload');
 
     // ===== WEB TEMPLATE PREVIEWS =====
-    Route::get('/web-preview/letting-mandate-v5', [\App\Http\Controllers\Docuperfect\WebTemplateController::class, 'lettingMandateV5'])->name('docuperfect.webPreview.lettingMandateV5');
-    Route::get('/web-preview/rental-application-v8', [\App\Http\Controllers\Docuperfect\WebTemplateController::class, 'rentalApplicationV8'])->name('docuperfect.webPreview.rentalApplicationV8');
-    Route::get('/web-preview/letting-mandatory-disclosure-v7', [\App\Http\Controllers\Docuperfect\WebTemplateController::class, 'lettingMandatoryDisclosureV7'])->name('docuperfect.webPreview.lettingMandatoryDisclosureV7');
-    Route::get('/web-preview/letting-marketing-permission-v7', [\App\Http\Controllers\Docuperfect\WebTemplateController::class, 'lettingMarketingPermissionV7'])->name('docuperfect.webPreview.lettingMarketingPermissionV7');
-    Route::get('/web-preview/lease-agreement-popi-v8', [\App\Http\Controllers\Docuperfect\WebTemplateController::class, 'leaseAgreementPopiV8'])->name('docuperfect.webPreview.leaseAgreementPopiV8');
-    Route::get('/web-preview/commercial-lease-agreement-v5', [\App\Http\Controllers\Docuperfect\WebTemplateController::class, 'commercialLeaseAgreementV5'])->name('docuperfect.webPreview.commercialLeaseAgreementV5');
+    //
+    // 2026-09-01 (Johan) — owner_only. These are DEVELOPER preview routes: each
+    // renders one of Home Finders Coastal's own letting documents filled with
+    // hardcoded sample data, and that sample data is real HFC material (agent
+    // "Maggie Venter", "14 Marine Drive, Uvongo"). Any authenticated user of any
+    // agency could open all six; confirmed on production as a Demo Agency Test
+    // admin, who was shown a lease reading "The Agent means Home Finders Coastal"
+    // and a rental application directing tenants to letting@hfcoastal.co.za.
+    //
+    // The documents themselves are deliberately NOT rewritten — they are HFC's
+    // own legal templates and Johan's instruction was to leave HFC's documents
+    // alone and stop other agencies seeing them. Gating the preview does exactly
+    // that: HFC's documents keep their wording, and no other tenant can reach
+    // them. Same treatment as /admin/ai-usage — a dev surface is not a customer
+    // surface, and "only staff would know the URL" is not an access control.
+    Route::middleware('owner_only')->group(function () {
+        Route::get('/web-preview/letting-mandate-v5', [\App\Http\Controllers\Docuperfect\WebTemplateController::class, 'lettingMandateV5'])->name('docuperfect.webPreview.lettingMandateV5');
+        Route::get('/web-preview/rental-application-v8', [\App\Http\Controllers\Docuperfect\WebTemplateController::class, 'rentalApplicationV8'])->name('docuperfect.webPreview.rentalApplicationV8');
+        Route::get('/web-preview/letting-mandatory-disclosure-v7', [\App\Http\Controllers\Docuperfect\WebTemplateController::class, 'lettingMandatoryDisclosureV7'])->name('docuperfect.webPreview.lettingMandatoryDisclosureV7');
+        Route::get('/web-preview/letting-marketing-permission-v7', [\App\Http\Controllers\Docuperfect\WebTemplateController::class, 'lettingMarketingPermissionV7'])->name('docuperfect.webPreview.lettingMarketingPermissionV7');
+        Route::get('/web-preview/lease-agreement-popi-v8', [\App\Http\Controllers\Docuperfect\WebTemplateController::class, 'leaseAgreementPopiV8'])->name('docuperfect.webPreview.leaseAgreementPopiV8');
+        Route::get('/web-preview/commercial-lease-agreement-v5', [\App\Http\Controllers\Docuperfect\WebTemplateController::class, 'commercialLeaseAgreementV5'])->name('docuperfect.webPreview.commercialLeaseAgreementV5');
+    });
 
     // ===== RENTAL DOCUMENTS (redirect to new Rental Division) =====
     Route::get('/rental', function () {

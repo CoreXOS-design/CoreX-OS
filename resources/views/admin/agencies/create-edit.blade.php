@@ -183,7 +183,7 @@
                     <input type="text" name="email" value="{{ old('email', $agency?->email) }}"
                            class="w-full rounded-md px-3 py-2 text-sm"
                            style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
-                           placeholder="e.g. admin@hfcoastal.co.za">
+                           placeholder="e.g. admin@youragency.co.za">
                 </div>
             </div>
 
@@ -329,7 +329,7 @@
                     <input type="text" name="p24_agency_label" value="{{ old('p24_agency_label', $agency?->p24_agency_label) }}"
                            class="w-full rounded-md px-3 py-2 text-sm"
                            style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
-                           placeholder="e.g. Home Finders Coastal — HFC1">
+                           placeholder="e.g. Your Agency — BR1">
                     <p class="text-xs mt-1" style="color:var(--text-muted);">Human-readable label shown in the admin UI only. Not sent to Property24.</p>
                 </div>
             </div>
@@ -353,7 +353,7 @@
                     <input type="text" name="p24_username" value="{{ old('p24_username', $agency->p24_username) }}"
                            class="w-full rounded-md px-3 py-2 text-sm font-mono"
                            style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
-                           placeholder="e.g. 31357@hfcoastal.co.za" autocomplete="off">
+                           placeholder="e.g. 31357@youragency.co.za" autocomplete="off">
                 </div>
                 <div>
                     <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Password</label>
@@ -470,7 +470,7 @@
                     <input type="text" name="pp_username" value="{{ old('pp_username', $agency->pp_username) }}"
                            class="w-full rounded-md px-3 py-2 text-sm font-mono"
                            style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
-                           placeholder="e.g. agency@hfcoastal.co.za" autocomplete="off">
+                           placeholder="e.g. agency@youragency.co.za" autocomplete="off">
                 </div>
                 <div>
                     <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Password</label>
@@ -835,7 +835,7 @@
                     <input type="text" name="name" required maxlength="100" value="{{ old('name') }}"
                            class="rounded-md px-3 py-2 text-sm w-full max-w-md"
                            style="background: var(--surface-2); border:1px solid var(--border); color: var(--text-primary);"
-                           placeholder="e.g. Home Finders Coastal">
+                           placeholder="e.g. Your Agency">
                     @error('name')<p class="text-xs mt-1" style="color:var(--ds-crimson);">{{ $message }}</p>@enderror
                 </div>
                 <div>
