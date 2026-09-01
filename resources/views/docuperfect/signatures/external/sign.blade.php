@@ -2331,7 +2331,7 @@ function externalSign() {
                         input.placeholder = (originalName || fieldName).replace(/_/g, ' ');
                         // ESIGN-WETINK BUG2 — recipient-editable inputs GROW to their
                         // content. A bare <input type="text"> has a fixed default
-                        // width, so a long value ("Home Finders Coastal, shop 5, The
+                        // width, so a long value ("{{ config('app.name') }}, shop 5, The
                         // emporium, …") was visually CLIPPED even though the full
                         // value is present. Auto-size via the `size` attribute (in
                         // characters), floored so short fields still look like a field,

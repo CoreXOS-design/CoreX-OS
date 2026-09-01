@@ -22,7 +22,7 @@
         </div>
 
         <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #e0e0e0;">
-            <p style="margin: 0; color: #999; font-size: 12px;">Home Finders Coastal — Document Signing System</p>
+            <p style="margin: 0; color: #999; font-size: 12px;">{{ $agentFooter['agency_name'] ?? config('app.name') }} — Document Signing System</p>
         </div>
     </div>
 

@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Home Finders Coastal</title>
+    <title>{{ config('app.name') }}</title>
     <link rel="icon" type="image/png" sizes="32x32" href="{{ asset('images/favicon.png') }}?v=4">
     <link rel="icon" type="image/x-icon" href="{{ asset('favicon.ico') }}?v=4">
     <link rel="shortcut icon" href="{{ asset('favicon.ico') }}?v=4">
@@ -26,7 +26,7 @@
     <!-- Center logo -->
     <div class="flex-grow flex items-center justify-center">
         <img src="{{ asset('images/logo.png') }}"
-             alt="Home Finders Coastal"
+             alt="{{ config('app.name') }}"
              class="w-auto h-28 md:h-36">
     </div>
 

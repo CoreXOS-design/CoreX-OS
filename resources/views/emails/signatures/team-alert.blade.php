@@ -54,7 +54,7 @@
     </div>
 
     <div style="text-align: center; padding: 15px; color: #999; font-size: 11px;">
-        <p style="margin: 0;">This is an internal notification from Home Finders Coastal's document signing system.</p>
+        <p style="margin: 0;">This is an internal notification from {{ $agentFooter['agency_name'] ?? config('app.name') }}'s document signing system.</p>
     </div>
 
 </body>

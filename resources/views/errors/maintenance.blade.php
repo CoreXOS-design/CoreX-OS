@@ -115,7 +115,7 @@
 
         <div class="divider" aria-hidden="true"></div>
 
-        <p style="font-size:14px;">Home Finders Coastal &middot; KZN South Coast</p>
+        <p style="font-size:14px;">{{ config('app.name') }} &middot; KZN South Coast</p>
 
         {{-- Owners can still sign in to run go-live checks. The blocked user is
              ALREADY authenticated (the gate only fires for a logged-in

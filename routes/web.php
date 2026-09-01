@@ -4391,12 +4391,29 @@ Route::prefix('docuperfect')->middleware(['auth', 'permission:access_docuperfect
     })->name('docuperfect.parser-test.upload');
 
     // ===== WEB TEMPLATE PREVIEWS =====
-    Route::get('/web-preview/letting-mandate-v5', [\App\Http\Controllers\Docuperfect\WebTemplateController::class, 'lettingMandateV5'])->name('docuperfect.webPreview.lettingMandateV5');
-    Route::get('/web-preview/rental-application-v8', [\App\Http\Controllers\Docuperfect\WebTemplateController::class, 'rentalApplicationV8'])->name('docuperfect.webPreview.rentalApplicationV8');
-    Route::get('/web-preview/letting-mandatory-disclosure-v7', [\App\Http\Controllers\Docuperfect\WebTemplateController::class, 'lettingMandatoryDisclosureV7'])->name('docuperfect.webPreview.lettingMandatoryDisclosureV7');
-    Route::get('/web-preview/letting-marketing-permission-v7', [\App\Http\Controllers\Docuperfect\WebTemplateController::class, 'lettingMarketingPermissionV7'])->name('docuperfect.webPreview.lettingMarketingPermissionV7');
-    Route::get('/web-preview/lease-agreement-popi-v8', [\App\Http\Controllers\Docuperfect\WebTemplateController::class, 'leaseAgreementPopiV8'])->name('docuperfect.webPreview.leaseAgreementPopiV8');
-    Route::get('/web-preview/commercial-lease-agreement-v5', [\App\Http\Controllers\Docuperfect\WebTemplateController::class, 'commercialLeaseAgreementV5'])->name('docuperfect.webPreview.commercialLeaseAgreementV5');
+    //
+    // 2026-09-01 (Johan) — owner_only. These are DEVELOPER preview routes: each
+    // renders one of Home Finders Coastal's own letting documents filled with
+    // hardcoded sample data, and that sample data is real HFC material (agent
+    // "Maggie Venter", "14 Marine Drive, Uvongo"). Any authenticated user of any
+    // agency could open all six; confirmed on production as a Demo Agency Test
+    // admin, who was shown a lease reading "The Agent means Home Finders Coastal"
+    // and a rental application directing tenants to letting@hfcoastal.co.za.
+    //
+    // The documents themselves are deliberately NOT rewritten — they are HFC's
+    // own legal templates and Johan's instruction was to leave HFC's documents
+    // alone and stop other agencies seeing them. Gating the preview does exactly
+    // that: HFC's documents keep their wording, and no other tenant can reach
+    // them. Same treatment as /admin/ai-usage — a dev surface is not a customer
+    // surface, and "only staff would know the URL" is not an access control.
+    Route::middleware('owner_only')->group(function () {
+        Route::get('/web-preview/letting-mandate-v5', [\App\Http\Controllers\Docuperfect\WebTemplateController::class, 'lettingMandateV5'])->name('docuperfect.webPreview.lettingMandateV5');
+        Route::get('/web-preview/rental-application-v8', [\App\Http\Controllers\Docuperfect\WebTemplateController::class, 'rentalApplicationV8'])->name('docuperfect.webPreview.rentalApplicationV8');
+        Route::get('/web-preview/letting-mandatory-disclosure-v7', [\App\Http\Controllers\Docuperfect\WebTemplateController::class, 'lettingMandatoryDisclosureV7'])->name('docuperfect.webPreview.lettingMandatoryDisclosureV7');
+        Route::get('/web-preview/letting-marketing-permission-v7', [\App\Http\Controllers\Docuperfect\WebTemplateController::class, 'lettingMarketingPermissionV7'])->name('docuperfect.webPreview.lettingMarketingPermissionV7');
+        Route::get('/web-preview/lease-agreement-popi-v8', [\App\Http\Controllers\Docuperfect\WebTemplateController::class, 'leaseAgreementPopiV8'])->name('docuperfect.webPreview.leaseAgreementPopiV8');
+        Route::get('/web-preview/commercial-lease-agreement-v5', [\App\Http\Controllers\Docuperfect\WebTemplateController::class, 'commercialLeaseAgreementV5'])->name('docuperfect.webPreview.commercialLeaseAgreementV5');
+    });
 
     // ===== RENTAL DOCUMENTS (redirect to new Rental Division) =====
     Route::get('/rental', function () {

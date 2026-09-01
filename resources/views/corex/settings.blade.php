@@ -345,7 +345,7 @@
                             <input type="text" name="email" value="{{ old('email', $agency->email) }}"
                                    class="w-full rounded-md px-3 py-2 text-sm"
                                    style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"
-                                   placeholder="e.g. admin@hfcoastal.co.za">
+                                   placeholder="e.g. admin@youragency.co.za">
                         </div>
                     </div>
 
@@ -364,7 +364,7 @@
                             <input type="text" name="popi_url" value="{{ old('popi_url', $agency->popi_url) }}"
                                    class="w-full rounded-md px-3 py-2 text-sm"
                                    style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"
-                                   placeholder="e.g. https://hfcoastal.co.za/popi-policy">
+                                   placeholder="e.g. https://youragency.co.za/popi-policy">
                         </div>
                     </div>
 
@@ -3826,9 +3826,19 @@
                     <h3 class="text-xs font-semibold uppercase tracking-wider mb-2" style="color:var(--text-muted);">Email Routing Mode</h3>
                     @if(!config('compliance.whistleblow.ppra_live_send', false))
                     <span class="ds-badge ds-badge-warning">DEMO MODE ACTIVE</span>
+                    {{-- 2026-09-01 (Johan) — the demo recipient is the PLATFORM operator's own
+                         address (WHISTLEBLOW_DEMO_RECIPIENT in .env), not this agency's. Printing
+                         it unconditionally showed every agency the operator's personal mailbox —
+                         a Demo Agency Test admin was reading "Emails route to johan@hfcoastal.co.za".
+                         The address is operational detail for whoever runs CoreX, so only an owner
+                         sees it; every other agency gets the same status without the address. --}}
                     <p class="text-xs mt-2" style="color:var(--text-secondary);">
                         Complaints are currently in demo mode. Emails route to
-                        <strong>{{ config('compliance.whistleblow.demo_recipient', 'johan@hfcoastal.co.za') }}</strong>
+                        @if(auth()->user()?->isOwnerRole())
+                            <strong>{{ config('compliance.whistleblow.demo_recipient', config('mail.from.address')) }}</strong>
+                        @else
+                            <strong>the CoreX system administrator</strong>
+                        @endif
                         with a [DEMO] subject prefix. Real PPRA emails will not be sent until the system administrator switches to live mode.
                     </p>
                     @else

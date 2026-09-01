@@ -60,7 +60,7 @@
     :parties="[
         ['name' => 'Sample Landlord'],
         ['name' => 'Sample Tenant'],
-        ['name' => 'Home Finders Coastal'],
+        ['name' => 'Example Agency'],
     ]"
 >
 
@@ -91,7 +91,7 @@
         <span class="corex-clause-number">1.2</span>
         <span class="corex-clause-text">
             "The Agent" means
-            <span class="corex-field" data-filled="true">Home Finders Coastal</span>,
+            <span class="corex-field" data-filled="true">Example Agency</span>,
             a duly authorised property practitioner registered with the PPRA.
         </span>
     </div>
@@ -310,7 +310,7 @@
             {{-- Agent --}}
             <div class="corex-signature-block">
                 <div class="corex-signature-role">Agent</div>
-                <div class="corex-signature-name">Home Finders Coastal</div>
+                <div class="corex-signature-name">Example Agency</div>
                 <div class="corex-signature-line">
                     <span class="corex-signature-prompt">Sign here</span>
                 </div>

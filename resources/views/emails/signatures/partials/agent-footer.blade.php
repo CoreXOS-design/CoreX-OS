@@ -53,7 +53,7 @@
             {{-- Right: Company logo --}}
             @if(!empty($agentFooter['logo_url']))
             <td style="vertical-align: top; text-align: right; width: 140px;">
-                <img src="{{ $agentFooter['logo_url'] }}" alt="{{ $agentFooter['agency_name'] ?? 'Home Finders Coastal' }}"
+                <img src="{{ $agentFooter['logo_url'] }}" alt="{{ $agentFooter['agency_name'] ?? config('app.name') }}"
                      width="130"
                      style="width: 130px; height: auto; display: block; margin-left: auto;">
             </td>
@@ -65,7 +65,7 @@
     @if(!empty($agentFooter['email_disclaimer']))
     <div style="margin-top: 16px; padding-top: 12px; border-top: 1px solid #e0e0e0;">
         <p style="margin: 0 0 4px; font-size: 11px; font-weight: bold; text-decoration: underline; color: #666;">
-            {{ $agentFooter['agency_name'] ?? 'Home Finders Coastal' }} email disclaimer.
+            {{ $agentFooter['agency_name'] ?? config('app.name') }} email disclaimer.
         </p>
         <p style="margin: 0; font-size: 10px; color: #999; line-height: 1.4;">
             {{ $agentFooter['email_disclaimer'] }}

@@ -5,7 +5,7 @@
     $money = fn ($v) => number_format((float) ($v ?? 0), 2, '.', ',');
     $vat    = (bool) $invoice->vat_registered;
     $voided = $invoice->status === 'voided';
-    $company = $agency->trading_name ?: ($agency->name ?? 'Home Finders Coastal');
+    $company = $agency->trading_name ?: ($agency->name ?? config('app.name'));
     // Optional Customer VAT No — layout-ready; hidden unless captured on the record.
     $customerVat = $invoice->customer_vat_no ?? null;
     $ink = '#0b2a4a'; $line = '#c9ced6'; $soft = '#6b7280';

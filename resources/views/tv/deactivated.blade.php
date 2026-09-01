@@ -72,7 +72,7 @@ html, body {
 <body>
 
 <div class="card">
-    <div class="logo">Home Finders Coastal</div>
+    <div class="logo">{{ config('app.name') }}</div>
     <div class="icon">&#128274;</div>
     <div class="title">Display Deactivated</div>
     <div class="message">
