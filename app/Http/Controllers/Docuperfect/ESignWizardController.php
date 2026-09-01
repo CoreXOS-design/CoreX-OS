@@ -3193,7 +3193,22 @@ class ESignWizardController extends Controller
             $resolvedPropertyId = $stepData['property']['property_id'];
         }
 
-        $result = DB::transaction(function () use ($user, $flow, $template, $fields, $recipients, $signingSetup, $docName, $propertyAddress, $signatureService, $webTemplateData, $packInstanceId, $resolvedDocType, $resolvedPropertyId, $candidateService, $isCandidateFlow, $stepData) {
+        // Johan, 2026-09 — the signature setup screen
+        // (docuperfect.signatures.setup) is a review-only pass-through for
+        // every web-template document: it never creates DB markers for a web
+        // template (the comment a few lines below explains why — the setup
+        // JS reads data-marker-party DOM attributes instead), so its own
+        // "Preview & Continue" button does no server work at all in that
+        // shape (setup.blade.php: `isWebTemplate && markers.length === 0` is
+        // a bare client-side navigation to the sign screen). Set below, INSIDE
+        // the transaction, ONLY when every one of setup()'s own preconditions
+        // already and genuinely holds — using the SAME service call setup()
+        // itself gates on (validateFieldCompletion), so this can never diverge
+        // from what setup() would decide. Left null (falls back to the setup
+        // screen, exactly as today) on ANY unmet condition or any exception —
+        // never partially advance, never strand the document between screens.
+        $autoAdvanceSignUrl = null;
+        $result = DB::transaction(function () use ($user, $flow, $template, $fields, $recipients, $signingSetup, $docName, $propertyAddress, $signatureService, $webTemplateData, $packInstanceId, $resolvedDocType, $resolvedPropertyId, $candidateService, $isCandidateFlow, $stepData, &$autoAdvanceSignUrl) {
             // 1. Create Document
             $document = Document::create([
                 'name'             => $docName,
@@ -3714,6 +3729,37 @@ class ESignWizardController extends Controller
             $flow->current_step = 6; // Step 6 is the final wizard step — do not advance past it
             $flow->save();
 
+            // Auto-advance-past-setup safety gate (see comment above the
+            // transaction). Mirrors setup()'s own preconditions exactly:
+            // - field-completion gate (setup() redirects back with an error
+            //   if this fails — same check, same service method);
+            // - web render type (the only shape where setup() never needs
+            //   manual marker placement);
+            // - no manually-placed markers already sitting against this
+            //   template (belt-and-braces — always true for a fresh web
+            //   template per the comment above, but checked rather than
+            //   assumed, in case a future path ever creates one);
+            // - parties already resolved (setup() would otherwise show its
+            //   own step-1 "assign parties" screen — a genuine human
+            //   decision that must never be skipped).
+            try {
+                $fieldValidation = $signatureService->validateFieldCompletion($document);
+                $isWebTemplateForGate = ($template->render_type ?? 'pdf') === 'web';
+                $hasManualMarkers = $sigTemplate->markers()->exists();
+                $hasParties = !empty($sigTemplate->parties_json);
+
+                if ($fieldValidation['valid'] && $isWebTemplateForGate && !$hasManualMarkers && $hasParties) {
+                    $autoAdvanceSignUrl = route('docuperfect.signatures.sign', ['document' => $document->id]);
+                }
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::warning('ESIGN_AUTO_ADVANCE_SETUP_GATE_FAILED', [
+                    'document_id' => $document->id,
+                    'signature_template_id' => $sigTemplate->id,
+                    'error' => $e->getMessage(),
+                ]);
+                $autoAdvanceSignUrl = null; // fall through to the setup screen — never strand the document
+            }
+
             return $document;
         });
 
@@ -3722,7 +3768,11 @@ class ESignWizardController extends Controller
 
         // All template types go to setup first — agent reviews markers and can add ad-hoc ones.
         // Web templates show embedded signature elements; PDF templates show overlay markers.
-        $setupUrl = route('docuperfect.signatures.setup', ['document' => $result->id]);
+        // EXCEPT: $autoAdvanceSignUrl is set above only when setup() would have
+        // nothing for the agent to do (see that block's comment) — the setup
+        // screen, its route and its controller are untouched and still fully
+        // reachable directly; this only changes where THIS flow lands next.
+        $setupUrl = $autoAdvanceSignUrl ?? route('docuperfect.signatures.setup', ['document' => $result->id]);
         // The wizard JS submits via fetch (Accept: application/json) so it can
         // surface failure in the UI instead of a blind native navigation
         // (audit BL-2b). Direct browser hits still get the redirect.

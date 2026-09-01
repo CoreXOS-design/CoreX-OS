@@ -75,7 +75,7 @@
             [
                 'label' => 'My Preferences',
                 'items' => [
-                    ['key'=>'user', 'label'=>'Profile & Account', 'type'=>'section'],
+                    ['key'=>'user', 'label'=>'Profile & Account', 'type'=>'section', 'keywords'=>'compliance officer fica information officer reporting officers popia mlro money laundering appointment section 43 s55 s56 password change name email photo'],
                     ['key'=>'my-portal', 'label'=>'My Portal', 'type'=>'section', 'keywords'=>'api token chrome extension social media facebook instagram visibility'],
                 ],
             ],
