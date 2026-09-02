@@ -38,17 +38,27 @@ idempotent. No hard deletes. `demo:reset` is FROZEN (dev_settings.demo_reset_fro
    covers the same 4 FICA types at the same sort positions; mine is now an inert
    no-op left in place because this environment cannot delete files).
 
-## IN PROGRESS, NOT YET COMMITTED — finish this first after reading this file
+## 5. COMMITTED (`67c49e5d6`, pushed) — document coverage
 
-**`database/seeders/Demo/DemoDocumentCoverageSeeder.php`** — NEW FILE, written and
-run successfully via tinker (twice — idempotent, confirmed), but:
-- **NOT git-committed yet.**
-- **NOT wired into `DemoDataSeeder::stage13_deedsMicIntelligence()` yet** — it
-  currently only exists as a runnable class, not part of the automated seed
-  chain. If demo ever gets reset (it's frozen, but still), this coverage is lost
-  unless wired in. WIRE IT IN, same pattern as the other stage13 seeders
-  (`$this->safeSeed('DemoDocumentCoverageSeeder', fn () => (new
-  \Database\Seeders\Demo\DemoDocumentCoverageSeeder())->run(self::AGENCY_ID));`).
+**`database/seeders/Demo/DemoDocumentCoverageSeeder.php`** — wired into
+`DemoDataSeeder::run()` as `stage17_documentCoverage()` (after stage16, before
+stageV). Committed and pushed to `origin/main` as `67c49e5d6`. Confirmed via
+`php -l` and a real tinker-driven invocation through the stage chain
+(idempotent — second run reported all-zero deltas, as expected).
+
+**Shared-checkout note for next-context-me**: at commit time, this file also
+had an UNCOMMITTED, unrelated, in-progress edit from another lane sitting in
+the working tree (added `stage2c_sellerOutreachTemplates`, removed
+`stage15e_leave` with nothing replacing it — looked like a mid-edit, not a
+finished change). I did NOT commit that — I `git stash`'d it off, reapplied
+ONLY my stage17 change on top of clean HEAD, committed+pushed that alone, then
+tried to restore the stash. The restore was refused by git (a THIRD lane had
+by then added `stage18_contactLivingRecordSweep` to the live working tree, and
+the stashed edit no longer matched what was live — it may have already been
+backed out by its owner). I left the stash in place rather than force it:
+`git stash list` → `stash@{0}: On main: cc4: setting aside concurrent
+in-progress edit (stage2c/stage15e)...`. **Not my task to resolve — flag to
+the coordinator if it's still sitting there unclaimed.**
 
 What it did (confirmed via direct DB query after running):
 - properties with ≥1 document: 6 → **264** (of 255 is_demo=true properties —
