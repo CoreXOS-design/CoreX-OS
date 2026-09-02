@@ -508,10 +508,16 @@ class DemoDataSeeder extends Seeder
     }
 
     /**
-     * Add the 4 contact_types missing from a fresh demo (Lessee, Lessor,
-     * Prospect, Tenant). esign_role values come from local nexus_os; they
-     * are required for rental/lease esign role resolution. Idempotent
-     * keyed on `name`.
+     * Add the contact_types missing from a fresh demo. Lessee/Lessor/
+     * Prospect/Tenant were the original 4; Seller/Buyer/Owner/Other are
+     * ContactType::CANONICAL + ::EXTRA_PARENTS' remaining two e-sign parents
+     * and the two non-e-sign parents — the full six-parent set
+     * ContactType::scopeParents() expects to exist (2026-09-02, Group A demo
+     * gaps: found live that this demo DB only ever had the original 4,
+     * leaving Seller/Buyer/Owner entirely unavailable to tag contacts with,
+     * even though the model's own CANONICAL/EXTRA_PARENTS constants define
+     * all six). esign_role values come from local nexus_os / ContactType's
+     * own CANONICAL mapping. Idempotent keyed on `name`.
      */
     private function backfillContactTypes(): void
     {
@@ -520,6 +526,10 @@ class DemoDataSeeder extends Seeder
             ['name' => 'Lessor',   'esign_role' => 'lessor'],
             ['name' => 'Prospect', 'esign_role' => null],
             ['name' => 'Tenant',   'esign_role' => 'lessee'],
+            ['name' => 'Seller',   'esign_role' => 'seller'],
+            ['name' => 'Buyer',    'esign_role' => 'buyer'],
+            ['name' => 'Owner',    'esign_role' => null],
+            ['name' => 'Other',    'esign_role' => null],
         ];
         $added = 0;
         foreach ($rows as $r) {
@@ -536,7 +546,7 @@ class DemoDataSeeder extends Seeder
             ]);
             $added++;
         }
-        $this->command->info("    contact_types backfill: +{$added} (target Lessee/Lessor/Prospect/Tenant)");
+        $this->command->info("    contact_types backfill: +{$added} (target Lessee/Lessor/Prospect/Tenant/Seller/Buyer/Owner/Other)");
     }
 
     /**
@@ -602,6 +612,29 @@ class DemoDataSeeder extends Seeder
             $seeder = new \Database\Seeders\Demo\DemoDeedsSeeder();
             $seeder->setCommand($this->command);
             $seeder->run(self::AGENCY_ID);
+        });
+
+        // Group A demo-gaps pass (2026-09-02, webinar prep) — TVA/deeds
+        // import side of the Deeds Capture screen (tracked_property_owners +
+        // tva_contact_captures + items), contact type tagging, portal leads,
+        // and the filing register were all completely empty despite their
+        // base data (20 deeds captures, 290 contacts, demo listings,
+        // registered deals) already existing. Same idempotent top-up shape
+        // as DemoDeedsSeeder immediately above.
+        $this->safeSeed('DemoTvaCapturesSeeder', function () {
+            (new \Database\Seeders\Demo\DemoTvaCapturesSeeder())->run(self::AGENCY_ID);
+        });
+
+        $this->safeSeed('DemoContactTypesSeeder', function () {
+            (new \Database\Seeders\Demo\DemoContactTypesSeeder())->run(self::AGENCY_ID);
+        });
+
+        $this->safeSeed('DemoPortalLeadsSeeder', function () {
+            (new \Database\Seeders\Demo\DemoPortalLeadsSeeder())->run(self::AGENCY_ID);
+        });
+
+        $this->safeSeed('DemoFilingRegisterSeeder', function () {
+            (new \Database\Seeders\Demo\DemoFilingRegisterSeeder())->run(self::AGENCY_ID);
         });
 
         // MIC Phase J1 top-up (tracked properties, active claims, buyer
