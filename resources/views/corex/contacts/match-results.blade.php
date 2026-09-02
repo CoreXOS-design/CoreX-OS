@@ -4,19 +4,19 @@
 @section('corex-content')
 <div class="w-full space-y-6">
 
-    {{-- Page header (Pattern A — branded) --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    {{-- Page header --}}
+    <div class="rounded-md px-6 py-5 corex-page-banner">
 
         {{-- Top bar: back nav --}}
         <div class="flex items-center gap-2 mb-4">
             <a href="{{ route('corex.contacts.show', $contact) }}?tab=matches"
                class="inline-flex items-center gap-1.5 text-xs font-semibold no-underline"
-               style="color: rgba(255,255,255,0.6);">
+               style="color: var(--text-secondary);">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-3.5 h-3.5"><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" /></svg>
                 Back to {{ $contact->full_name }}
             </a>
-            <span class="text-xs" style="color: rgba(255,255,255,0.35);">/</span>
-            <span class="text-xs font-semibold" style="color: rgba(255,255,255,0.6);">Core Matches</span>
+            <span class="text-xs" style="color: var(--text-muted);">/</span>
+            <span class="text-xs font-semibold" style="color: var(--text-secondary);">Core Matches</span>
         </div>
 
         <div class="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
@@ -24,8 +24,8 @@
             {{-- Left: contact + criteria --}}
             <div class="flex items-start gap-4 min-w-0">
                 {{-- Avatar --}}
-                <div class="w-12 h-12 rounded-full flex items-center justify-center text-sm font-bold text-white flex-shrink-0"
-                     style="background: {{ $contact->type?->color ?? 'var(--brand-icon)' }};">
+                <div class="w-12 h-12 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0"
+                     style="background: {{ $contact->type?->color ?? 'var(--brand-icon)' }}; color:#fff;">
                     {{ $contact->initials }}
                 </div>
 
@@ -34,7 +34,7 @@
                     <div class="flex items-center gap-2 flex-wrap mb-1">
                         <h1 class="text-xl font-bold leading-tight text-white">{{ $contact->full_name }}</h1>
                         @if($contact->type)
-                        <span class="ds-badge ds-badge-default" style="background: {{ $contact->type->color }}33; color: #fff; border-color: {{ $contact->type->color }}55;">
+                        <span class="ds-badge ds-badge-default" style="background: color-mix(in srgb, {{ $contact->type->color }} 15%, transparent); color: {{ $contact->type->color }}; border-color: color-mix(in srgb, {{ $contact->type->color }} 40%, transparent);">
                             {{ $contact->type->name }}
                         </span>
                         @endif
@@ -45,7 +45,7 @@
                         {{-- AT-240 — edit this wishlist/criteria; opens the existing edit flow. --}}
                         <a href="{{ route('corex.contacts.matches.edit', [$contact, $match]) }}"
                            class="ds-badge no-underline inline-flex items-center gap-1"
-                           style="background: rgba(255,255,255,0.12); color:#fff; border:1px solid rgba(255,255,255,0.28);"
+                           style="background: var(--surface-2); color: var(--text-secondary); border: 1px solid var(--border);"
                            title="Edit this wishlist / match criteria">
                             <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125" /></svg>
                             Edit criteria
@@ -54,7 +54,7 @@
                     </div>
 
                     {{-- Phone / email --}}
-                    <div class="flex items-center gap-3 mb-3 flex-wrap text-sm" style="color: rgba(255,255,255,0.6);">
+                    <div class="flex items-center gap-3 mb-3 flex-wrap text-sm" style="color: var(--text-secondary);">
                         @if($contact->phone)<span>{{ $contact->phone }}</span>@endif
                         @if($contact->email)<span>{{ $contact->email }}</span>@endif
                     </div>
@@ -63,51 +63,59 @@
                     <div class="flex items-center gap-1.5 flex-wrap">
                         @if($match->price_min || $match->price_max)
                         <span class="text-xs font-semibold px-2.5 py-1 rounded-md"
-                              style="background: color-mix(in srgb, var(--brand-icon) 18%, transparent); color: #fff; border: 1px solid color-mix(in srgb, var(--brand-icon) 35%, transparent);">
+                              style="background: color-mix(in srgb, var(--brand-icon) 18%, transparent); color: var(--brand-icon); border: 1px solid color-mix(in srgb, var(--brand-icon) 35%, transparent);">
                             {{ $match->priceRangeLabel() }}
                         </span>
                         @endif
                         @foreach($match->suburbList() as $sub)
                         <span class="text-xs font-medium px-2.5 py-1 rounded-md"
-                              style="background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.75); border: 1px solid rgba(255,255,255,0.15);">
+                              style="background: var(--surface-2); color: var(--text-secondary); border: 1px solid var(--border);">
                             {{ $sub }}
                         </span>
                         @endforeach
                         @if($match->category)
                         <span class="text-xs font-medium px-2.5 py-1 rounded-md"
-                              style="background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.75); border: 1px solid rgba(255,255,255,0.15);">
+                              style="background: var(--surface-2); color: var(--text-secondary); border: 1px solid var(--border);">
                             {{ $match->category }}
                         </span>
                         @endif
                         @if($match->property_type)
                         <span class="text-xs font-medium px-2.5 py-1 rounded-md"
-                              style="background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.75); border: 1px solid rgba(255,255,255,0.15);">
+                              style="background: var(--surface-2); color: var(--text-secondary); border: 1px solid var(--border);">
                             {{ $match->property_type }}
                         </span>
                         @endif
                         @foreach([[$match->beds_min,'Beds'],[$match->baths_min,'Baths'],[$match->garages_min,'Gar']] as [$val,$lbl])
                         @if($val !== null)
                         <span class="text-xs font-medium px-2.5 py-1 rounded-md"
-                              style="background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.75); border: 1px solid rgba(255,255,255,0.15);">
+                              style="background: var(--surface-2); color: var(--text-secondary); border: 1px solid var(--border);">
                             {{ $val }}+ {{ $lbl }}
                         </span>
                         @endif
                         @endforeach
                         @if($match->floor_size_min || $match->floor_size_max)
                         <span class="text-xs font-medium px-2.5 py-1 rounded-md"
-                              style="background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.75); border: 1px solid rgba(255,255,255,0.15);">
+                              style="background: var(--surface-2); color: var(--text-secondary); border: 1px solid var(--border);">
                             {{ $match->floor_size_min ? number_format($match->floor_size_min) : '—' }}–{{ $match->floor_size_max ? number_format($match->floor_size_max) : '—' }} m²
                         </span>
                         @endif
                         @if(!$match->category && !$match->property_type && !$match->suburb && !$match->price_min && !$match->price_max && !$match->beds_min && !$match->baths_min)
-                        <span class="text-xs italic" style="color: rgba(255,255,255,0.5);">Any property</span>
+                        <span class="text-xs italic" style="color: var(--text-muted);">Any property</span>
                         @endif
                     </div>
                 </div>
             </div>
 
             {{-- Right: stats + actions --}}
-            <div class="flex flex-col md:items-end gap-3 flex-shrink-0">
+            <div class="flex flex-col md:items-end gap-3 flex-shrink-0"
+                 style="--match-action-bar-stat-color: var(--text-primary);
+                        --match-action-bar-stat-label-color: var(--text-muted);
+                        --match-action-bar-stat-color-muted: var(--text-muted);
+                        --match-action-bar-stat-label-color-muted: var(--text-muted);
+                        --match-action-bar-divider-color: var(--border);
+                        --match-action-bar-outline-bg: transparent;
+                        --match-action-bar-outline-color: var(--text-secondary);
+                        --match-action-bar-outline-border: var(--border);">
                 @include('corex.contacts._match-action-bar', ['contact' => $contact, 'match' => $match, 'matchCount' => $properties->count()])
             </div>
         </div>

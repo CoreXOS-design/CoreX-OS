@@ -5,7 +5,7 @@
         <h2 class="text-sm font-semibold" style="color: var(--text-primary);">By agent</h2>
     </div>
     <div class="overflow-x-auto">
-        <table class="w-full text-xs">
+        <table class="w-full text-xs ds-table">
             <thead>
                 <tr style="color: var(--text-muted); border-bottom: 1px solid var(--border);">
                     <th class="text-left px-3 py-2">Agent</th>
@@ -22,11 +22,11 @@
                 @forelse($report['agents'] as $a)
                     <tr style="border-bottom: 1px solid var(--border);">
                         <td class="px-3 py-2 font-medium">
-                            <a href="{{ route('buyers-report.agent', $a['user_id']) }}" style="color: var(--brand, #3b82f6);">{{ $a['name'] }}</a>
+                            <a href="{{ route('buyers-report.agent', $a['user_id']) }}" style="color: var(--brand-icon, #0ea5e9);">{{ $a['name'] }}</a>
                         </td>
                         <td class="px-3 py-2" style="color: var(--text-muted);">
                             @if($a['branch_id'])
-                                <a href="{{ route('buyers-report.branch', $a['branch_id']) }}" style="color: var(--brand, #3b82f6);">{{ $a['branch_label'] }}</a>
+                                <a href="{{ route('buyers-report.branch', $a['branch_id']) }}" style="color: var(--brand-icon, #0ea5e9);">{{ $a['branch_label'] }}</a>
                             @else
                                 {{ $a['branch_label'] }}
                             @endif

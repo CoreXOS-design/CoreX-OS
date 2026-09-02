@@ -17,20 +17,22 @@
     ]);
 @endphp
 
-<div class="max-w-6xl mx-auto px-4 py-6" x-data="buyersReport({ drilldownBase: @js($drilldownBase) })">
-    <div class="flex items-center justify-between mb-6 flex-wrap gap-3">
-        <div>
-            <h1 class="text-xl font-semibold" style="color: var(--text-primary);">Buyers Report</h1>
-            <p class="text-xs mt-0.5" style="color: var(--text-muted);">
-                {{ match($scope->level) { 'own' => 'Your buyers', 'branch' => 'Your branch', default => 'Whole agency' } }}
-                · {{ ucfirst(str_replace('_', ' ', $preset)) }}
-                @if($type) · {{ $types[$type] }} only @endif
-            </p>
-        </div>
-        <div class="flex items-end gap-3 flex-wrap">
-            @include('buyers-report._print-buttons')
-            @include('buyers-report._type-selector', ['type' => $type, 'types' => $types])
-            @include('performance.agency-report._period-selector', ['preset' => $preset, 'presets' => $presets, 'compareMode' => $compareMode, 'compareModes' => $compareModes])
+<div class="w-full space-y-5" x-data="buyersReport({ drilldownBase: @js($drilldownBase) })">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
+        <div class="flex items-center justify-between flex-wrap gap-3">
+            <div>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Buyers Report</h1>
+                <p class="text-xs mt-0.5" style="color: var(--text-muted);">
+                    {{ match($scope->level) { 'own' => 'Your buyers', 'branch' => 'Your branch', default => 'Whole agency' } }}
+                    · {{ ucfirst(str_replace('_', ' ', $preset)) }}
+                    @if($type) · {{ $types[$type] }} only @endif
+                </p>
+            </div>
+            <div class="flex items-end gap-3 flex-wrap">
+                @include('buyers-report._print-buttons')
+                @include('buyers-report._type-selector', ['type' => $type, 'types' => $types])
+                @include('performance.agency-report._period-selector', ['preset' => $preset, 'presets' => $presets, 'compareMode' => $compareMode, 'compareModes' => $compareModes])
+            </div>
         </div>
     </div>
 

@@ -2,7 +2,7 @@
 @extends('layouts.corex-app')
 
 @section('corex-content')
-<div class="max-w-7xl mx-auto space-y-6">
+<div style="width: 100%;">
 
     <x-mic-page-header
         title="Suburb Report"

@@ -2,27 +2,29 @@
 @extends('layouts.corex-app')
 
 @section('corex-content')
-<div style="max-width:1100px;margin:0 auto;padding:1rem;">
-  <h1 style="font-size:1.4rem;font-weight:700;color:var(--corex-heading,#0b2a4a);">P24 Auto-Import (Chrome Minion)</h1>
-  <p style="color:var(--corex-muted,#6b7280);margin:.25rem 0 1rem;">
-    Pick the areas the minion captures from Property24's public search results. Ticked areas = the capture universe;
-    the nightly schedule splits them across runs to cycle the full set within the window.
-    Currently ticked: <strong id="ticked-count">{{ $tickedCount }}</strong> suburb(s).
-  </p>
+<div class="w-full space-y-5">
+  <div class="rounded-md px-6 py-5 corex-page-banner">
+    <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">P24 Auto-Import (Chrome Minion)</h1>
+    <p class="text-xs mt-1" style="color: var(--text-muted);">
+      Pick the areas the minion captures from Property24's public search results. Ticked areas = the capture universe;
+      the nightly schedule splits them across runs to cycle the full set within the window.
+      Currently ticked: <strong id="ticked-count">{{ $tickedCount }}</strong> suburb(s).
+    </p>
+  </div>
 
   @if(session('success'))
-    <div style="background:var(--corex-success-bg,#ecfdf5);color:var(--corex-success,#065f46);padding:.6rem .9rem;border-radius:.5rem;margin-bottom:.75rem;">{{ session('success') }}</div>
+    <div class="rounded-md px-4 py-3 text-sm" style="background: color-mix(in srgb, var(--ds-green, #059669) 12%, transparent); color: var(--ds-green, #059669); border: 1px solid color-mix(in srgb, var(--ds-green, #059669) 25%, transparent);">{{ session('success') }}</div>
   @endif
   @if(session('error'))
-    <div style="background:var(--corex-danger-bg,#fef2f2);color:var(--corex-danger,#991b1b);padding:.6rem .9rem;border-radius:.5rem;margin-bottom:.75rem;">{{ session('error') }}</div>
+    <div class="rounded-md px-4 py-3 text-sm" style="background: color-mix(in srgb, var(--ds-crimson, #c41e3a) 12%, transparent); color: var(--ds-crimson, #c41e3a); border: 1px solid color-mix(in srgb, var(--ds-crimson, #c41e3a) 25%, transparent);">{{ session('error') }}</div>
   @endif
   @if($errors->any())
-    <div style="background:var(--corex-danger-bg,#fef2f2);color:var(--corex-danger,#991b1b);padding:.6rem .9rem;border-radius:.5rem;margin-bottom:.75rem;">{{ $errors->first() }}</div>
+    <div class="rounded-md px-4 py-3 text-sm" style="background: color-mix(in srgb, var(--ds-crimson, #c41e3a) 12%, transparent); color: var(--ds-crimson, #c41e3a); border: 1px solid color-mix(in srgb, var(--ds-crimson, #c41e3a) 25%, transparent);">{{ $errors->first() }}</div>
   @endif
 
   {{-- Cadence + master switch --}}
-  <section style="border:1px solid var(--corex-border,#e5e7eb);border-radius:.6rem;padding:1rem;margin-bottom:1rem;">
-    <h2 style="font-weight:600;margin-bottom:.5rem;">Schedule &amp; cadence</h2>
+  <section class="rounded-md" style="background:var(--surface); border:1px solid var(--border); padding:1rem;">
+    <h2 class="text-sm font-semibold" style="color:var(--text-primary); margin-bottom:.5rem;">Schedule &amp; cadence</h2>
     <form method="POST" action="{{ route('admin.minion.settings.save') }}">
       @csrf
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:.75rem;">
@@ -43,7 +45,7 @@
         </label>
       </div>
       <div style="margin:.6rem 0;">
-        <span style="color:var(--corex-muted,#6b7280);">Run days:</span>
+        <span style="color:var(--text-muted);">Run days:</span>
         @foreach(['Mon','Tue','Wed','Thu','Fri','Sat','Sun'] as $d)
           <label style="margin-right:.6rem;"><input type="checkbox" name="run_days[]" value="{{ $d }}" @checked(in_array($d, (array)($settings['run_days'] ?? []))) > {{ $d }}</label>
         @endforeach
@@ -60,27 +62,27 @@
   </section>
 
   {{-- Run now --}}
-  <section style="border:1px solid var(--corex-border,#e5e7eb);border-radius:.6rem;padding:1rem;margin-bottom:1rem;">
-    <h2 style="font-weight:600;margin-bottom:.5rem;">Run now</h2>
+  <section class="rounded-md" style="background:var(--surface); border:1px solid var(--border); padding:1rem;">
+    <h2 class="text-sm font-semibold" style="color:var(--text-primary); margin-bottom:.5rem;">Run now</h2>
     <form method="POST" action="{{ route('admin.minion.run-now') }}" style="display:flex;gap:.5rem;align-items:end;flex-wrap:wrap;">
       @csrf
       <label>Town (P24 city name)
         <input type="text" name="town" placeholder="e.g. Margate" class="corex-input" style="min-width:220px;">
       </label>
       <button type="submit" class="corex-btn-outline">Run this town now</button>
-      <span style="color:var(--corex-muted,#6b7280);">Queued — captures every ticked suburb in that town, paced.</span>
+      <span style="color:var(--text-muted);">Queued — captures every ticked suburb in that town, paced.</span>
     </form>
   </section>
 
   {{-- The tree --}}
-  <section style="border:1px solid var(--corex-border,#e5e7eb);border-radius:.6rem;padding:1rem;margin-bottom:1rem;">
-    <h2 style="font-weight:600;margin-bottom:.5rem;">Capture universe — Province › Region › Town › Suburb</h2>
+  <section class="rounded-md" style="background:var(--surface); border:1px solid var(--border); padding:1rem;">
+    <h2 class="text-sm font-semibold" style="color:var(--text-primary); margin-bottom:.5rem;">Capture universe — Province › Region › Town › Suburb</h2>
     <div id="tree">
       @foreach($provinces as $p)
-        <div class="mn-prov" data-pid="{{ $p->id }}" style="border-bottom:1px solid var(--corex-border,#eee);padding:.35rem 0;">
+        <div class="mn-prov" data-pid="{{ $p->id }}" style="border-bottom:1px solid var(--border);padding:.35rem 0;">
           <button type="button" class="mn-prov-toggle corex-btn-outline" style="padding:.15rem .5rem;">▸</button>
-          <strong>{{ $p->name }}</strong>
-          <span style="color:var(--corex-muted,#6b7280);">({{ $p->suburb_count }} suburbs)</span>
+          <strong style="color:var(--text-primary);">{{ $p->name }}</strong>
+          <span style="color:var(--text-muted);">({{ $p->suburb_count }} suburbs)</span>
           <div class="mn-prov-body" style="display:none;margin:.4rem 0 .4rem 1.25rem;"></div>
         </div>
       @endforeach
@@ -88,27 +90,38 @@
   </section>
 
   {{-- Run-log --}}
-  <section style="border:1px solid var(--corex-border,#e5e7eb);border-radius:.6rem;padding:1rem;">
-    <h2 style="font-weight:600;margin-bottom:.5rem;">Run log (latest 60 sessions)</h2>
-    <div style="overflow-x:auto;">
-      <table style="width:100%;border-collapse:collapse;font-size:.9rem;">
-        <thead><tr style="text-align:left;color:var(--corex-muted,#6b7280);">
-          <th style="padding:.3rem .5rem;">Area</th><th>Status</th><th>Captured</th><th>New</th><th>Updated</th>
-          <th>Deactivated</th><th>Failures</th><th>Started</th><th>Duration</th>
-        </tr></thead>
+  <section class="rounded-md" style="background:var(--surface); border:1px solid var(--border); padding:1rem;">
+    <h2 class="text-sm font-semibold" style="color:var(--text-primary); margin-bottom:.5rem;">Run log (latest 60 sessions)</h2>
+    <div class="overflow-x-auto">
+      <table class="min-w-full text-sm ds-table">
+        <thead>
+          <tr style="background:var(--surface-2);">
+            <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Area</th>
+            <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Status</th>
+            <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Captured</th>
+            <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">New</th>
+            <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Updated</th>
+            <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Deactivated</th>
+            <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Failures</th>
+            <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Started</th>
+            <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Duration</th>
+          </tr>
+        </thead>
         <tbody>
         @forelse($runs as $r)
-          <tr style="border-top:1px solid var(--corex-border,#f1f1f1);">
-            <td style="padding:.3rem .5rem;">{{ $r->area_label }}</td>
-            <td><span style="font-weight:600;color:{{ $r->status==='ok' ? 'var(--corex-success,#065f46)' : ($r->status==='failed' ? 'var(--corex-danger,#991b1b)' : 'var(--corex-muted,#6b7280)') }};">{{ strtoupper($r->status) }}</span></td>
-            <td>{{ $r->captured }}</td><td>{{ $r->listings_new }}</td><td>{{ $r->listings_updated }}</td>
-            <td>{{ $r->listings_deactivated }}</td>
-            <td title="{{ $r->failures_json ? implode('; ', (array)$r->failures_json) : '' }}">{{ $r->failures }}</td>
-            <td>{{ optional($r->started_at)->format('Y-m-d H:i') }}</td>
-            <td>{{ $r->duration_ms ? round($r->duration_ms/1000,1).'s' : '' }}</td>
+          <tr style="border-top:1px solid var(--border);">
+            <td class="px-4 py-3" style="color:var(--text-primary);">{{ $r->area_label }}</td>
+            <td class="px-4 py-3"><span style="font-weight:600;color:{{ $r->status==='ok' ? 'var(--ds-green, #059669)' : ($r->status==='failed' ? 'var(--ds-crimson, #c41e3a)' : 'var(--text-muted)') }};">{{ strtoupper($r->status) }}</span></td>
+            <td class="px-4 py-3" style="color:var(--text-secondary);">{{ $r->captured }}</td>
+            <td class="px-4 py-3" style="color:var(--text-secondary);">{{ $r->listings_new }}</td>
+            <td class="px-4 py-3" style="color:var(--text-secondary);">{{ $r->listings_updated }}</td>
+            <td class="px-4 py-3" style="color:var(--text-secondary);">{{ $r->listings_deactivated }}</td>
+            <td class="px-4 py-3" style="color:var(--text-secondary);" title="{{ $r->failures_json ? implode('; ', (array)$r->failures_json) : '' }}">{{ $r->failures }}</td>
+            <td class="px-4 py-3" style="color:var(--text-secondary);">{{ optional($r->started_at)->format('Y-m-d H:i') }}</td>
+            <td class="px-4 py-3" style="color:var(--text-secondary);">{{ $r->duration_ms ? round($r->duration_ms/1000,1).'s' : '' }}</td>
           </tr>
         @empty
-          <tr><td colspan="9" style="padding:.6rem;color:var(--corex-muted,#6b7280);">No runs yet.</td></tr>
+          <tr><td colspan="9" class="px-4 py-3 text-center" style="color:var(--text-muted);">No runs yet.</td></tr>
         @endforelse
         </tbody>
       </table>
@@ -137,30 +150,30 @@
   }
 
   async function loadTowns(pid, body) {
-    body.innerHTML = '<em style="color:#6b7280;">Loading…</em>';
+    body.innerHTML = '<em style="color:var(--text-muted);">Loading…</em>';
     const rows = await (await fetch(R.towns + '?province_id=' + pid)).json();
     let region = null, html = '';
     rows.forEach(t => {
-      if (t.region !== region) { region = t.region; html += '<div style="margin-top:.4rem;font-weight:600;color:#374151;">' + esc(region || '—') + '</div>'; }
+      if (t.region !== region) { region = t.region; html += '<div style="margin-top:.4rem;font-weight:600;color:var(--text-secondary);">' + esc(region || '—') + '</div>'; }
       const full = Number(t.ticked_count) === Number(t.suburb_count) && Number(t.suburb_count) > 0;
       html += '<div class="mn-town" data-city="' + t.city_id + '" style="margin:.15rem 0 .15rem .75rem;">'
         + '<label><input type="checkbox" class="mn-town-cb"' + (full ? ' checked' : '') + '> <strong>' + esc(t.town) + '</strong></label> '
-        + '<span style="color:#6b7280;">(' + t.ticked_count + '/' + t.suburb_count + ' ticked)</span> '
+        + '<span style="color:var(--text-muted);">(' + t.ticked_count + '/' + t.suburb_count + ' ticked)</span> '
         + '<button type="button" class="mn-town-toggle corex-btn-outline" style="padding:.05rem .4rem;">suburbs ▾</button>'
         + '<div class="mn-town-body" style="display:none;margin:.25rem 0 .25rem 1.25rem;"></div>'
         + '</div>';
     });
-    body.innerHTML = html || '<em style="color:#6b7280;">No towns.</em>';
+    body.innerHTML = html || '<em style="color:var(--text-muted);">No towns.</em>';
   }
 
   async function loadSuburbs(cityId, body) {
-    body.innerHTML = '<em style="color:#6b7280;">Loading…</em>';
+    body.innerHTML = '<em style="color:var(--text-muted);">Loading…</em>';
     const rows = await (await fetch(R.suburbs + '?city_id=' + cityId)).json();
     body.innerHTML = rows.map(s =>
       '<label style="display:inline-block;min-width:180px;margin:.1rem .5rem;">'
       + '<input type="checkbox" class="mn-sub-cb" data-id="' + s.id + '"' + (Number(s.ticked) ? ' checked' : '') + '> ' + esc(s.name)
       + '</label>'
-    ).join('') || '<em style="color:#6b7280;">No suburbs.</em>';
+    ).join('') || '<em style="color:var(--text-muted);">No suburbs.</em>';
   }
 
   document.getElementById('tree').addEventListener('click', async (e) => {

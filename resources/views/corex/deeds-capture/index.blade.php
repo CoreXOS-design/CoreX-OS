@@ -2,9 +2,9 @@
 
 @section('corex-content')
 <div class="w-full space-y-5">
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
-        <h1 class="text-xl font-bold text-white leading-tight">Deeds Capture</h1>
-        <p class="text-sm text-white/60 mt-1">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
+        <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Deeds Capture</h1>
+        <p class="text-xs mt-1" style="color: var(--text-muted);">
             Properties captured from CMA / deeds lookups, held here for review. These are kept separate from
             Market Intelligence. Confirm a capture to create a real property and link the owner as its owner.
         </p>

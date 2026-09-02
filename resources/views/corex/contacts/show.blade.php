@@ -1230,6 +1230,44 @@
              ════════════════════════════ --}}
         <div x-show="activeTab === 'notes'" x-cloak class="p-6 space-y-5" id="tab-notes">
 
+            {{-- Add note --}}
+            <div class="rounded-md p-4" style="background: var(--surface-2); border: 1px solid var(--border);">
+                <div class="text-xs font-semibold mb-3" style="color:var(--text-secondary);">Add Note</div>
+                <form method="POST" action="{{ route('corex.contacts.notes.store', $contact) }}" class="space-y-3">
+                    @csrf
+                    <textarea name="body" rows="3" required
+                              placeholder="Write a note…"
+                              class="w-full rounded-md px-3 py-2 text-sm resize-none"
+                              style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"></textarea>
+                    {{-- AT-372 — two submit buttons: plain add, or add AND mark contacted (writes the
+                         same explicit contacted signal the Last Contacted tile uses; tile updates). --}}
+                    <div class="flex justify-end gap-2 flex-wrap">
+                        <button type="submit" name="mark_contacted" value="1"
+                                class="text-sm font-semibold px-3 py-2 rounded-md"
+                                style="background:var(--ds-green,#16a34a); color:#fff;">Add note &amp; mark contacted</button>
+                        <button type="submit" class="corex-btn-primary text-sm">Add Note</button>
+                    </div>
+                </form>
+            </div>
+
+            {{-- Notes list — shared partial (2026-08-20): same markup the buyer
+                 pipeline's Notes tab uses, so a note written on either screen
+                 renders identically (same record, same display, on purpose). --}}
+            @forelse($contact->contactNotes as $note)
+                @include('corex.contacts._note-item', ['note' => $note])
+            @empty
+            <div class="rounded-md py-12 px-6 text-center" style="background: var(--surface); border: 1px solid var(--border);">
+                <div class="w-12 h-12 rounded-full mx-auto mb-4 flex items-center justify-center"
+                     style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent); color: var(--brand-icon);">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6"><path stroke-linecap="round" stroke-linejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.129.166 2.27.293 3.423.379.35.026.67.21.865.501L12 21l2.755-4.133a1.14 1.14 0 0 1 .865-.501 48.172 48.172 0 0 0 3.423-.379c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0 0 12 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018Z" /></svg>
+                </div>
+                <h3 class="text-base font-semibold mb-1" style="color: var(--text-primary);">No notes yet</h3>
+                <p class="text-sm" style="color: var(--text-muted);">Use the form above to record your first note for this contact.</p>
+            </div>
+            @endforelse
+
+            <div style="border-top:1px solid var(--border);"></div>
+
             {{-- ════════════════════════════ TESTIMONIALS ════════════════════════════ --}}
             <div class="space-y-4">
                 <div class="flex flex-wrap items-center justify-between gap-2">
@@ -1367,44 +1405,6 @@
                 </div>
                 @endforelse
             </div>
-
-            <div style="border-top:1px solid var(--border);"></div>
-
-            {{-- Add note --}}
-            <div class="rounded-md p-4" style="background: var(--surface-2); border: 1px solid var(--border);">
-                <div class="text-xs font-semibold mb-3" style="color:var(--text-secondary);">Add Note</div>
-                <form method="POST" action="{{ route('corex.contacts.notes.store', $contact) }}" class="space-y-3">
-                    @csrf
-                    <textarea name="body" rows="3" required
-                              placeholder="Write a note…"
-                              class="w-full rounded-md px-3 py-2 text-sm resize-none"
-                              style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"></textarea>
-                    {{-- AT-372 — two submit buttons: plain add, or add AND mark contacted (writes the
-                         same explicit contacted signal the Last Contacted tile uses; tile updates). --}}
-                    <div class="flex justify-end gap-2 flex-wrap">
-                        <button type="submit" name="mark_contacted" value="1"
-                                class="text-sm font-semibold px-3 py-2 rounded-md"
-                                style="background:var(--ds-green,#16a34a); color:#fff;">Add note &amp; mark contacted</button>
-                        <button type="submit" class="corex-btn-primary text-sm">Add Note</button>
-                    </div>
-                </form>
-            </div>
-
-            {{-- Notes list — shared partial (2026-08-20): same markup the buyer
-                 pipeline's Notes tab uses, so a note written on either screen
-                 renders identically (same record, same display, on purpose). --}}
-            @forelse($contact->contactNotes as $note)
-                @include('corex.contacts._note-item', ['note' => $note])
-            @empty
-            <div class="rounded-md py-12 px-6 text-center" style="background: var(--surface); border: 1px solid var(--border);">
-                <div class="w-12 h-12 rounded-full mx-auto mb-4 flex items-center justify-center"
-                     style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent); color: var(--brand-icon);">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6"><path stroke-linecap="round" stroke-linejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.129.166 2.27.293 3.423.379.35.026.67.21.865.501L12 21l2.755-4.133a1.14 1.14 0 0 1 .865-.501 48.172 48.172 0 0 0 3.423-.379c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0 0 12 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018Z" /></svg>
-                </div>
-                <h3 class="text-base font-semibold mb-1" style="color: var(--text-primary);">No notes yet</h3>
-                <p class="text-sm" style="color: var(--text-muted);">Use the form above to record your first note for this contact.</p>
-            </div>
-            @endforelse
         </div>
 
         {{-- ════════════════════════════
