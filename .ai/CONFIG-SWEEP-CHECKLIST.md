@@ -28,7 +28,7 @@ one of these.
 |---|---|---|---|---|
 | 1 | `user` | Profile & Account | cc1 | OPEN |
 | 2 | `my-portal` | My Portal | cc1 | OPEN |
-| 3 | `agency` | Agency Settings | cc1 | OPEN |
+| 3 | `agency` | Agency Settings | cc1 | N/A — dead code (`@if(false)`, `resources/views/corex/settings.blade.php:243-425`); real form is #22 `company`, which is FIXED |
 | 4 | `remote-access` | Remote Access | cc1 | OPEN |
 | 5 | `features` | Features (on/off) — master module toggle registry | **UNOWNED** | see below |
 | 6 | `feature-documents` | Documents | cc4 | OPEN |
@@ -52,7 +52,7 @@ one of these.
 | # | Key | URL | Lane | Status |
 |---|---|---|---|---|
 | 21 | `agency-setup` | `/corex/agency-setup` (onboarding wizard) | cc1 | OPEN |
-| 22 | `company` | `/corex/admin/company-settings` | cc1 | OPEN |
+| 22 | `company` | `/corex/admin/company-settings` | cc1 | FIXED — tagline/address/phone/email/fax/ppra/ncc/public_contact/email_disclaimer/popi_url/privacy_policy + logo (generated PNG) + proforma bank_details all set via DemoAgencyBrandingSeeder; re-rendered and confirmed all values + a real servable logo image |
 | 23 | `doc-types` | `/admin/settings/document-types` (PDF splitter labels) | cc4 | OPEN |
 | 24 | `docuperfect-types` | `/docuperfect/settings/types` | cc4 | OPEN |
 | 25 | `docuperfect-fields` | `/docuperfect/settings/named-fields` | cc4 | OPEN |
@@ -92,6 +92,18 @@ who configures them.
 | 45 | Contact governance (command-center) | `/corex/command-center/settings/contact-governance` | **cc6** | OPEN |
 | 46 | Event classes (command-center) | `/corex/command-center/settings/event-classes` | **cc6** | OPEN |
 
+## Addendum (cc1) — 3 more screens outside the hub nav/route sweep, all FIXED
+
+Found via the original brief to cc1 ("agency, branches, users, roles/permissions,
+branding") rather than the settings-hub nav array — these don't live under
+`/corex/settings` at all, so the route sweep above didn't catch them.
+
+| # | Screen | URL | Lane | Status |
+|---|---|---|---|---|
+| 47 | Branch Assignments | `/admin/branch-assignments` | cc1 | FIXED — all 3 branches (Margate/Shelly Beach/Port Shepstone) had only name/code set, every contact field null; now has address/phone/email per branch |
+| 48 | Role Manager | `/corex/role-manager` | cc1 | FIXED (critical) — agency 1 owned zero `roles`/`role_permissions` rows; screen rendered completely empty (no roles, no matrix). Enforcement itself was fine (PermissionService falls back to the global template correctly) — only the admin SCREEN was broken. Cloned the global template into agency-1-scoped rows. **Possible genuine product bug beyond the demo — flagging to Johan separately, not fixed at the code level.** |
+| 49 | Users list | `/admin/users` | cc1 | FIXED — all 14 users had null FFC/PPRA/phone/cell/designation; page showed a red "14 agent(s) need PPRA re-verification" banner. Backfilled FFC number/expiry, PPRA active status + recent verification date, phone/cell/whatsapp, designation. Agent photos deliberately NOT fabricated — initials avatars are an acceptable demo state. |
+
 ## Named in the brief but NOT found as a distinct screen — flag to Johan
 
 - **"Feedback question sets"** and **"working hours"** — no dedicated settings
@@ -116,16 +128,17 @@ who configures them.
 
 ## ⚠️ Unowned — nobody's slice, needs a call
 
-1. **`features` (#5) — the master module on/off toggle registry.** This is
-   the single highest-leverage config screen in the whole system (it can
-   silently hide Rentals, Payroll, Compliance, etc. from the entire agency)
-   and doesn't fit any of the 6 given slices. **Recommend: whoever finds it
-   first should verify every module Johan wants to demo is switched ON here**
-   — an empty/misconfigured toggle here would explain several of today's
-   "the screen isn't there" reports better than any individual feature's own
-   config would. I'll check this myself first since it blocks visibility of
-   my own slice's screens too, but the fix (if any module is off) may belong
-   to whichever lane owns that module.
+1. **`features` (#5) — the master module on/off toggle registry — CHECKED,
+   not a blocker for Deals/DR2.** `agency_features` table has 0 rows for
+   agency 1, meaning every module sits at its registry default
+   (`config/corex-features.php`). Confirmed the `deals` entry is
+   `category: 'Core'`, `"Always available. Deals are a core pillar and cannot
+   be switched off."` — so DR2 visibility is guaranteed regardless of this
+   screen's state. Did NOT check every other module's default (Rentals,
+   Payroll, Compliance etc.) — pausing this to go work the new DR2 priority
+   task; whichever lane owns a module should still sanity-check its own
+   default is ON, since 0 rows means nothing has been deliberately verified
+   yet, only defaulted.
 2. **`feature-contacts` (#8) — contact types/sources/tags config.** Doesn't
    map to any of the 6 slices as given. Closest fit is cc1 (owns "users," and
    contacts are agency-wide CRM config) but that's a guess, not an assignment
