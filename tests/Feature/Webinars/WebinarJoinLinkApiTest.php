@@ -438,4 +438,169 @@ class WebinarJoinLinkApiTest extends TestCase
             'A queued mail survived a failed send — it would deliver a link that was never saved.'
         );
     }
+
+    // ---- Meeting ID and passcode -------------------------------------------
+
+    /**
+     * THE WHOLE REASON THESE ARE SEPARATE COLUMNS.
+     *
+     * The passcode is not in the link. The link's `pwd` is an encoded token; the
+     * passcode a person types into the Zoom app is a different, short, CASE-SENSITIVE
+     * string. Anyone who "derives" one from the other ships a mail that cannot get a
+     * registrant in — so this pins both values byte-for-byte, spaces and case included.
+     */
+    public function test_it_saves_the_meeting_id_and_passcode_verbatim(): void
+    {
+        Mail::fake();
+
+        $this->registrant('Jane Smith', 'jane@acme.co.za');
+
+        $this->api()
+            ->postJson($this->url(), [
+                'join_url'        => 'https://zoom.us/j/82437708791?pwd=qYHFilPvbAdY4EVMBurh9XYun4Rcga.1',
+                'join_meeting_id' => '824 3770 8791',
+                'join_passcode'   => '0ABcMc',
+            ])
+            ->assertOk()
+            ->assertJsonPath('join_meeting_id', '824 3770 8791')
+            ->assertJsonPath('join_passcode', '0ABcMc');
+
+        $fresh = $this->webinar->fresh();
+
+        // Internal spaces intact — not collapsed, not stripped.
+        $this->assertSame('824 3770 8791', $fresh->join_meeting_id);
+
+        // Case intact. "0abcmc" and "0ABCMC" are both wrong and both let a registrant in
+        // to nothing.
+        $this->assertSame('0ABcMc', $fresh->join_passcode);
+    }
+
+    public function test_the_mail_shows_the_meeting_id_and_passcode_when_set(): void
+    {
+        $registration = $this->registrant('Jane Smith', 'jane@acme.co.za');
+
+        $rendered = (new WebinarJoinLinkMail(
+            $registration,
+            'https://zoom.us/j/82437708791',
+            '824 3770 8791',
+            '0ABcMc',
+        ))->render();
+
+        $this->assertStringContainsString('824 3770 8791', $rendered);
+        $this->assertStringContainsString('0ABcMc', $rendered);
+
+        // Rendered as-is, never upper-cased for looks.
+        $this->assertStringNotContainsString('0ABCMC', $rendered);
+    }
+
+    public function test_the_mail_omits_the_lines_cleanly_when_they_are_not_set(): void
+    {
+        $registration = $this->registrant('Jane Smith', 'jane@acme.co.za');
+
+        $rendered = (new WebinarJoinLinkMail($registration, 'https://zoom.us/j/1'))->render();
+
+        // No orphan label sitting above nothing.
+        $this->assertStringNotContainsString('Meeting ID', $rendered);
+        $this->assertStringNotContainsString('Passcode', $rendered);
+    }
+
+    /**
+     * A cohort mailed BEFORE this feature existed has jobs sitting in the queue that
+     * were serialised against the two-argument mailable. unserialize() never runs the
+     * constructor, so those jobs restore with the new properties absent — and a typed
+     * property with no class-level default is fatal on first read. This is the
+     * regression test for that: an in-flight send must still render.
+     */
+    public function test_a_mailable_restored_without_the_new_fields_still_renders(): void
+    {
+        $registration = $this->registrant('Jane Smith', 'jane@acme.co.za');
+
+        $mail = new WebinarJoinLinkMail($registration, 'https://zoom.us/j/1');
+
+        $restored = unserialize(serialize($mail));
+
+        $this->assertNull($restored->joinMeetingId);
+        $this->assertStringContainsString('https://zoom.us/j/1', $restored->render());
+    }
+
+    // ---- The three-way contract: set / clear / leave alone -------------------
+
+    /**
+     * "" CLEARS, AN ABSENT KEY DOES NOT.
+     *
+     * The console pre-fills its form from GET /registrations and posts every box back,
+     * sending "" for one the operator emptied. If an absent key were also treated as ""
+     * — or if these were read with $request->input() — then any client that posts only
+     * join_url would silently wipe the Meeting ID and passcode off the webinar on every
+     * re-send, with no error and nothing to notice until a registrant cannot get in.
+     */
+    public function test_an_empty_string_clears_a_value_and_an_absent_key_leaves_it_alone(): void
+    {
+        Mail::fake();
+
+        $this->webinar->update([
+            'join_meeting_id' => '824 3770 8791',
+            'join_passcode'   => '0ABcMc',
+        ]);
+
+        // Absent keys: a re-send of the link alone must not blank either field.
+        $this->api()
+            ->postJson($this->url(), ['join_url' => 'https://zoom.us/j/2'])
+            ->assertOk();
+
+        $fresh = $this->webinar->fresh();
+        $this->assertSame('824 3770 8791', $fresh->join_meeting_id);
+        $this->assertSame('0ABcMc', $fresh->join_passcode);
+
+        // "" on one field only: it clears, and the other is untouched.
+        $this->api()
+            ->postJson($this->url(), [
+                'join_url'      => 'https://zoom.us/j/3',
+                'join_passcode' => '',
+            ])
+            ->assertOk();
+
+        $fresh = $this->webinar->fresh();
+        $this->assertSame('824 3770 8791', $fresh->join_meeting_id);
+        $this->assertNull($fresh->join_passcode);
+    }
+
+    public function test_the_registrations_endpoint_reports_all_three_so_a_resend_cannot_blank_them(): void
+    {
+        Mail::fake();
+
+        $this->registrant('Jane Smith', 'jane@acme.co.za');
+
+        $this->api()->postJson($this->url(), [
+            'join_url'        => 'https://zoom.us/j/999',
+            'join_meeting_id' => '824 3770 8791',
+            'join_passcode'   => '0ABcMc',
+        ])->assertOk();
+
+        $this->api()
+            ->getJson("/api/v1/webinars/{$this->webinar->slug}/registrations")
+            ->assertOk()
+            ->assertJsonPath('webinar.join_url', 'https://zoom.us/j/999')
+            ->assertJsonPath('webinar.join_meeting_id', '824 3770 8791')
+            ->assertJsonPath('webinar.join_passcode', '0ABcMc');
+    }
+
+    public function test_an_over_long_meeting_id_is_rejected_and_nothing_is_saved_or_sent(): void
+    {
+        Mail::fake();
+
+        $this->registrant('Jane Smith', 'jane@acme.co.za');
+
+        $this->api()
+            ->postJson($this->url(), [
+                'join_url'        => 'https://zoom.us/j/1',
+                'join_meeting_id' => str_repeat('9', 101),
+            ])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['join_meeting_id']);
+
+        $this->assertNull($this->webinar->fresh()->join_url);
+
+        Mail::assertNothingQueued();
+    }
 }

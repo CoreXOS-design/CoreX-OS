@@ -84,6 +84,11 @@ class WebinarConfirmationMail extends Mailable implements ShouldQueue
                 'accessCode'    => $this->accessCode,
                 'gateUrl'       => $this->gateUrl,
                 'joinUrl'       => $webinar->join_url,
+                // Read off the webinar at render time, exactly as joinUrl is here — this
+                // mail is not the one-shot operator send, so the current values are the
+                // right ones. Null simply omits the lines.
+                'joinMeetingId' => $webinar->join_meeting_id,
+                'joinPasscode'  => $webinar->join_passcode,
                 'accessEndsAt'  => $webinar->demoAccessEndsAt(),
             ],
         );
@@ -112,9 +117,24 @@ class WebinarConfirmationMail extends Mailable implements ShouldQueue
         $start = $webinar->starts_at->copy();
         $end   = $start->copy()->addMinutes($webinar->duration_minutes ?: 60);
 
+        // The Meeting ID and passcode ride along with the link. This is the entry the
+        // attendee actually opens on the morning, and joining by Meeting ID in the Zoom
+        // app is the fallback for when the browser link misbehaves — it is no use if
+        // the details are only in an email they now have to go and find.
+        //
+        // THIS IS NOT THE DEMO ACCESS CODE and the rule above is unchanged: the CoreX
+        // credential still never enters a calendar entry. A meeting passcode is part of
+        // the meeting address, which is what an invite is for, and Zoom's own invites
+        // carry it for exactly that reason.
+        $joining = array_filter([
+            $webinar->join_url        ? 'Join: ' . $webinar->join_url            : null,
+            $webinar->join_meeting_id ? 'Meeting ID: ' . $webinar->join_meeting_id : null,
+            $webinar->join_passcode   ? 'Passcode: ' . $webinar->join_passcode   : null,
+        ]);
+
         $description = trim(
             ($webinar->description ? $webinar->description . "\n\n" : '')
-            . ($webinar->join_url ? 'Join: ' . $webinar->join_url : '')
+            . implode("\n", $joining)
         );
 
         $ics = IcsCalendarInvite::build(

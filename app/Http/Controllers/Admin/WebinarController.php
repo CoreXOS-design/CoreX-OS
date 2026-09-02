@@ -69,6 +69,8 @@ class WebinarController extends Controller
             'registration_closes_at' => $data['registration_closes_at'] ?? null,
             'duration_minutes'       => $data['duration_minutes'] ?? null,
             'join_url'               => $data['join_url'] ?? null,
+            'join_meeting_id'        => $data['join_meeting_id'] ?? null,
+            'join_passcode'          => $data['join_passcode'] ?? null,
             'access_ends_days_after' => $data['access_ends_days_after'],
             'reminder_hours_before'  => $data['reminder_hours_before'],
             'created_by_user_id'     => Auth::id(),
@@ -128,6 +130,8 @@ class WebinarController extends Controller
             'registration_closes_at' => $data['registration_closes_at'] ?? null,
             'duration_minutes'       => $data['duration_minutes'] ?? null,
             'join_url'               => $data['join_url'] ?? null,
+            'join_meeting_id'        => $data['join_meeting_id'] ?? null,
+            'join_passcode'          => $data['join_passcode'] ?? null,
             'access_ends_days_after' => $data['access_ends_days_after'],
             'reminder_hours_before'  => $data['reminder_hours_before'],
         ]);
@@ -224,6 +228,11 @@ class WebinarController extends Controller
             'registration_closes_at' => ['nullable', 'date', 'before:starts_at'],
             'duration_minutes'       => ['nullable', 'integer', 'min:5', 'max:1440'],
             'join_url'               => ['nullable', 'url', 'max:500'],
+            // Same rules as WebinarApiController::validatedWebinar() — two front
+            // doors to one record must not disagree. Verbatim storage: internal
+            // spaces in the Meeting ID and the passcode's case both matter.
+            'join_meeting_id'        => ['nullable', 'string', 'max:100'],
+            'join_passcode'          => ['nullable', 'string', 'max:100'],
             'access_ends_days_after' => ['required', 'integer', 'min:0', 'max:365'],
             'reminder_hours_before'  => ['required', 'integer', 'min:1', 'max:336'],
         ], [
@@ -232,6 +241,8 @@ class WebinarController extends Controller
             'registration_closes_at.before'   => 'Registration has to close before the webinar starts. Leave it blank to keep sign-ups open right up to the start.',
             'registration_closes_at.date'     => 'Enter a valid date and time for registration to close.',
             'join_url.url'                    => 'The joining link needs to be a full web address, starting with https://',
+            'join_meeting_id.max'             => 'That Meeting ID is too long — it should look like 824 3770 8791.',
+            'join_passcode.max'               => 'That passcode is too long — it is the short code shown next to the Meeting ID.',
             'access_ends_days_after.required' => 'Say how long demo access should last.',
             'reminder_hours_before.required'  => 'Say how far ahead the reminder email should go out.',
         ]);

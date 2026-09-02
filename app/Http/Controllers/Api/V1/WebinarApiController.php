@@ -371,6 +371,18 @@ class WebinarApiController extends Controller
             // ::validated()) apart from `required` — two front doors to one field must
             // not disagree about what a valid link is.
             'join_url' => ['required', 'url', 'max:500'],
+
+            // NOT derivable from join_url — a Zoom link carries an encoded `pwd`
+            // token, the displayed passcode is a different, short string, and someone
+            // joining by Meeting ID in the app needs the latter. Nullable because a
+            // link on its own is a legitimate state; see the three-way contract below
+            // for how "" and an absent key differ.
+            //
+            // No trim, no case rule, no format rule ON PURPOSE. The Meeting ID keeps
+            // its internal spaces and the passcode is case-sensitive, so anything that
+            // "tidied" either would hand a registrant a code that does not work.
+            'join_meeting_id' => ['nullable', 'string', 'max:100'],
+            'join_passcode'   => ['nullable', 'string', 'max:100'],
         ], [
             // Verbatim from the admin form: the website renders CoreX's message
             // against its own input, so a message written for a different form would
@@ -381,12 +393,50 @@ class WebinarApiController extends Controller
             // nullable because a webinar may legitimately not have a link yet; this
             // endpoint exists only to set one, so absent is a mistake, not a state.
             'join_url.required' => 'Paste the joining link before sending it to registrants.',
+
+            // Written out rather than left to Laravel's default, which would render
+            // "The join meeting id must not be greater than 100 characters" on the
+            // website's own form. These messages are shown verbatim to an operator.
+            'join_meeting_id.max'    => 'That Meeting ID is too long — it should look like 824 3770 8791.',
+            'join_meeting_id.string' => 'Enter the Meeting ID exactly as the meeting shows it.',
+            'join_passcode.max'      => 'That passcode is too long — it is the short code shown next to the Meeting ID.',
+            'join_passcode.string'   => 'Enter the passcode exactly as the meeting shows it.',
         ]);
 
         $joinUrl = $data['join_url'];
 
-        $notified = DB::transaction(function () use ($webinar, $joinUrl) {
-            $webinar->update(['join_url' => $joinUrl]);
+        // ══ THE THREE-WAY CONTRACT, EXACTLY AS registration_closes_at (§4.5) ══
+        //
+        //   "join_passcode": "0ABcMc"  → set it
+        //   "join_passcode": ""        → CLEAR it (write NULL)
+        //   key absent                 → leave it UNCHANGED
+        //
+        // It works because ConvertEmptyStringsToNull turns "" into null before
+        // validation, and validate() returns keys that are PRESENT BUT NULL while
+        // omitting keys that are ABSENT. array_key_exists is therefore the whole
+        // mechanism and is load-bearing: reading these with $request->input() instead,
+        // or defaulting them into $data, turns "leave unchanged" into "clear it" — so
+        // a re-send of an unchanged link would silently wipe the Meeting ID and
+        // passcode off a webinar, with no error raised and no way to notice until a
+        // registrant cannot get in.
+        $updates = ['join_url' => $joinUrl];
+
+        foreach (['join_meeting_id', 'join_passcode'] as $field) {
+            if (array_key_exists($field, $data)) {
+                $updates[$field] = $data[$field];
+            }
+        }
+
+        $notified = DB::transaction(function () use ($webinar, $joinUrl, $updates) {
+            $webinar->update($updates);
+
+            // Read back AFTER the write, so an absent key resolves to what the webinar
+            // already held. Like $joinUrl these are then passed to the Mailable by
+            // value: the worker renders long after this transaction closes, and the
+            // mail must carry what THIS send promised, not whatever a later press left
+            // on the row.
+            $joinMeetingId = $webinar->join_meeting_id;
+            $joinPasscode  = $webinar->join_passcode;
 
             $now   = Carbon::now();
             $count = 0;
@@ -397,7 +447,7 @@ class WebinarApiController extends Controller
             $webinar->registrations()
                 ->with('webinar')
                 ->orderBy('id')
-                ->chunkById(200, function ($registrations) use ($joinUrl, $now, &$count) {
+                ->chunkById(200, function ($registrations) use ($joinUrl, $joinMeetingId, $joinPasscode, $now, &$count) {
                     foreach ($registrations as $registration) {
                         // The link is passed to the Mailable rather than read off the
                         // webinar at render time: the worker renders this long after
@@ -406,7 +456,12 @@ class WebinarApiController extends Controller
                         // send promised.
                         Mail::mailer('corex')
                             ->to($registration->email)
-                            ->send(new WebinarJoinLinkMail($registration, $joinUrl));
+                            ->send(new WebinarJoinLinkMail(
+                                $registration,
+                                $joinUrl,
+                                $joinMeetingId,
+                                $joinPasscode,
+                            ));
 
                         $registration->forceFill(['join_link_sent_at' => $now])->save();
 
@@ -430,6 +485,13 @@ class WebinarApiController extends Controller
         return response()->json([
             'ok'       => true,
             'join_url' => $joinUrl,
+
+            // The receipt for what this send promised. Echoed for the same reason
+            // join_url is: the console shows the operator what went out, and a
+            // response that named only one of the three would read as if the other
+            // two had not been saved.
+            'join_meeting_id' => $webinar->join_meeting_id,
+            'join_passcode'   => $webinar->join_passcode,
 
             // Always the full registration count, never a delta. Re-sending is the
             // point — Zoom links get regenerated, and the people already told are
@@ -477,6 +539,13 @@ class WebinarApiController extends Controller
                 // NOTE this is the ADMIN list; GET /{slug} (§4.1, public) still
                 // returns no join_url — that is earned by registering.
                 'join_url'  => $webinar->join_url,
+
+                // All three, because the console pre-fills its form from this block
+                // before a re-send. Returning only join_url would put an operator in
+                // front of two blank boxes for values that ARE set — and posting that
+                // form would send "" for both, clearing them.
+                'join_meeting_id' => $webinar->join_meeting_id,
+                'join_passcode'   => $webinar->join_passcode,
             ],
             'registrations' => collect($page->items())
                 ->map(fn (WebinarRegistration $r) => $this->registrationPayload($r))
@@ -573,9 +642,11 @@ class WebinarApiController extends Controller
             'starts_at'           => $webinar->starts_at->toIso8601String(),
             'registration_closes_at' => $webinar->registration_closes_at?->toIso8601String(),
             'duration_minutes'    => $webinar->duration_minutes,
-            // The edit form needs these three; the PUBLIC read (§4.1) still must
-            // not carry join_url, which is why that method builds its own body.
+            // The edit form needs these five; the PUBLIC read (§4.1) still must not
+            // carry the joining details, which is why that method builds its own body.
             'join_url'               => $webinar->join_url,
+            'join_meeting_id'        => $webinar->join_meeting_id,
+            'join_passcode'          => $webinar->join_passcode,
             'access_ends_days_after' => $webinar->access_ends_days_after,
             'reminder_hours_before'  => $webinar->reminder_hours_before,
             'registration_open'   => $webinar->isOpenForRegistration(),
@@ -713,6 +784,14 @@ class WebinarApiController extends Controller
             'registration_closes_at' => ['nullable', 'date', 'before:starts_at'],
             'duration_minutes'       => ['nullable', 'integer', 'min:5', 'max:1440'],
             'join_url'               => ['nullable', 'url', 'max:500'],
+
+            // The same three-way contract as registration_closes_at above, for the
+            // same reason and by the same mechanism: "" clears, an absent key leaves
+            // the value alone. Stored verbatim — the Meeting ID keeps its internal
+            // spaces and the passcode is case-sensitive, so there is no trim, no
+            // case rule and no format rule here on purpose.
+            'join_meeting_id'        => ['nullable', 'string', 'max:100'],
+            'join_passcode'          => ['nullable', 'string', 'max:100'],
             'access_ends_days_after' => ['required', 'integer', 'min:0', 'max:365'],
             'reminder_hours_before'  => ['required', 'integer', 'min:1', 'max:336'],
         ], [
@@ -721,6 +800,8 @@ class WebinarApiController extends Controller
             'registration_closes_at.before'   => 'Registration has to close before the webinar starts. Leave it blank to keep sign-ups open right up to the start.',
             'registration_closes_at.date'     => 'Enter a valid date and time for registration to close.',
             'join_url.url'                    => 'The joining link needs to be a full web address, starting with https://',
+            'join_meeting_id.max'             => 'That Meeting ID is too long — it should look like 824 3770 8791.',
+            'join_passcode.max'               => 'That passcode is too long — it is the short code shown next to the Meeting ID.',
             'access_ends_days_after.required' => 'Say how long demo access should last.',
             'reminder_hours_before.required'  => 'Say how far ahead the reminder email should go out.',
         ]);

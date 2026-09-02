@@ -77,6 +77,9 @@
                             </p>
                         @endif
 
+{{-- Outside the @if($joinUrl) on purpose — see the confirmation email. --}}
+                        @include('emails.webinars._join-details')
+
                         <p style="font-size: 14px; margin: 0 0 8px; line-height: 1.65; color: #374151;">
                             Want a look around the demo beforehand? Use the email address and access code
                             in your original confirmation email — your access runs until

@@ -102,6 +102,10 @@
                             </p>
                         @endif
 
+{{-- Outside the @if($joinUrl) on purpose: the Meeting ID and passcode stand on
+                             their own, and a webinar can have them before its link exists. --}}
+                        @include('emails.webinars._join-details')
+
                         <div style="border-top: 1px solid #e4e8ef; margin: 0 0 28px;"></div>
 
                         <p style="font-size: 15px; margin: 0 0 8px; line-height: 1.6; font-weight: 600;">

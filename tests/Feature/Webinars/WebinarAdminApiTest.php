@@ -384,8 +384,99 @@ class WebinarAdminApiTest extends TestCase
      */
     public function test_the_public_read_still_withholds_the_joining_link(): void
     {
-        $this->api()->getJson('/api/v1/webinars/corex-walkthrough')
+        // The Meeting ID and passcode are withheld for the SAME reason as the link and
+        // are checked here, not in their own test: this is the boundary that decides
+        // what an anonymous reader of the public page gets, and all three joining
+        // details sit on the wrong side of it. A passcode published on a brochure page
+        // lets anyone into the meeting without registering, which is the one thing the
+        // registration gate exists to prevent.
+        $this->webinar->update([
+            'join_meeting_id' => '824 3770 8791',
+            'join_passcode'   => '0ABcMc',
+        ]);
+
+        $response = $this->api()->getJson('/api/v1/webinars/corex-walkthrough')->assertOk();
+
+        $response->assertJsonMissingPath('webinar.join_url');
+        $response->assertJsonMissingPath('webinar.join_meeting_id');
+        $response->assertJsonMissingPath('webinar.join_passcode');
+
+        // Belt and braces: not anywhere in the body under any other key either.
+        $response->assertDontSee('824 3770 8791');
+        $response->assertDontSee('0ABcMc');
+    }
+
+    // ---- Meeting ID and passcode on create and edit --------------------------
+
+    public function test_a_webinar_is_created_with_its_meeting_id_and_passcode(): void
+    {
+        $this->api()->postJson('/api/v1/webinars', [
+            'title'                  => 'Second walkthrough',
+            'starts_at'              => Carbon::now()->addDays(14)->toIso8601String(),
+            'join_url'               => 'https://zoom.us/j/82437708791?pwd=qYHFilPvbAdY4EVMBurh9XYun4Rcga.1',
+            'join_meeting_id'        => '824 3770 8791',
+            'join_passcode'          => '0ABcMc',
+            'access_ends_days_after' => 3,
+            'reminder_hours_before'  => 24,
+        ])
+            ->assertCreated()
+            ->assertJsonPath('webinar.join_meeting_id', '824 3770 8791')
+            ->assertJsonPath('webinar.join_passcode', '0ABcMc');
+
+        $created = Webinar::where('title', 'Second walkthrough')->firstOrFail();
+
+        // Verbatim: internal spaces kept, case kept. Neither is derivable from the
+        // link's encoded pwd token, so a normalised copy is a broken copy.
+        $this->assertSame('824 3770 8791', $created->join_meeting_id);
+        $this->assertSame('0ABcMc', $created->join_passcode);
+    }
+
+    /**
+     * THE THREE-WAY CONTRACT ON EDIT (§4.5), applied to the two new fields.
+     *
+     * An absent key must leave the value alone. If it cleared instead, every edit that
+     * did not happen to include these boxes — a title fix, a date change — would
+     * silently strip the Meeting ID and passcode off the webinar, and nobody would find
+     * out until a registrant could not get in on the morning.
+     */
+    public function test_editing_without_the_joining_detail_keys_leaves_them_alone(): void
+    {
+        $this->webinar->update([
+            'join_meeting_id' => '824 3770 8791',
+            'join_passcode'   => '0ABcMc',
+        ]);
+
+        $this->api()->putJson('/api/v1/webinars/corex-walkthrough', [
+            'title'                  => 'CoreX OS — a revised walkthrough',
+            'slug'                   => '',
+            'starts_at'              => Carbon::now()->addDays(10)->setTime(9, 0)->toIso8601String(),
+            'access_ends_days_after' => 3,
+            'reminder_hours_before'  => 24,
+        ])
             ->assertOk()
-            ->assertJsonMissingPath('webinar.join_url');
+            ->assertJsonPath('webinar.join_meeting_id', '824 3770 8791')
+            ->assertJsonPath('webinar.join_passcode', '0ABcMc');
+    }
+
+    public function test_editing_with_an_empty_string_clears_a_joining_detail(): void
+    {
+        $this->webinar->update([
+            'join_meeting_id' => '824 3770 8791',
+            'join_passcode'   => '0ABcMc',
+        ]);
+
+        $this->api()->putJson('/api/v1/webinars/corex-walkthrough', [
+            'title'                  => 'CoreX OS — a walkthrough',
+            'slug'                   => '',
+            'starts_at'              => $this->webinar->starts_at->toIso8601String(),
+            'join_passcode'          => '',
+            'access_ends_days_after' => 3,
+            'reminder_hours_before'  => 24,
+        ])->assertOk();
+
+        $fresh = $this->webinar->fresh();
+
+        $this->assertNull($fresh->join_passcode, 'An empty string must clear the passcode.');
+        $this->assertSame('824 3770 8791', $fresh->join_meeting_id, 'Clearing one must not touch the other.');
     }
 }
