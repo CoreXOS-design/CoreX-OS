@@ -21,7 +21,7 @@
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="font-mono text-base font-bold leading-tight" style="color: var(--text-primary);">HFC-WB-{{ $complaint->id }}</h1>
+                <h1 class="font-mono text-base font-bold leading-tight" style="color: var(--text-primary);">CDX-WB-{{ $complaint->id }}</h1>
                 <p class="text-xs" style="color: var(--text-muted);">{{ $tierDesc[$complaint->tier] ?? $complaint->tier }} &middot; {{ (int) $complaint->created_at->diffInDays(now()) }} days open</p>
             </div>
             <div class="flex flex-wrap items-center gap-2">
@@ -125,7 +125,7 @@
     @if($complaint->complaint_pdf_path && file_exists($complaint->complaint_pdf_path))
     <div class="rounded-md p-5" style="background:var(--surface); border:1px solid var(--border);">
         <h3 class="text-xs font-bold uppercase tracking-wider mb-3" style="color:var(--text-muted);">Generated PDF</h3>
-        <p class="text-sm" style="color:var(--text-primary);">HFC-WB-{{ $complaint->id }}.pdf ({{ number_format(filesize($complaint->complaint_pdf_path) / 1024, 1) }} KB)</p>
+        <p class="text-sm" style="color:var(--text-primary);">CDX-WB-{{ $complaint->id }}.pdf ({{ number_format(filesize($complaint->complaint_pdf_path) / 1024, 1) }} KB)</p>
     </div>
     @endif
 

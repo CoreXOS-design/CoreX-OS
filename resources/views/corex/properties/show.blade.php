@@ -949,7 +949,7 @@
                 @endphp
                 <div class="rounded p-2" style="background:var(--surface); border:1px solid var(--border);">
                     <div class="flex items-center gap-2 flex-wrap">
-                        <span class="text-xs font-mono font-bold" style="color:var(--text-primary);">HFC-WB-{{ $wbC->id }}</span>
+                        <span class="text-xs font-mono font-bold" style="color:var(--text-primary);">CDX-WB-{{ $wbC->id }}</span>
                         <span class="ds-badge {{ $wbTierBadge }}" style="font-size:0.6rem;">{{ $wbTierLabel }}</span>
                     </div>
                     <div class="text-[0.6875rem] mt-1" style="color:var(--text-secondary);">

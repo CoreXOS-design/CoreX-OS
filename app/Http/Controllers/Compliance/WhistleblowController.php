@@ -105,7 +105,7 @@ class WhistleblowController extends Controller
         if ($token && session('wb_last_token') === $token) {
             $lastId = session('wb_last_complaint_id');
             if ($lastId) {
-                $ref = 'HFC-WB-' . $lastId;
+                $ref = 'CDX-WB-' . $lastId;
                 if ($request->expectsJson()) {
                     return response()->json(['ok' => true, 'complaint_id' => $lastId, 'reference' => $ref]);
                 }
@@ -169,7 +169,7 @@ class WhistleblowController extends Controller
             session(['wb_last_token' => $token, 'wb_last_complaint_id' => $complaint->id]);
         }
 
-        $reference = 'HFC-WB-' . $complaint->id;
+        $reference = 'CDX-WB-' . $complaint->id;
 
         if ($request->expectsJson()) {
             return response()->json([

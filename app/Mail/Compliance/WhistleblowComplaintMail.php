@@ -107,7 +107,7 @@ class WhistleblowComplaintMail extends Mailable
 
         return [
             Attachment::fromPath($pdfPath)
-                ->as('HFC-WB-' . $this->complaint->id . '.pdf')
+                ->as('CDX-WB-' . $this->complaint->id . '.pdf')
                 ->withMime('application/pdf'),
         ];
     }

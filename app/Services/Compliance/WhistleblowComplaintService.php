@@ -304,7 +304,7 @@ class WhistleblowComplaintService
             $attachmentInfo = [];
             if ($complaint->complaint_pdf_path && file_exists($complaint->complaint_pdf_path)) {
                 $attachmentInfo[] = [
-                    'filename' => 'HFC-WB-' . $complaint->id . '.pdf',
+                    'filename' => 'CDX-WB-' . $complaint->id . '.pdf',
                     'path' => $complaint->complaint_pdf_path,
                     'size' => filesize($complaint->complaint_pdf_path),
                 ];
@@ -553,7 +553,7 @@ class WhistleblowComplaintService
         if (!is_dir($pdfDir)) {
             mkdir($pdfDir, 0755, true);
         }
-        $pdfPath = $pdfDir . '/HFC-WB-' . $complaint->id . '.pdf';
+        $pdfPath = $pdfDir . '/CDX-WB-' . $complaint->id . '.pdf';
 
         // Generate via Puppeteer
         $this->invokePuppeteer($htmlPath, $pdfPath, $complaint->id);
