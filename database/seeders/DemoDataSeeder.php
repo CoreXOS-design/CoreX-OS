@@ -250,6 +250,7 @@ class DemoDataSeeder extends Seeder
         $this->stageZ_demoPresenterCoherence();
         $this->stage13_deedsMicIntelligence();
         $this->stage14_complianceHrPayroll();
+        $this->stage15_supplierDirectory();
         $this->stageV_verifyDemoIntegrity();
 
         $this->command->info('Demo dataset complete. Login: ' . self::DEMO_LOGIN_EMAIL
@@ -699,6 +700,20 @@ class DemoDataSeeder extends Seeder
             $seeder = new \Database\Seeders\Demo\DemoPayrollSeeder();
             $result = $seeder->run(self::AGENCY_ID);
             $this->command->info("  Stage 14 (payroll): {$result['created']} created, {$result['skipped']} already present");
+        });
+    }
+
+    // ───────────────────────────────────────────────────────────────────
+    //  STAGE 15 — Supplier directory (webinar 2026-09-03, late-night find):
+    //  Deals -> Supplier Directory showed zero rows for agency 1.
+    // ───────────────────────────────────────────────────────────────────
+
+    private function stage15_supplierDirectory(): void
+    {
+        $this->safeSeed('DemoSupplierDirectorySeeder', function () {
+            $seeder = new \Database\Seeders\Demo\DemoSupplierDirectorySeeder();
+            $result = $seeder->run(self::AGENCY_ID);
+            $this->command->info("  Stage 15 (suppliers): {$result['created']} created, {$result['skipped']} already present");
         });
     }
 
