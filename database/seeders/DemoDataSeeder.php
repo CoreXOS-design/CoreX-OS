@@ -1072,15 +1072,37 @@ class DemoDataSeeder extends Seeder
             ]);
         }
 
-        // 3 branches.
+        // 3 branches. IDEMPOTENT (webinar-eve bug, cc6 2026-09-03): this was
+        // an unconditional insertGetId with no existence check — every
+        // standalone re-run of DemoDataSeeder (without an intervening
+        // migrate:fresh) inserted 3 MORE branch rows, duplicating
+        // Margate/Shelly Beach/Port Shepstone. Confirmed live: agency 1 had
+        // 6 branches (ids 1-3 real, 4-6 duplicates) before this fix, which
+        // is what produced the "admin@demo.corexos.co.za / branch_id=4"
+        // duplicate-key error other lanes hit — $this->branchIds[0] pointed
+        // at the newest "Margate" (4) on the second run, not the original (1).
+        // Now keyed on (agency_id, name), matching the existing branch this
+        // agency already has by that name — a re-run finds and reuses it.
         foreach (array_keys(self::TOWN_SUBURBS) as $i => $town) {
-            $bid = DB::table('branches')->insertGetId([
-                'agency_id'  => self::AGENCY_ID,
-                'name'       => $town,
-                'code'       => strtoupper(Str::substr(str_replace(' ', '', $town), 0, 3)),
-                'created_at' => now(),
-                'updated_at' => now(),
-            ]);
+            $existingId = DB::table('branches')
+                ->where('agency_id', self::AGENCY_ID)
+                ->where('name', $town)
+                ->whereNull('deleted_at')
+                ->orderBy('id')
+                ->value('id');
+
+            if ($existingId) {
+                $bid = $existingId;
+                DB::table('branches')->where('id', $bid)->update(['updated_at' => now()]);
+            } else {
+                $bid = DB::table('branches')->insertGetId([
+                    'agency_id'  => self::AGENCY_ID,
+                    'name'       => $town,
+                    'code'       => strtoupper(Str::substr(str_replace(' ', '', $town), 0, 3)),
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+            }
             $this->branchIds[] = $bid;
             $this->branchByTown[$town] = $bid;
         }
@@ -1328,18 +1350,33 @@ class DemoDataSeeder extends Seeder
     private function createUser(string $name, string $email, string $password,
         string $role, int $branchId, bool $isAdmin): int
     {
-        return DB::table('users')->insertGetId([
+        // IDEMPOTENT (webinar-eve bug, cc6 2026-09-03): was a plain
+        // insertGetId with no existence check — a standalone re-run of
+        // DemoDataSeeder (without an intervening migrate:fresh) hit a fatal
+        // duplicate-key error on users.email's unique index on the SECOND
+        // insert of the same demo user (e.g. admin@demo.corexos.co.za). Keyed
+        // on email (the table's own unique key) — a re-run updates the
+        // existing row (picking up the corrected branch_id if branches were
+        // also just de-duplicated) instead of colliding.
+        $existingId = DB::table('users')->where('email', $email)->value('id');
+        $attributes = [
             'name'              => $name,
-            'email'             => $email,
-            'password'          => Hash::make($password),
-            'email_verified_at' => now(),
             'role'              => $role,
             'is_admin'          => $isAdmin ? 1 : 0,
             'agency_id'         => self::AGENCY_ID,
             'branch_id'         => $branchId,
             'is_active'         => 1,
-            'created_at'        => now(),
             'updated_at'        => now(),
+        ];
+        if ($existingId) {
+            DB::table('users')->where('id', $existingId)->update($attributes);
+            return $existingId;
+        }
+        return DB::table('users')->insertGetId($attributes + [
+            'email'             => $email,
+            'password'          => Hash::make($password),
+            'email_verified_at' => now(),
+            'created_at'        => now(),
         ]);
     }
 
