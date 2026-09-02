@@ -754,6 +754,12 @@ class DemoDataSeeder extends Seeder
             $result = $seeder->run(self::AGENCY_ID);
             $this->command->info("  Stage 15c (compliance docs on file): {$result['created']} created, {$result['skipped']} already present");
         });
+
+        $this->safeSeed('DemoFicaDocumentsSeeder', function () {
+            $seeder = new \Database\Seeders\Demo\DemoFicaDocumentsSeeder();
+            $result = $seeder->run(self::AGENCY_ID);
+            $this->command->info("  Stage 15c (FICA documents): {$result['created']} submissions got documents, {$result['skipped']} already had some");
+        });
     }
 
     // ───────────────────────────────────────────────────────────────────
