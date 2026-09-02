@@ -254,6 +254,7 @@ class DemoDataSeeder extends Seeder
         $this->stage13_deedsMicIntelligence();
         $this->stage14_complianceHrPayroll();
         $this->stage15_supplierDirectory();
+        $this->stage15b_dr2ShowcaseDeal();
         $this->stage16_agencyConfigurationSweep();
         $this->stageV_verifyDemoIntegrity();
 
@@ -2770,6 +2771,24 @@ class DemoDataSeeder extends Seeder
             $result = (new \Database\Seeders\Demo\DemoDr2PipelineSeeder())->run(self::AGENCY_ID);
             $note = $result['note'] ?? '';
             $this->command->info('  Stage 12b: DR2 pipeline demo — ' . ($result['inserted'] ?? 0) . ' deals seeded.' . ($note ? " {$note}" : ''));
+        });
+    }
+
+    /**
+     * Johan, 2026-09-02, webinar-eve — one fully-equipped headline DR2 deal
+     * (deal_no 920005, from stage12b's batch): a real attorney/bond-attorney/
+     * bond-originator from stage15's supplier directory, real OTP/Mandate/
+     * Rates-Clearance PDFs filed to the deal, comments on its 3 completed
+     * steps, and the Supplier Work Orders panel configured (Electrical/
+     * Beetle/Gas/Electric Fence, real suppliers) — all pending, so completing
+     * "Bond Approved" live at the webinar fires 4 real emails to Mailpit.
+     * Runs AFTER stage15 (needs the supplier directory to exist).
+     */
+    private function stage15b_dr2ShowcaseDeal(): void
+    {
+        $this->safeSeed('DemoDr2ShowcaseDealSeeder', function () {
+            $result = (new \Database\Seeders\Demo\DemoDr2ShowcaseDealSeeder())->run(self::AGENCY_ID);
+            $this->command->info('  Stage 15b: DR2 showcase deal — ' . json_encode($result));
         });
     }
 
