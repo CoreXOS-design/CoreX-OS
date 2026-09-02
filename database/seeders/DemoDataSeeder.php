@@ -244,6 +244,7 @@ class DemoDataSeeder extends Seeder
         $this->stageSpine_threadFullLifecycle();
         $this->stageZ_demoPresenterCoherence();
         $this->stage13_deedsMicIntelligence();
+        $this->stage14_complianceHrPayroll();
         $this->stageV_verifyDemoIntegrity();
 
         $this->command->info('Demo dataset complete. Login: ' . self::DEMO_LOGIN_EMAIL
@@ -611,6 +612,37 @@ class DemoDataSeeder extends Seeder
         });
 
         $this->command->info('  Stage 13: deeds capture + MIC claims + property Intelligence enriched');
+    }
+
+    // ───────────────────────────────────────────────────────────────────
+    //  STAGE 14 — Compliance / HR / Payroll demo gaps (webinar 2026-09-03,
+    //  Group C): a policy, compliance reports, staff screening spread,
+    //  payroll employees + runs. Each sub-seeder is its own idempotent class
+    //  under database/seeders/Demo/, safeSeed-wrapped so one failing block
+    //  never silently zeroes the rest. (Agency document type cards are
+    //  covered by the existing global AgencyDocumentTypeConfigSeeder in
+    //  Stage 0 — no new seeder needed there.)
+    // ───────────────────────────────────────────────────────────────────
+
+    private function stage14_complianceHrPayroll(): void
+    {
+        $this->safeSeed('DemoPolicyDocumentSeeder', function () {
+            $seeder = new \Database\Seeders\Demo\DemoPolicyDocumentSeeder();
+            $result = $seeder->run(self::AGENCY_ID);
+            $this->command->info('  Stage 14 (policy): ' . $result['note']);
+        });
+
+        $this->safeSeed('DemoStaffScreeningSeeder', function () {
+            $seeder = new \Database\Seeders\Demo\DemoStaffScreeningSeeder();
+            $result = $seeder->run(self::AGENCY_ID);
+            $this->command->info("  Stage 14 (screening): {$result['created']} staff screened/classified, {$result['skipped']} already present");
+        });
+
+        $this->safeSeed('DemoComplianceReportsSeeder', function () {
+            $seeder = new \Database\Seeders\Demo\DemoComplianceReportsSeeder();
+            $result = $seeder->run(self::AGENCY_ID);
+            $this->command->info("  Stage 14 (compliance reports): {$result['created']} created, {$result['skipped']} already present");
+        });
     }
 
     // ───────────────────────────────────────────────────────────────────
