@@ -3,17 +3,22 @@
 @extends('layouts.corex-app')
 
 @section('corex-content')
-<div style="width:100%; max-width:1100px; margin:0 auto;">
-    <div style="margin-bottom:1rem;">
-        <h1 class="text-2xl font-bold" style="color:var(--text-primary);">Stale claims review</h1>
-        <p class="text-sm" style="color:var(--text-muted);">
-            Pitched/claimed properties sitting unworked. Warned at {{ $warnDays }} days; ready for
-            move-or-keep at {{ $releaseDays }} days. Agents can't take these from each other — you decide.
-        </p>
-    </div>
+<div style="width: 100%;">
+    <x-mic-page-header
+        title="Stale claims review"
+        subtitle="Pitched/claimed properties sitting unworked. Warned at {{ $warnDays }} days; ready for move-or-keep at {{ $releaseDays }} days. Agents can't take these from each other — you decide." />
 
     @if(session('status'))
-        <div class="rounded-md px-3 py-2 mb-4 text-sm" style="background:#f0fdf4; color:#166534;">{{ session('status') }}</div>
+        <div class="rounded-md px-4 py-3 text-sm flex items-start gap-3"
+             style="margin-bottom: 12px;
+                    background: color-mix(in srgb, var(--ds-green, #059669) 10%, transparent);
+                    border: 1px solid color-mix(in srgb, var(--ds-green, #059669) 30%, transparent);
+                    color: var(--text-primary);">
+            <svg class="w-5 h-5 flex-shrink-0" style="color: var(--ds-green, #059669);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+            </svg>
+            <div class="flex-1">{{ session('status') }}</div>
+        </div>
     @endif
 
     <div class="rounded-md overflow-hidden" style="background:var(--surface); border:1px solid var(--border);">

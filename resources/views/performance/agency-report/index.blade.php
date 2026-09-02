@@ -19,7 +19,7 @@
     $drilldownBase = url('/corex/performance/agency-report/drilldown') . '?' . http_build_query($drillQuery);
     $hasCustomDates = request()->filled('start') || request()->filled('end');
 @endphp
-<div class="p-4 lg:p-6 space-y-5 max-w-full"
+<div class="w-full space-y-5"
      x-data="agencyReport({
         branches: {{ Illuminate\Support\Js::from($branchRows) }},
         agents: {{ Illuminate\Support\Js::from($agentRows) }},
@@ -35,78 +35,41 @@
         defaultUrl: @js(route('performance.agency-report'))
      })">
 
-    {{-- 2026-08-19 (Johan, Phase 2) — "the page should open with the answer, not
-         the data." Commission is the agency's actual return (an ROI report is
-         about money, not activity volume), so it's the hero figure — same source
-         (report.company.commission_gross_ex_vat) as the Company tile below, never
-         a new/derived number. Plain-language sentence, arrow + colour + words
-         together (never colour alone), same $comparisonMeta['phrase'] used
-         everywhere else so the reader is never left to guess what it's compared
-         to. print:hidden is NOT used here — this is exactly what should survive
-         to print, unlike the toolbar buttons. --}}
-    @php
-        $heroValue = (float) ($report['company']['commission_gross_ex_vat'] ?? 0);
-        $heroComp  = $comparison['company']['commission_gross_ex_vat'] ?? null;
-        $compactRand = function (float $v): string {
-            $sign = $v < 0 ? '-' : '';
-            $v = abs($v);
-            if ($v >= 1000000) return $sign . 'R' . rtrim(rtrim(number_format($v / 1000000, 1), '0'), '.') . 'm';
-            if ($v >= 1000)    return $sign . 'R' . rtrim(rtrim(number_format($v / 1000, 1), '0'), '.') . 'k';
-            return $sign . 'R' . number_format($v);
-        };
-    @endphp
-    <div class="rounded p-4 lg:p-5" style="background:var(--surface-2); border:1px solid var(--border);">
-        <p class="text-lg lg:text-xl font-semibold" style="color:var(--text-primary);">
-            {{ $report['period']['label'] }}, the agency earned
-            <span style="color:var(--brand-icon, #0ea5e9);">{{ $compactRand($heroValue) }}</span>
-            in commission
-            @if($heroComp && !($heroComp['value'] == 0 && $heroComp['previous'] == 0))
-                @php
-                    $up = $heroComp['delta'] > 0;
-                    $heroClass = $heroComp['good'] === null ? 'report-delta-neutral' : ($heroComp['good'] ? 'report-delta-good' : 'report-delta-bad');
-                @endphp
-                — <span class="{{ $heroClass }}" style="font-weight:600;">
-                    {{ $up ? '▲' : ($heroComp['delta'] < 0 ? '▼' : '') }}
-                    {{ $up ? 'up' : ($heroComp['delta'] < 0 ? 'down' : 'flat') }}
-                    {{ $heroComp['delta_pct'] !== null ? abs($heroComp['delta_pct']) . '%' : $compactRand(abs($heroComp['delta'])) }}
-                </span> {{ $comparisonMeta['phrase'] ?? '' }}
-            @endif
-            .
+    {{-- Page header — static, non-sticky, the exact corex-page-banner treatment every
+         other page in the app uses (Johan, 2026-09-01: header must sit flush at the
+         top, same as Contacts etc.). The functional sticky toolbar (period selector,
+         reset/print, deal-status toggles) is a SEPARATE block below — see "fix #2"
+         comment there — so it keeps its own scroll-pinned behaviour untouched. --}}
+    <div class="rounded-md px-6 py-5 corex-page-banner">
+        <h1 class="text-base font-bold leading-tight" style="color:var(--text-primary);">Agency Performance &amp; ROI</h1>
+        <p class="text-xs" style="color:var(--text-muted);">
+            {{ $report['period']['label'] }} · {{ ucfirst($report['scope']['level']) }} view
         </p>
     </div>
 
-    {{-- STICKY TOP BLOCK — period selector + deal-status toggles stay pinned while the long
+    {{-- STICKY TOOLBAR — period selector + deal-status toggles stay pinned while the long
          agent list scrolls beneath (fix #2). Everything from here down to (not incl.) Company. --}}
-    <div x-ref="topBlock" class="sticky top-0 z-30 -mx-4 lg:-mx-6 px-4 lg:px-6 pt-1 pb-3 space-y-3"
+    <div x-ref="topBlock" class="sticky top-0 z-30 -mx-4 lg:-mx-6 px-4 lg:px-6 py-3 space-y-3"
          style="background:var(--bg,#f4f6fb); border-bottom:1px solid var(--border);">
-        <div class="flex items-center justify-between flex-wrap gap-3">
-            <div class="min-w-0">
-                <h1 class="text-lg lg:text-xl font-bold truncate" style="color:var(--text-primary);">Agency Performance &amp; ROI</h1>
-                <p class="text-xs" style="color:var(--text-muted);">
-                    {{ $report['period']['label'] }} · {{ ucfirst($report['scope']['level']) }} view
-                </p>
-            </div>
-
-            <div class="flex items-center gap-2 flex-wrap print:hidden">
-                {{-- #3 Reset view — back to default period (this month) + clear sort/filter/toggles --}}
-                <button type="button" @click="resetView()"
-                        class="text-[11px] px-3 py-2 rounded"
-                        style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
-                        title="Reset period, sort, filters and toggles to default">↺ Reset view</button>
-                <a href="{{ route('performance.agency-report.print', ['period' => $preset]) }}" target="_blank"
-                   class="text-[11px] px-3 py-2 rounded no-underline"
-                   style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
-                   title="Print the whole-company report">🖨 Print report</a>
-                {{-- Period selector (cc5-owned partial — DO NOT edit here, only include it) --}}
-                @include('performance.agency-report._period-selector', ['preset' => $preset, 'presets' => $presets, 'compareMode' => $compareMode, 'compareModes' => $compareModes])
-            </div>
+        <div class="flex items-end justify-end flex-wrap gap-2 print:hidden">
+            {{-- #3 Reset view — back to default period (this month) + clear sort/filter/toggles --}}
+            <button type="button" @click="resetView()"
+                    class="text-[11px] px-3 py-1 rounded"
+                    style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
+                    title="Reset period, sort, filters and toggles to default">Reset view</button>
+            <a href="{{ route('performance.agency-report.print', ['period' => $preset]) }}" target="_blank"
+               class="text-[11px] px-3 py-1 rounded no-underline"
+               style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
+               title="Print the whole-company report">Print report</a>
+            {{-- Period selector (cc5-owned partial — DO NOT edit here, only include it) --}}
+            @include('performance.agency-report._period-selector', ['preset' => $preset, 'presets' => $presets, 'compareMode' => $compareMode, 'compareModes' => $compareModes])
         </div>
 
         @if(session('period_error'))
-            <div class="text-xs px-3 py-2 rounded" style="background:#fee; color:#900;">{{ session('period_error') }}</div>
+            <div class="text-xs px-3 py-2 rounded" style="background: color-mix(in srgb, var(--ds-crimson, #c41e3a) 12%, transparent); color: var(--ds-crimson, #c41e3a);">{{ session('period_error') }}</div>
         @endif
         @if(session('compare_error'))
-            <div class="text-xs px-3 py-2 rounded" style="background:#fee; color:#900;">Comparison range: {{ session('compare_error') }}</div>
+            <div class="text-xs px-3 py-2 rounded" style="background: color-mix(in srgb, var(--ds-crimson, #c41e3a) 12%, transparent); color: var(--ds-crimson, #c41e3a);">Comparison range: {{ session('compare_error') }}</div>
         @endif
         {{-- 2026-08-19 (Johan, period-comparison) — "unequal-length ranges are stated
              plainly rather than silently proceeding as if the ranges matched." --}}
@@ -115,8 +78,8 @@
                  style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-secondary);">
                 <span>Comparing to <strong style="color:var(--text-primary);">{{ $comparisonMeta['period']['label'] }}</strong></span>
                 @if($comparisonMeta['unequal_length'])
-                    <span style="color:var(--ds-amber, #f59e0b);">
-                        ⚠ Unequal-length ranges — comparing {{ $comparisonMeta['period_days'] }} days to {{ $comparisonMeta['comparison_days'] }} days. Totals are not like-for-like.
+                    <span style="color:var(--ds-amber, #f59e0b); font-weight:600;">
+                        Unequal-length ranges — comparing {{ $comparisonMeta['period_days'] }} days to {{ $comparisonMeta['comparison_days'] }} days. Totals are not like-for-like.
                     </span>
                 @endif
             </div>
@@ -157,6 +120,46 @@
                 </div>
             </div>
         </div>
+    </div>
+
+    {{-- 2026-08-19 (Johan, Phase 2) — "the page should open with the answer, not
+         the data." Commission is the agency's actual return (an ROI report is
+         about money, not activity volume), so it's the hero figure — same source
+         (report.company.commission_gross_ex_vat) as the Company tile below, never
+         a new/derived number. Plain-language sentence, arrow + colour + words
+         together (never colour alone), same $comparisonMeta['phrase'] used
+         everywhere else so the reader is never left to guess what it's compared
+         to. print:hidden is NOT used here — this is exactly what should survive
+         to print, unlike the toolbar buttons. --}}
+    @php
+        $heroValue = (float) ($report['company']['commission_gross_ex_vat'] ?? 0);
+        $heroComp  = $comparison['company']['commission_gross_ex_vat'] ?? null;
+        $compactRand = function (float $v): string {
+            $sign = $v < 0 ? '-' : '';
+            $v = abs($v);
+            if ($v >= 1000000) return $sign . 'R' . rtrim(rtrim(number_format($v / 1000000, 1), '0'), '.') . 'm';
+            if ($v >= 1000)    return $sign . 'R' . rtrim(rtrim(number_format($v / 1000, 1), '0'), '.') . 'k';
+            return $sign . 'R' . number_format($v);
+        };
+    @endphp
+    <div class="rounded p-4 lg:p-5" style="background:var(--surface-2); border:1px solid var(--border);">
+        <p class="text-lg lg:text-xl font-semibold" style="color:var(--text-primary);">
+            {{ $report['period']['label'] }}, the agency earned
+            <span style="color:var(--brand-icon, #0ea5e9);">{{ $compactRand($heroValue) }}</span>
+            in commission
+            @if($heroComp && !($heroComp['value'] == 0 && $heroComp['previous'] == 0))
+                @php
+                    $up = $heroComp['delta'] > 0;
+                    $heroClass = $heroComp['good'] === null ? 'report-delta-neutral' : ($heroComp['good'] ? 'report-delta-good' : 'report-delta-bad');
+                @endphp
+                — <span class="{{ $heroClass }}" style="font-weight:600;">
+                    {{ $up ? '▲' : ($heroComp['delta'] < 0 ? '▼' : '') }}
+                    {{ $up ? 'up' : ($heroComp['delta'] < 0 ? 'down' : 'flat') }}
+                    {{ $heroComp['delta_pct'] !== null ? abs($heroComp['delta_pct']) . '%' : $compactRand(abs($heroComp['delta'])) }}
+                </span> {{ $comparisonMeta['phrase'] ?? '' }}
+            @endif
+            .
+        </p>
     </div>
 
     {{-- Company totals — each card drills into its detail (contract §B) --}}
@@ -242,7 +245,7 @@
                     <template x-for="b in branchDisplay()" :key="b.key">
                         <tr style="border-top:1px solid var(--border);">
                             <td class="px-2 py-1.5 whitespace-nowrap">
-                                <a :href="branchUrl(b.key)" class="no-underline" style="color:var(--brand, #3b82f6);" x-text="b.label"></a>
+                                <a :href="branchUrl(b.key)" class="no-underline" style="color:var(--brand-icon, #0ea5e9);" x-text="b.label"></a>
                             </td>
                             <template x-for="m in metrics" :key="m.key">
                                 <td :class="isMoney(m.key) ? 'num-money' : 'num-qty'"
@@ -353,7 +356,7 @@
                     <template x-for="a in agentDisplay()" :key="a.user_id">
                         <tr style="border-top:1px solid var(--border);">
                             <td class="px-2 py-1.5 whitespace-nowrap">
-                                <a :href="agentUrl(a.user_id)" class="no-underline" style="color:var(--brand, #3b82f6);" x-text="a.name"></a>
+                                <a :href="agentUrl(a.user_id)" class="no-underline" style="color:var(--brand-icon, #0ea5e9);" x-text="a.name"></a>
                             </td>
                             <td class="px-2 py-1.5 whitespace-nowrap" style="color:var(--text-muted);" x-text="a.branch_label"></td>
                             <template x-for="m in metrics" :key="m.key">
@@ -384,7 +387,7 @@
          class="fixed inset-0 z-50 flex items-start justify-center p-4 md:p-10 print:hidden"
          style="background:rgba(0,0,0,.45);" @click.self="closeDrill()">
         <div class="w-full max-w-4xl rounded shadow-lg max-h-[85vh] overflow-hidden flex flex-col"
-             style="background:var(--surface-1, #fff); border:1px solid var(--border);" role="dialog" aria-modal="true" aria-label="Detail">
+             style="background:var(--surface-2); border:1px solid var(--border);" role="dialog" aria-modal="true" aria-label="Detail">
             <div class="flex items-center justify-between px-4 py-3" style="border-bottom:1px solid var(--border);">
                 <h3 class="text-sm font-bold" style="color:var(--text-primary);" x-text="drillTitle || 'Detail'"></h3>
                 <button type="button" @click="closeDrill()" class="text-lg leading-none px-2" style="color:var(--text-muted);" aria-label="Close">&times;</button>
@@ -397,7 +400,7 @@
                 <div x-show="!drillLoading && !drillError && drillRows.length === 0" class="text-xs py-8 text-center" style="color:var(--text-muted);">
                     Nothing to show for this figure in the selected period.
                 </div>
-                <table x-show="!drillLoading && !drillError && drillRows.length > 0" class="w-full text-xs">
+                <table x-show="!drillLoading && !drillError && drillRows.length > 0" class="w-full text-xs ds-table">
                     <thead>
                         <tr style="background:var(--surface-2);">
                             <template x-for="c in drillColumns" :key="c.key">
@@ -411,7 +414,7 @@
                                 <template x-for="c in drillColumns" :key="c.key">
                                     <td class="px-3 py-2" :class="c.align === 'right' ? 'text-right' : 'text-left'" style="color:var(--text-primary);">
                                         <template x-if="c.key === drillColumns[0].key && row.href">
-                                            <a :href="row.href" class="no-underline" style="color:var(--brand, #3b82f6);" x-text="cell(row, c)"></a>
+                                            <a :href="row.href" class="no-underline" style="color:var(--brand-icon, #0ea5e9);" x-text="cell(row, c)"></a>
                                         </template>
                                         <template x-if="!(c.key === drillColumns[0].key && row.href)">
                                             <span x-text="cell(row, c)"></span>

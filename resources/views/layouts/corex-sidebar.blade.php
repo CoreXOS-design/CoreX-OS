@@ -119,6 +119,7 @@
         'admin.listings.*',
         'admin.deals*', 'admin.daily*', 'admin.targets*', 'admin.worksheet-market*',
         'admin.tv-messages*', 'admin.activity-mappings.*', 'admin.daily-activities.setup*',
+        'admin.minion.*',
         // Both links live in the Agency Tracker panel, so their routes must open it.
         // 'corex.compliance.rcr.*' does NOT match the 'compliance.*' matcher below —
         // routeIs() globs the whole name, and this one is prefixed 'corex.'.
@@ -198,8 +199,12 @@
         'seller-outreach.*',         // Seller Outreach composer / entry redirects live in Real Estate
         'corex.outreach-canvassing.*', // Part 4 — Outreach & Canvassing board lives in Real Estate
         'corex.outreach-summary.*',  // AT-91 — WhatsApp Outreach Summary lives in Real Estate
-        'corex.outreach-queue.*'     // AT-117/AT-120 — Outreach Queue lives in Real Estate
-    )) {
+        'corex.outreach-queue.*',    // AT-117/AT-120 — Outreach Queue lives in Real Estate
+        'corex.deeds-capture.*'      // Deeds Capture lives in Real Estate
+    ) && !request()->routeIs('market-intelligence.suburb-report*')) {
+        // Suburb Report (2026-08-25) moved into the Reports panel, not Market
+        // Intelligence — excluded here so it falls through to the reports
+        // matcher below instead of the generic 'market-intelligence.*' one.
         $activeGroup = 'real-estate';
     } elseif (request()->routeIs('payroll.leave.*')) {
         $activeGroup = 'leave';
@@ -211,7 +216,8 @@
         'deals-v2.suppliers.*',
         'deals-v2.pipeline.*',
         'admin.settings.deal-property-sync.*',
-        'admin.settings.deal-distribution-rules.*'
+        'admin.settings.deal-distribution-rules.*',
+        'admin.settings.document-distribution*'
     )) {
         // Johan menu reorg — the four deal-register config doors live in one admin group.
         $activeGroup = 'deal-register-settings';
@@ -232,7 +238,8 @@
         'admin.assistants.*',
         'admin.soft-deletes.*',
         'staff-take-on.*',
-        'billing.*'
+        'billing.*',
+        'proforma.*'
     )) {
         $activeGroup = 'company';
     } elseif (request()->routeIs(
@@ -250,9 +257,17 @@
         'compliance.comm-flags.*',
         'compliance.comm-mailboxes.*',
         'corex.comms-access.inbox',
+        'corex.comms-suspense.*',
         'settings.email-setup.*'
     )) {
         $activeGroup = 'communication';
+    } elseif (request()->routeIs(
+        'buyers-report.*',
+        'performance.agency-report*',
+        'market-intelligence.suburb-report*'
+    )) {
+        // All three links live in the Reports panel, so their routes must open it.
+        $activeGroup = 'reports';
     }
 
     // ── Nested groups (a panel that lives inside another panel) ──

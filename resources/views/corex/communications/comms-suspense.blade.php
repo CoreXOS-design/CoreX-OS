@@ -8,21 +8,21 @@
 <div class="w-full space-y-5" x-data="commsSuspense()">
 
     {{-- header --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a); color:#fff;">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex items-center justify-between gap-3">
             <div>
-                <h1 class="text-lg font-semibold">Comms Suspense — attorney email to file</h1>
-                <p class="text-xs opacity-80 mt-1">Returns from attorneys that CoreX could not auto-file. Confirm the deal, link to another, or reject. Once you confirm the first email of a correspondence, the same reference files automatically after that.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Comms Suspense — attorney email to file</h1>
+                <p class="text-xs mt-1" style="color: var(--text-muted);">Returns from attorneys that CoreX could not auto-file. Confirm the deal, link to another, or reject. Once you confirm the first email of a correspondence, the same reference files automatically after that.</p>
             </div>
             <span class="text-xs px-2 py-1 rounded-full" style="background:rgba(255,255,255,0.15);">{{ $items->total() }} to review</span>
         </div>
     </div>
 
     @if(session('status'))
-        <div class="rounded-md px-4 py-3 text-sm" style="background:rgba(16,185,129,0.12); color:#10b981; border:1px solid rgba(16,185,129,0.25);">{{ session('status') }}</div>
+        <div class="rounded-md px-4 py-3 text-sm" style="background:color-mix(in srgb, var(--ds-green, #059669) 12%, transparent); color:var(--ds-green, #059669); border:1px solid color-mix(in srgb, var(--ds-green, #059669) 25%, transparent);">{{ session('status') }}</div>
     @endif
     @if(session('error'))
-        <div class="rounded-md px-4 py-3 text-sm" style="background:color-mix(in srgb, var(--ds-crimson, #dc2626) 12%, transparent); color:#ef4444; border:1px solid rgba(239,68,68,0.25);">{{ session('error') }}</div>
+        <div class="rounded-md px-4 py-3 text-sm" style="background:color-mix(in srgb, var(--ds-crimson, #dc2626) 12%, transparent); color:var(--ds-crimson, #dc2626); border:1px solid color-mix(in srgb, var(--ds-crimson, #dc2626) 25%, transparent);">{{ session('error') }}</div>
     @endif
 
     {{-- hidden retargetable form for picker submits (verify to a chosen deal / reassign) --}}
@@ -41,9 +41,9 @@
                         <div class="flex items-center gap-2 flex-wrap">
                             @php
                                 $conf = $s->confidence;
-                                $chip = $conf === 'high' ? ['High confidence','rgba(16,185,129,0.12)','#10b981']
-                                      : ($conf === 'medium' ? ['Medium','rgba(245,158,11,0.14)','#b45309']
-                                      : ['Needs a deal','rgba(107,114,128,0.14)','#6b7280']);
+                                $chip = $conf === 'high' ? ['High confidence','color-mix(in srgb, var(--ds-green, #059669) 12%, transparent)','var(--ds-green, #059669)']
+                                      : ($conf === 'medium' ? ['Medium','color-mix(in srgb, var(--ds-amber, #f59e0b) 14%, transparent)','var(--ds-amber, #f59e0b)']
+                                      : ['Needs a deal','var(--surface-2)','var(--text-muted)']);
                             @endphp
                             <span class="text-[10px] font-semibold px-2 py-0.5 rounded-full" style="background:{{ $chip[1] }}; color:{{ $chip[2] }};">{{ $chip[0] }}</span>
                             <span class="text-xs" style="color:var(--text-muted, #6b7280);">{{ optional($c?->occurred_at)->diffForHumans() }}</span>
@@ -86,7 +86,7 @@
                                     <option value="{{ $d['id'] }}" {{ $d['id'] === $sugId ? 'selected' : '' }}>{{ $d['label'] }}</option>
                                 @endforeach
                             </select>
-                            <button type="submit" class="w-full text-xs font-semibold px-3 py-2 rounded" style="background:var(--brand-default, #0b2a4a); color:#fff;">Confirm &amp; file</button>
+                            <button type="submit" class="w-full text-xs font-semibold px-3 py-2 rounded" style="background:var(--brand-button, #0ea5e9); color:#fff;">Confirm &amp; file</button>
                         </form>
                         <button type="button" @click="open('{{ route('corex.comms-suspense.verify', $s) }}')"
                                 class="w-full text-[11px] px-3 py-1.5 rounded" style="background:var(--surface-2, #f3f4f6); color:var(--text-secondary, #374151); border:1px solid var(--border, #e5e7eb);">
@@ -95,7 +95,7 @@
                         <form method="POST" action="{{ route('corex.comms-suspense.dismiss', $s) }}"
                               onsubmit="return confirm('Reject this email? It will not be filed to any deal.');">
                             @csrf
-                            <button type="submit" class="w-full text-[11px] px-3 py-1.5 rounded" style="background:transparent; color:#ef4444; border:1px solid rgba(239,68,68,0.3);">Reject</button>
+                            <button type="submit" class="w-full text-[11px] px-3 py-1.5 rounded" style="background:transparent; color:var(--ds-crimson, #c41e3a); border:1px solid color-mix(in srgb, var(--ds-crimson, #c41e3a) 30%, transparent);">Reject</button>
                         </form>
                     </div>
                 </div>

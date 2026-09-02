@@ -107,8 +107,8 @@
             this.expandedId = commId; this.expandedHtml = ''; this.expanding = true;
             try {
                 const r = await fetch('{{ url('deals-dr2/communications') }}/' + commId + '/body', {headers:{Accept:'text/html'}});
-                this.expandedHtml = r.ok ? await r.text() : '<p style=\'color:#b91c1c;font-size:.8rem;\'>Could not load this email.</p>';
-            } catch(e) { this.expandedHtml = '<p style=\'color:#b91c1c;font-size:.8rem;\'>Could not load this email.</p>'; }
+                this.expandedHtml = r.ok ? await r.text() : '<p style=\'color:var(--ds-crimson, #c41e3a);font-size:.8rem;\'>Could not load this email.</p>';
+            } catch(e) { this.expandedHtml = '<p style=\'color:var(--ds-crimson, #c41e3a);font-size:.8rem;\'>Could not load this email.</p>'; }
             this.expanding = false;
         },
         async searchDeals(){
@@ -227,46 +227,40 @@
      }">
 
     {{-- Page header --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Deal Register Unfiled Emails</h1>
-                <p class="text-sm text-white/60">Emails not yet filed to a deal, that you were actually a party to. File one, and any related unfiled emails are suggested.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Deal Register Unfiled Emails</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Emails not yet filed to a deal, that you were actually a party to. File one, and any related unfiled emails are suggested.</p>
             </div>
             <div class="flex items-center gap-3">
                 {{-- Data scope — plain server-rendered pill group, full GET navigation, same
                      idiom as MIC's filter rail / Buyer Pipeline. STRICT gating: a scope past
                      the role ceiling never renders as an option at all. Active pill keeps
-                     WHITE text and swaps the BACKGROUND to the brand accent instead of a dark
-                     literal/var(--brand-default) on white — corex.css has a broad dark-mode
-                     guard (html.dark [style*="color:var(--brand-default"], plus a list of dark
-                     literal hexes incl. #0b2a4a) that neutralises ANY of those used as inline
-                     TEXT color, confirmed via Chrome DevTools Protocol matched-styles (both the
-                     variable and the literal rendered invisible white-on-white). Matches the
-                     agent-picker button's own accent-highlight convention elsewhere on this
-                     screen (border/text in --brand-icon) but inverted to background so the text
-                     itself is never a color the guard can catch. --}}
-                <div class="inline-flex rounded-md overflow-hidden" style="border: 1px solid rgba(255,255,255,0.25);">
+                     WHITE text and swaps the BACKGROUND to the brand accent; inactive pills
+                     use the neutral surface/muted tokens now that the header itself is a
+                     neutral corex-page-banner rather than a dark literal fill. --}}
+                <div class="inline-flex rounded-md overflow-hidden" style="border: 1px solid var(--border);">
                     @foreach($scopeLabels as $key => $label)
                         @if(($scopeRank[$key] ?? 9) <= $maxRank)
                             <a href="{{ route('deals-dr2.unfiled-emails.index', array_merge(request()->except(['scope', 'page']), ['scope' => $key])) }}"
                                class="px-3 py-1.5 text-sm font-medium transition-colors"
-                               style="{{ $scope === $key ? 'background: var(--brand-icon, #0ea5e9); color: #fff;' : 'color: #fff;' }}">{{ $label }}</a>
+                               style="{{ $scope === $key ? 'background: var(--brand-icon, #0ea5e9); color: #fff;' : 'background: var(--surface); color: var(--text-muted);' }}">{{ $label }}</a>
                         @endif
                     @endforeach
                 </div>
-                <div class="text-sm text-white/80">{{ $emails->total() }} {{ $state === 'filed' ? 'filed' : ($state === 'all' ? 'total' : ($state === 'removed' ? 'removed' : 'unfiled')) }}</div>
+                <div class="text-sm" style="color: var(--text-secondary);">{{ $emails->total() }} {{ $state === 'filed' ? 'filed' : ($state === 'all' ? 'total' : ($state === 'removed' ? 'removed' : 'unfiled')) }}</div>
             </div>
         </div>
 
         {{-- CX-113 Phase B — filed-state filter. Unfiled (default) / Filed / All. Search
              spans whichever state is active. Same pill idiom as scope above, no ceiling
              gating (state is not a permission concept — every scope tier gets all three). --}}
-        <div class="mt-3 inline-flex rounded-md overflow-hidden" style="border: 1px solid rgba(255,255,255,0.25);">
+        <div class="mt-3 inline-flex rounded-md overflow-hidden" style="border: 1px solid var(--border);">
             @foreach(['unfiled' => 'Unfiled', 'filed' => 'Filed', 'all' => 'All', 'removed' => 'Removed'] as $key => $label)
                 <a href="{{ route('deals-dr2.unfiled-emails.index', array_merge(request()->except(['state', 'page']), ['state' => $key])) }}"
                    class="px-3 py-1.5 text-sm font-medium transition-colors"
-                   style="{{ $state === $key ? 'background: var(--brand-icon, #0ea5e9); color: #fff;' : 'color: #fff;' }}">{{ $label }}</a>
+                   style="{{ $state === $key ? 'background: var(--brand-icon, #0ea5e9); color: #fff;' : 'background: var(--surface); color: var(--text-muted);' }}">{{ $label }}</a>
             @endforeach
         </div>
     </div>
@@ -355,7 +349,7 @@
                                    class="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs text-left"
                                    style="border-bottom:1px solid var(--border,rgba(0,0,0,.04));">
                                     <span class="inline-flex items-center justify-center w-6 h-6 rounded-md text-xs font-bold flex-shrink-0"
-                                          style="background:var(--brand-default,#0b2a4a);color:#fff;"
+                                          style="background:var(--brand-icon,#0ea5e9);color:#fff;"
                                           x-text="agent.name.charAt(0).toUpperCase()"></span>
                                     <div class="min-w-0">
                                         <div class="font-semibold truncate" style="color:var(--text-primary);" x-text="agent.name"></div>
@@ -378,7 +372,7 @@
         </form>
     </div>
 
-    <p x-show="err" x-cloak x-text="err" style="color:#b91c1c;font-size:.85rem;"></p>
+    <p x-show="err" x-cloak x-text="err" style="color:var(--ds-crimson, #c41e3a);font-size:.85rem;"></p>
 
     {{-- CX-113 Phase G — see the dr2-email-body comment below for why. Scoped to this
          class only, so Comms Suspense/Archive's own use of the same shared partial is
@@ -610,7 +604,7 @@
                                     @endunless
                                 </div>
                                 @if($topFileable)
-                                    <button type="button" class="w-full text-xs font-semibold" style="margin-top:.5rem;padding:.5rem;border-radius:.375rem;background:var(--brand-default,#0b2a4a);color:#fff;"
+                                    <button type="button" class="w-full text-xs font-semibold" style="margin-top:.5rem;padding:.5rem;border-radius:.375rem;background:var(--brand-button,#0ea5e9);color:#fff;"
                                             @click="file({{ $email->id }}, {{ $topMatch['id'] }})">Confirm &amp; file {{ $topMatch['label'] }}</button>
                                 @else
                                     <button type="button" class="w-full text-xs font-semibold" disabled style="margin-top:.5rem;padding:.5rem;border-radius:.375rem;background:var(--surface-2,#f3f4f6);color:var(--text-muted,#9ca3af);opacity:.7;cursor:not-allowed;">Not yet in the Deal Register</button>
@@ -696,7 +690,7 @@
                         <div class="mt-3 pt-3" style="border-top:1px solid var(--border,#e5e7eb);display:flex;flex-direction:column;gap:.5rem;">
                             @php($stackFileable = $topMatch && ($topMatch['fileable'] ?? true))
                             <button type="button" class="w-full text-xs font-semibold" :disabled="! {{ $stackFileable ? 'true' : 'false' }}"
-                                    style="padding:.55rem;border-radius:.375rem;background:var(--brand-default,#0b2a4a);color:#fff;{{ $stackFileable ? '' : 'opacity:.4;cursor:not-allowed;' }}"
+                                    style="padding:.55rem;border-radius:.375rem;background:var(--brand-button,#0ea5e9);color:#fff;{{ $stackFileable ? '' : 'opacity:.4;cursor:not-allowed;' }}"
                                     @click="{{ $stackFileable ? 'file(' . $email->id . ', ' . $topMatch['id'] . ')' : '' }}">Confirm &amp; file</button>
                             <button type="button" class="w-full text-xs" style="padding:.5rem;border-radius:.375rem;background:var(--surface-2,#f3f4f6);color:var(--text-secondary,var(--text-primary));border:1px solid var(--border,#e5e7eb);"
                                     @click="openPicker({{ $email->id }}); $nextTick(() => document.getElementById('deal-search-{{ $email->id }}')?.focus())">Search all deals…</button>
@@ -785,7 +779,7 @@
                         <input type="checkbox" :value="s.id" x-model="suggestSelected" style="margin-top:.2rem;">
                         <span>
                             <span style="font-weight:600;" x-text="s.subject || '(no subject)'"></span><br>
-                            <span style="color:#9ca3af;" x-text="[s.from, s.when].filter(Boolean).join(' · ')"></span>
+                            <span style="color:var(--text-muted, #9ca3af);" x-text="[s.from, s.when].filter(Boolean).join(' · ')"></span>
                         </span>
                     </label>
                 </template>

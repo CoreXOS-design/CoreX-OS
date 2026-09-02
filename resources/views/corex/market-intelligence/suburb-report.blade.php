@@ -7,7 +7,7 @@
 @extends('layouts.corex-app')
 
 @section('corex-content')
-<div class="max-w-7xl mx-auto space-y-6">
+<div class="space-y-6" style="width: 100%;">
 
     <x-mic-page-header
         title="{{ $data['suburb']['name'] ?? ('#' . $suburb->id) }}"
@@ -44,7 +44,7 @@
                 <button type="button" class="corex-btn-outline" style="padding:0.25rem 0.6rem;" @click="all('market', false)">Hide all market sides</button>
             </div>
             <div class="overflow-x-auto">
-                <table class="text-sm" style="width:100%; border-collapse: collapse;">
+                <table class="text-sm ds-table" style="width:100%; border-collapse: collapse;">
                     <thead>
                         <tr style="color: var(--text-secondary); text-align:left;">
                             <th class="py-1 pr-3">Section</th>

@@ -243,7 +243,7 @@
     @php $wonBuyers = $wonBuyers ?? collect(); @endphp
     <div class="mt-6 rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
         <div class="px-4 py-3 flex items-center justify-between" style="border-bottom: 2px solid var(--ds-green, #059669);">
-            <span class="text-sm font-semibold" style="color: var(--text-primary);">🏆 Won / Success</span>
+            <span class="text-sm font-semibold" style="color: var(--text-primary);">Won / Success</span>
             <span class="text-xs px-2 py-0.5 rounded-full font-bold whitespace-nowrap" style="background: color-mix(in srgb, var(--ds-green, #059669) 15%, transparent); color: var(--ds-green, #059669);">{{ number_format($counts['won'] ?? $wonBuyers->count()) }}</span>
         </div>
         @if($wonBuyers->isEmpty())
