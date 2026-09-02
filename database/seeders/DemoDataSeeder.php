@@ -681,6 +681,12 @@ class DemoDataSeeder extends Seeder
             $result = $seeder->run(self::AGENCY_ID);
             $this->command->info("  Stage 14 (compliance reports): {$result['created']} created, {$result['skipped']} already present");
         });
+
+        $this->safeSeed('DemoPayrollSeeder', function () {
+            $seeder = new \Database\Seeders\Demo\DemoPayrollSeeder();
+            $result = $seeder->run(self::AGENCY_ID);
+            $this->command->info("  Stage 14 (payroll): {$result['created']} created, {$result['skipped']} already present");
+        });
     }
 
     // ───────────────────────────────────────────────────────────────────
