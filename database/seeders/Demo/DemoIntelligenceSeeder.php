@@ -37,8 +37,17 @@ class DemoIntelligenceSeeder extends Seeder
     private const HERO_COUNT = 15;
     private const PORTAL_METRIC_DAYS = 60;
     private const MATCHED_LISTINGS_PER_HERO = 4;
-    /** Of the HERO_COUNT properties, how many get a full CMA snapshot presentation. */
-    private const CMA_PRESENTATIONS = 10;
+    /**
+     * Of the HERO_COUNT properties, how many get a full CMA snapshot
+     * presentation. Was 10 — raised to cover every hero (2026-09-02) after
+     * Johan couldn't find a property with the Intelligence chart: all 15
+     * heroes DO have a working portal-engagement chart, but only the first
+     * 10 had a CMA snapshot and only the first 5 had matched listings, so a
+     * click on hero #11-15 showed a working chart next to two empty panels.
+     * Every hero should look equally complete regardless of which one gets
+     * opened.
+     */
+    private const CMA_PRESENTATIONS = self::HERO_COUNT;
 
     /** @return array{portal_metric_rows:int, matched_listings:int, presentations_created:int, note?:string} */
     public function run(int $agencyId = 1): array
