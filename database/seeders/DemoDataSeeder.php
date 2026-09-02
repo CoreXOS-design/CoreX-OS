@@ -259,6 +259,7 @@ class DemoDataSeeder extends Seeder
         $this->stage15b_dr2ShowcaseDeal();
         $this->stage15c_complianceDocumentsOnFile();
         $this->stage15d_calendarInvitations();
+        $this->stage15e_leave();
         $this->stage16_agencyConfigurationSweep();
         $this->stageV_verifyDemoIntegrity();
 
@@ -761,6 +762,21 @@ class DemoDataSeeder extends Seeder
             $seeder = new \Database\Seeders\Demo\DemoFicaDocumentsSeeder();
             $result = $seeder->run(self::AGENCY_ID);
             $this->command->info("  Stage 15c (FICA documents): {$result['created']} submissions got documents, {$result['skipped']} already had some");
+        });
+    }
+
+    // ───────────────────────────────────────────────────────────────────
+    //  STAGE 15e — Payroll -> Leave as a LIVING function (Johan, expanded
+    //  mandate): 7 leave types configured, zero entitlements/applications/
+    //  transactions for any of the 12 payroll employees.
+    // ───────────────────────────────────────────────────────────────────
+
+    private function stage15e_leave(): void
+    {
+        $this->safeSeed('DemoLeaveSeeder', function () {
+            $seeder = new \Database\Seeders\Demo\DemoLeaveSeeder();
+            $result = $seeder->run(self::AGENCY_ID);
+            $this->command->info("  Stage 15e (leave): {$result['created']} applications created");
         });
     }
 
