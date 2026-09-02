@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands\Demo;
 
+use App\Models\DevSetting;
 use App\Support\DemoResetSchedule;
 use App\Support\Instance;
 use Illuminate\Console\Command;
@@ -45,6 +46,33 @@ class DemoReset extends Command
 
             Log::warning('[demo-access] demo:reset was invoked on a NON-DEMO instance and refused.', [
                 'role' => Instance::role(),
+            ]);
+
+            return self::FAILURE;
+        }
+
+        // ── Second, independent guard. ──
+        //
+        // 2026-09-02 incident: the scheduler entry that gates this command lives in
+        // routes/console.php, in a shared, actively-edited checkout — a working-tree
+        // edit to disable it is NOT durable (a `git reset`/checkout by any other
+        // process silently restores whatever was last committed). That is exactly
+        // what re-armed the 3am reset on webinar-eve after it had been disabled the
+        // evening before, wiping the just-verified demo dataset with 24 hours to go.
+        //
+        // This check lives in the COMMAND itself, not the schedule, and reads a
+        // DB row (dev_settings), not a file — so a code-level revert of the
+        // schedule entry cannot silently re-arm actual execution on its own. Both
+        // the schedule AND this flag have to agree before a reset can run, whether
+        // triggered by cron or by hand. Cleared via:
+        //   php artisan tinker --execute="DevSetting::set('demo_reset_frozen','0');"
+        if (DevSetting::bool('demo_reset_frozen')) {
+            $this->error('REFUSED: demo:reset is frozen (dev_settings.demo_reset_frozen=true).');
+            $this->line('  This is a deliberate freeze — someone decided the demo dataset must not be touched right now.');
+            $this->line('  To lift it: DevSetting::set(\'demo_reset_frozen\', \'0\')');
+
+            Log::warning('[demo-access] demo:reset was invoked while frozen (demo_reset_frozen) and refused.', [
+                'scheduled' => (bool) $this->option('scheduled'),
             ]);
 
             return self::FAILURE;

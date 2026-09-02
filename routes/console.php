@@ -500,14 +500,23 @@ Schedule::command('geo:cache-purge')
 // longer scheduled; it targets a dedicated `demo` connection, which is the right
 // shape for rebuilding a demo DB from ANOTHER box, not for a demo instance
 // rebuilding its own.
-if (\App\Support\Instance::isDemo()) {
-    Schedule::command('demo:reset --scheduled')
-        ->dailyAt('03:00')
-        ->timezone(\App\Support\DemoResetSchedule::TIMEZONE)
-        ->onOneServer()
-        ->withoutOverlapping()
-        ->name('demo-access.reset');
-}
+// DISABLED 2026-09-02 per Johan, re-applied after the 2026-09-02 03:06 incident
+// (this exact schedule entry re-armed itself overnight because the previous
+// disable was a working-tree edit only, never committed, and got silently
+// discarded by a `git reset` in this shared checkout — see git reflog around
+// 2026-09-02). This time the disable is COMMITTED, and a second, independent
+// guard (dev_settings.demo_reset_frozen, checked inside DemoReset::handle()
+// itself) means even a future revert of THIS comment-out cannot bring the
+// reset back — the command still refuses until that flag is cleared too.
+// Re-enable both together once Johan says it is safe, not before.
+// if (\App\Support\Instance::isDemo()) {
+//     Schedule::command('demo:reset --scheduled')
+//         ->dailyAt('03:00')
+//         ->timezone(\App\Support\DemoResetSchedule::TIMEZONE)
+//         ->onOneServer()
+//         ->withoutOverlapping()
+//         ->name('demo-access.reset');
+// }
 
 // Mandate expiry — daily at MIDNIGHT. Marks stock properties whose expiry_date
 // has passed as 'expired' and fires Mandate\MandateExpired domain events, which
