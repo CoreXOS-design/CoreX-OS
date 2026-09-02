@@ -32,6 +32,10 @@ class Webinar extends Model
         'registration_closes_at',
         'duration_minutes',
         'join_url',
+        // Stored verbatim — the Meeting ID keeps its internal spaces and the passcode
+        // is case-sensitive. Neither is derivable from join_url. See the migration.
+        'join_meeting_id',
+        'join_passcode',
         'access_ends_days_after',
         'reminder_hours_before',
         'created_by_user_id',

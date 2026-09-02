@@ -601,6 +601,142 @@ identically to archived, past, and never-existed. That sameness is the point: a 
 5. A cut-off at or after `starts_at` is rejected `422`, field-keyed.
 6. `registration_closes_at: null` behaves exactly as today for every existing webinar.
 
+### §4.6 Meeting ID and passcode (AMENDMENT — BUILT, awaiting Johan's QA)
+
+**Status: built 2026-09-02 on the `Prod` branch at Johan's explicit direction (he was
+offered QA1 and chose Prod). The migration has NOT been run against any database.**
+
+#### Why three columns and not one
+
+`join_url` alone cannot get a registrant into the meeting. A Zoom link carries an
+**encoded** `pwd` token; the passcode a person types into the Zoom desktop app is a
+**different, short string**:
+
+```
+link      https://zoom.us/j/82437708791?pwd=qYHFilPvbAdY4EVMBurh9XYun4Rcga.1
+passcode  0ABcMc
+```
+
+Neither yields the other, so nothing may parse one out of the other. Anyone whose
+browser link misbehaves joins by Meeting ID in the app instead — on the morning, with
+no time to ask — and can only do that if both values were stored.
+
+```
+webinars.join_url          (existed)
+webinars.join_meeting_id   nullable string(100)
+webinars.join_passcode     nullable string(100)
+```
+
+**Stored and rendered verbatim.** The Meeting ID keeps its internal spaces
+(`824 3770 8791` — how Zoom shows it and how a person reads it aloud). The passcode is
+**case-sensitive**: `0ABcMc` is not `0abcmc` and not `0ABCMC`. There is no trim rule, no
+case rule and no format rule anywhere in the stack, because every one of them would hand
+a registrant a code that fails. `NULL` means not set, and the mails omit the line rather
+than printing an empty label.
+
+#### The three-way contract
+
+Both fields follow the `registration_closes_at` contract (§4.5), on
+`POST /`, `PUT /{slug}` **and** `POST /{slug}/join-link`:
+
+| Request carries | Meaning | Result |
+|---|---|---|
+| `"join_passcode": "0ABcMc"` | set/replace | column set |
+| `"join_passcode": ""` | **clear** | column set to `NULL` |
+| key **absent** | leave unchanged | column untouched |
+
+The mechanism is `array_key_exists` against `validate()`'s output, and it is
+load-bearing. Reading these with `$request->input()`, or defaulting them into `$data`,
+turns "leave unchanged" into "clear it" — so a re-send of an unchanged link, or a title
+fix, would silently strip both values with no error raised and nothing to notice until a
+registrant cannot get in.
+
+The **CoreX screen** (§7.2) is deliberately different and correct: it posts the whole
+form every time, so an emptied box arrives as `null` and clears. Same as `join_url`
+there today.
+
+#### What changed
+
+| Surface | Change |
+|---|---|
+| `POST /{slug}/join-link` | accepts both; response echoes all three as the send's receipt |
+| `GET /{slug}/registrations` | `webinar` block returns all three, so the console pre-fills and a re-send cannot blank them |
+| `POST /`, `PUT /{slug}` | accept both; `listPayload()` returns both |
+| `GET /{slug}` (public) | **unchanged — returns none of the three.** A passcode on a brochure page lets anyone in without registering, which is the one thing the registration gate exists to prevent |
+| Joining-link, confirmation, reminder emails | one shared partial, `emails/webinars/_join-details.blade.php` |
+| Confirmation `.ics` | carries Meeting ID and passcode alongside the link. **Still never the demo access code** — a meeting passcode is part of the meeting address, which is what an invite is for; a CoreX credential is not |
+| CoreX screen `admin/dev-settings/webinars` | two boxes, per Johan 2026-09-02 |
+
+#### Decisions Claude made
+
+1. **One partial across three mails.** These values are the fallback route in, so the
+   three mails that carry a joining link must present them identically. Triplicated
+   markup drifts, and drift here is one of the three mails quietly losing the line.
+2. **The partial sits OUTSIDE the `@if($joinUrl)` block** in the confirmation and
+   reminder. A webinar can have an ID before it has a link, and the details stand on
+   their own.
+3. **`WebinarJoinLinkMail` declares the two properties at class level with `= null`,
+   not as promoted constructor params.** A queued mailable is restored by
+   `unserialize()`, which never runs the constructor — so a promoted parameter's default
+   does not apply and any job already in the `jobs` table at deploy time would restore
+   with the properties uninitialised and go fatal on first read. A class-level default is
+   what `unserialize()` falls back to, so in-flight sends render as before: link only.
+   Pinned by `test_a_mailable_restored_without_the_new_fields_still_renders`.
+4. **Monospace in the mails.** A person retypes these into Zoom under time pressure and
+   a proportional font makes `0`/`O` and `l`/`I` the same shape.
+5. **Neither value is wrapped in an `<a>`.** The passcode is not a link, and wrapping 11
+   digits invites a mail client to treat the Meeting ID as a phone number.
+
+#### The one business consequence worth stating plainly
+
+Registrants can now get into the meeting by Meeting ID when the browser link fails them.
+The passcode is only ever in the registrant's own email and calendar entry — never on the
+public webinar page — so it still cannot be used to skip registering.
+
+#### Files
+
+| File | Change |
+|---|---|
+| `database/migrations/2026_09_02_000001_add_join_meeting_id_and_passcode_to_webinars_table.php` | **new** |
+| `app/Models/Webinar.php` | both columns in `$fillable` |
+| `app/Http/Controllers/Api/V1/WebinarApiController.php` | `sendJoinLink()`, `registrations()`, `validatedWebinar()`, `listPayload()` |
+| `app/Http/Controllers/Admin/WebinarController.php` | `validated()`, `store()`, `update()` |
+| `resources/views/admin/webinars/_form.blade.php` | two boxes |
+| `resources/views/emails/webinars/_join-details.blade.php` | **new**, shared partial |
+| `resources/views/emails/webinars/{join-link,confirmation,reminder}.blade.php` | include the partial |
+| `app/Mail/WebinarJoinLinkMail.php` | two properties, passed by value; `.render()` data |
+| `app/Mail/WebinarConfirmationMail.php` | mail data + `.ics` description |
+| `app/Mail/WebinarReminderMail.php` | mail data |
+| `tests/Feature/Webinars/{WebinarJoinLinkApiTest,WebinarAdminApiTest,WebinarAdminTest}.php` | see below |
+| `database/schema/mysql-schema.sql` | **STILL OWED** — see below |
+
+#### Outstanding before this can be called done
+
+- `php artisan migrate` has **not** been run anywhere. The columns do not exist in any
+  database yet.
+- `php artisan schema:dump` + `DEFINER` strip (non-negotiable #12a) is **owed**, and must
+  be done from a machine whose database has the migration applied — never from a dump of
+  a database that lacks the columns.
+- The test suite has **not** been executed: PHPUnit is not installed in the environment
+  the work was written in (no dev dependencies). Verification was by rendering all three
+  mails and the `.ics` directly, and by `php -l` on every changed file.
+
+#### Acceptance criteria
+
+1. `POST …/join-link` with all three saves all three verbatim — spaces and case intact.
+2. `""` on one field clears it; an absent key leaves it alone; the other field is
+   untouched either way. True on `join-link`, `POST /` and `PUT /{slug}`.
+3. `GET …/registrations` returns all three in the `webinar` block.
+4. `GET /{slug}` (public) returns none of the three, under any key.
+5. All three mails show both lines when set, and omit them with no orphan label when not.
+6. The passcode renders exactly as stored — not upper-cased, not linked.
+7. The `.ics` carries the Meeting ID and passcode and **never** the demo access code.
+8. A `WebinarJoinLinkMail` serialised before this change still renders after it.
+9. The CoreX screen sets and clears both boxes.
+10. Over-long values are a `422`, field-keyed, with a plain-English message.
+
+---
+
 ---
 
 ## §5 — The expiry model (A3) — the significant change

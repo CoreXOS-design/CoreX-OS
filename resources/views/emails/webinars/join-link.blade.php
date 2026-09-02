@@ -78,6 +78,8 @@
                             Or paste this into your browser: {{ $joinUrl }}
                         </p>
 
+                        @include('emails.webinars._join-details')
+
                         <p style="font-size: 14px; margin: 0 0 8px; line-height: 1.65; color: #374151;">
                             Your demo access is unchanged — use the email address and access code in your
                             original confirmation email. It runs until

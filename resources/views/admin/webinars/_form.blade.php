@@ -115,6 +115,46 @@
         <x-input-error :messages="$errors->get('join_url')" class="mt-1" />
     </div>
 
+    {{-- The Meeting ID and passcode are NOT in the link and cannot be read out of it:
+         a Zoom link carries an encoded pwd token, while the passcode a person types
+         into the Zoom app is a different, short, case-sensitive string. Someone whose
+         browser link misbehaves on the morning joins by Meeting ID instead — and can
+         only do that if both were typed here. --}}
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div>
+            <label for="join_meeting_id" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">
+                Meeting ID
+            </label>
+            <input id="join_meeting_id" name="join_meeting_id" type="text" maxlength="100"
+                   value="{{ old('join_meeting_id', $w->join_meeting_id ?? '') }}"
+                   placeholder="824 3770 8791"
+                   class="w-full rounded-md px-3 py-2 text-sm"
+                   style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+            <p class="mt-1 text-xs" style="color: var(--text-muted);">
+                Copy it exactly as the meeting shows it, spaces and all.
+            </p>
+            <x-input-error :messages="$errors->get('join_meeting_id')" class="mt-1" />
+        </div>
+
+        <div>
+            <label for="join_passcode" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">
+                Passcode
+            </label>
+            {{-- autocapitalize/autocorrect off, and spellcheck off: a phone helpfully
+                 capitalising the first letter turns a working passcode into a dead one. --}}
+            <input id="join_passcode" name="join_passcode" type="text" maxlength="100"
+                   autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false"
+                   value="{{ old('join_passcode', $w->join_passcode ?? '') }}"
+                   placeholder="0ABcMc"
+                   class="w-full rounded-md px-3 py-2 text-sm"
+                   style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+            <p class="mt-1 text-xs" style="color: var(--text-muted);">
+                Capital and small letters matter — type it exactly.
+            </p>
+            <x-input-error :messages="$errors->get('join_passcode')" class="mt-1" />
+        </div>
+    </div>
+
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
             <label for="access_ends_days_after" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">

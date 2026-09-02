@@ -186,6 +186,65 @@ class WebinarAdminTest extends TestCase
              ->assertSessionHasErrors('join_url');
     }
 
+    /**
+     * The CoreX screen is a front door to the same record as the website's console, so
+     * it has to be able to set all three joining details. Setting the link here but not
+     * the Meeting ID and passcode would send a cohort a mail with a link and no fallback
+     * way in — and send whoever was working in CoreX off to another system to finish.
+     */
+    public function test_an_owner_sets_the_meeting_id_and_passcode(): void
+    {
+        $this->actingAs($this->owner)
+             ->post('/corex/admin/dev-settings/webinars', [
+                 'title'                  => 'Joining details walkthrough',
+                 'slug'                   => '',
+                 'starts_at'              => Carbon::now()->addDays(14)->format('Y-m-d\TH:i'),
+                 'join_url'               => 'https://zoom.us/j/82437708791',
+                 'join_meeting_id'        => '824 3770 8791',
+                 'join_passcode'          => '0ABcMc',
+                 'access_ends_days_after' => 3,
+                 'reminder_hours_before'  => 24,
+             ])
+             ->assertRedirect();
+
+        $created = Webinar::where('title', 'Joining details walkthrough')->firstOrFail();
+
+        // Spaces and case survive the round trip. A passcode that arrives upper-cased
+        // is a passcode that does not work.
+        $this->assertSame('824 3770 8791', $created->join_meeting_id);
+        $this->assertSame('0ABcMc', $created->join_passcode);
+    }
+
+    /**
+     * This screen posts the WHOLE form every time, so an emptied box means "clear it" —
+     * deliberately unlike the site API, where an absent key means "leave unchanged".
+     */
+    public function test_emptying_the_passcode_box_clears_it(): void
+    {
+        $this->webinar->update([
+            'join_meeting_id' => '824 3770 8791',
+            'join_passcode'   => '0ABcMc',
+        ]);
+
+        $this->actingAs($this->owner)
+             ->put('/corex/admin/dev-settings/webinars/' . $this->webinar->id, [
+                 'title'                  => $this->webinar->title,
+                 'slug'                   => $this->webinar->slug,
+                 'starts_at'              => $this->webinar->starts_at->format('Y-m-d\TH:i'),
+                 'join_url'               => $this->webinar->join_url,
+                 'join_meeting_id'        => '824 3770 8791',
+                 'join_passcode'          => '',
+                 'access_ends_days_after' => 3,
+                 'reminder_hours_before'  => 24,
+             ])
+             ->assertRedirect();
+
+        $fresh = $this->webinar->fresh();
+
+        $this->assertNull($fresh->join_passcode);
+        $this->assertSame('824 3770 8791', $fresh->join_meeting_id);
+    }
+
     /** Archiving closes registration and keeps the row (non-negotiable #1). */
     public function test_archiving_closes_registration_and_never_deletes(): void
     {

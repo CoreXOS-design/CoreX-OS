@@ -58,6 +58,11 @@ class WebinarReminderMail extends Mailable implements ShouldQueue
                 'registration' => $this->registration,
                 'contactName'  => $this->registration->name,
                 'joinUrl'      => $webinar->join_url,
+                // Read off the webinar at render time, exactly as joinUrl is here — this
+                // mail is not the one-shot operator send, so the current values are the
+                // right ones. Null simply omits the lines.
+                'joinMeetingId' => $webinar->join_meeting_id,
+                'joinPasscode'  => $webinar->join_passcode,
                 'accessEndsAt' => $webinar->demoAccessEndsAt(),
             ],
         );

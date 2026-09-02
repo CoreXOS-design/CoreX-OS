@@ -59,10 +59,29 @@ class WebinarJoinLinkMail extends Mailable implements ShouldQueue
      * Passing the value captures what this particular send promised, so a mail can
      * never render a link the recipient was not actually told about.
      */
+    /**
+     * DECLARED AS CLASS PROPERTIES WITH DEFAULTS, not promoted constructor params.
+     *
+     * A queued mailable is restored by unserialize(), which never runs the constructor
+     * — so a promoted parameter's default does not apply, and any job already sitting
+     * in the `jobs` table when this class gained two fields would restore with them
+     * UNINITIALISED and fatal on first read. A class-level `= null` is the declared
+     * default unserialize() falls back to, so in-flight sends from before the deploy
+     * render exactly as they did: link only, no Meeting ID line.
+     */
+    public ?string $joinMeetingId = null;
+
+    public ?string $joinPasscode = null;
+
     public function __construct(
         public WebinarRegistration $registration,
         public string $joinUrl,
-    ) {}
+        ?string $joinMeetingId = null,
+        ?string $joinPasscode = null,
+    ) {
+        $this->joinMeetingId = $joinMeetingId;
+        $this->joinPasscode  = $joinPasscode;
+    }
 
     public function envelope(): Envelope
     {
@@ -86,6 +105,12 @@ class WebinarJoinLinkMail extends Mailable implements ShouldQueue
                 'registration' => $this->registration,
                 'contactName'  => $this->registration->name,
                 'joinUrl'      => $this->joinUrl,
+
+                // Passed by value alongside the link, and for the same reason: these
+                // three travel together or the recipient gets a Meeting ID that does
+                // not match the link they were sent.
+                'joinMeetingId' => $this->joinMeetingId,
+                'joinPasscode'  => $this->joinPasscode,
                 'accessEndsAt' => $webinar->demoAccessEndsAt(),
             ],
         );
