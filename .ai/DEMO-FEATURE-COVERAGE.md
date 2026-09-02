@@ -8,18 +8,20 @@ I have not personally verified, marked `unknown`, not guessed.
 | Screen | Route | Owning lane | Has data? | Risk if clicked tomorrow |
 |---|---|---|---|---|
 | **Command Center Today (the real dashboard)** | `corex.dashboard` (`/corex`) | cc6 | Y — verified admin/BM/agent all populated | Low |
-| Command Center Tasks | `command-center.tasks` | cc6 | unknown | unknown |
-| Command Center Performance | `command-center.performance` | cc6 | unknown | unknown |
+| Command Center Tasks | `command-center.tasks` | cc6 | Y — renders 942KB, real content | Low |
+| Command Center Performance | `command-center.performance` | cc6 | Y — renders 147KB | Low |
 | Command Center Reporting (agency/agent/branch) | `command-center.reporting.*` | cc6 | unknown | unknown |
-| Command Center Lost Deals | `command-center.lost-deals` | cc6 | unknown | unknown |
+| Command Center Lost Deals | `command-center.lost-deals` | cc6 | unknown — closure route, not yet checked | unknown |
 | Command Center Buyers Pipeline | `command-center.buyers.pipeline` | cc6 | Y (dashboard card shows 111) | Low |
+| Worksheet | `worksheet.index` | cc6 | Y — renders 174KB | Low |
+| Commission list (admin) | `commission.index` | cc6 | N/A — correctly gated to owner/super_admin role only, not tenant admin; not a data gap | Low — don't demo as tenant admin, will 403 |
+| Commission dashboard "My Earnings" (agent) | `commission.dashboard` | cc6 | Y — renders 118KB as agent | Low |
 | Calendar | `command-center.calendar` | cc6 | Y — 1,455 events | Low |
 | Calendar Invitations | `command-center.calendar.invitations` | cc6 | Y — FIXED tonight, 5 seeded | Low |
 | Viewing Packs | `corex.viewing-packs.index` | cc6 | Y — 3 live | Low |
 | Feedback Reports | `command-center.feedback-reports` | cc6 | unknown | unknown |
 | BM My Dashboard / Daily Summary / Performance / Listings / Worksheet | `bm.*` | cc6 | unknown | unknown |
 | Agent Daily / Daily Summary | `agent.daily*` | **UNOWNED** | unknown | flag |
-| Worksheet | `worksheet.index` | cc6 | unknown | unknown |
 | DR2 Pipeline (list/timeline) | `deals-dr2.pipeline.*` | cc6 | Y — showcase deal 111 built + verified tonight | Low |
 | DR2 Register | `deals-dr2.index` | cc6 | Y — 125 live deals, 0 dupes (verified last night) | Low |
 | DR2 Unfiled Emails | `deals-dr2.unfiled-emails.index` | cc6 | Y — 7 live suspense rows | Low |
