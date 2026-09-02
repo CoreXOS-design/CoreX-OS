@@ -275,7 +275,7 @@ class WhistleblowComplaintService
 
             // Determine actual recipients for logging
             if ($isDemoMode) {
-                $recipientTo = [config('compliance.whistleblow.demo_recipient', 'johan@hfcoastal.co.za')];
+                $recipientTo = [config('compliance.whistleblow.demo_recipient', config('mail.from.address', 'demo-compliance@corexdemo.co.za'))];
             } else {
                 $tierRecipients = $agency->whistleblow_tier_recipients ?? [];
                 $recipientTo = $tierRecipients[$complaint->tier] ?? ['complaints@theppra.org.za'];

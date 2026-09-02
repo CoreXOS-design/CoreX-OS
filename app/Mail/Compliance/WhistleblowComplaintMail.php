@@ -52,7 +52,7 @@ class WhistleblowComplaintMail extends Mailable
 
         // To: tier-aware routing
         if ($this->isDemoMode) {
-            $toList = [config('compliance.whistleblow.demo_recipient', 'johan@hfcoastal.co.za')];
+            $toList = [config('compliance.whistleblow.demo_recipient', config('mail.from.address', 'demo-compliance@corexdemo.co.za'))];
         } else {
             $tierRecipients = $agency->whistleblow_tier_recipients ?? [];
             $toList = $tierRecipients[$complaint->tier] ?? [];

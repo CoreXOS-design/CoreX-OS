@@ -6,7 +6,7 @@
     <title>ADDENDUM B</title>
     <link href="/css/corex-document.css" rel="stylesheet">
     <style>
-        /* HFC Addendum B — standalone agency addendum (rides the same render/sign
+        /* Addendum B — standalone agency addendum (rides the same render/sign
            pipeline as any single doc). Only the letterhead varies per agency. */
         .adb-title { font-size: 13pt; font-weight: 700; text-align: center; margin: 6pt 0 4pt; letter-spacing: 0.5pt; }
         .adb-sub { font-size: 10pt; font-weight: 700; margin: 8pt 0 4pt; }
