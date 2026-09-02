@@ -604,7 +604,8 @@ identically to archived, past, and never-existed. That sameness is the point: a 
 ### §4.6 Meeting ID and passcode (AMENDMENT — BUILT, awaiting Johan's QA)
 
 **Status: built 2026-09-02 on the `Prod` branch at Johan's explicit direction (he was
-offered QA1 and chose Prod). The migration has NOT been run against any database.**
+offered QA1 and chose Prod). Migration applied to LIVE `corexos` the same day, also on
+Johan's explicit order for that exact action (non-negotiable #5).**
 
 #### Why three columns and not one
 
@@ -710,16 +711,44 @@ public webinar page — so it still cannot be used to skip registering.
 | `tests/Feature/Webinars/{WebinarJoinLinkApiTest,WebinarAdminApiTest,WebinarAdminTest}.php` | see below |
 | `database/schema/mysql-schema.sql` | **STILL OWED** — see below |
 
-#### Outstanding before this can be called done
+#### Deployment — what was done on live, 2026-09-02
 
-- `php artisan migrate` has **not** been run anywhere. The columns do not exist in any
-  database yet.
-- `php artisan schema:dump` + `DEFINER` strip (non-negotiable #12a) is **owed**, and must
-  be done from a machine whose database has the migration applied — never from a dump of
-  a database that lacks the columns.
-- The test suite has **not** been executed: PHPUnit is not installed in the environment
-  the work was written in (no dev dependencies). Verification was by rendering all three
-  mails and the `.ics` directly, and by `php -l` on every changed file.
+The code was already sitting in the live checkout at `/corex` when the columns did not
+yet exist, and **both controllers write both columns on every webinar create and edit** —
+so the live webinar screen and the site API were broken between the commit and the
+migration. That ordering is the lesson: for a change of this shape the migration goes
+first, never second.
+
+Applied, in order, on Johan's explicit order:
+
+1. `webinars` backed up to `/root/corex-backups/20260902-webinar-joining-details/`
+   (3 rows) with the pre-change `SHOW CREATE TABLE`.
+2. `migrate:status` confirmed **exactly one** pending migration, and it was this one.
+   Run with `--force --path=` scoped to that single file, so nothing unrelated could ride
+   along.
+3. Verified: both columns present and nullable, 3 webinars and 14 registrations intact,
+   the 2 existing `join_url` values preserved, 0 pending migrations left.
+4. Write paths exercised against the live schema **inside a rolled-back transaction** —
+   create with both values, then clear one — confirming spaces and case survive and that
+   clearing one leaves the other alone. 3 webinars before and after.
+5. Admin form renders both boxes; `GET /{slug}/registrations` returns all three;
+   `GET /{slug}` (public) leaks none of the three.
+6. `php-fpm` reload proved unnecessary — `opcache.validate_timestamps` is On with
+   `revalidate_freq=2`, so the web tier picked the code up by itself. `queue:restart`
+   WAS run, because the three mailables changed and a worker holding the old class in
+   memory would mail a registrant without the Meeting ID. All 21 supervisor programs
+   RUNNING afterwards, 0 failed jobs in the following 15 minutes.
+
+#### Still outstanding
+
+- `php artisan schema:dump` + `DEFINER` strip (non-negotiable #12a) is **owed**. It must
+  be taken from the TEST database on a dev box, as the 2026-08-26 entry did — never from
+  live `corexos`.
+- The test suite has **not** been executed: PHPUnit is not installed on the live host
+  (production dependencies only). 17 tests are written and owe a run on a dev checkout
+  before this merges onward. Same caveat as the 2026-08-27, -08-28 and -08-30 commits.
+- The commit is on local `Prod` only. The push to `origin` was blocked by the session's
+  permission classifier, exactly as on 2026-08-27, and still needs Johan.
 
 #### Acceptance criteria
 
