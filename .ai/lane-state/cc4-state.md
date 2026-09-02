@@ -117,33 +117,55 @@ multiple `deploy:sync-reference-data` runs tonight.
   everything else, and wire it into stage13.**
 - doc id=32, `CoreX-Demo-Splitter-Test.pdf` — typed `addendum`(1). Left as-is,
   not viewing-pack material, that's fine/correct.
-- Redaction: confirmed `ViewingPackRedactionService` exists as a real feature.
-  Did NOT get as far as testing an actual redaction end-to-end (would need a
-  real `ViewingPackDocument` row added to a pack first) — ran out of time before
-  compaction. **This is the most concrete next step for the viewing-pack story.**
+- Redaction: **tested end-to-end and CONFIRMED WORKING**, real DB state, not a
+  dry run. Property 2's `ViewingPackProperty` (id=1, pack_id=1) had ZERO
+  `ViewingPackDocument` rows despite doc 31 being eligible — eligibility alone
+  doesn't put it in the pack. Called the real
+  `ViewingPackDocumentService::includeDocument()` to add doc 31 →
+  `ViewingPackDocument` id=31 created. Called the real
+  `ViewingPackRedactionService::redact()` with a box (`x=50,y=50,w=300,h=100`
+  — **note the service expects `w`/`h` keys, NOT `width`/`height`**, an easy
+  mistake) → produced `viewing-packs/1/redacted/vpd-31.pdf` (real file,
+  confirmed via `Storage::exists()`), and `redact()` itself persists
+  `redacted_file_path` onto the `ViewingPackDocument` row. Verified the burn is
+  REAL, not just "no exception": re-rasterized the output PDF and sampled
+  pixels — inside the box reads pure black `(0,0,0)`, outside reads the
+  original background `(230,233,233)`. **Johan can now open property 2's
+  viewing pack and show a real redacted document, live.**
 
-## OUTSTANDING — Task 4, in progress when compaction hit
+## Task 4 — RESOLVED, committed (`475c7f4de`, pushed)
 
-**Filing register realism** — `document_filing_register` table, 75 rows (from
-`DemoFilingRegisterSeeder`, already wired). Found:
-- Only 3 distinct `document_type` values (`OA`, `EA`, `Other`) — thin variety.
-- `property_id` / `seller_contact_id` are NULL on every row — but
-  `property_address` / `seller_name` are real plain-text values (this table
-  looks like a historical/audit-style register by design — a physical filing-
-  cabinet index, not necessarily meant to carry live FKs). **Not yet determined
-  whether this is a real gap or intentional design** — was mid-way through
-  checking `app/Models/DocumentFiling.php` and
-  `app/Services/CommandCenter/Calendar/Sources/PropertyCalendarSource.php` (the
-  only two files that reference this table) to see if any UI actually tries to
-  link a filing-register row back to a live property (which would 404/dead-link
-  if `property_id` stays null). **Do that check first**, then decide: backfill
-  `property_id`/`seller_contact_id` on the 75 existing rows (safe UPDATE, not a
-  reseed — match by `property_address` text against `properties.address`), and/or
-  expand `DemoFilingRegisterSeeder`'s type variety beyond OA/EA/Other.
-- All 75 rows share the exact same `created_at` timestamp (single batch insert)
-  — looks slightly mechanical; consider whether that matters for "recent
-  activity" framing Johan wants, or whether it's not worth the effort given time
-  left.
+**Filing register realism** — `document_filing_register`, 75 rows. Findings:
+1. `property_id`/`seller_contact_id` NULL on every row is **intentional,
+   permanent design** (AT-238) — confirmed in `DocumentFiling`'s own docblocks
+   ("Nullable by design and permanently so... An unlinked row is not a
+   second-class citizen") AND independently in
+   `PropertyCalendarSource::filedDocumentExpiry()`'s own comment ("No
+   property_id FK — uses agent_id, branch_id directly"). **Do NOT backfill
+   this — it would contradict the architecture, not fix a gap.**
+2. Only 3 `document_type` values (OA/EA/Other) is **the complete, hard-
+   validated enum**, not thin variety — `DocumentFilingController.php:200`
+   validates `required|in:OA,EA,Other`, and the real edit-form dropdown only
+   offers those 3. Expanding it would produce rows invisible to the real
+   filter/edit UI. **Do NOT expand this.**
+3. All 75 rows sharing one `created_at` (single batch insert) WAS a genuine
+   mechanical artifact. **Fixed**: `DemoFilingRegisterSeeder` now staggers
+   `created_at`/`updated_at` a few days after each deal's own
+   `registration_date` instead of insert-time `now()`; backfilled the same
+   stagger onto the 75 existing rows via a direct UPDATE (not a reseed, matched
+   by `file_reference` → `deal_no` → `deals.registration_date`). Verified by
+   calling `DocumentFilingController::index()` directly as
+   `admin@demo.corexos.co.za`: renders, 934KB, contains real `FR/DEMO-*`
+   references, no exceptions.
+
+**Gotcha for next-context-me**: rendering the real `/filing-register` ROUTE
+via a raw request returns a 302 to `/demo/gate` — that's `EnsureDemoGrant`
+middleware (cookie `corex_demo_session`, token+TTL verified against a cached
+verdict), not a bug. To verify a page renders without simulating the full gate
+cookie flow, call the controller method directly
+(`app(DocumentFilingController::class)->index($request)` after
+`Auth::login($admin)`) — bypasses only the demo-gate middleware, not
+auth/permissions, and is enough to prove the Blade/query layer works.
 
 ## OUTSTANDING — not started
 - Re-verify e-sign/filing SETTINGS screens once more given the expanded mandate
@@ -151,9 +173,16 @@ multiple `deploy:sync-reference-data` runs tonight.
   document types, recipient presets/templates, distribution rules, document
   expectations — see commit `245fa4cfc`'s message for the full before/after
   table). Probably just needs a final confirmation pass, not new work.
-- Final `git add` + commit + push of: `DemoDocumentCoverageSeeder.php` (new,
-  untracked), the `DemoDataSeeder.php` wiring for it, and this state file.
-- Whatever comes out of the Task 4 filing-register work above.
+- Seed-back the `agency_document_type_compliance` override (agency 1,
+  `document_type_id=5`, `buyer_pack_eligible=1`) — still a raw DB row, not yet
+  wrapped in an idempotent seeder call. Low risk since demo:reset is frozen,
+  but flagged for whoever eventually re-arms reset.
+
+## ALL PLANNED WORK FOR THIS SLICE: DONE, committed, pushed to origin/main
+`67c49e5d6` (document coverage), `374de0534` (handoff doc),
+`475c7f4de` (filing register timestamp realism) — plus the viewing-pack
+redaction proof above (real DB state, not committed as code since it's a
+data action via the real service, not a seeder change).
 
 ## Gotchas / traps for next-context-me
 - **This is a SHARED checkout** — other lanes (cc1 deeds/leads, cc2 group B,
