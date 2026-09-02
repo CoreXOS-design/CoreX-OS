@@ -18,7 +18,15 @@ present. Full detail on every item below.
    real ~2-month daily-views trend, not "No portal view data yet."
 4. **A filed, signed e-sign document — on its property** —
    `https://demo1.corexos.co.za/corex/properties/16` — Documents tab should
-   show a signed, filed PDF.
+   show a signed, filed PDF. Property 16 is now "187 Edward Avenue, Uvongo"
+   (re-seeded since last night) — the filed PDF's own filename still says
+   "54 Coastal Way, St Michaels-on-Sea" (stale, from before the reseed). The
+   document itself is real and opens fine; just don't read the filename
+   aloud as the property's address. See Known gap #6.
+9. **A buyer with a resolving wishlist, a viewing, and a ready pack** —
+   `https://demo1.corexos.co.za/corex/contacts/30` — Pieter Dlamini, warm,
+   32 property matches, a completed viewing, and a ready Buyer Journey
+   viewing pack. Shows the whole chain in one screen.
 5. **Deeds Capture — the similar-property conflict banner** —
    `https://demo1.corexos.co.za/corex/deeds-capture` — scroll to tracked
    property 59: "We think this is the same as Unit 8, Parklands — currently on
@@ -32,7 +40,7 @@ present. Full detail on every item below.
 8. **The prospecting map** —
    `https://demo1.corexos.co.za/corex/map` — should show pins on load.
 
-If all 8 look right, the demo is in good shape.
+If all 9 look right, the demo is in good shape.
 
 ---
 
@@ -45,7 +53,7 @@ from any lane's own report (that discipline caught two wrong claims already
 this week — see Known Gaps).
 
 **Site:** `https://demo1.corexos.co.za`
-**Last verified:** 2026-09-02, ~11:20 SAST
+**Last verified:** 2026-09-03, ~00:20 SAST
 **IDs are a moving target** — several areas were reseeded again today (property
 addresses, deal numbers). If this looks stale next time, don't trust it —
 re-verify.
@@ -87,6 +95,25 @@ re-verify.
    on `/deals-dr2` was fixed and re-verified last night; re-checked again just
    now: 125 live deals, 0 duplicate address groups. No action needed, noted
    here only because it was the previous night's headline risk.
+
+6. **Two filed e-sign documents carry a stale address in their own filename.**
+   Property 16 was re-seeded overnight and is now "187 Edward Avenue, Uvongo"
+   — its filed Sole Mandate PDF (from pack 16) is still named "...54 Coastal
+   Way, St Michaels-on-Sea (Signed).pdf" from before the reseed. Same issue
+   flagged on property 17 last night. The documents themselves are real and
+   open fine — just don't read the filename aloud as the property's current
+   address. Root cause: property address fields get re-randomized by
+   overnight seeder re-runs, but a document's filename is a snapshot at
+   generation time and never updates. Not fixed (would mean renaming a real
+   filed record) — flagged both times it's been found.
+
+7. **This index was caught pointing at a dead-end buyer example (viewing
+   pack 17 / contacts 1–3, zero property matches) — fixed.** cc3 found it by
+   checking the actual link before handing it to Johan. §6 below now uses
+   contact 30 (Pieter Dlamini) as the no-caveats example and a verified
+   8-contact spread (new/warm/cold/lost) for anyone who wants to show the
+   whole buyer funnel. Every ID in this document was re-checked against the
+   live DB before this fix, not just the buyer section — see the change log.
 
 ---
 
@@ -156,7 +183,35 @@ night's verification.
 
 ## 6. Contacts, buyer matches, wishlists
 
-`https://demo1.corexos.co.za/corex/contacts` ✅ VERIFIED renders (741KB) right now.
+`https://demo1.corexos.co.za/corex/contacts` ✅ VERIFIED renders right now.
+
+**Correction (cc3 caught this, 2026-09-03):** an earlier version of this
+index pointed at viewing pack 17 / contacts 1–3 as the wishlist example —
+those contacts have no property matches and the story dead-ends. Every
+buyer example below was independently re-verified against real DB rows
+before being written here (`buyer_state`, match counts, calendar events,
+viewing pack status), not copied from anyone's report.
+
+A deliberate SPREAD of buyer pipeline states, so you can show the whole
+funnel, not just one happy path — each ✅ VERIFIED by direct query and a
+real page render:
+
+| Contact | State | Property matches | Viewing? | Viewing pack | URL |
+|---|---|---|---|---|---|
+| **31 — [DEMO] Anele Botha** | new | 10 | ✅ 12 Pitts Avenue, 31 Aug | pack **21**, draft (not yet finalized) | `/corex/contacts/31` |
+| **30 — [DEMO] Pieter Dlamini** | warm | 32 | ✅ 8 events | pack **32**, **ready** — the full chain | `/corex/contacts/30` |
+| **35 — [DEMO] Bongani Pretorius** | warm | 32 | ✅ 8 events | pack **33**, **ready** | `/corex/contacts/35` |
+| **47 — [DEMO] Thandiwe Venter** | warm | 6 | ✅ 4 events | pack **34**, **ready** | `/corex/contacts/47` |
+| **36 — [DEMO] Tanya Nkosi** | new | 57 | ✅ 4 Birmingham Drive, 1 Sep | none yet | `/corex/contacts/36` |
+| **39 — [DEMO] Nomsa du Plessis** | cold | 29 | — | none | `/corex/contacts/39` |
+| **46 — [DEMO] Derek Molefe** | cold | 120 | — | none | `/corex/contacts/46` |
+| **29 — [DEMO] Lerato van der Merwe** | lost | 139 | — | none | `/corex/contacts/29` |
+
+**Best single example — no caveats:** contact **30** (Pieter Dlamini) —
+warm, resolving matches, a completed viewing, and a ready pack, all in one
+screen. Use **31 (Anele Botha)** specifically if you want to show the
+wishlist→match resolution story from the very start (draft pack, one
+viewing booked, nothing finalized yet).
 
 ---
 
@@ -214,11 +269,15 @@ in two days.**
 - Rental listings ("To Let"): example ids **349, 350, 351** (24 Tucker Avenue,
   185 Marine Drive, 122 Marine Drive) — `https://demo1.corexos.co.za/corex/properties/349`.
 - Viewing packs: `https://demo1.corexos.co.za/corex/viewing-packs` ✅ VERIFIED
-  renders (151KB) with real content. **3 live packs**:
+  renders with real content. **7 live packs now** (grew from 3 overnight —
+  cc2's buyer-journey work added 4 more):
   - id **16** — "Sea-view shortlist," status ready, tour 2026-09-05.
   - id **17** — "Family home tour (completed)," status ready, tour 2026-08-28.
   - id **18** — "Retirement downsize options," status draft, tour 2026-09-09.
-  (See Known gap #4 — 15 other seeded packs are soft-deleted, this is expected.)
+  - id **21** — Anele Botha (contact 31), draft.
+  - id **32, 33, 34** — Buyer Journey packs, **ready**, contacts 30/35/47 —
+    see §6, these are the "full chain" buyer examples.
+  (Older seeded packs beyond these 7 are soft-deleted — expected, see Known gap #4.)
 
 ---
 
@@ -302,3 +361,15 @@ re-check of the property-1 render. **Clean — zero hits.**
   packs, communications, compliance, payroll) for everything that landed
   today from cc1/cc2/cc3/cc4. Deals and deeds-capture conflict scenarios
   verified against real rendered HTML, not just row counts.
+- 2026-09-03 ~00:20 — cc3 caught this index pointing at a dead-end buyer
+  example (viewing pack 17 / contacts 1–3, zero matches). Fixed §6 with a
+  verified 8-contact spread (new/warm/cold/lost) and set contact 30 as the
+  no-caveats example. Per Johan's instruction, cross-checked EVERY other
+  example record in the whole document against the live DB before touching
+  anything else: found and fixed one more drift (property 16 re-seeded
+  overnight, its filed document's filename is now stale — new Known gap
+  #6) and one stale count (viewing packs grew 3→7 overnight, §10 updated).
+  Everything else (properties 1/2/3, tracked properties 55–59, event 381,
+  deal 111, e-sign packs 16–21, rental properties, doc types, policy,
+  screening, payroll runs, Uvongo suburb) re-checked and still correct as
+  written — no further drift found this pass.
