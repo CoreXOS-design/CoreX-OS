@@ -240,6 +240,11 @@ class DemoDataSeeder extends Seeder
         $this->stage11_deals();
         $this->stage12_calendar();
         $this->stage12b_dr2PipelineDemo();
+        $this->stage12c_rentalProperties();
+        $this->stage12d_viewingPacks();
+        $this->stage12e_communicationMailboxes();
+        $this->stage12f_whatsappConsent();
+        $this->stage12g_attorneyCommsToFile();
         $this->stageViewingFeedback_demoShowcase();
         $this->stageSpine_threadFullLifecycle();
         $this->stageZ_demoPresenterCoherence();
@@ -2627,6 +2632,69 @@ class DemoDataSeeder extends Seeder
             $result = (new \Database\Seeders\Demo\DemoDr2PipelineSeeder())->run(self::AGENCY_ID);
             $note = $result['note'] ?? '';
             $this->command->info('  Stage 12b: DR2 pipeline demo — ' . ($result['inserted'] ?? 0) . ' deals seeded.' . ($note ? " {$note}" : ''));
+        });
+    }
+
+    /**
+     * Johan, 2026-09-02 — webinar-eve demo data gaps, Group B item 1.
+     * "Rental properties - none on demo." properties.listing_type='rental'
+     * spread across to_let/under_offer/rented (the system's own real
+     * vocabulary — see DemoRentalPropertiesSeeder's docblock).
+     */
+    private function stage12c_rentalProperties(): void
+    {
+        $this->safeSeed('DemoRentalPropertiesSeeder', function () {
+            $result = (new \Database\Seeders\Demo\DemoRentalPropertiesSeeder())->run(self::AGENCY_ID);
+            $note = $result['note'] ?? '';
+            $this->command->info('  Stage 12c: rental properties — ' . ($result['inserted'] ?? 0) . ' seeded.' . ($note ? " {$note}" : ''));
+        });
+    }
+
+    /** Johan, 2026-09-02 — Group B item 2. "Viewing packs - none on demo." */
+    private function stage12d_viewingPacks(): void
+    {
+        $this->safeSeed('DemoViewingPacksSeeder', function () {
+            $result = (new \Database\Seeders\Demo\DemoViewingPacksSeeder())->run(self::AGENCY_ID);
+            $note = $result['note'] ?? '';
+            $this->command->info('  Stage 12d: viewing packs — ' . ($result['inserted'] ?? 0) . ' seeded.' . ($note ? " {$note}" : ''));
+        });
+    }
+
+    /**
+     * Johan, 2026-09-02 — Group B item 3. "Can we build a couple of fake
+     * email boxes under email boxes (import)." Both rows active=false —
+     * see DemoCommunicationMailboxesSeeder's docblock for the inertness proof.
+     */
+    private function stage12e_communicationMailboxes(): void
+    {
+        $this->safeSeed('DemoCommunicationMailboxesSeeder', function () {
+            $result = (new \Database\Seeders\Demo\DemoCommunicationMailboxesSeeder())->run(self::AGENCY_ID);
+            $note = $result['note'] ?? '';
+            $this->command->info('  Stage 12e: communication mailboxes (inert) — ' . ($result['inserted'] ?? 0) . ' seeded.' . ($note ? " {$note}" : ''));
+        });
+    }
+
+    /** Johan, 2026-09-02 — Group B item 4. "My WhatsApp consent - can we put a couple of fakes here?" */
+    private function stage12f_whatsappConsent(): void
+    {
+        $this->safeSeed('DemoWhatsappConsentSeeder', function () {
+            $result = (new \Database\Seeders\Demo\DemoWhatsappConsentSeeder())->run(self::AGENCY_ID);
+            $note = $result['note'] ?? '';
+            $this->command->info('  Stage 12f: WhatsApp consent — ' . ($result['inserted'] ?? 0) . ' seeded.' . ($note ? " {$note}" : ''));
+        });
+    }
+
+    /**
+     * Johan, 2026-09-02 — Group B item 5. "Can we put some attorney emails
+     * under communication - to file (attorney emails)." Filed against the
+     * DR2 pipeline demo batch (stage12b) — must run after it.
+     */
+    private function stage12g_attorneyCommsToFile(): void
+    {
+        $this->safeSeed('DemoAttorneyCommsToFileSeeder', function () {
+            $result = (new \Database\Seeders\Demo\DemoAttorneyCommsToFileSeeder())->run(self::AGENCY_ID);
+            $note = $result['note'] ?? '';
+            $this->command->info('  Stage 12g: attorney comms to file — ' . ($result['inserted'] ?? 0) . ' seeded.' . ($note ? " {$note}" : ''));
         });
     }
 
