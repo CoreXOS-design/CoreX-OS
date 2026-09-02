@@ -265,6 +265,8 @@ class DemoDataSeeder extends Seeder
         $this->stage16_agencyConfigurationSweep();
         $this->stage17_documentCoverage();
         $this->stage18_contactLivingRecordSweep();
+        $this->stage19_contactCommunicationHistory();
+        $this->stage20_presentationMarketData();
         $this->stageV_verifyDemoIntegrity();
 
         $this->command->info('Demo dataset complete. Login: ' . self::DEMO_LOGIN_EMAIL
@@ -881,6 +883,35 @@ class DemoDataSeeder extends Seeder
         $this->safeSeed('DemoContactWishlistSeeder', function () {
             $result = (new \Database\Seeders\Demo\DemoContactWishlistSeeder())->run(self::AGENCY_ID);
             $this->command->info('  Stage 18 (wishlists): ' . $result['note']);
+        });
+    }
+
+    /**
+     * Webinar prep 2026-09-02 — Johan: "A CRM with no communication history
+     * reads as unused." communication_links had zero rows linked to Contact
+     * (only DealV2/Property) before this — every contact's Communications
+     * tab was empty. Confirmed via direct query before writing, not assumed.
+     */
+    private function stage19_contactCommunicationHistory(): void
+    {
+        $this->safeSeed('DemoContactCommunicationHistorySeeder', function () {
+            $result = (new \Database\Seeders\Demo\DemoContactCommunicationHistorySeeder())->run(self::AGENCY_ID);
+            $this->command->info('  Stage 19: contact communication history — ' . json_encode($result));
+        });
+    }
+
+    /**
+     * Webinar prep 2026-09-02 — Johan: "seller live links working and
+     * showing the graphs." presentation_sold_comps / presentation_active_listings
+     * were empty for all 57 demo presentations, so AnalysisDataService::compile()
+     * returned null CMA values and the Seller Live graphs were blank. Also
+     * backfills properties.size_m2 where missing on presentation-linked stock.
+     */
+    private function stage20_presentationMarketData(): void
+    {
+        $this->safeSeed('DemoPresentationMarketDataSeeder', function () {
+            $result = (new \Database\Seeders\Demo\DemoPresentationMarketDataSeeder())->run(self::AGENCY_ID);
+            $this->command->info('  Stage 20: presentation market data — ' . json_encode($result));
         });
     }
 
