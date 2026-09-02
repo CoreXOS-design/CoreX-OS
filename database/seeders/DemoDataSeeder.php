@@ -245,6 +245,9 @@ class DemoDataSeeder extends Seeder
         $this->stage12e_communicationMailboxes();
         $this->stage12f_whatsappConsent();
         $this->stage12g_attorneyCommsToFile();
+        $this->stage12h_documentTypesCatalogue();
+        $this->stage12i_portalSyndication();
+        $this->stage12j_agencyLogo();
         $this->stageViewingFeedback_demoShowcase();
         $this->stageSpine_threadFullLifecycle();
         $this->stageZ_demoPresenterCoherence();
@@ -650,6 +653,23 @@ class DemoDataSeeder extends Seeder
 
         $this->safeSeed('DemoFilingRegisterSeeder', function () {
             (new \Database\Seeders\Demo\DemoFilingRegisterSeeder())->run(self::AGENCY_ID);
+        });
+
+        // Config sweep (2026-09-02, webinar prep, cc3) — deal_stage_document_rules
+        // and the type-level distribution matrix were BOTH completely empty
+        // system-wide despite full DR2 pipeline/deal data existing: the settings
+        // screen at Admin > Deal Distribution Rules showed a bare empty state.
+        // Neither seeder implements SyncableReferenceSeeder (agency-scoped, not
+        // global reference data), so deploy:sync-reference-data never ran them —
+        // wiring them here is what makes them survive a demo:reset.
+        $this->safeSeed('DealStageDocumentRuleSeeder', fn () => $this->call([\Database\Seeders\DealStageDocumentRuleSeeder::class]));
+        $this->safeSeed('DocumentDistributionMatrixSeeder', fn () => $this->call([\Database\Seeders\DocumentDistributionMatrixSeeder::class]));
+
+        // Command Center > Document Expectations (Operations settings tab) had
+        // NO seeder at all, ever, for any agency — a prospective agency sees
+        // literally nothing configured there. Same config-sweep pass.
+        $this->safeSeed('DemoDocumentExpectationsSeeder', function () {
+            (new \Database\Seeders\DemoDocumentExpectationsSeeder())->run(self::AGENCY_ID);
         });
 
         // MIC Phase J1 top-up (tracked properties, active claims, buyer
@@ -2798,6 +2818,42 @@ class DemoDataSeeder extends Seeder
             $result = (new \Database\Seeders\Demo\DemoAttorneyCommsToFileSeeder())->run(self::AGENCY_ID);
             $note = $result['note'] ?? '';
             $this->command->info('  Stage 12g: attorney comms to file — ' . ($result['inserted'] ?? 0) . ' seeded.' . ($note ? " {$note}" : ''));
+        });
+    }
+
+    /**
+     * Johan, 2026-09-02 — config sweep after "we seeded RECORDS all week and
+     * never checked CONFIGURATION." demo's document_types GLOBAL catalogue
+     * had only 4 of the real ~37 rows, with stale buyer_pack_eligible/
+     * contact_roles values — the exact root cause behind the empty Viewing
+     * Pack investigation earlier tonight. GLOBAL reference table (no
+     * agency_id), so this is a plain Seeder call, not per-agency.
+     */
+    private function stage12h_documentTypesCatalogue(): void
+    {
+        $this->safeSeed('DocumentTypesCatalogueSeeder', function () {
+            $this->call([\Database\Seeders\DocumentTypesCatalogueSeeder::class]);
+            $this->command->info('  Stage 12h: document_types catalogue synced to canonical values.');
+        });
+    }
+
+    /** Johan, 2026-09-02 — config sweep. Ad Manager's property picker needs an active P24/PP ref to show anything. */
+    private function stage12i_portalSyndication(): void
+    {
+        $this->safeSeed('DemoPortalSyndicationSeeder', function () {
+            $result = (new \Database\Seeders\Demo\DemoPortalSyndicationSeeder())->run(self::AGENCY_ID);
+            $note = $result['note'] ?? '';
+            $this->command->info('  Stage 12i: portal syndication — ' . ($result['updated'] ?? 0) . ' properties marked active.' . ($note ? " {$note}" : ''));
+        });
+    }
+
+    /** Johan, 2026-09-02 — config sweep. agencies.logo_path was NULL; brochures/watermarks/pack PDFs need a logo. */
+    private function stage12j_agencyLogo(): void
+    {
+        $this->safeSeed('DemoAgencyLogoSeeder', function () {
+            $result = (new \Database\Seeders\Demo\DemoAgencyLogoSeeder())->run(self::AGENCY_ID);
+            $note = $result['note'] ?? '';
+            $this->command->info('  Stage 12j: agency logo — ' . ($result['created'] ? 'generated.' : 'skipped.') . ($note ? " {$note}" : ''));
         });
     }
 
