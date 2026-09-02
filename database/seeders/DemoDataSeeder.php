@@ -255,6 +255,7 @@ class DemoDataSeeder extends Seeder
         $this->stage14_complianceHrPayroll();
         $this->stage15_supplierDirectory();
         $this->stage15b_dr2ShowcaseDeal();
+        $this->stage15c_complianceDocumentsOnFile();
         $this->stage16_agencyConfigurationSweep();
         $this->stageV_verifyDemoIntegrity();
 
@@ -736,6 +737,21 @@ class DemoDataSeeder extends Seeder
             $seeder = new \Database\Seeders\Demo\DemoSupplierDirectorySeeder();
             $result = $seeder->run(self::AGENCY_ID);
             $this->command->info("  Stage 15 (suppliers): {$result['created']} created, {$result['skipped']} already present");
+        });
+    }
+
+    // ───────────────────────────────────────────────────────────────────
+    //  STAGE 15c — Compliance/HR/payroll as LIVING functions (Johan,
+    //  2026-09-02 22:00, expanded mandate ahead of the 07:00 webinar review):
+    //  configured-but-empty screens read as an agency that never started.
+    // ───────────────────────────────────────────────────────────────────
+
+    private function stage15c_complianceDocumentsOnFile(): void
+    {
+        $this->safeSeed('DemoAgencyComplianceDocumentsSeeder', function () {
+            $seeder = new \Database\Seeders\Demo\DemoAgencyComplianceDocumentsSeeder();
+            $result = $seeder->run(self::AGENCY_ID);
+            $this->command->info("  Stage 15c (compliance docs on file): {$result['created']} created, {$result['skipped']} already present");
         });
     }
 
