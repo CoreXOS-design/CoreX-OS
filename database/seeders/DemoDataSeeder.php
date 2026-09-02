@@ -261,6 +261,7 @@ class DemoDataSeeder extends Seeder
         $this->stage15d_calendarInvitations();
         $this->stage15e_leave();
         $this->stage16_agencyConfigurationSweep();
+        $this->stage17_documentCoverage();
         $this->stageV_verifyDemoIntegrity();
 
         $this->command->info('Demo dataset complete. Login: ' . self::DEMO_LOGIN_EMAIL
@@ -827,6 +828,25 @@ class DemoDataSeeder extends Seeder
         $this->safeSeed('DemoContactSourcesTagsSeeder', function () {
             $result = (new \Database\Seeders\Demo\DemoContactSourcesTagsSeeder())->run(self::AGENCY_ID);
             $this->command->info('  Stage 16 (contact sources/tags): ' . $result['note']);
+        });
+    }
+
+    /**
+     * Expanded mandate (2026-09-02, "does this read like a live system?") —
+     * documents attached across the system was almost entirely empty: 6/363
+     * properties, 2/290 contacts, 1/125 deals had any document at all. Johan:
+     * "properties without documents attached means buyers pipeline suffers."
+     * Reuses REAL PDF bytes (tonight's real signed e-sign documents + Johan's
+     * own uploaded FICA bundle), physically copied per row via Storage::copy
+     * — every row this produces has a genuinely openable file behind it, per
+     * the "a document row with no file behind it will 404" rule. See
+     * DemoDocumentCoverageSeeder's own docblock for the exact source-file map.
+     */
+    private function stage17_documentCoverage(): void
+    {
+        $this->safeSeed('DemoDocumentCoverageSeeder', function () {
+            $result = (new \Database\Seeders\Demo\DemoDocumentCoverageSeeder())->run(self::AGENCY_ID);
+            $this->command->info('  Stage 17 (document coverage): ' . json_encode($result));
         });
     }
 
