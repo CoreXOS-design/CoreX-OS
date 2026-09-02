@@ -57,7 +57,7 @@ class DemoPortalLeadsSeeder
             ->limit(self::TARGET_TOTAL)
             ->get(['id', 'first_name', 'last_name', 'email', 'phone']);
 
-        $already = PortalLead::withoutGlobalScopes()->where('agency_id', $agencyId)->count();
+        $already = PortalLead::withoutGlobalScopes()->where('agency_id', $agencyId)->whereNull('deleted_at')->count();
         $need = max(0, self::TARGET_TOTAL - $already);
         if ($need === 0) {
             $note = "Portal leads: {$already}/" . self::TARGET_TOTAL . ' already present — nothing to do.';

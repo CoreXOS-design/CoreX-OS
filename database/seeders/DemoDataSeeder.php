@@ -625,6 +625,19 @@ class DemoDataSeeder extends Seeder
             (new \Database\Seeders\Demo\DemoTvaCapturesSeeder())->run(self::AGENCY_ID);
         });
 
+        // Johan, after using the screen himself (2026-09-02): wants a few
+        // MORE "already a contact" owner-linking examples than the one
+        // DemoTvaCapturesSeeder produces, plus a genuine similar/conflicting
+        // PROPERTY case — the system's own previewPropertyMatch() detection,
+        // not a hand-inserted flag row.
+        $this->safeSeed('DemoDeedsOwnerLinkSeeder', function () {
+            (new \Database\Seeders\Demo\DemoDeedsOwnerLinkSeeder())->run(self::AGENCY_ID);
+        });
+
+        $this->safeSeed('DemoDeedsPropertyMatchSeeder', function () {
+            (new \Database\Seeders\Demo\DemoDeedsPropertyMatchSeeder())->run(self::AGENCY_ID);
+        });
+
         $this->safeSeed('DemoContactTypesSeeder', function () {
             (new \Database\Seeders\Demo\DemoContactTypesSeeder())->run(self::AGENCY_ID);
         });
