@@ -262,6 +262,7 @@ class DemoDataSeeder extends Seeder
         $this->stage15e_leave();
         $this->stage16_agencyConfigurationSweep();
         $this->stage17_documentCoverage();
+        $this->stage18_contactLivingRecordSweep();
         $this->stageV_verifyDemoIntegrity();
 
         $this->command->info('Demo dataset complete. Login: ' . self::DEMO_LOGIN_EMAIL
@@ -847,6 +848,37 @@ class DemoDataSeeder extends Seeder
         $this->safeSeed('DemoDocumentCoverageSeeder', function () {
             $result = (new \Database\Seeders\Demo\DemoDocumentCoverageSeeder())->run(self::AGENCY_ID);
             $this->command->info('  Stage 17 (document coverage): ' . json_encode($result));
+        });
+    }
+
+    // ───────────────────────────────────────────────────────────────────
+    //  STAGE 18 — CONTACT LIVING-RECORD SWEEP (2026-09-02, expanded mandate).
+    //
+    //  "Does this read like a LIVE SYSTEM that a real agency has been using
+    //  for months?" Contacts had type/tags/property-links already (Group A
+    //  pass), but FICA was hollow (0 fica_documents anywhere, even on
+    //  "approved" submissions), and communications/notes/testimonials/
+    //  wishlists were ALL completely empty — 0 of 290 contacts had any of
+    //  the four. Every seeder here caps coverage at a REALISTIC PORTION of
+    //  contacts (not uniform 100%) so the roster reads as a mix of
+    //  complete/partial/brand-new records, not a uniformly "seeded" set.
+    // ───────────────────────────────────────────────────────────────────
+
+    private function stage18_contactLivingRecordSweep(): void
+    {
+        $this->safeSeed('DemoContactFicaPackSeeder', function () {
+            $result = (new \Database\Seeders\Demo\DemoContactFicaPackSeeder())->run(self::AGENCY_ID);
+            $this->command->info('  Stage 18 (FICA pack): ' . $result['note']);
+        });
+
+        $this->safeSeed('DemoContactActivitySeeder', function () {
+            $result = (new \Database\Seeders\Demo\DemoContactActivitySeeder())->run(self::AGENCY_ID);
+            $this->command->info('  Stage 18 (contact activity): ' . $result['note']);
+        });
+
+        $this->safeSeed('DemoContactWishlistSeeder', function () {
+            $result = (new \Database\Seeders\Demo\DemoContactWishlistSeeder())->run(self::AGENCY_ID);
+            $this->command->info('  Stage 18 (wishlists): ' . $result['note']);
         });
     }
 

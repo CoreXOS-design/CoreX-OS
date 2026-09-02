@@ -991,6 +991,8 @@
 
             @include('corex.contacts._linked-properties')
 
+            @include('corex.contacts._linked-deals')
+
             {{-- Link property by address search --}}
             <div class="rounded-md p-5" style="background: var(--surface-2); border: 1px solid var(--border);">
                 <h3 class="text-xs font-bold uppercase tracking-widest mb-4" style="color:var(--text-muted);">Link a Property</h3>
