@@ -26,14 +26,14 @@ one of these.
 
 | # | Key | Label | Lane | Status |
 |---|---|---|---|---|
-| 1 | `user` | Profile & Account | cc1 | OPEN |
-| 2 | `my-portal` | My Portal | cc1 | OPEN |
+| 1 | `user` | Profile & Account | cc1 | FIXED — this panel is actually FICA/POPIA officer appointments + Designations, not a personal profile form. Primary FICA CO was already configured; Primary Information Officer was NOT (visible red POPIA s55 banner) — appointed via DemoInformationOfficerSeeder, banner confirmed gone on re-render |
+| 2 | `my-portal` | My Portal | cc1 | CONFIGURED — just 2 per-user toggles, both already true for the demo user, no gap |
 | 3 | `agency` | Agency Settings | cc1 | N/A — dead code (`@if(false)`, `resources/views/corex/settings.blade.php:243-425`); real form is #22 `company`, which is FIXED |
-| 4 | `remote-access` | Remote Access | cc1 | OPEN |
+| 4 | `remote-access` | Remote Access | cc1 | CONFIGURED (correctly off-by-design) — `require_external_access_authorization=0`, copy explicitly states OFF is the default open-access state; not a demo gap |
 | 5 | `features` | Features (on/off) — master module toggle registry | **UNOWNED** | see below |
 | 6 | `feature-documents` | Documents | cc4 | OPEN |
 | 7 | `feature-rentals` | Rentals | cc2 | OPEN |
-| 8 | `feature-contacts` | Contacts | **UNOWNED** | see below |
+| 8 | `feature-contacts` | Contacts | cc1 (claimed by elimination per the note below) | FIXED — Contact Types already had all 6 canonical rows from an earlier pass; Contact Sources (0 rows, 0/290 contacts tagged) and Contact Tags (0 rows) were empty. DemoContactSourcesTagsSeeder added 5 sources (Property24/Referral/Walk-in/Website Enquiry/Facebook), 3 tags (Hot Lead/VIP/Investor), and backfilled all 290 contacts with a source. Contact Identifier Labels left empty — lower-visibility, not fixed this pass |
 | 9 | `feature-properties` | Properties & Listings | cc2 | OPEN |
 | 10 | `feature-presentations` | Presentations (CMA coverage/thresholds) | cc2 | OPEN |
 | 11 | `feature-matches` | Matches (buyer/property matching) | cc6 | OPEN |
@@ -51,7 +51,7 @@ one of these.
 
 | # | Key | URL | Lane | Status |
 |---|---|---|---|---|
-| 21 | `agency-setup` | `/corex/agency-setup` (onboarding wizard) | cc1 | OPEN |
+| 21 | `agency-setup` | `/corex/agency-setup` (onboarding wizard) | cc1 | FIXED — field values were already correct (reads live from the same stores as settings), but progress was stuck at "Step 1 of 16 · 0%" since nobody had walked the wizard for this agency. DemoOnboardingWizardSeeder marks every active step complete via `AgencyOnboardingSetup::activeSteps()` (respects feature gating); re-rendered and confirmed "Step 16 of 16 · 100%" |
 | 22 | `company` | `/corex/admin/company-settings` | cc1 | FIXED — tagline/address/phone/email/fax/ppra/ncc/public_contact/email_disclaimer/popi_url/privacy_policy + logo (generated PNG) + proforma bank_details all set via DemoAgencyBrandingSeeder; re-rendered and confirmed all values + a real servable logo image |
 | 23 | `doc-types` | `/admin/settings/document-types` (PDF splitter labels) | cc4 | OPEN |
 | 24 | `docuperfect-types` | `/docuperfect/settings/types` | cc4 | OPEN |
@@ -84,8 +84,8 @@ who configures them.
 |---|---|---|---|---|
 | 38 | Compliance agency settings/provisions | `/corex/compliance/agency-settings` | cc3 | OPEN |
 | 39 | Email setup | `/corex/settings/email-setup` | cc5 | OPEN |
-| 40 | Header/signature preview | `/corex/settings/preview-header`, `/preview-signature` | cc1 | OPEN |
-| 41 | User oversight | `/corex/settings/user/oversight` | cc1 | OPEN |
+| 40 | Header/signature preview | `/corex/settings/preview-header`, `/preview-signature` | cc1 | CONFIGURED — both render fully populated once #22's agency branding was fixed (real logo, address, VAT/reg/FFC/FIC, POPI disclaimer link); no separate fix needed |
+| 41 | User oversight | `/corex/settings/user/oversight` | cc1 | CONFIGURED — purely per-user preferences with sensible built-in defaults when no row exists (`UserOversightPreference::DEFAULTS`); no DB seeding needed, no gap |
 | 42 | E-sign finalization settings | `/docuperfect/esign/settings/finalization` | cc4 | OPEN |
 | 43 | Rental division settings | `/rental/settings` (+ document-types, properties, reminders) | cc2 | OPEN |
 | 44 | Prospecting duplicate/stale rules | `/corex/settings/prospecting/duplicate-rules`, `/stale-rules` | **cc6** | OPEN (dup of §16 area, separate sub-pages) |
@@ -167,3 +167,26 @@ _(updates as lanes report — cc6 will edit this section as results come in)_
 - Out of scope: 3 (system info, dev-settings, platform agency list).
 
 Starting on my own slice now. Will update this table as I go and report back.
+
+---
+
+## cc1 slice — final report (2026-09-02)
+
+All cc1-assigned screens done: #1 (fixed), #2 (configured, no gap), #3 (N/A,
+dead code), #4 (configured, correctly off), #8 (claimed by elimination,
+fixed), #21 (fixed), #22 (fixed), #40 (configured, no gap once #22 landed),
+#41 (configured, no gap). Plus 3 screens found via the original brief but
+outside this checklist's route sweep, also fixed: Branch Assignments
+(`/admin/branch-assignments`, #47), Role Manager (`/corex/role-manager`,
+#48 — critical, screen rendered completely empty for agency 1 despite
+enforcement working correctly behind it), Users list (`/admin/users`, #49).
+
+7 idempotent seeders landed, wired into `DemoDataSeeder::
+stage16_agencyConfigurationSweep()`, each proven via 3 consecutive runs
+with zero writes on runs 2-3, each verified against the live rendered page
+(not row counts): `DemoAgencyBrandingSeeder`, `DemoBranchDetailsSeeder`,
+`DemoRoleProvisioningSeeder`, `DemoUserComplianceSeeder`,
+`DemoInformationOfficerSeeder`, `DemoOnboardingWizardSeeder`,
+`DemoContactSourcesTagsSeeder`. Committed and pushed.
+
+cc1 slice complete — available for more work.

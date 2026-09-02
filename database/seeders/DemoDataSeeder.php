@@ -771,6 +771,21 @@ class DemoDataSeeder extends Seeder
             $result = (new \Database\Seeders\Demo\DemoUserComplianceSeeder())->run(self::AGENCY_ID);
             $this->command->info('  Stage 16 (user compliance): ' . $result['note']);
         });
+
+        $this->safeSeed('DemoInformationOfficerSeeder', function () {
+            $result = (new \Database\Seeders\Demo\DemoInformationOfficerSeeder())->run(self::AGENCY_ID);
+            $this->command->info('  Stage 16 (information officer): ' . $result['note']);
+        });
+
+        $this->safeSeed('DemoOnboardingWizardSeeder', function () {
+            $result = (new \Database\Seeders\Demo\DemoOnboardingWizardSeeder())->run(self::AGENCY_ID);
+            $this->command->info('  Stage 16 (onboarding wizard): ' . $result['note']);
+        });
+
+        $this->safeSeed('DemoContactSourcesTagsSeeder', function () {
+            $result = (new \Database\Seeders\Demo\DemoContactSourcesTagsSeeder())->run(self::AGENCY_ID);
+            $this->command->info('  Stage 16 (contact sources/tags): ' . $result['note']);
+        });
     }
 
     // ───────────────────────────────────────────────────────────────────
