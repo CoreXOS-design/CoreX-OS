@@ -120,6 +120,18 @@ class DemoReset extends Command
         // two silent nightly failures before being caught.
         $this->call('demo:seed', ['--force' => true]);
 
+        // migrate:fresh drops every table the worker's connection is mid-poll
+        // against, which crashes the corex-worker-demo supervisor process to
+        // FATAL (confirmed live 2026-09-01 — nothing in this command brought
+        // it back afterward, and a dead worker means any REAL async job
+        // dispatched by a live demo visitor after this point — e-sign
+        // completion, etc. — sits stuck in the queue forever). Restarting it
+        // is best-effort: the reset itself (backup, wipe, seed) has already
+        // fully succeeded by this point, so a restart failure is logged and
+        // surfaced, never allowed to flip the command's own result to
+        // FAILURE over a problem the reset itself didn't cause.
+        $this->restartQueueWorker();
+
         Log::info('[demo-access] Demo database reset.', [
             'next_reset' => DemoResetSchedule::next()->toIso8601String(),
         ]);
@@ -127,6 +139,38 @@ class DemoReset extends Command
         $this->info('Demo reset complete. Next reset: ' . DemoResetSchedule::next()->toDayDateTimeString());
 
         return self::SUCCESS;
+    }
+
+    /**
+     * Restart the corex-worker-demo supervisor program so queued jobs
+     * dispatched by real (non-seeder) activity after a reset have a worker
+     * to run on. Non-fatal by design — see call site.
+     */
+    private function restartQueueWorker(): void
+    {
+        try {
+            $process = new Process(['supervisorctl', 'restart', 'corex-worker-demo'], null, null, null, 30);
+            $process->run();
+
+            if ($process->isSuccessful()) {
+                $this->info('Queue worker (corex-worker-demo) restarted.');
+                Log::info('[demo-access] corex-worker-demo restarted after reset.', [
+                    'output' => trim($process->getOutput()),
+                ]);
+            } else {
+                $this->warn('Queue worker restart failed — see log. Demo reset itself still succeeded.');
+                Log::error('[demo-access] corex-worker-demo restart FAILED after reset — worker may be dead.', [
+                    'exit_code' => $process->getExitCode(),
+                    'output'    => trim($process->getOutput()),
+                    'error'     => trim($process->getErrorOutput()),
+                ]);
+            }
+        } catch (\Throwable $e) {
+            $this->warn('Queue worker restart threw — see log. Demo reset itself still succeeded.');
+            Log::error('[demo-access] corex-worker-demo restart THREW after reset — worker may be dead.', [
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 
     /**

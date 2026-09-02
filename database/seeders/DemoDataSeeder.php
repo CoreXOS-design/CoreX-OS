@@ -224,6 +224,7 @@ class DemoDataSeeder extends Seeder
         // email+password only, which is the point.
         $this->call(SystemOwnerSeeder::class);
         $this->stage2_prospectingAndTracked();
+        $this->stage2b_spatialMapData();
         $this->stage3_claimsAndPitches();
         $this->stage4_contactsAndWishlists();
         $this->stage5_promoteToStock();
@@ -233,13 +234,16 @@ class DemoDataSeeder extends Seeder
         $this->stage7_presentations();
         $this->stage8_fica();
         $this->stage9_esign();
+        $this->stage9b_esignFiledDocuments();
         $this->stage10_otp();
         $this->stage10b_buyerActivity();
         $this->stage11_deals();
         $this->stage12_calendar();
+        $this->stage12b_dr2PipelineDemo();
         $this->stageViewingFeedback_demoShowcase();
         $this->stageSpine_threadFullLifecycle();
         $this->stageZ_demoPresenterCoherence();
+        $this->stage13_deedsMicIntelligence();
         $this->stageV_verifyDemoIntegrity();
 
         $this->command->info('Demo dataset complete. Login: ' . self::DEMO_LOGIN_EMAIL
@@ -571,6 +575,42 @@ class DemoDataSeeder extends Seeder
             $added++;
         }
         $this->command->info("    property_setting_items backfill: +{$added} status items");
+    }
+
+    // ───────────────────────────────────────────────────────────────────
+    //  STAGE 13 — deeds capture, MIC claims enrichment, property Intelligence.
+    //
+    //  So a demo walkthrough never needs a real TVA/deeds-office scrape or a
+    //  real CMA scrape to show these screens populated. All three delegate to
+    //  idempotent, top-up-only seeders — each checks what already exists
+    //  against its own target before writing anything, so re-running this
+    //  stage (including after a demo:reset) never duplicates rows. Runs LAST,
+    //  after every other stage, because it enriches EXISTING properties/
+    //  tracked_properties/prospecting_listings rather than creating the base
+    //  dataset those other stages already build.
+    // ───────────────────────────────────────────────────────────────────
+
+    private function stage13_deedsMicIntelligence(): void
+    {
+        $this->safeSeed('DemoDeedsSeeder', function () {
+            $seeder = new \Database\Seeders\Demo\DemoDeedsSeeder();
+            $seeder->setCommand($this->command);
+            $seeder->run(self::AGENCY_ID);
+        });
+
+        // MIC Phase J1 top-up (tracked properties, active claims, buyer
+        // matches, P24 listings, market reports, AI cache) — was previously
+        // an orphaned seeder only ever run by hand, so this data never
+        // survived a demo:reset. Wiring it in here makes it permanent.
+        $this->safeSeed('DemoMicEnrichmentSeeder', fn () => $this->call([DemoMicEnrichmentSeeder::class]));
+
+        $this->safeSeed('DemoIntelligenceSeeder', function () {
+            $seeder = new \Database\Seeders\Demo\DemoIntelligenceSeeder();
+            $seeder->setCommand($this->command);
+            $seeder->run(self::AGENCY_ID);
+        });
+
+        $this->command->info('  Stage 13: deeds capture + MIC claims + property Intelligence enriched');
     }
 
     // ───────────────────────────────────────────────────────────────────
@@ -1106,6 +1146,23 @@ class DemoDataSeeder extends Seeder
         $tpCount = DB::table('tracked_properties')->where('agency_id', self::AGENCY_ID)->count();
         $this->command->info("  Stage 2: " . count($this->listingIds)
             . " prospecting listings, {$created} matchOrCreate ok, {$tpCount} tracked_properties");
+    }
+
+    /**
+     * Map/prospecting spatial dataset — properties, market reports, scheme
+     * owners, deals, and the tracked_properties GPS backfill. Runs after
+     * Stage 2 so tracked_properties already exist to geocode. This makes the
+     * map/GPS data survive every demo:reset instead of only existing when
+     * someone hand-runs `demo:seed-spatial` (which every scheduled 3am reset
+     * was silently wiping and never rebuilding before this).
+     */
+    private function stage2b_spatialMapData(): void
+    {
+        $this->safeSeed('DemoSpatialSeeder', function () {
+            $seeder = new \Database\Seeders\Demo\DemoSpatialSeeder();
+            $seeder->setCommand($this->command);
+            $seeder->run(self::AGENCY_ID);
+        });
     }
 
     private function priceFor(int $beds, string $type): int
@@ -2110,6 +2167,37 @@ class DemoDataSeeder extends Seeder
         $this->command->info("  Stage 9: {$ok} e-sign documents + signature requests (no mail sent)");
     }
 
+    /**
+     * Johan, 2026-09-01 (Thursday 10am webinar) — Stage 9 above stamps
+     * status='completed' directly via raw ->update() calls ("simulate
+     * progression WITHOUT sending mail") — it never runs the real signing/
+     * completion/filing pipeline, so none of those 27 rows has a real
+     * `signatures` row, a generated PDF, or a filed `documents` row linked
+     * to the property/contact. That is the actual payoff of the e-sign
+     * story for the webinar ("here is the signed mandate on file") and it
+     * was entirely missing. This stage drives the REAL controllers
+     * (App\Http\Controllers\Docuperfect\ESignWizardController /
+     * SignatureController / SigningController) exactly as a real agent's
+     * browser does, producing genuinely filed, PDF-backed documents plus a
+     * couple of realistic in-progress ones so the e-sign list screen looks
+     * alive. See Database\Seeders\Demo\DemoEsignDocumentsSeeder's own
+     * docblock for the full idempotency contract. Deliberately does NOT
+     * touch or clean up Stage 9's rows — not this stage's job, no hard
+     * deletes.
+     */
+    private function stage9b_esignFiledDocuments(): void
+    {
+        $this->safeSeed('DemoEsignDocumentsSeeder', function () {
+            $seeder = new \Database\Seeders\Demo\DemoEsignDocumentsSeeder();
+            $seeder->setCommand($this->command);
+            $result = $seeder->run(self::AGENCY_ID);
+            $this->command->info("  Stage 9b: {$result['created']} filed/in-progress e-sign documents created, {$result['skipped']} already present");
+            foreach ($result['notes'] as $note) {
+                $this->command->info('    ' . $note);
+            }
+        });
+    }
+
     // ───────────────────────────────────────────────────────────────────
     //  STAGE 10 — OTP rows (verified, for the client-auth flow)
     // ───────────────────────────────────────────────────────────────────
@@ -2469,40 +2557,45 @@ class DemoDataSeeder extends Seeder
     //  STAGE 12 — calendar events (recent past + next 3 weeks)
     // ───────────────────────────────────────────────────────────────────
 
+    /**
+     * Johan, 2026-09-02 — Thursday-webinar calendar/feedback fix.
+     *
+     * This stage used to insert 110 bare calendar_events directly (no
+     * property_id, no contact_id, no calendar_event_feedback at all — every
+     * appointment rendered empty in the UI), and its category list included
+     * 'seller_meeting', which is not a real event class (not present in
+     * calendar_event_class_settings — 'meeting' is the real one). Replaced
+     * with CalendarDemoSeeder, a separate, already-written seeder that
+     * properly attaches demo's own properties/contacts, spreads feedback
+     * across past-completed appointments, and — as of this pass — soft-
+     * deletes (never hard-deletes) its own prior batch before reseeding, all
+     * inside one DB transaction so a crash mid-run can never leave duplicate
+     * or half-seeded appointments (the exact failure class a different demo
+     * seeder hit recently). See CalendarDemoSeeder's own docblock for detail.
+     */
     private function stage12_calendar(): void
     {
-        $categories = ['viewing', 'viewing', 'viewing', 'listing_presentation',
-            'property_evaluation', 'meeting', 'seller_meeting', 'viewing'];
-        $made = 0;
-        for ($i = 0; $i < 110; $i++) {
-            $agentId = $this->pick($this->agentIds);
-            $branchId = DB::table('users')->where('id', $agentId)->value('branch_id');
-            $daysOffset = $this->rngInt(-21, 21);
-            $hour = $this->rngInt(8, 17);
-            $eventDate = now()->addDays($daysOffset)->setTime($hour, 0, 0);
-            $cat = $this->pick($categories);
-            $status = $daysOffset < -1 ? ($this->rngInt(0, 2) > 0 ? 'completed' : 'pending') : 'pending';
+        $this->safeSeed('CalendarDemoSeeder', fn () => $this->call([CalendarDemoSeeder::class]));
+    }
 
-            DB::table('calendar_events')->insert([
-                'agency_id'   => self::AGENCY_ID,
-                'branch_id'   => $branchId,
-                'user_id'     => $agentId,
-                'created_by_id' => $agentId,
-                'title'       => '[DEMO] ' . ucwords(str_replace('_', ' ', $cat)) . ' — ' . $this->pick($this->allSuburbs()),
-                'category'    => $cat,
-                'event_type'  => 'manual',
-                'source_type' => 'manual:demo',
-                'event_date'  => $eventDate,
-                'end_date'    => $eventDate->copy()->addHour(),
-                'status'      => $status,
-                'all_day'     => 0,
-                'priority'    => 'normal',
-                'created_at'  => $eventDate->copy()->subDays($this->rngInt(1, 7)),
-                'updated_at'  => now(),
-            ]);
-            $made++;
-        }
-        $this->command->info("  Stage 12: {$made} calendar events (past + next 3 weeks)");
+    /**
+     * Johan, 2026-09-01 — "why are we parking DR2 and pipelines? that's gold to show."
+     *
+     * Drives a batch of deals through the REAL Dr1PipelineService (AT-216) — the same
+     * engine PipelineController uses — spread across every stage the system actually
+     * defines (just-accepted through fully-registered), with commission splits
+     * (deal_user) and buyer/seller links (deal_contacts) populated. Separate from, and
+     * never touches, DemoDealsSeeder's 76 historic sale comps (deal_no 900000-900075) —
+     * those stay exactly as they are; this batch lives in its own deal_no range
+     * (920000+) and its own file_no marker. See DemoDr2PipelineSeeder's own docblock.
+     */
+    private function stage12b_dr2PipelineDemo(): void
+    {
+        $this->safeSeed('DemoDr2PipelineSeeder', function () {
+            $result = (new \Database\Seeders\Demo\DemoDr2PipelineSeeder())->run(self::AGENCY_ID);
+            $note = $result['note'] ?? '';
+            $this->command->info('  Stage 12b: DR2 pipeline demo — ' . ($result['inserted'] ?? 0) . ' deals seeded.' . ($note ? " {$note}" : ''));
+        });
     }
 
     // ───────────────────────────────────────────────────────────────────

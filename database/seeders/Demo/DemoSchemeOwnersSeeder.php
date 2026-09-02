@@ -57,50 +57,97 @@ final class DemoSchemeOwnersSeeder
 
                 // Create the owners-list report. subject_scheme_name is the
                 // hinge field — MapPinService's join uses it.
-                $uuid = (string) Str::uuid();
-                $reportId = DB::table('market_reports')->insertGetId([
-                    'agency_id'           => $agencyId,
-                    'uploaded_by_user_id' => $uploader,
-                    'report_type_id'      => $ownersTypeId,
-                    'file_path'           => 'demo/owners/' . $uuid . '.pdf',
-                    'file_name'           => 'demo_owners_' . $schemeName . '_' . $uuid . '.pdf',
-                    'file_hash'           => hash('sha256', 'owners:' . $uuid),
-                    'source_suburb'       => $suburb['name'],
-                    'source_town'         => $suburb['town'],
-                    'report_date'         => $reportDate->toDateString(),
-                    'parse_status'        => 'parsed',
-                    'parse_completed_at'  => $reportDate,
-                    'parser_version'      => 'demo_v1',
-                    'raw_extracted_json'  => json_encode(['note' => 'Demo-seeded owners list']),
-                    'spot_check_status'   => 'passed',
-                    'subject_scheme_name' => $schemeName,
-                    'subject_latitude'    => $schemeGps['lat'],
-                    'subject_longitude'   => $schemeGps['lng'],
-                    'is_demo'             => true,
-                    'created_at'          => $reportDate,
-                    'updated_at'          => $reportDate,
-                ]);
-                $reportsInserted++;
+                //
+                // 2026-09-02 — this was a blind insertGetId(), so a re-run (e.g.
+                // after market_report_types came back populated) duplicated all
+                // 72 owners-list reports every time, even though the owners
+                // themselves stayed clean via the firstOrCreate below. Natural
+                // key: (agency_id, subject_scheme_name, source_suburb) — scheme
+                // names are the gazetteer's own stable identity for a scheme.
+                $existingReportId = DB::table('market_reports')
+                    ->where('agency_id', $agencyId)
+                    ->where('subject_scheme_name', $schemeName)
+                    ->where('source_suburb', $suburb['name'])
+                    ->whereNull('deleted_at')
+                    ->value('id');
 
-                $ownerCount = random_int(8, 15);
-                for ($i = 0; $i < $ownerCount; $i++) {
-                    // Some duplicates for joint ownership — every 5th-7th owner
-                    // shares a section with the previous one.
-                    $section = (string) (intdiv($i, random_int(5, 7)) + 1);
-                    $ownerSeed = $schemeName . '|' . $suburbKey . '|' . $i;
-                    SchemeOwner::create([
-                        'agency_id'        => $agencyId,
-                        'market_report_id' => $reportId,
-                        'scheme_name'      => $schemeName,
-                        'section_number'   => $section,
-                        'owner_name'       => DemoNames::name($ownerSeed),
-                        'extent_m2'        => random_int(60, 170),
-                        'property_type'    => 'Sectional Title',
-                        'latitude'         => $schemeGps['lat'],
-                        'longitude'        => $schemeGps['lng'],
-                        'is_demo'          => true,
+                if ($existingReportId) {
+                    $reportId = $existingReportId;
+                } else {
+                    $uuid = (string) Str::uuid();
+                    $reportId = DB::table('market_reports')->insertGetId([
+                        'agency_id'           => $agencyId,
+                        'uploaded_by_user_id' => $uploader,
+                        'report_type_id'      => $ownersTypeId,
+                        'file_path'           => 'demo/owners/' . $uuid . '.pdf',
+                        'file_name'           => 'demo_owners_' . $schemeName . '_' . $uuid . '.pdf',
+                        'file_hash'           => hash('sha256', 'owners:' . $uuid),
+                        'source_suburb'       => $suburb['name'],
+                        'source_town'         => $suburb['town'],
+                        'report_date'         => $reportDate->toDateString(),
+                        'parse_status'        => 'parsed',
+                        'parse_completed_at'  => $reportDate,
+                        'parser_version'      => 'demo_v1',
+                        'raw_extracted_json'  => json_encode(['note' => 'Demo-seeded owners list']),
+                        'spot_check_status'   => 'passed',
+                        'subject_scheme_name' => $schemeName,
+                        'subject_latitude'    => $schemeGps['lat'],
+                        'subject_longitude'   => $schemeGps['lng'],
+                        'is_demo'             => true,
+                        'created_at'          => $reportDate,
+                        'updated_at'          => $reportDate,
                     ]);
-                    $ownersInserted++;
+                    $reportsInserted++;
+                }
+
+                // 2026-09-02 — both random_int() calls here were non-deterministic
+                // per RUN (not just per owner), so a re-run generated a different
+                // owner count AND different section groupings for the "same" scheme
+                // — the firstOrCreate key below (scheme+section+owner_name) could
+                // never match a prior run's rows, so every re-run added a full new
+                // batch alongside the old one. Seeded from scheme+suburb — same
+                // scheme always gets the same count and section grouping.
+                $schemeSeed = crc32($schemeName . '|' . $suburbKey . '|ownercount');
+                $ownerCount = 8 + ($schemeSeed % 8); // 8-15, deterministic
+                $sectionSpan = 5 + (intdiv($schemeSeed, 8) % 3); // 5-7, deterministic
+                for ($i = 0; $i < $ownerCount; $i++) {
+                    // Some duplicates for joint ownership — every Nth owner shares a
+                    // section with the previous one (N fixed per scheme, not per run).
+                    $section = (string) (intdiv($i, $sectionSpan) + 1);
+                    $ownerSeed = $schemeName . '|' . $suburbKey . '|' . $i;
+                    // owner_name is deterministic (seeded from scheme+suburb+index), so a
+                    // second additive run without --fresh would otherwise re-generate the
+                    // SAME name for the SAME (agency, scheme, section) and crash on
+                    // scheme_owners' uq_scheme_owners_agency_scheme_section_owner unique
+                    // key. firstOrCreate makes re-runs idempotent instead of crashing.
+                    $ownerKey = [
+                        'agency_id'      => $agencyId,
+                        'scheme_name'    => $schemeName,
+                        'section_number' => $section,
+                        'owner_name'     => DemoNames::name($ownerSeed),
+                    ];
+                    // 2026-09-02 — belt-and-braces around firstOrCreate: a genuine
+                    // unique-constraint hit here (uq_scheme_owners_agency_scheme_
+                    // section_owner) on a re-run means the SELECT half missed a row
+                    // the INSERT then collided with (observed once; root cause not
+                    // fully chased under time pressure — this makes the outcome
+                    // correct regardless: reuse the existing row, never crash the
+                    // whole reset over one race).
+                    try {
+                        $owner = SchemeOwner::firstOrCreate($ownerKey, [
+                            'market_report_id' => $reportId,
+                            'extent_m2'         => random_int(60, 170),
+                            'property_type'     => 'Sectional Title',
+                            'latitude'          => $schemeGps['lat'],
+                            'longitude'         => $schemeGps['lng'],
+                            'is_demo'           => true,
+                        ]);
+                    } catch (\Illuminate\Database\UniqueConstraintViolationException $e) {
+                        $owner = SchemeOwner::where($ownerKey)->first();
+                    }
+                    if ($owner && $owner->wasRecentlyCreated) {
+                        $ownersInserted++;
+                    }
                 }
             }
         }

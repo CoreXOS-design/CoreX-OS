@@ -76,8 +76,52 @@ final class DemoPropertiesSeeder
                 $branchId = $branchIds[$branchCursor++ % count($branchIds)];
 
                 $row = $this->buildPropertyRow($suburbKey, $suburb, $type, $idx, $agencyId, $agentId, $branchId);
-                Property::create($row);
-                $inserted++;
+                // 2026-09-02 — the docblock above always claimed this was safe to
+                // re-run ("produces the same rows"), but that was only true if
+                // something wiped is_demo=true first; DemoSpatialSeeder (the actual
+                // wired-in caller) never did. A second call therefore blind-inserted
+                // a full duplicate set. Three real bugs found and fixed:
+                //   1. house/vacant house numbers were random_int(1,200) — genuinely
+                //      different every run, so most addresses never matched a prior
+                //      run at all (see buildPropertyRow). Now deterministic.
+                //   2. The key here was (agency_id, address) only — two different
+                //      suburbs sharing a street name could collide and wrongly
+                //      merge. Widened to include suburb, per the stable identity
+                //      (address + suburb + agency).
+                //   3. (root cause of the sectional-title duplication that survived
+                //      fix #1) PropertyObserver::saving() (AT-266) treats `address`
+                //      as a DERIVED display string and rewrites it from the
+                //      structured columns whenever unit_number/complex_name are set
+                //      on insert — composing "Unit {unit_number}, {complex_name}".
+                //      This seeder built the sectional address as
+                //      "{scheme}, {sectionNumber}" and matched firstOrCreate on
+                //      THAT string, but the row actually persisted with the
+                //      observer's rewritten "Unit {sectionNumber}, {scheme}" —  a
+                //      different string the very next run's lookup could never
+                //      match, so every sectional row duplicated on every re-run.
+                //      house/vacant never hit this because the seeder leaves
+                //      unit_number/complex_name/street_number/street_name null for
+                //      them, so composeAddressFromParts() returns '' and the
+                //      observer leaves `address` untouched (confirmed via isolated
+                //      repro — see .ai/demo-known-issues/2026-09-02-property-
+                //      seeder-idempotency.md). Fix: match sectional rows on the
+                //      structured identity the observer actually keys its rewrite
+                //      from (agency_id, suburb, complex_name, unit_number), never
+                //      on the derived `address` column — matching AT-266's own
+                //      rule that `address` "is not an independent fact."
+                $matchKey = $type === 'sectional'
+                    ? [
+                        'agency_id'    => $agencyId,
+                        'suburb'       => $row['suburb'],
+                        'complex_name' => $row['complex_name'],
+                        'unit_number'  => $row['unit_number'],
+                    ]
+                    : ['agency_id' => $agencyId, 'address' => $row['address'], 'suburb' => $row['suburb']];
+
+                $property = Property::firstOrCreate($matchKey, $row);
+                if ($property->wasRecentlyCreated) {
+                    $inserted++;
+                }
             }
         }
 
@@ -114,7 +158,11 @@ final class DemoPropertiesSeeder
         } elseif ($type === 'vacant') {
             $street        = $suburb['streets'][$idx % count($suburb['streets'])];
             $gps           = $this->seededGps($street . '|vacant|' . $idx, $bounds);
-            $houseNumber   = (string) random_int(1, 200);
+            // 2026-09-02 — was random_int(1, 200): a genuinely different number
+            // every run, so re-running never reliably matched a prior run's
+            // address and duplicated instead. Deterministic per (suburb, type,
+            // idx), same pattern as seededGps() just above.
+            $houseNumber   = (string) (1 + (crc32($suburbKey . '|vacant|' . $idx) % 200));
             $address       = $houseNumber . ' ' . $street;
             $unitNumber    = null;
             $extent        = random_int(400, 1200);
@@ -126,7 +174,8 @@ final class DemoPropertiesSeeder
         } else { // house
             $street        = $suburb['streets'][$idx % count($suburb['streets'])];
             $gps           = $this->seededGps($street . '|' . $idx, $bounds);
-            $houseNumber   = (string) random_int(1, 200);
+            // Same fix as 'vacant' above — deterministic per (suburb, type, idx).
+            $houseNumber   = (string) (1 + (crc32($suburbKey . '|house|' . $idx) % 200));
             $address       = $houseNumber . ' ' . $street;
             $unitNumber    = null;
             $extent        = random_int(200, 800);

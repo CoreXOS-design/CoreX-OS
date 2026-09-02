@@ -95,22 +95,64 @@ class CalendarDemoSeeder extends Seeder
         'Send viewing feedback to seller',
     ];
 
+    /**
+     * Johan, 2026-09-02 — Thursday-webinar calendar/feedback fix.
+     *
+     * Two changes from the original version of this seeder:
+     *  1. Wrapped the whole run in a DB transaction. cc4's earlier seeder
+     *     crash left duplicate properties/market reports on demo from a
+     *     partial run — wiping the OLD batch, then crashing before the NEW
+     *     batch finished, is the exact same failure shape here (would leave
+     *     zero or a half batch of appointments). A transaction makes a crash
+     *     roll back to the pre-run state instead of leaving debris; re-running
+     *     after a crash reproduces the same clean wipe-and-reseed every time.
+     *  2. Every delete below is now a SOFT delete (deleted_at stamped), never
+     *     a hard DB::table()->delete() — CoreX's no-hard-deletes rule applies
+     *     to demo too. calendar_event_audit_log has no deleted_at column at
+     *     all, so those rows are left alone entirely (an audit trail is
+     *     append-only by nature; stale rows pointing at an archived event are
+     *     harmless, not deleted). The showcase event stageViewingFeedback_
+     *     demoShowcase() builds (title below) is excluded from the wipe by
+     *     name so running this seeder standalone never disturbs it.
+     */
+    private const SHOWCASE_TITLE = '[DEMO] Multi-Property Viewing — Feedback Showcase';
+
     public function run(): void
     {
-        $this->command->info('Wiping existing demo data...');
+        DB::transaction(function () {
+            $this->seedCalendarDemoData();
+        });
+    }
 
-        // Get demo event IDs before delete (for link/feedback cleanup)
-        $demoIds = DB::table('calendar_events')->where('source_type', 'manual:demo')->pluck('id');
+    private function seedCalendarDemoData(): void
+    {
+        $this->command->info('Archiving existing demo appointments (soft delete)...');
+
+        $now0 = now();
+
+        // Demo event IDs to archive — every manual:demo event EXCEPT the
+        // separate feedback showcase (a different, already-idempotent stage
+        // owns that one; see the docblock above).
+        $demoIds = DB::table('calendar_events')
+            ->where('source_type', 'manual:demo')
+            ->where('title', '!=', self::SHOWCASE_TITLE)
+            ->whereNull('deleted_at')
+            ->pluck('id');
 
         if ($demoIds->isNotEmpty()) {
-            DB::table('calendar_event_links')->whereIn('calendar_event_id', $demoIds)->delete();
-            DB::table('calendar_event_feedback')->whereIn('calendar_event_id', $demoIds)->delete();
-            DB::table('calendar_event_audit_log')->whereIn('calendar_event_id', $demoIds)->delete();
+            DB::table('calendar_event_links')->whereIn('calendar_event_id', $demoIds)
+                ->whereNull('deleted_at')->update(['deleted_at' => $now0, 'updated_at' => $now0]);
+            DB::table('calendar_event_feedback')->whereIn('calendar_event_id', $demoIds)
+                ->whereNull('deleted_at')->update(['deleted_at' => $now0, 'updated_at' => $now0]);
             DB::table('command_tasks')->where('source_type', 'calendar:missed_feedback')
-                ->whereIn('calendar_event_id', $demoIds)->delete();
+                ->whereIn('calendar_event_id', $demoIds)
+                ->whereNull('deleted_at')->update(['deleted_at' => $now0, 'updated_at' => $now0]);
+            // calendar_event_audit_log: no deleted_at column — left untouched, on purpose (see docblock).
         }
-        $deleted = DB::table('calendar_events')->where('source_type', 'manual:demo')->delete();
-        $this->command->info("Deleted {$deleted} demo events + related links/feedback/tasks.");
+        $archived = DB::table('calendar_events')
+            ->whereIn('id', $demoIds)
+            ->update(['deleted_at' => $now0, 'updated_at' => $now0]);
+        $this->command->info("Archived {$archived} demo events + related links/feedback/tasks (soft delete — nothing removed from the DB).");
 
         $branches = DB::table('branches')->where('agency_id', self::AGENCY_ID)->whereNull('deleted_at')->get();
         $agents = DB::table('users')->where('agency_id', self::AGENCY_ID)->whereNull('deleted_at')->whereNotNull('branch_id')->get()->groupBy('branch_id');
@@ -216,6 +258,16 @@ class CalendarDemoSeeder extends Seeder
                     $feedbackInserts[] = [
                         'calendar_event_id' => $eventId,
                         'contact_id' => $cid,
+                        // feedback_kind mirrors the appointment's own category (viewing/
+                        // property_evaluation/listing_presentation/meeting) — the column
+                        // defaults to 'viewing' when omitted, which was silently wrong for
+                        // every non-viewing appointment's feedback before this.
+                        'feedback_kind' => $category,
+                        // property_id: the single property this appointment was about,
+                        // when it had one (viewing/property_evaluation always do; listing_
+                        // presentation/meeting never do — property stays null for those,
+                        // exactly as it should).
+                        'property_id' => $property?->id,
                         'outcome_option_id' => $outcomeMap[$fb['outcome']] ?? null,
                         'concern_option_ids' => json_encode($fb['concerns']),
                         'seller_visible_notes' => $fb['seller_visible'],
@@ -242,15 +294,21 @@ class CalendarDemoSeeder extends Seeder
 
         $this->command->info("Seeded {$created} demo events with " . count($linkInserts) . " links + " . count($feedbackInserts) . " feedback rows.");
 
-        // Summary
+        // Summary — whereNull('deleted_at') is NOT optional here: DB::table()
+        // is the raw query builder, not the Eloquent model, so it does not
+        // auto-exclude soft-deleted rows the way Eloquent's SoftDeletes trait
+        // would. Without this filter the just-archived batch above still
+        // shows up in these counts.
         $byCategory = DB::table('calendar_events')
             ->where('source_type', 'manual:demo')
+            ->whereNull('deleted_at')
             ->selectRaw('category, COUNT(*) as cnt')
             ->groupBy('category')->get();
         foreach ($byCategory as $row) $this->command->info("  {$row->category}: {$row->cnt}");
 
         $byBranch = DB::table('calendar_events')
             ->where('source_type', 'manual:demo')
+            ->whereNull('deleted_at')
             ->selectRaw('branch_id, COUNT(*) as cnt')
             ->groupBy('branch_id')->get();
         foreach ($byBranch as $row) $this->command->info("  branch {$row->branch_id}: {$row->cnt}");

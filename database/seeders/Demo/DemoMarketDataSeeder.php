@@ -87,11 +87,25 @@ final class DemoMarketDataSeeder
                 $subject = $subjects[$i % $subjects->count()];
                 $reportDate = Carbon::now()->subDays(random_int(7, 540));
 
-                $reportId = $this->createReport(
+                // 2026-09-02 — createReport() used to be a blind ::create(), so a
+                // second run (e.g. re-seeding after market_report_types came back
+                // populated) duplicated every report AND its comp/listing rows.
+                // Deterministic slug (suburb+type+slot index — NOT subject alone,
+                // since $i % count() can legitimately reuse the same subject for
+                // multiple slots of the same type within one run) is the natural
+                // key; comp/listing rows are only ever generated alongside a
+                // genuinely NEW report.
+                [$reportId, $isNew] = $this->createReport(
                     $agencyId, $uploader, $spec['type_id'], $spec['key'],
-                    $subject, $reportDate, $suburb,
+                    $subject, $reportDate, $suburb, $suburbKey, $i,
                 );
-                $reportsInserted++;
+                if ($isNew) {
+                    $reportsInserted++;
+                }
+
+                if (!$isNew) {
+                    continue;
+                }
 
                 if ($spec['key'] === 'pv') {
                     [$rows] = $this->seedPropertyValuationRows(
@@ -116,6 +130,7 @@ final class DemoMarketDataSeeder
         ];
     }
 
+    /** @return array{0:int, 1:bool} [report id, wasRecentlyCreated] */
     private function createReport(
         int $agencyId,
         int $uploaderId,
@@ -124,31 +139,46 @@ final class DemoMarketDataSeeder
         \stdClass $subject,
         Carbon $reportDate,
         array $suburb,
-    ): int {
+        string $suburbKey,
+        int $slotIndex,
+    ): array {
+        // Natural key: (agency_id, report_type_id, subject_address, source_suburb)
+        // — NOT file_name (that's a random uuid every run, old or new code, so it
+        // can never match a prior run's row) and NOT slot index alone. subject
+        // pool per suburb is 10, slots per type are <=4, so a slot never revisits
+        // a subject within one run in practice — subject_address is safe as the
+        // real identity. Matches rows from BEFORE this fix too, since
+        // subject_address/report_type_id/source_suburb were always populated.
         $uuid = (string) Str::uuid();
-        $report = MarketReport::create([
-            'agency_id'              => $agencyId,
-            'uploaded_by_user_id'    => $uploaderId,
-            'report_type_id'         => $reportTypeId,
-            'file_path'              => 'demo/' . $uuid . '.pdf',
-            'file_name'              => 'demo_' . $key . '_' . $suburb['name'] . '_' . $uuid . '.pdf',
-            'file_hash'              => hash('sha256', $uuid),
-            'source_suburb'          => $suburb['name'],
-            'source_town'            => $suburb['town'],
-            'report_date'            => $reportDate->toDateString(),
-            'parse_status'           => 'parsed',
-            'parse_completed_at'     => $reportDate,
-            'parser_version'         => 'demo_v1',
-            'raw_extracted_json'     => ['note' => 'Demo-seeded report'],
-            'data_points_count'      => 0,
-            'spot_check_status'      => 'passed',
-            'subject_address'        => $subject->address,
-            'subject_scheme_name'    => $subject->complex_name,
-            'subject_latitude'       => (float) $subject->latitude,
-            'subject_longitude'      => (float) $subject->longitude,
-            'is_demo'                => true,
-        ]);
-        return $report->id;
+
+        $report = MarketReport::firstOrCreate(
+            [
+                'agency_id'       => $agencyId,
+                'report_type_id'  => $reportTypeId,
+                'subject_address' => $subject->address,
+                'source_suburb'   => $suburb['name'],
+            ],
+            [
+                'uploaded_by_user_id'    => $uploaderId,
+                'file_path'              => 'demo/' . $uuid . '.pdf',
+                'file_name'              => 'demo_' . $key . '_' . $suburbKey . '_slot' . $slotIndex . '.pdf',
+                'file_hash'              => hash('sha256', $uuid),
+                'source_town'            => $suburb['town'],
+                'report_date'            => $reportDate->toDateString(),
+                'parse_status'           => 'parsed',
+                'parse_completed_at'     => $reportDate,
+                'parser_version'         => 'demo_v1',
+                'raw_extracted_json'     => ['note' => 'Demo-seeded report'],
+                'data_points_count'      => 0,
+                'spot_check_status'      => 'passed',
+                'subject_address'        => $subject->address,
+                'subject_scheme_name'    => $subject->complex_name,
+                'subject_latitude'       => (float) $subject->latitude,
+                'subject_longitude'      => (float) $subject->longitude,
+                'is_demo'                => true,
+            ]
+        );
+        return [$report->id, $report->wasRecentlyCreated];
     }
 
     /**

@@ -222,6 +222,9 @@ class DemoMicEnrichmentSeeder extends Seeder
                 DB::table('p24_listings')->updateOrInsert(
                     ['p24_listing_number' => 'DEMO-' . $suburb . '-' . $i],
                     [
+                        // agency_id is NOT NULL with no default on this schema (added after
+                        // this seeder was written) — omitting it 500s the insert outright.
+                        'agency_id'          => $agencyId,
                         'suburb'             => $suburb,
                         'property_type'      => ['House', 'Apartment', 'Townhouse'][$i % 3],
                         'asking_price'       => 1_500_000 + $i * 250_000,
@@ -229,6 +232,8 @@ class DemoMicEnrichmentSeeder extends Seeder
                         'bathrooms'          => 1 + ($i % 3),
                         'listing_status'     => 'active',
                         'first_seen_date'    => Carbon::now()->subDays(rand(1, 60))->toDateString(),
+                        // last_seen_date is likewise NOT NULL with no default — same gap.
+                        'last_seen_date'     => Carbon::now()->toDateString(),
                         'p24_url'            => 'https://www.property24.com/demo/' . $suburb . '/' . $i,
                         'created_at'         => now(),
                         'updated_at'         => now(),

@@ -68,6 +68,19 @@ final class DemoDealsSeeder
             $commissionRate = 6.0; // 6% gross, typical KZN South Coast
             $totalComm   = (int) round($salePrice * $commissionRate / 100);
 
+            // 2026-09-02 — was a blind ::create(); a re-run duplicated every deal.
+            // No property_id FK exists here (see docblock), so property_address
+            // is the natural key — deterministic now that DemoPropertiesSeeder
+            // itself is idempotent.
+            $propertyAddress = $prop->address . ', ' . $prop->suburb;
+            $existingDeal = Deal::where('agency_id', $agencyId)
+                ->where('property_address', $propertyAddress)
+                ->where('is_demo', true)
+                ->first();
+            if ($existingDeal) {
+                continue;
+            }
+
             Deal::create([
                 'agency_id'        => $agencyId,
                 'branch_id'        => $prop->branch_id,
@@ -75,7 +88,7 @@ final class DemoDealsSeeder
                 'deal_date'        => $dealDate,
                 'deal_no'          => $nextDealNo + $inserted,
                 'file_no'          => 'DEMO/' . $regDate->format('Y') . '/' . ($inserted + 1),
-                'property_address' => $prop->address . ', ' . $prop->suburb,
+                'property_address' => $propertyAddress,
                 'seller_name'      => DemoNames::name('seller:' . $prop->id),
                 'buyer_name'       => DemoNames::name('buyer:'  . $prop->id),
                 'attorney_name'    => DemoNames::name('attorney:' . $prop->id) . ' Attorneys',
