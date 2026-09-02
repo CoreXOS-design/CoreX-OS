@@ -225,6 +225,7 @@ class DemoDataSeeder extends Seeder
         $this->call(SystemOwnerSeeder::class);
         $this->stage2_prospectingAndTracked();
         $this->stage2b_spatialMapData();
+        $this->stage2c_sellerOutreachTemplates();
         $this->stage3_claimsAndPitches();
         $this->stage4_contactsAndWishlists();
         $this->stage5_promoteToStock();
@@ -250,6 +251,7 @@ class DemoDataSeeder extends Seeder
         $this->stage12j_agencyLogo();
         $this->stage12k_propertyDescriptions();
         $this->stage12l_buyerJourneyChain();
+        $this->stage12m_sellerOutreach();
         $this->stageViewingFeedback_demoShowcase();
         $this->stageSpine_threadFullLifecycle();
         $this->stageZ_demoPresenterCoherence();
@@ -1431,6 +1433,33 @@ class DemoDataSeeder extends Seeder
             $seeder = new \Database\Seeders\Demo\DemoSpatialSeeder();
             $seeder->setCommand($this->command);
             $seeder->run(self::AGENCY_ID);
+        });
+    }
+
+    /**
+     * Webinar day 2026-09-03 (cc-coordinator escalation) — ROOT CAUSE of
+     * "Seller Outreach sends = 0 / Outreach Queue = 0" despite stage3's real
+     * SellerOutreachComposerService/SenderService calls: `seller_outreach_
+     * templates` had ZERO rows on demo. composeContext() falls back to an
+     * EMPTY body when no template resolves ($template?->body ?? ''), which
+     * can never contain {tracking_link} — isSendable() then deterministically
+     * fails validation (`no_tracking_link`) for every single pitch, every
+     * time, and the seeder's own `if (!$ctx->isSendable()) continue;` skips
+     * it silently — no exception, no warning, nothing in the console.
+     *
+     * NOT a Bus::fake()/Queue::fake() issue — send() is synchronous, no
+     * dispatch. NOT a later stage wiping rows — the rows were never created
+     * in the first place. The real seeder (SellerOutreachTemplatesSeeder,
+     * already in this codebase, unchanged, verified byte-identical to
+     * Staging's copy) existed but was simply never called from
+     * DemoDataSeeder — a plain missing-wire bug, same class as the
+     * document_types gap found earlier tonight. Must run before stage3.
+     */
+    private function stage2c_sellerOutreachTemplates(): void
+    {
+        $this->safeSeed('SellerOutreachTemplatesSeeder', function () {
+            $this->call([\Database\Seeders\SellerOutreachTemplatesSeeder::class]);
+            $this->command->info('  Stage 2c: seller outreach templates seeded — unblocks stage3 pitches.');
         });
     }
 
@@ -3027,6 +3056,28 @@ class DemoDataSeeder extends Seeder
         $this->safeSeed('DemoBuyerJourneyChainSeeder', function () {
             $result = (new \Database\Seeders\Demo\DemoBuyerJourneyChainSeeder())->run(self::AGENCY_ID);
             $this->command->info('  Stage 12l: buyer journey chain — ' . json_encode($result));
+        });
+    }
+
+    /**
+     * Webinar day 2026-09-03 (cc-coordinator escalation) — "Seller Outreach
+     * sends = 0 / Outreach Queue = 0" despite stage3 containing real
+     * SellerOutreachComposerService/SenderService calls. Root cause:
+     * seller_outreach_templates had zero rows, so every composed pitch got
+     * an empty body and failed isSendable() silently (see stage2c's
+     * docblock for the full trace). stage2c fixes the template gap for the
+     * NEXT true fresh bootstrap, but demo:seed itself is one-time-only
+     * (Stage 1 does an unconditional admin-user INSERT with no existence
+     * check — cannot be re-run against an already-seeded database, confirmed
+     * by reproduction). This stage is the self-contained equivalent of
+     * stage3's outreach loop, safe to run standalone right now, so Seller
+     * Outreach sends AND the Outreach Queue both have real, correct data.
+     */
+    private function stage12m_sellerOutreach(): void
+    {
+        $this->safeSeed('DemoSellerOutreachSeeder', function () {
+            $result = (new \Database\Seeders\Demo\DemoSellerOutreachSeeder())->run(self::AGENCY_ID);
+            $this->command->info('  Stage 12m: seller outreach — ' . json_encode($result));
         });
     }
 
