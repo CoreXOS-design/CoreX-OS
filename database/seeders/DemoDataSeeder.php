@@ -256,6 +256,7 @@ class DemoDataSeeder extends Seeder
         $this->stage15_supplierDirectory();
         $this->stage15b_dr2ShowcaseDeal();
         $this->stage15c_complianceDocumentsOnFile();
+        $this->stage15d_calendarInvitations();
         $this->stage16_agencyConfigurationSweep();
         $this->stageV_verifyDemoIntegrity();
 
@@ -2805,6 +2806,18 @@ class DemoDataSeeder extends Seeder
         $this->safeSeed('DemoDr2ShowcaseDealSeeder', function () {
             $result = (new \Database\Seeders\Demo\DemoDr2ShowcaseDealSeeder())->run(self::AGENCY_ID);
             $this->command->info('  Stage 15b: DR2 showcase deal — ' . json_encode($result));
+        });
+    }
+
+    /**
+     * "Reads as live" sweep, 2026-09-03 — Calendar Invitations sat at 0 rows
+     * despite 1,455 real calendar events. See DemoCalendarInvitationsSeeder.
+     */
+    private function stage15d_calendarInvitations(): void
+    {
+        $this->safeSeed('DemoCalendarInvitationsSeeder', function () {
+            $result = (new \Database\Seeders\Demo\DemoCalendarInvitationsSeeder())->run(self::AGENCY_ID);
+            $this->command->info('  Stage 15d: calendar invitations — ' . json_encode($result));
         });
     }
 
