@@ -80,12 +80,14 @@ final class DemoBuyerJourneyChainSeeder
         $docsCreated = $this->seedPropertyDocuments($agencyId, $agentId, $agency->name, $documentTypeIds);
         [$eventsCreated, $feedbackCreated] = $this->seedViewingsAndFeedback($agencyId, $branchId, $agentId, $outcomeIds);
         $packsCreated = $this->seedViewingPacks($agencyId, $agentId);
+        $wishlistsFixed = $this->seedWishlistCriteria($agencyId);
 
         return [
             'documents' => $docsCreated,
             'events' => $eventsCreated,
             'feedback' => $feedbackCreated,
             'packs' => $packsCreated,
+            'wishlists' => $wishlistsFixed,
         ];
     }
 
@@ -299,6 +301,70 @@ final class DemoBuyerJourneyChainSeeder
         }
 
         return $created;
+    }
+
+    /**
+     * A buyer with a real viewing history but a wishlist carrying no
+     * suburb/property_type criteria resolves zero matches — the "Matched
+     * Properties" tab renders "No matches" even though the buyer clearly
+     * has a real, demonstrated preference (the property they just viewed).
+     * Sets each flagship buyer's PRIMARY wishlist (creating one if none
+     * exists) to the suburb/type/price range of the property they actually
+     * viewed — completes the chain: viewing -> feedback -> pack -> matches.
+     * Never touches a buyer outside BUYER_PLAN — the other ~110 wishlists
+     * on demo are somebody else's data, not this seeder's to rewrite.
+     */
+    private function seedWishlistCriteria(int $agencyId): int
+    {
+        $updated = 0;
+
+        foreach (self::BUYER_PLAN as $contactId => $plan) {
+            $firstPropertyId = $plan['viewings'][0][0] ?? null;
+            $property = $firstPropertyId ? Property::find($firstPropertyId) : null;
+            if (! $property) {
+                continue;
+            }
+
+            $wishlist = DB::table('contact_matches')
+                ->where('agency_id', $agencyId)
+                ->where('contact_id', $contactId)
+                ->whereNull('deleted_at')
+                ->orderByDesc('is_primary')
+                ->orderBy('id')
+                ->first();
+
+            $criteria = [
+                'suburbs' => json_encode([$property->suburb]),
+                'property_type' => $property->property_type,
+                'listing_type' => 'sale',
+                'beds_min' => max(1, (int) $property->beds - 1),
+                'price_min' => (int) round($property->price * 0.7),
+                'price_max' => (int) round($property->price * 1.3),
+                // Cleared deliberately: a leftover 'garden'/other hard
+                // must_have_features filter on an existing wishlist row
+                // silently zeroes out every match regardless of suburb/
+                // price/type fit — a real buyer whose actual viewed
+                // property doesn't even show up in their own matches.
+                'must_have_features' => json_encode([]),
+                'deal_breakers' => json_encode([]),
+                'updated_at' => now(),
+            ];
+
+            if ($wishlist) {
+                DB::table('contact_matches')->where('id', $wishlist->id)->update($criteria);
+            } else {
+                DB::table('contact_matches')->insert(array_merge($criteria, [
+                    'agency_id' => $agencyId,
+                    'contact_id' => $contactId,
+                    'is_primary' => true,
+                    'status' => 'active',
+                    'created_at' => now(),
+                ]));
+            }
+            $updated++;
+        }
+
+        return $updated;
     }
 
     private function archivePriorBatch(int $agencyId): void
