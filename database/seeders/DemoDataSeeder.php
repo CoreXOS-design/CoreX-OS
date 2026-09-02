@@ -251,6 +251,7 @@ class DemoDataSeeder extends Seeder
         $this->stage13_deedsMicIntelligence();
         $this->stage14_complianceHrPayroll();
         $this->stage15_supplierDirectory();
+        $this->stage16_agencyConfigurationSweep();
         $this->stageV_verifyDemoIntegrity();
 
         $this->command->info('Demo dataset complete. Login: ' . self::DEMO_LOGIN_EMAIL
@@ -714,6 +715,41 @@ class DemoDataSeeder extends Seeder
             $seeder = new \Database\Seeders\Demo\DemoSupplierDirectorySeeder();
             $result = $seeder->run(self::AGENCY_ID);
             $this->command->info("  Stage 15 (suppliers): {$result['created']} created, {$result['skipped']} already present");
+        });
+    }
+
+    // ───────────────────────────────────────────────────────────────────
+    //  STAGE 16 — CONFIGURATION SWEEP (2026-09-02, webinar prep, Johan).
+    //
+    //  "We seeded RECORDS all week and never checked CONFIGURATION." Agency
+    //  company details/branding, branch contact details, Role Manager
+    //  provisioning, and per-user FFC/PPRA/compliance fields were all left
+    //  at their post-migrate:fresh NULL state — none of the earlier stages
+    //  ever touched them. Every one of these is a settings/config screen a
+    //  prospective agency would actually open, and every one showed an
+    //  empty state or a compliance warning banner before this stage existed.
+    // ───────────────────────────────────────────────────────────────────
+
+    private function stage16_agencyConfigurationSweep(): void
+    {
+        $this->safeSeed('DemoAgencyBrandingSeeder', function () {
+            $result = (new \Database\Seeders\Demo\DemoAgencyBrandingSeeder())->run(self::AGENCY_ID);
+            $this->command->info('  Stage 16 (agency branding): ' . $result['note']);
+        });
+
+        $this->safeSeed('DemoBranchDetailsSeeder', function () {
+            $result = (new \Database\Seeders\Demo\DemoBranchDetailsSeeder())->run(self::AGENCY_ID);
+            $this->command->info('  Stage 16 (branch details): ' . $result['note']);
+        });
+
+        $this->safeSeed('DemoRoleProvisioningSeeder', function () {
+            $result = (new \Database\Seeders\Demo\DemoRoleProvisioningSeeder())->run(self::AGENCY_ID);
+            $this->command->info('  Stage 16 (role manager): ' . $result['note']);
+        });
+
+        $this->safeSeed('DemoUserComplianceSeeder', function () {
+            $result = (new \Database\Seeders\Demo\DemoUserComplianceSeeder())->run(self::AGENCY_ID);
+            $this->command->info('  Stage 16 (user compliance): ' . $result['note']);
         });
     }
 
