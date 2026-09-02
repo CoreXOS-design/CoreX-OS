@@ -248,6 +248,8 @@ class DemoDataSeeder extends Seeder
         $this->stage12h_documentTypesCatalogue();
         $this->stage12i_portalSyndication();
         $this->stage12j_agencyLogo();
+        $this->stage12k_propertyDescriptions();
+        $this->stage12l_buyerJourneyChain();
         $this->stageViewingFeedback_demoShowcase();
         $this->stageSpine_threadFullLifecycle();
         $this->stageZ_demoPresenterCoherence();
@@ -2923,6 +2925,40 @@ class DemoDataSeeder extends Seeder
             $result = (new \Database\Seeders\Demo\DemoAgencyLogoSeeder())->run(self::AGENCY_ID);
             $note = $result['note'] ?? '';
             $this->command->info('  Stage 12j: agency logo — ' . ($result['created'] ? 'generated.' : 'skipped.') . ($note ? " {$note}" : ''));
+        });
+    }
+
+    /**
+     * Webinar day 2026-09-03 — every one of demo's 348 sale + 15 rental
+     * properties had a blank `description` column. A real listing always
+     * has marketing copy; this was the single biggest "does this look
+     * actively marketed" failure across the whole slice.
+     */
+    private function stage12k_propertyDescriptions(): void
+    {
+        $this->safeSeed('DemoPropertyDescriptionsSeeder', function () {
+            $result = (new \Database\Seeders\Demo\DemoPropertyDescriptionsSeeder())->run(self::AGENCY_ID);
+            $this->command->info('  Stage 12k: property descriptions — ' . ($result['updated'] ?? 0) . ' filled.');
+        });
+    }
+
+    /**
+     * Webinar day 2026-09-03 — Johan's specific callout: "VIEWING DATA FROM
+     * CALENDAR APPOINTMENTS flowing into the pipeline." BuyerIntelligence
+     * Service::getPropertiesViewed() reads ONLY calendar_event_links (not
+     * calendar_events.contact_id/property_id directly), and most demo
+     * buyers had zero rows there. Builds a deliberately UNEVEN flagship
+     * buyer-journey chain — documented properties, real linked viewings,
+     * feedback, and (for the warm buyers only) a ready Viewing Pack — so
+     * specific buyer/property pairs are provably complete end to end. Must
+     * run after stage12b (DR2 deals) and stage12h (document types) so the
+     * documents it attaches are correctly buyer-pack-eligible.
+     */
+    private function stage12l_buyerJourneyChain(): void
+    {
+        $this->safeSeed('DemoBuyerJourneyChainSeeder', function () {
+            $result = (new \Database\Seeders\Demo\DemoBuyerJourneyChainSeeder())->run(self::AGENCY_ID);
+            $this->command->info('  Stage 12l: buyer journey chain — ' . json_encode($result));
         });
     }
 
