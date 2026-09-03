@@ -1,46 +1,128 @@
 # CoreX Demo — Testing Index
 
-## Start here — 15 minute morning check
+## Your 07:00 walk — follow this top to bottom
 
-A warm-up pass, not the full index — enough to see the demo is alive before you
-present. Full detail on every item below.
+This is the run sheet. Don't skip around — do it in this order once, with
+coffee, before the 10:00 call. Every link below is independently verified
+against the live database as of this morning (see the timestamp below the
+purpose line). If something looks wrong live, trust the screen over this
+document and re-verify before you present it.
 
-1. **Deal with commission + splits + an active pipeline** —
-   `https://demo1.corexos.co.za/deals-dr2/111/edit` — deal 111, 82 Coastal Way,
-   Shelly Beach. Cash/bond pipeline, commission **R86,250** on a R1,000,000
-   property, 50/50 split, no registration date yet (active, mid-pipeline).
-2. **Same deal's pipeline timeline** —
-   `https://demo1.corexos.co.za/deals-dr2/111/pipeline` (redirects to the
-   timeline view). Should show populated stages, not an empty list.
-3. **Property Intelligence chart** —
-   `https://demo1.corexos.co.za/corex/properties/1?tab=intelligence` — property
-   1, 192 Tucker Avenue, Uvongo. "Portal Engagement Over Time" should show a
-   real ~2-month daily-views trend, not "No portal view data yet."
-4. **A filed, signed e-sign document — on its property** —
-   `https://demo1.corexos.co.za/corex/properties/16` — Documents tab should
-   show a signed, filed PDF. Property 16 is now "187 Edward Avenue, Uvongo"
-   (re-seeded since last night) — the filed PDF's own filename still says
-   "54 Coastal Way, St Michaels-on-Sea" (stale, from before the reseed). The
-   document itself is real and opens fine; just don't read the filename
-   aloud as the property's address. See Known gap #6.
-9. **A buyer with a resolving wishlist, a viewing, and a ready pack** —
-   `https://demo1.corexos.co.za/corex/contacts/30` — Pieter Dlamini, warm,
-   32 property matches, a completed viewing, and a ready Buyer Journey
-   viewing pack. Shows the whole chain in one screen.
-5. **Deeds Capture — the similar-property conflict banner** —
+**1. Log in, then select the agency — BOTH steps, or half the app 403s.**
+   1. Go to `https://demo1.corexos.co.za/demo-owner-login` and sign in as
+      **`Demo@corexos.co.za`** / **`Demo@1024`**.
+   2. You'll land in the app, but as System Owner you have **no agency
+      context yet** — this is not optional cosmetic step, it's a hard gate
+      (`RequireAgencyContext` middleware — verified by real HTTP test this
+      morning: Payroll returns a 302 redirect to the agency picker *before*
+      this step, and a real 200 *after*). Go to
+      `https://demo1.corexos.co.za/agency/select` and pick **"CoreX Demo
+      Realty."**
+   3. Only after both steps do Payroll, Deeds Capture, and Compliance work.
+      Skip step 2 and those three areas will 302/403 mid-demo — do this
+      first, every morning, before you touch anything else.
+
+**2. Property Intelligence chart — open property 15, not whatever's newest.**
+   `https://demo1.corexos.co.za/corex/properties/15?tab=intelligence` — 21
+   Pitts Avenue, Uvongo. "Portal Engagement Over Time" shows a real 30-day
+   trend (2–14 views/day). **Any of properties 1–15 or 17 work the same
+   way — the properties LIST defaults to newest-first, and the newest
+   listings genuinely have portal syndication switched off (never
+   marketed to a portal, so no engagement history can exist).** If an
+   agency asks about a brand-new listing with no chart: "it hasn't been
+   syndicated yet" is the true, good answer — don't route around it, and
+   don't open a property off the top of the default list expecting a
+   chart. Full reasoning: Known gap #9.
+
+**3. Same property's Seller Live page — the public-facing side of the same story.**
+   `https://demo1.corexos.co.za/p/Zr9QWOdGXyCWjj4uigtp9Frz09Bt1zN7Emcunh019VjIr4Dl`
+   — presentation 57, same property (15). Real sold-comps bar chart, real
+   comparable-sales table, a price-positioning gauge, and "10 live listings
+   competing" (was 0 until this fixed yesterday — Known gap #9). **Open
+   this from the same signed-in browser tab you used in step 1** — it needs
+   your System Owner session to get past the demo gate (Known gap #8).
+
+**4. Deal 111 — the headline pipeline deal.**
+   `https://demo1.corexos.co.za/deals-dr2/111/edit` — 82 Coastal Way, Shelly
+   Beach. Commission **R86,250** on a R1,000,000 property, 50/50 split,
+   bond deal, mid-pipeline. Then click through to the timeline:
+   `https://demo1.corexos.co.za/deals-dr2/111/pipeline` — populated stages,
+   real documents, real comments, a configured Supplier Work Orders panel
+   (Electrical/Beetle/Gas/Electric Fence COCs) ready to fire the moment you
+   complete "Bond Approved" live — do that in front of the room if you want
+   to show real emails landing (see §14 Mailpit).
+
+**5. Property 16 + Contact 16 — the same filed e-sign document, from both sides.**
+   `https://demo1.corexos.co.za/corex/properties/16` and
+   `https://demo1.corexos.co.za/corex/contacts/16` — both Documents tabs
+   show the same real, filed, signed PDF ("Sole Mandate ... (Signed).pdf"),
+   confirming a signed document files to BOTH the property and the contact
+   it belongs to, not just one. **One caveat**: property 16 was re-seeded
+   overnight and is now "187 Edward Avenue, Uvongo" — the filed PDF's own
+   filename still says "54 Coastal Way, St Michaels-on-Sea" (stale, from
+   before the reseed). The document itself is real and opens fine — just
+   don't read the filename aloud as the property's current address. See
+   Known gap #6.
+
+**6. Contacts — click "All" first, or it looks empty.**
+   `https://demo1.corexos.co.za/corex/contacts?agent_id=all` — **use this
+   exact link, or click the agent filter and pick "All" once you're on the
+   plain Contacts page.** A cold visit to `/corex/contacts` shows "No
+   contacts yet" because the agent filter defaults to the logged-in user's
+   own contacts, and System Owner owns none of the 312 seeded contacts.
+   This is the very first thing Contacts shows you — do this before you
+   click into any individual buyer. See Known gap #10.
+
+   Then open **contact 30** (Pieter Dlamini) —
+   `https://demo1.corexos.co.za/corex/contacts/30` — warm, 32 resolving
+   property matches, a completed viewing, a ready Buyer Journey pack. The
+   single best no-caveats buyer example, whole chain on one screen. If you
+   want to show the funnel instead of one happy path, §6 below has a
+   verified spread across new/warm/cold/lost.
+
+**7. Property 2 — the redacted viewing pack.**
+   `https://demo1.corexos.co.za/corex/properties/2` (186 Marine Drive,
+   Uvongo) is one of 4 properties in viewing pack 16 ("Sea-view
+   shortlist," ready, contact 1) — its redacted PDF is real and downloads
+   correctly. Confirmed live via HTTP fetch this morning.
+
+**8. Deeds Capture — the similar-property conflict banner.**
    `https://demo1.corexos.co.za/corex/deeds-capture` — scroll to tracked
-   property 59: "We think this is the same as Unit 8, Parklands — currently on
-   the market with Ayanda Pillay," with working resolve controls.
-6. **Payroll — a finalised run with real payslips** —
-   `https://demo1.corexos.co.za/corex/payroll/runs` — July and August should
-   show status "Finalised" with 12 payslips each; September "Draft."
-7. **Attorney emails waiting to be filed** —
-   `https://demo1.corexos.co.za/corex/comms-suspense` — 7 items, addresses and
-   deal numbers matching real deals (e.g. "920000").
-8. **The prospecting map** —
+   property 59: "We think this is the same as Unit 8, Parklands — currently
+   on the market with Ayanda Pillay," with working resolve controls.
+
+**9. Payroll — a finalised run with real payslips.**
+   `https://demo1.corexos.co.za/corex/payroll/runs` — July and August show
+   "Finalised" with 12 payslips each; September "Draft."
+
+**10. Attorney emails waiting to be filed.**
+   `https://demo1.corexos.co.za/corex/comms-suspense` — 7 items, addresses
+   and deal numbers matching real deals (e.g. "920000").
+
+**11. The prospecting map.**
    `https://demo1.corexos.co.za/corex/map` — should show pins on load.
 
-If all 9 look right, the demo is in good shape.
+**If you have extra time before 10:00, these are real and seeded — worth a
+click but not essential to the core walk above:**
+- **Document Distribution Matrix** —
+  `https://demo1.corexos.co.za/admin/settings/deal-distribution-rules` — 47
+  rules across 8 party roles (buyer, seller, transfer attorney, bond
+  attorney, bond originator, electrician COC, entomologist, other service
+  provider). A strong screen if anyone asks "how do you control who gets
+  which document." Confirmed live, 47 rows.
+- **Commercial Evaluations** — `https://demo1.corexos.co.za/commercial-evaluations`
+  — 6 real evaluations. Confirmed live.
+- **Agent Daily** — `https://demo1.corexos.co.za/agent/daily` — confirmed
+  live, real activity.
+- **Knowledge Base** — `https://demo1.corexos.co.za/admin/knowledge` — 7
+  documents, 10 categories. Confirmed live.
+- **Guided Tours** — `https://demo1.corexos.co.za/corex/guided-tours` —
+  the self-serve training directory, ~90 real interactive tours registered
+  (filtered by role for a normal agent login; System Owner sees all of
+  them). Confirmed live.
+
+If everything in the numbered walk above looks right, the demo is in good
+shape.
 
 ---
 
@@ -53,7 +135,7 @@ from any lane's own report (that discipline caught two wrong claims already
 this week — see Known Gaps).
 
 **Site:** `https://demo1.corexos.co.za`
-**Last verified:** 2026-09-03, ~00:20 SAST
+**Last verified:** 2026-09-03, ~04:40 SAST
 **IDs are a moving target** — several areas were reseeded again today (property
 addresses, deal numbers). If this looks stale next time, don't trust it —
 re-verify.
@@ -72,10 +154,10 @@ re-verify.
    anyone's verbal report, including this one — check the live page before
    quoting a figure to a prospect.
 
-2. **Mailpit password still not documented anywhere I can find.**
-   `https://mail.demo1.corexos.co.za` needs basic-auth (username `demo`);
-   password is a hash I cannot recover. Unresolved for two days running — get
-   it before presenting, or get the presenter's IP allowlisted.
+2. ~~Mailpit password not documented~~ **FIXED 2026-09-03 (cc1).** Login is
+   `demo` / `CoreXDemo2026!` — reset via nginx basic-auth htpasswd, verified
+   200 with these creds and 401 with none (wall still enforced for everyone
+   else). See §14 for the live-demo email recipe.
 
 3. **17 older pre-2026-09-01 e-sign packs are still not filed** (same issue
    flagged last night, unchanged) — `finalization_status = 'failed'` on the
@@ -236,11 +318,25 @@ inferred):**
    gate redirect. Verified 2026-09-03 ~02:15 by an actual scripted browser
    session, not a tinker/`Auth::login()` shortcut (see Known gap #8 for why
    that distinction mattered tonight).
+4. **REQUIRED, not optional: go to `https://demo1.corexos.co.za/agency/select`
+   and pick "CoreX Demo Realty."** System Owner has `agency_id = null` — the
+   role is agency-agnostic by design, so it has no automatic agency context
+   the way a normal agent/admin login does. Without this step,
+   `RequireAgencyContext` middleware 302-redirects Payroll, Deeds Capture,
+   and Compliance straight back to the picker; a JSON/AJAX request gets a
+   422 instead. Confirmed by real HTTP test this morning: `/corex/payroll/runs`
+   → 302 to `/agency/select` before this step, real 200 after it. Do this
+   step immediately after login, every morning — it does not persist
+   across sessions.
 
 This works **because** the System Owner role bypasses the demo access gate
 entirely (`EnsureDemoGrant`'s staff bypass checks `isOwnerRole()`), so it
 does not depend on `demo_access_grants` at all — which is important, because
-that table currently has **zero active rows** (see Known gap #8).
+that table currently has **zero active rows** (see Known gap #8). The
+agency-context gate (step 4 above) is a SEPARATE middleware
+(`RequireAgencyContext`) from the demo-access gate — bypassing one does not
+bypass the other, which is exactly why step 4 is still required even though
+step 1–3 already got you past the demo gate.
 
 | Role | Email | Password |
 |---|---|---|
@@ -337,7 +433,13 @@ night's verification.
 
 ## 6. Contacts, buyer matches, wishlists
 
-`https://demo1.corexos.co.za/corex/contacts` ✅ VERIFIED renders right now.
+**Open with `?agent_id=all`, or it looks empty — this is the very first
+thing Contacts shows you.**
+`https://demo1.corexos.co.za/corex/contacts?agent_id=all` ✅ VERIFIED
+renders all 312 contacts right now. A cold visit to plain
+`/corex/contacts` shows "No contacts yet" because the agent filter
+defaults to the logged-in user's own contacts, and System Owner owns none
+of them — not a data gap, a filter default. See Known gap #10.
 
 **Correction (cc3 caught this, 2026-09-03):** an earlier version of this
 index pointed at viewing pack 17 / contacts 1–3 as the wishlist example —
@@ -489,9 +591,50 @@ in two days.**
 
 ---
 
-## 14. Mailpit (outbound email capture)
+## 14. Mailpit (outbound email capture) — scheduler demo
 
-`https://mail.demo1.corexos.co.za` — see Known gap #2, still unresolved.
+**Access:** `https://mail.demo1.corexos.co.za` — login `demo` /
+`CoreXDemo2026!`. SSL cert covers this subdomain, valid to Oct 15 2026. No
+IP allowlist needed with these credentials.
+
+**Mail safety, reconfirmed by cc1 today:** `MAIL_HOST=127.0.0.1:1025`,
+local Mailpit only, no real SMTP relay anywhere in `.env` — nothing sent
+from this box can reach a real inbox.
+
+**Live demo recipe — run these on stage, in this order, from
+`/mnt/HC_Volume_103099143/corex-demo`, if you want to show real email
+landing live:**
+
+1. `php artisan corex:calendar:send-digests` — ~1s. Produces 8 "Daily
+   digest — N red/amber/green" emails to the agents/BMs with items today,
+   real RAG-status counts from live data. Safe to re-run — sends nothing
+   if already sent today.
+2. `php artisan deals:daily-digest` — ~1s. 9 "Your deal pipeline — N
+   item(s) need attention" emails. Idempotent per day — a same-day re-run
+   sends 0 (correct, not a bug).
+3. That pair is safe and repeatable for a live demo. `deals:process-rag`
+   and `deals:process-escalations` produced the richer overnight set
+   (including a presentation "Unusual access pattern" alert still in
+   Mailpit) but are one-shot-per-threshold-crossing — they'll report "0
+   fired" now since last night's crossings already fired. Don't expect new
+   mail from them; they're not broken, just already spent.
+4. **The Supplier Work Orders send on deal 111 (§4/§8) is the other good
+   live-email moment** — completing "Bond Approved" fires 4 real supplier
+   emails immediately, no scheduler needed.
+
+**Current state:** 18 messages, 3 real content types (calendar digests,
+deal-pipeline digests, one presentation-access alert), 100% demo-safe
+addresses (`@demo.corexos.co.za` / `@corexdemo.co.za` only) — swept by
+cc1 this morning.
+
+**Not demoable via the scheduler right now (not broken, just not due):**
+e-sign reminders (0 of 13 pending requests are past their reminder
+window); presentation-view "opened" alerts (needs a client-side JS beacon,
+can't be simulated with a plain curl); seller outreach (2 items sit
+"ready" in the outreach queue, ids 1 and 5 — an agent needs to approve
+them in-app, not scheduler-fired); attorney correspondence (lives in the
+in-app Communications module, not SMTP — was never going to show up in
+Mailpit).
 
 ---
 
@@ -536,6 +679,35 @@ not a row count:**
   works (confirmed — the owner-role bypass covers this route too since
   it's a per-request auth check, not a route-specific one). Do not test it
   in an incognito/separate browser expecting it to work standalone.
+
+---
+
+## 16. Document Distribution Matrix + newly-live orphan screens
+
+- **Document Distribution Matrix** —
+  `https://demo1.corexos.co.za/admin/settings/deal-distribution-rules` ✅
+  VERIFIED: **47 rules across 8 party roles** (`buyer`, `seller`,
+  `transfer_attorney`, `bond_attorney`, `bond_originator`,
+  `electrician_coc`, `entomologist`, `service_provider`) — confirmed
+  directly against `deal_stage_document_rules` this morning. This is a
+  strong screen if an agency asks "how do you control who gets which
+  document at which stage" — it's the literal answer, live and populated.
+- **Commercial Evaluations** — `https://demo1.corexos.co.za/commercial-evaluations`
+  ✅ VERIFIED renders, 6 real evaluations.
+- **Agent Daily** — `https://demo1.corexos.co.za/agent/daily` ✅ VERIFIED
+  renders, real activity for the day.
+- **Knowledge Base** — `https://demo1.corexos.co.za/admin/knowledge` ✅
+  VERIFIED renders, 7 documents across 10 categories.
+- **Guided Tours** — `https://demo1.corexos.co.za/corex/guided-tours` ✅
+  VERIFIED renders, ~90 real interactive tours registered in
+  `TourRegistry` (System Owner sees all of them; a normal agent login sees
+  a smaller role-filtered set — both are correct, not a bug). This is the
+  self-serve "call Johan to show me how" replacement — worth mentioning by
+  name if anyone asks about onboarding/training.
+
+All five of the above were orphan screens as of last night (real features,
+zero seed data, so they looked broken) — fixed and seeded today, each
+independently confirmed via a live authenticated render, not a row count.
 
 ---
 
@@ -632,3 +804,36 @@ re-check of the property-1 render. **Clean — zero hits.**
   sheet, not something changed in code tonight. 93 contacts with no
   comm history and the broader duplicate-name pattern beyond these two
   pairs were left alone, per instruction — reported only.
+- 2026-09-03 ~04:40 — full rewrite as Johan's literal 07:00 run sheet (a
+  walk to follow top to bottom, not a reference list), per the
+  coordinator's explicit instruction. Replaced the old 9-item "Start here"
+  checklist with a sequenced 11-step walk covering login→agency-select→
+  Property Intelligence→Seller Live→deal 111→property16/contact16
+  e-sign→Contacts→Deeds Capture→Payroll→comms-suspense→map, plus an
+  "if you have extra time" list. Three mandatory corrections folded in
+  and independently re-verified by real HTTP test this morning, not taken
+  from any lane's report: (A) `/agency/select` → "CoreX Demo Realty" is a
+  REQUIRED step after login or Payroll/Deeds Capture/Compliance 302/403
+  — confirmed via curl (302 before selecting, 200 after) and traced to
+  `RequireAgencyContext` middleware, which is separate from the demo-access
+  gate the System Owner bypass already clears; added as §1 step 4. (B)
+  Contacts' `?agent_id=all` note moved to the very top of §6, since it's
+  the first thing the screen shows. (C) Property Intelligence chart
+  pointed at property 15 (or 1–15/17), explicitly not the default list's
+  newest-first top — already documented in Known gap #9, now also in the
+  walk itself. Also verified and folded in: presentation 57's live link,
+  property 2 + redacted pack 16 (viewing_pack_property id 61 → property 2,
+  within pack 16), e-sign packs 16–18 confirmed filed on BOTH property 16
+  and contact 16's Documents tabs (live HTML fetch, both show the same
+  signed PDF), the Document Distribution Matrix (47 rules / 8 party roles,
+  confirmed against `deal_stage_document_rules`), and today's four
+  newly-seeded orphan screens — Commercial Evaluations (6 rows), Agent
+  Daily, Knowledge Base (7 docs/10 categories), Guided Tours (~90
+  registered tours) — all added as new §16, each confirmed by live
+  authenticated render. Folded in cc1's Mailpit fix: password recovered
+  (`demo`/`CoreXDemo2026!`), Known gap #2 marked resolved, §14 rewritten
+  with the safe live-demo email recipe (calendar digests + deal-pipeline
+  digests, both idempotent-per-day) and an honest list of what won't fire
+  on demand (e-sign reminders, presentation-view beacons, seller outreach
+  needing agent approval, attorney comms living outside Mailpit
+  entirely).
