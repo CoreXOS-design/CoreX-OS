@@ -261,6 +261,7 @@ class DemoDataSeeder extends Seeder
         $this->stage12t_competitorStock();
         $this->stageViewingFeedback_demoShowcase();
         $this->stageSpine_threadFullLifecycle();
+        $this->stage12u_contactRealismCleanup();
         $this->stageZ_demoPresenterCoherence();
         $this->stage13_deedsMicIntelligence();
         $this->stage14_complianceHrPayroll();
@@ -3308,6 +3309,28 @@ class DemoDataSeeder extends Seeder
         $this->safeSeed('DemoCompetitorStockSeeder', function () {
             $result = (new \Database\Seeders\Demo\DemoCompetitorStockSeeder())->run(self::AGENCY_ID);
             $this->command->info('  Stage 12t: competitor stock — ' . json_encode($result));
+        });
+    }
+
+    /**
+     * Webinar day 2026-09-03 — coordinator-directed: 24 "[DEMO] Spine
+     * Buyer/Seller #N" QA lifecycle fixtures sat at the very top of the
+     * default alphabetical contacts sort ('#' sorts before letters) — the
+     * first thing anyone sees on Contacts read as unmistakably fake.
+     * Soft-deleted (no hard deletes, standing rule) after confirming zero
+     * communication_links/calendar_event_links reference them. Also
+     * resolves two duplicate-name collisions ("Anele Botha" x3, "Zanele
+     * Bezuidenhout" x3) where a name search could land on the flagship
+     * record (rich real story, already in Johan's run sheet) or a bare
+     * one at random — kept the richest record of each pair by data
+     * richness, renamed the others to real-looking, collision-checked
+     * South African names.
+     */
+    private function stage12u_contactRealismCleanup(): void
+    {
+        $this->safeSeed('DemoContactRealismCleanupSeeder', function () {
+            $result = (new \Database\Seeders\Demo\DemoContactRealismCleanupSeeder())->run(self::AGENCY_ID);
+            $this->command->info('  Stage 12u: contact realism cleanup — ' . json_encode($result));
         });
     }
 
