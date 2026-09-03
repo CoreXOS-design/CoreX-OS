@@ -4572,12 +4572,33 @@ class SignatureService
     /**
      * Resolve signing contacts from signature requests (excluding agent).
      * Returns array of [contact_id => party_role] for linking.
+     *
+     * cc4, 2026-09-03 (Johan's headline e-sign demo broke: signed docs on
+     * packs 16/17/18 showed no contact-side link) — the request's own
+     * `contact_id` is the authoritative signal: it is set at send time
+     * whenever the agent bound a real Contact to this signer (recipient
+     * card fields, including email, stay editable afterward — see the
+     * request-creation docblock in createSignatureRequest()). Re-deriving
+     * the contact from `signer_email` text as the ONLY path is fragile —
+     * any drift between the typed/edited email and what is currently on
+     * the contact record silently drops the link even though the system
+     * already knew exactly who signed. Of the 7 requests system-wide that
+     * had `contact_id` set, 6 had a mismatched email and were all
+     * silently unlinked before this fix. Prefer `contact_id`; fall back
+     * to email lookup only for a genuinely unbound (free-text) signer.
      */
     private function resolveSigningContacts(SignatureTemplate $template): array
     {
         $links = [];
         foreach ($template->requests as $request) {
-            if (!$request->signer_email || $request->party_role === 'agent') continue;
+            if ($request->party_role === 'agent') continue;
+
+            if ($request->contact_id) {
+                $links[$request->contact_id] = $request->party_role;
+                continue;
+            }
+
+            if (!$request->signer_email) continue;
 
             // AT-125 — resolve against ALL of a contact's emails (child tables), not just the mirror.
             $contact = app(\App\Services\Communications\ContactIdentifierResolver::class)
