@@ -270,6 +270,7 @@ class DemoDataSeeder extends Seeder
         $this->stage18_contactLivingRecordSweep();
         $this->stage19_contactCommunicationHistory();
         $this->stage20_presentationMarketData();
+        $this->stage21_ellieReferenceSources();
         $this->stageV_verifyDemoIntegrity();
 
         $this->command->info('Demo dataset complete. Login: ' . self::DEMO_LOGIN_EMAIL
@@ -915,6 +916,25 @@ class DemoDataSeeder extends Seeder
         $this->safeSeed('DemoPresentationMarketDataSeeder', function () {
             $result = (new \Database\Seeders\Demo\DemoPresentationMarketDataSeeder())->run(self::AGENCY_ID);
             $this->command->info('  Stage 20: presentation market data — ' . json_encode($result));
+        });
+    }
+
+    // ───────────────────────────────────────────────────────────────────
+    //  STAGE 21 — ELLIE REFERENCE SOURCES (2026-09-03, orphan-list fix).
+    //
+    //  /admin/ellie/reference-sources rendered "No reference sources." — its
+    //  own bad look independent of whether Ellie itself is switched on
+    //  (Ellie is being left off per Johan's decision — the demo's .env has
+    //  no ANTHROPIC_API_KEY and is deliberately not being pointed at the
+    //  key shared with production/staging/QA). This stage is data-only, no
+    //  config, and stands on its own regardless of that decision.
+    // ───────────────────────────────────────────────────────────────────
+
+    private function stage21_ellieReferenceSources(): void
+    {
+        $this->safeSeed('DemoEllieReferenceSourcesSeeder', function () {
+            $result = (new \Database\Seeders\Demo\DemoEllieReferenceSourcesSeeder())->run();
+            $this->command->info('  Stage 21 (Ellie reference sources): ' . $result['note']);
         });
     }
 
