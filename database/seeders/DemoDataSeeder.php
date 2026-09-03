@@ -253,6 +253,7 @@ class DemoDataSeeder extends Seeder
         $this->stage12l_buyerJourneyChain();
         $this->stage12m_sellerOutreach();
         $this->stage12n_buyerAgentAssignment();
+        $this->stage12o_commercialEvaluations();
         $this->stageViewingFeedback_demoShowcase();
         $this->stageSpine_threadFullLifecycle();
         $this->stageZ_demoPresenterCoherence();
@@ -3161,6 +3162,22 @@ class DemoDataSeeder extends Seeder
         $this->safeSeed('DemoBuyerAgentAssignmentSeeder', function () {
             $result = (new \Database\Seeders\Demo\DemoBuyerAgentAssignmentSeeder())->run(self::AGENCY_ID);
             $this->command->info('  Stage 12n: buyer agent assignment — ' . ($result['updated'] ?? 0) . ' assigned.');
+        });
+    }
+
+    /**
+     * Webinar day 2026-09-03 — orphan screen (cc6's audit: nobody's slice
+     * all night). commercial-evaluations.* is a real, mature, actively-
+     * maintained feature with zero demo rows — a pure data gap, not a
+     * half-built screen (verdict confirmed by investigation before
+     * building). evaluation.index (deeds/prospecting search tool) needs
+     * no seeding — its "0 rows" is normal pre-query state, not a gap.
+     */
+    private function stage12o_commercialEvaluations(): void
+    {
+        $this->safeSeed('DemoCommercialEvaluationsSeeder', function () {
+            $result = (new \Database\Seeders\Demo\DemoCommercialEvaluationsSeeder())->run(self::AGENCY_ID);
+            $this->command->info('  Stage 12o: commercial evaluations — ' . ($result['created'] ?? 0) . ' seeded.');
         });
     }
 
