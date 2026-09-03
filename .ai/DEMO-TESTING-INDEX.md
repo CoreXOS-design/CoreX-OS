@@ -145,25 +145,58 @@ re-verify.
      grant-issuing flow for the webinar, or a manual grant Johan/staff
      create per interested attendee.
 
-9. **FIXED 2026-09-03 — Johan's #1 named complaint, both halves.** "the
-   property intelligence - I could not find a property that shows the
-   graph" and the seller-live "0 live listings competing" headline were the
-   SAME root cause: `CompetitorStockMatchService::findCompetitors()` /
-   `findComparableStock()` (shared by both features) score
-   `prospecting_listings` within ±20% price / ±1 bed of the subject
-   property — real Uvongo rows existed but none fell inside both bands for
-   any of the 8 hero properties. `DemoCompetitorStockSeeder` added 3
-   in-tolerance competitor rows per hero property. Re-verified by real
-   authenticated HTTPS fetch, not inferred: presentation 57's seller-live
+9. **Johan's #1 named complaint — fixed where it could honestly be fixed.
+   READ THIS BEFORE YOU CLICK AROUND ON PROPERTIES LIVE:**
+
+   > **Open Property Intelligence on property 15 (or any of 1–15, 17). Do
+   > NOT open it on whatever property sits at the top of the default
+   > newest-first list** — those properties have portal syndication
+   > genuinely turned OFF, so their Portal Engagement chart is legitimately
+   > empty. This is not a bug to route around; it's correct behaviour on
+   > properties that were never actually marketed to a portal.
+
+   **What was fixed (2026-09-03, verified by real authenticated HTTPS
+   fetch, not row counts):** the seller-live "0 live listings competing"
+   headline and the Property Intelligence comparable-stock panel shared one
+   root cause — `CompetitorStockMatchService` scores candidates within
+   ±20% price / ±1 bed of the subject, and no `prospecting_listings` rows
+   fell inside both bands for any of the 8 hero properties.
+   `DemoCompetitorStockSeeder` fixed this. Presentation 57's seller-live
    page now reads "10 live listings competing" (was 0); the CMA bar chart,
    comparable-sales table, and price gauge all confirmed rendering real
    non-zero data; property 15's Portal Engagement chart confirmed with real
-   30-day view counts. See §2 and §15 for the verified links. Separately
-   flagged, NOT fixed: the properties list defaults to newest-first, but
-   every property with working Intelligence-tab data is among the oldest —
-   Johan won't find one browsing normally even now. That's a
-   sort-order/discoverability decision for Johan, not something changed
-   here.
+   30-day view counts (2–14 views/day). See §2 and §15 for the verified
+   links.
+
+   **What was deliberately NOT fixed, and why that's the right call, not a
+   shortfall:** the properties list defaults to newest-first, and every
+   property with working Portal Engagement data is among the oldest.
+   Checked whether the newest properties could get the same treatment —
+   they can't, honestly:
+   - The true newest properties (highest ids) are `status: draft` — never
+     published, so real portal history can't exist for them.
+   - The next tier down are rentals (`rented`/`under_offer`) — off-market,
+     not P24 sale-portal candidates.
+   - The next tier — the actual newest **active, for-sale** stock — has
+     `p24_syndication_enabled = 0` and `pp_syndication_enabled = 0` on
+     every single one, confirmed directly against the DB. Only 12
+     properties agency-wide (all ≤ id 17) have real syndication on.
+   - Faking chart data on a property whose own syndication flag says "off"
+     would contradict itself the moment anyone opens that property's own
+     Marketing tab. Turning syndication ON for new properties instead would
+     start real scheduled jobs (`SyncProperty24Activations` every 15 min,
+     `PullP24StatsJob`, `PullP24LeadsJob`, and the Private Property
+     equivalents — confirmed in `routes/console.php`) hitting the sandbox
+     portal APIs. Either one would look fine tonight and go wrong live.
+   - **Comparable Listings is NOT part of this gap** — that panel matches
+     against the agency's own stock, not portal data, and already works on
+     every property including the newest ones (verified live: property
+     222's Intelligence tab shows property 224 as a real comp). It is
+     specifically the Portal Engagement chart that needs a hero property.
+   - **If an agency asks why a brand-new listing shows no portal
+     engagement, that's a genuinely good answer, not an admission of a
+     demo hole: "it hasn't been syndicated yet."** That's the system
+     working correctly. Say it with a straight face.
 
 ---
 
@@ -526,3 +559,22 @@ re-check of the property-1 render. **Clean — zero hits.**
   fix and the separate, unfixed discoverability issue (hero properties are
   the oldest, properties list sorts newest-first). §2 and §15 updated with
   the verified named links Johan asked for.
+- 2026-09-03 ~03:35 — coordinator asked to CLOSE the discoverability gap
+  (seed intelligence data for the newest properties, not just document it).
+  Checked whether that could be done honestly: the true newest properties
+  are drafts (never published); the next tier are rentals (off-market); the
+  next tier — the actual newest active for-sale stock — has
+  `p24_syndication_enabled=0` and `pp_syndication_enabled=0` on every one,
+  confirmed against the DB (only 12 properties agency-wide, all ≤ id 17,
+  have real syndication on). Faking portal-engagement history on a property
+  whose own syndication flag says "off" would contradict itself on that
+  property's own Marketing tab; turning syndication on instead would start
+  real scheduled jobs (routes/console.php: SyncProperty24Activations,
+  PullP24StatsJob, PullP24LeadsJob + PP equivalents) hitting sandbox portal
+  APIs every 15 minutes. Declined to do either — reported the finding
+  instead of forcing a fix, per the coordinator's own stated fallback.
+  Rewrote Known gap #9 with the unmissable instruction (open property
+  15/1–15/17, not the top of the list) and the full reasoning, including
+  that Comparable Listings already works on every property (verified live
+  on property 222) because it doesn't depend on portal data — only the
+  Portal Engagement chart needs a hero property.
