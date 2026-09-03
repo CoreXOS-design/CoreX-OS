@@ -256,6 +256,8 @@ class DemoDataSeeder extends Seeder
         $this->stage12o_commercialEvaluations();
         $this->stage12p_agentDailyActivity();
         $this->stage12q_whatsNew();
+        $this->stage12r_training();
+        $this->stage12s_knowledgeBase();
         $this->stageViewingFeedback_demoShowcase();
         $this->stageSpine_threadFullLifecycle();
         $this->stageZ_demoPresenterCoherence();
@@ -3248,6 +3250,44 @@ class DemoDataSeeder extends Seeder
         $this->safeSeed('DemoWhatsNewSeeder', function () {
             $result = (new \Database\Seeders\Demo\DemoWhatsNewSeeder())->run();
             $this->command->info('  Stage 12q: what\'s new — ' . ($result['created'] ?? 0) . ' seeded.');
+        });
+    }
+
+    /**
+     * Webinar day 2026-09-03 — orphan screen (cc3's audit). training.index
+     * confirmed real, working code, zero demo rows. Reuses the three
+     * genuinely good courses already written in migration
+     * 2026_03_27_500000_create_training_tables.php (real FICA/PPRA
+     * content) whose seed step silently never fired for demo — its guard
+     * checks agency existence AT MIGRATE TIME, before agency 1 existed.
+     * Reported to the coordinator as a real product finding, same defect
+     * class as the hfc-coastal calendar-mapping seeder. One HFC-branded
+     * line reworded (was corex.hfcoastal.co.za).
+     */
+    private function stage12r_training(): void
+    {
+        $this->safeSeed('DemoTrainingSeeder', function () {
+            $result = (new \Database\Seeders\Demo\DemoTrainingSeeder())->run(self::AGENCY_ID);
+            $this->command->info('  Stage 12r: training courses — ' . ($result['courses'] ?? 0) . ' seeded.');
+        });
+    }
+
+    /**
+     * Webinar day 2026-09-03 — orphan screen (cc3's audit), highest-value
+     * of the four per Johan: admin.knowledge.index confirmed real, working
+     * code, zero demo rows — the SAME KnowledgeDocument/KnowledgeChunk
+     * models Ellie's local search already reads. 7 documents covering
+     * FICA procedure, mandate handling, OTP basics, trust account rules,
+     * POPIA, and internal how-tos, against the 10 categories already
+     * seeded on demo. Embeddings deliberately not generated — confirmed
+     * not required for this admin screen (or the LIKE-search fallback) to
+     * work correctly.
+     */
+    private function stage12s_knowledgeBase(): void
+    {
+        $this->safeSeed('DemoKnowledgeBaseSeeder', function () {
+            $result = (new \Database\Seeders\Demo\DemoKnowledgeBaseSeeder())->run(self::AGENCY_ID);
+            $this->command->info('  Stage 12s: knowledge base — ' . ($result['created'] ?? 0) . ' documents seeded.');
         });
     }
 
