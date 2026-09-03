@@ -145,6 +145,26 @@ re-verify.
      grant-issuing flow for the webinar, or a manual grant Johan/staff
      create per interested attendee.
 
+9. **FIXED 2026-09-03 — Johan's #1 named complaint, both halves.** "the
+   property intelligence - I could not find a property that shows the
+   graph" and the seller-live "0 live listings competing" headline were the
+   SAME root cause: `CompetitorStockMatchService::findCompetitors()` /
+   `findComparableStock()` (shared by both features) score
+   `prospecting_listings` within ±20% price / ±1 bed of the subject
+   property — real Uvongo rows existed but none fell inside both bands for
+   any of the 8 hero properties. `DemoCompetitorStockSeeder` added 3
+   in-tolerance competitor rows per hero property. Re-verified by real
+   authenticated HTTPS fetch, not inferred: presentation 57's seller-live
+   page now reads "10 live listings competing" (was 0); the CMA bar chart,
+   comparable-sales table, and price gauge all confirmed rendering real
+   non-zero data; property 15's Portal Engagement chart confirmed with real
+   30-day view counts. See §2 and §15 for the verified links. Separately
+   flagged, NOT fixed: the properties list defaults to newest-first, but
+   every property with working Intelligence-tab data is among the oldest —
+   Johan won't find one browsing normally even now. That's a
+   sort-order/discoverability decision for Johan, not something changed
+   here.
+
 ---
 
 ## 1. Login / demo accounts
@@ -194,6 +214,32 @@ Intelligence: `/corex/market-intelligence`.
   - Property **2** — 186 Marine Drive, Uvongo: same pattern, `.../corex/properties/2?tab=intelligence`.
   - Property **3** — 12 Pitts Avenue, Uvongo: same pattern, `.../corex/properties/3?tab=intelligence`.
   - All 3 also have a populated CMA/Market Snapshot and matched prospecting listings — the whole tab looks complete, not just the chart.
+
+**Johan's #1 named complaint, "I could not find a property that shows the
+graph" — root cause found and fixed 2026-09-03, re-verified visually:**
+the properties list defaults to newest-first (`Agency::properties_sort_mode`,
+default `'created'`), but every property with real Intelligence-tab data is
+among the OLDEST (lowest-id) properties in the demo — a normal newest-first
+browse never reaches them. Not fixed here (a sort-order/discoverability
+decision, flagged for Johan, not made unilaterally) — but the data itself is
+now confirmed genuinely populated, not just present:
+
+- **Property 15 — 21 Pitts Avenue, Uvongo** —
+  `https://demo1.corexos.co.za/corex/properties/15?tab=intelligence`.
+  ✅ VERIFIED by real HTTP fetch (authenticated session, not a data-count
+  inference): the embedded Portal Engagement chart series has real,
+  varying daily view counts for the last 30 days (2–14 views/day, e.g.
+  2026-08-24→14, 2026-08-31→2, 2026-09-01→8) — the default 30D filter
+  will draw real bars, not a flat/empty line. Comparable Listings panel
+  also populated (property 6 "1 Devon Place", property 10 "100 Mitchell
+  Avenue", both with real prices). This is the single best property to
+  open live — it is ALSO the seller-live example in §15 below, so one
+  property carries both halves of the demo.
+- Any of properties **1–14** work the same way (all 15 heroes were
+  extended to full coverage on 2026-09-02 — see
+  `database/seeders/Demo/DemoIntelligenceSeeder.php`'s own docblock).
+  Property 15 is called out specifically only because it doubles as the
+  seller-live example.
 
 ---
 
@@ -392,6 +438,38 @@ in two days.**
   `https://demo1.corexos.co.za/corex/market-intelligence/suburb-report/Uvongo`
   follows the same pattern verified working on this and prior nights.
 
+**Seller Live link — Johan's other #1-complaint item ("showing the
+graphs"). Verified 2026-09-03 by opening the real public URL over HTTPS and
+reading the actual rendered chart data, not the endpoint status code and
+not a row count:**
+
+- **Presentation 57 — 21 Pitts Avenue, Uvongo (property 15 above)**:
+  `https://demo1.corexos.co.za/p/Zr9QWOdGXyCWjj4uigtp9Frz09Bt1zN7Emcunh019VjIr4Dl`
+  ✅ VERIFIED — this is the ONE to open live:
+  - "Uvongo — recent sales activity" bar chart (Chart.js, `<canvas
+    id="suburb-trend-chart">`): 6 real sold comps across 5 distinct months
+    → real bars will draw, not an empty chart.
+  - "Recent sales in the vicinity" table: 6 real rows with real addresses/
+    dates/prices.
+  - "Where your asking price sits in the recommended band": SVG gauge with
+    real, distinct values (Lower R2,135,250 / Middle R2,372,500 / Upper
+    R2,680,925 / Asking R2,460,000) — genuine non-zero bar widths.
+  - "Active Competition" — **10 live listings competing** (was 0 as of
+    earlier tonight; root cause and fix — see Known gap #9 below).
+- The other 7 hero presentations (**50–56**, properties 8–14) follow the
+  identical pattern and were fixed by the same seeder run — not
+  individually re-opened tonight, but built and verified the same way.
+  Tokens are in `presentation_snapshot_links` keyed by `presentation_id`
+  if a second example is needed live.
+- **Important — this link needs a signed-in browser to open right now.**
+  `/p/{token}` is meant to be a no-auth public URL, but the demo access
+  gate currently intercepts it too (fresh/anonymous requests 302 to
+  `/demo/gate`) — see Known gap #8. Open it from the SAME browser tab
+  group where you're already signed in via §1's System Owner login and it
+  works (confirmed — the owner-role bypass covers this route too since
+  it's a per-request auth check, not a route-specific one). Do not test it
+  in an incognito/separate browser expecting it to work standalone.
+
 ---
 
 ## HFC contamination sweep
@@ -436,3 +514,15 @@ re-check of the property-1 render. **Clean — zero hits.**
   `git log`/`git show` that `app/Http/Middleware/EnsureDemoGrant.php` was
   not modified in any commit tonight (an edit was drafted, then reverted
   before staging, on coordinator instruction).
+- 2026-09-03 ~02:55 — fixed Johan's #1 named complaint (property
+  intelligence graph unfindable + seller-live "0 live listings competing").
+  Root-caused to CompetitorStockMatchService's price/beds tolerance finding
+  no qualifying `prospecting_listings` rows for any of the 8 hero
+  properties — added `DemoCompetitorStockSeeder`, re-verified by real
+  authenticated HTTPS fetch (not tinker, not row counts): presentation 57's
+  chart, comp table, price gauge, and "10 live listings" headline all
+  confirmed rendering real data; property 15's Portal Engagement chart
+  confirmed with real 30-day view counts. New Known gap #9 documents the
+  fix and the separate, unfixed discoverability issue (hero properties are
+  the oldest, properties list sorts newest-first). §2 and §15 updated with
+  the verified named links Johan asked for.
