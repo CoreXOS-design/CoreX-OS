@@ -57,13 +57,17 @@ final class DemoWhatsNewSeeder
         // SystemUpdateService::candidateIdsFor() — Rule 2 — "a user never sees
         // changes that predate their own account". Every demo user's created_at
         // is a seeding artifact (today or yesterday), which would silently hide
-        // this entire release history from every login, including admin's. The
-        // whole point of tonight's work is that this reads as a system running
-        // for months — so backdate every agency-1 user's created_at ahead of the
-        // oldest entry below, one-directional (never move a date forward, so a
-        // real account's genuine join date is never touched).
+        // this entire release history from every login. system_updates has no
+        // agency_id — it is genuinely platform-wide, every CoreX user sees the
+        // same feed — so this must NOT be scoped to agency_id=1: the System
+        // Owner account (Demo@corexos.co.za, agency_id=NULL, the login Johan
+        // actually presents from) was missed by an earlier agency_id=1-only
+        // version of this fix, confirmed by cc4 testing that exact login.
+        // Backdate every user's created_at ahead of the oldest entry below,
+        // one-directional (never move a date forward, so a real account's
+        // genuine join date is never touched).
         $oldestEntryAt = now()->subDays(max(array_column(self::PLAN, 2)) + 5);
-        DB::table('users')->where('agency_id', 1)
+        DB::table('users')
             ->where('created_at', '>', $oldestEntryAt)
             ->update(['created_at' => $oldestEntryAt]);
 
