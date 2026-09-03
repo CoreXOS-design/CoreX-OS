@@ -115,19 +115,71 @@ re-verify.
    whole buyer funnel. Every ID in this document was re-checked against the
    live DB before this fix, not just the buyer section — see the change log.
 
+8. **`demo_access_grants` has zero active rows — a genuinely fresh/uninvited
+   visitor has no self-service way in right now.** This is a real product
+   gap, not a test artifact — flagging for Johan to decide, not fixing at
+   3am. Traced empirically (real curl requests against
+   `demo1.corexos.co.za`, plus reading `demo_access_grants` directly on
+   `/corex`'s `nexus_os` DB, the box `COREX_DEMO_CONTROL_URL` actually
+   points at):
+   - The table has exactly 2 rows, both for `a.roets12@gmail.com`, both
+     expired **and** revoked on 2026-07-12. Nothing for Johan, nothing
+     recent, nothing active.
+   - A visitor with no grant cookie who hits `/demo/gate` sees "Sign in
+     with the email address and access code from your invitation" — no
+     self-service request-access flow, invite-only by design.
+   - A visitor with no grant cookie who hits `/login` sees the **ordinary
+     password form**, not the passwordless "Sign in as…" persona buttons —
+     also by design (`AuthenticatedSessionController::create()`'s docblock:
+     showing the passwordless picker to an uninvited visitor "advertises
+     the whole demo to anyone who guesses the URL"). So the passwordless
+     `demo-login/{role}` route itself is not broken code — it's correctly
+     unreachable until a grant cookie exists, and nothing currently issues
+     one.
+   - Net effect: this is the exact route a prospective agency would use to
+     try CoreX after the webinar, and it is currently a dead end for
+     anyone who wasn't already issued a (now long-expired) invitation.
+     Johan's own 07:00 access is unaffected — see §1, the System Owner
+     login bypasses this table entirely — but anyone he tells to "go try
+     it yourself" tomorrow will hit a wall. Needs a decision: either a live
+     grant-issuing flow for the webinar, or a manual grant Johan/staff
+     create per interested attendee.
+
 ---
 
 ## 1. Login / demo accounts
 
-Unchanged.
+**07:00 SAST recipe for Johan — the ONE path confirmed to work end-to-end
+right now, via a real HTTP test (curl, real CSRF token, real cookie jar, not
+inferred):**
+
+1. Go to `https://demo1.corexos.co.za/demo-owner-login`.
+2. Sign in as **`Demo@corexos.co.za`** / **`Demo@1024`** (System Owner,
+   role `super_admin`, `is_owner=1`).
+3. This lands on `/dashboard` → `/corex`, a full 200 OK real app page — no
+   gate redirect. Verified 2026-09-03 ~02:15 by an actual scripted browser
+   session, not a tinker/`Auth::login()` shortcut (see Known gap #8 for why
+   that distinction mattered tonight).
+
+This works **because** the System Owner role bypasses the demo access gate
+entirely (`EnsureDemoGrant`'s staff bypass checks `isOwnerRole()`), so it
+does not depend on `demo_access_grants` at all — which is important, because
+that table currently has **zero active rows** (see Known gap #8).
 
 | Role | Email | Password |
 |---|---|---|
+| System Owner (Johan's login — gate-proof, use this at 07:00) | `Demo@corexos.co.za` | `Demo@1024` via `/demo-owner-login` |
 | Agency admin | `admin@demo.corexos.co.za` | `CoreXDemo!2026` |
 | Branch manager (Margate) | `bm.margate@demo.corexos.co.za` | `CoreXDemo!2026` |
 | Agent (Margate) — Pieter van der Merwe, user id 3 | `agent.margate1@demo.corexos.co.za` | `CoreXDemo!2026` |
 | Viewer | `viewer@demo.corexos.co.za` | `CoreXDemo!2026` |
-| System Owner | `Demo@corexos.co.za` | `Demo@1024` via `/demo-owner-login` |
+
+The agency-admin/branch-manager/agent/viewer rows above use the **ordinary
+password login** at `/login` (that route is gate-exempt by design) — not yet
+independently re-verified via a real HTTP round-trip tonight the way the
+System Owner path was, but their password hashes and roles are unchanged
+from `DemoDataSeeder.php` and none of them have `is_owner`, so if the gate
+or grants change before 07:00, re-check these specifically.
 
 Agency = **CoreX Demo Realty** (id 1). After login, land on Market
 Intelligence: `/corex/market-intelligence`.
@@ -373,3 +425,14 @@ re-check of the property-1 render. **Clean — zero hits.**
   deal 111, e-sign packs 16–21, rental properties, doc types, policy,
   screening, payroll runs, Uvongo suburb) re-checked and still correct as
   written — no further drift found this pass.
+- 2026-09-03 ~02:20 — verified the actual 07:00 login path with a real HTTP
+  round-trip (curl, CSRF token, cookie jar) against `demo1.corexos.co.za`,
+  not inferred and not a tinker-only in-process check: `/demo-owner-login`
+  with `Demo@corexos.co.za` / `Demo@1024` reaches a genuine 200 OK `/corex`
+  page. Rewrote §1 with that exact recipe first. Also traced, empirically,
+  that `demo_access_grants` (the table `EnsureDemoGrant` checks via
+  primary) has zero active rows — a fresh/uninvited visitor currently has
+  no self-service way past `/demo/gate` — new Known gap #8. Confirmed via
+  `git log`/`git show` that `app/Http/Middleware/EnsureDemoGrant.php` was
+  not modified in any commit tonight (an edit was drafted, then reverted
+  before staging, on coordinator instruction).
