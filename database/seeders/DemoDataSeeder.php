@@ -254,6 +254,7 @@ class DemoDataSeeder extends Seeder
         $this->stage12m_sellerOutreach();
         $this->stage12n_buyerAgentAssignment();
         $this->stage12o_commercialEvaluations();
+        $this->stage12p_agentDailyActivity();
         $this->stageViewingFeedback_demoShowcase();
         $this->stageSpine_threadFullLifecycle();
         $this->stageZ_demoPresenterCoherence();
@@ -3178,6 +3179,31 @@ class DemoDataSeeder extends Seeder
         $this->safeSeed('DemoCommercialEvaluationsSeeder', function () {
             $result = (new \Database\Seeders\Demo\DemoCommercialEvaluationsSeeder())->run(self::AGENCY_ID);
             $this->command->info('  Stage 12o: commercial evaluations — ' . ($result['created'] ?? 0) . ' seeded.');
+        });
+    }
+
+    /**
+     * Webinar day 2026-09-03 — orphan screen (cc6's audit: nobody's slice
+     * all night). agent.daily / agent.daily.summary are confirmed real,
+     * working code with zero demo data — a pure data gap. The real 41-row
+     * HFC visible-activity catalogue has no seeder anywhere in the
+     * codebase (hand-configured content, never captured as reference
+     * data); ActivityCalendarMappingSeeder exists but is hardcoded to
+     * agency slug 'hfc-coastal' and silently no-ops on demo's
+     * 'corex-demo-realty' slug — not modifying that production file.
+     * ActivityInstantActionsSeeder (the separate hidden "[Auto]" instant-
+     * action catalogue) is a real, ready seeder that was simply never
+     * wired in anywhere — run directly here alongside the demo-specific
+     * visible catalogue + calendar mappings + real-calendar-derived points.
+     */
+    private function stage12p_agentDailyActivity(): void
+    {
+        $this->safeSeed('ActivityInstantActionsSeeder', function () {
+            $this->call([\Database\Seeders\ActivityInstantActionsSeeder::class]);
+        });
+        $this->safeSeed('DemoAgentDailyActivitySeeder', function () {
+            $result = (new \Database\Seeders\Demo\DemoAgentDailyActivitySeeder())->run(self::AGENCY_ID);
+            $this->command->info('  Stage 12p: agent daily activity — ' . json_encode($result));
         });
     }
 
