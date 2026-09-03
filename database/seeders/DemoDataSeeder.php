@@ -255,6 +255,7 @@ class DemoDataSeeder extends Seeder
         $this->stage12n_buyerAgentAssignment();
         $this->stage12o_commercialEvaluations();
         $this->stage12p_agentDailyActivity();
+        $this->stage12q_whatsNew();
         $this->stageViewingFeedback_demoShowcase();
         $this->stageSpine_threadFullLifecycle();
         $this->stageZ_demoPresenterCoherence();
@@ -3224,6 +3225,29 @@ class DemoDataSeeder extends Seeder
         $this->safeSeed('DemoAgentDailyActivitySeeder', function () {
             $result = (new \Database\Seeders\Demo\DemoAgentDailyActivitySeeder())->run(self::AGENCY_ID);
             $this->command->info('  Stage 12p: agent daily activity — ' . json_encode($result));
+        });
+    }
+
+    /**
+     * Webinar day 2026-09-03 — orphan screen (cc3's audit). system_updates
+     * (What's New) confirmed real, working, platform-wide (no agency_id —
+     * every CoreX user sees the same feed, by design). Safe here because
+     * demo runs its own fully isolated database.
+     *
+     * Real bug caught mid-verification: SystemUpdateService::
+     * candidateIdsFor() has a genuine "a user never sees changes that
+     * predate their own account" rule — every demo user's created_at is a
+     * seeding artifact dated today/yesterday, which silently hid the
+     * entire release history from every login including admin's. Fixed by
+     * backdating agency-1 users' created_at ahead of the oldest release
+     * note (one-directional, only moves dates older, never touches a date
+     * already older than that).
+     */
+    private function stage12q_whatsNew(): void
+    {
+        $this->safeSeed('DemoWhatsNewSeeder', function () {
+            $result = (new \Database\Seeders\Demo\DemoWhatsNewSeeder())->run();
+            $this->command->info('  Stage 12q: what\'s new — ' . ($result['created'] ?? 0) . ' seeded.');
         });
     }
 
