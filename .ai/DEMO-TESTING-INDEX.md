@@ -198,6 +198,29 @@ re-verify.
      demo hole: "it hasn't been syndicated yet."** That's the system
      working correctly. Say it with a straight face.
 
+10. **The Contacts list has a real display bug, not just a data gap — READ
+    THIS BEFORE CLICKING CONTACTS.** A fresh visit to
+    `/corex/contacts` as System Owner shows **"No contacts yet — Add your
+    first contact"**, despite 312 real contacts existing. Root cause: the
+    agent filter defaults to the logged-in user's own contacts, and System
+    Owner has never "owned" any of the seeded contacts. **Fix: click the
+    agent filter and pick "All," or open
+    `https://demo1.corexos.co.za/corex/contacts?agent_id=all` directly.**
+    Verified this shows all 312 contacts correctly. Also fixed the same day
+    (coordinator-directed, both visible in the first three seconds of
+    clicking Contacts once past the above): 24 "[DEMO] Spine Buyer/Seller
+    #N" internal QA fixtures that sorted to the very top of the default
+    alphabetical list (archived, not deleted — see §6's note) and two
+    duplicate-name collisions, "Anele Botha" and "Zanele Bezuidenhout"
+    (each had 3 records; kept the richest, renamed the other two — see §6).
+    **Left alone, reported only (not mass-seeded, per explicit
+    instruction):** 93 of 312 contacts (~30%) have zero communication
+    history — a plausible real state for some contacts, not fixed at this
+    hour; and many OTHER duplicate first+last name pairs exist across the
+    dataset beyond the two collisions fixed (a broader naming-pool
+    collision pattern — dozens of pairs, not touched, out of scope for
+    tonight).
+
 ---
 
 ## 1. Login / demo accounts
@@ -343,6 +366,17 @@ warm, resolving matches, a completed viewing, and a ready pack, all in one
 screen. Use **31 (Anele Botha)** specifically if you want to show the
 wishlist→match resolution story from the very start (draft pack, one
 viewing booked, nothing finalized yet).
+
+**Fixed 2026-09-03 — name-collision risk on contact 31.** There used to be
+THREE "Anele Botha" contacts (31, 91, 151) — a name search during the
+webinar could have landed on a bare record instead of 31's real story.
+Confirmed 31 as the genuine richest record (viewing pack 21, 3 comms, 3
+property views) and renamed the other two to real, collision-checked names
+("Nomvula Radebe", "Andile Mabaso") — 31 is now the only "Anele Botha" in
+the system. Same fix applied to "Zanele Bezuidenhout" (kept contact 45,
+renamed the other two). Also archived (soft-deleted, recoverable) 24
+"[DEMO] Spine Buyer/Seller #N" QA fixtures that sorted to the very top of
+the default alphabetical Contacts list — see Known gap #10.
 
 ---
 
@@ -578,3 +612,23 @@ re-check of the property-1 render. **Clean — zero hits.**
   that Comparable Listings already works on every property (verified live
   on property 222) because it doesn't depend on portal data — only the
   Portal Engagement chart needs a hero property.
+- 2026-09-03 ~03:55 — contact realism spot-check (browsing the way Johan
+  would, not just checking data counts) found: (a) a real display bug —
+  fresh Contacts visit as System Owner shows "No contacts yet" because the
+  agent filter defaults to "my own contacts" and System Owner owns none —
+  new Known gap #10; (b) 24 "[DEMO] Spine Buyer/Seller #N" QA fixtures
+  sorting to the top of the default alphabetical list; (c) three-way name
+  collisions on "Anele Botha" and "Zanele Bezuidenhout" where a webinar
+  search could land on a bare record instead of the flagship one already
+  in §6. Coordinator directed fixing (b) and (c): archived the 24 fixtures
+  (soft-delete, confirmed zero communication_links/calendar_event_links
+  referenced them first) and renamed the two non-flagship records in each
+  collision pair to collision-checked real names, keeping the richer
+  record (31 for Anele Botha — confirmed via viewing_packs.contact_id=21;
+  45 for Zanele Bezuidenhout — 6 comms + 3 property views). Verified live:
+  contacts?agent_id=all now shows zero "Spine" and exactly one of each
+  name. §6 and Known gap #10 updated. (a) reported, not silently fixed —
+  it's a one-click workaround (?agent_id=all) documented for Johan's run
+  sheet, not something changed in code tonight. 93 contacts with no
+  comm history and the broader duplicate-name pattern beyond these two
+  pairs were left alone, per instruction — reported only.
