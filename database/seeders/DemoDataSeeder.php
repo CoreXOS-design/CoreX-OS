@@ -252,6 +252,7 @@ class DemoDataSeeder extends Seeder
         $this->stage12k_propertyDescriptions();
         $this->stage12l_buyerJourneyChain();
         $this->stage12m_sellerOutreach();
+        $this->stage12n_buyerAgentAssignment();
         $this->stageViewingFeedback_demoShowcase();
         $this->stageSpine_threadFullLifecycle();
         $this->stageZ_demoPresenterCoherence();
@@ -3146,6 +3147,20 @@ class DemoDataSeeder extends Seeder
         $this->safeSeed('DemoSellerOutreachSeeder', function () {
             $result = (new \Database\Seeders\Demo\DemoSellerOutreachSeeder())->run(self::AGENCY_ID);
             $this->command->info('  Stage 12m: seller outreach — ' . json_encode($result));
+        });
+    }
+
+    /**
+     * Webinar day 2026-09-03 — all 132 buyer-pipeline contacts had
+     * agent_id=NULL, so every card on /command-center/buyers/pipeline read
+     * "Unassigned" — found while spot-checking the flagship buyers'
+     * pipeline cards specifically, confirmed systemic before fixing.
+     */
+    private function stage12n_buyerAgentAssignment(): void
+    {
+        $this->safeSeed('DemoBuyerAgentAssignmentSeeder', function () {
+            $result = (new \Database\Seeders\Demo\DemoBuyerAgentAssignmentSeeder())->run(self::AGENCY_ID);
+            $this->command->info('  Stage 12n: buyer agent assignment — ' . ($result['updated'] ?? 0) . ' assigned.');
         });
     }
 
