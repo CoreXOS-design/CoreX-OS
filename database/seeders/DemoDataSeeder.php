@@ -258,6 +258,7 @@ class DemoDataSeeder extends Seeder
         $this->stage12q_whatsNew();
         $this->stage12r_training();
         $this->stage12s_knowledgeBase();
+        $this->stage12t_competitorStock();
         $this->stageViewingFeedback_demoShowcase();
         $this->stageSpine_threadFullLifecycle();
         $this->stageZ_demoPresenterCoherence();
@@ -3288,6 +3289,25 @@ class DemoDataSeeder extends Seeder
         $this->safeSeed('DemoKnowledgeBaseSeeder', function () {
             $result = (new \Database\Seeders\Demo\DemoKnowledgeBaseSeeder())->run(self::AGENCY_ID);
             $this->command->info('  Stage 12s: knowledge base — ' . ($result['created'] ?? 0) . ' documents seeded.');
+        });
+    }
+
+    /**
+     * Webinar day 2026-09-03 — Johan's #1 named complaint: "the property
+     * intelligence - I could not find a property that shows the graph",
+     * and the seller-live "0 live listings competing" headline sitting
+     * above a populated card grid. Root cause: CompetitorStockMatchService
+     * ::findCompetitors()/findComparableStock() score against
+     * prospecting_listings within ±20% price / ±1 bed of the subject —
+     * real Uvongo rows existed but none fell inside both bands for any of
+     * the 8 hero properties. Confirmed by reading the service and
+     * reproducing its exact query before writing this seeder.
+     */
+    private function stage12t_competitorStock(): void
+    {
+        $this->safeSeed('DemoCompetitorStockSeeder', function () {
+            $result = (new \Database\Seeders\Demo\DemoCompetitorStockSeeder())->run(self::AGENCY_ID);
+            $this->command->info('  Stage 12t: competitor stock — ' . json_encode($result));
         });
     }
 
