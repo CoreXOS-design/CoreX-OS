@@ -737,6 +737,13 @@ class SignaturePdfService
             'team_alert_sent' => "Team alert sent",
             'document_completed' => "Document finalised — signed PDF generated",
             'signed_pdf_emailed' => "Signed PDF emailed to {$recipientName}",
+            // AT-385/AT-332 — deliberately "opened", never "sent"/"delivered": a wa.me
+            // deep link gives CoreX no delivery signal, only that the agent's browser
+            // opened it. See SignatureAuditLog::ACTION_WHATSAPP_LINK_OPENED.
+            'whatsapp_link_opened' => "{$name} opened the WhatsApp link to "
+                . ($meta['signer_name'] ?? $recipientName)
+                . (isset($meta['phone_used']) ? " ({$meta['phone_used']})" : '')
+                . " — not confirmation it was sent",
             default => ucfirst(str_replace('_', ' ', $log->action)),
         };
     }

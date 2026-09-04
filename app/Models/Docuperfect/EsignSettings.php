@@ -22,11 +22,13 @@ class EsignSettings extends Model
         'agency_id',
         'async_completion_enabled',
         'finalization_stuck_threshold_minutes',
+        'whatsapp_resend_enabled',
     ];
 
     protected $casts = [
         'async_completion_enabled' => 'boolean',
         'finalization_stuck_threshold_minutes' => 'integer',
+        'whatsapp_resend_enabled' => 'boolean',
     ];
 
     /**
@@ -41,6 +43,7 @@ class EsignSettings extends Model
                 'agency_id' => 0,
                 'async_completion_enabled' => (bool) config('docuperfect.async_completion'),
                 'finalization_stuck_threshold_minutes' => 15,
+                'whatsapp_resend_enabled' => true,
             ]);
         }
 
@@ -49,6 +52,7 @@ class EsignSettings extends Model
             [
                 'async_completion_enabled' => true,
                 'finalization_stuck_threshold_minutes' => 15,
+                'whatsapp_resend_enabled' => true,
             ]
         );
     }
@@ -70,5 +74,16 @@ class EsignSettings extends Model
         $minutes = (int) ($this->finalization_stuck_threshold_minutes ?? 15);
 
         return $minutes > 0 ? $minutes : 15;
+    }
+
+    /**
+     * AT-385/AT-332 — WhatsApp is a secondary, agent-clicked resend method
+     * (Johan: email stays primary, nothing routes through WhatsApp). Default
+     * true for an agency that has never saved this screen — no env fallback
+     * needed, this setting never existed as an env flag.
+     */
+    public function whatsappResendEnabled(): bool
+    {
+        return $this->exists ? (bool) $this->whatsapp_resend_enabled : true;
     }
 }

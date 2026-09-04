@@ -21,6 +21,7 @@ use App\Models\Docuperfect\NamedField;
 use App\Services\Docuperfect\SignatureService;
 use App\Services\Docuperfect\LetterheadRefresher;
 use App\Services\Docuperfect\SignatureSurfaceNormalizer;
+use App\Services\Docuperfect\SigningWhatsAppLinkService;
 use App\Services\PermissionService;
 use App\Services\WebTemplateFieldPartyMap;
 use Illuminate\Http\Request;
@@ -1928,12 +1929,25 @@ class SignatureController extends Controller
         }
         $nextParty = $nextPartyRole ? collect($parties)->firstWhere('role', $nextPartyRole) : null;
 
+        // AT-385/AT-332 — the actual next-recipient SignatureRequest (not the
+        // raw $nextParty array above, which is display-only and does not
+        // reflect whether a real dispatch happened). Same reliable pattern
+        // ESignWizardController::signingComplete() already uses: only a
+        // genuine PENDING request counts, so the WhatsApp button never
+        // renders for a recipient who hasn't actually been sent anything yet.
+        $nextRecipientRequest = $template->requests()
+            ->where('status', SignatureRequest::STATUS_PENDING)
+            ->whereNotIn('party_role', ['agent', 'supervisor', 'supervisor_final'])
+            ->orderBy('signing_order', 'asc')
+            ->first();
+
         return view('docuperfect.signatures.send-confirmation', [
             'document' => $document,
             'template' => $template,
             'tenant' => $nextParty, // keep 'tenant' key for backward compat with existing view
             'nextParty' => $nextParty,
             'nextPartyRole' => $nextPartyRole,
+            'nextRecipientRequest' => $nextRecipientRequest,
             'user' => $user,
         ]);
     }
@@ -2131,6 +2145,49 @@ class SignatureController extends Controller
         }
 
         return redirect()->back()->with('status', "Re-sent the {$kind} to {$signatureRequest->signer_name}.");
+    }
+
+    /**
+     * AT-385 / AT-332 — logs that the agent OPENED the WhatsApp deep link for
+     * this recipient. This is the only thing CoreX can honestly know: the
+     * click opens wa.me in the agent's own browser client-side, and CoreX is
+     * never told whether the agent actually sent the message or whether
+     * WhatsApp delivered it. Deliberately does NOT record "sent" — see
+     * SignatureAuditLog::ACTION_WHATSAPP_LINK_OPENED and
+     * SigningWhatsAppLinkService's own docblock.
+     *
+     * Fire-and-forget from the client (called AFTER window.open(), never
+     * blocking it) — always returns a small JSON ack, never a redirect; the
+     * button's own UI does not wait on this to know it "worked" (opening the
+     * tab already told the agent that).
+     */
+    public function whatsappOpened(Request $request, Document $document, SignatureRequest $signatureRequest, SigningWhatsAppLinkService $waLinks)
+    {
+        $this->authorizeDocument($request->user(), $document);
+        $this->authorizeSignatureRequestForDocument($signatureRequest, $document);
+
+        $data = $request->validate([
+            'normalized_phone' => ['nullable', 'string', 'max:20'],
+        ]);
+
+        // Re-derive server-side rather than trust the client's posted phone —
+        // the client only ever sends back what the server itself computed
+        // and rendered into the button, but re-deriving here means a stale
+        // page (phone edited in another tab since render) still logs the
+        // CURRENT confidently-normalised number, never a stale/mismatched one.
+        $agencyId = (int) ($document->agency_id ?? $request->user()?->effectiveAgencyId() ?? 0);
+        $availability = $waLinks->resolveAvailability($signatureRequest, $agencyId);
+
+        if (!$availability['available'] || !$availability['normalizedPhone']) {
+            // The button shouldn't have been clickable in this state — log
+            // nothing false, just say so. Never fabricate an "opened" entry
+            // for a link that couldn't have been valid.
+            return response()->json(['ok' => false, 'message' => 'WhatsApp link is not currently available for this recipient.'], 422);
+        }
+
+        $waLinks->logOpened($signatureRequest, $request->user(), $availability['normalizedPhone']);
+
+        return response()->json(['ok' => true]);
     }
 
     // ──────────────────────────────────────────────

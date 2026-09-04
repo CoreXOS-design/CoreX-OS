@@ -40,6 +40,8 @@ class EsignFinalizationSettingsController extends Controller
             // the key is missing rather than rejecting the request.
             'async_completion_enabled' => ['nullable', 'boolean'],
             'finalization_stuck_threshold_minutes' => ['required', 'integer', 'min:1', 'max:1440'],
+            // AT-385/AT-332 — same absent-checkbox rule applies.
+            'whatsapp_resend_enabled' => ['nullable', 'boolean'],
         ]);
 
         EsignSettings::updateOrCreate(
@@ -47,6 +49,7 @@ class EsignFinalizationSettingsController extends Controller
             [
                 'async_completion_enabled' => $request->boolean('async_completion_enabled'),
                 'finalization_stuck_threshold_minutes' => $validated['finalization_stuck_threshold_minutes'],
+                'whatsapp_resend_enabled' => $request->boolean('whatsapp_resend_enabled'),
             ]
         );
 

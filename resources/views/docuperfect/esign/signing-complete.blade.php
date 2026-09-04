@@ -28,6 +28,14 @@
                             at {{ $nextRecipient['email'] }}
                         @endif
                     </div>
+                    {{-- AT-385/AT-332 — manual WhatsApp resend convenience for THIS
+                         recipient. Email above already went out automatically;
+                         nothing here changes that. --}}
+                    @if($document && $nextRecipientRequest)
+                        <div class="mt-2">
+                            @include('docuperfect.signatures.partials._whatsapp-resend-button', ['document' => $document, 'signatureRequest' => $nextRecipientRequest])
+                        </div>
+                    @endif
                 </div>
             @endif
 

@@ -129,6 +129,9 @@
                                 'completed', 'document_completed' => 'bg-emerald-500',
                                 'signed' => 'bg-blue-500',
                                 'sent', 'reminder_sent', 'manual_reminder_sent', 'signed_pdf_emailed' => 'bg-indigo-500',
+                                // AT-385/AT-332 — deliberately a DIFFERENT colour from the 'sent' group
+                                // above: this is an unconfirmed open, never a confirmed send.
+                                'whatsapp_link_opened' => 'bg-teal-400',
                                 'viewed' => 'bg-sky-400',
                                 'wet_ink_uploaded' => 'bg-amber-500',
                                 'wet_ink_approved' => 'bg-emerald-500',

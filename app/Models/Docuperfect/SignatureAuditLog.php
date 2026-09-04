@@ -50,6 +50,12 @@ class SignatureAuditLog extends Model
     const ACTION_TEAM_ALERT_SENT = 'team_alert_sent';
     const ACTION_MANUAL_REMINDER_SENT = 'manual_reminder_sent';
     const ACTION_DOCUMENT_COMPLETED = 'document_completed';
+    // AT-385/AT-332 — deliberately NOT "sent". A wa.me deep link gives CoreX no
+    // delivery signal (the agent's browser opens WhatsApp; nothing is
+    // transmitted by CoreX itself). This action records the one true fact —
+    // the agent opened the link — and must never be read as confirmation the
+    // recipient received anything. See SigningWhatsAppLinkService::logOpened().
+    const ACTION_WHATSAPP_LINK_OPENED = 'whatsapp_link_opened';
     const ACTION_SIGNED_PDF_EMAILED = 'signed_pdf_emailed';
 
     // Actor type constants
