@@ -129,7 +129,8 @@ class SigningController extends Controller
         }
 
         // Gateway gate — signer must verify ID AND accept consent before seeing documents
-        if (!empty($signingRequest->signer_id_number)) {
+        // AT-385 — a passport-only signer (no SA ID) must trigger this gate too.
+        if (!empty($signingRequest->signer_id_number) || !empty($signingRequest->signer_passport_number)) {
             if (!session("signing_verified_{$token}")) {
                 return redirect()->route('signatures.external.gateway', ['token' => $token]);
             }
@@ -744,11 +745,17 @@ class SigningController extends Controller
             'id_number' => 'required|string|min:3|max:20',
         ]);
 
-        // Normalized, case-insensitive comparison
+        // Normalized, case-insensitive comparison. AT-385 — a passport-only
+        // signer has no signer_id_number to match against, so the submitted
+        // value must be checked against EITHER field.
         $submittedId = strtolower(trim($request->id_number));
-        $expectedId = strtolower(trim($signingRequest->signer_id_number));
+        $expectedId = strtolower(trim((string) $signingRequest->signer_id_number));
+        $expectedPassport = strtolower(trim((string) $signingRequest->signer_passport_number));
 
-        if ($submittedId !== $expectedId) {
+        $matches = ($expectedId !== '' && $submittedId === $expectedId)
+            || ($expectedPassport !== '' && $submittedId === $expectedPassport);
+
+        if (!$matches) {
             SignatureAuditLog::log(
                 $signingRequest->template,
                 'identity_verification_failed',
