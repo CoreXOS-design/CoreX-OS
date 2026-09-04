@@ -7,6 +7,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Contact;
 use App\Models\Docuperfect\Document;
 use App\Models\Docuperfect\DocumentType;
+use App\Models\Docuperfect\EsignSettings;
 use App\Models\Docuperfect\Flow;
 use App\Models\Docuperfect\NamedField;
 use App\Models\Docuperfect\Pack;
@@ -2714,6 +2715,7 @@ class ESignWizardController extends Controller
         $this->assertDeceasedRecipientsHaveSubstituteSigner($recipients);
         $this->assertSupplierRepresentativesHaveRegistrationNumber($recipients);
         $this->assertChainPartiesHaveIdNumbers($recipients);
+        $this->assertRecipientsHaveIdentityForSend($recipients, (int) ($user->agency_id ?? 0));
 
         // GENERATED-DOCUMENT BODY (Johan, 2026-08-25 — cc1's finding on
         // 93a10b6a2 — REVISED 2026-08-26, escalation of cc5's 547863fbb):
@@ -5108,6 +5110,62 @@ class ESignWizardController extends Controller
     }
 
     /**
+     * AT-385 HARD BLOCK (Johan, 2026-09-04): "no id is a massive problem...
+     * The gate would be on fill and review - you cannot continue if no id
+     * exists on doc or contact." Every non-agent signing party must carry
+     * an ID number OR a passport number before the document can be sent —
+     * checked on the recipient row (what Fill & Review actually captured)
+     * first, falling back to the linked Contact record. Accepts an SA ID
+     * OR a passport number — foreign nationals on the KZN coast routinely
+     * hold no SA ID (see the passport_number migration's rationale).
+     *
+     * Gated behind EsignSettings::requireIdentityBeforeSend() (default
+     * true) so an agency can turn it off. Applied identically to both send
+     * paths (prepareSigning() and prepareWetInk()) — same reasoning as the
+     * sibling asserts above: a wet-ink document has no server-side catch
+     * after this point at all.
+     *
+     * Deliberately does NOT touch or remediate any existing recipient/
+     * signature_requests row — this only stops a NEW send from proceeding
+     * with a blank identity; existing blanks on already-sent documents are
+     * untouched, per Johan's explicit instruction.
+     */
+    private function assertRecipientsHaveIdentityForSend(array $recipients, int $agencyId): void
+    {
+        if (! EsignSettings::forAgency($agencyId)->requireIdentityBeforeSend()) {
+            return;
+        }
+
+        foreach ($recipients as $r) {
+            if (($r['role'] ?? '') === 'agent') {
+                continue;
+            }
+
+            $idNumber = trim((string) ($r['id_number'] ?? ''));
+            $passportNumber = trim((string) ($r['passport_number'] ?? ''));
+
+            if ($idNumber === '' && $passportNumber === '' && !empty($r['_contact_id'])) {
+                $contact = Contact::withoutGlobalScopes()->find($r['_contact_id']);
+                if ($contact !== null) {
+                    $idNumber = trim((string) ($contact->id_number ?? ''));
+                    $passportNumber = trim((string) ($contact->passport_number ?? ''));
+                }
+            }
+
+            if ($idNumber !== '' || $passportNumber !== '') {
+                continue;
+            }
+
+            $name = trim((string) ($r['name'] ?? '')) ?: 'This party';
+            $roleLabel = ucfirst(str_replace('_', ' ', preg_replace('/_\d+$/', '', $r['role'] ?? 'party')));
+
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'recipients' => "{$name} ({$roleLabel}) has no ID number or passport number on file. Add one before sending — either here or on their contact record.",
+            ]);
+        }
+    }
+
+    /**
      * Johan, 2026-08-26 — the three-part clause chain's middle piece: when
      * $r is a supplier-sourced recipient (standing in as someone's
      * representative), freeze the FIRM's name and registration number onto
@@ -7331,6 +7389,7 @@ class ESignWizardController extends Controller
         $this->assertDeceasedRecipientsHaveSubstituteSigner($recipients);
         $this->assertSupplierRepresentativesHaveRegistrationNumber($recipients);
         $this->assertChainPartiesHaveIdNumbers($recipients);
+        $this->assertRecipientsHaveIdentityForSend($recipients, (int) ($user->agency_id ?? 0));
 
         // GENERATED-DOCUMENT BODY — same reasoning as prepareSigning()
         // (ESignWizardController.php ~2586-2610): the printed document must
