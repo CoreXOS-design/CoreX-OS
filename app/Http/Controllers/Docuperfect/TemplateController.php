@@ -139,6 +139,75 @@ class TemplateController extends Controller
             ->with('status', 'Template created. Upload page images from the editor.');
     }
 
+    /**
+     * Resolve the CdsDraft an editing session should open for $template.
+     *
+     * Shared by edit() and cdsGenerate() so "open the builder" means exactly
+     * one thing in both places.
+     *
+     * 2026-09-04 — cdsGenerate() used to reach the builder by redirecting to
+     * edit(), which then redirected AGAIN: two hops for one save. Laravel
+     * flash data survives exactly one redirect, so the "Template saved"
+     * message was consumed by that intermediate request and never reached the
+     * builder. The agent pressed Save, the page redrew with no confirmation
+     * at a different /cds/builder/{id}, and a save that had fully succeeded
+     * was indistinguishable from a click the page had ignored. Both callers
+     * now resolve the draft here and redirect straight to the builder.
+     */
+    private function resolveCdsEditingDraft(Template $template): CdsDraft
+    {
+        // Reuse existing unsaved draft for this template+user (prevents data loss)
+        $draft = CdsDraft::where('source_template_id', $template->id)
+            ->where('user_id', auth()->id())
+            ->where('status', 'draft')
+            ->latest()
+            ->first();
+
+        // 2026-09-04 — only reuse a draft that is still at least as
+        // new as the template's own last save. This path runs on
+        // every save (cdsGenerate redirects here), so a fresh
+        // status='draft' row is created every time and nothing ever
+        // cleans an abandoned one up. Any later write to the
+        // template that does not go through the builder — e.g.
+        // saveContent(), the normalize commands — leaves that row
+        // holding pre-save content. Reopening it silently restored
+        // the old content and made a saved edit look like it never
+        // persisted. An out-of-date row is retired to 'saved' (it
+        // stays in the DB, so /cds/builder/{id} keeps resolving and
+        // nothing is deleted) and a fresh one is built below from
+        // the template's current editor_state.
+        if ($draft !== null
+            && $template->updated_at !== null
+            && ($draft->updated_at === null || $draft->updated_at->lt($template->updated_at))) {
+            $draft->update(['status' => 'saved']);
+            $draft = null;
+        }
+
+        if (!$draft) {
+            $draft = CdsDraft::create([
+                'user_id' => auth()->id(),
+                'agency_id' => auth()->user()->agency_id ?? null,
+                'template_name' => $template->name,
+                'cds_json' => $template->cds_json,
+                'tags' => $template->editor_state['tags'] ?? null,
+                'mappings' => $template->editor_state['mappings'] ?? null,
+                'tagged_html' => $template->editor_state['tagged_html'] ?? null,
+                'settings' => [
+                    'is_esign' => $template->is_esign,
+                    'party_mode' => $template->party_mode,
+                    'allowed_delivery_modes' => $template->allowed_delivery_modes,
+                    'security_tier' => $template->security_tier,
+                    'category' => $template->category,
+                    'document_type_id' => $template->document_type_id,
+                ],
+                'source_template_id' => $template->id,
+                'status' => 'draft',
+            ]);
+        }
+
+        return $draft;
+    }
+
     public function edit(Request $request, $id)
     {
         $user = $request->user();
@@ -151,56 +220,7 @@ class TemplateController extends Controller
 
         // CDS templates route to the CDS builder (DB-backed draft)
         if ($template->template_type === 'cds') {
-            // Reuse existing unsaved draft for this template+user (prevents data loss)
-            $draft = CdsDraft::where('source_template_id', $template->id)
-                ->where('user_id', auth()->id())
-                ->where('status', 'draft')
-                ->latest()
-                ->first();
-
-            // 2026-09-04 — only reuse a draft that is still at least as
-            // new as the template's own last save. This path runs on
-            // every save (cdsGenerate redirects here), so a fresh
-            // status='draft' row is created every time and nothing ever
-            // cleans an abandoned one up. Any later write to the
-            // template that does not go through the builder — e.g.
-            // saveContent(), the normalize commands — leaves that row
-            // holding pre-save content. Reopening it silently restored
-            // the old content and made a saved edit look like it never
-            // persisted. An out-of-date row is retired to 'saved' (it
-            // stays in the DB, so /cds/builder/{id} keeps resolving and
-            // nothing is deleted) and a fresh one is built below from
-            // the template's current editor_state.
-            if ($draft !== null
-                && $template->updated_at !== null
-                && ($draft->updated_at === null || $draft->updated_at->lt($template->updated_at))) {
-                $draft->update(['status' => 'saved']);
-                $draft = null;
-            }
-
-            if (!$draft) {
-                $draft = CdsDraft::create([
-                    'user_id' => auth()->id(),
-                    'agency_id' => auth()->user()->agency_id ?? null,
-                    'template_name' => $template->name,
-                    'cds_json' => $template->cds_json,
-                    'tags' => $template->editor_state['tags'] ?? null,
-                    'mappings' => $template->editor_state['mappings'] ?? null,
-                    'tagged_html' => $template->editor_state['tagged_html'] ?? null,
-                    'settings' => [
-                        'is_esign' => $template->is_esign,
-                        'party_mode' => $template->party_mode,
-                        'allowed_delivery_modes' => $template->allowed_delivery_modes,
-                        'security_tier' => $template->security_tier,
-                        'category' => $template->category,
-                        'document_type_id' => $template->document_type_id,
-                    ],
-                    'source_template_id' => $template->id,
-                    'status' => 'draft',
-                ]);
-            }
-
-            return redirect()->route('docuperfect.cds.builder', $draft);
+            return redirect()->route('docuperfect.cds.builder', $this->resolveCdsEditingDraft($template));
         }
 
         if ($template->render_type === 'web') {
@@ -872,19 +892,27 @@ class TemplateController extends Controller
         // template's editor_state.mappings.
         $draft->update(['status' => 'saved']);
 
-        // E-sign walk-fix FIX 3 — post-save redirect lands on the builder
-        // page (via templates.edit), not templates.index. The walk-test
-        // expectation is "save → keep editing"; templates.index dropped
-        // the user out of the builder onto the template list, which the
-        // prompt framed as a 404 (the user lost their builder context).
+        // E-sign walk-fix FIX 3 — post-save redirect lands on the builder,
+        // not templates.index. The walk-test expectation is "save → keep
+        // editing"; templates.index dropped the user out of the builder onto
+        // the template list, which the prompt framed as a 404 (the user lost
+        // their builder context).
         //
-        // templates.edit creates a fresh CdsDraft for this template
-        // (Commit 5 just soft-deleted the applied draft) and routes back
-        // to docuperfect.cds.builder with the new draft id. The
-        // experience is "save → fresh builder draft of the same
-        // template" without exposing the user to the 404 they'd hit on
-        // a stale-draft URL.
-        return redirect()->route('docuperfect.templates.edit', $template->id)
+        // 2026-09-04 — go STRAIGHT to the builder. This used to redirect to
+        // templates.edit, which redirected a SECOND time to reach the same
+        // place. Laravel flash data survives exactly one redirect, so the
+        // success message below died in that intermediate request and the
+        // builder rendered with no confirmation of any kind. A save that had
+        // fully succeeded looked identical to a click the page had ignored —
+        // which is exactly how it was reported. One hop keeps the
+        // confirmation on the page the agent actually lands on.
+        //
+        // fresh() because cdsGenerate writes the template several times
+        // above; resolveCdsEditingDraft() compares a candidate draft against
+        // the template's own last-save time and must see the current one.
+        $template = $template->fresh();
+
+        return redirect()->route('docuperfect.cds.builder', $this->resolveCdsEditingDraft($template))
             ->with('success', 'Template saved: ' . $template->name);
     }
 
