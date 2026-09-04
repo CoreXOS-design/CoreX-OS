@@ -157,8 +157,10 @@ class WebTemplateFieldPartyMap
 
         'system' => [
             // Computed / derived values — not editable
+            // 2026-09-04 — rental_in_words removed: collapsed into rental_amount_words
+            // (the ONE canonical key, also used by the new CDS catalogue field) —
+            // see WebTemplateDataService::resolve() for the collapse rationale.
             'rental_amount_words',
-            'rental_in_words',
             'deposit_amount_words',
             'price_in_words',
             'property_full_address',

@@ -121,6 +121,13 @@ class WebTemplateDataService
         $mandateStart = $details['mandate_start'] ?? '';
         $mandateExpiry = $details['mandate_expiry'] ?? '';
 
+        // 2026-09-04 — same guard as resolveCdsTemplate()'s identical block: gates
+        // price_in_words below so a sale figure (genuine or a stray property.price
+        // on a rental listing — see property 1829, the live bug this was found from)
+        // can never print on a document that isn't a sale. $template is already
+        // loaded above (line 46) and null-checked the same way there.
+        $isSalesDocument = $template ? $template->isSalesDocument($property['_property_source'] ?? null) : true;
+
         // Compute derived financial values
         $commission = $details['commission'] ?? $details['commission_percent'] ?? '';
         // Commission calculated from rental (rental context) or price (sales context)
@@ -282,8 +289,17 @@ class WebTemplateDataService
             // Financial
             'monthly_rental'        => $rental,
             'rental_amount'         => $rental,
+            // 2026-09-04 — collapsed from two competing keys (rental_amount_words +
+            // rental_in_words, both computing the identical value). Kept
+            // rental_amount_words: matches the sibling deposit_amount_words'
+            // "{field}_amount_words" naming immediately below, and is the SAME
+            // canonical key the new CDS catalogue field (docuperfect_named_fields,
+            // "Rental Amount[words]") resolves through — one name for this concept
+            // in both resolver paths, not two. Confirmed via direct query that no
+            // template's field_mappings referenced rental_in_words before removal,
+            // so nothing live breaks. WebTemplateFieldPartyMap::PARTY_MAP['system']
+            // updated to match (rental_in_words entry removed).
             'rental_amount_words'   => $rental ? $this->numberToWords($rental) : '',
-            'rental_in_words'       => $rental ? $this->numberToWords($rental) : '',
             'deposit_amount'        => $deposit,
             'deposit_amount_words'  => $deposit ? $this->numberToWords($deposit) : '',
             'commission_percent'    => $commission,
@@ -291,7 +307,9 @@ class WebTemplateDataService
             'marketing_fee'         => $details['marketing_fee'] ?? '',
             'marketing_agent'       => $agent->name ?? '',
             'price'                 => $price,
-            'price_in_words'        => $price ? $this->numberToWords($price) : '',
+            // 2026-09-04 — same $isSalesDocument guard as resolveCdsTemplate(); see
+            // that block's comment for the property-1829 root cause this fixes.
+            'price_in_words'        => ($isSalesDocument && $price) ? $this->numberToWords($price) : '',
             'commission_incl_vat'   => $serviceFee,
             // Mandate dates (sales)
             'mandate_start'         => $mandateStart,
@@ -436,6 +454,16 @@ class WebTemplateDataService
         $recipients = $this->enrichRecipientsFromContacts($recipients, $agent?->effectiveAgencyId());
         $details = $stepData['details'] ?? [];
 
+        // 2026-09-04 — is this document fundamentally a SALE? Template::isSalesDocument()
+        // is the established, already-correct signal for this (layered: explicit
+        // signing_parties roles > template category/type > property source table >
+        // name-pattern fallback — see ESignWizardController's identical use for
+        // document_context). Threaded through the field-resolution chain below to
+        // gate sale-only computed fields (price_in_words) so they can never render
+        // a sale figure — genuine or stray — onto a document that isn't a sale. See
+        // the price_in_words arm in resolveComputedFromKey() for why this exists.
+        $isSalesDocument = $template->isSalesDocument($property['_property_source'] ?? null);
+
         // Build contact lookup by role (first contact per role)
         $contactsByRole = [];
         foreach ($recipients as $r) {
@@ -568,14 +596,14 @@ class WebTemplateDataService
                 } else {
                     $value = $this->resolveByNamedFieldKey(
                         $namedField->key ?? '', $namedField->source_type ?? $source, $namedField->source_column ?? '', $fRole,
-                        $property, $contactsByRole, $details, $agent
+                        $property, $contactsByRole, $details, $agent, $isSalesDocument
                     );
                 }
             }
 
             // Fallback: source-based resolution (backward compat for mappings without named fields)
             if (($value === '' || $value === null) && !$namedField) {
-                $value = $this->resolveBySource($source, $fieldName ?: $varName, $property, $contactsByRole, $details, $agent);
+                $value = $this->resolveBySource($source, $fieldName ?: $varName, $property, $contactsByRole, $details, $agent, $isSalesDocument);
             }
 
             // B3 — a "… in words" spot renders the amount in WORDS, not the figure. The price/amount
@@ -605,8 +633,21 @@ class WebTemplateDataService
         $commissionBase = ($price && (float) $price > 0) ? (float) $price : (($rental && (float) $rental > 0) ? (float) $rental : 0);
         $commissionAmount = ($commissionBase > 0 && $commission) ? round($commissionBase * (float) $commission / 100, 2) : '';
 
-        $baseData['price_in_words'] = $price ? $this->numberToWords($price) : '';
-        $baseData['deal_price_in_words'] = $price ? $this->numberToWords($price) : '';
+        // 2026-09-04 — CONFIRMED root cause of the property-1829 live bug: this is the
+        // blanket, always-applied computation (every CDS document gets it, whether or
+        // not any template field is actually mapped to "Price[words]") and it read
+        // $property['price'] with no check that the property even has a genuine sale
+        // price on THIS document. property 1829 is a rental listing (listing_type=
+        // rental) that happens to carry a stray, non-null `price` column (1363) —
+        // completely unrelated to the R13,630 monthly rental the document is actually
+        // about — and this line rendered it in words unconditionally. Gated on
+        // $isSalesDocument (computed above from Template::isSalesDocument()) so a
+        // sale figure — genuine or stray — can never print on a document that isn't a
+        // sale. Blank, not a rental substitute: this key is specifically the SALE
+        // price in words; a rental CDS template that wants its own figure in words
+        // selects the new "Rental Amount[words]" catalogue field instead.
+        $baseData['price_in_words'] = ($isSalesDocument && $price) ? $this->numberToWords($price) : '';
+        $baseData['deal_price_in_words'] = ($isSalesDocument && $price) ? $this->numberToWords($price) : '';
         $baseData['commission_amount'] = $commissionAmount;
         $baseData['deal_commission_amount'] = $commissionAmount;
 
@@ -621,7 +662,7 @@ class WebTemplateDataService
      */
     private function resolveByNamedFieldKey(
         string $key, string $sourceType, ?string $sourceColumn, ?string $contactType,
-        array $property, array $contactsByRole, array $details, $agent
+        array $property, array $contactsByRole, array $details, $agent, bool $isSalesDocument = true
     ) {
         // If key has a dot, split into source.attribute
         $parts = explode('.', $key, 2);
@@ -644,7 +685,7 @@ class WebTemplateDataService
                 return $this->resolveAgentFromKey($keyAttr, $agent);
 
             case 'computed':
-                return $this->resolveComputedFromKey($keyAttr, $details, $property);
+                return $this->resolveComputedFromKey($keyAttr, $details, $property, $isSalesDocument);
 
             case 'manual':
                 return ''; // Manual fields are filled by the user
@@ -658,7 +699,7 @@ class WebTemplateDataService
                 }
                 if ($sourceType === 'deal') return $this->resolveDealFromKey($sourceColumn ?: $keyAttr, $details, $property);
                 if ($sourceType === 'agent') return $this->resolveAgentFromKey($sourceColumn ?: $keyAttr, $agent);
-                if ($sourceType === 'computed') return $this->resolveComputedFromKey($sourceColumn ?: $keyAttr, $details, $property);
+                if ($sourceType === 'computed') return $this->resolveComputedFromKey($sourceColumn ?: $keyAttr, $details, $property, $isSalesDocument);
                 return '';
         }
     }
@@ -1158,14 +1199,45 @@ class WebTemplateDataService
 
     /**
      * Resolve computed field values.
+     *
+     * $isSalesDocument — Template::isSalesDocument()'s verdict for the template
+     * this value is being resolved for, threaded down from resolveCdsTemplate()
+     * (the only caller of this whole chain — see resolveByNamedFieldKey() /
+     * resolveBySource()). Gates price_in_words: see that arm's comment.
      */
-    private function resolveComputedFromKey(string $attr, array $details, array $property)
+    private function resolveComputedFromKey(string $attr, array $details, array $property, bool $isSalesDocument = true)
     {
         $price = $details['price'] ?? $details['monthly_rental'] ?? $property['price'] ?? '';
+        $rentalAmount = $details['monthly_rental'] ?? $property['rental_amount'] ?? '';
         $leaseStart = $details['lease_start'] ?? '';
 
         return match ($attr) {
-            'price_in_words'    => $price ? $this->numberToWords($price) : '',
+            // 2026-09-04 — property 1829: a rental CDS document printed "One
+            // thousand three hundred and sixty-three Rand" next to a numeric
+            // rental of R13,630. Root cause: $price above falls through to
+            // property.price (a stray value the rental listing carries — never
+            // captured for THIS document) whenever details.price/monthly_rental
+            // are both empty, and this arm rendered it in words unconditionally,
+            // with no regard for whether the DOCUMENT is even a sale. The
+            // blanket (non-catalogue) computation in resolveCdsTemplate() carried
+            // the identical defect and is the confirmed path for 1829 specifically
+            // (fixed there too, same $isSalesDocument signal); this arm is the
+            // catalogue-selectable twin of that value and shares the same defect
+            // shape, so it gets the same fix. Gated on Template::isSalesDocument()
+            // (signing-parties / category / property-source, in that priority —
+            // never a guess from which incidental fields happen to be non-empty,
+            // which could wrongly blank a genuine sale on a property that also
+            // carries a rental_amount for buy-to-let marketing). Blank over wrong
+            // — a missing word is noticed on proofread, a wrong number gets signed.
+            'price_in_words'    => ($isSalesDocument && $price !== '') ? $this->numberToWords($price) : '',
+            // The new field this migration/arm exists for — reads the RENTAL
+            // amount specifically, never `price`, so a sale field's bug class
+            // can never appear here in reverse. Not gated on $isSalesDocument:
+            // a genuine rental_amount is safe to spell out regardless (it can
+            // only ever be wrong by being ABSENT, which the empty-string check
+            // already covers — there's no stray-sale-figure equivalent to guard
+            // against on this side).
+            'rental_amount_words' => $rentalAmount !== '' ? $this->numberToWords($rentalAmount) : '',
             'commission_amount' => $this->computeCommissionAmount($details, $property),
             'lease_start_day'   => $leaseStart ? (int) date('d', strtotime($leaseStart)) : '',
             'lease_start_month' => $leaseStart ? date('F', strtotime($leaseStart)) : '',
@@ -1192,7 +1264,7 @@ class WebTemplateDataService
     /**
      * Fallback source-based resolution for field_mappings without named fields.
      */
-    private function resolveBySource(string $source, string $fieldName, array $property, array $contactsByRole, array $details, $agent): string
+    private function resolveBySource(string $source, string $fieldName, array $property, array $contactsByRole, array $details, $agent, bool $isSalesDocument = true): string
     {
         $key = last(explode('.', $fieldName));
 
@@ -1219,7 +1291,7 @@ class WebTemplateDataService
         }
 
         if ($source === 'computed') {
-            return (string) $this->resolveComputedFromKey($key, $details, $property);
+            return (string) $this->resolveComputedFromKey($key, $details, $property, $isSalesDocument);
         }
 
         return '';
