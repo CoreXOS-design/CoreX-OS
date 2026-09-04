@@ -533,8 +533,31 @@ class TemplateController extends Controller
         $renderer = app(CdsRendererService::class);
         $html = $renderer->render($draft->cds_json);
 
-        // Determine if this is a restore (has saved tags/mappings)
-        $hasSavedState = !empty($draft->tags) && !empty($draft->mappings);
+        // Determine if this is a restore (there is saved document content).
+        //
+        // 2026-09-04 — this used to read
+        //     !empty($draft->tags) && !empty($draft->mappings)
+        // which asked the wrong question. It gated the restore on whether the
+        // document had any TAGGED FIELDS, not on whether it had any SAVED
+        // CONTENT. A template with no tagged fields is perfectly legitimate —
+        // ADDENDUM B is exactly that: headings, a table and an insertable
+        // block marker, nothing to bind. For every such template the builder
+        // took the FRESH path on every single load: it re-rendered the
+        // ORIGINAL cds_json and never injected $draft->tagged_html at all.
+        //
+        // The effect was a silent, total loss of authoring work. The agent
+        // edited, pressed Save, and the save genuinely succeeded — draft,
+        // template editor_state and the published blade were all written
+        // correctly. Then the builder reopened, ignored every byte of it, and
+        // redrew the untouched import. From the agent's chair the save had
+        // done nothing, and the database said it had worked, which is why
+        // this survived several rounds of looking at the wrong end of it.
+        //
+        // The right question is simply "is there saved content to restore?".
+        // A fresh import has no tagged_html, so it still takes the FRESH path
+        // and still gets its auto-tag parse. Anything previously saved is
+        // restored verbatim, tagged fields or not.
+        $hasSavedState = !empty($draft->tagged_html);
 
         // Extract field summary from CDS for the right panel
         $fields = $this->extractFieldsFromCds($draft->cds_json);
