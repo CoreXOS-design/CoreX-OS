@@ -671,7 +671,21 @@
                                     <input type="text" x-model="r.id_number" :readonly="r.readonly"
                                            class="w-full rounded-md px-3 py-2 text-sm"
                                            :style="r.readonly ? 'background: var(--surface); border: 1px solid var(--border); color: var(--text-muted);' : 'background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);'"
-                                           placeholder="SA ID or Passport">
+                                           placeholder="SA ID number">
+                                </div>
+
+                                {{-- AT-385 — Johan: "ACCEPTS IDENTITY NUMBER OR PASSPORT. Not
+                                     SA-ID-only... If no passport field exists today, add one."
+                                     A separate typed field (not overloading ID Number as free
+                                     text) so compliance/FICA screens can tell which kind of
+                                     document was captured — mirrors ID Number exactly, no format
+                                     validation, same as id_number's own unvalidated convention. --}}
+                                <div x-show="r.role !== 'agent'">
+                                    <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Passport Number</label>
+                                    <input type="text" x-model="r.passport_number" :readonly="r.readonly"
+                                           class="w-full rounded-md px-3 py-2 text-sm"
+                                           :style="r.readonly ? 'background: var(--surface); border: 1px solid var(--border); color: var(--text-muted);' : 'background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);'"
+                                           placeholder="For a foreign national with no SA ID">
                                 </div>
 
                                 {{-- Elize's rule (2026-08-24) — per-recipient, per-document. Every
@@ -3468,6 +3482,7 @@ function esignWizard() {
                         first_name: r.first_name || '',
                         last_name: r.last_name || '',
                         id_number: r.id_number || '',
+                        passport_number: r.passport_number || '',
                         email: r.email,
                         cell: r.cell,
                         address: r.address || '',
@@ -3850,6 +3865,7 @@ function esignWizard() {
             r.email = contact.email || '';
             r.cell = contact.phone || '';
             r.id_number = contact.id_number || '';
+            r.passport_number = contact.passport_number || '';
             r.address = contact.address || '';
             r._searchOpen = false;
             r._searchQuery = contact.full_name;
@@ -4783,7 +4799,7 @@ function esignWizard() {
             const role = this.ownerPartyRole;
             const idx = this.recipients.findIndex(r => r.role === role && !r.readonly);
             const newOwner = {
-                order: 0, role: role, name: '', id_number: '', email: '', cell: '', address: '', readonly: false,
+                order: 0, role: role, name: '', id_number: '', passport_number: '', email: '', cell: '', address: '', readonly: false,
                 _contact_id: null, _searchQuery: '', _searchResults: [], _searchOpen: false, _searching: false, _searchIdx: 0,
                 _includeEmail: false,
                 _recipient_local_key: (crypto.randomUUID ? crypto.randomUUID() : ('r' + Date.now())),
@@ -4800,7 +4816,7 @@ function esignWizard() {
             // Default new recipient to acquiring party role (tenant or buyer)
             const defaultRole = this.acquiringPartyRole;
             this.recipients.push({
-                order: this.recipients.length + 1, role: defaultRole, name: '', id_number: '', email: '', cell: '', address: '', readonly: false,
+                order: this.recipients.length + 1, role: defaultRole, name: '', id_number: '', passport_number: '', email: '', cell: '', address: '', readonly: false,
                 _contact_id: null, _searchQuery: '', _searchResults: [], _searchOpen: false, _searching: false, _searchIdx: 0,
                 _recipient_local_key: (crypto.randomUUID ? crypto.randomUUID() : ('r' + Date.now())),
             });

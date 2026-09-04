@@ -1505,6 +1505,7 @@ class ESignWizardController extends Controller
                 'email'               => $c->email ?? '',
                 'phone'               => $c->phone ?? '',
                 'id_number'           => $c->id_number ?? '',
+                'passport_number'     => $c->passport_number ?? '',
                 'address'             => $c->address ?? '',
                 'contact_type'        => $c->type?->name ?? '',
                 'esign_role'          => $c->type?->esign_role ?? null,
