@@ -158,6 +158,26 @@ class TemplateController extends Controller
                 ->latest()
                 ->first();
 
+            // 2026-09-04 — only reuse a draft that is still at least as
+            // new as the template's own last save. This path runs on
+            // every save (cdsGenerate redirects here), so a fresh
+            // status='draft' row is created every time and nothing ever
+            // cleans an abandoned one up. Any later write to the
+            // template that does not go through the builder — e.g.
+            // saveContent(), the normalize commands — leaves that row
+            // holding pre-save content. Reopening it silently restored
+            // the old content and made a saved edit look like it never
+            // persisted. An out-of-date row is retired to 'saved' (it
+            // stays in the DB, so /cds/builder/{id} keeps resolving and
+            // nothing is deleted) and a fresh one is built below from
+            // the template's current editor_state.
+            if ($draft !== null
+                && $template->updated_at !== null
+                && ($draft->updated_at === null || $draft->updated_at->lt($template->updated_at))) {
+                $draft->update(['status' => 'saved']);
+                $draft = null;
+            }
+
             if (!$draft) {
                 $draft = CdsDraft::create([
                     'user_id' => auth()->id(),

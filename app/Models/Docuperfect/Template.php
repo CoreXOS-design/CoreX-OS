@@ -117,7 +117,9 @@ class Template extends Model
      */
     public function canonicalFieldMappings(): array
     {
-        // Tier 1 — most recent IN-PROGRESS draft for this template.
+        // Tier 1 — the CURRENT USER'S in-progress draft for this
+        // template, and only while it is still newer than the
+        // template's own last save.
         //
         // Filter on `status = 'draft'` so a previously-saved draft
         // (status='saved') doesn't override the template's
@@ -126,13 +128,47 @@ class Template extends Model
         // URLs at /cds/builder/{saved_id} keep resolving) but they
         // no longer outrank the freshly-saved editor_state in the
         // canonical-accessor priority chain.
+        //
+        // 2026-09-04 — the two guards below close a live bug: editing
+        // an existing template and saving did not persist, the old
+        // content came back on reload. `edit()` creates a fresh
+        // status='draft' row on every save (see TemplateController),
+        // and nothing ever cleans an abandoned one up — no scheduled
+        // job, and the only delete path is the explicit "discard
+        // draft" button. Meanwhile paths like saveContent() write
+        // editor_state on the template WITHOUT touching that draft
+        // row. So one abandoned editing session outranked every
+        // later save, forever. Import was unaffected only because a
+        // fresh import has no prior editing history to leave a rival
+        // row behind.
+        //
+        //   • USER SCOPE — an in-progress draft is one person's
+        //     unsaved work. It must never leak into anyone else's
+        //     render, and a queue/CLI render (no authenticated user)
+        //     must always read the template's own saved state.
+        //   • RECENCY — a draft only outranks editor_state while it
+        //     is at least as new as the template's last save. Older
+        //     means the template has moved on without it.
         if (\Illuminate\Support\Facades\Schema::hasTable('cds_drafts')) {
-            $draft = \Illuminate\Support\Facades\DB::table('cds_drafts')
+            $userId = \Illuminate\Support\Facades\Auth::id();
+
+            $draft = $userId === null ? null : \Illuminate\Support\Facades\DB::table('cds_drafts')
                 ->where('source_template_id', $this->id)
+                ->where('user_id', $userId)
                 ->where('status', 'draft')
                 ->whereNull('deleted_at')
                 ->orderByDesc('updated_at')
                 ->first();
+
+            if ($draft !== null && $this->updated_at !== null) {
+                $draftTouchedAt = $draft->updated_at !== null
+                    ? \Illuminate\Support\Carbon::parse($draft->updated_at)
+                    : null;
+                if ($draftTouchedAt === null || $draftTouchedAt->lt($this->updated_at)) {
+                    $draft = null;
+                }
+            }
+
             if ($draft !== null && !empty($draft->mappings)) {
                 $decoded = is_string($draft->mappings) ? json_decode($draft->mappings, true) : $draft->mappings;
                 if (is_array($decoded) && count($decoded) > 0) {

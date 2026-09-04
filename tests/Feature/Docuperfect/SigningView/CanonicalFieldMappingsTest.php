@@ -6,6 +6,7 @@ namespace Tests\Feature\Docuperfect\SigningView;
 
 use App\Models\Docuperfect\CdsDraft;
 use App\Models\Docuperfect\Template as DocuperfectTemplate;
+use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -63,25 +64,81 @@ final class CanonicalFieldMappingsTest extends TestCase
             'field_mappings' => $this->fixtureMappings(),
             'editor_state'   => ['mappings' => ['tag-z' => ['field_name' => 'fallback']]],
         ]);
-        $draftMappings = ['tag-q' => ['field_name' => 'seller_id_number', 'party' => 'seller']];
-        DB::table('cds_drafts')->insert([
-            'user_id'            => $template->owner_id,
-            'agency_id'          => 1,
-            'template_name'      => $template->name,
-            'source_template_id' => $template->id,
-            'cds_json'           => json_encode(['sections' => []]),
-            'mappings'           => json_encode($draftMappings),
-            'tags'               => json_encode([]),
-            'tagged_html'        => '',
-            'settings'           => json_encode([]),
-            'status'             => 'draft',
-            'created_at'         => now(),
-            'updated_at'         => now(),
+        $this->seedDraft($template, (int) $template->owner_id, [
+            'tag-q' => ['field_name' => 'seller_id_number', 'party' => 'seller'],
         ]);
+
+        $this->actingAs(User::findOrFail($template->owner_id));
 
         $canonical = $template->canonicalFieldMappings();
         $this->assertCount(1, $canonical);
         $this->assertSame('seller_id_number', $canonical['tag-q']['field_name']);
+    }
+
+    /**
+     * The live bug, 2026-09-04: editing an existing template and saving
+     * did not persist — the old content came back on reload.
+     *
+     * `edit()` mints a fresh status='draft' row on every save and
+     * nothing ever cleans an abandoned one up, while paths such as
+     * saveContent() write editor_state on the template without touching
+     * that row. One abandoned editing session therefore outranked every
+     * later save, permanently. The draft must lose once the template
+     * has been saved past it.
+     */
+    public function test_canonical_ignores_a_draft_older_than_the_templates_own_save(): void
+    {
+        $template = $this->seedTemplate([
+            'editor_state' => ['mappings' => ['tag-fresh' => ['field_name' => 'seller_email']]],
+        ]);
+
+        // Abandoned session from an hour ago, still status='draft'.
+        $this->seedDraft($template, (int) $template->owner_id, [
+            'tag-stale' => ['field_name' => 'seller_stale_value'],
+        ], now()->subHour());
+
+        // The template itself was saved after that draft was abandoned.
+        $template->forceFill(['updated_at' => now()])->save();
+
+        $this->actingAs(User::findOrFail($template->owner_id));
+
+        $canonical = $template->fresh()->canonicalFieldMappings();
+        $this->assertArrayNotHasKey('tag-stale', $canonical, 'An abandoned draft must not outrank a later save.');
+        $this->assertSame('seller_email', $canonical['tag-fresh']['field_name']);
+    }
+
+    public function test_canonical_ignores_another_users_in_progress_draft(): void
+    {
+        $template = $this->seedTemplate([
+            'editor_state' => ['mappings' => ['tag-fresh' => ['field_name' => 'seller_email']]],
+        ]);
+        $otherUserId = $this->seedUser();
+        $this->seedDraft($template, $otherUserId, [
+            'tag-theirs' => ['field_name' => 'seller_someone_elses_work'],
+        ]);
+
+        $this->actingAs(User::findOrFail($template->owner_id));
+
+        $canonical = $template->canonicalFieldMappings();
+        $this->assertArrayNotHasKey('tag-theirs', $canonical, "One person's unsaved work must not leak into another's render.");
+        $this->assertSame('seller_email', $canonical['tag-fresh']['field_name']);
+    }
+
+    public function test_canonical_ignores_drafts_entirely_when_there_is_no_authenticated_user(): void
+    {
+        // Queue jobs and CLI renders have no current user, so there is
+        // no "my in-progress work" to prefer — they must always read
+        // the template's own saved state.
+        $template = $this->seedTemplate([
+            'editor_state' => ['mappings' => ['tag-fresh' => ['field_name' => 'seller_email']]],
+        ]);
+        $this->seedDraft($template, (int) $template->owner_id, [
+            'tag-draft' => ['field_name' => 'seller_in_progress'],
+        ]);
+
+        $canonical = $template->canonicalFieldMappings();
+        $this->assertArrayNotHasKey('tag-draft', $canonical);
+        $this->assertSame('seller_email', $canonical['tag-fresh']['field_name']);
     }
 
     public function test_prune_removes_field_mappings_not_referenced_in_editor_state(): void
@@ -130,11 +187,7 @@ final class CanonicalFieldMappingsTest extends TestCase
      */
     private function seedTemplate(array $overrides = []): DocuperfectTemplate
     {
-        $userId = (int) DB::table('users')->insertGetId([
-            'name' => 'Tester', 'email' => 't-' . Str::random(6) . '@x.test',
-            'password' => bcrypt('p'), 'role' => 'agent',
-            'created_at' => now(), 'updated_at' => now(),
-        ]);
+        $userId = $this->seedUser();
         return DocuperfectTemplate::create(array_merge([
             'name' => 'Canonical accessor test',
             'render_type' => 'web',
@@ -143,6 +196,42 @@ final class CanonicalFieldMappingsTest extends TestCase
             'signing_parties' => ['owner_party'],
             'owner_id' => $userId,
         ], $overrides));
+    }
+
+    private function seedUser(): int
+    {
+        return (int) DB::table('users')->insertGetId([
+            'name' => 'Tester', 'email' => 't-' . Str::random(6) . '@x.test',
+            'password' => bcrypt('p'), 'role' => 'agent',
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+    }
+
+    /**
+     * @param  array<string, array<string, mixed>> $mappings
+     */
+    private function seedDraft(
+        DocuperfectTemplate $template,
+        int $userId,
+        array $mappings,
+        ?\Illuminate\Support\Carbon $touchedAt = null
+    ): int {
+        $touchedAt ??= now();
+
+        return (int) DB::table('cds_drafts')->insertGetId([
+            'user_id'            => $userId,
+            'agency_id'          => 1,
+            'template_name'      => $template->name,
+            'source_template_id' => $template->id,
+            'cds_json'           => json_encode(['sections' => []]),
+            'mappings'           => json_encode($mappings),
+            'tags'               => json_encode([]),
+            'tagged_html'        => '',
+            'settings'           => json_encode([]),
+            'status'             => 'draft',
+            'created_at'         => $touchedAt,
+            'updated_at'         => $touchedAt,
+        ]);
     }
 
     /**
