@@ -3626,6 +3626,10 @@ class ESignWizardController extends Controller
                     // reach the document, not just the wizard's own screen.
                     signerPhone: $r['cell'] ?? null,
                     signerAddress: $r['address'] ?? null,
+                    // AT-385 — backfilled onto $r above (document-first,
+                    // contact-fallback) by assertRecipientsHaveIdentityForSend()
+                    // before this loop runs.
+                    signerPassportNumber: $r['passport_number'] ?? null,
                 );
 
                 $this->stampSupplierFirmIfAny($sigReq, $r);
@@ -5130,13 +5134,13 @@ class ESignWizardController extends Controller
      * with a blank identity; existing blanks on already-sent documents are
      * untouched, per Johan's explicit instruction.
      */
-    private function assertRecipientsHaveIdentityForSend(array $recipients, int $agencyId): void
+    private function assertRecipientsHaveIdentityForSend(array &$recipients, int $agencyId): void
     {
         if (! EsignSettings::forAgency($agencyId)->requireIdentityBeforeSend()) {
             return;
         }
 
-        foreach ($recipients as $r) {
+        foreach ($recipients as &$r) {
             if (($r['role'] ?? '') === 'agent') {
                 continue;
             }
@@ -5144,11 +5148,23 @@ class ESignWizardController extends Controller
             $idNumber = trim((string) ($r['id_number'] ?? ''));
             $passportNumber = trim((string) ($r['passport_number'] ?? ''));
 
+            // Document-first, contact-fallback (Johan): if the fallback finds
+            // it, backfill it onto THIS row so the SignatureRequest created
+            // below actually carries it — otherwise a row that only passes
+            // via its contact's ID would create a request with a blank
+            // signer_id_number, and the /sign gateway's ID gate would never
+            // fire for that party at all.
             if ($idNumber === '' && $passportNumber === '' && !empty($r['_contact_id'])) {
                 $contact = Contact::withoutGlobalScopes()->find($r['_contact_id']);
                 if ($contact !== null) {
                     $idNumber = trim((string) ($contact->id_number ?? ''));
                     $passportNumber = trim((string) ($contact->passport_number ?? ''));
+                    if ($idNumber !== '') {
+                        $r['id_number'] = $idNumber;
+                    }
+                    if ($passportNumber !== '') {
+                        $r['passport_number'] = $passportNumber;
+                    }
                 }
             }
 
@@ -5163,6 +5179,7 @@ class ESignWizardController extends Controller
                 'recipients' => "{$name} ({$roleLabel}) has no ID number or passport number on file. Add one before sending — either here or on their contact record.",
             ]);
         }
+        unset($r);
     }
 
     /**
@@ -7697,6 +7714,8 @@ class ESignWizardController extends Controller
                     // Johan, 2026-08-28 — see prepareSigning()'s identical fix.
                     signerPhone: $r['cell'] ?? null,
                     signerAddress: $r['address'] ?? null,
+                    // AT-385 — see prepareSigning()'s identical fix.
+                    signerPassportNumber: $r['passport_number'] ?? null,
                 );
                 $sigReq->update(['signing_method' => 'wet_ink']);
                 $this->stampSupplierFirmIfAny($sigReq, $r);
