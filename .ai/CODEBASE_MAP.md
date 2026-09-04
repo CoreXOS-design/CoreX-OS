@@ -640,6 +640,7 @@ agencies — added: dashboard_settings_mode (string, default 'user')
 |-------------|-----|--------|----------|
 | Local (Johan) | MySQL 8.4.3 via Laragon, DB: nexus_os | 127.0.0.1:8000 | HFC2402 branch |
 | Staging | MySQL, DB: hfc_staging | 91.99.130.85 /corex-staging | Staging branch |
-| Production | MySQL, DB: nexus_os | 91.99.130.85 /corex | main branch |
+| **Production (LIVE — the one and only)** | MySQL, DB: **corexos** | **62.238.31.82** /corex | **Prod** branch |
+| Demo | MySQL, DB: nexus_os_demo | 91.99.130.85 (`demo1.corexos.co.za`) | **NOT live** |
 
 **Python AI Service:** `/opt/hf-ai/app.py` on port 3100. Not git-tracked. Manual restart.
