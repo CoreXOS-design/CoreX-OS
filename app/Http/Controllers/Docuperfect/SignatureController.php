@@ -31,6 +31,10 @@ use Illuminate\Support\Str;
 
 class SignatureController extends Controller
 {
+    // AT-332 — see EnforcesReauthorisationBinding's own doc block: re-authorisation
+    // after an amendment is bound to the specific user who authorised the original.
+    use \App\Http\Controllers\Concerns\EnforcesReauthorisationBinding;
+
     protected SignatureService $signatureService;
 
     public function __construct(SignatureService $signatureService)
@@ -3256,6 +3260,12 @@ class SignatureController extends Controller
         $this->authorizeDocument($user, $document);
 
         $template = SignatureTemplate::where('document_id', $document->id)->firstOrFail();
+
+        // AT-332 — re-authorisation is bound to the original authorising user.
+        if ($blockReason = $this->reauthorisationBindingBlockReason($template, $user, 'approve_amendment_node')) {
+            return back()->with('error', $blockReason);
+        }
+
         $result = $this->signatureService->approveAmendmentNode($template, $user);
 
         if (empty($result['ok'])) {
@@ -4245,6 +4255,19 @@ class SignatureController extends Controller
 
         if (!in_array($action, ['accept', 'reject'])) {
             return response()->json(['ok' => false, 'error' => 'Invalid action.'], 422);
+        }
+
+        // AT-332 — this was the most severe of the three unbound re-approval
+        // paths: agentAmendmentAction() bulk-accepts EVERY pending party's row
+        // with no identity check at all. Re-authorisation ('accept') is bound
+        // to the original authorising user; a 'reject' is not an
+        // authorisation act and is left alone.
+        if ($action === 'accept') {
+            $user = $request->user();
+            $template = $amendment->loadMissing('template')->template;
+            if ($template && ($blockReason = $this->reauthorisationBindingBlockReason($template, $user, 'amendment_action_accept'))) {
+                return response()->json(['ok' => false, 'error' => $blockReason], 422);
+            }
         }
 
         $this->signatureService->agentAmendmentAction($amendment, $action, $reason);

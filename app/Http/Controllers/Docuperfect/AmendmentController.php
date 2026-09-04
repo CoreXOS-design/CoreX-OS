@@ -46,6 +46,10 @@ class AmendmentController extends Controller
     // the permission key, so any holder could act on ANY agency's amendment. Add the per-record
     // guard on the underlying document.
     use \App\Http\Controllers\Concerns\AuthorizesDocumentAccess;
+    // AT-332 — guardDocument() above is scope-only (agency/branch/owner); it never checked WHO
+    // originally authorised this document, so any other full-status agent in scope could
+    // re-authorise someone else's amendment. See EnforcesReauthorisationBinding's own doc block.
+    use \App\Http\Controllers\Concerns\EnforcesReauthorisationBinding;
 
     public function __construct(private readonly SignatureService $signatureService) {}
 
@@ -92,6 +96,11 @@ class AmendmentController extends Controller
         $this->guardDocument($amendment->document);
 
         $amendment->load('template');
+
+        // AT-332 — re-authorisation is bound to the original authorising user.
+        if ($blockReason = $this->reauthorisationBindingBlockReason($amendment->template, $user, 'amendment_approve')) {
+            return redirect()->back()->with('error', $blockReason);
+        }
 
         // Approve all condition rows under this amendment (audit stamp).
         DocumentCondition::where('amendment_id', $amendment->id)->update([
