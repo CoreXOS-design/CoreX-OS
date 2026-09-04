@@ -123,7 +123,7 @@ with `agency_id` from day one. Full spec: `.ai/specs/multi-tenancy.md`. Do
 not use `withoutGlobalScope(AgencyScope::class)` in request code.
 
 ### 8. Branch rules.
-- `main` = production server (91.99.130.85)
+- Production server = **62.238.31.82**. This is the ONE AND ONLY live/prod host: `corexos.co.za` / `www.corexos.co.za`, `APP_ENV=production`, codebase `/corex`, DB `corexos`. The live checkout tracks **`origin/Prod`** (verified 2026-09-04), not `main`. `91.99.130.85` is **NOT** live — it is the demo/staging box (`demo1.corexos.co.za`).
 - `HFC2402` = Johan's dev branch
 - `andre` = Andre's dev branch
 - Hotfixes only go directly to main. Everything else: dev branch → reviewed → merged to main.
@@ -204,7 +204,8 @@ not use `withoutGlobalScope(AgencyScope::class)` in request code.
 | Framework | Laravel (PHP 8.x) + Blade + Alpine.js |
 | Build | Vite — `npm run dev` (local), `npm run build` (production) |
 | Database | MySQL via Laragon (local), MySQL on server (production) |
-| Server | Ubuntu at 91.99.130.85, codebase at /corex |
+| Server — LIVE/PROD | Ubuntu at **62.238.31.82**, codebase at `/corex`, DB `corexos`, branch `Prod`. The **one and only** live/prod host — serves `corexos.co.za` and `www.corexos.co.za`. |
+| Server — demo/staging | Ubuntu at 91.99.130.85 — serves `demo1.corexos.co.za`. **NOT live.** Never treat it as production. |
 | Domain | corex.hfcoastal.co.za |
 | Repo | johan7610/hfc-dash |
 | Python AI | /opt/hf-ai/app.py on port 3100 (hf-ai.service) |

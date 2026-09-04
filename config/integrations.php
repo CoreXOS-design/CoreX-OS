@@ -24,7 +24,17 @@ return [
     // Default is the live production domain (verified: it serves the
     // /property/{slug}-{id} path). Override with PUBLIC_WEBSITE_URL to point at
     // a local/staging custom-website dev server (e.g. http://91.99.130.85:1050).
-    'public_website_url'   => env('PUBLIC_WEBSITE_URL', 'https://www.hfcoastal.co.za'),
+    // Demo-safe fallback (2026-09-02, webinar-eve incident): read
+    // COREX_INSTANCE_ROLE directly via env() here rather than through
+    // App\Support\Instance::isDemo() — that helper reads config('corex.instance.role'),
+    // and calling config() from inside another config file being loaded risks
+    // reading it before config/corex.php has been merged in. env() is always
+    // safe at this point. On the demo instance, with no PUBLIC_WEBSITE_URL
+    // override, "View listing" links must never resolve to HFC's real public
+    // site — that leaked live on the map screen ahead of the webinar.
+    'public_website_url'   => env('PUBLIC_WEBSITE_URL', strtolower((string) env('COREX_INSTANCE_ROLE')) === 'demo'
+        ? 'https://www.corexdemo.co.za'
+        : 'https://www.hfcoastal.co.za'),
 
     // Base URL of the CoreX MARKETING site (corexweb.co.za) — a different site
     // from public_website_url above, which is an agency's own listing website.

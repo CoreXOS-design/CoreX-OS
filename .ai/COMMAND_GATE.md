@@ -66,9 +66,17 @@ git push origin main
 
 ## Server SSH
 
+LIVE/PROD — `62.238.31.82` is the **one and only** live host (`corexos.co.za`, DB `corexos`, branch `Prod`):
+
+```bash
+ssh root@62.238.31.82
+cd /corex
+```
+
+Demo/staging — `91.99.130.85` serves `demo1.corexos.co.za`. **NOT live.** Never treat it as production:
+
 ```bash
 ssh root@91.99.130.85
-cd /corex
 ```
 
 ---

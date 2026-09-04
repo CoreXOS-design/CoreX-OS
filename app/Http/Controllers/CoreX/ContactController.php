@@ -873,13 +873,23 @@ class ContactController extends Controller
         // renders read-only when false so no edit affordance is shown that would only 403 on save.
         $canEdit = $this->canMutateContact($contact);
 
+        // 2026-09-02 — the real FK (deal_contacts) linking this contact to a deal as
+        // buyer/seller exists and is populated, but nothing on this page ever surfaced
+        // it (the only prior deal signal was the narrow "Purchaser" badge on Linked
+        // Properties, which only lights up for a granted deal). Read-only list —
+        // deal-party linking itself is managed from the deal, not from here.
+        $linkedDeals = \App\Models\Deal::whereHas('contacts', fn ($q) => $q->where('contacts.id', $contact->id))
+            ->with(['contacts' => fn ($q) => $q->where('contacts.id', $contact->id)])
+            ->orderByDesc('deal_date')
+            ->get(['id', 'deal_no', 'property_address', 'property_value', 'accepted_status', 'commission_status', 'deal_date', 'registration_date']);
+
         // MERGE NOTE (QA2 -> Staging, 2026-07-26; extended 2026-08-20 for CX-110): several
         // independent additions share this view-variable list — AT-321-C's $fullAuditLog,
         // AT-267's $canEdit, and CX-110's $historyCount. All independent; all kept.
         // Contact-details Phase 2 adds $contactIdentifierLabels; Phase 4 adds the
         // Recent-Sends panel vars ($recentSends, $sendAuditLog, $sendAuditActors);
         // AT-321 audit adds $includeSystem (History-tab system-trail toggle).
-        return view('corex.contacts.show', compact('contact', 'contactTypes', 'contactIdentifierLabels', 'contactTags', 'matchCategories', 'matchTypes', 'featureOptions', 'documentTypes', 'driveLinkedGroups', 'driveUnlinkedDocs', 'drivePropertyMap', 'buyerViewings', 'sellerViewings', 'buyerUpcoming', 'buyerPast', 'sellerUpcoming', 'sellerPast', 'viewingsCount', 'outreachSends', 'outreachClickCounts', 'outreachOutcomeOptions', 'agencyAgents', 'canViewComms', 'contactComms', 'contactThreads', 'commsViaGrant', 'canRequestComms', 'pendingCommsRequest', 'myCaptureStatus', 'waSent', 'emailSent', 'fullAuditLog', 'includeSystem', 'historyCount', 'recentSends', 'sendAuditLog', 'sendAuditActors', 'canEdit'));
+        return view('corex.contacts.show', compact('contact', 'contactTypes', 'contactIdentifierLabels', 'contactTags', 'matchCategories', 'matchTypes', 'featureOptions', 'documentTypes', 'driveLinkedGroups', 'driveUnlinkedDocs', 'drivePropertyMap', 'buyerViewings', 'sellerViewings', 'buyerUpcoming', 'buyerPast', 'sellerUpcoming', 'sellerPast', 'viewingsCount', 'outreachSends', 'outreachClickCounts', 'outreachOutcomeOptions', 'agencyAgents', 'canViewComms', 'contactComms', 'contactThreads', 'commsViaGrant', 'canRequestComms', 'pendingCommsRequest', 'myCaptureStatus', 'waSent', 'emailSent', 'fullAuditLog', 'includeSystem', 'historyCount', 'recentSends', 'sendAuditLog', 'sendAuditActors', 'canEdit', 'linkedDeals'));
     }
 
     public function checkDuplicate(Request $request)

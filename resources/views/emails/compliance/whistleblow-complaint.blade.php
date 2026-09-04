@@ -39,7 +39,7 @@
         </p>
 
         <div class="ref-box">
-            <strong>Reference:</strong> HFC-WB-{{ $complaint->id }}<br>
+            <strong>Reference:</strong> CDX-WB-{{ $complaint->id }}<br>
             <strong>Filed:</strong> {{ $complaint->created_at->format('d F Y') }}<br>
             <strong>Approved by:</strong> {{ $complaint->approvedBy?->name ?? 'N/A' }}
             @if($complaint->approvedBy?->ffc_number)

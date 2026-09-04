@@ -1,0 +1,192 @@
+# Master Configuration Sweep Checklist
+
+Built 2026-09-02, ~11 hours before the webinar. Every screen below was found by
+reading `routes/web.php` and the actual settings-hub navigation array in
+`resources/views/corex/settings.blade.php` (the `$item['key']` list, lines
+~78–158) — not from memory. This is the list that never existed before today,
+which is why Johan kept finding config holes one at a time.
+
+**Status legend:** `OPEN` = not yet checked this sweep · `CONFIGURED` =
+rendered as admin, shows real configured state · `FIXED` = was empty, now
+seeded with realistic values, re-rendered and confirmed · `N/A` = not an
+agency-facing config screen, out of scope for the demo.
+
+**Lane key:** cc1 = agency/branches/users/branding · cc2 =
+properties/listings/portals/marketing · cc3 = compliance/HR/payroll/suppliers ·
+cc4 = e-sign/documents/filing · cc5 = communications/notifications · cc6 =
+deals/calendar/dashboard/MI (this lane, also owns this checklist).
+
+---
+
+## Settings Hub (`/corex/settings?s=<key>`) — in-page sections
+
+These are NOT separate URLs — they're Alpine `x-show` panels inside one page,
+found in the sidebar nav array. A URL-only route sweep would have missed every
+one of these.
+
+| # | Key | Label | Lane | Status |
+|---|---|---|---|---|
+| 1 | `user` | Profile & Account | cc1 | FIXED — this panel is actually FICA/POPIA officer appointments + Designations, not a personal profile form. Primary FICA CO was already configured; Primary Information Officer was NOT (visible red POPIA s55 banner) — appointed via DemoInformationOfficerSeeder, banner confirmed gone on re-render |
+| 2 | `my-portal` | My Portal | cc1 | CONFIGURED — just 2 per-user toggles, both already true for the demo user, no gap |
+| 3 | `agency` | Agency Settings | cc1 | N/A — dead code (`@if(false)`, `resources/views/corex/settings.blade.php:243-425`); real form is #22 `company`, which is FIXED |
+| 4 | `remote-access` | Remote Access | cc1 | CONFIGURED (correctly off-by-design) — `require_external_access_authorization=0`, copy explicitly states OFF is the default open-access state; not a demo gap |
+| 5 | `features` | Features (on/off) — master module toggle registry | **UNOWNED** | see below |
+| 6 | `feature-documents` | Documents | cc4 | OPEN |
+| 7 | `feature-rentals` | Rentals | cc2 | OPEN |
+| 8 | `feature-contacts` | Contacts | cc1 (claimed by elimination per the note below) | FIXED — Contact Types already had all 6 canonical rows from an earlier pass; Contact Sources (0 rows, 0/290 contacts tagged) and Contact Tags (0 rows) were empty. DemoContactSourcesTagsSeeder added 5 sources (Property24/Referral/Walk-in/Website Enquiry/Facebook), 3 tags (Hot Lead/VIP/Investor), and backfilled all 290 contacts with a source. Contact Identifier Labels left empty — lower-visibility, not fixed this pass |
+| 9 | `feature-properties` | Properties & Listings | cc2 | OPEN |
+| 10 | `feature-presentations` | Presentations (CMA coverage/thresholds) | cc2 | OPEN |
+| 11 | `feature-matches` | Matches (buyer/property matching) | cc6 | OPEN |
+| 12 | `feature-dashboard` | Dashboard (cockpit widgets) | **cc6** | OPEN |
+| 13 | `notifications` | Notifications | cc5 | OPEN |
+| 14 | `commission` | Commission & Revenue Share (splits, caps, fees, tiers) | **cc6** | OPEN |
+| 15 | `command-center` | Command Center Rules (calendar automation, event classes) | **cc6** | OPEN |
+| 16 | `prospecting-setup` | Prospecting Setup (towns/suburbs/price bands/match tiers) | **cc6** | OPEN |
+| 17 | `outreach-templates` | Outreach Templates (seller outreach WhatsApp/email) | cc5 | OPEN |
+| 18 | `leave-visibility` | Leave Visibility (calendar matrix by role/branch) | cc3 | OPEN |
+| 19 | `whistleblow-settings` | Compliance Reporting | cc3 | OPEN |
+| 20 | `system` | System Info & Tools | N/A | diagnostic, not agency-facing |
+
+## Settings Hub — external links (own URL, listed in the same nav)
+
+| # | Key | URL | Lane | Status |
+|---|---|---|---|---|
+| 21 | `agency-setup` | `/corex/agency-setup` (onboarding wizard) | cc1 | FIXED — field values were already correct (reads live from the same stores as settings), but progress was stuck at "Step 1 of 16 · 0%" since nobody had walked the wizard for this agency. DemoOnboardingWizardSeeder marks every active step complete via `AgencyOnboardingSetup::activeSteps()` (respects feature gating); re-rendered and confirmed "Step 16 of 16 · 100%" |
+| 22 | `company` | `/corex/admin/company-settings` | cc1 | FIXED — tagline/address/phone/email/fax/ppra/ncc/public_contact/email_disclaimer/popi_url/privacy_policy + logo (generated PNG) + proforma bank_details all set via DemoAgencyBrandingSeeder; re-rendered and confirmed all values + a real servable logo image |
+| 23 | `doc-types` | `/admin/settings/document-types` (PDF splitter labels) | cc4 | OPEN |
+| 24 | `docuperfect-types` | `/docuperfect/settings/types` | cc4 | OPEN |
+| 25 | `docuperfect-fields` | `/docuperfect/settings/named-fields` | cc4 | OPEN |
+| 26 | `esign-recipient-presets` | `/docuperfect/esign/settings/recipient-presets` | cc4 | OPEN |
+| 27 | `esign-recipient-templates` | `/docuperfect/recipient-templates` | cc4 | OPEN |
+| 28 | `coc-service-types` | `/deals-v2/settings/service-types` (COC/certificate service types for deal pipeline) | **cc6** | OPEN |
+| 29 | `proforma-settings` | `/admin/proforma-settings` (invoicing/VAT/bank details) | cc3 | OPEN |
+| 30 | `pdf-suite-labels` | `/admin/splitter/doc-types` | cc4 | OPEN |
+| 31 | `p24-suburbs` | `/settings/p24-suburbs` | cc2 | OPEN |
+
+## Deal/pipeline config — NOT in the hub nav at all (orphaned from navigation)
+
+Found only by grepping routes — a user browsing Settings would never find
+these unless they already know the URL. Worth flagging to Johan regardless of
+who configures them.
+
+| # | Screen | URL | Lane | Status |
+|---|---|---|---|---|
+| 32 | Deal pipeline templates + stages | `/deals-v2/pipeline-setup` (+ `/master`, `/{template}/edit`) | **cc6** | OPEN |
+| 33 | Deal distribution rules | `/admin/settings/deal-distribution-rules` | **cc6** | OPEN |
+| 34 | Deal↔property sync settings | `/admin/settings/deal-property-sync` | **cc6** | OPEN |
+| 35 | Document distribution rules | `/admin/settings/document-distribution` | cc4 | OPEN |
+| 36 | Performance settings | `/admin/performance-settings` | cc3 | OPEN |
+| 37 | Minion (scraper) config + suburb/town tree | `/admin/settings/minion` (+ `/tree/suburbs`, `/tree/towns`) | **UNOWNED** | see below |
+
+## Other config screens found via routes, not in the hub nav
+
+| # | Screen | URL | Lane | Status |
+|---|---|---|---|---|
+| 38 | Compliance agency settings/provisions | `/corex/compliance/agency-settings` | cc3 | OPEN |
+| 39 | Email setup | `/corex/settings/email-setup` | cc5 | OPEN |
+| 40 | Header/signature preview | `/corex/settings/preview-header`, `/preview-signature` | cc1 | CONFIGURED — both render fully populated once #22's agency branding was fixed (real logo, address, VAT/reg/FFC/FIC, POPI disclaimer link); no separate fix needed |
+| 41 | User oversight | `/corex/settings/user/oversight` | cc1 | CONFIGURED — purely per-user preferences with sensible built-in defaults when no row exists (`UserOversightPreference::DEFAULTS`); no DB seeding needed, no gap |
+| 42 | E-sign finalization settings | `/docuperfect/esign/settings/finalization` | cc4 | OPEN |
+| 43 | Rental division settings | `/rental/settings` (+ document-types, properties, reminders) | cc2 | OPEN |
+| 44 | Prospecting duplicate/stale rules | `/corex/settings/prospecting/duplicate-rules`, `/stale-rules` | **cc6** | OPEN (dup of §16 area, separate sub-pages) |
+| 45 | Contact governance (command-center) | `/corex/command-center/settings/contact-governance` | **cc6** | OPEN |
+| 46 | Event classes (command-center) | `/corex/command-center/settings/event-classes` | **cc6** | OPEN |
+
+## Addendum (cc1) — 3 more screens outside the hub nav/route sweep, all FIXED
+
+Found via the original brief to cc1 ("agency, branches, users, roles/permissions,
+branding") rather than the settings-hub nav array — these don't live under
+`/corex/settings` at all, so the route sweep above didn't catch them.
+
+| # | Screen | URL | Lane | Status |
+|---|---|---|---|---|
+| 47 | Branch Assignments | `/admin/branch-assignments` | cc1 | FIXED — all 3 branches (Margate/Shelly Beach/Port Shepstone) had only name/code set, every contact field null; now has address/phone/email per branch |
+| 48 | Role Manager | `/corex/role-manager` | cc1 | FIXED (critical) — agency 1 owned zero `roles`/`role_permissions` rows; screen rendered completely empty (no roles, no matrix). Enforcement itself was fine (PermissionService falls back to the global template correctly) — only the admin SCREEN was broken. Cloned the global template into agency-1-scoped rows. **Possible genuine product bug beyond the demo — flagging to Johan separately, not fixed at the code level.** |
+| 49 | Users list | `/admin/users` | cc1 | FIXED — all 14 users had null FFC/PPRA/phone/cell/designation; page showed a red "14 agent(s) need PPRA re-verification" banner. Backfilled FFC number/expiry, PPRA active status + recent verification date, phone/cell/whatsapp, designation. Agent photos deliberately NOT fabricated — initials avatars are an acceptable demo state. |
+
+## Named in the brief but NOT found as a distinct screen — flag to Johan
+
+- **"Feedback question sets"** and **"working hours"** — no dedicated settings
+  screen found under either name. Feedback requirement (`requires_feedback`)
+  is a per-event-class flag inside `command-center` → Event Classes (#46), not
+  a separate question-set builder. Working hours: not found anywhere in the
+  settings hub or route list. Either these don't exist as configurable
+  screens in this build (agent availability may be hardcoded/unconfigured by
+  design), or they live somewhere I haven't found yet — will keep looking
+  while working my slice, but flagging now rather than silently assuming.
+
+## Explicitly out of scope (not agency-facing demo config)
+
+- `system` (#20) — diagnostic tools.
+- `/corex/admin/dev-settings/*` (demo-access, demo-connection, demo-sidebar,
+  webinars) — platform/dev tooling, not something a prospective agency would
+  ever see or configure.
+- `/corex/settings/agencies` (+ create/edit) — System-Owner's list of ALL
+  agencies on the platform, not agency-1-scoped config.
+
+---
+
+## ⚠️ Unowned — nobody's slice, needs a call
+
+1. **`features` (#5) — the master module on/off toggle registry — CHECKED,
+   not a blocker for Deals/DR2.** `agency_features` table has 0 rows for
+   agency 1, meaning every module sits at its registry default
+   (`config/corex-features.php`). Confirmed the `deals` entry is
+   `category: 'Core'`, `"Always available. Deals are a core pillar and cannot
+   be switched off."` — so DR2 visibility is guaranteed regardless of this
+   screen's state. Did NOT check every other module's default (Rentals,
+   Payroll, Compliance etc.) — pausing this to go work the new DR2 priority
+   task; whichever lane owns a module should still sanity-check its own
+   default is ON, since 0 rows means nothing has been deliberately verified
+   yet, only defaulted.
+2. **`feature-contacts` (#8) — contact types/sources/tags config.** Doesn't
+   map to any of the 6 slices as given. Closest fit is cc1 (owns "users," and
+   contacts are agency-wide CRM config) but that's a guess, not an assignment
+   from the brief. Needs Johan/conductor's call, or default to cc1 by
+   elimination.
+3. **`admin/settings/minion` (#37) — scraper/prospecting-source config +
+   suburb/town tree.** "Minion" strongly suggests it feeds prospecting data
+   (my slice), but it's also plausibly infrastructure/platform config nobody
+   should touch for a demo. I'll open it and make a judgment call rather than
+   leave it fully unowned, and report back what it actually is.
+
+---
+
+## Running status
+
+_(updates as lanes report — cc6 will edit this section as results come in)_
+
+- **Total screens enumerated: 46** (+ 2 named-but-not-found items flagged above).
+- cc6 (mine): 12 screens — feature-dashboard, feature-matches, commission,
+  command-center, prospecting-setup, coc-service-types, deal pipeline-setup,
+  deal-distribution-rules, deal-property-sync, prospecting duplicate/stale
+  rules, contact-governance, event-classes.
+- cc1: 9 screens. cc2: 6 screens. cc3: 6 screens. cc4: 8 screens. cc5: 3 screens.
+- Unowned, needs a decision: **3** (features toggle, feature-contacts, minion config).
+- Named in brief, not found as a screen: 2 (feedback question sets, working hours).
+- Out of scope: 3 (system info, dev-settings, platform agency list).
+
+Starting on my own slice now. Will update this table as I go and report back.
+
+---
+
+## cc1 slice — final report (2026-09-02)
+
+All cc1-assigned screens done: #1 (fixed), #2 (configured, no gap), #3 (N/A,
+dead code), #4 (configured, correctly off), #8 (claimed by elimination,
+fixed), #21 (fixed), #22 (fixed), #40 (configured, no gap once #22 landed),
+#41 (configured, no gap). Plus 3 screens found via the original brief but
+outside this checklist's route sweep, also fixed: Branch Assignments
+(`/admin/branch-assignments`, #47), Role Manager (`/corex/role-manager`,
+#48 — critical, screen rendered completely empty for agency 1 despite
+enforcement working correctly behind it), Users list (`/admin/users`, #49).
+
+7 idempotent seeders landed, wired into `DemoDataSeeder::
+stage16_agencyConfigurationSweep()`, each proven via 3 consecutive runs
+with zero writes on runs 2-3, each verified against the live rendered page
+(not row counts): `DemoAgencyBrandingSeeder`, `DemoBranchDetailsSeeder`,
+`DemoRoleProvisioningSeeder`, `DemoUserComplianceSeeder`,
+`DemoInformationOfficerSeeder`, `DemoOnboardingWizardSeeder`,
+`DemoContactSourcesTagsSeeder`. Committed and pushed.
+
+cc1 slice complete — available for more work.

@@ -14,12 +14,13 @@ then copy the pattern for the new feature.
 
 | Item | Value |
 |------|-------|
-| Production server | Ubuntu at 91.99.130.85 |
+| Production server | Ubuntu at **62.238.31.82** — the **one and only** live/prod host (`corexos.co.za`) |
+| Demo/staging server | Ubuntu at 91.99.130.85 (`demo1.corexos.co.za`) — **NOT live** |
 | Codebase path | /corex |
 | Domain | corex.hfcoastal.co.za |
 | GitHub repo | johan7610/hfc-dash |
 | Branches | main (production), HFC2402 (Johan dev), andre (Andre dev) |
-| DB production | MySQL on 127.0.0.1:3306, database: nexus_os |
+| DB production | MySQL on 127.0.0.1:3306, database: **corexos** (per live `/corex/.env`, verified 2026-09-04). A legacy `nexus_os` DB still exists on the live host but the app does not use it. |
 | DB local | MySQL via Laragon on 127.0.0.1:3306, database: nexus_os |
 | PHP version | 8.x |
 | Node/Vite | Vite 7.3.x, npm run build for production, npm run dev for local |

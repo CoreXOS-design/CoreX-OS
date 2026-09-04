@@ -180,11 +180,12 @@ Full spec and verification checklist: `.ai/specs/multi-tenancy.md`.
 
 | Item | Value |
 |------|-------|
-| Server | Ubuntu at `91.99.130.85` |
+| Server — LIVE/PROD | Ubuntu at **`62.238.31.82`** — the **one and only** live/prod host, DB `corexos` |
+| Server — demo/staging | Ubuntu at `91.99.130.85` — serves `demo1.corexos.co.za`. **NOT live.** |
 | Codebase | `/corex` |
 | Domain | `corexos.co.za` (canonical; `www.corexos.co.za` also served). `corex.hfcoastal.co.za` RETIRED 2026-07-17 → 308 redirect only; keep its DNS + cert (SANs cover corexos.co.za). |
 | GitHub repo | `johan7610/hfc-dash` |
-| Branch: production | `main` |
+| Branch: production | `Prod` — the live checkout at `62.238.31.82:/corex` tracks `origin/Prod` (verified 2026-09-04) |
 | Branch: Johan dev | `HFC2402` |
 | Branch: Andre dev | `andre` |
 

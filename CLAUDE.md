@@ -158,7 +158,7 @@ No demo modes. No "we'll fix it later." No patches over root causes. If it works
 All new HTTP API endpoints MUST live under `/api/v1/*` (or another versioned `/api/vN/*` namespace), MUST have a `->name()` on the route, and MUST be reachable from the **Admin → API** catalog page at `/admin/api`. The catalog is auto-generated from Laravel's route table — if the route is registered correctly with the `api/` URI prefix, it appears automatically. Do NOT build hidden JSON endpoints under arbitrary URIs (e.g. `/some-page/data`). One global frontend client (`window.CoreX.api`) consumes them; one catalog lists them. The session-authenticated "who am I" endpoint is `GET /api/v1/logged-user` — fired automatically on every authenticated page via `resources/js/corex-api.js`.
 
 ### 8. Branch rules.
-- `main` = production server (91.99.130.85)
+- Production server = **62.238.31.82**. This is the ONE AND ONLY live/prod host: `corexos.co.za` / `www.corexos.co.za`, `APP_ENV=production`, codebase `/corex`, DB `corexos`. The live checkout tracks **`origin/Prod`** (verified 2026-09-04), not `main`. `91.99.130.85` is **NOT** live — it is the demo/staging box (`demo1.corexos.co.za`).
 - `HFC2402` = Johan's dev branch
 - `andre` = Andre's dev branch
 - Hotfixes only go directly to main. Everything else: dev branch → reviewed → merged to main.
@@ -485,7 +485,8 @@ before returning. Returning content only in the reply is not sufficient."
 | Framework | Laravel (PHP 8.x) + Blade + Alpine.js |
 | Build | Vite — `npm run dev` (local), `npm run build` (production) |
 | Database | MySQL via Laragon (local), MySQL on server (production) |
-| Server | Ubuntu at 91.99.130.85, codebase at /corex |
+| Server — LIVE/PROD | Ubuntu at **62.238.31.82**, codebase at `/corex`, DB `corexos`, branch `Prod`. The **one and only** live/prod host — serves `corexos.co.za` and `www.corexos.co.za`. |
+| Server — demo/staging | Ubuntu at 91.99.130.85 — serves `demo1.corexos.co.za`. **NOT live.** Never treat it as production. |
 | Domain | **corexos.co.za** (canonical; `www.` also served). `corex.hfcoastal.co.za` is RETIRED — 308-redirects here, serves no app (2026-07-17). Its DNS + TLS cert must STAY: the cert lineage is named for it but its SANs cover corexos.co.za, so dropping it breaks the main site. |
 | Repo | johan7610/hfc-dash |
 | Python AI | /opt/hf-ai/app.py on port 3100 (hf-ai.service) |
