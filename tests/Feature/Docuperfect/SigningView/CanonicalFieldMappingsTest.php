@@ -6,6 +6,7 @@ namespace Tests\Feature\Docuperfect\SigningView;
 
 use App\Models\Docuperfect\CdsDraft;
 use App\Models\Docuperfect\Template as DocuperfectTemplate;
+use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -24,10 +25,12 @@ use Tests\TestCase;
  * These tests pin the new contract:
  *
  *   • canonicalFieldMappings() prefers drafts > editor_state > legacy
+ *   • a draft only wins tier 1 when it belongs to the current viewer
+ *     AND is genuinely newer than the template's own last save
+ *     (2026-09-04 fix — see Template::canonicalFieldMappings() docblock;
+ *     an abandoned draft used to permanently outrank every future save)
  *   • pruneOrphanFieldMappings() removes tag-ids absent from the
  *     live tagged_html / cds_json sources
- *   • The cdsGenerate save path applies the prune and cleans up
- *     stale CdsDraft rows
  */
 final class CanonicalFieldMappingsTest extends TestCase
 {
@@ -63,6 +66,7 @@ final class CanonicalFieldMappingsTest extends TestCase
             'field_mappings' => $this->fixtureMappings(),
             'editor_state'   => ['mappings' => ['tag-z' => ['field_name' => 'fallback']]],
         ]);
+        $owner = User::findOrFail($template->owner_id);
         $draftMappings = ['tag-q' => ['field_name' => 'seller_id_number', 'party' => 'seller']];
         DB::table('cds_drafts')->insert([
             'user_id'            => $template->owner_id,
@@ -79,9 +83,84 @@ final class CanonicalFieldMappingsTest extends TestCase
             'updated_at'         => now(),
         ]);
 
-        $canonical = $template->canonicalFieldMappings();
+        // The draft belongs to, and is being read by, the same user who
+        // owns it — the case tier 1 exists for (an agent's own live
+        // in-progress edit outranking the last full save).
+        $this->actingAs($owner);
+        $canonical = $template->fresh()->canonicalFieldMappings();
         $this->assertCount(1, $canonical);
         $this->assertSame('seller_id_number', $canonical['tag-q']['field_name']);
+    }
+
+    public function test_a_different_users_stale_draft_never_shadows_a_fresh_save(): void
+    {
+        // Reproduces the Staging bug directly: template's editor_state
+        // holds the FRESH, just-saved state. A different user has an
+        // old, abandoned status='draft' row for the same template that
+        // predates that save. Whoever now reads canonicalFieldMappings()
+        // — even the abandoned draft's own owner, reading as themselves —
+        // must get the fresh save, never the stale draft.
+        $freshMappings = ['tag-fresh' => ['field_name' => 'seller_email', 'party' => 'seller']];
+        $template = $this->seedTemplate([
+            'editor_state' => ['mappings' => $freshMappings],
+        ]);
+        // seedTemplate() creates the template "now" — the abandoned draft
+        // below is backdated 4 days, the way a real save's updated_at
+        // naturally postdates a long-idle draft's.
+
+        $strangerId = (int) DB::table('users')->insertGetId([
+            'name' => 'Stranger', 'email' => 's-' . Str::random(6) . '@x.test',
+            'password' => bcrypt('p'), 'role' => 'agent',
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        DB::table('cds_drafts')->insert([
+            'user_id'            => $strangerId,
+            'agency_id'          => 1,
+            'template_name'      => $template->name,
+            'source_template_id' => $template->id,
+            'cds_json'           => json_encode(['sections' => []]),
+            'mappings'           => json_encode(['tag-stale' => ['field_name' => 'zombie_field']]),
+            'tags'               => json_encode([]),
+            'tagged_html'        => '',
+            'settings'           => json_encode([]),
+            'status'             => 'draft',
+            'created_at'         => now()->subDays(4),
+            'updated_at'         => now()->subDays(4),
+        ]);
+
+        // Read as the stranger who owns the abandoned draft — still must
+        // not win, because it predates the template's last save.
+        $this->actingAs(User::findOrFail($strangerId));
+        $canonical = $template->fresh()->canonicalFieldMappings();
+        $this->assertArrayHasKey('tag-fresh', $canonical);
+        $this->assertArrayNotHasKey('tag-stale', $canonical, 'An abandoned draft older than the last save must never shadow it');
+    }
+
+    public function test_canonical_skips_tier_one_with_no_authenticated_viewer(): void
+    {
+        // Console/queue context — no "current session" to prefer, so a
+        // draft (however recent) must not be picked arbitrarily.
+        $template = $this->seedTemplate([
+            'editor_state' => ['mappings' => ['tag-fresh' => ['field_name' => 'seller_email']]],
+        ]);
+        DB::table('cds_drafts')->insert([
+            'user_id'            => $template->owner_id,
+            'agency_id'          => 1,
+            'template_name'      => $template->name,
+            'source_template_id' => $template->id,
+            'cds_json'           => json_encode(['sections' => []]),
+            'mappings'           => json_encode(['tag-q' => ['field_name' => 'seller_id_number']]),
+            'tags'               => json_encode([]),
+            'tagged_html'        => '',
+            'settings'           => json_encode([]),
+            'status'             => 'draft',
+            'created_at'         => now(),
+            'updated_at'         => now(),
+        ]);
+
+        $canonical = $template->fresh()->canonicalFieldMappings();
+        $this->assertArrayHasKey('tag-fresh', $canonical);
+        $this->assertArrayNotHasKey('tag-q', $canonical);
     }
 
     public function test_prune_removes_field_mappings_not_referenced_in_editor_state(): void

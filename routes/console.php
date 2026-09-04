@@ -177,6 +177,11 @@ Schedule::command('communications:prune-pending')->dailyAt('03:35')->withoutOver
 // short-lived and the prune age is agency-configurable.
 Schedule::command('communications:prune-provisional')->hourly()->withoutOverlapping();
 
+// 2026-09-04 (Staging bug: abandoned CDS builder drafts shadowing saves) —
+// nightly soft-delete of idle cds_drafts rows and drafts orphaned by a
+// deleted template. See PruneAbandonedCdsDrafts docblock.
+Schedule::command('docuperfect:prune-abandoned-cds-drafts')->dailyAt('03:40')->withoutOverlapping();
+
 // Communication Archive (AT-33) — email adapter: dispatch IMAP poll jobs for
 // due mailboxes. Per-mailbox cadence enforced via poll_interval_minutes.
 Schedule::command('communications:poll-mailboxes')->everyFiveMinutes()->withoutOverlapping();

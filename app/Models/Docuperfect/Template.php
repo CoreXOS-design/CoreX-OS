@@ -91,10 +91,11 @@ class Template extends Model
      *
      * Priority order (first non-empty wins):
      *
-     *   1. cds_drafts row for this template (most recent, not deleted).
-     *      The builder writes to drafts continuously while the agent
-     *      edits — if a draft exists, it represents the most recent
-     *      authored state.
+     *   1. cds_drafts row for this template (most recent, not deleted,
+     *      belonging to the CURRENT viewer, and genuinely newer than
+     *      this template's own last save). The builder writes to
+     *      drafts continuously while the agent edits — if such a draft
+     *      exists, it represents the most recent authored state.
      *   2. editor_state.mappings — the builder's last full save into
      *      this template's `editor_state` JSON column.
      *   3. field_mappings column — legacy fallback for templates that
@@ -108,35 +109,67 @@ class Template extends Model
      *   • `pruneOrphanFieldMappings()` removes tag-ids that no longer
      *     appear in the saved tagged_html / cds_json — guards against
      *     the "blade has 1 seller, field_mappings has 14" divergence.
-     *   • `applyDraftAndCleanup()` (TemplateController:cdsGenerate)
-     *     deletes the applied draft on successful save so the next
-     *     reload reads the freshly-saved template, not the now-stale
-     *     draft.
+     *   • `TemplateController::cdsGenerate()` flips this user's other
+     *     superseded drafts for the same template to status='abandoned'
+     *     on save (never soft-deletes on the hot path — see that
+     *     method's docblock re: a8af5d10a).
+     *
+     * 2026-09-04 (Staging bug: "template save does not persist when
+     * editing an existing template") — tier 1 used to match ANY
+     * status='draft' row for this template, from ANY user, of ANY age,
+     * with no comparison against this template's own last-saved state.
+     * A single leftover abandoned draft (a different user's dead
+     * session, or the same user's stray second tab) permanently
+     * outranked every future fresh save, because nothing ever advanced
+     * that row's `updated_at` and nothing ever excluded it. Fresh
+     * imports never hit this because they have no editing history yet;
+     * an existing template accumulates draft rows every time it's
+     * opened, so one abandoned session was enough to shadow saves
+     * forever. Fixed two ways, both required:
+     *
+     *   a) Scoped to `auth()->id()` — a draft only outranks the saved
+     *      state for the person who actually owns it. With no
+     *      authenticated user in scope (console/queue context) there is
+     *      no "current in-progress session" to prefer, so tier 1 is
+     *      skipped entirely rather than picking an arbitrary row.
+     *   b) Gated on `updated_at >= $this->updated_at` — the draft must
+     *      be genuinely newer than the template's own last save, not
+     *      merely "the newest row that happens to exist". This is
+     *      `updated_at` on `docuperfect_templates` itself, bumped by
+     *      Eloquent on every `$template->save()`/`update()`, including
+     *      non-content edits (rename, archive, branch sync doesn't
+     *      touch it — pivot writes don't bump the parent row). That's
+     *      safe here: a non-content save merely makes tier 1 fall
+     *      through to tier 2 (editor_state), which is unchanged and
+     *      therefore identical to what tier 1 would have returned
+     *      anyway — never a wrong VALUE, only an unnecessary tier skip.
+     *
+     *   (a) alone is insufficient on its own — the same user's own
+     *   stale draft (opened before their later save, never touched
+     *   since) would still outrank that later save without (b).
      *
      * @return array<string, array<string, mixed>>
      */
     public function canonicalFieldMappings(): array
     {
-        // Tier 1 — most recent IN-PROGRESS draft for this template.
-        //
-        // Filter on `status = 'draft'` so a previously-saved draft
-        // (status='saved') doesn't override the template's
-        // editor_state.mappings written by the same save. The
-        // status='saved' rows stay alive in the DB (so old browser
-        // URLs at /cds/builder/{saved_id} keep resolving) but they
-        // no longer outrank the freshly-saved editor_state in the
-        // canonical-accessor priority chain.
+        // Tier 1 — most recent IN-PROGRESS draft for THIS viewer, genuinely
+        // newer than this template's last save. See docblock above.
         if (\Illuminate\Support\Facades\Schema::hasTable('cds_drafts')) {
-            $draft = \Illuminate\Support\Facades\DB::table('cds_drafts')
-                ->where('source_template_id', $this->id)
-                ->where('status', 'draft')
-                ->whereNull('deleted_at')
-                ->orderByDesc('updated_at')
-                ->first();
-            if ($draft !== null && !empty($draft->mappings)) {
-                $decoded = is_string($draft->mappings) ? json_decode($draft->mappings, true) : $draft->mappings;
-                if (is_array($decoded) && count($decoded) > 0) {
-                    return $decoded;
+            $currentUserId = \Illuminate\Support\Facades\Auth::id();
+            if ($currentUserId !== null) {
+                $draft = \Illuminate\Support\Facades\DB::table('cds_drafts')
+                    ->where('source_template_id', $this->id)
+                    ->where('user_id', $currentUserId)
+                    ->where('status', 'draft')
+                    ->whereNull('deleted_at')
+                    ->where('updated_at', '>=', $this->updated_at)
+                    ->orderByDesc('updated_at')
+                    ->first();
+                if ($draft !== null && !empty($draft->mappings)) {
+                    $decoded = is_string($draft->mappings) ? json_decode($draft->mappings, true) : $draft->mappings;
+                    if (is_array($decoded) && count($decoded) > 0) {
+                        return $decoded;
+                    }
                 }
             }
         }

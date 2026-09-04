@@ -208,6 +208,29 @@ Party→contact mapping at the wizard: sales per-linked-contact with role from `
 6. **CDS "six sources of truth" (audit Q1).** `cds_json`, `editor_state.{tags,mappings,tagged_html}`,
    `field_mappings`, `fields_json`, generated blade, and the live `CdsDraft` can disagree — the
    template-revert symptom. Canonical-field consolidation not yet landed.
+
+   **✅ RESOLVED (2026-09-04) — abandoned draft permanently shadowing a fresh save.**
+   `Template::canonicalFieldMappings()`'s tier-1 lookup (`cds_drafts` where `status='draft'`) had no
+   `user_id` scope and no recency check against the template's own last save — a single leftover
+   `status='draft'` row, from ANY user, of ANY age, permanently outranked every future save for that
+   template (a fresh import never hit this because it has no editing history yet; an existing template
+   accumulates draft rows every time it's opened, so one abandoned session was enough). Reproduced and
+   fixed on Staging: 32 of 75 `cds_drafts` rows were stuck at `status='draft'` across ~17 templates.
+   Fix, two parts, both required:
+     a) Tier 1 now scopes to `auth()->id()` — a draft only outranks the saved state for the person who
+        owns it. No authenticated user in scope (console/queue) → tier 1 is skipped, never guessed.
+     b) Tier 1 gates on `updated_at >= $template->updated_at` — the draft must be genuinely newer than
+        the template's own last save, not merely the newest row that happens to exist.
+   `TemplateController::cdsGenerate()` also now flips a user's own OTHER superseded `status='draft'`
+   rows for the same template to `status='abandoned'` on save — a status change only, **never**
+   `->delete()` (a8af5d10a already established why soft-deleting a sibling draft on this exact save
+   path 404's a browser tab still open on that draft's builder URL — the flip carries no such risk,
+   since it never touches `deleted_at`). Cross-user idle drafts (a different user's independent
+   in-progress session — not this save's business to judge abandoned) and drafts orphaned by a deleted
+   template are swept by the new scheduled command `docuperfect:prune-abandoned-cds-drafts`
+   (`app/Console/Commands/PruneAbandonedCdsDrafts.php`, nightly at 03:40, soft-delete only). Tests:
+   `tests/Feature/Docuperfect/SigningView/CanonicalFieldMappingsTest.php` +
+   `CdsBuilderRedirectTest.php`.
 7. **Email distribution (by design).** **Agents receive ZERO emails** — all in-app DB notifications
    (`SignatureActivityNotification`). **External signers receive exactly TWO emails:** signing request
    (`SignatureService.php:2652`) + completed PDF (`:2872`). The full per-recipient email distribution

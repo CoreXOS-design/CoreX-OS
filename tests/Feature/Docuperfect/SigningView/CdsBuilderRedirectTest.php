@@ -166,6 +166,190 @@ final class CdsBuilderRedirectTest extends TestCase
         $refresh->assertStatus(200, 'Saved-draft URL must still resolve after save — browser tab refresh should not 404');
     }
 
+    /**
+     * The exact Staging bug, at the controller level: a real cdsGenerate()
+     * save must persist and stay persisted even while a DIFFERENT user's
+     * long-abandoned draft for the same template sits in the table.
+     * Before the 2026-09-04 fix, Template::canonicalFieldMappings() tier 1
+     * matched any status='draft' row for the template regardless of owner
+     * or age, so the abandoned draft below would permanently shadow the
+     * save that just happened.
+     */
+    public function test_save_persists_despite_another_users_abandoned_draft(): void
+    {
+        $editor = $this->seedAgentWithTemplatePermissions();
+        $strangerId = (int) DB::table('users')->insertGetId([
+            'name' => 'Abandoned Session User',
+            'email' => 'stranger-' . Str::random(8) . '@x.test',
+            'password' => bcrypt('p'),
+            'role' => 'agent',
+            'agency_id' => 1,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $template = DocuperfectTemplate::create([
+            'name'           => 'Shadowed Save Template',
+            'render_type'    => 'web',
+            'template_type'  => 'cds',
+            'category'       => 'sales',
+            'signing_parties'=> ['owner_party'],
+            'field_mappings' => [],
+            'owner_id'       => $editor->id,
+            'cds_json'       => ['sections' => []],
+        ]);
+
+        // The stranger's abandoned draft — old, never touched again.
+        $abandoned = CdsDraft::create([
+            'user_id'            => $strangerId,
+            'agency_id'          => 1,
+            'template_name'      => $template->name,
+            'cds_json'           => ['sections' => []],
+            'mappings'           => ['tag-zombie' => ['field_name' => 'zombie_field']],
+            'tags'               => [],
+            'tagged_html'        => '<p>Zombie</p>',
+            'settings'           => [],
+            'source_template_id' => $template->id,
+            'status'             => 'draft',
+        ]);
+        $abandoned->forceFill(['updated_at' => now()->subDays(5)])->saveQuietly();
+
+        // The editor's own draft — this is the one being saved for real.
+        $draft = CdsDraft::create([
+            'user_id'            => $editor->id,
+            'agency_id'          => 1,
+            'template_name'      => $template->name,
+            'cds_json'           => ['sections' => []],
+            'mappings'           => ['tag-real' => ['field_name' => 'seller_email', 'party' => 'seller']],
+            'tags'               => [],
+            'tagged_html'        => '<p><span data-tag="tag-real"></span></p>',
+            'settings'           => [],
+            'source_template_id' => $template->id,
+            'status'             => 'draft',
+        ]);
+
+        $this
+            ->actingAs($editor)
+            ->from('/docuperfect/templates/cds/builder/' . $draft->id)
+            ->post('/docuperfect/templates/cds/generate', [
+                'draft_id'      => $draft->id,
+                'template_name' => $template->name,
+                'is_esign'      => 1,
+                'party_mode'    => 'shared',
+                'allowed_delivery_modes' => 'esign',
+                'security_tier' => 'enhanced',
+                'signing_parties' => json_encode(['owner_party']),
+                'category'      => 'sales',
+                'document_type_id' => null,
+            ])->assertRedirect();
+
+        // The save must have persisted — editor_state carries the real save,
+        // never the zombie.
+        $saved = $template->fresh();
+        $this->assertArrayHasKey('tag-real', $saved->editor_state['mappings'] ?? []);
+        $this->assertArrayNotHasKey('tag-zombie', $saved->editor_state['mappings'] ?? []);
+
+        // And the canonical accessor — read as EITHER user — must reflect
+        // the real save, not the abandoned draft. This is the exact
+        // assertion that failed before the fix.
+        $this->actingAs($editor);
+        $asEditor = $saved->fresh()->canonicalFieldMappings();
+        $this->assertArrayHasKey('tag-real', $asEditor);
+        $this->assertArrayNotHasKey('tag-zombie', $asEditor);
+
+        $this->actingAs(User::findOrFail($strangerId));
+        $asStranger = $saved->fresh()->canonicalFieldMappings();
+        $this->assertArrayHasKey('tag-real', $asStranger);
+        $this->assertArrayNotHasKey('tag-zombie', $asStranger);
+
+        // The abandoned draft itself must still exist (soft delete only,
+        // never hard-deleted) and must NOT have been silently promoted to
+        // 'saved' or otherwise disturbed by someone else's save.
+        $this->assertDatabaseHas('cds_drafts', [
+            'id'     => $abandoned->id,
+            'status' => 'draft',
+        ]);
+        $this->assertNull($abandoned->fresh()->deleted_at);
+    }
+
+    /**
+     * The editor's OWN other superseded drafts for the same template are
+     * flipped to 'abandoned' on save — a status change, never the
+     * soft-delete a8af5d10a removed from this exact call site because it
+     * 404'd a live browser tab. Confirms the draft's builder URL still
+     * resolves after the flip.
+     */
+    public function test_own_superseded_draft_is_flipped_to_abandoned_not_soft_deleted(): void
+    {
+        $editor = $this->seedAgentWithTemplatePermissions();
+        $template = DocuperfectTemplate::create([
+            'name'           => 'Sibling Cleanup Template',
+            'render_type'    => 'web',
+            'template_type'  => 'cds',
+            'category'       => 'sales',
+            'signing_parties'=> ['owner_party'],
+            'field_mappings' => [],
+            'owner_id'       => $editor->id,
+            'cds_json'       => ['sections' => []],
+        ]);
+
+        // An earlier, superseded session of the SAME editor's, left behind
+        // by e.g. a closed tab that never clicked Save.
+        $stray = CdsDraft::create([
+            'user_id'            => $editor->id,
+            'agency_id'          => 1,
+            'template_name'      => $template->name,
+            'cds_json'           => ['sections' => []],
+            'mappings'           => [],
+            'tags'               => [],
+            'tagged_html'        => '<p>Stray</p>',
+            'settings'           => [],
+            'source_template_id' => $template->id,
+            'status'             => 'draft',
+        ]);
+
+        $draft = CdsDraft::create([
+            'user_id'            => $editor->id,
+            'agency_id'          => 1,
+            'template_name'      => $template->name,
+            'cds_json'           => ['sections' => []],
+            'mappings'           => [],
+            'tags'               => [],
+            'tagged_html'        => '<p>Body</p>',
+            'settings'           => [],
+            'source_template_id' => $template->id,
+            'status'             => 'draft',
+        ]);
+
+        $this
+            ->actingAs($editor)
+            ->from('/docuperfect/templates/cds/builder/' . $draft->id)
+            ->post('/docuperfect/templates/cds/generate', [
+                'draft_id'      => $draft->id,
+                'template_name' => $template->name,
+                'is_esign'      => 1,
+                'party_mode'    => 'shared',
+                'allowed_delivery_modes' => 'esign',
+                'security_tier' => 'enhanced',
+                'signing_parties' => json_encode(['owner_party']),
+                'category'      => 'sales',
+                'document_type_id' => null,
+            ])->assertRedirect();
+
+        $this->assertDatabaseHas('cds_drafts', [
+            'id'     => $stray->id,
+            'status' => 'abandoned',
+        ]);
+        $this->assertNull($stray->fresh()->deleted_at, 'Sibling cleanup must flip status, never soft-delete on this path');
+
+        // The stray draft's own builder URL must still resolve — the exact
+        // regression a8af5d10a fixed, now re-guarded for the 'abandoned'
+        // status too.
+        $this->actingAs($editor)
+            ->get('/docuperfect/templates/cds/builder/' . $stray->id)
+            ->assertStatus(200);
+    }
+
     private function seedAgentWithTemplatePermissions(): User
     {
         // Seed an owner-flagged role so PermissionService::userHasPermission

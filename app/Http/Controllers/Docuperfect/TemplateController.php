@@ -852,6 +852,32 @@ class TemplateController extends Controller
         // template's editor_state.mappings.
         $draft->update(['status' => 'saved']);
 
+        // 2026-09-04 (Staging bug: stale draft permanently shadows saves) —
+        // this user's OTHER now-superseded 'draft' rows for the same
+        // template (a stray second tab, an earlier abandoned session) are
+        // flipped to 'abandoned', not soft-deleted. Template::
+        // canonicalFieldMappings() already gates tier 1 on
+        // `updated_at >= $template->updated_at`, so this is defence in
+        // depth, not the load-bearing fix — it keeps the cds_drafts table
+        // from accumulating rows that could only ever lose that
+        // comparison anyway. Deliberately a status flip, never `->delete()`:
+        // a8af5d10a documents exactly why soft-deleting a sibling draft on
+        // this path is unsafe (it 404'd any browser tab still pointed at
+        // that draft's builder URL). A status flip never touches
+        // `deleted_at`, so every one of those URLs keeps resolving.
+        // Scoped to THIS user only — a stranger's independent in-progress
+        // edit of the same template is not this save's business to judge
+        // abandoned; genuinely idle cross-user drafts are swept by the
+        // scheduled `docuperfect:prune-abandoned-cds-drafts` command.
+        if ($draft->source_template_id) {
+            CdsDraft::where('user_id', $user->id)
+                ->where('source_template_id', $draft->source_template_id)
+                ->where('id', '!=', $draft->id)
+                ->where('status', 'draft')
+                ->whereNull('deleted_at')
+                ->update(['status' => 'abandoned']);
+        }
+
         // E-sign walk-fix FIX 3 — post-save redirect lands on the builder
         // page (via templates.edit), not templates.index. The walk-test
         // expectation is "save → keep editing"; templates.index dropped
