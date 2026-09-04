@@ -7,6 +7,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Contact;
 use App\Models\Docuperfect\Document;
 use App\Models\Docuperfect\DocumentType;
+use App\Models\Docuperfect\EsignSettings;
 use App\Models\Docuperfect\Flow;
 use App\Models\Docuperfect\NamedField;
 use App\Models\Docuperfect\Pack;
@@ -4090,6 +4091,11 @@ class ESignWizardController extends Controller
             'nextRecipient'   => $nextRecipient,
             'template'        => $flow->template,
             'signingRequests' => $signingRequests,
+            // AT-385/AT-332 — the actual SignatureRequest model (not just the
+            // derived display array above) so the "Send via WhatsApp" button
+            // can read signer_phone/token/status directly. Same reliable
+            // resolution as $nextRecipient above — no new query.
+            'nextRecipientRequest' => $nextRecipientRequest,
         ]);
     }
 

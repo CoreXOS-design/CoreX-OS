@@ -4542,6 +4542,8 @@ Route::prefix('docuperfect')->middleware(['auth', 'permission:access_docuperfect
     Route::post('/documents/{document}/send-reminder/{signatureRequest}', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'sendReminder'])->name('docuperfect.signatures.sendReminder');
     // AT-294 — resend a recipient's e-sign email (invitation or completed document)
     Route::post('/documents/{document}/resend-email/{signatureRequest}', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'resendEmail'])->name('docuperfect.signatures.resendEmail');
+    // AT-385/AT-332 — logs that the agent OPENED the WhatsApp deep link (never "sent" — see the controller method's own docblock)
+    Route::post('/documents/{document}/whatsapp-opened/{signatureRequest}', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'whatsappOpened'])->name('docuperfect.signatures.whatsappOpened');
 
     // Audit & download
     Route::get('/documents/{document}/signatures/audit', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'audit'])->name('docuperfect.signatures.audit');

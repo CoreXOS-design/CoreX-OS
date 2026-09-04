@@ -75,6 +75,26 @@
                 <p class="text-[11px] mt-1" style="color: var(--text-muted);">Default: 15 minutes.</p>
             </div>
 
+            {{-- AT-385/AT-332 --}}
+            <div class="flex items-start gap-3">
+                <input type="checkbox" id="whatsapp_resend_enabled" name="whatsapp_resend_enabled" value="1"
+                       {{ $settings->whatsappResendEnabled() ? 'checked' : '' }}
+                       class="mt-1 h-4 w-4 rounded" style="accent-color: var(--brand-icon);">
+                <div>
+                    <label for="whatsapp_resend_enabled" class="text-sm font-semibold" style="color: var(--text-primary);">
+                        Allow agents to send signing links via WhatsApp
+                    </label>
+                    <p class="text-xs mt-1" style="color: var(--text-secondary); max-width: 42rem;">
+                        Email always goes out automatically to every recipient — this never changes. With this ON,
+                        agents also get a "Send via WhatsApp" button so they can personally nudge a recipient who
+                        hasn't signed yet. It opens WhatsApp with the signing link pre-filled — the agent sends it
+                        themselves — CoreX cannot confirm whether it was actually delivered, so this is always a
+                        manual convenience, never a replacement for the email invitation.
+                    </p>
+                    <p class="text-[11px] mt-1" style="color: var(--text-muted);">Default: on.</p>
+                </div>
+            </div>
+
             <div class="pt-2">
                 <button type="submit" class="corex-btn-primary text-sm">Save</button>
             </div>

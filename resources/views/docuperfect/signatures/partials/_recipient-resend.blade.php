@@ -26,4 +26,7 @@
             </button>
         </form>
     @endif
+    {{-- AT-385/AT-332 — "Send via WhatsApp" manual resend convenience, next to the email
+         resend above. See _whatsapp-resend-button.blade.php for the availability rules. --}}
+    @include('docuperfect.signatures.partials._whatsapp-resend-button', ['document' => $document, 'signatureRequest' => $rr])
 @endforeach

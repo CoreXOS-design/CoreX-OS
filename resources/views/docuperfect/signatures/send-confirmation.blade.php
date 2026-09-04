@@ -64,6 +64,14 @@
                         <span class="font-medium" style="color:var(--text-primary)">{{ $tenant['email'] ?? 'Not set' }}</span>
                     </div>
                 </div>
+                {{-- AT-385/AT-332 — only renders once a real invitation has actually
+                     gone out to this recipient (the send below is what triggers that
+                     — nothing here changes when/whether that happens). --}}
+                @if($nextRecipientRequest)
+                    <div class="mt-2">
+                        @include('docuperfect.signatures.partials._whatsapp-resend-button', ['document' => $document, 'signatureRequest' => $nextRecipientRequest])
+                    </div>
+                @endif
             </div>
         </div>
 
