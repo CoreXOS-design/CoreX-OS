@@ -867,6 +867,7 @@ class SignatureService
         ?int $representedContactId = null,
         ?string $signerPhone = null,
         ?string $signerAddress = null,
+        ?string $signerPassportNumber = null,
     ): SignatureRequest {
         $token = $this->generateToken();
 
@@ -926,6 +927,9 @@ class SignatureService
             'recipient_local_key' => $recipientLocalKey ?? (string) \Illuminate\Support\Str::uuid(),
             'signer_email' => $signerEmail,
             'signer_id_number' => $signerIdNumber,
+            // AT-385 — a foreign national with no SA ID signs against this
+            // instead; the /sign gateway and verify() accept either.
+            'signer_passport_number' => $signerPassportNumber,
             // Johan, 2026-08-28 — the recipient card's phone/address fields
             // are always editable regardless of whether a Contact was ever
             // selected via search; an agent who types into them must see
