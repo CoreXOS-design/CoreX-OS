@@ -77,6 +77,17 @@ trait AppliesP24Location
         $data['p24_province_id']     = $province?->id;
         $data['suburb']              = $suburb->name;
         $data['city']                = $city->name;
+        // `town` is a separate column other screens read (e.g. the property
+        // Intelligence tab's market snapshot prefers it over `city`) but this
+        // trait never wrote it — picking a suburb updated suburb/city/province
+        // and all three P24 ids while town silently kept whatever value it was
+        // given at creation, so a corrected address could still display its old
+        // area. town and city both mean "the real town an agent/buyer
+        // recognises" for a P24-linked property (see
+        // DeedsCaptureController::promote()'s own town-resolution comment), so
+        // town now travels with city from the same $city row every time a
+        // suburb is picked, create or edit, web or mobile.
+        $data['town']                = $city->name;
         if ($province) {
             $data['province'] = $province->name;
         }

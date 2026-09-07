@@ -58,7 +58,13 @@
                 <div class="flex items-baseline justify-between gap-2">
                     <span style="color: var(--text-muted);">Area</span>
                     <span class="font-medium text-right" style="color: var(--text-primary);">
-                        {{ trim(($property->suburb ?? '') . ($property->town || $property->city ? ', ' . ($property->town ?? $property->city) : '')) }}
+                        {{-- `city` is kept in sync with suburb/province on every edit
+                             (AppliesP24Location); `town` is only best-effort at
+                             promotion time and can go stale after an address is
+                             corrected. Prefer city, fall back to town only when
+                             city is genuinely blank — matches Property::slug()'s
+                             own city-first precedence. --}}
+                        {{ trim(($property->suburb ?? '') . (($property->city ?: $property->town) ? ', ' . ($property->city ?: $property->town) : '')) }}
                     </span>
                 </div>
                 @endif
