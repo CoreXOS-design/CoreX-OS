@@ -8129,7 +8129,15 @@ class ESignWizardController extends Controller
         }
 
         $signatureService = app(\App\Services\Docuperfect\SignatureService::class);
-        $signatureService->approveUploadOnBehalf($agentRequest, $user);
+        $dispatched = $signatureService->approveUploadOnBehalf($agentRequest, $user);
+
+        // AT-395 fix (2026-09-07) — this used to flash success unconditionally
+        // regardless of whether the recipient's invitation actually sent
+        // (same bug class as SignatureController's advance-flow flashes).
+        $freshDispatched = $dispatched?->fresh();
+        if ($freshDispatched && $freshDispatched->invite_send_status === 'failed') {
+            return back()->with('error', 'Approved, but could not send to ' . $freshDispatched->signer_name . ' — ' . $freshDispatched->invite_send_error);
+        }
 
         return back()->with('status', 'Approved and sent to recipient for signing.');
     }

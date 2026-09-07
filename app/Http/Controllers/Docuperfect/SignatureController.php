@@ -2110,9 +2110,19 @@ class SignatureController extends Controller
         }
 
         try {
-            $this->signatureService->sendForSigning($template, $user);
+            $dispatched = $this->signatureService->sendForSigning($template, $user);
         } catch (\LogicException $e) {
             return redirect()->back()->withErrors(['error' => $e->getMessage()]);
+        }
+
+        // AT-395 fix (2026-09-07) — this used to flash success unconditionally
+        // regardless of whether the FIRST party's invitation actually sent.
+        // Same bug class as the other advanceToNextParty()-driven flashes
+        // above: sendForSigning() now returns the request it dispatched to.
+        $freshDispatched = $dispatched?->fresh();
+        if ($freshDispatched && $freshDispatched->status === SignatureRequest::STATUS_PENDING && $freshDispatched->invite_send_status === 'failed') {
+            return redirect()->route('docuperfect.esign.myDocuments')
+                ->with('error', "Could not send to {$freshDispatched->signer_name} — {$freshDispatched->invite_send_error}");
         }
 
         if ($document->document_type === 'rental_upload_send') {
@@ -2139,7 +2149,14 @@ class SignatureController extends Controller
             return redirect()->back()->with('error', 'Cannot send reminder — request is already ' . $signatureRequest->status . '.');
         }
 
-        $this->signatureService->sendManualReminder($signatureRequest, $request->user());
+        $error = $this->signatureService->sendManualReminder($signatureRequest, $request->user());
+
+        // AT-395 fix (2026-09-07) — this used to flash success unconditionally
+        // regardless of whether sendManualReminder() actually sent the email
+        // (same bug class as the invitation-send flashes above).
+        if ($error !== null) {
+            return redirect()->back()->with('error', "Could not send reminder to {$signatureRequest->signer_name} — {$error}");
+        }
 
         return redirect()->back()->with('status', "Reminder sent to {$signatureRequest->signer_name}.");
     }
@@ -2698,10 +2715,20 @@ class SignatureController extends Controller
 
         // Auto-approve: skip the wet-ink review step, approve immediately
         if ($request->boolean('auto_approve')) {
-            $this->signatureService->approveUploadOnBehalf($signingRequest, $request->user());
+            $dispatched = $this->signatureService->approveUploadOnBehalf($signingRequest, $request->user());
 
             // See the ~line 1900 comment — isSalesDocument(), never raw template_type.
             $dashboardRoute = $document->template?->isSalesDocument() ? 'docuperfect.sales' : 'docuperfect.rental';
+
+            // AT-395 fix (2026-09-07) — this used to flash success
+            // unconditionally regardless of whether the next party's
+            // invitation actually sent (same bug class as the other
+            // advance-flow flashes in this controller).
+            $freshDispatched = $dispatched?->fresh();
+            if ($freshDispatched && $freshDispatched->invite_send_status === 'failed') {
+                return redirect()->route($dashboardRoute)
+                    ->with('error', 'Uploaded and approved, but could not send to ' . $freshDispatched->signer_name . ' — ' . $freshDispatched->invite_send_error);
+            }
 
             return redirect()->route($dashboardRoute)
                 ->with('status', 'Uploaded and approved for ' . $signingRequest->signer_name . '. Signing advanced.');
@@ -3323,6 +3350,16 @@ class SignatureController extends Controller
             // already correctly redirects to myDocuments; this "sent to
             // next party" branch did not.
             $nextName = $result['next_name'] ?? ucfirst($result['next_party']);
+
+            // AT-395 fix (2026-09-07) — this used to flash success
+            // unconditionally regardless of whether the next party's
+            // invitation actually sent (same bug class as the other
+            // advance-flow flashes in this controller).
+            if (!empty($result['invite_send_failed'])) {
+                return redirect()->route('docuperfect.esign.myDocuments')
+                    ->with('error', "Approved, but could not send to {$nextName} — {$result['invite_send_error']}");
+            }
+
             return redirect()->route('docuperfect.esign.myDocuments')
                 ->with('status', "Approved. Document sent to {$nextName} ({$result['next_party']}) for signing.");
         }
@@ -4144,6 +4181,14 @@ class SignatureController extends Controller
             $request->signer_id_number,
             $request->signer_cell
         );
+
+        // AT-395 fix (2026-09-07) — this used to flash success unconditionally
+        // regardless of whether the resumed party's invitation actually sent
+        // (same bug class as the other advance-flow flashes in this controller).
+        if (!empty($result['invite_send_failed'])) {
+            return redirect()->route('docuperfect.esign.myDocuments')
+                ->with('error', "Signing resumed, but could not send to {$request->signer_name} — {$result['invite_send_error']}");
+        }
 
         return redirect()->route('docuperfect.esign.myDocuments')
             ->with('status', "Signing resumed — {$request->signer_name} will be sent the document for signing.");

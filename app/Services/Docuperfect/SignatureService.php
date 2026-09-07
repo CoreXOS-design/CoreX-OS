@@ -1131,13 +1131,13 @@ class SignatureService
     /**
      * Send the template to the first party (agent) — initiates signing workflow.
      */
-    public function sendForSigning(SignatureTemplate $template, User $agent): void
+    public function sendForSigning(SignatureTemplate $template, User $agent): ?SignatureRequest
     {
         if (!in_array($template->status, [SignatureTemplate::STATUS_DRAFT, SignatureTemplate::STATUS_READY])) {
             throw new \LogicException('Template must be in draft or ready status to send.');
         }
 
-        DB::transaction(function () use ($template, $agent) {
+        return DB::transaction(function () use ($template, $agent) {
             // Capture document hash at signing start
             $hash = $this->generateDocumentHash($template->document);
             $template->update([
@@ -1164,8 +1164,12 @@ class SignatureService
                 ->first();
 
             if ($agentRequest && $agentRequest->status === SignatureRequest::STATUS_COMPLETED) {
-                // Agent already completed (pre-signed wet ink upload) — skip to next party
-                $this->advanceToNextParty($template, 'agent');
+                // Agent already completed (pre-signed wet ink upload) — skip to next party.
+                // AT-395 fix (2026-09-07) — return the request that was actually
+                // dispatched so the controller can verify invite_send_status
+                // before flashing "Document sent for signing." (same bug class
+                // as the other advanceToNextParty()-driven success flashes).
+                return $this->advanceToNextParty($template, 'agent');
             } elseif ($agentRequest) {
                 // Agent signs in-app — no email needed.
                 // Just mark as pending so the signing view knows they are the active signer.
@@ -1174,6 +1178,8 @@ class SignatureService
                     'sent_at' => now(),
                 ]);
             }
+
+            return null;
         });
     }
 
@@ -1711,7 +1717,19 @@ class SignatureService
                     metadata: ['next_party' => $nextRequest->party_role],
                 );
 
-                return ['action' => 'sent', 'next_party' => $nextRequest->party_role, 'next_name' => $nextRequest->signer_name];
+                // AT-395 fix (2026-09-07) — advanceToNextSigningParticipant()
+                // already attempted the real send above; surface its outcome
+                // so the controller doesn't flash "Document sent" when it
+                // genuinely failed (same bug class as the other advance flows).
+                $freshNext = $nextRequest->fresh();
+
+                return [
+                    'action' => 'sent',
+                    'next_party' => $nextRequest->party_role,
+                    'next_name' => $nextRequest->signer_name,
+                    'invite_send_failed' => $freshNext->invite_send_status === 'failed',
+                    'invite_send_error' => $freshNext->invite_send_error,
+                ];
             }
 
             // Chain has an authoriser: route to the authorisation queue for final sign-off
@@ -1906,10 +1924,20 @@ class SignatureService
                 ],
             );
 
-            // Now advance — the request is "waiting", so advanceToNextParty will pick it up
-            $this->advanceToNextParty($template, 'deferred_resume');
+            // Now advance — the request is "waiting", so advanceToNextParty will pick it up.
+            // AT-395 fix (2026-09-07) — surface whether that dispatch actually
+            // succeeded rather than discarding the result (same bug class as
+            // the other advanceToNextParty()-driven flows).
+            $dispatched = $this->advanceToNextParty($template, 'deferred_resume');
+            $freshDispatched = $dispatched?->fresh();
 
-            return ['action' => 'resumed', 'party_role' => $deferredRequest->party_role, 'signer_name' => $name];
+            return [
+                'action' => 'resumed',
+                'party_role' => $deferredRequest->party_role,
+                'signer_name' => $name,
+                'invite_send_failed' => $freshDispatched?->invite_send_status === 'failed',
+                'invite_send_error' => $freshDispatched?->invite_send_error,
+            ];
         });
     }
 
@@ -2040,7 +2068,7 @@ class SignatureService
      *                                       contiguous in signing_order. Passing the target explicitly
      *                                       means the caller's intent cannot be lost to a data ordering.
      */
-    private function advanceToNextParty(SignatureTemplate $template, string $completedParty, ?SignatureRequest $only = null, bool $gateFinalizeForAgentReview = false): void
+    private function advanceToNextParty(SignatureTemplate $template, string $completedParty, ?SignatureRequest $only = null, bool $gateFinalizeForAgentReview = false): ?SignatureRequest
     {
         $nextRequest = $this->advanceToNextSigningParticipant($template, $only);
 
@@ -2067,7 +2095,7 @@ class SignatureService
                         'reason' => 'Party details not yet known',
                     ],
                 );
-                return;
+                return null;
             }
 
             if ($this->isFullyComplete($template)) {
@@ -2083,7 +2111,7 @@ class SignatureService
                     $this->completeDocument($template);
                 }
             }
-            return;
+            return null;
         }
 
         $statusMap = [
@@ -2114,6 +2142,14 @@ class SignatureService
             $notifyType = $nextRequest->party_role === 'supervisor_final' ? 'final_signoff' : 'initial_review';
             $this->notifyEligibleAuthorisers($template, $notifyType);
         }
+
+        // AT-395 fix (2026-09-07) — return the request this walk landed on so
+        // sendForSigning() can verify invite_send_status before the controller
+        // reports success. An authoriser request never goes through the email
+        // dispatch above (it is queued for in-app review), so its
+        // invite_send_status is untouched here and the caller's check is a
+        // harmless no-op for that branch.
+        return $nextRequest;
     }
 
     /**
@@ -3759,7 +3795,7 @@ class SignatureService
      * Advance to next party after wet-ink approval. The wet-ink review
      * itself serves as the agent's approval, so we skip pending_agent_approval.
      */
-    private function advanceAfterWetInkApproval(SignatureTemplate $template, string $completedParty): void
+    private function advanceAfterWetInkApproval(SignatureTemplate $template, string $completedParty): ?SignatureRequest
     {
         // Find next waiting request by signing_order (handles co-owners)
         $nextRequest = $template->requests()
@@ -3796,9 +3832,13 @@ class SignatureService
                     'next_party' => $nextRequest->party_role,
                 ],
             );
+
+            return $nextRequest;
         } elseif ($this->isFullyComplete($template)) {
             $this->completeDocument($template);
         }
+
+        return null;
     }
 
     /**
@@ -4872,9 +4912,9 @@ class SignatureService
      * and uploads it directly from the dashboard. The agent has already verified
      * the signatures, so we skip the inspection checklist.
      */
-    public function approveUploadOnBehalf(SignatureRequest $request, User $approver): void
+    public function approveUploadOnBehalf(SignatureRequest $request, User $approver): ?SignatureRequest
     {
-        DB::transaction(function () use ($request, $approver) {
+        return DB::transaction(function () use ($request, $approver) {
             $request->update([
                 'wet_ink_status'  => SignatureRequest::WET_INK_APPROVED,
                 'reviewed_by'    => $approver->id,
@@ -4897,7 +4937,8 @@ class SignatureService
             );
 
             $this->replaceWithWetInkScan($template, $request);
-            $this->advanceAfterWetInkApproval($template, $request->party_role);
+
+            return $this->advanceAfterWetInkApproval($template, $request->party_role);
         });
     }
 
@@ -4992,8 +5033,36 @@ class SignatureService
      * Send a manual reminder (agent-triggered). Does NOT increment reminder_count
      * so it won't interfere with the automatic escalation schedule.
      */
-    public function sendManualReminder(SignatureRequest $request, User $sentBy): void
+    /**
+     * AT-395 fix (2026-09-07) — returns null on a genuine send, or the error
+     * message on failure. This used to log ACTION_MANUAL_REMINDER_SENT and
+     * stamp reminder_sent_at unconditionally, BEFORE the email was even
+     * attempted, with sendManualReminderEmail() silently swallowing any
+     * failure — same bug class as the invitation-send audit-timing fix above.
+     */
+    public function sendManualReminder(SignatureRequest $request, User $sentBy): ?string
     {
+        $error = $this->sendManualReminderEmail($request);
+
+        if ($error !== null) {
+            SignatureAuditLog::log(
+                $request->template,
+                'manual_reminder_send_failed',
+                SignatureAuditLog::ACTOR_USER,
+                $sentBy->name,
+                $sentBy->email,
+                $sentBy->id,
+                $request->id,
+                metadata: [
+                    'signer_name' => $request->signer_name,
+                    'signer_email' => $request->signer_email,
+                    'error' => $error,
+                ],
+            );
+
+            return $error;
+        }
+
         $request->update(['reminder_sent_at' => now()]);
 
         SignatureAuditLog::log(
@@ -5010,7 +5079,7 @@ class SignatureService
             ],
         );
 
-        $this->sendManualReminderEmail($request);
+        return null;
     }
 
     /**
@@ -5496,12 +5565,12 @@ class SignatureService
     /**
      * Send manual reminder email — FROM the agent, with 'manual' tone.
      */
-    private function sendManualReminderEmail(SignatureRequest $request): void
+    private function sendManualReminderEmail(SignatureRequest $request): ?string
     {
         // AT-294 — see sendReminderEmail: skip an email-less party cleanly.
         if (trim((string) $request->signer_email) === '') {
             Log::warning('Manual reminder skipped — recipient has no email', ['request_id' => $request->id]);
-            return;
+            return 'This recipient has no email address.';
         }
         try {
             $request->loadMissing(['template.document', 'template.creator']);
@@ -5520,11 +5589,15 @@ class SignatureService
                     forceTone: 'manual',
                 ))->fromAgent($agent)
             );
+
+            return null;
         } catch (\Throwable $e) {
             Log::error('Failed to send manual reminder email', [
                 'request_id' => $request->id,
                 'error' => $e->getMessage(),
             ]);
+
+            return 'Could not send the reminder email — ' . $e->getMessage();
         }
     }
 
