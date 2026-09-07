@@ -16,8 +16,14 @@
         </div>
     @endif
 
-    @if($errors->any())
+    {{-- AT-395 bug-class audit — session('error') added alongside $errors. A
+         redirect()->back()->with('error', ...) (e.g. LeaseController's renew
+         guards) was previously silently dropped here. --}}
+    @if($errors->any() || session('error'))
         <div class="rounded-2xl border border-red-200 bg-red-50 text-red-900 px-4 py-3 text-sm">
+            @if(session('error'))
+                <div>{{ session('error') }}</div>
+            @endif
             @foreach($errors->all() as $error)
                 <div>{{ $error }}</div>
             @endforeach

@@ -153,8 +153,21 @@ class EmailSetupController extends Controller
                 ->html('<p>This is a connection test from CoreX. It confirms this mailbox can send outgoing mail. Safe to ignore or delete.</p>');
             $rawMime = $transportBuilder->send($mailbox, $mailable);
             $smtp = ['ok' => true, 'message' => "Connected — test email sent to {$mailbox->email_address}. Check that inbox to confirm it arrived."];
+            // AT-395 fix — record the outcome so the list's health badge
+            // (previously never touched by Test Connection) reflects reality.
+            $mailbox->forceFill([
+                'last_sent_at' => now(),
+                'last_send_error' => null,
+                'last_send_error_at' => null,
+                'consecutive_send_failures' => 0,
+            ])->save();
         } catch (\App\Exceptions\Communications\OutgoingMailboxSendFailedException $e) {
             $smtp = ['ok' => false, 'message' => $e->getMessage()];
+            $mailbox->forceFill([
+                'last_send_error' => $e->sanitisedReason,
+                'last_send_error_at' => now(),
+                'consecutive_send_failures' => (int) $mailbox->consecutive_send_failures + 1,
+            ])->save();
         }
 
         $testMime = "Subject: CoreX Sent-folder test\r\nFrom: {$mailbox->email_address}\r\nTo: {$mailbox->email_address}\r\nDate: " . now()->toRfc2822String() . "\r\n\r\nThis is a Sent-folder write test from CoreX.";
@@ -166,8 +179,13 @@ class EmailSetupController extends Controller
                 'append_failed' => 'Connected to the Sent folder, but writing to it was refused.',
                 'auth_failed' => 'Login failed — check the username and password.',
                 'incomplete_credentials' => 'Mailbox is missing an outgoing host, username or password.',
+                'connect_failed' => 'Could not connect to the mail server to check the Sent folder (the email itself may still have sent — see the SMTP result above).',
                 default => 'Could not connect to the mail server.',
             }];
+        $mailbox->forceFill($append['ok']
+            ? ['last_sent_folder_append_at' => now(), 'last_sent_folder_append_error' => null]
+            : ['last_sent_folder_append_error' => $append['reason']]
+        )->save();
 
         return back()->with('test_connection_result', ['smtp' => $smtp, 'imap_append' => $imapAppend]);
     }

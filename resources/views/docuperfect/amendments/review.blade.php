@@ -24,6 +24,18 @@
         </div>
     @endif
 
+    {{-- AT-395 bug-class audit — a redirect()->back()->with('error', ...) (e.g.
+         AmendmentController::approve()'s re-authorisation block) was previously
+         silently dropped here; nothing rendered session('error') at all. --}}
+    @if(session('error'))
+        <div class="rounded-md px-4 py-3 text-sm"
+             style="background: color-mix(in srgb, var(--ds-crimson, #dc2626) 10%, transparent);
+                    border: 1px solid color-mix(in srgb, var(--ds-crimson, #dc2626) 30%, transparent);
+                    color: var(--text-primary, #111827);">
+            {{ session('error') }}
+        </div>
+    @endif
+
     <div class="rounded-md p-6"
          style="background: var(--surface, #fff); border: 1px solid var(--border, rgba(0,0,0,0.07));">
 

@@ -1377,6 +1377,15 @@ class SignatureController extends Controller
 
                 if ($nextRequest) {
                     $this->signatureService->sendSigningRequest($nextRequest);
+                    // AT-395 fix (2026-09-07) — this used to land on the
+                    // "signing complete" page with no check at all of whether
+                    // the NEXT party's invitation actually sent. Sibling of the
+                    // same fix in sendForSignature() above.
+                    $freshNext = $nextRequest->fresh();
+                    if ($freshNext->status === SignatureRequest::STATUS_PENDING && $freshNext->invite_send_status === 'failed') {
+                        return redirect()->route('docuperfect.esign.signingComplete', ['flow' => $wizardFlowId])
+                            ->with('error', "Signed, but could not notify {$freshNext->signer_name} — {$freshNext->invite_send_error}");
+                    }
                 }
             }
 
@@ -2019,10 +2028,25 @@ class SignatureController extends Controller
                 // candidate as $only, which the walk tries first and falls
                 // through from exactly like any other skip if it turns out
                 // to no longer qualify by the time this runs.
-                $this->signatureService->advanceToNextSigningParticipant($template, $partyRequest);
+                $dispatched = $this->signatureService->advanceToNextSigningParticipant($template, $partyRequest);
+            } else {
+                $dispatched = null;
             }
 
             $partyLabel = $currentRole ? ucfirst($currentRole) : 'next party';
+
+            // AT-395 fix (2026-09-07) — this used to flash the success message
+            // unconditionally, regardless of whether the email actually sent.
+            // advanceToNextSigningParticipant() returns the request it just
+            // acted on; only a request that genuinely went through a real send
+            // attempt (STATUS_PENDING — an authoriser-role return or a
+            // deferred/email-less absorb never reaches sendSigningRequestEmail
+            // at all) can have invite_send_status='failed' worth checking.
+            $fresh = $dispatched?->fresh();
+            if ($fresh && $fresh->status === SignatureRequest::STATUS_PENDING && $fresh->invite_send_status === 'failed') {
+                return redirect()->route('docuperfect.esign.myDocuments')
+                    ->with('error', "Could not send to {$partyLabel} — {$fresh->invite_send_error}");
+            }
 
             // Johan (2026-09-07): "after sending we are landing in this
             // screen - /docuperfect/sales - old screen - we should be

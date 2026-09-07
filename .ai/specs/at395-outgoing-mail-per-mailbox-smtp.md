@@ -2,7 +2,7 @@
 
 **File:** `.ai/specs/at395-outgoing-mail-per-mailbox-smtp.md`
 **Jira:** AT-395 — "Outgoing mail: send e-sign and system email through agency's own mailbox (SMTP + Sent-folder copy)"
-**Status:** APPROVED FOR BUILD (2026-09-07) — all five open decisions answered by Johan via conductor, folded into the sections below. Building Phase A now, QA1 only.
+**Status:** BUILT AND VERIFIED WORKING (2026-09-07) — real invitation delivered to a real recipient through a real Afrihost mailbox, confirmed in the recipient's inbox and in the sender's own Sent folder. See §15 for the launch-day hotfix history — the first build shipped with a bug that made every real send fail 100% of the time; §15 records exactly what broke and what fixed it, so this does not get silently rebuilt the same way twice.
 **Owner:** Johan Reichel (business) · Build: whichever lane Johan assigns
 **Scope of this document:** **PHASE A only** — password-based SMTP (cPanel/Afrihost-style mailboxes) plus IMAP copy-to-Sent. Microsoft 365 / Google Workspace OAuth sending is **Phase B, a separate future ticket, explicitly out of scope here** (§13 marks exactly where it plugs in).
 **Extends:** `claude_communication_capture_setup_spec.md` (the `communication_mailboxes` table this spec adds columns to), `claude_communication_archive_spec.md`, `ESIGN-CANON.md` / `claude_esignature_v2_spec.md` (the send path this spec changes).
@@ -298,8 +298,42 @@ Phase A's `resolveOutgoingFor()` (§3.1) returns a `CommunicationMailbox` row; `
 2. **Agency-wide outgoing mailbox — as recommended.** Agent-tied only for Phase A. Plug-in point for a future agency-level default documented in §3.1.
 3. **Role visibility — as recommended.** Owner/admin → AGENCY, branch manager → BRANCH, everyone else → OWN. Enforced via the existing `scopeVisibleTo()` / `PermissionService::getDataScope()` pattern (`Rental.php:39-41`), not a new mechanism. Full detail in §7.3.
 4. **Onboarding wizard — OVERRIDE of the original recommendation.** Mandatory wizard step, skippable but leaves a visible outstanding-setup indicator until a mailbox is actually configured. Full detail in §7.6.
-5. **Other e-sign emails — as recommended.** Phase A is the 7 invitation call sites only. Extending to confirmations/reminders is a separate future ticket, not built here. Full detail in §3.6.
+5. **Other e-sign emails — as recommended.** Phase A is the invitation call sites only (§3.6 — precisely **6**, not 7; corrected in §15.1 below). Extending to confirmations/reminders is a separate future ticket, not built here. Full detail in §3.6.
 
 ---
 
-**End of specification. No code, migration, config, or data has been written or changed — this document only.**
+## 15. Launch-day hotfix (2026-09-07) — the build shipped broken, here is exactly why and what fixed it
+
+Phase A was built, tested against a throwaway GreenMail SMTP+IMAP server, and reported working. It was **not** working against a real mail server — every real send failed, 100% of the time, the same way, until the fix below. Recorded here so this exact class of bug cannot silently ship again.
+
+### 15.1 Correction — 6 call sites, not 7
+
+The original investigation and this spec both stated "7 SignatureService.php call sites." A precise re-check (`grep -n "new SigningRequestMail("`) found **6**: `SignatureService.php` lines 3240, 3314, 5240, 5839, 5901, 6131 (line numbers shift as the file is edited; these were correct at the time each was checked). The 7th line originally cited was `SignedDocumentMail` (the *completion*-email resend), a different Mailable already correctly out of scope — a grep context-window artifact, not a 7th invitation site. No functional impact; corrected here for accuracy.
+
+### 15.2 THE bug — every real send failed with a mislabelled error
+
+**Symptom:** Test Connection worked perfectly (SMTP send + IMAP append both genuinely succeeded). The actual e-sign invitation/resend path failed every single time with `"Could not connect to the mail server."` — while using the exact same mailbox, same credentials, same real Afrihost server.
+
+**Root cause:** `PerMailboxMailTransportBuilder::send()` calls `$mailer->send($mailable)` directly — it never calls `Mail::to($email)`. A Laravel Mailable's own `envelope()` method **never sets its own recipient**; `Mail::to($x)->send($mail)` (the original, unmodified Situation-A path) always supplied the "To" address externally, from OUTSIDE the Mailable. `dispatchSigningMail()`'s Situation-B branch (`SignatureService.php`, inside the mailbox-routed `try` block) handed `SigningRequestMail` straight to the transport builder with **no recipient ever set on it at all**. Symfony's `Email::ensureValidity()` — called before any network I/O — throws `Symfony\Component\Mime\Exception\LogicException: "An email must have a 'To', 'Cc', or 'Bcc' header."` The exception never mentions a connection at all. `PerMailboxMailTransportBuilder::classify()`'s keyword matching (`authenticat`, `login`, `credential`, `reject`, `550`, etc.) matches none of it, so the `default` branch mislabelled it `'connect_failed'` → the plain-English text "Could not connect to the mail server." — a complete, confident, wrong diagnosis on every single real attempt. Test Connection was unaffected because its own inline ad-hoc `Mailable` explicitly calls `->to($mailbox->email_address)` itself before handing it to the same builder.
+
+**Fix:** `dispatchSigningMail()` now calls `$mail->to($recipientEmail);` immediately before `$this->mailTransportBuilder->send($mailbox, $mail)`, in the Situation-B branch (`SignatureService.php`). One line. This is the entire core fix — the resolution logic, the loud-failure guarantee, the health recording, the Sent-folder append were all already correct; they had simply never been exercised against a Mailable with a genuine "To" header.
+
+### 15.3 Two secondary defects fixed in the same pass
+
+- **`testConnection()` never recorded its own outcome.** Neither `CommunicationMailboxController::testConnection()` nor `EmailSetupController::testConnection()` touched `last_send_error` / `consecutive_send_failures` / `last_sent_at` / `last_sent_folder_append_*` on success *or* failure — only `dispatchSigningMail()` did. Consequence: the mailbox list's persistent health badge could show a failure from hours earlier forever, even after every subsequent Test Connection click succeeded. Both controllers now record the real outcome of each leg, mirroring `dispatchSigningMail()`'s bookkeeping exactly.
+- **`connect_failed` had no case in the IMAP-leg message mapping.** `ImapSentFolderAppender::classify()` can return `'connect_failed'` for the append leg specifically, but `testConnection()`'s `match` had no case for it, silently falling to the same generic "Could not connect to the mail server." used for total failure — capable of making a working SMTP send look like a total failure if only the second (IMAP) connection had a transient issue. Added an explicit case with its own wording that names which leg actually had the problem.
+
+### 15.4 Proof it now works (2026-09-07, real environment, real recipient)
+
+Per the standing test-safety rule: sender `johan@hfcoastal.co.za`, recipient hardcoded to `can.assurance@gmail.com` only, verified before every dispatch.
+
+- Real invitation sent through the unmodified `SignatureController::resendEmail()` → `SignatureService::resendInvitationEmail()` → `sendSigningRequestEmail()` → `dispatchSigningMail()` path. Result: `invite_send_status = sent`, `sent_at` stamped, `invite_send_error = null`.
+- Mailbox 12 (johan@hfcoastal.co.za): `last_sent_at` and `last_sent_folder_append_at` both stamped, `last_send_error` / `last_sent_folder_append_error` both null, `consecutive_send_failures` reset to 0.
+- **Independently confirmed by reading the real Sent folder directly** (bounded query, today's messages only — the real mailbox is too large to list in full): `"Please sign: AT395 FIX REPRO"`, From `johan@hfcoastal.co.za`, To `can.assurance@gmail.com`, Reply-To `johan@hfcoastal.co.za` — genuinely present in `INBOX.Sent` on the real Afrihost server, not asserted from application state alone.
+- Deliberately broken throwaway mailbox (unreachable port, not Johan's real one): send failed loudly, `invite_send_status = failed`, `sent_at` stayed null, mailbox correctly flagged unhealthy.
+- Real HTTP round trip (`tests/Feature/Communications/OutgoingMailPerMailboxTest.php::test_resend_failure_is_visible_on_my_documents_page`) — a resend against a broken mailbox, followed by a real GET of the my-documents page, asserts the flashed error text is actually present in the rendered HTML. Confirms §12's blade fix, not just that a flash was set.
+- SPF/DKIM: the delivered message's headers can only be inspected from inside the recipient's own inbox (`can.assurance@gmail.com`), which this session has no access to — the domain owner should check "Show original" in Gmail to confirm `spf=pass`/`dkim=pass` directly. What's confirmed from this side: the message was authenticated and delivered through `mail.hfcoastal.co.za` itself (Afrihost's own server for that exact domain) rather than the shared/local CoreX mailer — the structural precondition SPF checks for.
+
+---
+
+**End of specification.**

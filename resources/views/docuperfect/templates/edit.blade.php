@@ -3,6 +3,18 @@
 @section('corex-content')
 <link rel="stylesheet" href="{{ asset('css/docuperfect-editor.css') }}">
 
+{{-- AT-395 bug-class audit — a redirect()->route('docuperfect.templates.edit',...)
+     ->with('error', ...) (e.g. "no blade view to edit", "Blade file not found")
+     was previously silently dropped here; nothing rendered session('error'). --}}
+@if(session('error'))
+    <div class="rounded-md px-4 py-3 text-sm m-4"
+         style="background: color-mix(in srgb, var(--ds-crimson, #dc2626) 10%, transparent);
+                border: 1px solid color-mix(in srgb, var(--ds-crimson, #dc2626) 30%, transparent);
+                color: var(--text-primary, #111827);">
+        {{ session('error') }}
+    </div>
+@endif
+
 {{-- Full-bleed wrapper: negates <main>'s padding so sticky elements span full width --}}
 <div class="-m-4 lg:-m-6">
 

@@ -10,6 +10,7 @@ use App\Models\Agency as AgencyModel;
 use App\Models\Branch;
 use App\Models\Communications\CommunicationMailbox;
 use App\Models\Docuperfect\Document;
+use App\Models\Docuperfect\SignatureAuditLog;
 use App\Models\Docuperfect\SignatureRequest;
 use App\Models\Docuperfect\SignatureTemplate;
 use App\Models\User;
@@ -153,6 +154,110 @@ final class OutgoingMailPerMailboxTest extends TestCase
         $mailbox->refresh();
         $this->assertSame('auth_failed', $mailbox->last_send_error);
         $this->assertSame(1, $mailbox->consecutive_send_failures);
+    }
+
+    /**
+     * AT-395 hotfix (2026-09-07) — the real bug Johan hit: a Mailable's own
+     * envelope() never sets "To" (Mail::to($x)->send($mail) always supplied it
+     * externally); routing through PerMailboxMailTransportBuilder bypassed
+     * that entirely, so EVERY real send failed with a Symfony
+     * "must have a To/Cc/Bcc header" LogicException, mislabelled by
+     * classify() as 'connect_failed'. dispatchSigningMail() now calls
+     * $mail->to($recipientEmail) before handing off to the builder.
+     */
+    public function test_configured_mailbox_actually_sends_with_a_to_header(): void
+    {
+        $mailbox = CommunicationMailbox::create([
+            'agency_id' => $this->agency->id, 'user_id' => $this->agent->id,
+            'email_address' => 'a@b.test', 'imap_host' => 'x', 'imap_port' => 993,
+            'username' => 'a', 'encrypted_password' => 'x', 'poll_interval_minutes' => 15,
+            'active' => true, 'outgoing_enabled' => true, 'outgoing_active' => true,
+        ]);
+        $request = $this->ceremony();
+
+        // A builder that captures the Mailable it was handed, so we can assert
+        // a real "To" header exists — proving the fix, not just "no exception".
+        $capturingBuilder = new class extends PerMailboxMailTransportBuilder {
+            public $lastMailable;
+            public function send(CommunicationMailbox $mailbox, \Illuminate\Mail\Mailable $mailable): string
+            {
+                $this->lastMailable = $mailable;
+                return "Subject: test\r\nTo: noop\r\n\r\nbody";
+            }
+        };
+        $service = new SignatureService(app(\App\Services\Docuperfect\SignaturePdfService::class), $capturingBuilder);
+
+        $service->resendInvitationEmail($request);
+
+        $this->assertNotEmpty($capturingBuilder->lastMailable->to, 'Mailable must have a "to" address set before reaching the transport builder — this is exactly the bug that made every real send fail with "must have a To/Cc/Bcc header".');
+        $this->assertSame($request->signer_email, $capturingBuilder->lastMailable->to[0]['address']);
+    }
+
+    /**
+     * AT-395 hotfix — the my-documents page previously had no session('error')
+     * block at all, so a correctly-flashed resend failure was invisible.
+     * Real HTTP round trip: broken mailbox → resend → follow the redirect →
+     * assert the error text is actually ON the page.
+     */
+    public function test_resend_failure_is_visible_on_my_documents_page(): void
+    {
+        CommunicationMailbox::create([
+            'agency_id' => $this->agency->id, 'user_id' => $this->agent->id,
+            'email_address' => 'a@b.test', 'imap_host' => 'x', 'imap_port' => 993,
+            'username' => 'a', 'encrypted_password' => 'x', 'poll_interval_minutes' => 15,
+            'active' => true, 'outgoing_enabled' => true, 'outgoing_active' => true,
+            'smtp_host' => '127.0.0.1', 'smtp_port' => 1, 'smtp_encryption' => 'none', // guaranteed refused, no real network reach needed
+        ]);
+        $request = $this->ceremony();
+        $document = $request->template->document;
+
+        $response = $this->actingAs($this->agent)
+            ->post(route('docuperfect.signatures.resendEmail', ['document' => $document->id, 'signatureRequest' => $request->id]));
+
+        $response->assertSessionHas('error');
+
+        $page = $this->actingAs($this->agent)->get(route('docuperfect.esign.myDocuments'));
+        $page->assertStatus(200);
+        $page->assertSee((string) session('error'), false);
+    }
+
+    /**
+     * AT-395 fix (2026-09-07) — sendSigningRequest() used to log ACTION_SENT
+     * BEFORE attempting the send at all, so a real failure still left an
+     * immutable "sent" audit row — exactly the "marked Sent when nothing was
+     * sent" defect. It must now only ever log 'sent' when the send genuinely
+     * succeeded, and 'invitation_send_failed' otherwise.
+     */
+    public function test_send_signing_request_does_not_log_sent_when_dispatch_fails(): void
+    {
+        CommunicationMailbox::create([
+            'agency_id' => $this->agency->id, 'user_id' => $this->agent->id,
+            'email_address' => 'a@b.test', 'imap_host' => 'x', 'imap_port' => 993,
+            'username' => 'a', 'encrypted_password' => 'x', 'poll_interval_minutes' => 15,
+            'active' => true, 'outgoing_enabled' => true, 'outgoing_active' => true,
+            'smtp_host' => '127.0.0.1', 'smtp_port' => 1, 'smtp_encryption' => 'none',
+        ]);
+        $request = $this->ceremony();
+        $template = $request->template;
+
+        app(SignatureService::class)->sendSigningRequest($request);
+
+        $request->refresh();
+        $this->assertSame('failed', $request->invite_send_status);
+
+        $this->assertFalse(
+            SignatureAuditLog::where('signature_template_id', $template->id)
+                ->where('signature_request_id', $request->id)
+                ->where('action', 'sent')
+                ->exists(),
+            'A failed send must never leave a "sent" audit log entry.'
+        );
+        $this->assertTrue(
+            SignatureAuditLog::where('signature_template_id', $template->id)
+                ->where('signature_request_id', $request->id)
+                ->where('action', 'invitation_send_failed')
+                ->exists()
+        );
     }
 
     /** §7.3 — OWN scope: an agent sees only their own mailbox. */

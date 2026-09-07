@@ -4,6 +4,17 @@
 <div class="-m-4 lg:-m-6">
     <x-page-header title="Document Signed" :flush="true" back-route="{{ route('docuperfect.esign.create') }}" back-label="Back to E-Sign" />
     <div class="p-4 lg:p-6">
+        {{-- AT-395 bug-class audit — the next party's invitation can genuinely
+             fail to send even though THIS signer completed fine; nothing here
+             rendered session('error') to tell the agent. --}}
+        @if(session('error'))
+            <div class="max-w-lg mx-auto mb-4 rounded-md px-4 py-3 text-sm"
+                 style="background: color-mix(in srgb, var(--ds-crimson, #dc2626) 10%, transparent);
+                        border: 1px solid color-mix(in srgb, var(--ds-crimson, #dc2626) 30%, transparent);
+                        color: var(--text-primary, #111827);">
+                {{ session('error') }}
+            </div>
+        @endif
         <div class="max-w-lg mx-auto text-center py-12">
             <div class="w-16 h-16 mx-auto mb-6 rounded-full bg-emerald-100 flex items-center justify-center">
                 <svg class="w-8 h-8 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">

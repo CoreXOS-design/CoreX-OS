@@ -72,6 +72,18 @@ class SignatureService
             return;
         }
 
+        // AT-395 fix — a Mailable's envelope() never sets its own "To"; that is
+        // always supplied externally by Mail::to($email)->send($mail) (Situation
+        // A, above). Routing through PerMailboxMailTransportBuilder bypasses
+        // Mail::to() entirely, so without this the message has no To/Cc/Bcc
+        // header at all and Symfony's ensureValidity() throws BEFORE any network
+        // I/O — which PerMailboxMailTransportBuilder::classify() then mislabels
+        // as 'connect_failed' ("Could not connect to the mail server."), since
+        // the real LogicException matches none of its known-reason keywords.
+        // This is why the real send path failed 100% of the time while Test
+        // Connection (which sets ->to() on its own ad-hoc Mailable) worked.
+        $mail->to($recipientEmail);
+
         try {
             $rawMime = $this->mailTransportBuilder->send($mailbox, $mail);
         } catch (OutgoingMailboxSendFailedException $e) {
@@ -1097,16 +1109,23 @@ class SignatureService
 
         $template = $request->template;
 
+        // AT-395 fix (2026-09-07) — this used to log ACTION_SENT unconditionally
+        // BEFORE the send was even attempted, so a real dispatch failure still
+        // left an immutable "sent" audit entry that could never be corrected.
+        // Log the outcome AFTER sendSigningRequestEmail() has recorded the real
+        // result on invite_send_status, exactly like every other call site in
+        // this class (§5 of the AT-395 spec).
+        $this->sendSigningRequestEmail($request);
+
+        $sendSucceeded = $request->fresh()->invite_send_status !== 'failed';
         SignatureAuditLog::log(
             $template,
-            SignatureAuditLog::ACTION_SENT,
+            $sendSucceeded ? SignatureAuditLog::ACTION_SENT : 'invitation_send_failed',
             SignatureAuditLog::ACTOR_SYSTEM,
             'System',
             requestId: $request->id,
             metadata: ['signer_email' => $request->signer_email],
         );
-
-        $this->sendSigningRequestEmail($request);
     }
 
     /**
@@ -3764,9 +3783,12 @@ class SignatureService
 
             $this->sendSigningRequest($nextRequest);
 
+            // AT-395 fix (2026-09-07) — only log the advance as successful when
+            // the invitation genuinely sent (sibling of the sendSigningRequest()
+            // fix above — same bug class, BUILD_STANDARD §6).
             SignatureAuditLog::log(
                 $template,
-                'wet_ink_approved_advance',
+                $nextRequest->fresh()->invite_send_status === 'failed' ? 'invitation_send_failed' : 'wet_ink_approved_advance',
                 SignatureAuditLog::ACTOR_SYSTEM,
                 'System',
                 metadata: [

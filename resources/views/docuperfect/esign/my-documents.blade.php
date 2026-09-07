@@ -54,7 +54,13 @@
         </div>
     @endif
 
-    @if($errors->any())
+    {{-- AT-395 — session('error') added alongside the existing validation-error
+         bag. A redirect()->back()->with('error', ...) (e.g. SignatureController::
+         resendEmail() on a failed resend) was previously silently dropped here —
+         $errors->any() only catches Laravel validation failures, never a plain
+         flashed 'error' string. Matches esign/wizard.blade.php:69-82 and
+         esign/wet-ink-confirmation.blade.php:493-495. --}}
+    @if($errors->any() || session('error'))
         <div class="rounded-md px-4 py-3 text-sm flex items-start gap-3"
              style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent);
                     border: 1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent);
@@ -63,6 +69,9 @@
                 <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z" />
             </svg>
             <div class="flex-1">
+                @if(session('error'))
+                    <div>{{ session('error') }}</div>
+                @endif
                 @foreach($errors->all() as $error)
                     <div>{{ $error }}</div>
                 @endforeach

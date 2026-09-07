@@ -62,8 +62,14 @@
 
                 <div id="file-list" class="mb-4 space-y-1 text-sm text-slate-600 hidden"></div>
 
-                @if($errors->any())
+                {{-- AT-395 bug-class audit — session('error') added alongside $errors.
+                     A redirect()->back()->with('error', ...) (e.g. downloadOriginal()'s
+                     "Original document not found") was previously silently dropped here. --}}
+                @if($errors->any() || session('error'))
                     <div class="rounded-xl bg-red-50 border border-red-200 p-3 mb-4 text-sm text-red-700">
+                        @if(session('error'))
+                            <div>{{ session('error') }}</div>
+                        @endif
                         @foreach($errors->all() as $error)
                             <div>{{ $error }}</div>
                         @endforeach

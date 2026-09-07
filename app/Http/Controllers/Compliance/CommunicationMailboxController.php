@@ -165,8 +165,23 @@ class CommunicationMailboxController extends Controller
                 ->html('<p>This is a connection test from CoreX. It confirms this mailbox can send outgoing mail. Safe to ignore or delete.</p>');
             $rawMime = $transportBuilder->send($mailbox, $mailable);
             $result['smtp'] = ['ok' => true, 'message' => "Connected — test email sent to {$mailbox->email_address}. Check that inbox to confirm it arrived."];
+            // AT-395 fix — Test Connection previously never touched the health
+            // fields at all, so the list's persistent health badge could show a
+            // failure forever after one, even once sending was fixed and every
+            // later attempt succeeded. Mirror dispatchSigningMail()'s bookkeeping.
+            $mailbox->forceFill([
+                'last_sent_at' => now(),
+                'last_send_error' => null,
+                'last_send_error_at' => null,
+                'consecutive_send_failures' => 0,
+            ])->save();
         } catch (\App\Exceptions\Communications\OutgoingMailboxSendFailedException $e) {
             $result['smtp'] = ['ok' => false, 'message' => $e->getMessage()];
+            $mailbox->forceFill([
+                'last_send_error' => $e->sanitisedReason,
+                'last_send_error_at' => now(),
+                'consecutive_send_failures' => (int) $mailbox->consecutive_send_failures + 1,
+            ])->save();
         }
 
         // Leg 2 — IMAP Sent-folder append, a distinct synthetic test message
@@ -180,8 +195,16 @@ class CommunicationMailboxController extends Controller
                 'append_failed' => 'Connected to the Sent folder, but writing to it was refused.',
                 'auth_failed' => 'Login failed — check the username and password.',
                 'incomplete_credentials' => 'Mailbox is missing an outgoing host, username or password.',
+                // AT-395 fix — 'connect_failed' previously fell through to the
+                // same wording as "nothing worked at all", masking a working
+                // SMTP send behind a confusing IMAP-leg-specific connect issue.
+                'connect_failed' => 'Could not connect to the mail server to check the Sent folder (the email itself may still have sent — see the SMTP result above).',
                 default => 'Could not connect to the mail server.',
             }];
+        $mailbox->forceFill($append['ok']
+            ? ['last_sent_folder_append_at' => now(), 'last_sent_folder_append_error' => null]
+            : ['last_sent_folder_append_error' => $append['reason']]
+        )->save();
 
         return back()->with('test_connection_result', $result);
     }

@@ -1,6 +1,17 @@
 @extends('layouts.corex')
 
 @section('corex-content')
+{{-- AT-395 bug-class audit — a redirect()->route('docuperfect.import.review',...)
+     ->with('error', ...) (e.g. generation-failed) was previously silently
+     dropped here; nothing rendered session('error'). --}}
+@if(session('error'))
+    <div class="rounded-md px-4 py-3 text-sm mb-4"
+         style="background: color-mix(in srgb, var(--ds-crimson, #dc2626) 10%, transparent);
+                border: 1px solid color-mix(in srgb, var(--ds-crimson, #dc2626) 30%, transparent);
+                color: var(--text-primary, #111827);">
+        {{ session('error') }}
+    </div>
+@endif
 <div class="flex flex-col h-full overflow-hidden"
      x-data="tagEditor()"
      x-init="init()">

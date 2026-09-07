@@ -9,6 +9,17 @@
     $structureJson = json_encode($structure ?: (object)[], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
     $lintJson = json_encode($lintReport ?: null, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
 @endphp
+{{-- AT-395 bug-class audit — back()->with('error', ...) (compile failure,
+     "Published versions are immutable") was previously silently dropped here;
+     nothing rendered session('error'). --}}
+@if(session('error'))
+    <div class="rounded-md px-4 py-3 text-sm mb-4"
+         style="background: color-mix(in srgb, var(--ds-crimson, #dc2626) 10%, transparent);
+                border: 1px solid color-mix(in srgb, var(--ds-crimson, #dc2626) 30%, transparent);
+                color: var(--text-primary, #111827);">
+        {{ session('error') }}
+    </div>
+@endif
 <div class="w-full space-y-4"
      x-data="compileStudio({
         draftId: {{ $draft->id }},

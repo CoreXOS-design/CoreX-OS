@@ -32,6 +32,18 @@
 
 <div class="{{ ($isAmendmentApproval ?? false) ? 'max-w-[1600px]' : 'max-w-7xl' }} mx-auto px-4 sm:px-6 lg:px-8 pt-6 space-y-4">
 
+    {{-- AT-395 bug-class audit — this page hosts _agent-amendments-panel, whose
+         approve/reject actions redirect()->back()->with('error', ...) (e.g.
+         AmendmentController's re-authorisation block); nothing here rendered it. --}}
+    @if(session('error'))
+        <div class="rounded-md px-4 py-3 text-sm"
+             style="background: color-mix(in srgb, var(--ds-crimson, #dc2626) 10%, transparent);
+                    border: 1px solid color-mix(in srgb, var(--ds-crimson, #dc2626) 30%, transparent);
+                    color: var(--text-primary, #111827);">
+            {{ session('error') }}
+        </div>
+    @endif
+
     <x-sticky-action-bar>
         <x-slot name="left">
             <a href="{{ $dashboardRoute }}" class="inline-flex items-center gap-1 text-sm text-gray-600 hover:text-gray-900">

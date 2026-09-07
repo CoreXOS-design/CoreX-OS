@@ -61,6 +61,16 @@
                 </div>
             </div>
 
+            {{-- AT-395 bug-class audit — captureConsent()'s
+                 redirect()->back()->with('error', 'You must accept the consent
+                 declaration...') was previously silently dropped here; nothing
+                 rendered session('error'). --}}
+            @if(session('error'))
+                <div class="mb-4 rounded-xl border border-red-200 bg-red-50 text-red-700 p-3 text-sm">
+                    {{ session('error') }}
+                </div>
+            @endif
+
             {{-- Consent Form --}}
             <form action="{{ route('signatures.external.consent', $token) }}" method="POST">
                 @csrf
