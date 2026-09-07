@@ -580,6 +580,20 @@ final class RoleBlockExpansionService
                 $index++;
                 $name = (string) ($recipient->signer_name ?? '');
                 $identity = strtolower($markerParty) . '_' . $index;
+                // AT-332 identity-binding fix (Johan, 2026-09-07): "our check or link
+                // needs to be on id, not name. id will always be a unique identifier,
+                // not name, not surname." Stamp the true unique key — signature_requests.id
+                // — alongside the existing name/identity stamps, so CanonicalInkComposer::
+                // markerBelongsToSigner() can bind ink by it instead of by name (two
+                // same-named parties, e.g. a married couple sharing a surname, otherwise
+                // collide). NULL/omitted for a non-persisted recipient (only
+                // CanonicalDocumentRenderer::expandRepresentedEntitiesForDisplay()'s
+                // replicate()-cloned, unsaved entity-representative rows reach here
+                // unsaved — ->exists is false and ->id is stripped by replicate()); those
+                // markers simply fall through to the pre-existing name/identity matching,
+                // exactly as before this fix — entity-representative display expansion is
+                // untouched.
+                $requestIdAttr = $recipient->exists ? (string) $recipient->id : null;
 
                 $clone = $block->cloneNode(true);
                 if (! $clone instanceof DOMElement) {
@@ -606,10 +620,16 @@ final class RoleBlockExpansionService
                         }
                         $m->setAttribute('data-name', $name);
                         $m->setAttribute('data-recipient-identity', $identity);
+                        if ($requestIdAttr !== null) {
+                            $m->setAttribute('data-recipient-request-id', $requestIdAttr);
+                        }
                     } else {
                         // Ceremony field → this recipient's own.
                         $m->setAttribute('data-name', $name);
                         $m->setAttribute('data-recipient-identity', $identity);
+                        if ($requestIdAttr !== null) {
+                            $m->setAttribute('data-recipient-request-id', $requestIdAttr);
+                        }
                     }
                 }
 
@@ -2058,12 +2078,29 @@ final class RoleBlockExpansionService
             'descendant-or-self::*[@data-marker-party] | descendant-or-self::*[@data-marker-type]',
             $clone,
         );
+        // AT-332 identity-binding fix (Johan, 2026-09-07): "our check or link
+        // needs to be on id, not name. id will always be a unique identifier,
+        // not name, not surname." This is the OTHER (primary/contract-path)
+        // per-recipient marker-stamping site — see the identical stamp +
+        // rationale in expandAttestationBlocksPerRecipient(), which handles the
+        // separate shared-attestation-paragraph-splitting case. Both must carry
+        // the true unique key, since CanonicalInkComposer::markerBelongsToSigner()
+        // reads it regardless of which cloning path produced the marker. NULL
+        // guard: $recipient is nullable here (some legacy/orphan call shapes
+        // pass none), and a non-persisted recipient (CanonicalDocumentRenderer::
+        // expandRepresentedEntitiesForDisplay()'s replicate()-cloned entity rows)
+        // has no id to stamp — falls through to the pre-existing name/identity
+        // matching untouched, exactly as before this fix.
+        $requestIdAttr = ($recipient !== null && $recipient->exists) ? (string) $recipient->id : null;
         if ($markers !== false) {
             foreach ($markers as $m) {
                 if ($m instanceof DOMElement) {
                     $m->setAttribute('data-recipient-identity', $identity);
                     if ($m->getAttribute('data-role-token') === '') {
                         $m->setAttribute('data-role-token', $role);
+                    }
+                    if ($requestIdAttr !== null) {
+                        $m->setAttribute('data-recipient-request-id', $requestIdAttr);
                     }
                 }
             }

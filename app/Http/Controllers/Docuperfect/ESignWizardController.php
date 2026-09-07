@@ -4778,7 +4778,26 @@ class ESignWizardController extends Controller
                 continue;
             }
 
+            // 2026-09-07 — collision fix: $r['_recipient_local_key'] below used to
+            // be carried onto EVERY representative row unchanged, so N directors of
+            // the SAME entity all inherited the ONE key the wizard's Step 3 UI
+            // generated for the single entity recipient row. That collided against
+            // signature_requests' own (signature_template_id, recipient_local_key)
+            // unique index the moment a second representative's row tried to
+            // insert — real case: "1502 BEAUMONT PROP CC", 3 directors, template
+            // 821, second insert (Elize Reichel) hit
+            // "Duplicate entry '821-155d2602-...'" against the first (HA
+            // Pretorius). $repIndex tracks position in this per-entity loop so
+            // exactly ONE representative (the first) keeps the ORIGINAL key
+            // unchanged — RecipientTemplate::resolveSlotContactId()'s ->first()
+            // lookup (the "Replace this party" deceased-substitute chain) depends
+            // on finding the entity's pre-expansion key verbatim on some row — and
+            // every OTHER representative gets its own, per Johan: "derive it from
+            // the party's own identity (contact_id / party record), not from the
+            // entity." See the derivation at the bottom of this loop body.
+            $repIndex = 0;
             foreach ($signers as $rep) {
+                $repIndex++;
                 $capacity = $rep->pivot->capacity ?? null;
                 // A PROXY signer renders with the distinct proxy wording —
                 // this document's own pick when one was made, else whatever
@@ -4852,13 +4871,34 @@ class ESignWizardController extends Controller
                     // never resolve it again — assertDeceasedRecipientsHave
                     // SubstituteSigner() then hard-blocks the send with "no
                     // substitute signer has been chosen" even though one
-                    // genuinely was. Carried onto every representative row
-                    // this contact expands to (ordinarily one, per the
-                    // signersOnly/proxy narrowing above); a lookup by this
-                    // key only ever needs to find ONE matching row, exactly
-                    // as RecipientTemplate::resolveSlotContactId()'s own
-                    // ->first() already assumes.
-                    '_recipient_local_key'     => $r['_recipient_local_key'] ?? null,
+                    // genuinely was.
+                    //
+                    // 2026-09-07 — that comment's own "a lookup by this key only
+                    // ever needs to find ONE matching row" reasoning was correct
+                    // for the RecipientTemplate lookup but missed that this value
+                    // ALSO has to be unique per signature_template_id at the
+                    // database level (sig_req_template_local_key_unique) — N
+                    // representatives sharing one key is fine for a ->first()
+                    // lookup and fatal for a unique index. Only the FIRST
+                    // representative keeps the original key verbatim (preserves
+                    // the deceased-chain lookup above, byte-for-byte, exactly as
+                    // before this fix). Every other representative gets a key
+                    // deterministically derived from the original key + that
+                    // representative's OWN contact id — never random: Flow 409's
+                    // "recompute fresh right before freezing" calls this function
+                    // more than once per request, and a retry after this exact
+                    // failure must derive the SAME key again, not a new one each
+                    // time, or the same representative would collide with their
+                    // OWN prior attempt instead of a sibling's. 36 chars, fits the
+                    // column's 40-char limit (a raw hex digest, not a UUID shape —
+                    // nothing downstream parses this value as a UUID).
+                    '_recipient_local_key'     => (function () use ($r, $rep, $repIndex) {
+                        $originalKey = $r['_recipient_local_key'] ?? null;
+                        if ($originalKey === null || $repIndex === 1) {
+                            return $originalKey;
+                        }
+                        return substr(hash('sha256', $originalKey . '|' . $rep->id), 0, 36);
+                    })(),
                     '_deceased_substitute_for' => $r['_deceased_substitute_for'] ?? null,
                     'bank_name'             => $rep->bank_name ?? '',
                     'bank_account_name'     => $rep->bank_account_name ?? '',

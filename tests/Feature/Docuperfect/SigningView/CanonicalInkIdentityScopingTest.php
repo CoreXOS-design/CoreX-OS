@@ -447,4 +447,117 @@ final class CanonicalInkIdentityScopingTest extends TestCase
         $this->assertStringContainsString('rytyuhi', $baked);
         $this->assertStringContainsString('>23<', $baked);
     }
+
+    // ── AT-332 identity-binding fix (Johan, 2026-09-07) ────────────────────────
+    // "our check or link needs to be on id, not name. id will always be a
+    // unique identifier, not name, not surname." markerBelongsToSigner() bound
+    // ink by data-name alone; two signers who happen to SHARE a name (a married
+    // couple sharing a surname is the real-world case) collided under that key.
+    // Bind on signature_requests.id — the internal party record — instead.
+
+    /** A "persisted" SignatureRequest: exists=true + a real id, set directly (no DB). */
+    private function persistedSeller(int $id, int $roleIndex, string $name): SignatureRequest
+    {
+        $s = new SignatureRequest();
+        $s->party_role = 'seller';
+        $s->role_index = $roleIndex;
+        $s->signer_name = $name;
+        $s->id = $id;
+        $s->exists = true;
+        return $s;
+    }
+
+    public function test_bakeInk_binds_by_party_id_when_two_signers_share_an_identical_name(): void
+    {
+        // Both sellers named IDENTICALLY — first name AND surname — stricter than
+        // the "shared surname" case Johan named. Different internal ids (2295/2296
+        // style, the real signature_requests primary key).
+        $html = $this->twoSellerDocWithSignatureMarkers();
+        $sellerA = $this->persistedSeller(101, 1, 'Johan Reichel');
+        $sellerB = $this->persistedSeller(102, 2, 'Johan Reichel');
+
+        $expanded = app(RoleBlockExpansionService::class)->expandWithLooping(
+            null, $html, collect([$sellerA, $sellerB]),
+        );
+
+        // Expansion stamps the TRUE unique key onto each clone, despite the name collision.
+        $this->assertStringContainsString('data-recipient-request-id="101"', $expanded);
+        $this->assertStringContainsString('data-recipient-request-id="102"', $expanded);
+
+        $sigA = 'data:image/png;base64,QQ==';
+        $sigB = 'data:image/png;base64,Qg==';
+        $composer = app(CanonicalInkComposer::class);
+
+        $afterA = $composer->bakeInk($expanded, $sellerA, ['seller-sig-0' => $sigA], [], [], false);
+        // Pre-fix (name-only match), this bake call would have inked BOTH
+        // same-named clones — assert the id-bound fix inks exactly one.
+        $this->assertSame(1, substr_count($afterA, 'corex-ink--signature'), 'only sellerA\'s own id-matched marker is inked, despite the name collision');
+        $this->assertStringContainsString($sigA, $afterA);
+
+        $afterB = $composer->bakeInk($afterA, $sellerB, ['seller-sig-0' => $sigB], [], [], false);
+        // Both parties end up inked, EACH WITH THEIR OWN ink — sellerB's bake must
+        // not overwrite sellerA's already-baked mark (the pre-fix collision: two
+        // same-named signers' ink landing on the same marker, last write wins).
+        $this->assertSame(2, substr_count($afterB, 'corex-ink--signature'), 'both same-named parties end up independently inked');
+        $this->assertStringContainsString($sigA, $afterB, "sellerA's ink survives sellerB's hop — not overwritten by the same-named party");
+        $this->assertStringContainsString($sigB, $afterB, "sellerB's own ink is present");
+    }
+
+    public function test_bakeInk_binds_by_party_id_for_a_recipient_with_no_id_number_on_file(): void
+    {
+        // The id_number/passport_number columns are irrelevant to this binding —
+        // signature_requests.id is always present regardless. A recipient with
+        // neither on file (the ~11% Johan named) must still bind correctly.
+        $seller = $this->persistedSeller(555, 1, 'No Document Party');
+        $this->assertNull($seller->signer_id_number ?? null);
+        $this->assertNull($seller->signer_passport_number ?? null);
+
+        $expanded = app(RoleBlockExpansionService::class)->expandWithLooping(
+            null, $this->twoSellerDocWithSignatureMarkers(), collect([$seller]),
+        );
+        $this->assertStringContainsString('data-recipient-request-id="555"', $expanded);
+
+        $sig = 'data:image/png;base64,Tk9JRA==';
+        $baked = app(CanonicalInkComposer::class)->bakeInk($expanded, $seller, ['seller-sig-0' => $sig], [], [], true);
+        $this->assertStringContainsString($sig, $baked, 'binds and inks correctly via the internal party id with no signer_id_number on file');
+    }
+
+    public function test_expansion_only_stamps_request_id_for_persisted_recipients(): void
+    {
+        // An UNSAVED SignatureRequest (exists=false, id=null) — the shape
+        // CanonicalDocumentRenderer::expandRepresentedEntitiesForDisplay()'s
+        // replicate()-cloned entity-representative rows always are — must NOT
+        // receive a data-recipient-request-id stamp. Left ungated, a null-id
+        // stamp on every such clone would make them collide with EACH OTHER
+        // exactly as name-matching did. They fall through to the pre-existing
+        // (unchanged) name/identity matching instead — this test locks in that
+        // entity-representative display expansion is untouched by this fix.
+        $unsaved = $this->seller(1, 'Alice'); // helper above never sets ->exists
+        $this->assertFalse($unsaved->exists);
+
+        $expanded = app(RoleBlockExpansionService::class)->expandWithLooping(
+            null, $this->twoSellerDocWithSignatureMarkers(), collect([$unsaved]),
+        );
+
+        $this->assertStringNotContainsString('data-recipient-request-id', $expanded, 'an unsaved/synthetic recipient never gets the new id stamp');
+    }
+
+    public function test_bakeInk_pre_existing_documents_without_the_id_stamp_are_unaffected(): void
+    {
+        // An already-composed canonical (from before this fix — no
+        // data-recipient-request-id anywhere) must fall through to the
+        // pre-existing name-match behaviour identically. Regression guard for
+        // historical documents: markerBelongsToSigner()'s new step 0 is a
+        // strict no-op when the attribute is absent.
+        $html = '<span data-marker-party="seller" data-marker-type="signature" data-name="Anine Van der Westhuizen">x</span>'
+              . '<span data-marker-party="seller_2" data-marker-type="signature" data-name="Andre Roets">x</span>';
+
+        $anine = $this->persistedSeller(9001, 1, 'Anine Van der Westhuizen');
+        $sig = 'data:image/png;base64,QU5JTkU=';
+        $baked = app(CanonicalInkComposer::class)->bakeInk($html, $anine, ['seller-sig-0' => $sig], [], [], false);
+
+        $this->assertSame(1, substr_count($baked, 'corex-ink--signature'), 'name-match still binds exactly one marker on a pre-fix canonical');
+        $this->assertStringContainsString('Signed by Anine Van der Westhuizen', $baked);
+        $this->assertStringContainsString('data-name="Andre Roets">x</span>', $baked, "Andre's marker untouched — byte-identical to pre-fix behaviour");
+    }
 }

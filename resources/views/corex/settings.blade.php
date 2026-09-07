@@ -107,6 +107,9 @@
                     ['key'=>'feature-matches',       'label'=>'Matches',               'type'=>'section', 'keywords'=>'whatsapp message'],
                     ['key'=>'feature-dashboard',     'label'=>'Dashboard',             'type'=>'section', 'keywords'=>'cockpit widgets'],
                     ['key'=>'notifications',         'label'=>'Notifications',         'type'=>'section', 'keywords'=>'reminders push email alerts overdue'],
+                    $can('rental_applications.manage_settings')
+                        ? ['key'=>'rental-applications', 'label'=>'Rental Applications', 'type'=>'link', 'href'=>route('corex.settings.rental-applications.edit'), 'keywords'=>'rental application tenant checklist supporting documents payslip']
+                        : null,
                     ['key'=>'doc-types',             'label'=>'Document Types',        'type'=>'link', 'href'=>route('admin.settings.document-types.index'), 'keywords'=>'splitter filing'],
                     ['key'=>'docuperfect-types',    'label'=>'DocuPerfect — Types',   'type'=>'link', 'href'=>route('docuperfect.settings.types'), 'keywords'=>'document templates'],
                     ['key'=>'docuperfect-fields',   'label'=>'DocuPerfect — Named Fields','type'=>'link', 'href'=>route('docuperfect.settings.namedFields'), 'keywords'=>'merge fields'],

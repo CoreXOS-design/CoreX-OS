@@ -248,6 +248,20 @@ real external or structural consequence.
     'global_flag'      => null,         // optional key in config/features.php for the outer AND
 ],
 ```
+
+> **Do not confuse with "Rental Applications" (AT-392).** As of 2026-09-07 a
+> second, unrelated top-level sidebar section is also labelled "Rentals" —
+> the agency-visible one built for AT-392 (Rental Applications / Returned
+> Applications). It does NOT use this `rentals` feature key or this
+> catalogue entry at all — it's gated purely by `hasAnyPermission(['rental_applications.view', 'rental_applications.view_returned'])`,
+> no `@feature()` wrap. This entry's `sidebar_section: 'hidden.rentals'`
+> still correctly describes ONLY the original Hidden-panel lease/e-sign
+> module. The naming collision between the two is known and deliberately
+> unresolved pending Johan's decision — see
+> `.ai/specs/rental-applications.md` "Known, deliberate, pending
+> reconciliation" for the full history and rendered evidence of what a
+> system-owner account actually sees with both live at once.
+
 - `explain` — a full sentence: what the module is (STANDARDS F.8, no jargon, no codenames).
 - `affects` — rendered "What this changes:" — a concrete, observable consequence; **tautologies
   forbidden** (parent onboarding §5.1). "Whether rentals are enabled" is banned; "whether the

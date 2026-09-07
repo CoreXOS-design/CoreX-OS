@@ -1492,6 +1492,69 @@ Agency Onboarding Setup Wizard entry — there is nothing to configure.
 - Fails open (allows) when no original authoriser was ever recorded — never blocks a document that was never authorised through the candidate/supervisor flow.
 - Verified against real QA1 data: the original authoriser passes, a different agent is blocked with the correctly named message, and the audit row lands with correct metadata. Regression-tested unconditionally in `tests/Feature/Docuperfect/SigningView/AmendmentReauthorisationBindingTest.php`.
 
+### 22.13 AT-332 — ink is bound to the internal party record id, never to a name (2026-09-07)
+
+**The binding rule, permanently: an ink marker's owner is decided by
+`signature_requests.id` — the internal party record — never by the signer's
+name.** Johan, verbatim: "our check or link needs to be on id, not name. id
+will always be a unique identifier, not name, not surname." Two signing
+parties who happen to share a name — a married couple sharing a surname is
+the real-world case this was found on — are only ever *equal* under a name
+key. They are never equal under `signature_requests.id`, because ids are
+guaranteed unique. This must never drift back to name-matching.
+
+**The defect.** `CanonicalInkComposer::markerBelongsToSigner()` bound ink to a
+DOM marker by `data-name` as its highest-priority key. Two same-named
+recipients' captured signatures/initials could not be told apart: whichever
+of them signed last silently overwrote the other's already-baked ink on the
+shared-name marker(s) — a legally-fatal defect (one party's signature ends up
+representing the wrong person on a filed document), not merely cosmetic.
+
+**Two candidate identifiers, and why only one was chosen.** `signer_id_number`
+(SA ID) / `signer_passport_number` is the human identifier AT-385 (§22.12)
+already gates document *access* on — but ~11% of real recipients have neither
+on file for historical/legacy documents predating that gate, and it is not
+guaranteed unique in the way a primary key is. `signature_requests.id` is the
+internal party record — always present for any real, persisted signer, unique
+by construction, and completely independent of whether an ID/passport was
+ever captured. **Ink binds to the party record the access gate belongs to,
+not to the identifier that gates the door.**
+
+**Implementation — two marker-stamping sites, one shared reader:**
+- `RoleBlockExpansionService::expandAttestationBlocksPerRecipient()` (the
+  shared-attestation-paragraph-per-recipient splitter) and
+  `RoleBlockExpansionService::mutateCloneForInstance()` (the primary,
+  contract-driven per-recipient block clone — the more common path) both now
+  stamp `data-recipient-request-id="{signature_requests.id}"` onto every
+  signature/initial/ceremony marker they clone, alongside the pre-existing
+  `data-name`/`data-recipient-identity` stamps — never replacing them.
+- `CanonicalInkComposer::markerBelongsToSigner()` checks
+  `data-recipient-request-id` as **step 0**, before the existing `data-name`
+  (step 1), `data-recipient-identity` (step 2), and sole-of-role fallback
+  (step 3) — all three untouched, still exactly as they were.
+- **Guarded, not unconditional:** the id stamp is written only when the
+  recipient object is a real, persisted row (`$recipient->exists`). A
+  non-persisted recipient never carries one, and its markers simply fall
+  through to the pre-existing chain — this is deliberate, not an oversight:
+  `CanonicalDocumentRenderer::expandRepresentedEntitiesForDisplay()` builds
+  synthetic, unsaved entity-representative clones via `replicate()` (Laravel
+  strips the primary key on replicate) purely for address/contact DISPLAY
+  looping, never for signing — those markers are correctly untouched by this
+  fix and keep behaving exactly as before it shipped.
+- **Byte-identical for every document composed before this fix.** No marker
+  on an already-composed canonical carries `data-recipient-request-id` (the
+  attribute did not exist yet), so step 0 is a strict no-op for all of them —
+  proven by generating real PDFs for a sample of already-signed QA1 documents
+  before and after the change and diffing the extracted text: identical in
+  every case (only the renderer's own timestamp metadata differed, an
+  artifact of re-generating at a different second, not of the code change).
+
+**Never do this again:** if a future change needs a *stronger* per-recipient
+key than `data-recipient-identity` provides, add it as a **new, additive**
+stamp read at a **higher-priority step** in `markerBelongsToSigner()` — the
+same pattern this fix used — rather than replacing or reordering the existing
+`data-name` fallback, which real historical documents still depend on.
+
 ---
 
 ## 23. Open Questions

@@ -2779,6 +2779,12 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/agency-setup/collection/{collection}', [\App\Http\Controllers\CoreX\AgencySetupWizardController::class, 'addCollectionItem'])->name('corex.agency-setup.collection.add');
         Route::delete('/agency-setup/collection/{collection}/{id}', [\App\Http\Controllers\CoreX\AgencySetupWizardController::class, 'removeCollectionItem'])->name('corex.agency-setup.collection.remove');
     });
+    // AT-392 — Rental Applications settings: agency-configurable supporting-document checklist.
+    Route::get('/settings/rental-applications', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'edit'])
+        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.edit');
+    Route::post('/settings/rental-applications', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'update'])
+        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.update');
+
     Route::post('/settings/generate-token', [CoreXSettingsController::class, 'generateApiToken'])->name('corex.settings.generate-token');
     Route::post('/settings/notifications', [CoreXSettingsController::class, 'updateNotificationPreferences'])->middleware('permission:access_settings')->name('corex.settings.notifications.update');
     Route::post('/settings/my-portal', [CoreXSettingsController::class, 'updatePortalPreferences'])->middleware('permission:access_settings')->name('corex.settings.my-portal.update');
@@ -2786,6 +2792,30 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::post('/settings/syndication-portals', [CoreXSettingsController::class, 'updateSyndicationPortals'])->middleware('permission:access_settings')->name('corex.settings.syndication-portals');
     // Feature Registry — Settings → Features (module on/off). Spec: corex-feature-registry.md §6.4.
     Route::post('/settings/features', [\App\Http\Controllers\CoreX\FeatureSettingsController::class, 'update'])->middleware('permission:agency_features.manage')->name('corex.settings.features.update');
+    // AT-392 — Rental Applications (Phase 1). Dedicated page, not the e-sign
+    // wizard — see .ai/specs/rental-applications.md.
+    Route::prefix('rental-applications')->middleware('permission:rental_applications.view')->group(function () {
+        Route::get('/', [\App\Http\Controllers\CoreX\RentalApplicationController::class, 'index'])->name('corex.rental-applications.index');
+        Route::get('/returned', [\App\Http\Controllers\CoreX\RentalApplicationController::class, 'returned'])
+            ->middleware('permission:rental_applications.view_returned')->name('corex.rental-applications.returned');
+        Route::get('/create', [\App\Http\Controllers\CoreX\RentalApplicationController::class, 'create'])
+            ->middleware('permission:rental_applications.create')->name('corex.rental-applications.create');
+        Route::get('/search-properties', [\App\Http\Controllers\CoreX\RentalApplicationController::class, 'searchProperties'])
+            ->middleware('permission:rental_applications.create')->name('corex.rental-applications.search-properties');
+        Route::post('/', [\App\Http\Controllers\CoreX\RentalApplicationController::class, 'store'])
+            ->middleware('permission:rental_applications.create')->name('corex.rental-applications.store');
+        Route::get('/{rentalApplication}', [\App\Http\Controllers\CoreX\RentalApplicationController::class, 'show'])->name('corex.rental-applications.show');
+        Route::put('/{rentalApplication}', [\App\Http\Controllers\CoreX\RentalApplicationController::class, 'update'])->name('corex.rental-applications.update');
+        Route::post('/{rentalApplication}/send', [\App\Http\Controllers\CoreX\RentalApplicationController::class, 'send'])
+            ->middleware('permission:rental_applications.create')->name('corex.rental-applications.send');
+        Route::get('/{rentalApplication}/pdf', [\App\Http\Controllers\CoreX\RentalApplicationController::class, 'pdf'])->name('corex.rental-applications.pdf');
+        Route::get('/{rentalApplication}/documents/{document}', [\App\Http\Controllers\CoreX\RentalApplicationController::class, 'downloadDocument'])->name('corex.rental-applications.documents.download');
+        Route::delete('/{rentalApplication}', [\App\Http\Controllers\CoreX\RentalApplicationController::class, 'destroy'])
+            ->middleware('permission:rental_applications.create')->name('corex.rental-applications.destroy');
+        Route::post('/{rentalApplication}/restore', [\App\Http\Controllers\CoreX\RentalApplicationController::class, 'restore'])
+            ->middleware('permission:rental_applications.create')->name('corex.rental-applications.restore');
+    });
+
     Route::post('/settings/presentations', [CoreXSettingsController::class, 'updatePresentations'])->middleware('permission:access_settings')->name('corex.settings.presentations.update');
     // Build 4 — agency default toggles for which report sections render.
     Route::post('/settings/presentations/sections', [CoreXSettingsController::class, 'updatePresentationSections'])->middleware('permission:access_settings')->name('corex.settings.presentations.sections.update');
@@ -4636,6 +4666,22 @@ Route::prefix('rental')->middleware(['auth', 'permission:view_rentals', 'feature
         Route::get('/reminders', [\App\Http\Controllers\Rental\RentalReminderSettingsController::class, 'index'])->name('reminders.index');
         Route::put('/reminders', [\App\Http\Controllers\Rental\RentalReminderSettingsController::class, 'update'])->name('reminders.update');
     });
+});
+
+// ===== AT-392 RENTAL APPLICATIONS — public, no auth, token-based =====
+// Modelled on the /sign/{token} mechanism directly below — same throttle
+// convention, same no-identity-leak treatment of an expired/used link.
+Route::prefix('rental-application')->group(function () {
+    Route::get('/{token}', [\App\Http\Controllers\RentalApplicationSigningController::class, 'show'])->middleware('throttle:30,1')->name('rental-applications.public.show');
+    Route::post('/{token}/submit', [\App\Http\Controllers\RentalApplicationSigningController::class, 'submit'])->middleware('throttle:10,1')->name('rental-applications.public.submit');
+    Route::post('/{token}/documents', [\App\Http\Controllers\RentalApplicationSigningController::class, 'uploadDocuments'])->middleware('throttle:10,1')->name('rental-applications.public.documents');
+    Route::get('/{token}/pdf', [\App\Http\Controllers\RentalApplicationSigningController::class, 'pdf'])->middleware('throttle:30,1')->name('rental-applications.public.pdf');
+    // Johan, 2026-09-07 — full CRUD for the applicant's own documents, not
+    // just create. {document} is scoped inside the controller against the
+    // TOKEN's own application — a bare id proves nothing on its own.
+    Route::get('/{token}/documents/{document}', [\App\Http\Controllers\RentalApplicationSigningController::class, 'viewDocument'])->middleware('throttle:30,1')->name('rental-applications.public.documents.view');
+    Route::post('/{token}/documents/{document}/remove', [\App\Http\Controllers\RentalApplicationSigningController::class, 'removeDocument'])->middleware('throttle:10,1')->name('rental-applications.public.documents.remove');
+    Route::post('/{token}/documents/{document}/replace', [\App\Http\Controllers\RentalApplicationSigningController::class, 'replaceDocument'])->middleware('throttle:10,1')->name('rental-applications.public.documents.replace');
 });
 
 // ===== SALES DOCUMENT RETURN (public, no auth, token-based) =====

@@ -100,9 +100,15 @@ class CanonicalInkComposer
             $signerName     = (string) ($signer->signer_name ?? '');
             $signerCaption  = (string) ($signer->signer_caption ?? '');
             $signerNameKey  = $this->normalizeName($signerName);
+            // AT-332 identity-binding fix (Johan, 2026-09-07): the true unique key —
+            // the signature_requests row id itself, always present for any real signer
+            // baking real ink (bakeInk() is only ever called with a persisted
+            // SignatureRequest). See markerBelongsToSigner()'s new step 0 and
+            // RoleBlockExpansionService's data-recipient-request-id stamp.
+            $signerRequestId = $signer->exists ? (string) $signer->id : null;
 
             $ownsMarker = fn (\DOMElement $el): bool => $this->markerBelongsToSigner(
-                $el, $signerIdentity, $signerRole, $signerNameKey, $signerAliases, $signerIsSoleOfRole,
+                $el, $signerIdentity, $signerRole, $signerNameKey, $signerAliases, $signerIsSoleOfRole, $signerRequestId,
             );
 
             // ── Signatures ── PER-ANCHOR binding. Each captured signature carries the
@@ -545,6 +551,21 @@ class CanonicalInkComposer
      * Does this marker belong to the signer whose ink we are baking?
      *
      * Match priority (most specific → least):
+     *  0. `data-recipient-request-id` — the signature_requests.id itself. AT-332
+     *     identity-binding fix (Johan, 2026-09-07): "our check or link needs to
+     *     be on id, not name. id will always be a unique identifier, not name,
+     *     not surname." Two signers who happen to share a name (a married couple
+     *     sharing a surname is the real-world case this was found on) are
+     *     merely EQUAL under step 1's name key — they are never equal under
+     *     this one, because ids are guaranteed unique. Stamped by
+     *     RoleBlockExpansionService's per-recipient clone loop onto every marker
+     *     it clones; ABSENT on any canonical composed before this fix, and on
+     *     the entity-representative DISPLAY clones CanonicalDocumentRenderer::
+     *     expandRepresentedEntitiesForDisplay() builds via replicate() (those are
+     *     never persisted, so they carry no id to stamp) — both fall through to
+     *     the pre-existing steps 1-3 below, UNCHANGED, so this is purely additive:
+     *     an already-composed document's markers (no such attribute anywhere)
+     *     compose identically to before.
      *  1. `data-name` — the merged_html binds EVERY signature/initial marker to
      *     the exact person it belongs to (`data-name="Anine Van der Westhuizen"`).
      *     This is the primary key: it is per-person, N-party-safe, and — crucially
@@ -554,7 +575,10 @@ class CanonicalInkComposer
      *     "agent review / next party shows NO recipient ink" defect: seller_1's
      *     ink was matching nothing because the seller markers are name-bound, not
      *     identity-stamped, and the sole-of-role party fallback is (correctly)
-     *     disabled for a 2-seller document.
+     *     disabled for a 2-seller document. NOTE: this is exactly the key step 0
+     *     now takes priority over — two signers sharing a name collide here,
+     *     which is why any marker carrying step 0's stronger key is decided by
+     *     step 0 and never reaches this comparison at all.
      *  2. `data-recipient-identity` — markers stamped inside cloned role-blocks.
      *  3. Party-alias fallback — ONLY when the signer is the sole recipient of
      *     their role (agent, single seller/buyer); safe because there is no
@@ -571,8 +595,14 @@ class CanonicalInkComposer
         string $signerName,
         array $signerAliases,
         bool $signerIsSoleOfRole,
+        ?string $signerRequestId = null,
     ): bool {
-        // 1) Name binding (the reliable per-person key).
+        // 0) Internal party-record id (the true unique key — see docblock).
+        $markerRequestId = trim($el->getAttribute('data-recipient-request-id'));
+        if ($markerRequestId !== '' && $signerRequestId !== null) {
+            return $markerRequestId === $signerRequestId;
+        }
+        // 1) Name binding (the reliable per-person key, when no id stamp exists).
         $markerName = $this->normalizeName($el->getAttribute('data-name'));
         if ($markerName !== '' && $signerName !== '') {
             return $markerName === $signerName;
