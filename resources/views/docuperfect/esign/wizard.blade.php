@@ -638,24 +638,91 @@
                                         <template x-if="r._representation.needs_representative">
                                             <div style="color: var(--ds-amber,#b45309);">⚠ This company has no representative linked. Add a director/executor/trustee (with a capacity) on its contact record — it cannot sign until then.</div>
                                         </template>
+                                        {{-- Johan, 2026-09-07: "there is no way to edit director details as
+                                             they do not have cards on the left." Each representative now gets
+                                             its OWN editable card, nested here so the company/representative
+                                             relationship stays visually obvious (Johan: "keep the company
+                                             itself represented — do not lose the... fact that these people
+                                             sign on its behalf"). Reorder arrows + proxy badge are UNCHANGED
+                                             from before (same moveEntityRep() call, same ordering contract —
+                                             "order sets the clause, address sections, signature positions and
+                                             signing order" still holds exactly as it did). Inputs default to
+                                             the LIVE contact's own values (buildEntityRepresentationPreview()
+                                             merges any saved override over the contact — see its docblock);
+                                             typing creates/updates this document's own override via
+                                             updateRepOverride(), never touching the Contact record directly
+                                             (id_number is the ONE exception, and only on Save — see
+                                             saveStep()'s backfillContactIdNumber() call, fill-if-blank,
+                                             exactly like every other linked recipient's ID field already
+                                             works). --}}
                                         <template x-if="!r._representation.needs_representative">
-                                            <div class="space-y-1">
+                                            <div class="space-y-2">
                                                 <div class="font-semibold mb-1" style="color: var(--brand-icon,#2563eb);">Signs via its representative<span x-show="r._representation.signers.length > 1">s</span> — order sets the clause, address sections, signature positions and signing order:</div>
                                                 <template x-for="(rep, repIdx) in r._representation.all_representatives" :key="rep.contact_id">
-                                                    <div class="flex items-center justify-between gap-2">
-                                                        <div class="min-w-0">
-                                                            <span class="font-semibold" style="color: var(--text-primary);" x-text="(repIdx + 1) + '. ' + rep.name"></span>
-                                                            <span style="color: var(--text-muted);" x-show="rep.capacity" x-text="' (' + rep.capacity + ')'"></span>
-                                                            <span x-show="rep.is_proxy" class="ml-1 text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded" style="background:color-mix(in srgb, var(--ds-amber,#f59e0b) 18%, transparent); color:var(--ds-amber,#b45309);">proxy</span>
+                                                    <div class="rounded-md p-2.5 space-y-2" style="background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--brand-icon,#2563eb);">
+                                                        <div class="flex items-center justify-between gap-2">
+                                                            <div class="min-w-0">
+                                                                <span class="font-semibold" style="color: var(--text-primary);" x-text="(repIdx + 1) + '. ' + rep.name"></span>
+                                                                <span style="color: var(--text-muted);" x-show="rep.capacity" x-text="' (' + rep.capacity + ')'"></span>
+                                                                <span x-show="rep.is_proxy" class="ml-1 text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded" style="background:color-mix(in srgb, var(--ds-amber,#f59e0b) 18%, transparent); color:var(--ds-amber,#b45309);">proxy</span>
+                                                                <div class="text-[10px]" style="color: var(--text-muted);" x-text="'Signs on behalf of ' + (r.name || 'this company')"></div>
+                                                            </div>
+                                                            <div class="flex items-center gap-1 flex-shrink-0">
+                                                                <button type="button" @click="moveEntityRep(ri, rep.contact_id, -1)" :disabled="repIdx === 0"
+                                                                        :style="repIdx === 0 ? 'opacity:0.3;' : 'opacity:1; cursor:pointer;'"
+                                                                        style="background:none; border:none; padding:2px;" title="Move up">▲</button>
+                                                                <button type="button" @click="moveEntityRep(ri, rep.contact_id, 1)" :disabled="repIdx === (r._representation.all_representatives.length - 1)"
+                                                                        :style="repIdx === (r._representation.all_representatives.length - 1) ? 'opacity:0.3;' : 'opacity:1; cursor:pointer;'"
+                                                                        style="background:none; border:none; padding:2px;" title="Move down">▼</button>
+                                                            </div>
                                                         </div>
-                                                        <div class="flex items-center gap-1 flex-shrink-0">
-                                                            <button type="button" @click="moveEntityRep(ri, rep.contact_id, -1)" :disabled="repIdx === 0"
-                                                                    :style="repIdx === 0 ? 'opacity:0.3;' : 'opacity:1; cursor:pointer;'"
-                                                                    style="background:none; border:none; padding:2px;" title="Move up">▲</button>
-                                                            <button type="button" @click="moveEntityRep(ri, rep.contact_id, 1)" :disabled="repIdx === (r._representation.all_representatives.length - 1)"
-                                                                    :style="repIdx === (r._representation.all_representatives.length - 1) ? 'opacity:0.3;' : 'opacity:1; cursor:pointer;'"
-                                                                    style="background:none; border:none; padding:2px;" title="Move down">▼</button>
+                                                        <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                                            <div>
+                                                                <label class="block text-[10px] font-medium mb-0.5" style="color: var(--text-muted);">Full Name</label>
+                                                                <input type="text" :value="rep.name"
+                                                                       @input="updateRepOverride(ri, rep.contact_id, 'name', $event.target.value)"
+                                                                       class="w-full rounded-md px-2 py-1.5 text-xs"
+                                                                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                                                            </div>
+                                                            <div>
+                                                                <label class="block text-[10px] font-medium mb-0.5" style="color: var(--text-muted);">ID Number</label>
+                                                                <input type="text" :value="rep.id_number"
+                                                                       @input="updateRepOverride(ri, rep.contact_id, 'id_number', $event.target.value)"
+                                                                       placeholder="SA ID number"
+                                                                       class="w-full rounded-md px-2 py-1.5 text-xs"
+                                                                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                                                            </div>
+                                                            <div>
+                                                                <label class="block text-[10px] font-medium mb-0.5" style="color: var(--text-muted);">Passport Number</label>
+                                                                <input type="text" :value="rep.passport_number"
+                                                                       @input="updateRepOverride(ri, rep.contact_id, 'passport_number', $event.target.value)"
+                                                                       placeholder="For a foreign national with no SA ID"
+                                                                       class="w-full rounded-md px-2 py-1.5 text-xs"
+                                                                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                                                            </div>
+                                                            <div></div>
+                                                            <div>
+                                                                <label class="block text-[10px] font-medium mb-0.5" style="color: var(--text-muted);">Email</label>
+                                                                <input type="email" :value="rep.email"
+                                                                       @input="updateRepOverride(ri, rep.contact_id, 'email', $event.target.value)"
+                                                                       class="w-full rounded-md px-2 py-1.5 text-xs"
+                                                                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                                                            </div>
+                                                            <div>
+                                                                <label class="block text-[10px] font-medium mb-0.5" style="color: var(--text-muted);">Cell Phone</label>
+                                                                <input type="text" :value="rep.cell"
+                                                                       @input="updateRepOverride(ri, rep.contact_id, 'cell', $event.target.value)"
+                                                                       class="w-full rounded-md px-2 py-1.5 text-xs"
+                                                                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                                                            </div>
                                                         </div>
+                                                        {{-- No Silent Locks / no-input-lost standard (Johan, today): a
+                                                             director this document will actually SIGN AS needs an
+                                                             identifying number before Sign & Send — say so here,
+                                                             before the agent can act, not after a hard block at
+                                                             step 6. Non-blocking (informational only) since capacity/
+                                                             proxy status is decided elsewhere on this same card. --}}
+                                                        <p x-show="!rep.id_number && !rep.passport_number" class="text-[10px]" style="color: var(--ds-amber,#b45309);">⚠ No ID or passport number on file for this director yet — required before this document can be sent.</p>
                                                     </div>
                                                 </template>
                                                 <template x-if="r._representation.signers.length === 1">
@@ -3538,6 +3605,14 @@ function esignWizard() {
                         _supplier_firm_id: r._supplier_firm_id || null,
                         _supplier_firm_name: r._supplier_firm_name || '',
                         _supplier_firm_registration_number: r._supplier_firm_registration_number || '',
+                        // Johan, 2026-09-07 — "there is no way to edit director
+                        // details as they do not have cards on the left." Same
+                        // whitelist-drop trap this comment block already warns
+                        // about twice above (_entity_proxy_contact_id,
+                        // _entity_rep_order) — must be listed explicitly or a
+                        // director correction vanishes the instant the agent
+                        // leaves this step.
+                        _representative_overrides: r._representative_overrides || null,
                     })),
                 };
                 case 4: {
@@ -4079,7 +4154,13 @@ function esignWizard() {
                         'X-CSRF-TOKEN': csrfToken,
                         'Accept': 'application/json',
                     },
-                    body: JSON.stringify({ representative_contact_id: r._entity_proxy_contact_id || null, order: currentOrder }),
+                    // 2026-09-07 — must carry this document's own director
+                    // corrections, or the response below (rebuilt from live
+                    // contact fields alone) silently overwrites whatever the
+                    // agent had just typed into a director's card but not yet
+                    // saved. Same reasoning as _entity_proxy_contact_id/
+                    // _entity_rep_order surviving expandEntityRecipients().
+                    body: JSON.stringify({ representative_contact_id: r._entity_proxy_contact_id || null, order: currentOrder, representative_overrides: r._representative_overrides || null }),
                 });
                 const result = await resp.json();
                 if (!resp.ok || !result.ok) {
@@ -4091,6 +4172,30 @@ function esignWizard() {
                 console.error('moveEntityRep error:', e);
                 this.showToast('Could not reach the server to reorder representatives.', 'error');
             }
+        },
+
+        // Johan, 2026-09-07 — "there is no way to edit director details as
+        // they do not have cards on the left." Per-document correction to a
+        // representative's own signing details (name/ID/passport/email/
+        // cell), keyed by contact_id, living on the entity recipient's own
+        // row (never on the Contact record — see saveStep()'s
+        // backfillContactIdNumber() call for the one deliberate exception,
+        // id_number, fill-if-blank, matching every other linked recipient).
+        // Plain assignment + auto-vivification rather than x-model on a
+        // possibly-undefined nested path, so Alpine's reactivity always has
+        // a real object to write into.
+        updateRepOverride(recipientIndex, contactId, field, value) {
+            const r = this.recipients[recipientIndex];
+            if (!r._representative_overrides) r._representative_overrides = {};
+            if (!r._representative_overrides[contactId]) r._representative_overrides[contactId] = {};
+            r._representative_overrides[contactId][field] = value;
+            // Reflect the edit immediately in the SAME preview object the
+            // card's inputs read from (rep.name/id_number/...), so a typed
+            // correction shows back at its own input without a full re-fetch
+            // — the "No Invisible Edits" standard: what's on screen must
+            // match what's actually going to be saved and sent.
+            const rep = (r._representation && r._representation.all_representatives || []).find(x => x.contact_id === contactId);
+            if (rep) rep[field] = value;
         },
 
         clearContactSelection(recipientIndex) {

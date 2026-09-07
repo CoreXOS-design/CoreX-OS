@@ -331,4 +331,151 @@ class EsignEntityRecipientTest extends TestCase
         $this->assertSame($entity->id, $stepData['recipients']['recipients'][0]['_contact_id'],
             'expandRecipientsForMerge() must not mutate the caller\'s own $stepData.');
     }
+
+    // ── AT-none / Johan, 2026-09-07 — "there is no way to edit director
+    // details as they do not have cards on the left." Each representative
+    // now gets its own editable card on step 3; corrections live in
+    // _representative_overrides (keyed by contact_id) on the entity
+    // recipient's own row and must flow through to (a) step 3's own
+    // display, (b) the expanded SignatureRequest input, (c) the printed
+    // party clause, and (d) survive a save/reload — without ever writing
+    // to the Contact record except id_number's existing fill-if-blank rule.
+
+    public function test_representative_override_corrects_expansion_without_touching_the_untouched_representative(): void
+    {
+        [$agency, $branchId] = $this->makeAgencyWithBranch();
+        $user = User::factory()->create(['agency_id' => $agency->id]);
+        [$entity, $reps] = $this->entityWithReps($agency->id, $branchId, 2);
+
+        $recipients = [[
+            'role' => 'seller', 'name' => $entity->entity_name, '_contact_id' => $entity->id,
+            '_representative_overrides' => [
+                $reps[0]->id => ['id_number' => '9001015800086', 'email' => 'corrected@example.test'],
+            ],
+        ]];
+
+        $out = $this->expand($recipients, $user);
+        $this->assertCount(2, $out);
+
+        $corrected = collect($out)->firstWhere('_contact_id', $reps[0]->id);
+        $untouched = collect($out)->firstWhere('_contact_id', $reps[1]->id);
+
+        $this->assertSame('9001015800086', $corrected['id_number'], 'The override must win over the stale Contact value.');
+        $this->assertSame('corrected@example.test', $corrected['email']);
+        // The SIBLING representative — never overridden — must be completely unaffected.
+        $this->assertSame($reps[1]->id_number, $untouched['id_number']);
+        $this->assertSame($reps[1]->email, $untouched['email']);
+
+        // "Flow through to what actually gets sent" — the printed clause,
+        // identical across both expanded rows, must carry the CORRECTED id,
+        // never the stale one.
+        $clause = $corrected['_party_clause_text'];
+        $this->assertSame($clause, $untouched['_party_clause_text']);
+        $this->assertStringContainsString('9001015800086', $clause);
+        $this->assertStringNotContainsString($reps[0]->id_number, $clause, 'The stale, pre-correction ID must never appear in the printed clause.');
+    }
+
+    public function test_representative_override_passport_number_is_carried_through_expansion(): void
+    {
+        // Before this build, an entity representative's passport_number was
+        // never even attempted in the expanded row at all — only the SEND-time
+        // identity gate's own separate contact fallback could recover it.
+        [$agency, $branchId] = $this->makeAgencyWithBranch();
+        $user = User::factory()->create(['agency_id' => $agency->id]);
+        [$entity, $reps] = $this->entityWithReps($agency->id, $branchId, 1);
+
+        $recipients = [[
+            'role' => 'seller', 'name' => $entity->entity_name, '_contact_id' => $entity->id,
+            '_representative_overrides' => [
+                $reps[0]->id => ['passport_number' => 'P12345678'],
+            ],
+        ]];
+
+        $out = $this->expand($recipients, $user);
+        $this->assertSame('P12345678', $out[0]['passport_number']);
+    }
+
+    public function test_representative_override_does_not_write_to_the_contact_record_except_id_number_fill_if_blank(): void
+    {
+        // Johan asked, explicitly, not to be guessed at: "does editing a
+        // director here also update their contact record in the CRM, or
+        // only this document?" — matched to how a plain linked recipient's
+        // own edit already behaves (backfillContactIdNumber(), fill-if-blank
+        // ONLY, id_number ONLY). This test locks that answer in.
+        [$agency, $branchId] = $this->makeAgencyWithBranch();
+        [$entity, $reps] = $this->entityWithReps($agency->id, $branchId, 1);
+        $rep = $reps[0];
+        $this->assertNotSame('', trim((string) $rep->id_number), 'Fixture sanity: the rep must start with a real id_number for the no-overwrite half of this test to mean anything.');
+        $originalIdNumber = $rep->id_number;
+        $originalEmail = $rep->email;
+        $originalName = $rep->first_name . ' ' . $rep->last_name;
+
+        // Simulate saveStep()'s backfill call directly (the exact function
+        // it calls for every linked recipient, entity representative
+        // included) — the same call path a real "Next" click exercises.
+        $this->callPrivate('backfillContactIdNumber', [$rep->id, '9999999999999']);
+
+        $rep->refresh();
+        $this->assertSame($originalIdNumber, $rep->id_number, 'A NON-blank id_number must never be overwritten — fill-if-blank only.');
+        $this->assertSame($originalEmail, $rep->email, 'Email is never written back to the Contact — document-local only.');
+        $this->assertSame($originalName, $rep->first_name . ' ' . $rep->last_name, 'Name is never written back to the Contact — document-local only.');
+
+        // Now the POSITIVE half: a rep whose id_number IS blank must accept the backfill.
+        $blankRep = Contact::create(['agency_id' => $agency->id, 'branch_id' => $branchId, 'contact_kind' => Contact::TYPE_NATURAL_PERSON, 'first_name' => 'No', 'last_name' => 'IdYet']);
+        $this->callPrivate('backfillContactIdNumber', [$blankRep->id, '8001015800086']);
+        $blankRep->refresh();
+        $this->assertSame('8001015800086', $blankRep->id_number, 'A BLANK id_number must accept the fill-if-blank backfill — same rule as every other linked recipient.');
+    }
+
+    public function test_representation_preview_merges_override_over_live_contact_value_for_step_3_display(): void
+    {
+        [$agency, $branchId] = $this->makeAgencyWithBranch();
+        $user = User::factory()->create(['agency_id' => $agency->id]);
+        [$entity, $reps] = $this->entityWithReps($agency->id, $branchId, 2);
+
+        $recipients = [[
+            'role' => 'seller', 'name' => $entity->entity_name, '_contact_id' => $entity->id,
+            '_representative_overrides' => [
+                $reps[0]->id => ['name' => 'Corrected Name'],
+            ],
+        ]];
+
+        $displayed = $this->callPrivate('attachEntityRepresentationPreview', [$recipients, $user]);
+        $allReps = $displayed[0]['_representation']['all_representatives'];
+
+        $overriddenRow = collect($allReps)->firstWhere('contact_id', $reps[0]->id);
+        $liveRow = collect($allReps)->firstWhere('contact_id', $reps[1]->id);
+
+        $this->assertSame('Corrected Name', $overriddenRow['name']);
+        // The un-overridden sibling must show its LIVE contact value, not blank.
+        $this->assertSame($reps[1]->first_name . ' ' . $reps[1]->last_name, $liveRow['name']);
+        // Every editable field this build added must be present, even when
+        // no override exists yet — defaulting to the live contact's value.
+        $this->assertSame($reps[1]->id_number, $liveRow['id_number']);
+        $this->assertSame($reps[1]->email, $liveRow['email']);
+    }
+
+    /**
+     * REGRESSION — a natural-person (non-entity) recipient must be
+     * completely untouched by this whole feature: no _representation, no
+     * expansion, and expandEntityRecipients() must never even look for
+     * _representative_overrides on a row that was never an entity.
+     */
+    public function test_natural_person_recipient_unaffected_by_representative_overrides_feature(): void
+    {
+        [$agency, $branchId] = $this->makeAgencyWithBranch();
+        $user = User::factory()->create(['agency_id' => $agency->id]);
+        $person = Contact::create(['agency_id' => $agency->id, 'branch_id' => $branchId, 'contact_kind' => Contact::TYPE_NATURAL_PERSON, 'first_name' => 'Jo', 'last_name' => 'Soap', 'email' => 'jo@example.test']);
+
+        $recipients = [['role' => 'seller', 'name' => $person->full_name, '_contact_id' => $person->id]];
+
+        $displayed = $this->callPrivate('attachEntityRepresentationPreview', [$recipients, $user]);
+        $this->assertFalse($displayed[0]['_is_entity']);
+        $this->assertArrayNotHasKey('_representation', $displayed[0]);
+
+        $out = $this->expand($recipients, $user);
+        $this->assertCount(1, $out, 'A natural-person recipient must pass through unexpanded — exactly as before this build.');
+        $this->assertSame($person->full_name, $out[0]['name']);
+        $this->assertArrayNotHasKey('_representative_overrides', $out[0]);
+    }
 }

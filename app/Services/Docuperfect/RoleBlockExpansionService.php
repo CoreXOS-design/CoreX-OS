@@ -2505,9 +2505,21 @@ final class RoleBlockExpansionService
      * before); this only ever adds an ID to a NATURAL-PERSON party's own
      * name, which was never possible before regardless of representation.
      */
-    public function composeEntityPartyText(Contact $entity, bool $includeRegNo = true, ?int $overrideProxyRepId = null, ?array $orderContactIds = null): string
+    /**
+     * @param  ?array<int, array{name?: string, id_number?: string}>  $representativeOverrides
+     *         Johan, 2026-09-07 — "there is no way to edit director details
+     *         as they do not have cards on the left." Per-document
+     *         corrections to a DIRECT representative's name/ID, keyed by
+     *         contact_id — never written to the Contact record (except
+     *         id_number's existing fill-if-blank backfill in
+     *         ESignWizardController::saveStep()). Same depth-0-only bound as
+     *         $overrideProxyRepId/$orderContactIds immediately below: a
+     *         correction applies to this document's own direct
+     *         representatives only, never to a deeper nested chain.
+     */
+    public function composeEntityPartyText(Contact $entity, bool $includeRegNo = true, ?int $overrideProxyRepId = null, ?array $orderContactIds = null, ?array $representativeOverrides = null): string
     {
-        $reps = $this->resolveDocumentRepresentatives($entity, 0, [], $overrideProxyRepId, $orderContactIds);
+        $reps = $this->resolveDocumentRepresentatives($entity, 0, [], $overrideProxyRepId, $orderContactIds, $representativeOverrides);
 
         $name = (string) ($entity->entity_name ?: $entity->full_name);
         if ($entity->isEntity()) {
@@ -2575,7 +2587,7 @@ final class RoleBlockExpansionService
      *
      * @return array<int, array{0: Contact, 1: ?string, 2: bool, 3: array}> [rep, capacity, isProxy, nestedReps] per rep
      */
-    private function resolveDocumentRepresentatives(Contact $entity, int $depth = 0, array $seenIds = [], ?int $overrideProxyRepId = null, ?array $orderContactIds = null): array
+    private function resolveDocumentRepresentatives(Contact $entity, int $depth = 0, array $seenIds = [], ?int $overrideProxyRepId = null, ?array $orderContactIds = null, ?array $representativeOverrides = null): array
     {
         if ($depth > self::MAX_REPRESENTATIVE_DEPTH) {
             throw UnresolvableRepresentativeChainException::tooDeep($entity, self::MAX_REPRESENTATIVE_DEPTH);
@@ -2593,7 +2605,7 @@ final class RoleBlockExpansionService
         // describes the same one-off choices as the signer, never a deeper
         // level of the chain.
         $reps = $depth === 0
-            ? $this->resolveDirectRepresentatives($entity, $overrideProxyRepId, $orderContactIds)
+            ? $this->resolveDirectRepresentatives($entity, $overrideProxyRepId, $orderContactIds, $representativeOverrides)
             : $this->resolveDirectRepresentatives($entity);
 
         if (empty($reps)) {
@@ -2659,7 +2671,7 @@ final class RoleBlockExpansionService
      *
      * @return array<int, array{0: Contact, 1: ?string, 2: bool}> [rep, capacity, isProxy] per rep
      */
-    private function resolveDirectRepresentatives(Contact $party, ?int $overrideProxyRepId = null, ?array $orderContactIds = null): array
+    private function resolveDirectRepresentatives(Contact $party, ?int $overrideProxyRepId = null, ?array $orderContactIds = null, ?array $representativeOverrides = null): array
     {
         $reps = $party->representatives()->get();
 
@@ -2669,6 +2681,36 @@ final class RoleBlockExpansionService
         // the pivot. Contact::applyRepresentativeOrder() is the ONE
         // ordering implementation — reused here, not re-sorted locally.
         $reps = Contact::applyRepresentativeOrder($reps, $orderContactIds);
+
+        // 2026-09-07 — apply this document's own director corrections
+        // BEFORE the proxy-override membership check below: overlaying an
+        // in-memory clone (never ->save()d) with the overridden name/ID so
+        // the printed clause ("...herein represented by X (ID: Y)") reflects
+        // what the agent corrected on step 3, not the stale Contact record.
+        // `id` (used by the membership check and by every OTHER caller that
+        // keys off $rep->id — e.g. expandEntityRecipients()) is never
+        // touched; only display/identity fields are overlaid. Contact's own
+        // getFullNameAttribute() reads first_name/last_name directly, so a
+        // single "full name" override (matching the wizard's own one-field
+        // UI, same as any natural-person recipient's Full Name input) is
+        // applied as first_name with last_name cleared.
+        if (! empty($representativeOverrides)) {
+            $reps = $reps->map(function (Contact $r) use ($representativeOverrides) {
+                $o = $representativeOverrides[$r->id] ?? null;
+                if (empty($o)) {
+                    return $r;
+                }
+                $clone = clone $r;
+                if (! empty(trim((string) ($o['name'] ?? '')))) {
+                    $clone->first_name = trim($o['name']);
+                    $clone->last_name = '';
+                }
+                if (! empty(trim((string) ($o['id_number'] ?? '')))) {
+                    $clone->id_number = trim($o['id_number']);
+                }
+                return $clone;
+            });
+        }
 
         // Johan, 2026-08-26 — the per-document proxy override, never written
         // to signs_as_proxy on the pivot. Everyone stays named either way

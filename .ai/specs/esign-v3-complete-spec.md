@@ -1692,6 +1692,136 @@ the double-quote character anywhere inside this component's `x-data`
 block, including inside comments — single quotes only, matching every
 string literal already in the expression.
 
+### 22.14 Entity representatives get their own editable recipient card on step 3 (2026-09-07)
+
+Johan, verbatim: "there were no bugs here except that there is no way to edit
+director details as they do not have cards on the left." Confirmed from a
+live look at flow 461 step 3: the company rendered as one recipient card,
+with representatives shown only as a read-only reorder list ("Signs via its
+representatives — 1. Andre Roets, 2. Elize Reichel") — no way to see or
+correct a director's own name, ID number, passport number, email, or phone
+from the wizard at all.
+
+**Not a regression.** `git blame` on every function touched here traces to
+2026-08-27 (`8db7fe4fc6`) or earlier — 11 days before this build, unrelated
+to any of the identity-binding/local-key work landed the same day. Confirmed
+directly: the entity card and its representative-reorder list already
+existed and worked exactly as described; the only gap was editability.
+
+**What ships.** Inside the entity's own recipient card, each representative
+now renders as its own bordered, labelled sub-card ("Signs on behalf of
+{company name}") with editable Full Name / ID Number / Passport Number /
+Email / Cell Phone — defaulting to the representative's live Contact values,
+never blank-by-default. The company itself is unchanged and still shown as
+the top-level recipient — the representative cards are nested inside it, not
+separate top-level recipients, so the "signs on its behalf" relationship
+stays visually explicit exactly as Johan required. Reorder arrows and the
+proxy picker are the SAME controls as before, unchanged in behaviour — order
+still sets the clause, address sections, signature positions and signing
+order exactly as it always has.
+
+**Data shape.** A new key, `_representative_overrides` (object keyed by
+`contact_id`, values `{name?, id_number?, passport_number?, email?, cell?}`),
+lives on the entity recipient's own row in `step_data['recipients']
+['recipients']` — the same place `_entity_proxy_contact_id`/
+`_entity_rep_order` already live for the identical reason (per-document,
+never written to the pivot or the Contact, survives save/reload). Set via a
+new Alpine method, `updateRepOverride(recipientIndex, contactId, field,
+value)` (`wizard.blade.php`), rather than `x-model` on a possibly-undefined
+nested path.
+
+**Flows through to what actually gets sent — three independent read points,
+all threaded the same override:**
+
+1. **Step 3 display** — `ESignWizardController::buildEntityRepresentationPreview()`
+   now accepts `$overrides` and merges it over each representative's live
+   Contact fields when building `all_representatives` (the array the new
+   cards render from). A representative with no override yet shows their
+   real, current contact data — never blank.
+2. **Step 6 expansion** — `expandEntityRecipients()` builds an in-memory
+   `$effectiveRep` (a `clone` of the real Contact, never `->save()`d) per
+   representative, with the override's name/id_number/email/cell overlaid.
+   Every field the expanded `SignatureRequest` input row carries — `name`,
+   `first_name`/`last_name`, `id_number`, `email`, `cell` — reads from
+   `$effectiveRep`, not the stale Contact. `passport_number` is now carried
+   explicitly on this row for the first time (previously absent entirely for
+   an entity representative; AT-385's own send-time gate recovered it from
+   the Contact as a fallback, but a correction never reached it before this
+   build).
+3. **The printed clause** — `RoleBlockExpansionService::composeEntityPartyText()`
+   gained a 5th, optional `?array $representativeOverrides` parameter,
+   threaded through `resolveDocumentRepresentatives()` (depth-0-only —
+   identical bound to the existing `$overrideProxyRepId`/`$orderContactIds`
+   parameters immediately beside it) into `resolveDirectRepresentatives()`,
+   which overlays the correction onto an in-memory clone before the clause
+   composer reads `$rep->full_name`/`$rep->id_number`. Both call sites that
+   build a fresh clause — the initial `expandEntityRecipients()` computation
+   and `resolveFreshPartyClauseText()`'s "Flow 409" recompute right before
+   freezing — now pass the SAME overrides (carried onto the expanded row as
+   `_representative_overrides` specifically so the second call can see it),
+   or the recompute would silently discard the correction the instant before
+   send — the exact bug class `_entity_proxy_contact_id`/`_entity_rep_order`
+   already had to be protected against for the identical reason.
+
+**Reordering never discards an unsaved correction.** `moveEntityRep()`'s
+POST to `/docuperfect/esign/api/entity/{contact}/proxy` now also sends
+`representative_overrides`, and `setEntityProxy()` threads it into the SAME
+`buildEntityRepresentationPreview()` call that rebuilds the response —
+without this, a reorder click while a director card had an unsaved,
+not-yet-saved edit would replace the whole preview with fresh Contact data,
+silently wiping what the agent had just typed.
+
+**Does editing a director here update their Contact record? — checked, not
+guessed.** Matched to how a plain linked recipient's own edit already
+behaves: `saveStep()` already calls `backfillContactIdNumber()` for a linked
+recipient's `id_number` (fill-if-blank ONLY — never overwrites an existing
+value); every other field a recipient card exposes has never written back to
+the Contact. Directors get the identical treatment: `saveStep()` now also
+calls `backfillContactIdNumber()` for each representative's own overridden
+`id_number`, fill-if-blank, same function, same rule. Name, email, cell, and
+passport_number are document-local only, exactly like every other recipient
+field. Verified directly against real QA1 data: a representative whose real
+`id_number` was already on file kept it unchanged after an override save;
+name/email were never written to the Contact at all.
+
+**Verified end-to-end, real data (flow 461 — entity 8355 / "111222333444",
+directors Andre Roets and Elize Reichel), rolled back / restored afterward so
+Johan's own test flow was left exactly as found:** rendered step 3 for real
+(headless Chromium against the real compiled assets) and confirmed each
+director renders as its own labelled, editable card; typed a real ID and
+email correction via the actual `updateRepOverride()` path; called the real
+`saveStep()` controller method directly (bypassing only CSRF, which an
+in-process call has no session for) — confirmed the correction persisted in
+the database; re-read fresh from the DB and confirmed step 3's display and
+step 6's expansion both showed the corrected details, and the printed clause
+text carried the corrected ID; confirmed the Contact record was untouched
+except id_number's existing fill-if-blank rule; confirmed a natural-person
+(non-entity) recipient is completely unaffected — no `_representation`, no
+expansion, no `_representative_overrides` key ever appears on its row.
+Generated a real PDF (Puppeteer) of the two-director document fully signed
+by both correction-carrying signers — zero cross-contamination between their
+ink, matching the same production `compose()`/`bakeInk()` pipeline every
+other e-sign proof in this spec uses.
+
+**Test suite could not complete a clean run** — `TEST_DB_DATABASE=hfc_dash_test_6`
+hung past 60s on this box during this build; confirmed via a plain-file-copy
+before/after (no git stash) that the SAME hang occurs on unmodified baseline
+code, so it is shared-MySQL-server contention from concurrently-running
+queue workers on other checkouts, not a defect introduced here. Regression
+tests were still written (`tests/Feature/Docuperfect/EsignEntityRecipientTest.php`)
+covering: override correction flows through expansion without touching the
+un-overridden sibling representative; passport_number is now carried through
+expansion; the Contact record is never written to except id_number
+fill-if-blank; step 3's preview merges an override over the live Contact
+value; a natural-person recipient is completely unaffected.
+
+**Not touched, deliberately** — `setEntityProxy()`'s validation stays loose
+(`nullable|array`, no per-key format rules) on `representative_overrides`,
+matching `id_number`'s own long-standing unvalidated-free-text convention
+everywhere else in this pipeline. The "No input lost" standard is met by
+never rejecting these fields at all, not by validating and re-populating —
+there is no failure mode to lose input on.
+
 ---
 
 ## 23. Open Questions

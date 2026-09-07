@@ -749,6 +749,26 @@ class ESignWizardController extends Controller
                     // so a couple's second seller renders their ID and FICA/deals
                     // resolve it downstream.
                     $this->backfillContactIdNumber((int) $r['_contact_id'], (string) ($r['id_number'] ?? ''));
+                    // 2026-09-07 — Johan asked, explicitly, not to be guessed at:
+                    // "does editing a director here also update their contact
+                    // record in the CRM, or only this document?" Checked how
+                    // the line immediately above already answers that question
+                    // for every other linked recipient — id_number gets this
+                    // SAME fill-if-blank backfill, nothing else does. Matching
+                    // that exactly for directors: only id_number backfills
+                    // (never overwriting an existing value); name/email/
+                    // cell/passport stay document-local in
+                    // _representative_overrides, exactly like a plain
+                    // recipient's Full Name/Email edit never touches the
+                    // Contact record either.
+                    if (is_array($r['_representative_overrides'] ?? null)) {
+                        foreach ($r['_representative_overrides'] as $repContactId => $repOverride) {
+                            if (! is_array($repOverride)) {
+                                continue;
+                            }
+                            $this->backfillContactIdNumber((int) $repContactId, (string) ($repOverride['id_number'] ?? ''));
+                        }
+                    }
                     continue;
                 }
 
@@ -1266,7 +1286,21 @@ class ESignWizardController extends Controller
         return $manualOrder ?? ($overrideProxyRepId !== null ? [$overrideProxyRepId] : null);
     }
 
-    private function buildEntityRepresentationPreview(Contact $c, ?\App\Models\Docuperfect\EsignRecipientPreset $entityPreset, ?int $overrideProxyRepId = null, ?array $orderContactIds = null): ?array
+    /**
+     * Johan, 2026-09-07 — "there is no way to edit director details as they
+     * do not have cards on the left." $overrides is this document's own
+     * per-representative corrections (never written to the Contact record,
+     * except id_number's existing fill-if-blank backfill — see saveStep()),
+     * keyed by contact_id. Applied here ONLY to what step 3's own card
+     * displays/edits; expandEntityRecipients() (step 6) and
+     * composeEntityPartyText() (the printed clause) apply the SAME
+     * overrides independently at their own read points, so a correction
+     * reaches the signature request AND the document text, not just this
+     * screen.
+     *
+     * @param  array<int, array{name?: string, id_number?: string, passport_number?: string, email?: string, cell?: string}>  $overrides
+     */
+    private function buildEntityRepresentationPreview(Contact $c, ?\App\Models\Docuperfect\EsignRecipientPreset $entityPreset, ?int $overrideProxyRepId = null, ?array $orderContactIds = null, array $overrides = []): ?array
     {
         if (! $c->isEntity()) {
             return null;
@@ -1308,10 +1342,24 @@ class ESignWizardController extends Controller
             // Ordered by the SAME applyRepresentativeOrder() every other
             // consumer uses, so the reorder arrows sit on rows already in
             // the order that's actually going onto the document.
-            'all_representatives' => $allReps->map(function ($rep) use ($overrideProxyRepId) {
+            // 2026-09-07 — each entry now carries the editable signing fields
+            // (id_number/passport_number/email/cell), not just display name,
+            // so the wizard can render a genuine per-director card here
+            // instead of a read-only reorder row. An override wins over the
+            // live Contact value when present and non-empty; otherwise the
+            // card shows (and the agent edits from) the contact's own
+            // current value — never blank-by-default for a field nobody has
+            // touched yet.
+            'all_representatives' => $allReps->map(function ($rep) use ($overrideProxyRepId, $overrides) {
+                $o = $overrides[$rep->id] ?? [];
+                $val = fn (string $key, $default) => (isset($o[$key]) && trim((string) $o[$key]) !== '') ? $o[$key] : $default;
                 return [
                     'contact_id' => $rep->id,
-                    'name' => $rep->full_name,
+                    'name' => $val('name', $rep->full_name),
+                    'id_number' => $val('id_number', (string) ($rep->id_number ?? '')),
+                    'passport_number' => $val('passport_number', (string) ($rep->passport_number ?? '')),
+                    'email' => $val('email', (string) ($rep->email ?? '')),
+                    'cell' => $val('cell', (string) ($rep->phone ?? '')),
                     'capacity' => $rep->pivot->capacity ?? null,
                     'is_primary' => (bool) ($rep->pivot->is_primary ?? false),
                     'is_proxy' => $overrideProxyRepId !== null ? ($rep->id === $overrideProxyRepId) : (bool) ($rep->pivot->signs_as_proxy ?? false),
@@ -1365,7 +1413,7 @@ class ESignWizardController extends Controller
                 // order (already sitting on the recipient row, never on the
                 // contact) — not whatever the permanent pivot happens to say.
                 $overrideProxyRepId = isset($r['_entity_proxy_contact_id']) ? (int) $r['_entity_proxy_contact_id'] : null;
-                $r['_representation'] = $this->buildEntityRepresentationPreview($contact, $entityPreset, $overrideProxyRepId, $this->resolveEffectiveRepOrder($r, $overrideProxyRepId));
+                $r['_representation'] = $this->buildEntityRepresentationPreview($contact, $entityPreset, $overrideProxyRepId, $this->resolveEffectiveRepOrder($r, $overrideProxyRepId), is_array($r['_representative_overrides'] ?? null) ? $r['_representative_overrides'] : []);
             }
         }
         unset($r);
@@ -1807,10 +1855,18 @@ class ESignWizardController extends Controller
             // buildEntityRepresentationPreview()'s existing precedence.
             'order' => 'nullable|array',
             'order.*' => 'integer',
+            // 2026-09-07 — without this, moveEntityRep()'s reorder call replaces
+            // r._representation with a server response built from the LIVE
+            // contact fields alone, silently discarding any director
+            // correction the agent had just typed but not yet saved. No
+            // format validation on the nested values — matches id_number's
+            // own existing unvalidated-free-text convention.
+            'representative_overrides' => 'nullable|array',
         ]);
 
         $chosenId = $validated['representative_contact_id'] ?? null;
         $order = $validated['order'] ?? null;
+        $overrides = $validated['representative_overrides'] ?? [];
 
         if ($chosenId !== null && ! $contact->representatives()->get()->contains('id', (int) $chosenId)) {
             return response()->json([
@@ -1831,7 +1887,7 @@ class ESignWizardController extends Controller
 
         return response()->json([
             'ok' => true,
-            'representation' => $this->buildEntityRepresentationPreview($contact, $entityPreset, $overrideProxyRepId, $effectiveOrder),
+            'representation' => $this->buildEntityRepresentationPreview($contact, $entityPreset, $overrideProxyRepId, $effectiveOrder, $overrides),
         ]);
     }
 
@@ -3530,6 +3586,11 @@ class ESignWizardController extends Controller
                         // both features right before the clause is frozen.
                         isset($r['_entity_proxy_contact_id']) ? (int) $r['_entity_proxy_contact_id'] : null,
                         $r['_entity_rep_order'] ?? null,
+                        // 2026-09-07 — same reasoning as the proxy/order args
+                        // immediately above: without this, the Flow 409
+                        // recompute undoes a director correction right before
+                        // the clause freezes, the instant before send.
+                        is_array($r['_representative_overrides'] ?? null) ? $r['_representative_overrides'] : null,
                     );
                 }
 
@@ -4489,7 +4550,7 @@ class ESignWizardController extends Controller
      *
      * @throws \Illuminate\Validation\ValidationException
      */
-    private function resolveFreshPartyClauseText(int $entityContactId, ?int $contactId, string $recipientName, ?int $overrideProxyRepId = null, ?array $orderContactIds = null): ?string
+    private function resolveFreshPartyClauseText(int $entityContactId, ?int $contactId, string $recipientName, ?int $overrideProxyRepId = null, ?array $orderContactIds = null, ?array $representativeOverrides = null): ?string
     {
         $entityContact = Contact::withoutGlobalScopes()->find($entityContactId);
         if (! $entityContact) {
@@ -4522,7 +4583,7 @@ class ESignWizardController extends Controller
             ]);
         }
 
-        return app(\App\Services\Docuperfect\RoleBlockExpansionService::class)->composeEntityPartyText($entityContact, true, $overrideProxyRepId, $orderContactIds);
+        return app(\App\Services\Docuperfect\RoleBlockExpansionService::class)->composeEntityPartyText($entityContact, true, $overrideProxyRepId, $orderContactIds, $representativeOverrides);
     }
 
     /**
@@ -4801,22 +4862,56 @@ class ESignWizardController extends Controller
             // every OTHER representative gets its own, per Johan: "derive it from
             // the party's own identity (contact_id / party record), not from the
             // entity." See the derivation at the bottom of this loop body.
+            // 2026-09-07 — Johan: "edits made here must PERSIST and must flow
+            // through to what actually gets sent." $overrides is this
+            // entity recipient's own per-document director corrections
+            // (step 3's new editable cards), keyed by contact_id — never
+            // written to the Contact record except id_number's existing
+            // fill-if-blank backfill (see saveStep()).
+            $overrides = is_array($r['_representative_overrides'] ?? null) ? $r['_representative_overrides'] : [];
             $repIndex = 0;
             foreach ($signers as $rep) {
                 $repIndex++;
                 $capacity = $rep->pivot->capacity ?? null;
+                // In-memory clone with this document's corrections overlaid —
+                // never ->save()d. $rep itself (id/pivot) stays the real,
+                // unmodified Contact for anything that must key off the true
+                // record (the SignatureRequest's own contact_id, the proxy-
+                // membership check above). Every DISPLAY/IDENTITY field below
+                // (name, ID, email, phone) reads from $effectiveRep instead,
+                // so a correction typed on step 3 reaches the printed clause,
+                // the signing-email greeting, AND the SignatureRequest row —
+                // not just this screen.
+                $repOverride  = $overrides[$rep->id] ?? [];
+                $effectiveRep = clone $rep;
+                if (trim((string) ($repOverride['name'] ?? '')) !== '') {
+                    $effectiveRep->first_name = trim($repOverride['name']);
+                    $effectiveRep->last_name = '';
+                }
+                if (trim((string) ($repOverride['id_number'] ?? '')) !== '') {
+                    $effectiveRep->id_number = trim($repOverride['id_number']);
+                }
+                if (trim((string) ($repOverride['email'] ?? '')) !== '') {
+                    $effectiveRep->email = trim($repOverride['email']);
+                }
+                if (trim((string) ($repOverride['cell'] ?? '')) !== '') {
+                    $effectiveRep->phone = trim($repOverride['cell']);
+                }
+                $effectivePassport = trim((string) ($repOverride['passport_number'] ?? '')) !== ''
+                    ? trim($repOverride['passport_number'])
+                    : (string) ($rep->passport_number ?? '');
                 // A PROXY signer renders with the distinct proxy wording —
                 // this document's own pick when one was made, else whatever
                 // is permanently on file (ordinarily nothing, for a company).
                 $isProxy  = $overrideProxyRepId !== null ? ($rep->id === $overrideProxyRepId) : (bool) ($rep->pivot->signs_as_proxy ?? false);
                 $label    = $preset
-                    ? $preset->renderPhrase($contact, $rep, $capacity, $isProxy)
+                    ? $preset->renderPhrase($contact, $effectiveRep, $capacity, $isProxy)
                     : \App\Models\Docuperfect\EsignRecipientPreset::substitute(
                         $isProxy
                             ? \App\Models\Docuperfect\EsignRecipientPreset::DEFAULT_PROXY_PHRASING
                             : \App\Models\Docuperfect\EsignRecipientPreset::DEFAULT_PHRASING,
-                        $contact, $rep, $capacity);
-                $caption  = $preset ? $preset->renderCaption($contact, $rep, $capacity, $isProxy) : '';
+                        $contact, $effectiveRep, $capacity);
+                $caption  = $preset ? $preset->renderCaption($contact, $effectiveRep, $capacity, $isProxy) : '';
 
                 // SNAPSHOT (Johan, 2026-08-24) — the document-body wording is
                 // resolved ONCE, here, at generation time, and stored on the
@@ -4824,7 +4919,7 @@ class ESignWizardController extends Controller
                 // below). A wording template edited after this point must
                 // never change what an already-sent document says.
                 $partyClauseText = app(\App\Services\Docuperfect\RoleBlockExpansionService::class)
-                    ->composeEntityPartyText($contact, true, $overrideProxyRepId, $effectiveOrder);
+                    ->composeEntityPartyText($contact, true, $overrideProxyRepId, $effectiveOrder, $overrides);
 
                 $out[] = [
                     'order'                 => ++$order,
@@ -4842,12 +4937,19 @@ class ESignWizardController extends Controller
                     // directly from the representative Contact, the same
                     // way a natural-person recipient's own 'name' always
                     // has been (never the entity's, never the clause).
-                    'name'                  => (string) $rep->full_name,
-                    'first_name'            => $rep->first_name ?? '',
-                    'last_name'             => $rep->last_name ?? '',
-                    'id_number'             => $rep->id_number ?? '',
-                    'email'                 => $rep->email ?? '',
-                    'cell'                  => $rep->phone ?? '',
+                    'name'                  => (string) $effectiveRep->full_name,
+                    'first_name'            => $effectiveRep->first_name ?? '',
+                    'last_name'             => $effectiveRep->last_name ?? '',
+                    'id_number'             => $effectiveRep->id_number ?? '',
+                    // 2026-09-07 — never carried for an entity representative
+                    // before this build; a foreign-national director's
+                    // passport had to be recovered by AT-385's OWN contact-
+                    // fallback at send time instead of appearing here. Now
+                    // explicit, and override-aware like every other field on
+                    // this row.
+                    'passport_number'       => $effectivePassport,
+                    'email'                 => $effectiveRep->email ?? '',
+                    'cell'                  => $effectiveRep->phone ?? '',
                     'address'               => $rep->address ?? '',
                     '_contact_id'           => (int) $rep->id,
                     '_entity_contact_id'    => (int) $contact->id,
@@ -4866,6 +4968,10 @@ class ESignWizardController extends Controller
                     // proxy state and undo everything just set above.
                     '_entity_proxy_contact_id' => $overrideProxyRepId,
                     '_entity_rep_order'     => $effectiveOrder,
+                    // 2026-09-07 — same "must survive expansion" reasoning as
+                    // the two fields immediately above: resolveFreshPartyClauseText()
+                    // reads this off the row for the Flow 409 recompute.
+                    '_representative_overrides' => $overrides ?: null,
                     // cc3, 2026-08-30 (Shape 5 fix — deceased seller, company
                     // executor) — the ORIGINAL row's own recipient_local_key
                     // (and, if it was auto-created for a deceased party's
