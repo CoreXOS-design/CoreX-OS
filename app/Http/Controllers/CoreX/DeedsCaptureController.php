@@ -806,8 +806,29 @@ final class DeedsCaptureController extends Controller
         // captured suburb text doesn't match a known P24 suburb, the raw town
         // is kept and p24_suburb_mismatch is flagged for the nightly
         // SyncP24Locations/ReconcileP24Suburbs reconcile to pick up later.
-        $p24Suburb = $trackedProperty->suburb ? P24Suburb::lookup($trackedProperty->suburb) : null;
+        //
+        // Property #21014/#15774 (2026-09-07) — a deeds capture's province and
+        // coordinates are already known at this point (the deeds capture
+        // screen shows them correctly), but the name-only lookup below used
+        // to ignore both and match the same-named suburb in ANY province
+        // ("Melville" resolved to Johannesburg every time, never the
+        // captured KZN one). P24Suburb::lookup() now takes both and refuses
+        // to guess when it still can't disambiguate — see that method's own
+        // docblock. $p24Suburb stays null exactly as before when nothing
+        // matches at all, so the existing p24_suburb_mismatch flagging below
+        // is unchanged; it now ALSO stays null (soft, not a guess) when the
+        // name matches multiple provinces and neither province nor
+        // coordinates can tell them apart.
+        $p24Suburb = $trackedProperty->suburb
+            ? P24Suburb::lookup(
+                $trackedProperty->suburb,
+                $trackedProperty->province,
+                $trackedProperty->latitude !== null ? (float) $trackedProperty->latitude : null,
+                $trackedProperty->longitude !== null ? (float) $trackedProperty->longitude : null,
+            )
+            : null;
         $p24City = $p24Suburb?->city;
+        $p24Province = $p24City?->province;
 
         // Extent fix (2026-08-19, mapping-proof audit) — spec §6.4, binding.
         // CONFIRMED live (TrackedProperty 9635, a real sectional unit): the
@@ -837,6 +858,7 @@ final class DeedsCaptureController extends Controller
             'city'              => $p24City?->name,
             'p24_suburb_id'     => $p24Suburb?->id,
             'p24_city_id'       => $p24Suburb?->p24_city_id,
+            'p24_province_id'   => $p24Province?->id,
         ], static fn ($v) => $v !== null && $v !== '');
 
         // Always-set overrides — must win even when "empty", so
