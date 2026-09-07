@@ -3007,6 +3007,16 @@ class SignatureService
             $note ?: 'Your agent has sent this document back to you. Please open your signing link, remove the change you made, and sign again.',
         );
 
+        // AT-395 fix (2026-09-08) — same bug class as the other advance-flow fixes:
+        // this used to report ok=true unconditionally. reactivateRequestForMark()
+        // calls dispatchSigningMail(), which already correctly records
+        // invite_send_status on the request — surface it here instead of
+        // discarding it.
+        $freshEditor = $editor->fresh();
+        if ($freshEditor->invite_send_status === 'failed') {
+            return ['ok' => true, 'editor' => $editor->signer_name, 'send_failed' => true, 'send_error' => $freshEditor->invite_send_error];
+        }
+
         return ['ok' => true, 'editor' => $editor->signer_name];
     }
 

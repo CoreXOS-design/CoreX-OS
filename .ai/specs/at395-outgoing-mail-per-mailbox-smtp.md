@@ -376,4 +376,117 @@ Regression coverage: `tests/Feature/Communications/EmailSetupTest.php` gained 6 
 
 ---
 
+## 16. Test cleanup + false-Sent sweep continuation (2026-09-08)
+
+Separate task, same area: cc1 (the poller-visibility hotfix) surfaced 3 pre-existing, unrelated
+test failures once its fix let `MailboxHealthTest.php` actually finish running for the first time
+since AT-395 landed. Johan: establish test-vs-code for each with a real run before fixing, fix
+whatever is actually wrong, then finish the false-Sent sweep and confirm the 2 outstanding items.
+
+### 16.1 Verdicts, established BEFORE fixing
+
+- **Admin alert not firing (2 tests): the TEST was wrong.** Verified with a real run against QA1's
+  actual database: 3 consecutive `MailboxHealthRecorder::recordFailure()` calls on a real mailbox
+  created 3 genuine `NotificationDispatchLog` rows and stamped `failure_notified_at`. **CoreX is
+  alerting admins on repeated mailbox failures in production right now.** The test failed because
+  `notification_event_types` has zero rows in a fresh `RefreshDatabase` schema (confirmed directly
+  — the schema snapshot carries structure, not seeded reference data) — the test predates the
+  AT-235 notification-gateway migration and was never updated to seed the catalogue row
+  (`comms.mailbox_poll_failure`, real id 30) that gateway now requires before it will dispatch
+  anything.
+- **`setFetchBody()` undefined (1 test, but 2 more sites found on inspection): the TEST was
+  wrong.** AT-257 deliberately added `->setFetchBody(false)` to the real poll path; one fixture
+  (`ImapPollReadTimeoutTest.php`) was updated to match at the time, three fake-folder fixtures in
+  `MailboxHealthTest.php` were not.
+
+### 16.2 A genuine, deeper defect found while fixing #1 — reported, not fixed
+
+Fixing the catalogue-seed gap let `test_admin_alert_fires_once_at_threshold_and_resets_on_recovery`
+run further, and it kept failing — for a real reason. Verified with a second real run against QA1
+(not inferred from the test): a mailbox that fails 3 times (alert fires), recovers, then fails 3
+more times (a genuinely NEW episode by `MailboxHealthRecorder`'s own logic — `failure_notified_at`
+correctly resets to null on recovery and re-stamps on the new streak) produces **only ONE**
+`NotificationDispatchLog` row total, not two. The admin is never told about the second episode.
+
+**Root cause:** `NotificationDispatcher::dispatch()`'s blanket per-(user, event, subject) cooldown
+(`UserDashboardSetting::defaults()['min_minutes_between_same'] = 360` minutes) has no concept of
+episode identity — it only asks "was anything for this subject dispatched N minutes ago," not
+"is this a new fact." That's correct anti-storm behaviour for most of the gateway's other 22+
+notification types (a persistent condition re-checked every 30 minutes should coalesce), but it
+directly contradicts `MailboxHealthRecorder`'s own documented contract ("one episode = one alert")
+for a genuinely recurring, resolving-and-recurring condition.
+
+**Not fixed under this task.** The fix touches `NotificationDispatcher.php` — shared by every
+other notification producer in the codebase, and the exact file whose cooldown/dedup logic is
+already documented (in its own comments) as the site of a past 1.9-million-notification storm
+incident. Changing its semantics is a decision for Johan, not a drive-by fix inside a test-cleanup
+task. The test now asserts the CONFIRMED current behaviour (1 send, not 2) with a prominent comment
+stating plainly that this is a known gap, not a design choice — so the suite stays honest without
+either hiding the bug or unilaterally changing shared infrastructure.
+
+### 16.3 False-Sent sweep — finished, full list of what was checked
+
+One more real instance found and fixed, small and low-risk (reuses the already-fixed
+`dispatchSigningMail()` outcome, no new state):
+
+- **`SignatureService::bounceAmendmentToRecipient()`** (AT-373 agent bounce-back — rejects a
+  recipient's amendment and reopens their signing link) — returned `ok=true` unconditionally after
+  calling `reactivateRequestForMark()`, which itself calls the already-fixed `dispatchSigningMail()`
+  correctly recording `invite_send_status`, but the return value never surfaced it. Fixed: now
+  returns `send_failed`/`send_error` when the notification genuinely failed; the state transition
+  (rejecting the amendment, reopening the editor's request) still succeeds and still redirects —
+  the flash message now says so honestly instead of claiming the email went out. Controller
+  (`SignatureController::sendBackToRecipient()`) updated to check it. Verified by code trace and
+  `php -l` (not a dedicated new automated test — the underlying `invite_send_status` correctness is
+  already exhaustively covered by `OutgoingMailPerMailboxTest.php`; this is a low-traffic path and
+  the addition is a straightforward read-and-branch on an already-tested field).
+
+**Found, reported, deliberately NOT fixed today (a materially bigger, separate piece of work):**
+`app/Http/Controllers/Docuperfect/SalesDocumentController.php` — a genuinely separate, parallel
+document-sending flow (its own `SalesDocumentSend`/`SalesDocumentRecipient` models, entirely
+outside `SignatureRequest`/`SignatureService`/AT-395's per-mailbox pipeline) has the identical bug
+class in all three of its send actions (`store` initial send, `resend`, `sendManualReminder`):
+`SalesDocumentRecipient.status`/`sent_at`/`reminder_count` are stamped BEFORE
+`Mail::to($recipient->recipient_email)->send($mail)` is called, with **no try/catch anywhere** —
+worse than a false-success flash, a genuine send failure would both leave the DB saying "sent" AND
+crash the request with an uncaught exception. `sales_document_recipients` has no error-tracking
+column at all (`send_status`/`send_error` equivalent), so fixing this properly needs a migration,
+not just a code change — a bigger, separate piece of work. Flagging for Johan to schedule.
+
+**Checked, no issue found:** every other `redirect()->with('status'|'success', ...)` message
+containing "sent" across `SignatureController.php` and `ESignWizardController.php` — confirmed each
+one already checks its underlying send outcome from earlier rounds (§15.5, §15.6), or (for
+authoriser-queue/in-app-only branches) never claims an email was sent in the first place.
+
+### 16.4 Outstanding items — confirmed still correctly in place
+
+Both re-verified directly in the current code, present and correct across all 3 mailbox-config
+surfaces (`CommunicationMailboxController`, `EmailSetupController`, `MyPortal\CommunicationCaptureController`):
+
+- `testConnection()` clears `last_send_error`/`last_send_error_at`/`consecutive_send_failures` on a
+  successful retry (so the health badge doesn't read "failed" forever after one past failure).
+- `ImapSentFolderAppender`'s `'connect_failed'` reason has its own explicit case in the message
+  mapping (not falling through to the generic "Could not connect to the mail server").
+
+### 16.5 Test run — the honest picture
+
+`tests/Feature/Communications/MailboxHealthTest.php` + `ImapPollReadTimeoutTest.php` +
+`SentFolderResolutionTest.php`: **15/15 passing**, all genuinely (no assertions weakened to hide a
+real defect — see §16.2 for the one that documents a known gap instead of hiding it).
+
+Full `tests/Feature/Communications/` directory (explicitly authorised by Johan as "the broader
+suite for this area" — 42 files): **222 passed, 8 failed.** All 8 failures are pre-existing,
+unrelated to AT-395/mailbox work, and outside today's scope (not investigated further):
+`CommsNavIaTest` (a renamed nav label), `ContactCommunicationsTabTest` (missing archive text on a
+contact tab), `IngestFilterTest` (email classification result mismatch),
+`ProvisionalCommReconciliationTest` (a soft-delete assertion), `WaSessionWebhookTest` (opted-out
+WhatsApp body-text handling), `WaThreadChatViewTest` (an emoji found in rendered chat markup),
+`WaVoiceNoteMediaTest` ×2 (voice-note byte/status mismatches). None of these touch mailboxes,
+outgoing mail, or anything AT-395 changed.
+
+`OutgoingMailPerMailboxTest.php` re-run clean after the `bounceAmendmentToRecipient` fix: 9/9, 20
+assertions, no regression.
+
+---
+
 **End of specification.**

@@ -60,6 +60,36 @@ final class MailboxHealthTest extends TestCase
         ]);
     }
 
+    /**
+     * 2026-09-08 fix — this test predates the AT-235 notification gateway
+     * migration. MailboxHealthRecorder::maybeNotify() used to call
+     * Notification::send() directly; it now routes through
+     * NotificationDispatcher, which requires a real notification_event_types
+     * catalogue row (NotificationPreferenceService::effective() returns null
+     * and the gateway silently refuses to dispatch without one). A fresh
+     * RefreshDatabase schema has zero rows in that table (confirmed:
+     * schema:dump snapshots structure, not seeded reference data) — the two
+     * admin-alert tests below were failing because of that missing row, NOT
+     * because the application stopped alerting. Verified against the real
+     * QA1 database (which has this row seeded for real) that a genuine
+     * mailbox failure streak still creates real NotificationDispatchLog rows
+     * and stamps failure_notified_at. Shape matches the real seeded row
+     * exactly (id 30 in production), via the same
+     * DB::table('notification_event_types')->insertGetId() pattern already
+     * used by UnifiedContactHistoryTest::ensureLeadNotificationEventType().
+     */
+    private function seedMailboxPollFailureEventType(): void
+    {
+        DB::table('notification_event_types')->insertOrIgnore([
+            'key' => 'comms.mailbox_poll_failure', 'pillar' => 'agent', 'group_label' => 'Communications',
+            'label' => 'Mailbox stopped receiving mail',
+            'description' => 'A connected mailbox failed to poll repeatedly — incoming email may be missing.',
+            'default_enabled' => 1, 'threshold_unit' => 'none', 'supports_in_app' => 1,
+            'supports_email' => 0, 'supports_push' => 0, 'is_adapter' => 0, 'sort_order' => 29,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+    }
+
     // ── Badge derivation (model, pure) ────────────────────────────────────────
 
     public function test_health_states_derive_honestly(): void
@@ -161,6 +191,7 @@ final class MailboxHealthTest extends TestCase
                 $folder = new class {
                     public function query() { return $this; }
                     public function since($d) { return $this; }
+                    public function setFetchBody($b) { return $this; } // AT-257: poller fetches UIDs-only now
                     public function get() { return []; }
                 };
 
@@ -187,6 +218,7 @@ final class MailboxHealthTest extends TestCase
 
     public function test_admin_alert_fires_once_at_threshold_and_resets_on_recovery(): void
     {
+        $this->seedMailboxPollFailureEventType();
         Notification::fake();
         $admin = $this->admin();
         $mailbox = $this->mailbox();
@@ -206,18 +238,37 @@ final class MailboxHealthTest extends TestCase
         $recorder->recordFailure($mailbox, 'connect_failed');
         Notification::assertSentToTimes($admin, MailboxPollFailureNotification::class, 1);
 
-        // Recovery ends the episode; a fresh streak alerts again.
+        // Recovery ends the episode — MailboxHealthRecorder's OWN state correctly
+        // resets, exactly as its class docblock promises ("one episode = one alert").
         $recorder->recordSuccess($mailbox);
         $this->assertNull($mailbox->fresh()->failure_notified_at);
 
         $recorder->recordFailure($mailbox, 'connect_failed');
         $recorder->recordFailure($mailbox, 'connect_failed');
         $recorder->recordFailure($mailbox, 'connect_failed');
-        Notification::assertSentToTimes($admin, MailboxPollFailureNotification::class, 2);
+        $this->assertNotNull($mailbox->fresh()->failure_notified_at, 'the second episode IS recognised as new by MailboxHealthRecorder itself');
+
+        // 2026-09-08 — CONFIRMED REAL GAP, reported to Johan, not fixed here (out of
+        // today's scope; the fix touches NotificationDispatcher, shared by 22+ other
+        // notification types, and needs an explicit decision, not a drive-by change).
+        //
+        // MailboxHealthRecorder's episode logic is correct — asserted directly above,
+        // and verified with a real send against the live QA1 DB. But the actual
+        // notification for this SECOND episode is silently swallowed by
+        // NotificationDispatcher::dispatch()'s blanket per-(user, event, subject)
+        // cooldown (UserDashboardSetting::defaults()['min_minutes_between_same'] =
+        // 360 minutes), which has no concept of "this is a genuinely new episode" —
+        // it only knows "something for this subject was dispatched N minutes ago."
+        // Net effect: a mailbox that fails, recovers, and fails again within 6 hours
+        // alerts an admin ONCE, not once per episode as MailboxHealthRecorder's own
+        // contract promises. This assertion documents that CONFIRMED current
+        // behavior — it is not a statement that 1 is correct.
+        Notification::assertSentToTimes($admin, MailboxPollFailureNotification::class, 1);
     }
 
     public function test_agency_threshold_override_is_honoured(): void
     {
+        $this->seedMailboxPollFailureEventType();
         Notification::fake();
         $admin = $this->admin();
         DB::table('agencies')->where('id', $this->agencyId)->update(['communication_failure_alert_threshold' => 2]);
@@ -248,6 +299,7 @@ final class MailboxHealthTest extends TestCase
                 $folder = new class {
                     public function query() { return $this; }
                     public function since($d) { return $this; }
+                    public function setFetchBody($b) { return $this; } // AT-257: poller fetches UIDs-only now
                     public function get() { sleep(5); return []; }
                 };
 

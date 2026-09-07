@@ -3456,6 +3456,17 @@ class SignatureController extends Controller
         if (empty($result['ok'])) {
             return back()->with('error', $result['error'] ?? 'Could not send the document back.');
         }
+
+        // AT-395 fix (2026-09-08) — the state transition (rejecting the amendment,
+        // reopening the editor's request) genuinely succeeded even if the
+        // notification email failed, so this still redirects to myDocuments —
+        // but it must say so honestly, not claim the email went out when it didn't.
+        if (! empty($result['send_failed'])) {
+            return redirect()->route('docuperfect.esign.myDocuments')
+                ->with('error', 'Rejected and reopened for ' . ($result['editor'] ?? 'the recipient')
+                    . ', but could not send the notification email — ' . $result['send_error']);
+        }
+
         return redirect()->route('docuperfect.esign.myDocuments')
             ->with('status', 'Sent back to ' . ($result['editor'] ?? 'the recipient')
                 . ' — they will get a fresh signing link to remove their change and re-sign.');
