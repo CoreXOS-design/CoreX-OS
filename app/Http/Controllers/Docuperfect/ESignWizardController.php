@@ -1504,6 +1504,7 @@ class ESignWizardController extends Controller
                 'email'               => $c->email ?? '',
                 'phone'               => $c->phone ?? '',
                 'id_number'           => $c->id_number ?? '',
+                'passport_number'     => $c->passport_number ?? '',
                 'address'             => $c->address ?? '',
                 'contact_type'        => $c->type?->name ?? '',
                 'esign_role'          => $c->type?->esign_role ?? null,
@@ -2714,6 +2715,7 @@ class ESignWizardController extends Controller
         $this->assertDeceasedRecipientsHaveSubstituteSigner($recipients);
         $this->assertSupplierRepresentativesHaveRegistrationNumber($recipients);
         $this->assertChainPartiesHaveIdNumbers($recipients);
+        $this->assertRecipientsHaveIdentityForSend($recipients);
 
         // GENERATED-DOCUMENT BODY (Johan, 2026-08-25 — cc1's finding on
         // 93a10b6a2 — REVISED 2026-08-26, escalation of cc5's 547863fbb):
@@ -3624,6 +3626,10 @@ class ESignWizardController extends Controller
                     // reach the document, not just the wizard's own screen.
                     signerPhone: $r['cell'] ?? null,
                     signerAddress: $r['address'] ?? null,
+                    // AT-385 — backfilled onto $r above (document-first,
+                    // contact-fallback) by assertRecipientsHaveIdentityForSend()
+                    // before this loop runs.
+                    signerPassportNumber: $r['passport_number'] ?? null,
                 );
 
                 $this->stampSupplierFirmIfAny($sigReq, $r);
@@ -5105,6 +5111,75 @@ class ESignWizardController extends Controller
                 ]);
             }
         }
+    }
+
+    /**
+     * AT-385 HARD BLOCK (Johan, 2026-09-04): "no id is a massive problem...
+     * The gate would be on fill and review - you cannot continue if no id
+     * exists on doc or contact." Every non-agent signing party must carry
+     * an ID number OR a passport number before the document can be sent —
+     * checked on the recipient row (what Fill & Review actually captured)
+     * first, falling back to the linked Contact record. Accepts an SA ID
+     * OR a passport number — foreign nationals on the KZN coast routinely
+     * hold no SA ID (see the passport_number migration's rationale).
+     *
+     * Unconditional (Johan, 2026-09-07): "No, this is not settings but
+     * fixes we are building." Not agency-configurable — there was briefly
+     * an EsignSettings::requireIdentityBeforeSend() toggle here; it was
+     * removed (2026_09_07_025135) because "you may not send a legal
+     * document without identifying the signer" is not a preference an
+     * agency gets to switch off. Applied identically to both send paths
+     * (prepareSigning() and prepareWetInk()) — same reasoning as the
+     * sibling asserts above: a wet-ink document has no server-side catch
+     * after this point at all.
+     *
+     * Deliberately does NOT touch or remediate any existing recipient/
+     * signature_requests row — this only stops a NEW send from proceeding
+     * with a blank identity; existing blanks on already-sent documents are
+     * untouched, per Johan's explicit instruction.
+     */
+    private function assertRecipientsHaveIdentityForSend(array &$recipients): void
+    {
+        foreach ($recipients as &$r) {
+            if (($r['role'] ?? '') === 'agent') {
+                continue;
+            }
+
+            $idNumber = trim((string) ($r['id_number'] ?? ''));
+            $passportNumber = trim((string) ($r['passport_number'] ?? ''));
+
+            // Document-first, contact-fallback (Johan): if the fallback finds
+            // it, backfill it onto THIS row so the SignatureRequest created
+            // below actually carries it — otherwise a row that only passes
+            // via its contact's ID would create a request with a blank
+            // signer_id_number, and the /sign gateway's ID gate would never
+            // fire for that party at all.
+            if ($idNumber === '' && $passportNumber === '' && !empty($r['_contact_id'])) {
+                $contact = Contact::withoutGlobalScopes()->find($r['_contact_id']);
+                if ($contact !== null) {
+                    $idNumber = trim((string) ($contact->id_number ?? ''));
+                    $passportNumber = trim((string) ($contact->passport_number ?? ''));
+                    if ($idNumber !== '') {
+                        $r['id_number'] = $idNumber;
+                    }
+                    if ($passportNumber !== '') {
+                        $r['passport_number'] = $passportNumber;
+                    }
+                }
+            }
+
+            if ($idNumber !== '' || $passportNumber !== '') {
+                continue;
+            }
+
+            $name = trim((string) ($r['name'] ?? '')) ?: 'This party';
+            $roleLabel = ucfirst(str_replace('_', ' ', preg_replace('/_\d+$/', '', $r['role'] ?? 'party')));
+
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'recipients' => "{$name} ({$roleLabel}) has no ID number or passport number on file. Add one before sending — either here or on their contact record.",
+            ]);
+        }
+        unset($r);
     }
 
     /**
@@ -7331,6 +7406,7 @@ class ESignWizardController extends Controller
         $this->assertDeceasedRecipientsHaveSubstituteSigner($recipients);
         $this->assertSupplierRepresentativesHaveRegistrationNumber($recipients);
         $this->assertChainPartiesHaveIdNumbers($recipients);
+        $this->assertRecipientsHaveIdentityForSend($recipients);
 
         // GENERATED-DOCUMENT BODY — same reasoning as prepareSigning()
         // (ESignWizardController.php ~2586-2610): the printed document must
@@ -7638,6 +7714,8 @@ class ESignWizardController extends Controller
                     // Johan, 2026-08-28 — see prepareSigning()'s identical fix.
                     signerPhone: $r['cell'] ?? null,
                     signerAddress: $r['address'] ?? null,
+                    // AT-385 — see prepareSigning()'s identical fix.
+                    signerPassportNumber: $r['passport_number'] ?? null,
                 );
                 $sigReq->update(['signing_method' => 'wet_ink']);
                 $this->stampSupplierFirmIfAny($sigReq, $r);

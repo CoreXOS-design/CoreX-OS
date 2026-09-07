@@ -43,7 +43,7 @@ class Contact extends Model
         'agent_id', 'second_agent_id',
         'client_user_id',
         'first_name', 'last_name', 'phone', 'email', 'notes',
-        'birthday', 'birthday_reminder', 'id_number', 'id_type', 'id_number_captured_at', 'id_number_source', 'address',
+        'birthday', 'birthday_reminder', 'id_number', 'id_type', 'id_number_captured_at', 'id_number_source', 'passport_number', 'address',
         // Entity-type foundation (.ai/specs/contact-entity-type.md) —
         // 'contact_kind' is deliberately coarser than fica_submissions.
         // entity_type; it only distinguishes natural_person vs entity for

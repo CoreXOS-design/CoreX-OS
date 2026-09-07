@@ -1458,6 +1458,42 @@ E-Sign V3 remaining backlog (non-blocking): Phase 2.1 multi-role `editable_by` e
 
 ---
 
+### 22.12 AT-385 / AT-332 — identity gate at send, and re-authorisation binding (2026-09-04, revised 2026-09-07)
+
+Both of the following are **unconditional, non-agency-configurable behaviour** —
+not settings. Johan, 2026-09-07, verbatim: "No, this is not settings but fixes
+we are building." A first pass briefly added `EsignSettings::requireIdentityBeforeSend()`
+and `EsignSettings::strictReauthorisationBinding()` toggles (default `true`);
+both were removed the same day (migration `2026_09_07_025135`) once Johan
+clarified the reasoning: "you may not send a legal document without
+identifying the signer" and "the person who authorised it is the person who
+re-authorises it" are not preferences an agency gets to switch off — a
+settings toggle here was a footgun, since the one agency that turned it off
+is the one that ends up with an unidentified signer on a mandate. Neither
+check has ever had, or will have, an on/off flag, an agency exemption, or an
+Agency Onboarding Setup Wizard entry — there is nothing to configure.
+
+**AT-385 — Fill & Review identity gate.** Johan: "no id is a massive problem... The gate would be on fill and review - you cannot continue if no id exists on doc or contact." Every non-agent signing party must carry an ID number OR a passport number before the document can be sent, on both send paths, always.
+
+- New columns: `contacts.passport_number`, `signature_requests.signer_passport_number` (varchar 20, nullable — mirrors `id_number`'s existing unvalidated free-text shape, no format regex).
+- New HARD BLOCK `ESignWizardController::assertRecipientsHaveIdentityForSend()`, called from both `prepareSigning()` (e-sign) and `prepareWetInk()` (wet-ink), alongside the existing sibling asserts (`assertDeceasedRecipientsHaveSubstituteSigner`, `assertSupplierRepresentativesHaveRegistrationNumber`, `assertChainPartiesHaveIdNumbers`). Checks the recipient row first, falls back to the linked Contact; on a contact-fallback match, backfills the resolved value onto the row **in memory** (never persisted back to the Contact) so `createSigningRequest()` actually writes it — without this, a row that only passed via its Contact's ID would still create a `SignatureRequest` with a blank `signer_id_number`, and the `/sign` gateway's second factor would never fire for that party at all.
+- Names the specific party by name + role in the block message — never a raw validation error.
+- Existing blank rows on already-sent documents are **not** touched or remediated — this only stops a NEW send.
+- `SigningController::show()`'s gateway-trigger and `verify()`'s comparison both now check/match against EITHER `signer_id_number` OR `signer_passport_number`.
+- Recipient step-3 card gets a new, separate "Passport Number" input (not overloading the ID Number field) — wired through the send payload and `searchContacts()`'s response shape.
+- Two mass-assignment gaps caught and fixed during build: `SignatureRequest::$fillable` and `Contact::$fillable` never listed the new columns, so every attempted write silently no-opped until a test caught it.
+- Regression-tested unconditionally in `tests/Feature/Docuperfect/SigningView/PassportIdentityVerificationTest.php` (the `/sign` gateway HTTP layer) and `RecipientIdentityGateTest.php` (the gate method itself, including the contact-fallback backfill) — neither depends on, nor references, any setting.
+
+**AT-332 — strict re-authorisation binding.** Johan, verbatim: "re-auth only allowed by original auth party." Not the party slot, not any other full-status agent in scope — the specific user who authorised the original, always.
+
+- New shared trait `App\Http\Controllers\Concerns\EnforcesReauthorisationBinding`, resolving the write-once `authorised_by` column on the supervisor/supervisor_final `SignatureRequest` row (`SignatureService.php` ~1510/1542 — `?? auth()->id()` guard). That row is reused, never recreated, across every amendment round (`requeueAllPartiesForInitialing()`), so the binding survives multiple rounds by construction.
+- Closes all three previously scope-only, identity-unbound re-approval paths: `AmendmentController::approve()`, `SignatureController::amendmentAction()` (the worst gap — `agentAmendmentAction()` bulk-accepted every pending `AmendmentAcceptance` row with no check at all), `SignatureController::approveAmendmentNode()`.
+- A blocked agent gets a plain-language message naming the original authoriser — never a 403. Every block is logged to `signature_audit_log` as `amendment_reauthorisation_blocked`, attempting user as actor, `metadata_json` carrying `bound_authoriser_id`/`bound_authoriser_name`/`attempted_action`.
+- Fails open (allows) when no original authoriser was ever recorded — never blocks a document that was never authorised through the candidate/supervisor flow.
+- Verified against real QA1 data: the original authoriser passes, a different agent is blocked with the correctly named message, and the audit row lands with correct metadata. Regression-tested unconditionally in `tests/Feature/Docuperfect/SigningView/AmendmentReauthorisationBindingTest.php`.
+
+---
+
 ## 23. Open Questions
 
 None at draft time. To be added as build surfaces them.
