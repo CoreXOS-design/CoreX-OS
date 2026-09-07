@@ -2130,6 +2130,36 @@ final class RoleBlockExpansionService
                 $value = $contact !== null
                     ? $this->resolveContactValue($contact, $parsed['sub_name'], $recipient)
                     : null;
+                // 2026-09-07 (Johan) — "changing tel do not change on doc?
+                // ... email also do not update on document." An entity
+                // representative (director/trustee/member) IS itself a
+                // linked Contact, so the branch above always won and any
+                // per-document correction typed on that representative's
+                // own step-3 card (tel/email/address) was silently
+                // discarded in favour of the Contact's raw, unedited
+                // value — never even reaching resolveContactValue()'s
+                // no-Contact fallback further down, because there always
+                // WAS a Contact. represented_contact_id is set ONLY on an
+                // entity representative's own (transient preview or real)
+                // SignatureRequest row, never on a plain recipient's — see
+                // buildTransientSignatureRequestsForPreview() and
+                // expandEntityRecipients()'s createSigningRequest() call.
+                // Its signer_phone/signer_email/signer_address are already
+                // resolved to the EFFECTIVE value (the typed override when
+                // one exists, else the same real Contact value above) by
+                // expandEntityRecipients(), so preferring them here is safe
+                // unconditionally — id_number is deliberately untouched,
+                // it already reaches the document correctly via the
+                // separate party_clause_text snapshot path.
+                if ($recipient !== null && $recipient->represented_contact_id !== null) {
+                    if (in_array($parsed['sub_name'], ['phone', 'cell', 'cell_phone', 'mobile'], true)) {
+                        $value = $this->blankToNull($recipient->signer_phone);
+                    } elseif ($parsed['sub_name'] === 'email') {
+                        $value = $this->blankToNull($recipient->signer_email);
+                    } elseif (in_array($parsed['sub_name'], ['address', 'address_1', 'address_line_1', 'physical_address'], true)) {
+                        $value = $this->blankToNull($recipient->signer_address);
+                    }
+                }
                 // AT-292 — headline couple's-mandate fix, and now also the
                 // no-Contact-at-all case above. When there is no id_number to
                 // read (Contact has none, or there is no Contact), fall back

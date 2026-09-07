@@ -325,4 +325,99 @@ final class EntityRepresentativePartyRenderingTest extends TestCase
         $after = $this->render('name_surname_id', $company); // still no SignatureRequest snapshot — still pre-generation
         $this->assertStringContainsString('CEO', $after, 'Pre-generation preview should reflect current state — it is not frozen yet.');
     }
+
+    // ── Step-3 director-card corrections reaching phone/email/domicilium (Johan, 2026-09-07) ──
+
+    /**
+     * Johan's exact report: "changing id changes on doc... changing tel do
+     * not change on doc? ... email also do not update on document." Root
+     * cause: an entity representative IS a linked Contact, so
+     * mutateCloneForInstance() always resolved phone/email/address from the
+     * raw Contact record and never consulted the per-document correction —
+     * unlike id_number, which reaches the document via the separate
+     * party_clause_text snapshot, not this field-by-field DOM path at all.
+     * represented_contact_id is the signal (set only for an entity
+     * representative's own SignatureRequest, by
+     * ESignWizardController::expandEntityRecipients() /
+     * buildTransientSignatureRequestsForPreview()) that tells the resolver
+     * this row's signer_phone/signer_email/signer_address already ARE the
+     * effective, override-if-typed values.
+     */
+    public function test_representative_correction_overrides_contact_phone_email_address_on_document(): void
+    {
+        $company = $this->makeContact([
+            'contact_kind' => Contact::TYPE_ENTITY, 'entity_name' => 'Acme Ltd',
+            'first_name' => 'Acme Ltd', 'last_name' => '',
+        ]);
+        $director = $this->makeContact([
+            'contact_kind' => Contact::TYPE_NATURAL_PERSON, 'first_name' => 'John', 'last_name' => 'Director',
+            'phone' => '0813230105', 'email' => 'john.stale@example.test', 'address' => '',
+        ]);
+        $this->link($company, $director, 'Director', primary: true);
+
+        $recipient = $this->seller($director);
+        $recipient->represented_contact_id = $company->id;
+        $recipient->signer_phone = '0821234999';
+        $recipient->signer_email = 'corrected@example.test';
+        $recipient->signer_address = '99 Override Street, Overridden Suburb, 4000';
+
+        $phone = $this->renderWithRecipient('cell', $director, $recipient);
+        $email = $this->renderWithRecipient('email', $director, $recipient);
+        $address = $this->renderWithRecipient('address', $director, $recipient);
+
+        $this->assertStringContainsString('0821234999', $phone);
+        $this->assertStringNotContainsString('0813230105', $phone, 'The stale Contact phone must never survive the correction.');
+        $this->assertStringContainsString('corrected@example.test', $email);
+        $this->assertStringNotContainsString('john.stale@example.test', $email);
+        $this->assertStringContainsString('99 Override Street, Overridden Suburb, 4000', $address);
+    }
+
+    /** No correction typed (signer_phone/email/address blank) — must fall back to the real Contact value, never render blank for an untouched representative. */
+    public function test_representative_without_correction_still_renders_real_contact_values(): void
+    {
+        $company = $this->makeContact([
+            'contact_kind' => Contact::TYPE_ENTITY, 'entity_name' => 'Acme Ltd',
+            'first_name' => 'Acme Ltd', 'last_name' => '',
+        ]);
+        $director = $this->makeContact([
+            'contact_kind' => Contact::TYPE_NATURAL_PERSON, 'first_name' => 'John', 'last_name' => 'Director',
+            'phone' => '0813230105', 'email' => 'john@example.test', 'address' => '12 Real Road',
+        ]);
+        $this->link($company, $director, 'Director', primary: true);
+
+        $recipient = $this->seller($director);
+        $recipient->represented_contact_id = $company->id;
+        // No signer_phone/signer_email/signer_address set — untouched representative.
+
+        $phone = $this->renderWithRecipient('cell', $director, $recipient);
+        $email = $this->renderWithRecipient('email', $director, $recipient);
+        $address = $this->renderWithRecipient('address', $director, $recipient);
+
+        $this->assertStringContainsString('0813230105', $phone);
+        $this->assertStringContainsString('john@example.test', $email);
+        $this->assertStringContainsString('12 Real Road', $address);
+    }
+
+    /** Scope guard — an ORDINARY (non-representative) recipient with a linked Contact must be completely unaffected: represented_contact_id is null, so the raw Contact value must still win, exactly as before this fix. */
+    public function test_plain_recipient_with_linked_contact_unaffected_by_representative_override_fix(): void
+    {
+        $person = $this->makeContact([
+            'contact_kind' => Contact::TYPE_NATURAL_PERSON, 'first_name' => 'Jo', 'last_name' => 'Soap',
+            'phone' => '0710000000', 'email' => 'jo@example.test', 'address' => '1 Plain Street',
+        ]);
+
+        $recipient = $this->seller($person);
+        // represented_contact_id left null — this is an ordinary recipient, not an entity representative.
+        $recipient->signer_phone = '0729999999'; // present but must be IGNORED, same as pre-fix behaviour.
+        $recipient->signer_email = 'ignored@example.test';
+        $recipient->signer_address = 'Ignored Address';
+
+        $phone = $this->renderWithRecipient('cell', $person, $recipient);
+        $email = $this->renderWithRecipient('email', $person, $recipient);
+        $address = $this->renderWithRecipient('address', $person, $recipient);
+
+        $this->assertStringContainsString('0710000000', $phone, 'A plain recipient with a linked Contact must keep resolving from the Contact, unchanged by this fix.');
+        $this->assertStringContainsString('jo@example.test', $email);
+        $this->assertStringContainsString('1 Plain Street', $address);
+    }
 }

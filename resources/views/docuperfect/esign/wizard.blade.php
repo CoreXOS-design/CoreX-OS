@@ -715,6 +715,14 @@
                                                                        class="w-full rounded-md px-2 py-1.5 text-xs"
                                                                        style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                                                             </div>
+                                                            <div class="md:col-span-2">
+                                                                <label class="block text-[10px] font-medium mb-0.5" style="color: var(--text-muted);">Domicilium Address (for legal notices)</label>
+                                                                <input type="text" :value="rep.address"
+                                                                       @input="updateRepOverride(ri, rep.contact_id, 'address', $event.target.value)"
+                                                                       placeholder="Postal or physical address where this director accepts legal notices"
+                                                                       class="w-full rounded-md px-2 py-1.5 text-xs"
+                                                                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                                                            </div>
                                                         </div>
                                                         {{-- No Silent Locks / no-input-lost standard (Johan, today): a
                                                              director this document will actually SIGN AS needs an
