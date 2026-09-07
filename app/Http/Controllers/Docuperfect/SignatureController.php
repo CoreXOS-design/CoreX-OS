@@ -2024,14 +2024,21 @@ class SignatureController extends Controller
 
             $partyLabel = $currentRole ? ucfirst($currentRole) : 'next party';
 
-            if ($document->document_type === 'rental_upload_send') {
-                return redirect()->route('docuperfect.esign.myDocuments')
-                    ->with('success', "Document sent to {$partyLabel} for signing.");
-            }
-
-            $dashboardRoute = $isSales ? 'docuperfect.sales' : 'docuperfect.rental';
-
-            return redirect()->route($dashboardRoute)
+            // Johan (2026-09-07): "after sending we are landing in this
+            // screen - /docuperfect/sales - old screen - we should be
+            // landing on /docuperfect/esign/my-documents." This branch
+            // (agent-complete -> next-party send) used to route sales/
+            // rental documents to the old dashboard, unconditionally on
+            // $isSales, while a rental_upload_send document (just above)
+            // already correctly went to My E-Sign Documents. Made
+            // consistent: every document sent from here lands on the same
+            // canonical e-sign documents screen, not the old dashboard.
+            // NOTE: my-documents.blade.php reads session('status'), not
+            // 'success' — using 'status' here (unlike the rental_upload_send
+            // branch just above, which flashes 'success' and so never
+            // actually displays on this page; a pre-existing, separate
+            // mismatch, reported not touched — out of this fix's scope).
+            return redirect()->route('docuperfect.esign.myDocuments')
                 ->with('status', "Document sent to {$partyLabel} for signing.");
         }
 
@@ -2189,9 +2196,15 @@ class SignatureController extends Controller
             return response()->json(['ok' => false, 'message' => 'WhatsApp link is not currently available for this recipient.'], 422);
         }
 
-        $waLinks->logOpened($signatureRequest, $request->user(), $availability['normalizedPhone']);
+        $result = $waLinks->logOpened($signatureRequest, $request->user(), $availability['normalizedPhone']);
 
-        return response()->json(['ok' => true]);
+        return response()->json([
+            'ok'               => true,
+            'opened_at'        => $result['auditLog']->created_at?->format('d M Y H:i') ?? now()->format('d M Y H:i'),
+            'normalized_phone' => $availability['normalizedPhone'],
+            'contact_id'       => $signatureRequest->contact_id,
+            'communication_id' => $result['communicationId'],
+        ]);
     }
 
     // ──────────────────────────────────────────────
@@ -3278,17 +3291,15 @@ class SignatureController extends Controller
 
         $result = $this->signatureService->approveAndAdvance($template);
 
-        // Johan, 2026-08-27 (found on the late-estate walkthrough — approving
-        // THIS exact "EXCLUSIVE AUTHORITY TO SELL" document landed the agent
-        // on the RENTAL dashboard) — isSalesDocument(), never raw
-        // template_type: this template's template_type is 'cds', a builder
-        // category, never the string 'sales'/'rentals' the crude check
-        // expected. See ~line 1900 for the same fix's first occurrence.
-        $dashboardRoute = $document->template?->isSalesDocument() ? 'docuperfect.sales' : 'docuperfect.rental';
-
         if ($result['action'] === 'sent') {
+            // Johan (2026-09-07): the same "old dashboard instead of My
+            // E-Sign Documents" defect as sendForSignature() above (~line
+            // 2028) — this is the second path he asked us to check for.
+            // This branch's own "document completed" sibling just below
+            // already correctly redirects to myDocuments; this "sent to
+            // next party" branch did not.
             $nextName = $result['next_name'] ?? ucfirst($result['next_party']);
-            return redirect()->route($dashboardRoute)
+            return redirect()->route('docuperfect.esign.myDocuments')
                 ->with('status', "Approved. Document sent to {$nextName} ({$result['next_party']}) for signing.");
         }
 

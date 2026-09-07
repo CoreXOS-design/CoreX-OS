@@ -1494,6 +1494,136 @@ Agency Onboarding Setup Wizard entry — there is nothing to configure.
 
 ---
 
+### 22.16 "Send via WhatsApp" — Johan's four post-merge defects, fixed (2026-09-07)
+
+Johan tested §22.14 on QA1 and reported four defects in one pass, plus a
+fifth, unrelated redirect defect he hit in the same session. All five fixed
+here; none touch the identity gate (§22.12) or ink-binding (§22.13) work.
+
+**1. "Coloured text is not a button."** Johan: "why do we think that
+coloured text will be seen as buttons to click... does that look a send
+via wa anyone will find?" The button (`_whatsapp-resend-button.blade.php`,
+all three screens — it is ONE canonical partial, so one fix covers all
+three) used `text-xs font-semibold hover:underline` with an inline colour
+— indistinguishable from plain text, and in fact identical in kind to the
+adjacent email Resend link, which is itself just coloured text (matching
+it would have repeated the same defect, not fixed it). Replaced with
+`corex-btn-outline` — the design system's own documented secondary-action
+button component (`UI_DESIGN_SYSTEM.md`: "Secondary/tertiary actions use
+corex-btn-outline or inline text links... Never use raw Tailwind... Always
+use tokens via the corex-btn-* classes"), already compiled and used
+site-wide, no asset rebuild needed. A WhatsApp-green icon inside the
+button keeps it recognisable without breaking the design system's own
+button chrome (padding/border/background — a real, visible button).
+
+**2. "No confirmation that anything happened."** Johan: "did your whatsapp
+get sent?... not confirmation send happened." Added an honest inline line
+under the button once the click registers: "Opened WhatsApp to \<number\>
+at \<time\> — not confirmed sent." Precise on purpose — never claims
+delivery, matching the feature's own founding constraint (CoreX cannot
+confirm a client-side wa.me send).
+
+**3. "The communication counter on the contact does not move."** Johan:
+"Did you increase the comm counter on contacts... as tests shows no?",
+then corrected the approach mid-build: "contact comm for wa already
+exists. everywhere else we use wa this counter works" — do not adapt
+email's mechanism, find the OTHER whatsapp sends already using it and
+copy them exactly. Found: `SellerOutreachSenderService::send()`
+(`app/Services/SellerOutreach/SellerOutreachSenderService.php` ~line
+136-160) and `ContactController::incrementChannel()`
+(`app/Http/Controllers/CoreX/ContactController.php` ~line 1705-1731) both
+already do this correctly — a provisional `Communication` row via
+`OutboundProvisionalLogger::log()`, forced to `send_status=not_delivered`
+immediately after (WhatsApp is client-side click-to-chat; the row is
+never born counted), which only becomes `sent` — incrementing
+`Contact::outboundCommCount()` — once the agent answers "Yes, I sent it"
+on the SAME shared modal (`resources/views/partials/whatsapp-send-confirm-modal.blade.php`,
+its own docblock: "ONE modal, reused on every WhatsApp send surface... No
+parallel copies") through the SAME endpoint
+(`ContactController::markCommunicationSent`, route
+`corex.contacts.communications.mark-sent`).
+`SigningWhatsAppLinkService::logOpened()` now does the identical thing —
+same logger call, same not_delivered force-fill, same modal include, same
+mark-sent endpoint call from the blade. Skipped gracefully (no modal, no
+communication row) when the recipient has no linked Contact — a supplier
+representative or a manually-typed recipient, most commonly — there is
+nothing to mirror a communication onto. The pre-existing
+`SignatureAuditLog::ACTION_WHATSAPP_LINK_OPENED` fact (§22.14) is
+unchanged and still recorded alongside this, unrelated concerns (one is
+the e-sign audit trail, the other is the contact's own comms history).
+
+**4. "Which number does it use?"** Johan: "I take it the number that the
+wa uses is the contact wa number as set up on contacts?" It did not — it
+always resolved `signature_requests.signer_phone`, captured at Fill &
+Review from the recipient's general 'cell' field, itself sourced from
+`contacts.phone` (the general PRIMARY phone —
+`ESignWizardController.php` ~line 4270 and its siblings) — never
+`Contact::primaryWhatsAppPhone()` (the `contact_phones.is_primary_whatsapp`
+designation, Contact-details Phase 3). Fixed in
+`SigningWhatsAppLinkService::resolvePhoneSource()`: when the recipient is
+linked to a real Contact (`signature_requests.contact_id`) AND that
+contact has a number explicitly flagged `is_primary_whatsapp`, THAT number
+wins. Falls back to `signer_phone` unchanged — same as before this fix —
+when there is no linked contact or no WhatsApp-specific designation (the
+overwhelming majority of contacts today, since the flag is never
+retroactively set on existing numbers).
+
+**5. Wrong landing screen after sending (separate defect, same testing
+session).** Johan: "after sending we are landing in this screen -
+/docuperfect/sales - old screen - we should be landing on
+/docuperfect/esign/my-documents." Traced to
+`SignatureController::sendForSignature()`'s "agent-complete → next party
+send" branch (~line 2032) — every OTHER redirect in this exact method for
+a `rental_upload_send` document already correctly went to
+`docuperfect.esign.myDocuments`; this one branch alone still redirected to
+the pre-wizard `docuperfect.sales`/`docuperfect.rental` dashboard for
+every other document type. A second occurrence of the identical defect
+found and fixed in the same audit: `approveAndAdvance()`'s `'sent'` branch
+(~line 3302) — its own sibling `'completed'`/fallthrough branch a few
+lines below it already correctly redirects to myDocuments; only the
+"sent to next party" branch didn't. Both now redirect unconditionally to
+`docuperfect.esign.myDocuments`. Four OTHER `$dashboardRoute` redirects in
+the same file were audited and deliberately left unchanged — they guard
+different actions (an error/not-pending-approval guard, wet-ink
+inspection approve/reject, upload-on-behalf auto-approve, return-to-
+candidate) that are not the "document sent onward" action Johan described;
+changing those would be outside what he reported. `SignatureController::$isSales`
+(the local variable feeding the old redirect at ~line 1979) is now unused
+inside `sendForSignature()` as a direct, mechanical side effect of fix #1
+here — left in place; it documents a separate, real historical fix (the
+2026-08-27 late-estate walkthrough's isSalesDocument()-vs-raw-template_type
+defect) referenced by comment from four other places in this same file,
+and removing it is outside the scope of what was asked.
+
+**Proven, on real QA1 data, inside a DB transaction rolled back at the end
+(zero lasting changes)**, per Johan's "prove it, don't assert it" standard:
+- Item 4: the same real recipient (signer_phone `0825346546`) resolved to
+  a DIFFERENT, explicitly-flagged WhatsApp number (`0825346546` → forced
+  `27721112222`) once one was flagged `is_primary_whatsapp` on their
+  Contact — confirming the override actually fires, not just that the
+  fallback still works.
+- Items 2 & 3: `outboundCommCount('whatsapp')` measured before the click
+  (0), after `logOpened()` (still 0 — not_delivered correctly uncounted),
+  and after simulating the agent's "Yes, I sent it" via
+  `CommunicationSendStatusService::markSent()` (1) — the exact same
+  service the shared modal's endpoint calls.
+- Item 5: `SignatureController::sendForSignature()` invoked directly
+  against a real, currently-`awaiting_seller` QA1 document
+  (`peekNextSigningCandidate()` confirmed `NULL` first, so this call could
+  not have dispatched a real email to a real recipient) — the returned
+  redirect targeted `.../docuperfect/esign/my-documents`, not
+  `/docuperfect/sales` or `/docuperfect/rental`.
+- Item 1: rendered `signingComplete()` (flows 454 and 455),
+  `sendConfirmation()`, and `myDocuments()` as a real authenticated request
+  as user 22 — `corex-btn-outline` present in the returned HTML on all
+  three screens, the old inline-colour-text style gone.
+- No-phone and landline-number recipients re-confirmed to still degrade to
+  an honest "unavailable — \<reason\>" message, unaffected by the phone-
+  source change (only WHERE the phone number is sourced from changed, not
+  the honesty/refusal logic once a candidate number is in hand).
+
+---
+
 ## 23. Open Questions
 
 None at draft time. To be added as build surfaces them.

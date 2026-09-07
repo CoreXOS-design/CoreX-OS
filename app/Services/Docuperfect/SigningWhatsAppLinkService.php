@@ -4,10 +4,13 @@ declare(strict_types=1);
 
 namespace App\Services\Docuperfect;
 
+use App\Models\Communications\Communication;
+use App\Models\Contact;
 use App\Models\Docuperfect\EsignSettings;
 use App\Models\Docuperfect\SignatureAuditLog;
 use App\Models\Docuperfect\SignatureRequest;
 use App\Models\User;
+use App\Services\Communications\OutboundProvisionalLogger;
 
 /**
  * AT-385 / AT-332 — "Send via WhatsApp" for e-sign signing links.
@@ -100,6 +103,38 @@ class SigningWhatsAppLinkService
     }
 
     /**
+     * Johan (2026-09-07): "I take it the number that the wa uses is the
+     * contact wa number as set up on contacts?" It was not — this always
+     * resolved straight to `signature_requests.signer_phone`, captured at
+     * Fill & Review from the recipient's general 'cell' field, itself
+     * sourced from `contacts.phone` (the general PRIMARY phone —
+     * `ESignWizardController.php` ~line 4270 and its siblings) — never the
+     * contact's dedicated WhatsApp designation.
+     *
+     * Fix: when this recipient is linked to a real Contact
+     * (`signature_requests.contact_id`) AND that contact has an explicitly
+     * flagged WhatsApp number (`contact_phones.is_primary_whatsapp` —
+     * `Contact::primaryWhatsAppPhone()`), THAT number wins. Falls back to
+     * `signer_phone` unchanged — same as before this fix — when there is
+     * no linked contact, or the contact has no WhatsApp-specific
+     * designation (the overwhelming majority today: the flag
+     * (2026_08_16_000001_add_whatsapp_flags_to_contact_phones) is never
+     * retroactively set on existing numbers).
+     */
+    private function resolvePhoneSource(SignatureRequest $request): string
+    {
+        if ($request->contact_id) {
+            $contact = $request->contact ?? Contact::withoutGlobalScopes()->find($request->contact_id);
+            $waPhone = trim((string) ($contact?->primaryWhatsAppPhone?->phone ?? ''));
+            if ($waPhone !== '') {
+                return $waPhone;
+            }
+        }
+
+        return (string) $request->signer_phone;
+    }
+
+    /**
      * The pre-filled message. Deliberately minimal — signer name + the exact
      * same signing URL the email invitation carries — no new data pulled in
      * beyond what already lives on the request row.
@@ -147,11 +182,12 @@ class SigningWhatsAppLinkService
             return ['available' => false, 'reason' => 'This signing link is no longer active.', 'link' => null, 'normalizedPhone' => null];
         }
 
-        $normalized = $this->normalizePhone($request->signer_phone);
+        $phoneSource = $this->resolvePhoneSource($request);
+        $normalized = $this->normalizePhone($phoneSource);
         if ($normalized === null) {
-            $reason = trim((string) $request->signer_phone) === ''
+            $reason = trim($phoneSource) === ''
                 ? 'No phone number on file for this recipient.'
-                : "The phone number on file (\"{$request->signer_phone}\") doesn't look like a valid SA mobile number.";
+                : "The phone number on file (\"{$phoneSource}\") doesn't look like a valid SA mobile number.";
 
             return ['available' => false, 'reason' => $reason, 'link' => null, 'normalizedPhone' => null];
         }
@@ -167,13 +203,36 @@ class SigningWhatsAppLinkService
     }
 
     /**
-     * The ONLY thing this feature ever records as fact: the agent opened
-     * the link. Never "sent", never "delivered" — see
-     * SignatureAuditLog::ACTION_WHATSAPP_LINK_OPENED's own docblock.
+     * The e-sign audit fact: the agent opened the link. Never "sent", never
+     * "delivered" — see SignatureAuditLog::ACTION_WHATSAPP_LINK_OPENED's own
+     * docblock. Unchanged by the 2026-09-07 fixes below.
+     *
+     * Johan (2026-09-07): "contact comm for wa already exists. everywhere
+     * else we use wa this counter works." He was right — this action never
+     * called it. Copied identically from the OTHER WhatsApp sends already
+     * doing this correctly (SellerOutreachSenderService::send() ~line
+     * 136-160, mirrored by ContactController::incrementChannel ~line
+     * 1705-1727): a provisional `Communication` row via
+     * `OutboundProvisionalLogger::log()`, born `send_status=not_delivered`
+     * (WhatsApp is client-side click-to-chat — CoreX cannot confirm
+     * delivery, so it is never born counted), and it only becomes `sent`
+     * (incrementing `Contact::outboundCommCount()`) once the agent answers
+     * "Yes, I sent it" on the SAME shared confirm modal
+     * (`partials.whatsapp-send-confirm-modal`) through the SAME endpoint
+     * (`ContactController::markCommunicationSent`) every other WhatsApp
+     * surface in CoreX already uses. No parallel counter, no parallel
+     * modal, no parallel endpoint.
+     *
+     * Skipped gracefully (not an error) when this recipient isn't linked to
+     * a real Contact — most commonly a supplier representative or a
+     * manually-typed recipient with no Contact record on file. There is
+     * nothing to mirror a communication onto in that case.
+     *
+     * @return array{auditLog: SignatureAuditLog, communicationId: ?int}
      */
-    public function logOpened(SignatureRequest $request, User $actor, string $normalizedPhone): SignatureAuditLog
+    public function logOpened(SignatureRequest $request, User $actor, string $normalizedPhone): array
     {
-        return SignatureAuditLog::log(
+        $auditLog = SignatureAuditLog::log(
             $request->template,
             SignatureAuditLog::ACTION_WHATSAPP_LINK_OPENED,
             SignatureAuditLog::ACTOR_USER,
@@ -187,5 +246,28 @@ class SigningWhatsAppLinkService
                 'opened_by' => $actor->name,
             ],
         );
+
+        $communicationId = null;
+        $contact = $request->contact_id
+            ? ($request->contact ?? Contact::withoutGlobalScopes()->find($request->contact_id))
+            : null;
+
+        if ($contact !== null) {
+            $communication = app(OutboundProvisionalLogger::class)->log(
+                $contact,
+                Communication::CHANNEL_WHATSAPP,
+                null,
+                $this->buildMessage($request),
+                $actor->id,
+            );
+
+            $communication->forceFill([
+                'send_status' => Communication::SEND_STATUS_NOT_DELIVERED,
+            ])->save();
+
+            $communicationId = $communication->id;
+        }
+
+        return ['auditLog' => $auditLog, 'communicationId' => $communicationId];
     }
 }
