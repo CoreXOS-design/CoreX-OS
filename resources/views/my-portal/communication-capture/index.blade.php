@@ -35,6 +35,7 @@
                 'storeUrl'    => route('my-portal.comm-capture.store'),
                 'updateName'  => 'my-portal.comm-capture.update',
                 'destroyName' => 'my-portal.comm-capture.destroy',
+                'testConnectionName' => 'my-portal.comm-capture.test-connection',
                 'allowReveal' => false,
             ],
         ])

@@ -104,12 +104,18 @@ class EmailSetupController extends Controller
 
         $mailbox->email_address = trim((string) $request->input('email_address'));
         if ($creating) {
-            // Sensible defaults for a fresh row (BUILD_STANDARD §2 — every
-            // NOT-NULL column gets a value): this step only asks about
-            // outgoing mail, so a brand-new mailbox reuses the same host for
-            // IMAP (the common cPanel/Afrihost-style case) rather than
-            // leaving imap_host unset.
-            $mailbox->imap_host = trim((string) $request->input('smtp_host', ''));
+            // AT-395 fix (2026-09-07) — this used to always reuse the SMTP host
+            // for imap_host, silently mis-configuring incoming mail for any
+            // agency whose provider uses different incoming/outgoing servers
+            // (e.g. Gmail's imap.gmail.com vs smtp.gmail.com). Now: prefer an
+            // explicit imap_host if the user supplied one (the wizard step
+            // asks for it as optional), and only fall back to the SMTP host —
+            // a sensible default for the common single-host case (cPanel/
+            // Afrihost) — when the user left it blank. Only applies on a
+            // brand-new row; an existing mailbox's imap_host is never touched
+            // by this method (see the $creating guard), so a value the user
+            // gave previously is never silently overwritten.
+            $mailbox->imap_host = trim((string) $request->input('imap_host', '')) ?: trim((string) $request->input('smtp_host', ''));
             $mailbox->imap_port = 993;
             $mailbox->username = trim((string) $request->input('username', $mailbox->email_address));
             $mailbox->poll_interval_minutes = 15;
@@ -187,7 +193,12 @@ class EmailSetupController extends Controller
             : ['last_sent_folder_append_error' => $append['reason']]
         )->save();
 
-        return back()->with('test_connection_result', ['smtp' => $smtp, 'imap_append' => $imapAppend]);
+        // AT-395 (2026-09-07) — this screen lists multiple mailboxes on one page
+        // (unlike the compliance screen's single-mailbox form), so the result
+        // must be tagged with which mailbox it belongs to.
+        return back()
+            ->with('test_connection_result', ['smtp' => $smtp, 'imap_append' => $imapAppend])
+            ->with('test_connection_mailbox_id', $mailbox->id);
     }
 
     /**

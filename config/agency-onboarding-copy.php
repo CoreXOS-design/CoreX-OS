@@ -559,6 +559,16 @@ return [
             ['key' => 'smtp_host', 'source' => 'mailbox', 'type' => 'text', 'label' => 'Outgoing mail server (SMTP host)',
              'explain' => 'Ask your email provider (e.g. Afrihost, cPanel) for this — it is usually something like mail.yourdomain.co.za.',
              'affects' => 'The server CoreX connects to when sending on your behalf.'],
+            // AT-395 (2026-09-07) — this step never used to ask for an IMAP host at
+            // all: onboardingSaveOutgoing() silently reused the SMTP host for it on
+            // a brand-new mailbox, which is wrong whenever a provider's incoming and
+            // outgoing servers differ (e.g. Gmail's imap.gmail.com vs
+            // smtp.gmail.com). Optional here — left blank, it still defaults to the
+            // SMTP host above, which is correct for the common single-host case
+            // (cPanel/Afrihost) this wizard step was originally written for.
+            ['key' => 'imap_host', 'source' => 'mailbox', 'type' => 'text', 'label' => 'Incoming mail server (IMAP host, optional)',
+             'explain' => 'Only needed if your provider uses a different server for incoming mail. Leave blank to use the outgoing server above.',
+             'affects' => 'The server CoreX connects to for reading captured email into the Communication Archive.'],
             ['key' => 'smtp_port', 'source' => 'mailbox', 'type' => 'number', 'default' => 587,
              'label' => 'Port', 'explain' => 'Usually 587. Your provider will confirm if different.',
              'affects' => 'The connection port used to send mail.'],

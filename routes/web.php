@@ -2116,6 +2116,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/', [\App\Http\Controllers\MyPortal\CommunicationCaptureController::class, 'store'])->name('store');
         Route::put('/{mailbox}', [\App\Http\Controllers\MyPortal\CommunicationCaptureController::class, 'update'])->name('update');
         Route::delete('/{mailbox}', [\App\Http\Controllers\MyPortal\CommunicationCaptureController::class, 'destroy'])->name('destroy');
+        // AT-395 (2026-09-07) — Test Connection, same as the other two mailbox surfaces.
+        Route::post('/{mailbox}/test-connection', [\App\Http\Controllers\MyPortal\CommunicationCaptureController::class, 'testConnection'])->name('test-connection');
     });
     Route::post('/my-portal/upload', [\App\Http\Controllers\Agent\AgentPortalController::class, 'uploadDocument'])
         ->middleware('permission:upload_own_documents')->name('agent.portal.upload');
