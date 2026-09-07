@@ -40,6 +40,7 @@ final class PropertyTownFollowsLocationEditTest extends TestCase
     private P24Province $kzn;
     private P24City $portShepstone;
     private P24Suburb $melville;
+    private P24Suburb $melvilleJoburg;
 
     protected function setUp(): void
     {
@@ -68,7 +69,7 @@ final class PropertyTownFollowsLocationEditTest extends TestCase
         // cities in different provinces, one correct suburb row under each.
         $gauteng = P24Province::create(['p24_id' => 3, 'p24_country_id' => $country->id, 'name' => 'Gauteng']);
         $johannesburg = P24City::create(['p24_id' => 100, 'p24_province_id' => $gauteng->id, 'name' => 'Johannesburg']);
-        P24Suburb::create([
+        $this->melvilleJoburg = P24Suburb::create([
             'name' => 'Melville', 'slug' => 'melville', 'p24_id' => 4145,
             'p24_city_id' => $johannesburg->id, 'p24_verified_at' => now(),
         ]);
@@ -89,7 +90,7 @@ final class PropertyTownFollowsLocationEditTest extends TestCase
             'listing_type' => 'sale',
             'suburb' => 'MELVILLE', 'city' => 'Johannesburg', 'town' => 'Johannesburg',
             'province' => 'KWAZULU-NATAL',
-            'p24_suburb_id' => P24Suburb::where('name', 'Melville')->where('p24_city_id', $johannesburg->id)->value('id'),
+            'p24_suburb_id' => $this->melvilleJoburg->id,
             'p24_city_id' => $johannesburg->id, 'p24_province_id' => null,
             'latitude' => -30.6559810, 'longitude' => 30.5145430,
             'beds' => 3, 'baths' => 2, 'garages' => 2,
@@ -147,6 +148,41 @@ final class PropertyTownFollowsLocationEditTest extends TestCase
             $row->town,
             'town must travel with city/suburb/province on every save that picks a P24 suburb — this is the exact field that fell behind on property #21014'
         );
+    }
+
+    public function test_saving_without_repicking_the_suburb_still_repairs_a_stale_wrong_province_link(): void
+    {
+        // Property #21014/#15777's actual shape: the picker pre-fills its
+        // hidden inputs from whatever the record already has, so a save
+        // that never touches the picker resubmits the SAME wrong id and
+        // the SAME (already correct) province text — this is what "edit
+        // the address and save" looks like when the agent doesn't happen
+        // to re-pick the suburb. p24_suburb_id/city_id are explicitly the
+        // STALE Johannesburg ones here, exactly what an untouched picker's
+        // hidden inputs would carry — this is deliberately NOT the
+        // "picker explicitly re-picked" test above.
+        $resp = $this->actingAs($this->user)
+            ->put(route('corex.properties.update', $this->propertyId), $this->basePayload([
+                'suburb'          => 'MELVILLE',      // unchanged text
+                'city'            => 'Johannesburg',  // unchanged (still wrong) text
+                'province'        => 'KWAZULU-NATAL', // unchanged — but disagrees with the linked id's real province
+                'p24_suburb_id'   => $this->melvilleJoburg->id, // stale, resubmitted as-is
+                'p24_city_id'     => $this->melvilleJoburg->p24_city_id,
+                'price'           => 1_475_000, // the actual thing being edited
+            ]));
+
+        $resp->assertSessionHasNoErrors();
+        $resp->assertRedirect();
+
+        $row = DB::table('properties')->where('id', $this->propertyId)->first();
+        $this->assertSame('Melville', $row->suburb);
+        $this->assertSame('Port Shepstone', $row->city, 'stale Johannesburg link must self-repair from the property\'s own already-correct province text + coordinates');
+        $this->assertSame('KwaZulu-Natal', $row->province);
+        $this->assertEquals($this->melville->id, $row->p24_suburb_id);
+        $this->assertEquals($this->portShepstone->id, $row->p24_city_id);
+        $this->assertEquals($this->kzn->id, $row->p24_province_id);
+        $this->assertSame('Port Shepstone', $row->town);
+        $this->assertEquals(1_475_000, $row->price, 'the actual edit still persisted');
     }
 
     public function test_intelligence_tab_shows_the_corrected_area_even_with_a_stale_town(): void

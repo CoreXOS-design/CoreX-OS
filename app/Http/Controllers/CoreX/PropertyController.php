@@ -1373,7 +1373,10 @@ class PropertyController extends Controller
         // When a suburb IS picked, the chain is still verified + canonicalised;
         // when it isn't, the free-text location is kept and p24_suburb_mismatch
         // is flagged so P24 syndication (not the save) is what's gated.
-        $data = $this->applyP24Location($data, false);
+        // $property passed through so a stale P24 link can re-derive itself
+        // from the property's own existing suburb/coordinates even when this
+        // save's request doesn't resubmit them — see applyP24Location().
+        $data = $this->applyP24Location($data, false, $property);
 
         if (! empty($data['publish']) && ! $property->isPublished()) {
             $data['published_at'] = now();
