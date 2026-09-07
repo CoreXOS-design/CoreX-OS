@@ -21,8 +21,11 @@ use App\Models\Docuperfect\SignatureZone;
 use App\Models\Docuperfect\TemplateSignatureZone;
 use App\Models\Docuperfect\WetInkInspection;
 use App\Models\User;
+use App\Exceptions\Communications\OutgoingMailboxSendFailedException;
 use App\Notifications\SignatureActivityNotification;
 use App\Services\CandidatePractitionerService;
+use App\Services\Communications\ImapSentFolderAppender;
+use App\Services\Communications\PerMailboxMailTransportBuilder;
 use App\Services\Docuperfect\SignaturePdfService;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
@@ -34,9 +37,69 @@ class SignatureService
 {
     protected SignaturePdfService $pdfService;
 
-    public function __construct(SignaturePdfService $pdfService)
-    {
+    public function __construct(
+        SignaturePdfService $pdfService,
+        private PerMailboxMailTransportBuilder $mailTransportBuilder = new PerMailboxMailTransportBuilder(),
+        private ?ImapSentFolderAppender $sentFolderAppender = null,
+    ) {
         $this->pdfService = $pdfService;
+        $this->sentFolderAppender = $sentFolderAppender ?? app(ImapSentFolderAppender::class);
+    }
+
+    /**
+     * AT-395 — dispatch a signing-invitation Mailable through the sending
+     * agent's own resolved mailbox when one exists and is enabled (spec
+     * §3.1); otherwise falls through to the shared CoreX mailer exactly as
+     * before (Situation A, §3.3 — zero-config agents see zero change).
+     *
+     * A configured-but-broken mailbox (Situation B) records the failure on
+     * the mailbox and THROWS OutgoingMailboxSendFailedException — every one
+     * of the 6 call sites already wraps its send in a try/catch(\Throwable),
+     * so this propagates into that same catch and the request is NOT marked
+     * sent, per Johan's override (spec §3.3/§5): no silent fallback.
+     */
+    private function dispatchSigningMail(string $recipientEmail, \App\Mail\Signatures\BaseSignatureMail $mail): void
+    {
+        $mailbox = method_exists($mail, 'resolvedMailbox') ? $mail->resolvedMailbox() : null;
+
+        if (! $mailbox) {
+            // Situation A — no mailbox configured for this agent. Unchanged.
+            Mail::to($recipientEmail)->send($mail);
+            \App\Events\Communications\OutgoingMailFellBackToSharedMailer::dispatch(
+                $mail->sendingAgentId(),
+                $mail->sendingAgentAgencyId()
+            );
+            return;
+        }
+
+        try {
+            $rawMime = $this->mailTransportBuilder->send($mailbox, $mail);
+        } catch (OutgoingMailboxSendFailedException $e) {
+            $mailbox->forceFill([
+                'last_send_error' => $e->sanitisedReason,
+                'last_send_error_at' => now(),
+                'consecutive_send_failures' => (int) $mailbox->consecutive_send_failures + 1,
+            ])->save();
+
+            throw $e;
+        }
+
+        $mailbox->forceFill([
+            'last_sent_at' => now(),
+            'last_send_error' => null,
+            'last_send_error_at' => null,
+            'consecutive_send_failures' => 0,
+        ])->save();
+
+        \App\Events\Communications\OutgoingMailSentViaOwnMailbox::dispatch($mailbox);
+
+        // Sent-folder copy is best-effort — never throws, never fails a send
+        // that already succeeded (spec §4 Situation C).
+        $append = $this->sentFolderAppender->append($mailbox, $rawMime);
+        $mailbox->forceFill($append['ok']
+            ? ['last_sent_folder_append_at' => now(), 'last_sent_folder_append_error' => null]
+            : ['last_sent_folder_append_error' => $append['reason']]
+        )->save();
     }
 
     // ──────────────────────────────────────────────
@@ -3234,9 +3297,11 @@ class SignatureService
             'status'           => SignatureRequest::STATUS_PENDING,
         ]);
 
+        $sendSucceeded = false;
         try {
             $url = route('signatures.external', $token);
-            Mail::to($req->signer_email)->send(
+            $this->dispatchSigningMail(
+                $req->signer_email,
                 (new SigningRequestMail(
                     signerName:      $req->signer_name,
                     documentName:    $template->document->name ?? 'Document',
@@ -3245,21 +3310,32 @@ class SignatureService
                     expiresAt:       $req->token_expires_at,
                 ))->fromAgent($template->creator)
             );
+            $sendSucceeded = true;
         } catch (\Throwable $e) {
             Log::warning('AT-373 sequential-initialing mail send failed', [
                 'template_id' => $template->id,
                 'request_id'  => $req->id,
                 'error'       => $e->getMessage(),
             ]);
+            SignatureAuditLog::log(
+                $template,
+                'invitation_send_failed',
+                SignatureAuditLog::ACTOR_SYSTEM,
+                'System',
+                metadata: ['party_role' => $req->party_role, 'signer_name' => $req->signer_name, 'reason' => $e->getMessage()],
+            );
         }
 
-        SignatureAuditLog::log(
-            $template,
-            'amendment_initialing_activated',
-            SignatureAuditLog::ACTOR_SYSTEM,
-            'System',
-            metadata: ['party_role' => $req->party_role, 'signer_name' => $req->signer_name],
-        );
+        // AT-395 §5 — only recorded as "activated" when the mail genuinely went out.
+        if ($sendSucceeded) {
+            SignatureAuditLog::log(
+                $template,
+                'amendment_initialing_activated',
+                SignatureAuditLog::ACTOR_SYSTEM,
+                'System',
+                metadata: ['party_role' => $req->party_role, 'signer_name' => $req->signer_name],
+            );
+        }
     }
 
     /**
@@ -3308,9 +3384,11 @@ class SignatureService
                 'token_expires_at' => now()->addDays(14),
                 'status'           => SignatureRequest::STATUS_PENDING,
             ]);
+            $sendSucceeded = false;
             try {
                 $url = route('signatures.external', $token);
-                Mail::to($editor->signer_email)->send(
+                $this->dispatchSigningMail(
+                    $editor->signer_email,
                     (new SigningRequestMail(
                         signerName:      $editor->signer_name,
                         documentName:    $template->document->name ?? 'Document',
@@ -3319,21 +3397,32 @@ class SignatureService
                         expiresAt:       $editor->token_expires_at,
                     ))->fromAgent($template->creator)
                 );
+                $sendSucceeded = true;
             } catch (\Throwable $e) {
                 Log::warning('AT-373 editor re-acceptance mail send failed', [
                     'template_id' => $template->id,
                     'request_id'  => $editor->id,
                     'error'       => $e->getMessage(),
                 ]);
+                SignatureAuditLog::log(
+                    $template,
+                    'invitation_send_failed',
+                    SignatureAuditLog::ACTOR_SYSTEM,
+                    'System',
+                    metadata: ['editor_key' => $editor->canonicalPartyKey(), 'reason' => $e->getMessage()],
+                );
             }
 
-            SignatureAuditLog::log(
-                $template,
-                'editor_routed_to_reacceptance',
-                SignatureAuditLog::ACTOR_SYSTEM,
-                'System',
-                metadata: ['editor_key' => $editor->canonicalPartyKey(), 'reason' => $reason],
-            );
+            // AT-395 §5 — only recorded as routed when the mail genuinely went out.
+            if ($sendSucceeded) {
+                SignatureAuditLog::log(
+                    $template,
+                    'editor_routed_to_reacceptance',
+                    SignatureAuditLog::ACTOR_SYSTEM,
+                    'System',
+                    metadata: ['editor_key' => $editor->canonicalPartyKey(), 'reason' => $reason],
+                );
+            }
         }
     }
 
@@ -5257,7 +5346,8 @@ class SignatureService
             $documentName = $template->document->name ?? 'Document';
             $signingUrl = route('signatures.external', $request->token);
 
-            Mail::to($request->signer_email)->send(
+            $this->dispatchSigningMail(
+                $request->signer_email,
                 (new SigningRequestMail(
                     signerName: $request->signer_name,
                     documentName: $documentName,
@@ -5267,8 +5357,9 @@ class SignatureService
                 ))->fromAgent($agent)
             );
 
-            // AT-294 — record the honest outcome: sent_at only now (after success),
-            // status 'sent', clear any prior failure.
+            // AT-294 / AT-395 — record the honest outcome: sent_at only now (after
+            // success — dispatchSigningMail throws on any failure, mailbox-routed
+            // or shared-mailer), status 'sent', clear any prior failure.
             $request->update([
                 'sent_at' => now(),
                 'invite_send_status' => 'sent',
@@ -5856,7 +5947,8 @@ class SignatureService
                     // company-domain SPF/DKIM rule) and the agent Reply-To,
                     // matching every other send site. Without ->fromAgent()
                     // both headers collapse to the system default.
-                    Mail::to($previousRequest->signer_email)->send(
+                    $this->dispatchSigningMail(
+                        $previousRequest->signer_email,
                         (new SigningRequestMail(
                             signerName: $previousRequest->signer_name,
                             documentName: $template->document->name ?? 'Document',
@@ -5884,6 +5976,13 @@ class SignatureService
                         'request_id' => $previousRequest->id,
                         'error' => $e->getMessage(),
                     ]);
+                    SignatureAuditLog::log(
+                        $template,
+                        'invitation_send_failed',
+                        SignatureAuditLog::ACTOR_SYSTEM,
+                        'System',
+                        metadata: ['amendment_id' => $amendment->id, 'sent_to_email' => $previousRequest->signer_email, 'reason' => $e->getMessage()],
+                    );
                 }
             }
 
@@ -5918,7 +6017,8 @@ class SignatureService
         ]);
         try {
             $url = route('signatures.external', $token);
-            Mail::to($request->signer_email)->send(
+            $this->dispatchSigningMail(
+                $request->signer_email,
                 (new SigningRequestMail(
                     signerName: $request->signer_name,
                     documentName: $template->document->name ?? 'Document',
@@ -6132,6 +6232,7 @@ class SignatureService
                 // Best-effort email send. Existing amendment-review route is
                 // used so the previous signer lands on the focused initialing
                 // view we render server-side from the same surface.
+                $sendSucceeded = false;
                 try {
                     $url = route('signatures.external.amendment-review', $initialingToken);
                     // Step 2 (Johan) — "new condition" email variant. When the
@@ -6148,7 +6249,8 @@ class SignatureService
                     // Reply-To) on the initialing re-send, matching every
                     // other send site; without it both headers fall back to
                     // the system default.
-                    Mail::to($previousRequest->signer_email)->send(
+                    $this->dispatchSigningMail(
+                        $previousRequest->signer_email,
                         (new SigningRequestMail(
                             signerName:      $previousRequest->signer_name,
                             documentName:    $template->document->name ?? 'Document',
@@ -6157,25 +6259,36 @@ class SignatureService
                             expiresAt:       $previousRequest->token_expires_at,
                         ))->fromAgent($template->creator)
                     );
+                    $sendSucceeded = true;
                 } catch (\Throwable $e) {
                     Log::warning('Initialing cascade — mail send failed', [
                         'amendment_id' => $amendment->id,
                         'request_id'   => $previousRequest->id,
                         'error'        => $e->getMessage(),
                     ]);
+                    SignatureAuditLog::log(
+                        $template,
+                        'invitation_send_failed',
+                        SignatureAuditLog::ACTOR_SYSTEM,
+                        'System',
+                        metadata: ['amendment_id' => $amendment->id, 'signer_name' => $previousRequest->signer_name, 'reason' => $e->getMessage()],
+                    );
                 }
 
-                SignatureAuditLog::log(
-                    $template,
-                    'amendment_initialing_invited',
-                    SignatureAuditLog::ACTOR_SYSTEM,
-                    'System',
-                    metadata: [
-                        'amendment_id'  => $amendment->id,
-                        'party_role'    => $previousRequest->party_role,
-                        'signer_name'   => $previousRequest->signer_name,
-                    ],
-                );
+                // AT-395 §5 — only recorded as invited when the mail genuinely went out.
+                if ($sendSucceeded) {
+                    SignatureAuditLog::log(
+                        $template,
+                        'amendment_initialing_invited',
+                        SignatureAuditLog::ACTOR_SYSTEM,
+                        'System',
+                        metadata: [
+                            'amendment_id'  => $amendment->id,
+                            'party_role'    => $previousRequest->party_role,
+                            'signer_name'   => $previousRequest->signer_name,
+                        ],
+                    );
+                }
             }
         });
     }

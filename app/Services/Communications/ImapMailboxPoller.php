@@ -206,7 +206,12 @@ class ImapMailboxPoller
      * Connect to the mailbox and harden the live stream against a silent server.
      * Overridable seam so the read-timeout path is testable without a server.
      */
-    protected function connect(CommunicationMailbox $mailbox)
+    /**
+     * Public (AT-395): reused by ImapSentFolderAppender for the post-send
+     * Sent-folder append and Test Connection — same connect logic, not
+     * duplicated. No behaviour change from widening this visibility.
+     */
+    public function connect(CommunicationMailbox $mailbox)
     {
         $timeout = max(1, (int) config('communications.imap_timeout_seconds', 20));
 
@@ -251,7 +256,8 @@ class ImapMailboxPoller
      *      NON-EMPTY folder (skips empty client-local homonyms).
      * Returns null if nothing usable is found (caller logs + skips outbound).
      */
-    protected function resolveSentFolder($client): ?object
+    /** Public (AT-395): reused by ImapSentFolderAppender — same reason as connect() above. */
+    public function resolveSentFolder($client): ?object
     {
         // ── 1. Special-use \Sent ─────────────────────────────────────────────
         $listed = []; // path => flags[]

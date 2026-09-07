@@ -44,6 +44,9 @@ class AgencyOnboardingSetup extends Model
         'market_intelligence', // 8a — Market Intelligence / Prospecting Setup (gated: prospecting feature)
         'contacts',       // 9  — Contacts
         'compliance',     // 10 — Compliance
+        'outgoing_mail',  // 10a — Outgoing mail (SMTP) — AT-395. Skippable; a
+                          //       skip leaves the step out of completed_steps,
+                          //       the existing generic "outstanding" signal.
         'notifications',  // 11 — Notifications & dashboard
         'roles',          // 12 — How roles & permissions work (explainer)
         'access',         // 13 — Access & finish

@@ -21,6 +21,12 @@ class CommunicationMailbox extends Model
         'encrypted_password', 'auth_type', 'set_by', 'poll_inbox', 'poll_sent',
         'poll_interval_minutes', 'last_polled_at', 'last_uid_seen', 'active',
         'last_error', 'last_error_at', 'consecutive_failures', 'failure_notified_at',
+        // AT-395 Phase A — outgoing (SMTP) mail fields, spec §2.
+        'outgoing_enabled', 'use_imap_credentials_for_smtp', 'smtp_host', 'smtp_port',
+        'smtp_encryption', 'smtp_username', 'smtp_encrypted_password', 'smtp_from_name',
+        'outgoing_active', 'last_send_error', 'last_send_error_at', 'consecutive_send_failures',
+        'send_failure_notified_at', 'last_sent_at', 'last_sent_folder_append_error',
+        'last_sent_folder_append_at',
     ];
 
     protected $casts = [
@@ -34,6 +40,17 @@ class CommunicationMailbox extends Model
         'last_error_at'      => 'datetime',
         'consecutive_failures' => 'integer',
         'failure_notified_at' => 'datetime',
+        // AT-395 Phase A
+        'outgoing_enabled'              => 'boolean',
+        'use_imap_credentials_for_smtp' => 'boolean',
+        'smtp_port'                     => 'integer',
+        'smtp_encrypted_password'       => 'encrypted',
+        'outgoing_active'               => 'boolean',
+        'last_send_error_at'            => 'datetime',
+        'consecutive_send_failures'     => 'integer',
+        'send_failure_notified_at'      => 'datetime',
+        'last_sent_at'                  => 'datetime',
+        'last_sent_folder_append_at'    => 'datetime',
     ];
 
     // Health states surfaced on the mailboxes screen (AT-181). These are DERIVED — the
@@ -50,6 +67,7 @@ class CommunicationMailbox extends Model
     // toArray()/toJson().
     protected $hidden = [
         'encrypted_password',
+        'smtp_encrypted_password',
     ];
 
     public function user(): \Illuminate\Database\Eloquent\Relations\BelongsTo
@@ -65,6 +83,96 @@ class CommunicationMailbox extends Model
     public function scopeActive($query)
     {
         return $query->where('active', true);
+    }
+
+    /**
+     * AT-395 §7.3 — OWN / BRANCH / AGENCY visibility, via the same mechanism
+     * every other personal-record module already uses (e.g. Rental.php:39-53).
+     * No new scoping pattern invented.
+     */
+    public function scopeVisibleTo($query, \App\Models\User $user)
+    {
+        $scope = \App\Services\PermissionService::getDataScope($user, 'communication_mailboxes');
+
+        if ($scope === 'all') {
+            return $query;
+        }
+        if ($scope === 'branch') {
+            return $query->whereHas('user', function ($q) use ($user) {
+                $q->where('branch_id', $user->effectiveBranchId());
+            });
+        }
+        if ($scope === 'own') {
+            return $query->where('user_id', $user->id);
+        }
+
+        return $query->whereRaw('1 = 0');
+    }
+
+    /**
+     * AT-395 §3.1 — resolve the mailbox to send THROUGH for a given agent.
+     * User match only in Phase A (no agency-wide fallback — see spec §3.1 for
+     * where that would plug in later). Never returns an archived, disabled,
+     * or outgoing-inactive mailbox.
+     */
+    public static function resolveOutgoingFor(\App\Models\User $agent): ?self
+    {
+        $agencyId = $agent->effectiveAgencyId();
+        if (! $agencyId) {
+            return null;
+        }
+
+        return static::query()
+            ->where('agency_id', $agencyId)
+            ->where('user_id', $agent->id)
+            ->where('outgoing_enabled', true)
+            ->where('outgoing_active', true)
+            ->first();
+    }
+
+    /** AT-395 §2.4 — the credential actually used for sending. */
+    public function resolvedSmtpUsername(): ?string
+    {
+        return $this->use_imap_credentials_for_smtp ? $this->username : $this->smtp_username;
+    }
+
+    /** AT-395 §2.4 — the credential actually used for sending (decrypted by the relevant cast). */
+    public function resolvedSmtpPassword(): ?string
+    {
+        return $this->use_imap_credentials_for_smtp ? $this->encrypted_password : $this->smtp_encrypted_password;
+    }
+
+    /**
+     * AT-395 §2.4 — outgoing counterpart to pollHealth(), same four states,
+     * same derivation shape, reading the _send_/_sent_ columns instead.
+     */
+    public function sendHealth(): string
+    {
+        if (! $this->outgoing_enabled || ! $this->outgoing_active) {
+            return self::HEALTH_INACTIVE;
+        }
+        if ($this->last_send_error !== null) {
+            return self::HEALTH_FAILING;
+        }
+        if ($this->last_sent_at !== null) {
+            $staleMinutes = 2 * max(1, (int) $this->poll_interval_minutes);
+            return $this->last_sent_at->lt(now()->subMinutes($staleMinutes)) ? self::HEALTH_FAILING : self::HEALTH_HEALTHY;
+        }
+
+        return self::HEALTH_PENDING;
+    }
+
+    /** Plain-English label for the recorded send-failure reason (null when healthy). */
+    public function lastSendErrorLabel(): ?string
+    {
+        return match ($this->last_send_error) {
+            null => null,
+            'connect_failed' => 'Could not connect to the mail server',
+            'auth_failed' => 'Login failed — check the username and password',
+            'incomplete_credentials' => 'Mailbox is missing an outgoing host, username or password',
+            'send_rejected' => 'Connected, but the mail server refused to send the message',
+            default => ucfirst(str_replace('_', ' ', (string) $this->last_send_error)),
+        };
     }
 
     // ── Health derivation (AT-181) ────────────────────────────────────────────

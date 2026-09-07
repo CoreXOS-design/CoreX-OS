@@ -123,6 +123,29 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Outgoing mail (AT-395 Phase A) — per-mailbox SMTP send + Sent-folder copy
+    |--------------------------------------------------------------------------
+    | Consecutive failed sends before the agency's admins are alerted (once per
+    | failure episode; reset on recovery). Agency-overridable via
+    | agencies.communication_send_failure_alert_threshold. Mirrors
+    | failure_alert_threshold above, same pattern.
+    |
+    | smtp_timeout_seconds             — connect+send timeout for the runtime
+    |   SMTP transport built from a mailbox row (PerMailboxMailTransportBuilder).
+    | imap_append_timeout_seconds      — timeout for the post-send Sent-folder
+    |   IMAP append (ImapSentFolderAppender). Currently informational — the
+    |   underlying connect() reuses communications.imap_timeout_seconds; kept
+    |   as its own setting so it can be tuned independently if that changes.
+    | test_connection_timeout_seconds  — how long the Test Connection action
+    |   waits before declaring the SMTP leg failed.
+    */
+    'send_failure_alert_threshold' => (int) env('COMMUNICATIONS_SEND_FAILURE_ALERT_THRESHOLD', 3),
+    'smtp_timeout_seconds' => (int) env('COMMUNICATIONS_SMTP_TIMEOUT_SECONDS', 15),
+    'imap_append_timeout_seconds' => (int) env('COMMUNICATIONS_IMAP_APPEND_TIMEOUT_SECONDS', 15),
+    'test_connection_timeout_seconds' => (int) env('COMMUNICATIONS_TEST_CONNECTION_TIMEOUT_SECONDS', 20),
+
+    /*
+    |--------------------------------------------------------------------------
     | Sent-folder candidates (AT-43)
     |--------------------------------------------------------------------------
     | Fallback paths tried (in order) when a server does not advertise the

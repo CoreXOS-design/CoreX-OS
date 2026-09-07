@@ -429,6 +429,14 @@ class AgencySetupWizardController extends Controller
                 // own singleton row (agency_deal_sync_settings), not on Agency.
                 'deal_sync' => \App\Models\AgencyDealSyncSettings::forAgency($agency->id)->{$key} ?? ($control['default'] ?? null),
                 'proforma'  => AgencyProformaSettings::forAgency($agency->id)->{$key} ?? ($control['default'] ?? null),
+                // AT-395 — the outgoing-mail step reads the CURRENT ADMIN's own
+                // mailbox row, never any other agent's. Password is never
+                // resolved back (write-only, same rule as every mailbox screen).
+                'mailbox'   => $key === 'password' ? null : (
+                    \App\Models\Communications\CommunicationMailbox::where('agency_id', $agency->id)
+                        ->where('user_id', Auth::id())
+                        ->first()?->{$key} ?? ($control['default'] ?? null)
+                ),
                 default     => $agency->{$key} ?? ($control['default'] ?? null),
             };
         }

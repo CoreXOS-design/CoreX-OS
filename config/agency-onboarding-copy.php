@@ -526,6 +526,56 @@ return [
         ],
     ],
 
+    // AT-395 Phase A — mandatory wizard step (Johan's override, 2026-09-07):
+    // "an agency sets email up correctly from the word go, so it is never
+    // discovered broken later." Skippable — skipping leaves this step out of
+    // completed_steps, the wizard's existing generic outstanding-setup signal;
+    // no new dashboard widget needed.
+    'outgoing_mail' => [
+        'title' => 'Outgoing mail (SMTP)',
+        'intro' => "Connect your own mail server so e-sign invitations and other CoreX emails "
+            . 'go out under your own domain, not a shared one — this is what stops receiving '
+            . 'mail servers from rejecting your emails.',
+        'what' => [
+            'title' => 'Why this matters',
+            'body'  => 'When CoreX sends an e-sign invitation, receiving mail servers (like Gmail) check '
+                . "whether the server that sent it is actually allowed to send on your domain's behalf. "
+                . "Without your own mail server connected, that check can fail and the email never arrives "
+                . '— sometimes without you or your client noticing until it is too late to sign in time. '
+                . 'Connecting your own mailbox here fixes that, and also means a copy of every invitation '
+                . "lands in your own Sent folder, exactly as if you had typed it yourself.",
+        ],
+        'savers' => [
+            ['controller' => \App\Http\Controllers\Settings\EmailSetupController::class, 'method' => 'onboardingSaveOutgoing', 'pass_agency' => true],
+        ],
+        'controls' => [
+            ['key' => 'outgoing_enabled', 'source' => 'mailbox', 'type' => 'toggle', 'default' => 0,
+             'label' => 'Send outgoing mail through my own mailbox',
+             'explain' => 'Turns on sending e-sign invitations through the mail server below instead of the shared CoreX address.',
+             'affects' => 'Emails your agents send through CoreX (e-sign invitations first) will be sent from your own mail server and appear in your own Sent folder, instead of a shared CoreX address.'],
+            ['key' => 'email_address', 'source' => 'mailbox', 'type' => 'text', 'label' => 'Your email address',
+             'explain' => 'The mailbox e-sign invitations will be sent from and copied into.',
+             'affects' => 'This is the From address your clients will see on e-sign invitations.'],
+            ['key' => 'smtp_host', 'source' => 'mailbox', 'type' => 'text', 'label' => 'Outgoing mail server (SMTP host)',
+             'explain' => 'Ask your email provider (e.g. Afrihost, cPanel) for this — it is usually something like mail.yourdomain.co.za.',
+             'affects' => 'The server CoreX connects to when sending on your behalf.'],
+            ['key' => 'smtp_port', 'source' => 'mailbox', 'type' => 'number', 'default' => 587,
+             'label' => 'Port', 'explain' => 'Usually 587. Your provider will confirm if different.',
+             'affects' => 'The connection port used to send mail.'],
+            ['key' => 'smtp_encryption', 'source' => 'mailbox', 'type' => 'select', 'default' => 'tls',
+             'options' => ['tls' => 'TLS (most common, port 587)', 'ssl' => 'SSL (port 465)', 'none' => 'None'],
+             'label' => 'Encryption',
+             'explain' => 'How the connection to your mail server is secured.',
+             'affects' => 'Must match what your mail provider expects, or sending will fail.'],
+            ['key' => 'username', 'source' => 'mailbox', 'type' => 'text', 'label' => 'Mailbox username',
+             'explain' => 'Usually your full email address.',
+             'affects' => 'Used to log in and send mail through your mail server.'],
+            ['key' => 'password', 'source' => 'mailbox', 'type' => 'text', 'label' => 'Mailbox password',
+             'explain' => 'Your mailbox password. Stored encrypted, never shown again.',
+             'affects' => 'Used to log in and send mail through your mail server. Leave blank later to keep it unchanged.'],
+        ],
+    ],
+
     'notifications' => [
         'title' => 'Notifications & dashboard',
         'intro' => 'Decide what CoreX chases your team about, and who controls those settings.',

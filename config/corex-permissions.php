@@ -147,6 +147,12 @@ return [
         //    full immutable archive of staff email/WhatsApp. Restricted by default. ──
         ['key' => 'access_communication_archive',  'label' => 'View Communication Archive (all staff email/WhatsApp)', 'section' => 'compliance', 'type' => 'access', 'module' => 'communication_archive', 'sort_order' => 17],
         ['key' => 'manage_communication_mailboxes', 'label' => 'Manage Archive Mailboxes (IMAP credentials)',          'section' => 'compliance', 'type' => 'action', 'module' => 'communication_archive', 'sort_order' => 18],
+        // AT-395 — OWN/BRANCH/AGENCY visibility on the mailbox list/detail (separate
+        // module key from communication_archive above so its scope resolves
+        // independently: owner/admin=all, branch_manager=branch (scope_defaults),
+        // agent/office_admin=own. Deliberately NOT granted to viewer/assistant —
+        // a mailbox is a personal outgoing/incoming credential, not archive content.
+        ['key' => 'communication_mailboxes.view',   'label' => 'View Own/Team Mailboxes',                              'section' => 'compliance', 'type' => 'action', 'module' => 'communication_mailboxes', 'sort_order' => 18.5],
         // Pending triage (AT-36): staff-facing triage of unknown-contact messages (agents).
         ['key' => 'triage_communications',            'label' => 'Triage Pending Communications',                     'section' => 'compliance', 'type' => 'access', 'module' => 'communication_archive', 'sort_order' => 19],
         // BM flag register: audit of who discarded what (privacy-sensitive, no message content).
@@ -776,6 +782,7 @@ return [
                 'access_agency_tracker', 'access_daily_activity', 'access_deal_register',
                 'access_listing_stock', 'access_tv_messages', 'access_worksheet_market',
                 'access_rental_signatures',
+                'communication_mailboxes.view', // AT-395 — branch scope (scope_defaults)
                 // AT-283 (Johan's ruling): settlement is admin-only — "not even bm can
                 // access settlements". BM keeps the deal register, loses settle_deals.
                 'view_worksheet', 'edit_worksheet', 'view_deals', 'create_deals', 'proforma.generate', 'proforma.view',
@@ -897,6 +904,7 @@ return [
             'include' => [
                 'view_dashboard', 'view_dashboard_kpis', 'view_dashboard_charts',
                 'access_agency_tracker', 'access_daily_activity', 'access_rental_signatures',
+                'communication_mailboxes.view', // AT-395 — own scope (scope_defaults)
                 'view_worksheet', 'edit_worksheet', 'view_deals', 'proforma.generate', 'proforma.view',
                 'view_listings', 'view_performance', 'view_buyers_report', 'buyers_report.view',
                 'view_rentals', 'manage_rentals', 'view_daily_activity',
@@ -1043,6 +1051,7 @@ return [
             // _v2 / settle_deals grants as over-grants.
             'include' => [
                 'communications.view',
+                'communication_mailboxes.view', // AT-395 — not in scope_defaults, falls to 'own'
             ],
         ],
 

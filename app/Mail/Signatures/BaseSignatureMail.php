@@ -20,6 +20,14 @@ abstract class BaseSignatureMail extends Mailable
     private bool $resolvedAgencyMemoSet = false;
 
     /**
+     * AT-395 §3.4 — the outgoing mailbox resolved for the sending agent, if any.
+     * Memoized alongside the agency memo for the same reason (avoid a second
+     * DB round-trip from getFromAddress() after fromAgent() already resolved it).
+     */
+    private ?\App\Models\Communications\CommunicationMailbox $resolvedMailboxMemo = null;
+    private bool $resolvedMailboxMemoSet = false;
+
+    /**
      * Free/public email providers a CoreX-hosted domain is never SPF/DKIM
      * authorized to send as. Without this guard, an agency whose contact
      * email happens to be a personal address (e.g. admin@gmail.com) would
@@ -67,9 +75,43 @@ abstract class BaseSignatureMail extends Mailable
     }
 
     /**
+     * AT-395 §3.1 — the agent's own outgoing mailbox, if one is configured and
+     * enabled. Memoized: called from both getFromAddress() and, by the actual
+     * send path (SignatureService), to decide whether to route through it.
+     */
+    /** AT-395 — the sending agent's id, if one was stamped via fromAgent(). */
+    public function sendingAgentId(): ?int
+    {
+        return $this->sendingAgent?->id;
+    }
+
+    /** AT-395 — the sending agent's agency id, reusing the memoized lookup (no extra query). */
+    public function sendingAgentAgencyId(): ?int
+    {
+        return $this->sendingAgent ? $this->resolveAgencyForAgent($this->sendingAgent)?->id : null;
+    }
+
+    public function resolvedMailbox(): ?\App\Models\Communications\CommunicationMailbox
+    {
+        if ($this->resolvedMailboxMemoSet) {
+            return $this->resolvedMailboxMemo;
+        }
+
+        $this->resolvedMailboxMemo = $this->sendingAgent
+            ? \App\Models\Communications\CommunicationMailbox::resolveOutgoingFor($this->sendingAgent)
+            : null;
+        $this->resolvedMailboxMemoSet = true;
+
+        return $this->resolvedMailboxMemo;
+    }
+
+    /**
      * Get the From address.
-     * - Company-domain agents: send directly from their address.
-     * - Personal-email agents: send from system with "Name via CoreX OS".
+     * - AT-395 §3.4: an agent with a resolved outgoing mailbox sends as
+     *   themself unconditionally — the mailbox IS that domain's own outbound
+     *   server, so the company-domain guard below is no longer the question.
+     * - Company-domain agents (no mailbox): send directly from their address.
+     * - Personal-email agents (no mailbox): send from system with "Name via CoreX OS".
      * - No agent: system default.
      */
     protected function getFromAddress(): Address
@@ -78,6 +120,13 @@ abstract class BaseSignatureMail extends Mailable
             return new Address(
                 config('mail.from.address'),
                 config('mail.from.name', 'CoreX OS')
+            );
+        }
+
+        if ($mailbox = $this->resolvedMailbox()) {
+            return new Address(
+                $this->sendingAgent->outward_email,
+                $mailbox->smtp_from_name ?: $this->sendingAgent->name
             );
         }
 
