@@ -41,6 +41,17 @@
        falling back to signer_phone (the Fill & Review-captured cell)
        exactly as before when no WhatsApp-specific number is on file.
 
+    2026-09-07, second round — the button rendered after the fixes above
+    but clicking it did nothing at all, on every document. Root cause: a
+    double-quote character inside a JS comment inside this file's own
+    x-data attribute value (see that comment's own explanation, right
+    above the confirmSent method below) silently truncated the entire
+    x-data expression mid-comment, so Alpine never defined sendWhatsApp
+    (or anything else on this component) at all. Confirmed with a real
+    headless-browser click, not by reading markup — see
+    .ai/specs/esign-v3-complete-spec.md's addendum for the full account,
+    including the exact truncated-vs-intended character counts.
+
     Required param:
       $signatureRequest — App\Models\Docuperfect\SignatureRequest
       $document         — App\Models\Docuperfect\Document (for the route binding)
@@ -77,9 +88,31 @@
                 } catch (e) {}
             },
             // AT-323 — SAME confirm contract as the contact quick-send (see
-            // corex/contacts/show.blade.php's confirmSent()). "No" leaves the
-            // row not_delivered (nothing to do); "Yes" is the ONLY path this
-            // reaches sent and the contact's WhatsApp counter moves.
+            // corex/contacts/show.blade.php's confirmSent()). Answering No
+            // leaves the row not_delivered (nothing to do); answering Yes
+            // is the ONLY path this reaches sent and the contact's WhatsApp
+            // counter moves.
+            //
+            // 2026-09-07 — this comment used to quote the words No and Yes
+            // using the double-quote character, and that single character
+            // is exactly why the button went dead after the previous fix.
+            // This whole block is the value of an x-data attribute, and an
+            // HTML attribute value written with double-quote delimiters
+            // ends at the FIRST double-quote character the browser finds —
+            // even one sitting inside a JS line comment, since the HTML
+            // parser has no idea what a JS comment is. That truncated this
+            // entire expression mid-comment, so Alpine received an
+            // incomplete, unparsable object literal and silently failed to
+            // define ANY property or method here at all — sendWhatsApp was
+            // never defined, so clicking the button did nothing. Confirmed
+            // by loading the real rendered markup in a headless browser and
+            // reading the DOM's actual x-data attribute back out: it was
+            // 1624 characters long instead of the intended 2586, cut off
+            // right where that quote character used to sit. Rule for any
+            // future edit to this file: never use the double-quote
+            // character anywhere inside this x-data block, comments
+            // included — single quotes only, exactly like every string
+            // literal already in this expression.
             async confirmSent(didSend) {
                 const commId = this.sentConfirm.communicationId;
                 const contactId = this.sentConfirm.contactId;

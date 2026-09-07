@@ -1624,6 +1624,76 @@ and removing it is outside the scope of what was asked.
 
 ---
 
+### 22.17 "Send via WhatsApp" button went dead after §22.16's own fix (2026-09-07)
+
+Johan tested §22.16 and reported the button now renders correctly but
+clicking it does nothing at all, on both `/docuperfect/esign/{flow}/signing-complete`
+and `/docuperfect/esign/my-documents`. His instruction was explicit: verify
+with a real click in a real browser, not by reading markup — "that is
+precisely how it reached him broken."
+
+**Root cause.** `_whatsapp-resend-button.blade.php`'s entire interactive
+component is the value of an `x-data="..."` HTML attribute. §22.16's own
+fix added a JS `//` comment inside that attribute's content that quoted
+the words No and Yes using the double-quote character:
+`// ...confirmSent()). "No" leaves the row...`. An HTML attribute written
+with double-quote delimiters ends at the FIRST double-quote character the
+browser's parser finds, full stop — the parser has no concept of a JS
+comment, so a quote mark sitting inside one is exactly as attribute-ending
+as one sitting anywhere else. That truncated the whole `x-data` expression
+mid-comment. Alpine received an incomplete, unparsable object literal and
+failed to define ANY property or method on the component — `sendWhatsApp`
+was never a real function, so `@click="sendWhatsApp()"` silently did
+nothing (Alpine logs a console warning, never a visible page error).
+
+This is the exact rule the codebase's OWN pre-existing components already
+document in the same area — `corex/contacts/show.blade.php`'s equivalent
+`x-data` block carries repeated comments to this effect ("no literal
+double-quote characters in comments here... a stray one closes it early
+and leaks the rest of the JS onto the page as visible text") — and §22.16
+broke it anyway, in the same file, in the same kind of fix.
+
+**Proof, not assertion.** Read markup alone would not have caught this —
+the attribute value LOOKS complete when viewed as source text in the
+`.blade.php` file; the truncation only happens in the BROWSER's own
+attribute parsing of the compiled output, which a text editor or `grep`
+never performs. Confirmed with a real Chromium instance (Puppeteer,
+headless), loading the actual rendered page markup with the app's real
+compiled Alpine bundle, and directly reading back
+`document.querySelector('[x-data]').getAttribute('x-data')`:
+- Broken version: the DOM's parsed attribute was **1624 characters**,
+  cut off immediately after `...confirmSent()). ` — exactly where the
+  quote character sat — versus the intended **2586 characters**.
+- `window.open()` was stubbed and never called on click; Alpine logged
+  `Unexpected token ')'` (the truncated object literal) followed by
+  `sendWhatsApp is not defined` on click.
+
+**Fix.** Reworded the comment to describe the same behaviour without any
+double-quote character (`Answering No leaves...`, `answering Yes is...`).
+Re-verified the SAME way the defect was found — real Chromium click, not
+markup reading — with the mock `window.open`/`fetch` this time returning
+a realistic payload: the click now genuinely calls `window.open()` with
+the correct `wa.me` URL and real signing link, the honest "not confirmed
+sent" line appears, the shared "Did you send it?" modal opens, and
+clicking "Yes, I sent it" calls the real mark-sent endpoint — all with
+zero console errors, on both signing-complete and my-documents (one
+shared partial, confirmed independently on each screen since Johan asked
+for both to be checked separately).
+
+Confirmed architecturally impossible for the confirmation modal to block
+or undo the WhatsApp launch: `window.open()` is the FIRST, synchronous
+statement in `sendWhatsApp()`, called before any `await` — the modal only
+appears later, after the follow-up `fetch()` resolves, so there is no
+code path where showing or answering it could prevent a launch that
+already happened.
+
+**Rule going forward, stated plainly in the file itself now:** never use
+the double-quote character anywhere inside this component's `x-data`
+block, including inside comments — single quotes only, matching every
+string literal already in the expression.
+
+---
+
 ## 23. Open Questions
 
 None at draft time. To be added as build surfaces them.
