@@ -57,7 +57,7 @@ final class ImapPollReadTimeoutTest extends TestCase
         config(['communications.imap_poll_budget_seconds' => 1]);
 
         $poller = new class (app(EmailArchiveIngestor::class)) extends ImapMailboxPoller {
-            protected function connect(CommunicationMailbox $mailbox)
+            public function connect(CommunicationMailbox $mailbox)
             {
                 // A fake client whose INBOX read blocks for 5s — well past the 1s budget.
                 $folder = new class {

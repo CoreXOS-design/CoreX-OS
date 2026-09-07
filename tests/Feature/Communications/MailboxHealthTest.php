@@ -101,7 +101,7 @@ final class MailboxHealthTest extends TestCase
         $this->assertNull($mailbox->last_polled_at);
 
         $poller = new class (app(EmailArchiveIngestor::class)) extends ImapMailboxPoller {
-            protected function connect(CommunicationMailbox $mailbox)
+            public function connect(CommunicationMailbox $mailbox)
             {
                 throw new \RuntimeException('Connection refused');
             }
@@ -123,7 +123,7 @@ final class MailboxHealthTest extends TestCase
         $mailbox = $this->mailbox();
 
         $poller = new class (app(EmailArchiveIngestor::class)) extends ImapMailboxPoller {
-            protected function connect(CommunicationMailbox $mailbox)
+            public function connect(CommunicationMailbox $mailbox)
             {
                 throw new \RuntimeException('[AUTHENTICATIONFAILED] Invalid credentials');
             }
@@ -156,7 +156,7 @@ final class MailboxHealthTest extends TestCase
 
         // A fake client whose INBOX read returns no messages → a clean, successful poll.
         $poller = new class (app(EmailArchiveIngestor::class)) extends ImapMailboxPoller {
-            protected function connect(CommunicationMailbox $mailbox)
+            public function connect(CommunicationMailbox $mailbox)
             {
                 $folder = new class {
                     public function query() { return $this; }
@@ -243,7 +243,7 @@ final class MailboxHealthTest extends TestCase
         config(['communications.imap_poll_budget_seconds' => 1]);
 
         $poller = new class (app(EmailArchiveIngestor::class)) extends ImapMailboxPoller {
-            protected function connect(CommunicationMailbox $mailbox)
+            public function connect(CommunicationMailbox $mailbox)
             {
                 $folder = new class {
                     public function query() { return $this; }
