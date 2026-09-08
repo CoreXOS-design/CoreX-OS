@@ -116,6 +116,12 @@ class ImapMailboxPoller
         $started = $this->startWatchdog($budget, (int) $mailbox->id);
         $status  = 'success';
         $reason  = null;
+        // 2026-09-08 (Johan, part B) — set only at the checkpoint site below, when
+        // the budget fires mid-folder. Carries "roughly how many messages remain
+        // above the checkpoint" through to the health-recording call at the
+        // bottom of this method, so the "Behind" badge can say how far, not just
+        // that it is behind.
+        $behindEstimate = null;
 
         try {
             foreach ($folders as $entry) {
@@ -178,6 +184,12 @@ class ImapMailboxPoller
                         $messages = $folder->query()->since($since)->setFetchBody(false)->get();
                     }
                 } catch (ImapPollTimeoutException $e) {
+                    // The budget fired before the search even returned — nothing in
+                    // this folder was processed this run, so there is nothing to
+                    // checkpoint (the cursor is correctly left untouched). Still
+                    // worth an honest "how far behind" estimate off the folder's
+                    // UIDNEXT we already have, same math as the mid-loop checkpoint.
+                    $behindEstimate = max(0, ((int) ($status_['uidnext'] ?? 1) - 1) - ($storedUid ?? 0));
                     throw $e;
                 } catch (\Webklex\PHPIMAP\Exceptions\GetMessagesFailedException $e) {
                     Log::info("Communication archive IMAP search empty (mailbox {$mailbox->id}, {$folderName}): {$e->getMessage()}");
@@ -187,116 +199,155 @@ class ImapMailboxPoller
                     continue;
                 }
 
-                // Highest UID actually returned by the search, tracked regardless of
-                // what happens to each message below (kept, dropped, duplicate,
-                // error) — the cursor advances on "we have looked at this range",
-                // exactly like every other IMAP client's sync state, not on "we
-                // archived something."
+                // Highest UID PROVEN handled so far, tracked regardless of what
+                // happened to each message (kept, dropped, duplicate, a
+                // definitively-errored message) — the cursor advances on "we have
+                // fully decided this UID's fate", exactly like every other IMAP
+                // client's sync state, not on "we archived something."
+                //
+                // 2026-09-08 (Johan, part A — checkpointing) — every update to
+                // $maxUidThisRun below happens strictly AFTER that UID's outcome is
+                // known (ingested / duplicate / dropped / a real, non-timeout
+                // error). A UID is never counted while its fate is still unknown.
+                // That is what makes the checkpoint below ("commit whatever this
+                // folder genuinely proved before the budget fired") safe: it can
+                // only ever contain PROVEN work, never a message that was mid-flight
+                // when the alarm fired.
                 $maxUidThisRun = $storedUid !== null ? (int) $storedUid : 0;
 
-                foreach ($messages as $liteMessage) {
-                    try {
-                        $uid = (int) $liteMessage->getUid();
-                        // Tracked BEFORE anything that could throw below — the cursor
-                        // must reflect "we have looked at this UID" regardless of
-                        // whether it turned out to be kept, dropped, a duplicate, or
-                        // an error on our side. Only a budget timeout partway through
-                        // this loop stops the cursor from including it (see the
-                        // non-negotiable invariant at the advanceUidCursor() call
-                        // site below).
-                        $maxUidThisRun = max($maxUidThisRun, $uid);
+                try {
+                    foreach ($messages as $liteMessage) {
+                        $uid = null;
+                        try {
+                            $uid = (int) $liteMessage->getUid();
 
-                        // 2026-09-08 (items 2/3, Johan) — HEADERS FIRST. Fetch only the
-                        // header (no body, no attachments — see PeekingMessageFetcher::
-                        // peekHeader()) and decide from that alone before ever paying for
-                        // the full message. A Property24 no-reply now costs one small
-                        // header fetch, never a body+attachment download.
-                        $headerMsg = PeekingMessageFetcher::peekHeader($client, $uid, $folderName);
-                        if ($headerMsg === null) {
-                            $stats['errors']++;
-                            Log::warning("Communication archive: header peek returned no content (mailbox {$mailbox->id}, uid {$uid})");
-                            continue;
-                        }
-
-                        // Dedup FIRST, on the header alone (Message-ID needs no body) —
-                        // the cheapest possible check, and the one the overlap window
-                        // depends on entirely. Same check ingest() itself uses
-                        // (EmailArchiveIngestor::isAlreadySeen() wraps the identical
-                        // private alreadySeen()) — never a second, drifting
-                        // implementation of "have we seen this."
-                        $messageId = $this->safe(fn () => (string) $headerMsg->getMessageId()) ?: '';
-                        if ($messageId !== '' && $this->ingestor->isAlreadySeen((int) $mailbox->agency_id, $messageId)) {
-                            $stats['duplicate']++;
-                            continue;
-                        }
-
-                        // Known-contact gate, same matching EmailArchiveIngestor uses
-                        // (ContactIdentifierResolver) — checked here, on the header
-                        // alone, so a no-reply/service-domain sender who is NOT a known
-                        // contact can be dropped before the full fetch. A sender who
-                        // MATCHES a contact always gets the full fetch regardless (never
-                        // let a real client's mail be filtered by a no-reply heuristic).
-                        $from = $this->firstAddress($headerMsg, 'getFrom') ?? '';
-                        $contact = $from !== '' ? $this->contactResolver->resolve($from, (int) $mailbox->agency_id) : null;
-
-                        if (!$contact) {
-                            $dropReason = $this->ingestFilter->dropReasonForUnknown($from, $mailbox->agency);
-                            if ($dropReason !== null) {
-                                $stats['dropped']++;
-                                Log::info('Communication archive: ingestion dropped before fetch (header-stage filter)', [
-                                    'agency_id'  => $mailbox->agency_id,
-                                    'mailbox_id' => $mailbox->id,
-                                    'direction'  => $direction,
-                                    'sender'     => $from,
-                                    'reason'     => $dropReason,
-                                ]);
+                            // 2026-09-08 (items 2/3, Johan) — HEADERS FIRST. Fetch only the
+                            // header (no body, no attachments — see PeekingMessageFetcher::
+                            // peekHeader()) and decide from that alone before ever paying for
+                            // the full message. A Property24 no-reply now costs one small
+                            // header fetch, never a body+attachment download.
+                            $headerMsg = PeekingMessageFetcher::peekHeader($client, $uid, $folderName);
+                            if ($headerMsg === null) {
+                                $stats['errors']++;
+                                Log::warning("Communication archive: header peek returned no content (mailbox {$mailbox->id}, uid {$uid})");
+                                $maxUidThisRun = max($maxUidThisRun, $uid); // proven: nothing usable here, terminal outcome
                                 continue;
                             }
-                        }
 
-                        // Reserved for mail we're actually going to keep (a known
-                        // contact -> archived) or might keep (genuinely unknown, not
-                        // no-reply/service -> held for review, item 4). Everything that
-                        // would just be dropped or was already seen never reaches here.
-                        $message = PeekingMessageFetcher::peek($client, $uid, $folderName);
-                        if ($message === null) {
+                            // Dedup FIRST, on the header alone (Message-ID needs no body) —
+                            // the cheapest possible check. Same check ingest() itself uses
+                            // (EmailArchiveIngestor::isAlreadySeen() wraps the identical
+                            // private alreadySeen()) — never a second, drifting
+                            // implementation of "have we seen this."
+                            $messageId = $this->safe(fn () => (string) $headerMsg->getMessageId()) ?: '';
+                            if ($messageId !== '' && $this->ingestor->isAlreadySeen((int) $mailbox->agency_id, $messageId)) {
+                                $stats['duplicate']++;
+                                $maxUidThisRun = max($maxUidThisRun, $uid); // proven: already archived
+                                continue;
+                            }
+
+                            // Known-contact gate, same matching EmailArchiveIngestor uses
+                            // (ContactIdentifierResolver) — checked here, on the header
+                            // alone, so a no-reply/service-domain sender who is NOT a known
+                            // contact can be dropped before the full fetch. A sender who
+                            // MATCHES a contact always gets the full fetch regardless (never
+                            // let a real client's mail be filtered by a no-reply heuristic).
+                            $from = $this->firstAddress($headerMsg, 'getFrom') ?? '';
+                            $contact = $from !== '' ? $this->contactResolver->resolve($from, (int) $mailbox->agency_id) : null;
+
+                            if (!$contact) {
+                                $dropReason = $this->ingestFilter->dropReasonForUnknown($from, $mailbox->agency);
+                                if ($dropReason !== null) {
+                                    $stats['dropped']++;
+                                    Log::info('Communication archive: ingestion dropped before fetch (header-stage filter)', [
+                                        'agency_id'  => $mailbox->agency_id,
+                                        'mailbox_id' => $mailbox->id,
+                                        'direction'  => $direction,
+                                        'sender'     => $from,
+                                        'reason'     => $dropReason,
+                                    ]);
+                                    $maxUidThisRun = max($maxUidThisRun, $uid); // proven: deliberately dropped
+                                    continue;
+                                }
+                            }
+
+                            // Reserved for mail we're actually going to keep (a known
+                            // contact -> archived) or might keep (genuinely unknown, not
+                            // no-reply/service -> held for review, item 4). Everything that
+                            // would just be dropped or was already seen never reaches here.
+                            $message = PeekingMessageFetcher::peek($client, $uid, $folderName);
+                            if ($message === null) {
+                                $stats['errors']++;
+                                Log::warning("Communication archive: peek fetch returned no content (mailbox {$mailbox->id}, uid {$uid})");
+                                $maxUidThisRun = max($maxUidThisRun, $uid); // proven: definitively unfetchable
+                                continue;
+                            }
+                            $normalized = $this->normalize($message, $direction);
+                            try {
+                                $result = $this->ingestor->ingest($mailbox, $normalized, $direction);
+                                $stats[$result] = ($stats[$result] ?? 0) + 1;
+                            } finally {
+                                // Attachments are spooled to temp files (see attachments());
+                                // free them whatever the outcome so a long poll cannot fill
+                                // the disk with the payloads we kept out of memory.
+                                $this->discardSpooled($normalized['attachments'] ?? []);
+                            }
+                            // Only now — after ingest() genuinely returned — is this UID
+                            // PROVEN handled. If the budget fires anywhere above this line
+                            // (including inside ingest() itself), execution never reaches
+                            // here, and $maxUidThisRun stays at whatever the PREVIOUS UID
+                            // left it at.
+                            $maxUidThisRun = max($maxUidThisRun, $uid);
+                        } catch (ImapPollTimeoutException $e) {
+                            throw $e; // the budget fired mid-message -- this UID's fate is UNKNOWN, $maxUidThisRun must not move past it
+                        } catch (\Throwable $e) {
+                            // One bad message must never block the rest or crash the worker.
+                            // Unchanged from before checkpointing: a genuinely-erroring
+                            // message (not a timeout) is a terminal outcome, not an unknown
+                            // one -- retrying it every poll forever would let one malformed
+                            // message wedge the whole mailbox permanently. $uid can only be
+                            // null if getUid() itself is what threw, in which case there is
+                            // no UID to safely skip past.
                             $stats['errors']++;
-                            Log::warning("Communication archive: peek fetch returned no content (mailbox {$mailbox->id}, uid {$uid})");
-                            continue;
+                            Log::error("Communication archive ingest error (mailbox {$mailbox->id}): {$e->getMessage()}");
+                            if ($uid !== null) {
+                                $maxUidThisRun = max($maxUidThisRun, $uid);
+                            }
                         }
-                        $normalized = $this->normalize($message, $direction);
-                        try {
-                            $result = $this->ingestor->ingest($mailbox, $normalized, $direction);
-                            $stats[$result] = ($stats[$result] ?? 0) + 1;
-                        } finally {
-                            // Attachments are spooled to temp files (see attachments());
-                            // free them whatever the outcome so a long poll cannot fill
-                            // the disk with the payloads we kept out of memory.
-                            $this->discardSpooled($normalized['attachments'] ?? []);
-                        }
-                    } catch (ImapPollTimeoutException $e) {
-                        throw $e; // the budget fired mid-message — abort the whole poll
-                    } catch (\Throwable $e) {
-                        // One bad message must never block the rest or crash the worker.
-                        $stats['errors']++;
-                        Log::error("Communication archive ingest error (mailbox {$mailbox->id}): {$e->getMessage()}");
                     }
-                }
 
-                // This folder's ENTIRE message loop ran to completion with nothing
-                // throwing — genuinely done, safe to advance ITS UID cursor now.
-                //
-                // CRITICAL (Johan, non-negotiable): if the budget watchdog fires
-                // ANYWHERE above — mid-search, mid-header-peek, mid-full-peek,
-                // mid-ingest — ImapPollTimeoutException propagates straight through
-                // this line without ever reaching it. This folder's stored UID is
-                // NOT advanced, is left exactly as it was, and the next poll asks
-                // the server for the exact same "UID {old+1}:*" range again — the
-                // same messages, not skipped, not silently dropped. A failed or
-                // interrupted poll can only ever leave the cursor unchanged or
-                // advance it on genuine completion — there is no path that advances
-                // it on partial/failed work.
-                $this->advanceUidCursor($mailbox, $isInbound, $maxUidThisRun > 0 ? $maxUidThisRun : null, $currentUidValidity, (int) ($status_['uidnext'] ?? 1));
+                    // This folder's ENTIRE message loop ran to completion with nothing
+                    // throwing — genuinely done, safe to advance ITS UID cursor now.
+                    $this->advanceUidCursor($mailbox, $isInbound, $maxUidThisRun > 0 ? $maxUidThisRun : null, $currentUidValidity, (int) ($status_['uidnext'] ?? 1));
+                } catch (ImapPollTimeoutException $e) {
+                    // 2026-09-08 (Johan, part A) — CHECKPOINT. The budget fired
+                    // partway through this folder. Whatever was PROVEN above (see
+                    // the invariant on $maxUidThisRun's every update site) is
+                    // committed now, so the NEXT poll resumes past it with a precise
+                    // "UID {here}:*" search instead of re-walking this folder's
+                    // entire un-cursored backlog from the same starting point every
+                    // single run forever -- the exact flatlining failure mode a
+                    // mailbox with a backlog too large for one budget window hit
+                    // before this fix. Never advances past a message whose fate was
+                    // still unknown when the alarm fired; only ever writes forward,
+                    // never backward (the > check below is a belt-and-braces no-op
+                    // guard, since $maxUidThisRun can only increase).
+                    if ($maxUidThisRun > ($storedUid ?? 0)) {
+                        Log::info("Communication archive: budget expired mid-poll for mailbox {$mailbox->id} folder {$folderName} — checkpointing at UID {$maxUidThisRun} (was " . ($storedUid ?? 'none') . ") so the next run resumes from here instead of restarting.");
+                        $this->advanceUidCursor($mailbox, $isInbound, $maxUidThisRun, $currentUidValidity, (int) ($status_['uidnext'] ?? 1));
+                    }
+                    // 2026-09-08 (Johan, part B) — approximate "how far behind", for
+                    // the honest health badge below. UIDNEXT - 1 is the highest UID
+                    // that existed on the server the moment this run started (RFC
+                    // 3501); anything above our checkpoint is unprocessed backlog.
+                    // Read fresh from THIS folder specifically — on multi-folder
+                    // mailboxes (Inbox + Sent), whichever folder the budget actually
+                    // ran out on is the one worth reporting; an estimate from an
+                    // earlier, already-completed folder would be stale by definition.
+                    $uidNextThisFolder = (int) ($status_['uidnext'] ?? 1);
+                    $behindEstimate = max(0, ($uidNextThisFolder - 1) - $maxUidThisRun);
+                    throw $e; // still abort the whole poll -- the budget applies to the WHOLE run, not just this folder
+                }
             }
         } catch (ImapPollTimeoutException $e) {
             // A non-responsive folder read tripped the budget. Clean, logged
@@ -316,7 +367,17 @@ class ImapMailboxPoller
         // single mailbox-wide flag would be). Stamped once every ENABLED
         // folder has a real UIDVALIDITY recorded, i.e. the initial catch-up
         // is genuinely done for the whole mailbox.
-        if (!$mailbox->backfill_completed_at
+        //
+        // 2026-09-08 (Johan, part A side-effect) — gated on $status === 'success'.
+        // Checkpointing (above) can now record a real UIDVALIDITY on a folder
+        // whose FIRST pass never actually finished (a budget-interrupted run that
+        // still proved some progress) — inbox_uid_validity/sent_uid_validity being
+        // non-null no longer implies "this folder's backlog is fully caught up."
+        // Without this gate the marker would go stale exactly the way B's health
+        // badge did: a field that used to mean "done" quietly starting to mean
+        // "started."
+        if ($status === 'success'
+            && !$mailbox->backfill_completed_at
             && (!$mailbox->poll_inbox || $mailbox->inbox_uid_validity !== null)
             && (!$mailbox->poll_sent || $mailbox->sent_uid_validity !== null)) {
             $mailbox->forceFill(['backfill_completed_at' => now()])->save();
@@ -328,14 +389,22 @@ class ImapMailboxPoller
         // well-behaved ones.
         $mailbox->forceFill(['last_poll_duration_seconds' => $pollStartedForDuration->diffInSeconds(now())])->save();
 
-        // Health (AT-181). A fully successful poll clears the failure state. A read_timeout is a
-        // POST-AUTH failure — the connect + login succeeded (so last_polled_at legitimately
-        // advanced in `finally`), but the folder read did not complete; we still record it as a
-        // failed poll (labelled 'read_timeout', distinct from an auth/connect failure) so the
-        // badge shows Failing and a mailbox that stalls every cycle raises the admin alert.
+        // Health (AT-181). A fully successful poll clears the failure state.
+        //
+        // 2026-09-08 (Johan, part B) — a read_timeout is NOT a failure: the connect
+        // + login genuinely succeeded this run (that is WHY we reached the read
+        // phase at all), and the checkpoint above already proved real progress was
+        // made. Recording it as 'failing' told Johan a working mailbox was broken
+        // while he could see the same account pulling fine in Outlook — the exact
+        // defect this fix removes. It gets its own state (recordBehind()), which
+        // never raises the admin "mailbox is broken" alert. Every OTHER failure
+        // reason (connect_failed, auth_failed, incomplete_credentials, poll_failed)
+        // is unchanged — those really are broken, and stay Failing.
         // Per-message parse errors ($stats['errors']) do NOT fail the mailbox — auth + read worked.
         if ($status === 'success') {
             $this->health->recordSuccess($mailbox);
+        } elseif ($reason === 'read_timeout') {
+            $this->health->recordBehind($mailbox, $behindEstimate);
         } else {
             $this->health->recordFailure($mailbox, $reason ?? 'poll_failed');
         }
