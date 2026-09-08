@@ -4,6 +4,7 @@ namespace App\Jobs\Communications;
 
 use App\Models\Communications\CommunicationMailbox;
 use App\Models\Scopes\AgencyScope;
+use App\Services\Communications\HostCircuitBreaker;
 use App\Services\Communications\ImapMailboxPoller;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
@@ -69,7 +70,7 @@ class PollMailboxJob implements ShouldQueue, ShouldBeUnique
         return (string) $this->mailboxId;
     }
 
-    public function handle(ImapMailboxPoller $poller): void
+    public function handle(ImapMailboxPoller $poller, HostCircuitBreaker $breaker): void
     {
         $mailbox = CommunicationMailbox::withoutGlobalScope(AgencyScope::class)->find($this->mailboxId);
         if (! $mailbox || ! $mailbox->active) {
@@ -78,5 +79,16 @@ class PollMailboxJob implements ShouldQueue, ShouldBeUnique
 
         $result = $poller->poll($mailbox);
         Log::info('Communication archive mailbox polled', ['mailbox_id' => $this->mailboxId] + $result);
+
+        // 2026-09-08/09 (Johan, circuit breaker) — a no-op unless this
+        // mailbox's host currently has an OPEN breaker (i.e. this poll WAS
+        // the single probe PollMailboxes let through). "Proved connectable"
+        // means got past connect+auth: a genuine success, or a read_timeout
+        // (auth worked, the READ was just slow) — both prove the host is
+        // reachable again. Only a connect-class failure keeps the breaker
+        // open. Per-message errors ($result['stats']['errors']) never count
+        // either way — those are not connectivity problems.
+        $provedConnectable = $result['status'] === 'success' || $result['reason'] === 'read_timeout';
+        $breaker->recordPollOutcome(strtolower(trim((string) $mailbox->imap_host)), $provedConnectable);
     }
 }

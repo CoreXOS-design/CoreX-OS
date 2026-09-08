@@ -134,6 +134,42 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Circuit breaker (2026-09-08/09, Johan) — "why today ran six hours instead
+    | of ten minutes"
+    |--------------------------------------------------------------------------
+    | A per-mailbox back-off (a separate, parallel fix — see
+    | at33-poll-backoff-2026-09-08) paces ONE mailbox's own retries. It does
+    | nothing when MANY mailboxes share a host that is itself refusing every
+    | connection — twenty mailboxes each independently backing off still adds
+    | up to twenty real connection attempts to a blocked host every cycle. The
+    | circuit breaker (App\Services\Communications\HostCircuitBreaker) is the
+    | standard pattern for exactly this: when a HOST looks broken, stop
+    | sending it traffic at all except one occasional probe, instead of
+    | reasoning about each mailbox independently. Scoped by host, never by
+    | agency or mailbox — the ban is per-IP against a host, so agencies
+    | sharing one host share one breaker.
+    |
+    | circuit_breaker_min_mailboxes             — never trip for a lone mailbox
+    |   having a bad day; requires at least this many active mailboxes on the
+    |   host before the failure-rate check even applies.
+    | circuit_breaker_failure_threshold_percent — % of that host's active
+    |   mailboxes that must show a recent connect-class failure
+    |   (connect_failed / auth_failed / connect_timeout) to open the breaker.
+    | circuit_breaker_probe_interval_minutes    — while open, how often a
+    |   SINGLE mailbox on the host is allowed through to test recovery —
+    |   never the full fleet.
+    | All three agency-overridable via agencies.communication_circuit_breaker_*.
+    */
+    'circuit_breaker_min_mailboxes' => (int) env('COMMUNICATIONS_CIRCUIT_BREAKER_MIN_MAILBOXES', 3),
+    'circuit_breaker_failure_threshold_percent' => (int) env('COMMUNICATIONS_CIRCUIT_BREAKER_FAILURE_THRESHOLD_PERCENT', 80),
+    'circuit_breaker_probe_interval_minutes' => (int) env('COMMUNICATIONS_CIRCUIT_BREAKER_PROBE_INTERVAL_MINUTES', 60),
+    // How recent a mailbox's connect-class failure must be to count toward the
+    // failure-rate check below — an hours-old failure from a mailbox that has
+    // since recovered must not still count against the host.
+    'circuit_breaker_lookback_minutes' => (int) env('COMMUNICATIONS_CIRCUIT_BREAKER_LOOKBACK_MINUTES', 15),
+
+    /*
+    |--------------------------------------------------------------------------
     | Outgoing mail (AT-395 Phase A) — per-mailbox SMTP send + Sent-folder copy
     |--------------------------------------------------------------------------
     | Consecutive failed sends before the agency's admins are alerted (once per

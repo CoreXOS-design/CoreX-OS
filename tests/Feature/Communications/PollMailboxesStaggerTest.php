@@ -172,4 +172,58 @@ final class PollMailboxesStaggerTest extends TestCase
 
         Queue::assertPushed(PollMailboxJob::class, 2);
     }
+
+    // ── Circuit breaker (2026-09-08/09, Johan) ─────────────────────────────────
+    // "This is why today ran six hours instead of ten minutes." Proves
+    // PollMailboxes actually consults the breaker before dispatching, not
+    // just that the breaker service can compute open/closed in isolation
+    // (see HostCircuitBreakerTest.php for that).
+
+    public function test_when_a_hosts_breaker_is_open_only_one_probe_mailbox_is_dispatched_not_the_whole_fleet(): void
+    {
+        config(['communications.circuit_breaker_min_mailboxes' => 3, 'communications.circuit_breaker_failure_threshold_percent' => 80]);
+        Queue::fake();
+        // Five mailboxes on the SAME host, all failing -- this morning's exact shape.
+        for ($i = 0; $i < 5; $i++) {
+            CommunicationMailbox::create([
+                'agency_id' => $this->agencyId, 'email_address' => "fail{$i}@blocked-host.test",
+                'imap_host' => 'blocked-host.test', 'imap_port' => 993, 'username' => "fail{$i}@blocked-host.test",
+                'encrypted_password' => 'secret', 'poll_inbox' => true, 'poll_sent' => false,
+                'poll_interval_minutes' => 15, 'active' => true, 'last_polled_at' => null,
+                'last_error' => 'connect_failed', 'last_error_at' => now(),
+            ]);
+        }
+
+        $this->artisan('communications:poll-mailboxes')->assertSuccessful();
+
+        // The breaker opens THIS cycle (evaluated from the failures already on
+        // the rows) and immediately gates dispatch the same cycle -- exactly
+        // one probe, not five real connection attempts to a host that just
+        // proved it is refusing all of them.
+        Queue::assertPushed(PollMailboxJob::class, 1);
+    }
+
+    public function test_a_healthy_host_is_unaffected_by_a_different_hosts_open_breaker(): void
+    {
+        config(['communications.circuit_breaker_min_mailboxes' => 3, 'communications.circuit_breaker_failure_threshold_percent' => 80]);
+        Queue::fake();
+        for ($i = 0; $i < 4; $i++) {
+            CommunicationMailbox::create([
+                'agency_id' => $this->agencyId, 'email_address' => "fail{$i}@blocked-host.test",
+                'imap_host' => 'blocked-host.test', 'imap_port' => 993, 'username' => "fail{$i}@blocked-host.test",
+                'encrypted_password' => 'secret', 'poll_inbox' => true, 'poll_sent' => false,
+                'poll_interval_minutes' => 15, 'active' => true, 'last_polled_at' => null,
+                'last_error' => 'connect_failed', 'last_error_at' => now(),
+            ]);
+        }
+        // Two perfectly healthy mailboxes on a DIFFERENT host.
+        $healthy = $this->dueMailboxes(2);
+
+        $this->artisan('communications:poll-mailboxes')->assertSuccessful();
+
+        Queue::assertPushed(PollMailboxJob::class, function (PollMailboxJob $job) use ($healthy) {
+            return in_array($job->mailboxId, $healthy, true);
+        });
+        Queue::assertPushed(PollMailboxJob::class, 3); // 2 healthy + 1 probe on the blocked host
+    }
 }
