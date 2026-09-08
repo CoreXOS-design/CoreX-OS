@@ -318,6 +318,22 @@ class RentalApplicationReviewController extends Controller
      */
     private function syncItems(RentalApplicationAssessment $assessment, string $modelClass, array $items): void
     {
+        // AT-392 authoriser strike-out, 2026-09-08 — this endpoint replaces
+        // the agent's WHOLE list on every autosave, matched by id, deleting
+        // whatever isn't present. That was always safe while every row was
+        // agent-owned. It stops being safe the moment a row can belong to
+        // someone else: an authoriser-added row the agent's own browser
+        // session never loaded would look "no longer present" to this
+        // method and get silently soft-deleted on the agent's very next
+        // keystroke-triggered autosave — the exact class of silent data
+        // loss this feature exists to prevent, just relocated. Two guards:
+        // (1) never delete a row someone else added, present or not in the
+        // agent's submitted list; (2) never let this bulk path update a row
+        // this user doesn't own — same ownership rule the dedicated
+        // authoriser endpoints enforce with a 403, applied here as a silent
+        // skip instead, since one disallowed row must not fail the agent's
+        // otherwise-legitimate autosave of their OWN rows.
+        $currentUserId = auth()->id();
         $keptIds = [];
         foreach (array_values($items) as $sortOrder => $item) {
             $attributes = [
@@ -333,16 +349,40 @@ class RentalApplicationReviewController extends Controller
                 : null;
 
             if ($row) {
-                $row->update($attributes);
+                $ownedByCurrentUser = $row->added_by_user_id === null
+                    ? (int) $assessment->rentalApplication->created_by_user_id === (int) $currentUserId
+                    : (int) $row->added_by_user_id === (int) $currentUserId;
+                if ($ownedByCurrentUser) {
+                    $row->update($attributes);
+                }
+                // Not owned: leave it exactly as it is. Still kept (below),
+                // so this bulk save can never delete it either.
             } else {
+                // added_by_user_id stays unset — a row created via this
+                // endpoint (the agent's own review screen) is the agent's
+                // original capture, same meaning "null" already had before
+                // this column existed. Ownership for a null row resolves to
+                // whoever the APPLICATION is attributed to
+                // (created_by_user_id), not whichever user happened to be
+                // logged in when this specific row was typed — own/branch/
+                // agency scope can let more than one agent open the same
+                // review screen, and "the agent's capture" means the
+                // application's agent, not a session identity.
                 $row = $modelClass::create($attributes);
             }
 
             $keptIds[] = $row->id;
         }
 
+        // Rows added by someone OTHER than the current user are never
+        // eligible for this cleanup, whether or not they appear in the
+        // agent's submitted list — the agent's browser may simply never
+        // have loaded them yet.
         $modelClass::where('rental_application_assessment_id', $assessment->id)
             ->whereNotIn('id', $keptIds ?: [0])
+            ->where(function ($q) use ($currentUserId) {
+                $q->whereNull('added_by_user_id')->orWhere('added_by_user_id', $currentUserId);
+            })
             ->delete();
     }
 

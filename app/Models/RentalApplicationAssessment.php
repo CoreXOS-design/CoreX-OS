@@ -116,9 +116,19 @@ class RentalApplicationAssessment extends Model
      */
     public function qualifyingResult(float $maxRentPercent): array
     {
-        $incomeItems = $this->incomeItems;
+        // AT-392 authoriser strike-out, 2026-09-08 — Johan: "remove im
+        // thinking is just a strike out tick - which leaves the amount
+        // there but removes it from the calcs." Struck lines stay in the
+        // rendered collection (every view still iterates $this->incomeItems/
+        // expenseItems unfiltered) — excluded ONLY here, from the totals
+        // this method computes, which is the one place "counts toward the
+        // calc" is decided. Composes with Round 16 untouched: rent still
+        // comes from the linked property, has_unpaid_transactions is a
+        // separate flat flag this method doesn't touch either way.
+        $incomeItems = $this->incomeItems->reject(fn ($item) => $item->isStruckOut());
+        $expenseItems = $this->expenseItems->reject(fn ($item) => $item->isStruckOut());
         $totalIncome = $incomeItems->isEmpty() ? null : (float) $incomeItems->sum('amount');
-        $totalExpenses = (float) $this->expenseItems->sum('amount');
+        $totalExpenses = (float) $expenseItems->sum('amount');
 
         $months = $this->statement_months;
         $hasValidMonths = $months !== null && $months > 0;

@@ -4615,3 +4615,156 @@ Johan is separately weighing whether to put the two-screen question back
 to himself as a decision he may want to revisit later. This round does
 not pre-empt that — it only fixes discoverability of the design as it
 stands today.
+## Authoriser strike-and-replace for the agent's assessment (AT-392, 2026-09-08, cc5)
+
+### The rule — Johan's, stated directly, not inferred
+
+Johan, verbatim, confirming the coordinator's earlier reading and
+sharpening it: **"auth can rather strike out and re-add a value than
+edit a value. this way we have the evidence needed of who did what."**
+
+This is Johan's stated rule, not a decision open for revisiting. His
+own reason — the evidence trail of who did what — is what drives every
+place below where he didn't spell out the detail:
+
+- **There is no EDIT verb anywhere in this feature**, client or server.
+  Editing a value someone else captured is not a permission being
+  withheld "for now" — there is no code path, no route, no controller
+  method that can do it, with no admin override. The only way to
+  correct a figure is to strike it out and add the correct one.
+- **STRIKE has no ownership check at all** — any RO/CO can strike (or
+  restore) ANY row, including the agent's own original capture. This
+  is deliberate, not an inconsistency with the no-edit rule: strike
+  exists precisely so a reviewer never has to overwrite someone else's
+  figure to disagree with it. The agent's original number stays on the
+  record, attributed, and the disagreement is a separate, visible
+  fact — never a quiet in-place change with no trace of what was there
+  before or who changed it. (This is the same tampering concern Johan
+  raised about the signed rental application itself — a figure that
+  can change with nobody able to see what it used to be is not
+  evidence of anything.)
+- **ADD is open to any RO/CO**, attributed via `added_by_user_id`
+  (`NULL` = the agent's original capture — the agent-side review screen
+  never sets this column, so this needs no backfill and nothing changes
+  about how the agent's own form behaves).
+- **Strike-and-replace is the supported workflow, not a workaround.**
+  Striking a row opens a replacement box directly under it,
+  pre-focused, so adding the correct figure is the natural next step,
+  not a separate action the authoriser has to go find. The result reads
+  as "this figure was replaced by that one, by this person, at this
+  time" — both rows stay visible, both attributed, only the live one
+  counts toward the total.
+
+### What makes "replaced by" survive a reload
+
+A struck row and its replacement being shown together in the moment
+they happen is not enough — the coordinator's own requirement was that
+this reads correctly on a later visit too, by someone who wasn't there
+when it happened. That needs one more persisted fact beyond who-struck/
+who-added: `replaces_item_id`, a nullable self-referencing FK on both
+item tables, set only when an add follows a strike in the same flow.
+Verified server-side before being trusted — `addAssessmentItem()`
+refuses to link to anything that isn't a genuinely struck row on the
+same assessment, so a crafted request can't fabricate a "replaced"
+relationship pointing at an unrelated or still-live row (tested
+directly: pointing `replaces_item_id` at a non-struck row is silently
+ignored, not linked).
+
+### Ownership resolution, and the incident behind it
+
+`RentalApplicationAssessment::qualifyingResult()` excludes struck
+rows from the totals and the affordability calculation, composing
+with the Round 16 redesign untouched — rent still sources from the
+linked property, `has_unpaid_transactions` is a separate flat flag
+neither reads nor writes this feature touches.
+
+`RentalApplicationReviewController::syncItems()` — the agent's own
+review-screen autosave — needed a real fix, not just a new feature
+next to it. It replaces the assessment's WHOLE line-item list on every
+autosave, matched by id, soft-deleting whatever isn't present in the
+submitted array. That was safe while every row was agent-owned. It
+stopped being safe the moment a row could belong to someone else: an
+authoriser-added row the agent's own browser session never loaded
+would look "no longer present" and get silently soft-deleted on the
+agent's very next autosave — the exact class of silent data loss this
+whole feature exists to prevent, just relocated to a different screen.
+Fixed with two guards: a row someone else added is never deleted by
+this cleanup regardless of whether it appears in the agent's submitted
+list, and this bulk path never writes to a row it doesn't own (a
+silent skip, not a 403 — one disallowed row must not fail the agent's
+otherwise-legitimate autosave of their own rows). Proven directly:
+authoriser adds a row, agent autosaves a payload that omits it
+entirely, row survives.
+
+### The migration incident, and the rule it produced
+
+The two columns this feature needed (`struck_out_at`,
+`struck_out_by_user_id`, `added_by_user_id`, later `replaces_item_id`)
+were written and run once already, against QA1's live database, before
+being committed to any branch — sitting only as an untracked file in
+the shared `/corex-qa1` working tree. A branch checkout on that shared
+checkout (unrelated to this feature) swept the untracked file into
+another lane's WIP commit; when the checkout returned to QA1, the file
+vanished from the working tree, and the columns it had created were
+later lost in a subsequent schema reset that had no record of them —
+discovered only when this feature's own controller threw "unknown
+column" against the live database, checked directly rather than
+assumed. Cost a full day across two lanes.
+
+**The rule this produced, now standing for every migration on this
+project: a migration is committed to its branch the moment it is
+written, before it is ever run — never after the feature built on top
+of it works.** A tracked file cannot vanish in a branch switch the way
+an untracked one can. Re-landing here followed that order exactly:
+migration written → committed to `at392-authoriser-strikeout-2026-09-08`
+→ only then run against `corex_qa1` → confirmed with a direct
+`Schema::hasColumn()` check on both tables before any application code
+was written against them.
+
+### Verification
+
+Real HTTP dispatch, real authenticated session, real database reads
+before and after every write — on **application 4**, deliberately not
+application 9 (already used repeatedly in earlier testing this
+feature), per the standing instruction to verify on records not
+previously touched, in states not deliberately chosen.
+
+- Struck a real agent-captured income line (R40,638) as a real CO user
+  → real 200, real `struck_out_by`/`struck_out_at` persisted.
+- Added a real replacement (R42,000) with `replaces_item_id` pointing
+  at the struck row → real 200, link persisted, `added_by_authoriser`
+  correctly true.
+- Confirmed via `qualifyingResult()`: total income became R43,270
+  (the untouched R1,270 line + the R42,000 replacement) — not
+  R41,908 (the stale pre-strike total) and not R83,908 (double-counted
+  struck + replacement). Struck lines exclude correctly; nothing counts
+  twice.
+- Confirmed the reverse relation: reading the struck row's own
+  `replacedBy` relation resolves the replacement correctly after a
+  fresh model load, not just in the same request's response.
+- Confirmed a crafted `replaces_item_id` aimed at a live (non-struck)
+  row is refused, not linked.
+- Confirmed the `syncItems()` fix directly: an authoriser-added row
+  survives a real agent autosave that never loaded it.
+- All test fixtures created during verification soft-deleted, never
+  hard-deleted; application 4's original two rows restored to their
+  exact original (un-struck) state afterward.
+
+### Files touched
+
+- `database/migrations/2026_09_08_190000_add_strike_out_and_added_by_to_rental_application_items.php` — `struck_out_at`, `struck_out_by_user_id`, `added_by_user_id` on both item tables
+- `database/migrations/2026_09_08_190100_add_replaces_item_id_to_rental_application_items.php` — `replaces_item_id`, self-referencing, on both item tables
+- `app/Models/RentalApplicationIncomeItem.php` / `RentalApplicationExpenseItem.php` — new fillable/casts, `struckOutBy()`, `addedBy()`, `replaces()`, `replacedBy()`, `isStruckOut()`
+- `app/Models/RentalApplicationAssessment.php` — `qualifyingResult()` excludes struck lines from both totals
+- `app/Http/Controllers/CoreX/RentalApplicationAuthorisationController.php` — `addIncomeItem`/`addExpenseItem`/`toggleStrikeIncomeItem`/`toggleStrikeExpenseItem`, `serializeItem()`; `show()` now passes fully-serialized item arrays
+- `app/Http/Controllers/CoreX/RentalApplicationReviewController.php` — `syncItems()` ownership guards
+- `resources/views/corex/rental-applications/authorisation/show.blade.php` — strike-and-replace UI, `rentalAssessmentEditor()`, `has_unpaid_transactions` mirrored read-only at authoriser tone
+- `routes/web.php` — `assessment/income-items` / `assessment/expense-items` store + strike routes (no update route)
+
+Branch: `at392-authoriser-strikeout-2026-09-08`, built in an isolated
+worktree at `/mnt/HC_Volume_103099143/wt-cc5-authoriser-strikeout` per
+the standing "shared checkout belongs to cc1 alone" rule — not landed
+by me; cc1 lands via the shared checkout. Both migrations already run
+against QA1's live database directly from this worktree (see the
+incident note above for why that was done ahead of the rest of the
+branch landing).

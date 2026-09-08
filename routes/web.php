@@ -2837,6 +2837,15 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::get('/{rentalApplication}/documents/{document}/highlight-data/first', [\App\Http\Controllers\CoreX\RentalApplicationAuthorisationController::class, 'highlightFirstPage'])->name('corex.rental-applications.authorisation.documents.highlight-data.first');
         Route::get('/{rentalApplication}/documents/{document}/highlight-data/remaining', [\App\Http\Controllers\CoreX\RentalApplicationAuthorisationController::class, 'highlightRemainingPages'])->name('corex.rental-applications.authorisation.documents.highlight-data.remaining');
         Route::post('/{rentalApplication}/documents/{document}/highlight', [\App\Http\Controllers\CoreX\RentalApplicationAuthorisationController::class, 'applyHighlight'])->name('corex.rental-applications.authorisation.documents.highlight');
+        // Assessment add/strike, 2026-09-08 — Johan, confirmed: "auth can
+        // rather strike out and re-add a value than edit a value. this way
+        // we have the evidence needed of who did what." No edit/update
+        // route exists anywhere in this feature — striking and adding are
+        // the only two mutations, by design, not an oversight.
+        Route::post('/{rentalApplication}/assessment/income-items', [\App\Http\Controllers\CoreX\RentalApplicationAuthorisationController::class, 'addIncomeItem'])->name('corex.rental-applications.authorisation.assessment.income-items.store');
+        Route::post('/{rentalApplication}/assessment/expense-items', [\App\Http\Controllers\CoreX\RentalApplicationAuthorisationController::class, 'addExpenseItem'])->name('corex.rental-applications.authorisation.assessment.expense-items.store');
+        Route::post('/{rentalApplication}/assessment/income-items/{item}/strike', [\App\Http\Controllers\CoreX\RentalApplicationAuthorisationController::class, 'toggleStrikeIncomeItem'])->name('corex.rental-applications.authorisation.assessment.income-items.strike');
+        Route::post('/{rentalApplication}/assessment/expense-items/{item}/strike', [\App\Http\Controllers\CoreX\RentalApplicationAuthorisationController::class, 'toggleStrikeExpenseItem'])->name('corex.rental-applications.authorisation.assessment.expense-items.strike');
         Route::post('/{rentalApplication}/approve', [\App\Http\Controllers\CoreX\RentalApplicationAuthorisationController::class, 'approve'])->name('corex.rental-applications.authorisation.approve');
         Route::post('/{rentalApplication}/decline', [\App\Http\Controllers\CoreX\RentalApplicationAuthorisationController::class, 'decline'])->name('corex.rental-applications.authorisation.decline');
         Route::post('/{rentalApplication}/request-more-info', [\App\Http\Controllers\CoreX\RentalApplicationAuthorisationController::class, 'requestMoreInfo'])->name('corex.rental-applications.authorisation.request-more-info');

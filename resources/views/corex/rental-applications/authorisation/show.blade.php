@@ -85,76 +85,167 @@
                 </dl>
             </div>
 
-            <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
-                <h2 class="text-sm font-semibold mb-1" style="color: var(--text-primary);">Agent's Assessment</h2>
-                <p class="text-xs mb-3" style="color: var(--text-muted);">Read-only — captured by the submitting agent.</p>
+            <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);"
+                 x-data="rentalAssessmentEditor({
+                     currentUserId: {{ Js::from(auth()->id()) }},
+                     incomeItems: {{ Js::from($serializedIncomeItems) }},
+                     expenseItems: {{ Js::from($serializedExpenseItems) }},
+                     addIncomeUrl: {{ Js::from(route('corex.rental-applications.authorisation.assessment.income-items.store', $rentalApplication)) }},
+                     addExpenseUrl: {{ Js::from(route('corex.rental-applications.authorisation.assessment.expense-items.store', $rentalApplication)) }},
+                     incomeItemUrl: {{ Js::from(url('corex/rental-applications/authorisation/' . $rentalApplication->id . '/assessment/income-items')) }},
+                     expenseItemUrl: {{ Js::from(url('corex/rental-applications/authorisation/' . $rentalApplication->id . '/assessment/expense-items')) }},
+                     statementMonths: {{ Js::from($assessment->statement_months) }},
+                     maxRentPercent: {{ Js::from($maxRentPercent) }},
+                     rent: {{ Js::from($result['rent'] ?? null) }},
+                     propertyLinked: {{ Js::from((bool) ($result['property_linked'] ?? false)) }},
+                     hasUnpaidTransactions: {{ Js::from((bool) $assessment->has_unpaid_transactions) }},
+                 })">
+                <div class="flex items-center gap-1.5 mb-1">
+                    <h2 class="text-sm font-semibold" style="color: var(--text-primary);">Agent's Assessment</h2>
+                    <span class="ds-badge ds-badge-muted" style="cursor: help; padding: 0 5px;"
+                          title="Captured by the agent. You can add your own lines. If you disagree with a figure, strike it out — that opens a box to add the correct one right there. The struck line stays visible with what replaced it, never edited in place.">?</span>
+                </div>
                 {{-- 2026-09-08 — Johan, application 9: "now all the work the
-                     agent did is nowhere to be found on the auth screen -
-                     no values from the right hand panel." Root cause: this
-                     block still referenced $assessment->monthly_income /
-                     other_monthly_income / monthly_expenses — three columns
-                     that no longer exist on the model (Round 9 replaced them
-                     with the growable incomeItems()/expenseItems() lines,
-                     see the model's own docblock). Eloquent returns null for
-                     an unknown attribute rather than erroring, so every row
-                     here silently showed "—" instead of a real figure — no
-                     error, nothing to notice, exactly why this got missed.
-                     The controller was already passing the right data
-                     ($assessment, $result via qualifyingResult()); only this
-                     view was stale. Rebuilt to show every line the agent
-                     actually captured — the authoriser is deciding on a
-                     person's home from this, not a display nicety. --}}
+                     agent did is nowhere to be found on the auth screen." Fixed
+                     (see prior commits). Then, verbatim, CONFIRMED (not a
+                     coordinator inference): "auth can rather strike out and
+                     re-add a value than edit a value. this way we have the
+                     evidence needed of who did what." There is no edit control
+                     anywhere in this block — striking a row opens the add-line
+                     box pre-focused right underneath it (replacingItem below),
+                     so the two actions read as one flow, not two separate
+                     ones, and the result — struck line + its replacement,
+                     both attributed, both visible, only the live one counted
+                     — is exactly what Johan's own reason (the evidence trail)
+                     calls for. Dots use the SAME --ra-income/expense-* tokens
+                     cc4 defined and the agent's own review panel already
+                     renders — light = agent tone, dark = authoriser tone. --}}
                 <div class="text-xs mb-3">
                     <p style="color: var(--text-muted);">Number of months this bank statement covers</p>
                     <p class="font-semibold" style="color: var(--text-primary);">{{ $assessment->statement_months ?? '—' }}</p>
                 </div>
-                <div class="text-xs mb-3">
-                    <p class="font-medium mb-1" style="color: var(--text-secondary);">Income (gross, before deductions)</p>
-                    @forelse($assessment->incomeItems as $item)
-                        <div class="flex items-center justify-between py-0.5">
-                            <span style="color: var(--text-primary);">{{ $item->description ?: '(no description)' }}</span>
-                            <span style="color: var(--text-primary);">R {{ number_format($item->amount, 2) }}</span>
+
+                <div class="text-xs mb-4">
+                    <div class="flex items-center gap-1.5 mb-1">
+                        <span class="rounded-full flex-shrink-0" style="width: 9px; height: 9px; background: var(--ra-income-authoriser); border: 1px solid var(--ra-income-underline);"></span>
+                        <p class="font-medium" style="color: var(--text-secondary);">Income (gross, before deductions)</p>
+                    </div>
+                    <template x-if="incomeItems.length === 0"><p style="color: var(--text-muted);">Nothing captured yet.</p></template>
+                    <template x-for="item in incomeItems" :key="item.id">
+                        <div>
+                            <div class="grid grid-cols-2 gap-1.5 py-1 items-center" :style="{ opacity: item.struck_out ? '0.55' : '1' }">
+                                <span class="flex items-center gap-1.5 min-w-0">
+                                    <span class="rounded-full flex-shrink-0" style="width: 7px; height: 7px;" :style="{ background: item.added_by_authoriser ? 'var(--ra-income-authoriser)' : 'var(--ra-income-agent)' }"></span>
+                                    <span x-show="item.added_by_authoriser" class="ds-badge ds-badge-info flex-shrink-0" style="font-size:9px; padding:1px 4px;" title="Added by a reviewer/authoriser, not the agent">Auth</span>
+                                    <span :style="{ textDecoration: item.struck_out ? 'line-through' : 'none' }" class="truncate" style="color: var(--text-primary);" x-text="item.description || '(no description)'"></span>
+                                </span>
+                                <span class="flex items-center justify-end gap-2 flex-shrink-0">
+                                    <span :style="{ textDecoration: item.struck_out ? 'line-through' : 'none' }" style="color: var(--text-primary);" x-text="'R ' + formatAmount(item.amount)"></span>
+                                    <button type="button" class="text-xs" :style="{ color: item.struck_out ? 'var(--ds-emerald, #059669)' : 'var(--ds-crimson, #dc2626)' }" @click="toggleStrike('income', item)" x-text="item.struck_out ? 'Restore' : 'Strike out'"></button>
+                                </span>
+                            </div>
+                            {{-- Johan: "the result should read clearly as 'this
+                                 figure was replaced by that one, by this
+                                 person, at this time'." --}}
+                            <p class="text-[11px] pl-3" style="color: var(--text-muted);" x-show="item.struck_out" x-text="struckLine(item)"></p>
+                            <div class="flex items-center gap-2 pl-3 py-1.5" x-show="replacingItem === ('income-' + item.id)" x-cloak>
+                                <input type="text" x-model="replaceDescription" placeholder="Description" class="corex-input text-xs" style="flex:1;" :data-replace-focus="'income-' + item.id">
+                                <input type="text" inputmode="decimal" x-model="replaceAmount" placeholder="0.00" class="corex-input text-xs" style="width:80px;">
+                                <button type="button" class="text-xs font-semibold flex-shrink-0" style="color: var(--ds-blue, #2563eb);" :disabled="!replaceAmount" @click="addItem('income', item.id)">Add replacement</button>
+                                <button type="button" class="text-xs" style="color: var(--text-muted);" @click="replacingItem = null">Cancel</button>
+                            </div>
                         </div>
-                    @empty
-                        <p style="color: var(--text-muted);">Nothing captured yet.</p>
-                    @endforelse
-                    @if($result && $result['total_captured_income'] !== null)
-                        <p class="mt-1" style="color: var(--text-secondary);">Total captured: <strong>R {{ number_format($result['total_captured_income'], 2) }}</strong></p>
-                        @if($result['gross_income'] !== null)
-                            <p style="color: var(--text-secondary);">Monthly average (÷ {{ $result['statement_months'] }} months — used in the affordability check below): <strong>R {{ number_format($result['gross_income'], 2) }}</strong></p>
-                        @endif
-                    @endif
+                    </template>
+                    <div class="flex items-center gap-2 pt-2 mt-1" style="border-top: 1px dashed var(--border);">
+                        <input type="text" x-model="newIncomeDescription" placeholder="Description" class="corex-input text-xs" style="flex:1;">
+                        <input type="text" inputmode="decimal" x-model="newIncomeAmount" placeholder="0.00" class="corex-input text-xs" style="width:80px;">
+                        <button type="button" class="text-xs font-semibold flex-shrink-0" style="color: var(--ds-blue, #2563eb);" :disabled="!newIncomeAmount" @click="addItem('income')">+ Add</button>
+                    </div>
+                    <p class="mt-2" style="color: var(--text-secondary);">Total (struck-out lines excluded): <strong x-text="'R ' + formatAmount(incomeTotal())"></strong></p>
+                    <p style="color: var(--text-secondary);" x-show="statementMonths">Monthly average (÷ <span x-text="statementMonths"></span> months — used in the affordability check below): <strong x-text="'R ' + formatAmount(grossIncome())"></strong></p>
                 </div>
-                <div class="text-xs mb-3">
-                    <p class="font-medium mb-1" style="color: var(--text-secondary);">Expenses / existing debt</p>
-                    @forelse($assessment->expenseItems as $item)
-                        <div class="flex items-center justify-between py-0.5">
-                            <span style="color: var(--text-primary);">{{ $item->description ?: '(no description)' }}</span>
-                            <span style="color: var(--text-primary);">R {{ number_format($item->amount, 2) }}</span>
+
+                <div class="text-xs mb-4">
+                    <div class="flex items-center gap-1.5 mb-1">
+                        <span class="rounded-full flex-shrink-0" style="width: 9px; height: 9px; background: var(--ra-expense-authoriser); border: 1px solid var(--ra-expense-underline);"></span>
+                        <p class="font-medium" style="color: var(--text-secondary);">Expenses / existing debt</p>
+                    </div>
+                    <template x-if="expenseItems.length === 0"><p style="color: var(--text-muted);">Nothing captured.</p></template>
+                    <template x-for="item in expenseItems" :key="item.id">
+                        <div>
+                            <div class="grid grid-cols-2 gap-1.5 py-1 items-center" :style="{ opacity: item.struck_out ? '0.55' : '1' }">
+                                <span class="flex items-center gap-1.5 min-w-0">
+                                    <span class="rounded-full flex-shrink-0" style="width: 7px; height: 7px;" :style="{ background: item.added_by_authoriser ? 'var(--ra-expense-authoriser)' : 'var(--ra-expense-agent)' }"></span>
+                                    <span x-show="item.added_by_authoriser" class="ds-badge ds-badge-info flex-shrink-0" style="font-size:9px; padding:1px 4px;" title="Added by a reviewer/authoriser, not the agent">Auth</span>
+                                    <span :style="{ textDecoration: item.struck_out ? 'line-through' : 'none' }" class="truncate" style="color: var(--text-primary);" x-text="item.description || '(no description)'"></span>
+                                </span>
+                                <span class="flex items-center justify-end gap-2 flex-shrink-0">
+                                    <span :style="{ textDecoration: item.struck_out ? 'line-through' : 'none' }" style="color: var(--text-primary);" x-text="'R ' + formatAmount(item.amount)"></span>
+                                    <button type="button" class="text-xs" :style="{ color: item.struck_out ? 'var(--ds-emerald, #059669)' : 'var(--ds-crimson, #dc2626)' }" @click="toggleStrike('expense', item)" x-text="item.struck_out ? 'Restore' : 'Strike out'"></button>
+                                </span>
+                            </div>
+                            <p class="text-[11px] pl-3" style="color: var(--text-muted);" x-show="item.struck_out" x-text="struckLine(item)"></p>
+                            <div class="flex items-center gap-2 pl-3 py-1.5" x-show="replacingItem === ('expense-' + item.id)" x-cloak>
+                                <input type="text" x-model="replaceDescription" placeholder="Description" class="corex-input text-xs" style="flex:1;" :data-replace-focus="'expense-' + item.id">
+                                <input type="text" inputmode="decimal" x-model="replaceAmount" placeholder="0.00" class="corex-input text-xs" style="width:80px;">
+                                <button type="button" class="text-xs font-semibold flex-shrink-0" style="color: var(--ds-blue, #2563eb);" :disabled="!replaceAmount" @click="addItem('expense', item.id)">Add replacement</button>
+                                <button type="button" class="text-xs" style="color: var(--text-muted);" @click="replacingItem = null">Cancel</button>
+                            </div>
                         </div>
-                    @empty
-                        <p style="color: var(--text-muted);">Nothing captured.</p>
-                    @endforelse
-                    @if($result && $result['total_captured_expenses'] !== null)
-                        <p class="mt-1" style="color: var(--text-secondary);">Total captured: <strong>R {{ number_format($result['total_captured_expenses'], 2) }}</strong></p>
-                    @endif
+                    </template>
+                    <div class="flex items-center gap-2 pt-2 mt-1" style="border-top: 1px dashed var(--border);">
+                        <input type="text" x-model="newExpenseDescription" placeholder="Description" class="corex-input text-xs" style="flex:1;">
+                        <input type="text" inputmode="decimal" x-model="newExpenseAmount" placeholder="0.00" class="corex-input text-xs" style="width:80px;">
+                        <button type="button" class="text-xs font-semibold flex-shrink-0" style="color: var(--ds-blue, #2563eb);" :disabled="!newExpenseAmount" @click="addItem('expense')">+ Add</button>
+                    </div>
+                    <p class="mt-2" style="color: var(--text-secondary);">Total (struck-out lines excluded): <strong x-text="'R ' + formatAmount(expenseTotal())"></strong></p>
                 </div>
+
+                {{-- Round 16's unpaid-transactions flag, mirrored here read-only
+                     — Johan: "the tick tells the auth that this is a dangerous
+                     app." Same --ra-unpaid-* token the agent panel's own dot
+                     uses, at authoriser tone, so the two screens read as
+                     visually linked exactly as that panel's own comment says
+                     they should. Not editable here — it's the agent's own
+                     assertion about what they saw on the statement, the
+                     authoriser's read of it is the highlighter/decision, not
+                     this flag. --}}
+                <div class="mb-4 flex items-center gap-1.5" x-show="hasUnpaidTransactions">
+                    <span class="rounded-full flex-shrink-0" style="width: 9px; height: 9px; background: var(--ra-unpaid-authoriser); border: 1px solid var(--ra-unpaid-underline);"></span>
+                    <span class="text-xs font-semibold" style="color: var(--ds-crimson, #dc2626);">Agent flagged unpaid/declined transactions on the bank statement</span>
+                </div>
+
+                <div x-show="itemError" x-cloak class="text-xs mb-3 rounded-md px-2 py-1.5" style="background: var(--ds-crimson-soft, #fef2f2); color: var(--ds-crimson, #dc2626);" x-text="itemError"></div>
+
                 {{-- The rule, stated as the law states it: rent must not
-                     exceed {max_rent_percent}% of GROSS income. Not a
-                     multiplier of rent (the same arithmetic wearing a
-                     disguise). --}}
-                @if($result && $result['label'] !== 'incomplete')
+                     exceed {max_rent_percent}% of GROSS income. Live,
+                     client-side — Johan's test: "watch the total change" when
+                     a line is struck. Same arithmetic as
+                     RentalApplicationAssessment::qualifyingResult() (Round 16:
+                     rent from the linked property, 'no_property' when none is
+                     linked) — the server re-derives the authoritative figure
+                     independently once a write round-trips; this is the same
+                     rule shown live, not a second source of truth. --}}
+                <template x-if="statementMonths && incomeTotal() > 0">
                     <div class="rounded-md p-3" style="background: var(--ds-slate-soft, #f1f5f9); border: 1px solid var(--border);">
                         <p class="text-[11px] font-semibold uppercase tracking-wide mb-1" style="color: var(--text-muted);">Suggested check — not a rule</p>
-                        <p class="text-sm">Gross income R{{ number_format($result['gross_income'], 2) }} — rent must not exceed {{ rtrim(rtrim(number_format($result['max_rent_percent'], 2), '0'), '.') }}% of this (R{{ number_format($result['max_affordable_rent'], 2) }}). Actual rent (R{{ number_format($result['rent'], 2) }}) is {{ $result['rent_as_percent_of_gross'] }}% of gross income.
-                            <span class="ds-badge" :class="'{{ $result['meets_threshold'] ? 'ds-badge-success' : 'ds-badge-warning' }}'">{{ $result['meets_threshold'] ? 'Within the affordability guideline' : 'Exceeds the affordability guideline' }}</span>
+                        <p class="text-sm">
+                            Gross income <span x-text="'R' + formatAmount(grossIncome())"></span> — rent must not exceed <span x-text="trimPercent(maxRentPercent)"></span>% of this (<span x-text="'R' + formatAmount(maxAffordableRent())"></span>).
+                            <template x-if="!propertyLinked">
+                                <span class="font-medium" style="color: var(--ds-amber, #b45309);"> Link a property to check against its rent.</span>
+                            </template>
+                            <template x-if="propertyLinked && rent !== null">
+                                <span>Actual rent (<span x-text="'R' + formatAmount(rent)"></span>) is <span x-text="rentAsPercent()"></span>% of gross income.
+                                <span class="ds-badge" :class="meetsThreshold() ? 'ds-badge-success' : 'ds-badge-warning'" x-text="meetsThreshold() ? 'Within the affordability guideline' : 'Exceeds the affordability guideline'"></span></span>
+                            </template>
                         </p>
                     </div>
-                @elseif($result)
+                </template>
+                <template x-if="!(statementMonths && incomeTotal() > 0)">
                     <div class="rounded-md p-3 text-xs" style="background: var(--ds-slate-soft, #f1f5f9); border: 1px solid var(--border); color: var(--text-muted);">
                         Not enough captured yet to run the affordability guideline (needs both income and the number of months).
                     </div>
-                @endif
+                </template>
                 @if($assessment->notes)
                     <p class="text-xs mt-3 whitespace-pre-wrap" style="color: var(--text-primary);">{{ $assessment->notes }}</p>
                 @endif
@@ -360,5 +451,138 @@ function rentalAuthorisationViewer({ initialMarkedUpDocIds, currentUserId, curre
     };
 }
 
+/**
+ * AT-392 authoriser assessment markup, 2026-09-08 — strike-out and add for
+ * the agent's captured income and expense lines. Johan, confirmed directly
+ * (not a coordinator inference): "auth can rather strike out and re-add a
+ * value than edit a value. this way we have the evidence needed of who
+ * did what." There is no edit anywhere here, client or server — striking a
+ * row opens a replacement box right under it (replacingItem), so the two
+ * actions read as one continuous flow. Server re-enforces everything this
+ * client does or doesn't offer — a crafted request still can't do more
+ * than what's built here, same "never trust the client" rule the document
+ * highlighter's own save already follows.
+ */
+function rentalAssessmentEditor({ currentUserId, incomeItems, expenseItems, addIncomeUrl, addExpenseUrl, incomeItemUrl, expenseItemUrl, statementMonths, maxRentPercent, rent, propertyLinked, hasUnpaidTransactions }) {
+    return {
+        currentUserId, incomeItems, expenseItems, statementMonths, maxRentPercent, rent, propertyLinked, hasUnpaidTransactions,
+        newIncomeDescription: '', newIncomeAmount: '',
+        newExpenseDescription: '', newExpenseAmount: '',
+        replacingItem: null, replaceDescription: '', replaceAmount: '',
+        itemError: '',
+
+        // Johan: "the result should read clearly as 'this figure was
+        // replaced by that one, by this person, at this time'."
+        struckLine(item) {
+            const who = item.struck_out_by ? ` by ${item.struck_out_by}` : '';
+            const when = item.struck_out_at ? ` at ${item.struck_out_at}` : '';
+            if (item.replaced_by_item_id) {
+                const rWho = item.replaced_by_user ? ` by ${item.replaced_by_user}` : '';
+                const rWhen = item.replaced_by_at ? ` at ${item.replaced_by_at}` : '';
+                return `Struck${who}${when} — replaced by R${this.formatAmount(item.replaced_by_amount)}${rWho}${rWhen}.`;
+            }
+            return `Struck${who}${when} — no replacement added yet.`;
+        },
+        formatAmount(v) {
+            return (Number(v) || 0).toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        },
+        trimPercent(v) {
+            return String(Number(v)).replace(/\.?0+$/, '');
+        },
+        liveTotal(list) {
+            return list.filter(i => !i.struck_out).reduce((sum, i) => sum + Number(i.amount || 0), 0);
+        },
+        incomeTotal() { return this.liveTotal(this.incomeItems); },
+        expenseTotal() { return this.liveTotal(this.expenseItems); },
+        grossIncome() {
+            if (!this.statementMonths) return 0;
+            return Math.round((this.incomeTotal() / this.statementMonths) * 100) / 100;
+        },
+        maxAffordableRent() {
+            return Math.round(this.grossIncome() * (this.maxRentPercent / 100) * 100) / 100;
+        },
+        rentAsPercent() {
+            const g = this.grossIncome();
+            if (this.rent === null || !g) return '0';
+            return (Math.round((this.rent / g) * 1000) / 10).toString();
+        },
+        meetsThreshold() {
+            if (this.rent === null) return null;
+            return this.rent <= this.maxAffordableRent();
+        },
+
+        async postJson(url, method, body) {
+            this.itemError = '';
+            try {
+                const res = await fetch(url, {
+                    method,
+                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': @js(csrf_token()), 'X-Requested-With': 'XMLHttpRequest' },
+                    body: JSON.stringify(body),
+                });
+                const data = await res.json().catch(() => null);
+                if (!res.ok || !data || !data.ok) {
+                    this.itemError = (data && data.message) ? data.message : 'Could not save — please try again.';
+                    return null;
+                }
+                return data.item;
+            } catch (e) {
+                this.itemError = 'Could not save — please try again.';
+                return null;
+            }
+        },
+
+        // replacesId: present when this add follows a strike in the same
+        // flow — the row it replaces. Absent for a plain "+ Add" at the
+        // bottom of the list.
+        async addItem(kind, replacesId = null) {
+            const isIncome = kind === 'income';
+            const description = replacesId ? this.replaceDescription : (isIncome ? this.newIncomeDescription : this.newExpenseDescription);
+            const amount = replacesId ? this.replaceAmount : (isIncome ? this.newIncomeAmount : this.newExpenseAmount);
+            if (!amount) return;
+            const body = { description, amount };
+            if (replacesId) body.replaces_item_id = replacesId;
+            const item = await this.postJson(isIncome ? addIncomeUrl : addExpenseUrl, 'POST', body);
+            if (!item) return;
+            (isIncome ? this.incomeItems : this.expenseItems).push(item);
+            if (replacesId) {
+                const struckRow = (isIncome ? this.incomeItems : this.expenseItems).find(i => i.id === replacesId);
+                if (struckRow) {
+                    struckRow.replaced_by_item_id = item.id;
+                    struckRow.replaced_by_amount = item.amount;
+                    struckRow.replaced_by_description = item.description;
+                    struckRow.replaced_by_user = item.added_by;
+                    struckRow.replaced_by_at = item.added_at;
+                }
+                this.replacingItem = null; this.replaceDescription = ''; this.replaceAmount = '';
+            } else if (isIncome) { this.newIncomeDescription = ''; this.newIncomeAmount = ''; }
+            else { this.newExpenseDescription = ''; this.newExpenseAmount = ''; }
+        },
+
+        // Johan: strike-and-re-add, not edit. Striking a row that isn't
+        // already struck opens the replacement box directly under it and
+        // focuses the description field — the natural next step, not a
+        // separate action the authoriser has to go find. Un-striking
+        // (restoring) just clears the row back to counting normally.
+        async toggleStrike(kind, item) {
+            const isIncome = kind === 'income';
+            const updated = await this.postJson(`${isIncome ? incomeItemUrl : expenseItemUrl}/${item.id}/strike`, 'POST', {});
+            if (!updated) return;
+            item.struck_out = updated.struck_out;
+            item.struck_out_by = updated.struck_out_by;
+            item.struck_out_at = updated.struck_out_at;
+            if (item.struck_out) {
+                this.replacingItem = kind + '-' + item.id;
+                this.replaceDescription = item.description || '';
+                this.replaceAmount = '';
+                this.$nextTick(() => {
+                    const el = this.$el.querySelector(`[data-replace-focus="${kind}-${item.id}"]`);
+                    if (el) el.focus();
+                });
+            } else if (this.replacingItem === (kind + '-' + item.id)) {
+                this.replacingItem = null;
+            }
+        },
+    };
+}
 </script>
 @endsection
