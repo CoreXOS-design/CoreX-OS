@@ -316,7 +316,13 @@ class RentalApplicationController extends Controller
         $this->guardRentalApplication($rentalApplication);
         $rentalApplication->load(['contact', 'property', 'signatures', 'documents.documentType', 'documents.uploader', 'statusHistory.changedBy']);
 
-        if (in_array($rentalApplication->status, RentalApplication::POST_RETURN_STATUSES, true)) {
+        // Reopen/resubmit, 2026-09-08 — AGENT_EDIT_LOCKED_STATUSES (not
+        // POST_RETURN_STATUSES), so an agent viewing this page while the
+        // application is 'reopened' still gets the read-only view, never an
+        // editable-looking form that would only 403 on submit (update()
+        // itself already blocks 'reopened' — this keeps what's SHOWN
+        // consistent with what's actually ALLOWED).
+        if (in_array($rentalApplication->status, RentalApplication::AGENT_EDIT_LOCKED_STATUSES, true)) {
             return view('corex.rental-applications.view-readonly', compact('rentalApplication'));
         }
 
@@ -375,8 +381,11 @@ class RentalApplicationController extends Controller
         // refused too, regardless of what any page shows. Once the
         // applicant has submitted, this action is permanently closed; there
         // is no override, no permission that reopens it.
+        // Reopen/resubmit, 2026-09-08 — AGENT_EDIT_LOCKED_STATUSES (not
+        // POST_RETURN_STATUSES) so this also blocks while 'reopened': the
+        // applicant is the one editing these fields right now.
         abort_if(
-            in_array($rentalApplication->status, RentalApplication::POST_RETURN_STATUSES, true),
+            in_array($rentalApplication->status, RentalApplication::AGENT_EDIT_LOCKED_STATUSES, true),
             403,
             'This application was submitted and signed by the applicant — its answers can no longer be edited.'
         );
@@ -463,10 +472,21 @@ class RentalApplicationController extends Controller
         $validated = $request->validate([
             'status' => ['required', Rule::in(RentalApplication::AGENT_SETTABLE_STATUSES)],
             'note' => ['nullable', 'string', 'max:1000'],
+            'expected_generation' => ['nullable', 'integer', 'min:1'],
         ]);
 
         if (! in_array($rentalApplication->status, RentalApplication::POST_RETURN_STATUSES, true)) {
             return back()->withInput()->with('error', "This application hasn't been submitted yet — there's nothing to assess.");
+        }
+
+        // Reopen/resubmit, 2026-09-08 — the applicant may have reopened-and-
+        // resubmitted since this agent's screen last loaded. Same 409-style
+        // guard as saveAssessment() below, expressed as a redirect-with-
+        // error since this action isn't an AJAX endpoint.
+        try {
+            $rentalApplication->assertGenerationMatches($request->input('expected_generation') !== null ? (int) $request->input('expected_generation') : null);
+        } catch (\App\Exceptions\RentalApplicationGenerationConflictException $e) {
+            return back()->withInput()->with('error', 'This application changed since you opened it (the applicant resubmitted) — reload to see the new version before making a decision.');
         }
 
         $from = $rentalApplication->status;

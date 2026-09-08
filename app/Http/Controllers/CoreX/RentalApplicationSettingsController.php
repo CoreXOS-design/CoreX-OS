@@ -49,6 +49,9 @@ class RentalApplicationSettingsController extends Controller
         $qualifyingMaxRentPercent = RentalApplicationQualifyingSetting::maxRentPercentFor($agencyId);
         $qualifyingExceedsLegalCeiling = RentalApplicationQualifyingSetting::exceedsLegalCeiling($qualifyingMaxRentPercent);
 
+        // Reopen/resubmit, 2026-09-08 — how long a reopened link stays valid.
+        $reopenLinkExpiryDays = RentalApplicationQualifyingSetting::reopenLinkExpiryDaysFor($agencyId);
+
         // AT-392 authoriser flow — Johan: "ro then co approval process...
         // Both configured as agency settings, multi-select from users,
         // exactly like the existing CO and RO settings." Same query shape
@@ -66,7 +69,7 @@ class RentalApplicationSettingsController extends Controller
         $declineEmail = RentalApplicationDeclineEmailSetting::forAgency($agencyId);
 
         return view('corex.settings.rental-applications', compact(
-            'documentTypes', 'checklists', 'isConfigured', 'qualifyingMaxRentPercent', 'qualifyingExceedsLegalCeiling', 'agencyUsers', 'roUserIds', 'coUserIds', 'declineEmail'
+            'documentTypes', 'checklists', 'isConfigured', 'qualifyingMaxRentPercent', 'qualifyingExceedsLegalCeiling', 'agencyUsers', 'roUserIds', 'coUserIds', 'declineEmail', 'reopenLinkExpiryDays'
         ));
     }
 
@@ -187,6 +190,28 @@ class RentalApplicationSettingsController extends Controller
         }
 
         return $redirect;
+    }
+
+    /**
+     * Reopen/resubmit, 2026-09-08 — separate route/method, same reasoning
+     * as updateQualifyingFormula() above (this save can never interfere
+     * with either of the other two forms on this screen).
+     */
+    public function updateReopenLinkExpiry(Request $request)
+    {
+        $agencyId = $request->user()->effectiveAgencyId();
+
+        $validated = $request->validate([
+            'reopen_link_expiry_days' => ['required', 'integer', 'min:1', 'max:90'],
+        ]);
+
+        RentalApplicationQualifyingSetting::updateOrCreate(
+            ['agency_id' => $agencyId],
+            ['reopen_link_expiry_days' => $validated['reopen_link_expiry_days']],
+        );
+
+        return redirect()->route('corex.settings.rental-applications.edit')
+            ->with('success', 'Reopened link expiry saved.');
     }
 
     public function update(Request $request)

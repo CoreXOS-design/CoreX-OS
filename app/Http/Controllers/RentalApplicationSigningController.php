@@ -47,7 +47,13 @@ class RentalApplicationSigningController extends Controller
             return view('rental-applications.public.unavailable', ['reason' => 'not_sent']);
         }
 
-        if (in_array($application->status, ['returned', 'under_assessment', 'approved', 'declined', 'withdrawn'], true)) {
+        // Reopen/resubmit, 2026-09-08 — 'reopened' is deliberately NOT in
+        // POST_RETURN_STATUSES (see RentalApplication::REOPENABLE_STATUSES'
+        // docblock), so it falls through to the same editable form as
+        // sent/in_progress. Every field renders pre-filled from the model's
+        // OWN attributes ($application->full_name etc, unchanged since the
+        // last submission) — Johan: "prefilled - its a reopen, not new."
+        if (in_array($application->status, RentalApplication::POST_RETURN_STATUSES, true)) {
             return view('rental-applications.public.already-submitted', compact('application'));
         }
 
@@ -72,7 +78,10 @@ class RentalApplicationSigningController extends Controller
             return redirect()->route('rental-applications.public.show', $token);
         }
 
-        if (in_array($application->status, ['returned', 'under_assessment', 'approved', 'declined', 'withdrawn'], true)) {
+        // Reopen/resubmit — same POST_RETURN_STATUSES check as show() above;
+        // 'reopened' is not in that list, so a reopened application can
+        // reach submit() same as sent/in_progress can.
+        if (in_array($application->status, RentalApplication::POST_RETURN_STATUSES, true)) {
             return redirect()->route('rental-applications.public.show', $token);
         }
 
@@ -97,20 +106,40 @@ class RentalApplicationSigningController extends Controller
         $fields = array_map(fn ($v) => $v === '' ? null : $v, $fields);
         $fields = RentalApplication::normalizeStillLiving($fields);
 
-        // Standing rule — transactions roll back clean: the record save and
-        // both signature captures must land together or not at all. Without
-        // this, a failure storing the SECOND signature (e.g. a disk write
-        // error) would leave status='returned' with only one signature
-        // saved — an inconsistent state with no way back to "still open."
+        // Standing rule — transactions roll back clean: the record save,
+        // both signature captures, AND (reopen/resubmit, 2026-09-08) the
+        // sealed generation snapshot must land together or not at all.
+        //
+        // Generation, 2026-09-08 — current_generation defaults to 1 at
+        // creation (matches every pre-reopen signature row, already
+        // backfilled to generation=1). The FIRST-EVER submit() must seal
+        // under that same 1, not bump past it — signalled by submitted_at
+        // still being null (it is set exactly once per RentalApplication::
+        // isSubmitted()'s own docblock, on every submit including this one,
+        // and never cleared). Every submit() AFTER the first (i.e. a
+        // reopen-resubmit, where submitted_at is already set from the prior
+        // round) bumps current_generation before sealing. Either way,
+        // signatures are stamped with whatever current_generation ends up
+        // being for THIS submission — so a resubmit can never collide with
+        // (and therefore can never overwrite) the previous round's
+        // signature row, which is the "signature landmine" this build was
+        // required to fix.
         DB::transaction(function () use ($application, $fields, $validated, $request) {
+            $isResubmit = $application->submitted_at !== null;
+
             $application->fill($fields);
             $application->delivery_mode = 'online';
             $application->status = 'returned';
             $application->submitted_at = now();
+            if ($isResubmit) {
+                $application->current_generation = $application->current_generation + 1;
+            }
             $application->save();
 
             $this->storeSignature($application, 'declaration', $validated['declaration_signature'], $request);
             $this->storeSignature($application, 'tpn_consent', $validated['tpn_consent_signature'], $request);
+
+            \App\Models\RentalApplicationGeneration::seal($application, $request);
         });
 
         // Outside the transaction, deliberately: a notification failure must
@@ -414,8 +443,13 @@ class RentalApplicationSigningController extends Controller
         $path = "rental-applications/{$application->id}/signatures/" . $kind . '-' . Str::random(8) . '.png';
         Storage::disk('local')->put($path, $binary);
 
+        // Reopen/resubmit, 2026-09-08 — 'generation' is now part of the key.
+        // $application->current_generation has ALREADY been bumped (if this
+        // is a resubmit) by the time this runs, inside the same transaction
+        // — so this always creates a NEW row for a new round, never
+        // overwrites the previous round's signature.
         RentalApplicationSignature::updateOrCreate(
-            ['rental_application_id' => $application->id, 'kind' => $kind],
+            ['rental_application_id' => $application->id, 'kind' => $kind, 'generation' => $application->current_generation],
             [
                 'signature_path' => $path,
                 'signed_at' => now(),

@@ -113,7 +113,7 @@ class RentalApplicationReviewController extends Controller
     public function show(Request $request, RentalApplication $rentalApplication): View
     {
         $this->guardRentalApplication($rentalApplication);
-        $rentalApplication->load(['contact', 'property', 'signatures', 'documents.documentType']);
+        $rentalApplication->load(['contact', 'property', 'signatures', 'documents.documentType', 'generations']);
 
         $assessment = RentalApplicationAssessment::firstOrNew(
             ['rental_application_id' => $rentalApplication->id],
@@ -179,6 +179,101 @@ class RentalApplicationReviewController extends Controller
     }
 
     /**
+     * Reopen/resubmit, 2026-09-08 — Johan: "after a rental application comes
+     * back to the agent, the agent must be able to send it BACK to the
+     * applicant so the applicant can reopen it, edit what they entered, and
+     * re-sign it." Only reachable from RentalApplication::REOPENABLE_STATUSES
+     * (returned or under_assessment — never past an authoriser's own
+     * approved/declined decision, which this action deliberately does not
+     * reopen). A required note (mirrors requestMoreInfoFromApplicant()'s own
+     * shape) — both because the applicant-facing email needs something to
+     * say and because a status change of this weight belongs in the audit
+     * trail with a reason, same as every other agent judgement call on this
+     * screen.
+     *
+     * Reuses the SAME token the applicant already has (never regenerates
+     * it) — refreshing only its expiry, via the agency-configurable
+     * reopen_link_expiry_days setting, defaulting to the same 14-day window
+     * the original invite link uses. The applicant's answers are left
+     * exactly as they are: nothing is cleared, which is what makes the
+     * public form pre-fill automatically (Johan: "prefilled - its a
+     * reopen, not new") — see RentalApplicationSigningController::show().
+     */
+    public function reopen(Request $request, RentalApplication $rentalApplication, RentalApplicationMailer $mailer)
+    {
+        $this->guardRentalApplication($rentalApplication);
+
+        $validated = $request->validate([
+            'note' => ['required', 'string', 'max:2000'],
+        ]);
+
+        if (! in_array($rentalApplication->status, RentalApplication::REOPENABLE_STATUSES, true)) {
+            return response()->json(['error' => 'This application can\'t be reopened from its current status.'], 422);
+        }
+
+        if (! $rentalApplication->token) {
+            return response()->json(['error' => 'This application has no applicant link yet — send it first.'], 422);
+        }
+
+        $fromStatus = $rentalApplication->status;
+        $expiryDays = RentalApplicationQualifyingSetting::reopenLinkExpiryDaysFor((int) $rentalApplication->agency_id);
+
+        $rentalApplication->status = 'reopened';
+        $rentalApplication->reopened_at = now();
+        $rentalApplication->reopened_by_user_id = $request->user()->id;
+        $rentalApplication->reopened_note = $validated['note'];
+        $rentalApplication->token_expires_at = now()->addDays($expiryDays);
+        $rentalApplication->save();
+
+        RentalApplicationStatusHistory::record(
+            $rentalApplication,
+            $fromStatus,
+            'reopened',
+            $request->user(),
+            'Reopened for the applicant: ' . $validated['note'],
+        );
+
+        $sent = $mailer->sendReopened($rentalApplication, $validated['note']);
+
+        return response()->json([
+            'ok' => true,
+            'mail_sent' => $sent,
+            'status' => $rentalApplication->status,
+            'token_expires_at' => $rentalApplication->token_expires_at->toIso8601String(),
+        ]);
+    }
+
+    /**
+     * Reopen/resubmit, 2026-09-08 — "a read-only signed view must be able
+     * to show what was signed at each point" (Johan, non-negotiable). Reads
+     * ONLY from the sealed, append-only RentalApplicationGeneration row —
+     * never from the live rental_applications row, which may since have
+     * moved on to a later generation. 404s (not 403) for a generation
+     * number that doesn't exist on this application, same "don't confirm
+     * what's valid" posture as scopedDocument() elsewhere in this module.
+     */
+    public function showGeneration(RentalApplication $rentalApplication, int $generation): View
+    {
+        $this->guardRentalApplication($rentalApplication);
+
+        $sealed = \App\Models\RentalApplicationGeneration::where('rental_application_id', $rentalApplication->id)
+            ->where('generation', $generation)
+            ->first();
+        abort_unless($sealed, 404);
+
+        $signatures = $rentalApplication->signatures()->where('generation', $generation)->get();
+        $latestGeneration = (int) \App\Models\RentalApplicationGeneration::where('rental_application_id', $rentalApplication->id)->max('generation');
+
+        return view('corex.rental-applications.generation-show', [
+            'rentalApplication' => $rentalApplication,
+            'sealed' => $sealed,
+            'signatures' => $signatures,
+            'isLatest' => $generation === $latestGeneration,
+            'latestGeneration' => $latestGeneration,
+        ]);
+    }
+
+    /**
      * AT-392 authoriser flow — the agent hands the application to the
      * authoriser. Deliberately NOT a status change (see RentalApplication::
      * isPendingAuthorisation()) — status stays under_assessment, this
@@ -191,6 +286,21 @@ class RentalApplicationReviewController extends Controller
         $this->guardRentalApplication($rentalApplication);
 
         abort_unless(in_array($rentalApplication->status, RentalApplication::POST_RETURN_STATUSES, true), 422);
+
+        // Reopen/resubmit, 2026-09-08 — never hand a stale generation to the
+        // authoriser: if the applicant reopened-and-resubmitted since this
+        // agent's screen loaded, refuse rather than submitting a decision
+        // window against content that's since changed.
+        $expectedGeneration = $request->input('expected_generation');
+        try {
+            $rentalApplication->assertGenerationMatches($expectedGeneration !== null ? (int) $expectedGeneration : null);
+        } catch (\App\Exceptions\RentalApplicationGenerationConflictException $e) {
+            return response()->json([
+                'error' => 'This application changed since you opened it — reload to see the new version before submitting for approval.',
+                'reason' => 'generation_conflict',
+                'current_generation' => $e->currentGeneration,
+            ], 409);
+        }
 
         $rentalApplication->status = 'under_assessment';
         $rentalApplication->submitted_for_approval_at = now();
@@ -255,7 +365,25 @@ class RentalApplicationReviewController extends Controller
             // amounts — individual declined lines are marked on the
             // document itself via the highlighter.
             'has_unpaid_transactions' => ['nullable', 'boolean'],
+            'expected_generation' => ['nullable', 'integer', 'min:1'],
         ]);
+
+        // Reopen/resubmit, 2026-09-08 — Johan: "agent has review screen open,
+        // applicant resubmits mid-review... reuse the exact 409-conflict
+        // pattern you already built and shipped for document marks." The
+        // review screen bootstraps `expected_generation` from the page it
+        // rendered; a mismatch here means the applicant reopened-and-
+        // resubmitted since then, and this autosave must not silently land
+        // against content the agent hasn't actually seen.
+        try {
+            $rentalApplication->assertGenerationMatches(array_key_exists('expected_generation', $validated) ? $validated['expected_generation'] : null);
+        } catch (\App\Exceptions\RentalApplicationGenerationConflictException $e) {
+            return response()->json([
+                'error' => 'This application changed since you opened it — reload to see the new version.',
+                'reason' => 'generation_conflict',
+                'current_generation' => $e->currentGeneration,
+            ], 409);
+        }
 
         // A row the agent never filled in (no description, no amount) is the
         // ever-present trailing "type here to add another" placeholder —

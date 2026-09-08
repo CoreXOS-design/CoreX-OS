@@ -40,6 +40,8 @@
          currentUserRole: 'agent',
          requestMoreInfoUrl: '{{ route('corex.rental-applications.review.request-more-info', $rentalApplication) }}',
          submitForApprovalUrl: '{{ route('corex.rental-applications.review.submit-for-approval', $rentalApplication) }}',
+         reopenUrl: '{{ route('corex.rental-applications.review.reopen', $rentalApplication) }}',
+         expectedGeneration: {{ Js::from($rentalApplication->current_generation) }},
      })">
 
     {{-- Sticky header, 2026-09-08 — second time today the same fault: controls
@@ -622,6 +624,42 @@
                      already renders with white-space:pre-wrap so numbered
                      points survive to the applicant unchanged (verified —
                      see spec). --}}
+                {{-- Reopen/resubmit, 2026-09-08 — Johan: "the agent must be
+                     able to send it BACK to the applicant so the applicant
+                     can reopen it, edit what they entered, and re-sign it."
+                     Only from RentalApplication::REOPENABLE_STATUSES — never
+                     past an authoriser's own approved/declined decision.
+                     Distinct from "Request more information" above: that
+                     sends a MESSAGE only (the applicant's link is already
+                     open for adding documents at any status); this actually
+                     unlocks their answers for editing and requires a fresh
+                     signature. --}}
+                @if(in_array($rentalApplication->status, \App\Models\RentalApplication::REOPENABLE_STATUSES, true))
+                    <p class="text-xs font-semibold uppercase tracking-wide mb-2 mt-4" style="color: var(--text-muted);">Reopen for the applicant</p>
+                    <p class="text-xs mb-2" style="color: var(--text-muted);">
+                        Sends the applicant a link to fix an answer and re-sign. Their previous answers stay pre-filled — they only edit what's wrong. The signed submission on file now is kept, unchanged, as a separate record.
+                    </p>
+                    <textarea x-model="reopenNote" rows="3" class="corex-input text-xs w-full mb-2" style="resize: none;"
+                              placeholder="What do they need to fix? e.g. ID number was typed incorrectly"></textarea>
+                    <button type="button" class="corex-btn-outline text-xs w-full" :disabled="reopenSending || !reopenNote.trim()" @click="reopenApplication()" x-text="reopenSending ? 'Sending…' : 'Reopen for applicant'"></button>
+                @endif
+
+                {{-- Submission history, 2026-09-08 — Johan: "a read-only
+                     signed view must be able to show what was signed at each
+                     point." One entry per sealed RentalApplicationGeneration,
+                     newest first; each links to the immutable read-only view. --}}
+                @if($rentalApplication->generations->count() > 1)
+                    <p class="text-xs font-semibold uppercase tracking-wide mb-2 mt-4" style="color: var(--text-muted);">Submission history</p>
+                    <div class="space-y-1 mb-2">
+                        @foreach($rentalApplication->generations as $gen)
+                            <a href="{{ route('corex.rental-applications.generations.show', [$rentalApplication, $gen->generation]) }}" class="block text-xs underline" style="color: var(--ds-blue, #2563eb);">
+                                Submission {{ $gen->generation }} — {{ $gen->submitted_at->format('d M Y, H:i') }}
+                                @if($gen->generation === $rentalApplication->current_generation) (current) @endif
+                            </a>
+                        @endforeach
+                    </div>
+                @endif
+
                 @unless(in_array($rentalApplication->status, ['approved', 'declined'], true))
                     <p class="text-xs font-semibold uppercase tracking-wide mb-2" style="color: var(--text-muted);">Request more information</p>
                     <textarea x-model="moreInfoNote" rows="7" class="corex-input text-xs w-full mb-2" style="resize: none; overflow-y: auto;"
@@ -638,7 +676,7 @@
 @include('corex.rental-applications.partials.document-highlighter-script')
 
 <script>
-function rentalReview({ saveUrl, initial, initialIncomeItems, initialExpenseItems, initialResult, initialSavedAt, initialMarkedUpDocIds, currentUserId, currentUserName, currentUserRole, requestMoreInfoUrl, submitForApprovalUrl }) {
+function rentalReview({ saveUrl, initial, initialIncomeItems, initialExpenseItems, initialResult, initialSavedAt, initialMarkedUpDocIds, currentUserId, currentUserName, currentUserRole, requestMoreInfoUrl, submitForApprovalUrl, reopenUrl, expectedGeneration }) {
     return {
         // 2026-09-08 — the highlight/note viewer state+methods (activeDocId,
         // pages, marks, openHighlighter()/applyHighlights()/etc.) now live in
@@ -765,6 +803,53 @@ function rentalReview({ saveUrl, initial, initialIncomeItems, initialExpenseItem
         submittingForApproval: false,
         agentActionStatus: '',
         agentActionError: false,
+        // Reopen/resubmit, 2026-09-08 — expectedGeneration is bootstrapped
+        // from the generation this page actually rendered; sent back on
+        // every write the applicant's own resubmit could invalidate, so a
+        // stale tab is refused with a clear "reload" message rather than
+        // silently acting on content it hasn't actually seen (Johan: reuse
+        // the exact 409 pattern already shipped for document marks).
+        expectedGeneration: expectedGeneration,
+        reopenNote: '',
+        reopenSending: false,
+        async reopenApplication() {
+            if (this.reopenSending || !this.reopenNote.trim()) return;
+            if (!confirm('Send this application back to the applicant to fix and re-sign? They will be emailed a link, pre-filled with what they already entered.')) return;
+            this.reopenSending = true;
+            this.agentActionStatus = '';
+            try {
+                const res = await fetch(reopenUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content ?? '',
+                        'Accept': 'application/json',
+                    },
+                    body: JSON.stringify({ note: this.reopenNote }),
+                });
+                const data = await res.json().catch(() => ({}));
+                if (res.ok && data.ok) {
+                    this.agentActionStatus = data.mail_sent ? 'Reopened — the applicant has been emailed.' : 'Reopened, but the email could not be sent — check their email address.';
+                    this.agentActionError = false;
+                    setTimeout(() => window.location.reload(), 900);
+                } else {
+                    this.agentActionError = true;
+                    this.agentActionStatus = data.error || 'Could not reopen — try again.';
+                }
+            } catch (e) {
+                this.agentActionError = true;
+                this.agentActionStatus = 'Could not reopen — check your connection.';
+            }
+            this.reopenSending = false;
+        },
+        // A generation-conflict response (409) means the applicant resubmitted
+        // since this page loaded — every write action's error handling calls
+        // this instead of a generic "try again" so the agent knows to reload
+        // rather than retry blindly against content that no longer exists.
+        handleGenerationConflict(data) {
+            this.agentActionError = true;
+            this.agentActionStatus = 'This application changed since you opened it — the applicant resubmitted. Reload the page to see the new version.';
+        },
         async requestMoreInfo() {
             if (this.moreInfoSending || !this.moreInfoNote.trim()) return;
             this.moreInfoSending = true;
@@ -806,12 +891,15 @@ function rentalReview({ saveUrl, initial, initialIncomeItems, initialExpenseItem
                         'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content ?? '',
                         'Accept': 'application/json',
                     },
+                    body: JSON.stringify({ expected_generation: this.expectedGeneration }),
                 });
                 const data = await res.json().catch(() => ({}));
                 if (res.ok && data.ok) {
                     this.agentActionError = false;
                     this.agentActionStatus = 'Submitted to the authoriser.';
                     setTimeout(() => window.location.reload(), 900);
+                } else if (res.status === 409 && data.reason === 'generation_conflict') {
+                    this.handleGenerationConflict(data);
                 } else {
                     this.agentActionError = true;
                     this.agentActionStatus = data.error || 'Could not submit — try again.';
@@ -870,13 +958,17 @@ function rentalReview({ saveUrl, initial, initialIncomeItems, initialExpenseItem
                     notes: this.fields.notes,
                     statement_months: this.statementMonths,
                     has_unpaid_transactions: this.hasUnpaidTransactions,
+                    expected_generation: this.expectedGeneration,
                 }),
-            }).then(r => r.json()).then(data => {
-                if (data.ok) {
+            }).then(r => r.json().then(data => ({ ok: r.ok, status: r.status, data }))).then(({ ok, status, data }) => {
+                if (ok && data.ok) {
                     this.result = data.result;
                     (data.income_items || []).forEach((saved, i) => { if (sentIncomeRows[i]) sentIncomeRows[i].id = saved.id; });
                     (data.expense_items || []).forEach((saved, i) => { if (sentExpenseRows[i]) sentExpenseRows[i].id = saved.id; });
                     this.saveStatus = data.saved_at ? ('Saved at ' + formatTime(data.saved_at)) : 'Saved';
+                } else if (status === 409 && data.reason === 'generation_conflict') {
+                    this.saveError = true;
+                    this.saveStatus = 'This application changed since you opened it — reload to see the new version.';
                 } else {
                     this.saveError = true;
                     this.saveStatus = 'Could not save — try again';

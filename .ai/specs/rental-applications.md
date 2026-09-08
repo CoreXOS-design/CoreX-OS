@@ -4768,3 +4768,185 @@ by me; cc1 lands via the shared checkout. Both migrations already run
 against QA1's live database directly from this worktree (see the
 incident note above for why that was done ahead of the rest of the
 branch landing).
+
+## Reopen and resubmit — signed generations (2026-09-08, cc6)
+
+### The requirement
+
+Johan, original requirement, never built until now: after a rental
+application comes back, the agent must be able to send it BACK to the
+applicant so they can reopen it, fix an answer, and re-sign — not just the
+existing one-way "request more information" free-text message, which
+notifies the applicant but never actually unlocks their answers for
+editing.
+
+Four non-negotiable constraints, decided before any code was written (see
+the investigation report that preceded this build):
+
+1. The signed version is evidence and must never be altered. Reopening and
+   re-signing retains the previously-signed submission as-is; the new
+   submission becomes current; a read-only view can show what was signed
+   at each point.
+2. The applicant's earlier signatures do not carry over — if the declared
+   content changes, they must sign the new declaration.
+3. The agent's assessment work (income/expense lines, document marks,
+   notes) must survive the round trip.
+4. Any email to the applicant reuses the e-sign email format (agent
+   details, photo) — never a second, parallel template.
+
+Johan's own answer to the one open product question this build needed
+("prefilled or blank?"): **"prefilled - its a reopen, not new."** The
+applicant sees their previous answers and edits only what's wrong.
+
+### The mechanism — generations, not a second status enum sprawl
+
+`RentalApplication::STATUSES` gains exactly one new value: **`reopened`**.
+Deliberately not a reuse of `sent`/`in_progress` (those already carry
+distinct meaning — `in_progress` specifically means "first document
+uploaded" — overloading them would make "was this ever originally sent, or
+is it a reopen" undiscoverable from status alone).
+
+`rental_applications.current_generation` (default 1) is "which submission
+round is live." Every `submit()` — the very first one AND every resubmit
+after a reopen — is the same operation: increment `current_generation`
+(skipped only on the genuine first-ever submission, signalled by
+`submitted_at` still being null) and seal a snapshot under that number.
+Reopen itself does NOT bump the generation — it only sets
+`status = 'reopened'` and unlocks the applicant's form; the generation
+bumps at the moment they actually resubmit.
+
+`rental_application_generations` is the sealed, append-only history —
+copies `App\Models\Docuperfect\DocumentSealedVersion`'s exact shape (no
+`updated_at`, `save()` throws on any update, `content_hash` chained to
+`prev_hash` via `sha256(prev_hash . snapshot_json)`) rather than inventing
+a second immutable-record pattern. One row per submission, storing a
+frozen copy of every field in `RentalApplication::fieldValidationRules()`
+as it stood at that submission. `RentalApplicationReviewController::
+showGeneration()` renders any sealed generation read-only, independent of
+whatever the live row has since become — this is the "what was signed at
+each point" view.
+
+### The signature landmine — fixed as part of this build
+
+Before this build, `RentalApplicationSigningController::storeSignature()`
+keyed `updateOrCreate()` on `(rental_application_id, kind)` alone. A
+resubmit after reopen would have silently OVERWRITTEN the original signed
+image in place — destroying exactly the evidence a reopen must preserve.
+Fixed at the schema level, not the application level: `generation` joins
+the unique key (`rental_application_signatures` migration
+`2026_09_08_210100...`, unique now `(rental_application_id, kind,
+generation)`), so every submission round gets its own row per kind, never
+overwritten. `RentalApplication::currentSignatures()` (and
+`declarationSignature()`/`tpnConsentSignature()`/`isFullySigned()`, all
+updated to read through it) filter to the CURRENT generation only — a
+superseded signature still exists in the database, forever, it simply
+stops being "the" signature the moment a newer generation exists. The
+signature capture pad itself is a blank HTML canvas (never pre-filled from
+a stored image), so re-signing is enforced for free by the existing UI —
+no separate "clear the old signature" step was needed.
+
+### Concurrency — the applicant resubmits while the agent's screen is open
+
+Reuses the exact 409-conflict shape already shipped for document marks
+(`RentalApplicationMarkVersionConflictException` /
+`HandlesRentalApplicationDocumentMarks::applyHighlight()`), one level up:
+`RentalApplication::assertGenerationMatches()` /
+`RentalApplicationGenerationConflictException`, thrown when a caller's
+`expected_generation` no longer matches the row's live `current_generation`.
+Wired into every review-screen write that could act on stale content —
+`RentalApplicationReviewController::saveAssessment()`,
+`submitForApproval()`, and `RentalApplicationController::updateStatus()`
+— all optional (`nullable`), so an existing caller that doesn't send the
+field is unaffected; the review screen (`review.blade.php`) bootstraps
+`expectedGeneration` from the generation it actually rendered and sends it
+back on every write, surfacing a plain "this application changed — reload
+to see the new version" message on a 409 rather than silently saving
+against content the agent hasn't seen.
+
+### Why the agent's own assessment work needed no schema change
+
+Verified, not assumed (Johan's explicit instruction): `RentalApplicationAssessment`
+is one row per `rental_application_id`, no version concept at all; the
+same is true of `RentalApplicationDocumentHighlight` marks (keyed to
+`document_id`). A reopen that only replaces the applicant's OWN answer
+fields (and adds a new signature generation) leaves both untouched — they
+simply keep pointing at the same ids they always did. No migration, no
+model change was needed for either.
+
+### What's reopenable, and what isn't
+
+`RentalApplication::REOPENABLE_STATUSES = ['returned', 'under_assessment']`
+— an agent's own judgement call before the authoriser has decided
+anything. Deliberately excludes `approved`/`declined`/`withdrawn`:
+reopening past an authoriser's own decision would mean overturning it,
+which this build does not attempt (flagged, not silently assumed — a
+future feature if Johan wants it).
+
+`RentalApplication::AGENT_EDIT_LOCKED_STATUSES` (new) =
+`POST_RETURN_STATUSES` + `reopened` — the agent's OWN edit form
+(`RentalApplicationController::update()`) stays blocked while an
+application is reopened, same as it's blocked once returned: the
+applicant is the one editing those fields right now.
+
+### Applicant link — reused, not regenerated
+
+`reopen()` reuses the SAME token the applicant already has (never
+regenerates it), only refreshing `token_expires_at` via a new
+agency-configurable setting, `reopen_link_expiry_days` on
+`rental_application_qualifying_settings` (default 14, matching the
+existing invite-link window). `RentalApplicationSigningController::show()`
+/`submit()` both key off `RentalApplication::POST_RETURN_STATUSES`, which
+`reopened` is deliberately NOT a member of — so a reopened application
+falls straight through to the same editable public form `sent`/
+`in_progress` already use, pre-filled from the model's own (untouched)
+attributes.
+
+### Email — reused, not duplicated
+
+`RentalApplicationReopenedMail extends BaseSignatureMail`, same base
+`RentalApplicationInviteMail` already uses — same From/reply-to routing,
+same agent footer (name/photo/phone/FFC/PPRA/agency logo). Not a second
+template; only its own subject and the agent's reopen note.
+
+### Setting deliberately NOT in the onboarding wizard
+
+`reopen_link_expiry_days` is an expert, rarely-touched knob (a sensible
+default of 14 days most agencies will never change) — judged, not
+silently skipped, to belong only on the Rental Applications settings
+screen, not the Setup Wizard. Recorded here per CLAUDE.md non-negotiable
+#10a rather than left as an unexplained omission. Also noted, separately
+and out of this build's scope: NONE of this module's other existing
+settings (qualifying formula, RO/CO tiers, decline-email wording, the
+document checklist) have ever reached the wizard either — a pre-existing
+gap from earlier prompts, reported to the coordinator, not fixed here.
+
+### Files touched
+
+- `database/migrations/2026_09_08_210000_add_reopen_generation_to_rental_applications.php` — `current_generation`, `reopened_at`, `reopened_by_user_id`, `reopened_note`
+- `database/migrations/2026_09_08_210100_add_generation_to_rental_application_signatures.php` — the signature-landmine fix; `generation` joins the unique key, adds `deleted_at`
+- `database/migrations/2026_09_08_210200_create_rental_application_generations_table.php` — the sealed, append-only snapshot table
+- `database/migrations/2026_09_08_210300_add_reopen_link_expiry_to_rental_application_qualifying_settings.php`
+- `app/Models/RentalApplicationGeneration.php` — new, mirrors `DocumentSealedVersion`
+- `app/Exceptions/RentalApplicationGenerationConflictException.php` — new, mirrors `RentalApplicationMarkVersionConflictException`
+- `app/Models/RentalApplication.php` — `reopened` status, `REOPENABLE_STATUSES`, `AGENT_EDIT_LOCKED_STATUSES`, `current_generation`/`reopened_*` fillable+casts, `generations()`, `currentSignatures()`, `declarationSignature()`/`tpnConsentSignature()`/`isFullySigned()` now generation-filtered, `assertGenerationMatches()`
+- `app/Models/RentalApplicationSignature.php` — `generation` fillable/cast, `SoftDeletes`
+- `app/Models/RentalApplicationQualifyingSetting.php` — `reopen_link_expiry_days` fillable/cast, `reopenLinkExpiryDaysFor()`
+- `app/Http/Controllers/RentalApplicationSigningController.php` — `show()`/`submit()` use `POST_RETURN_STATUSES` (not a hardcoded array) so `reopened` falls through to the editable form; `submit()` bumps generation + seals a snapshot on every submission; `storeSignature()` keys on generation
+- `app/Http/Controllers/CoreX/RentalApplicationController.php` — `update()` uses `AGENT_EDIT_LOCKED_STATUSES`; `updateStatus()` gains an optional generation-conflict guard
+- `app/Http/Controllers/CoreX/RentalApplicationReviewController.php` — `reopen()`, `showGeneration()`, `show()` eager-loads `generations`, `saveAssessment()`/`submitForApproval()` gain the generation-conflict guard
+- `app/Mail/RentalApplicationReopenedMail.php` — new, extends `BaseSignatureMail`
+- `resources/views/emails/rental-application-reopened.blade.php` — new
+- `app/Services/RentalApplications/RentalApplicationMailer.php` — `sendReopened()`
+- `resources/views/corex/rental-applications/review.blade.php` — "Reopen for the applicant" panel, "Submission history" panel, `expectedGeneration` wired through save/submit-for-approval, 409 handling
+- `resources/views/corex/rental-applications/generation-show.blade.php` — new, read-only sealed-generation view
+- `resources/views/corex/settings/rental-applications.blade.php` / `RentalApplicationSettingsController.php` — `reopen_link_expiry_days` form + `updateReopenLinkExpiry()`
+- `routes/web.php` — `corex.rental-applications.review.reopen`, `corex.rental-applications.generations.show`, `corex.settings.rental-applications.reopen-link-expiry`
+- `tests/Feature/RentalApplications/RentalApplicationReopenTest.php` — new regression suite
+
+Branch: `feature/rental-application-reopen-2026-09-08`, built in an
+isolated worktree at
+`/mnt/HC_Volume_103099143/corex-rental-app-reopen-2026-09-08` per the
+standing "shared checkout belongs to cc1 alone" rule — not landed by me;
+cc1 lands via the shared checkout. All four migrations already run
+against QA1's live database directly from this worktree, same pattern as
+every other feature this session.

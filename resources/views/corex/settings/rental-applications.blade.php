@@ -92,6 +92,29 @@
         </form>
     </div>
 
+    {{-- Reopen/resubmit, 2026-09-08 — "every threshold, window and business
+         rule an agency-configurable setting with a sensible default. Nothing
+         hardcoded." A reopened application's applicant link expires after
+         this many days, same as the original invite link (14 by default). --}}
+    <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+        <h2 class="text-sm font-semibold mb-1" style="color: var(--text-primary);">Reopened Application Link Expiry</h2>
+        <p class="text-xs mb-3" style="color: var(--text-muted);">
+            When an agent reopens a returned application (to let the applicant fix an answer and
+            re-sign), the applicant's link stays valid for this many days.
+        </p>
+
+        <form method="POST" action="{{ route('corex.settings.rental-applications.reopen-link-expiry') }}" class="flex items-end gap-3">
+            @csrf
+            <div>
+                <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Days before a reopened link expires</label>
+                <input type="number" name="reopen_link_expiry_days" step="1" min="1" max="90"
+                       value="{{ old('reopen_link_expiry_days', $reopenLinkExpiryDays) }}"
+                       class="corex-input text-sm" style="width: 100px;">
+            </div>
+            <button type="submit" class="corex-btn-primary text-xs">Save</button>
+        </form>
+    </div>
+
     {{-- AT-392 authoriser flow, 2026-09-08 — Johan: "each agency will want
          their own wording on declined." A suggested default ships until the
          agency saves their own — same forAgency()-never-writes-on-read

@@ -32,10 +32,20 @@ class RentalApplicationQualifyingSetting extends Model
     /** The legal guideline itself — used to warn, never to block, when an agency sets higher. */
     public const LEGAL_CEILING_PERCENT = 30.00;
 
-    protected $fillable = ['agency_id', 'max_rent_percent_of_gross_income'];
+    /**
+     * Reopen/resubmit, 2026-09-08 — same window the original send() invite
+     * link already uses (hardcoded there as 14, pre-existing, out of this
+     * build's scope to change — reported separately). A reopened link is a
+     * genuinely new window this build introduces, so it gets its own
+     * agency-configurable default rather than a second hardcoded 14.
+     */
+    public const DEFAULT_REOPEN_LINK_EXPIRY_DAYS = 14;
+
+    protected $fillable = ['agency_id', 'max_rent_percent_of_gross_income', 'reopen_link_expiry_days'];
 
     protected $casts = [
         'max_rent_percent_of_gross_income' => 'decimal:2',
+        'reopen_link_expiry_days' => 'integer',
     ];
 
     public static function maxRentPercentFor(?int $agencyId): float
@@ -53,5 +63,18 @@ class RentalApplicationQualifyingSetting extends Model
     public static function exceedsLegalCeiling(float $percent): bool
     {
         return $percent > self::LEGAL_CEILING_PERCENT;
+    }
+
+    public static function reopenLinkExpiryDaysFor(?int $agencyId): int
+    {
+        if ($agencyId === null || $agencyId <= 0) {
+            return self::DEFAULT_REOPEN_LINK_EXPIRY_DAYS;
+        }
+
+        $row = static::where('agency_id', $agencyId)->first();
+
+        return $row && $row->reopen_link_expiry_days !== null
+            ? (int) $row->reopen_link_expiry_days
+            : self::DEFAULT_REOPEN_LINK_EXPIRY_DAYS;
     }
 }
