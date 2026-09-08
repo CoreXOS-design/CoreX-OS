@@ -513,7 +513,15 @@
                  statement total" as though CoreX opened and totalled the
                  statement itself; it did not — the agent typed these
                  figures in. Every number now says who asserted it. --}}
-            <div class="rounded-md p-3" style="background: var(--ds-slate-soft, #f1f5f9); border: 1px solid var(--border);">
+            {{-- 2026-09-08, night sweep at 1522px — --ds-slate-soft is never
+                 actually defined anywhere in corex.css, so its hardcoded
+                 #f1f5f9 fallback always won regardless of theme, while the
+                 text inside correctly used theme-aware --text-primary/
+                 --text-muted (light in dark mode) — light-on-light,
+                 unreadable. --surface-2 is the real token already used
+                 correctly for this exact "muted info box" shape on
+                 view-readonly.blade.php. --}}
+            <div class="rounded-md p-3" style="background: var(--surface-2, #f9fafb); border: 1px solid var(--border);">
                 <template x-if="result.label === 'incomplete'">
                     <p class="text-xs" style="color: var(--text-muted);">Capture income above and the number of months covered to see what the applicant qualifies for.</p>
                 </template>
