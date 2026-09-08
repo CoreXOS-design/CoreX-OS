@@ -592,6 +592,18 @@
                      shows the CURRENT decision here — the full history,
                      including the override, is on the authoriser's own
                      screen and the audit trail. --}}
+                @if($moreInfoRequestedNote)
+                    {{-- Conductor, 2026-09-08 (night run) — the promise on the
+                         authoriser's "Request more information" button is
+                         "Sends this back to the agent"; the agent needs to see
+                         WHAT was asked without depending on email delivery.
+                         Clears itself once the agent resubmits (a fresh
+                         status-history row becomes the latest). --}}
+                    <div class="rounded-md px-3 py-2 text-xs mb-3" style="background: var(--surface-2); color: var(--ds-amber); border: 1px solid var(--ds-amber);">
+                        <strong>The authoriser sent this back for more information:</strong>
+                        <div class="mt-1 whitespace-pre-wrap" style="color: var(--text-primary);">{{ $moreInfoRequestedNote }}</div>
+                    </div>
+                @endif
                 @if($rentalApplication->status === 'approved')
                     <div class="rounded-md px-3 py-2 text-xs mb-3" style="background: var(--ds-emerald-soft, #ecfdf5); color: var(--ds-emerald, #059669);">
                         &check; Approved for R{{ number_format($rentalApplication->approved_rental_amount, 2) }} a month. The applicant has been notified — you can now start matching them to a property.

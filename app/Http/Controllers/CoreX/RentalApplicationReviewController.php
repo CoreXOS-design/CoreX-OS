@@ -137,8 +137,22 @@ class RentalApplicationReviewController extends Controller
             ];
         });
 
+        // Conductor, 2026-09-08 (night run) — "Request more information" on
+        // the authoriser screen promises "Sends this back to the agent, not
+        // the applicant," but this screen showed nothing: the only channel
+        // was a best-effort email (silently caught and logged on failure,
+        // never retried). The reason IS already durable, in
+        // rental_application_status_history — surfacing whatever the LATEST
+        // entry says, so the banner is exactly the current truth and clears
+        // itself the moment the agent resubmits (submitForApproval() below
+        // writes its own new history row, becoming the new latest).
+        $latestHistory = $rentalApplication->statusHistory()->latest('created_at')->first();
+        $moreInfoRequestedNote = ($latestHistory && str_starts_with((string) $latestHistory->note, 'Authoriser requested more information:'))
+            ? trim(substr($latestHistory->note, strlen('Authoriser requested more information:')))
+            : null;
+
         return view('corex.rental-applications.review', compact(
-            'rentalApplication', 'assessment', 'maxRentPercent', 'result', 'documents'
+            'rentalApplication', 'assessment', 'maxRentPercent', 'result', 'documents', 'moreInfoRequestedNote'
         ))->with('isPendingAuthorisation', $rentalApplication->isPendingAuthorisation());
     }
 
