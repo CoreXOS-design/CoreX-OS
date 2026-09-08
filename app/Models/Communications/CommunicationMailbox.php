@@ -34,6 +34,8 @@ class CommunicationMailbox extends Model
         'backfill_completed_at',
         // 2026-09-08 (Johan, part B) — honest "Behind" health state.
         'messages_behind_estimate',
+        // 2026-09-08/09 (Johan) — back-off on failure.
+        'next_poll_earliest_at', 'poll_disabled_at',
     ];
 
     protected $casts = [
@@ -51,6 +53,8 @@ class CommunicationMailbox extends Model
         'consecutive_failures' => 'integer',
         'failure_notified_at' => 'datetime',
         'messages_behind_estimate' => 'integer',
+        'next_poll_earliest_at' => 'datetime',
+        'poll_disabled_at' => 'datetime',
         // AT-395 Phase A
         'outgoing_enabled'              => 'boolean',
         'use_imap_credentials_for_smtp' => 'boolean',
@@ -78,6 +82,13 @@ class CommunicationMailbox extends Model
     // demonstrably working (see BUILD_STANDARD — a status field must say what
     // actually happened, not the closest existing label).
     public const HEALTH_BEHIND   = 'behind';
+    // 2026-09-08/09 (Johan, back-off on failure) — the SYSTEM gave up polling
+    // after too many consecutive failures, distinct from the operator's own
+    // `active` switch. A human (or a successful Test Connection) must clear
+    // this. Checked before HEALTH_FAILING: "we stopped trying and you need
+    // to look at this" is a different, more urgent message than "currently
+    // erroring, will keep retrying."
+    public const HEALTH_DISABLED = 'disabled';
 
     // Never serialised. The encrypted password is write-only from every UI/API —
     // the single sanctioned read path is the audited reveal (AT-37), which reads
@@ -218,6 +229,12 @@ class CommunicationMailbox extends Model
      * The HONEST health state (spec AT-181): the manual `active` flag is only one input.
      *
      *  - inactive : manually switched off.
+     *  - disabled : the SYSTEM stopped polling after too many consecutive failures
+     *               (2026-09-08/09, back-off). Distinct from `inactive` (operator
+     *               switched it off) and from `failing` (still retrying) — this
+     *               means retries have stopped and a human needs to look. Checked
+     *               before behind/failing: this is the most urgent, most specific
+     *               true state whenever it applies.
      *  - behind   : active, connected and authenticated FINE this run, but our own time
      *               budget cut the read short partway through a backlog (2026-09-08, part
      *               B). Checked BEFORE last_error/staleness on purpose: a mailbox that is
@@ -233,6 +250,9 @@ class CommunicationMailbox extends Model
     {
         if (! $this->active) {
             return self::HEALTH_INACTIVE;
+        }
+        if ($this->poll_disabled_at !== null) {
+            return self::HEALTH_DISABLED;
         }
         if ($this->messages_behind_estimate !== null) {
             return self::HEALTH_BEHIND;
@@ -278,5 +298,34 @@ class CommunicationMailbox extends Model
         return $this->messages_behind_estimate > 0
             ? "Connected — working through a backlog, about {$this->messages_behind_estimate} message(s) behind."
             : 'Connected — working through a backlog, catching up now.';
+    }
+
+    /**
+     * 2026-09-08/09 (Johan, back-off on failure) — plain-English explanation for
+     * HEALTH_DISABLED. Null when not disabled (caller checks pollHealth() first).
+     */
+    public function disabledLabel(): ?string
+    {
+        if ($this->poll_disabled_at === null) {
+            return null;
+        }
+
+        return "Stopped polling after {$this->consecutive_failures} failed attempts in a row ({$this->poll_disabled_at->diffForHumans()}). "
+            . 'Check the host, username and password, then use Test Connection to bring it back online.';
+    }
+
+    /**
+     * 2026-09-08/09 (Johan, back-off on failure) — for a mailbox that is still
+     * failing but not yet disabled, tell the operator when the NEXT attempt
+     * will happen instead of implying it is being retried every cycle (it is
+     * not, by design). Null when there is no pending back-off to report.
+     */
+    public function nextAttemptLabel(): ?string
+    {
+        if ($this->next_poll_earliest_at === null || $this->next_poll_earliest_at->isPast()) {
+            return null;
+        }
+
+        return "Next attempt " . $this->next_poll_earliest_at->diffForHumans() . ' (backing off after repeated failures).';
     }
 }

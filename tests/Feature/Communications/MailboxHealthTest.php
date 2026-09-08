@@ -392,4 +392,122 @@ final class MailboxHealthTest extends TestCase
         $this->assertNull($mailbox->failure_notified_at, 'no episode was ever opened -- nothing to alert on');
         Notification::assertNothingSentTo($admin);
     }
+
+    // ── Back-off on failure (2026-09-08/09, Johan) ─────────────────────────────
+    // "consecutive_failures already exists on the table. Use it to actually
+    // STOP polling, not just record." This is the fix for the six-hour tail
+    // of today's incident: nothing before today ever paced a repeatedly
+    // failing mailbox's retries.
+
+    public function test_each_consecutive_failure_doubles_the_backoff_window_until_the_configured_max(): void
+    {
+        config(['communications.poll_backoff_base_seconds' => 100, 'communications.poll_backoff_max_seconds' => 1000, 'communications.poll_disable_threshold' => 50]);
+        $mailbox = $this->mailbox();
+        $recorder = new MailboxHealthRecorder();
+
+        $expected = [100, 200, 400, 800, 1000, 1000]; // doubling, then capped at 1000
+        foreach ($expected as $i => $seconds) {
+            $recorder->recordFailure($mailbox, 'connect_failed');
+            $mailbox->refresh();
+            $this->assertEqualsWithDelta(
+                now()->addSeconds($seconds)->timestamp,
+                $mailbox->next_poll_earliest_at->timestamp,
+                2,
+                'failure #' . ($i + 1) . ' should back off ' . $seconds . 's'
+            );
+        }
+    }
+
+    public function test_reaching_the_disable_threshold_stops_scheduling_further_backoff_and_marks_disabled(): void
+    {
+        config(['communications.poll_disable_threshold' => 3]);
+        $mailbox = $this->mailbox();
+        $recorder = new MailboxHealthRecorder();
+
+        $recorder->recordFailure($mailbox, 'connect_failed');
+        $recorder->recordFailure($mailbox, 'connect_failed');
+        $mailbox->refresh();
+        $this->assertNull($mailbox->poll_disabled_at, 'not yet at the threshold');
+
+        $recorder->recordFailure($mailbox, 'connect_failed'); // 3rd -- crosses the threshold
+        $mailbox->refresh();
+        $this->assertNotNull($mailbox->poll_disabled_at);
+        $this->assertNull($mailbox->next_poll_earliest_at, 'disabled supersedes back-off -- nothing left to schedule');
+        $this->assertSame('disabled', $mailbox->pollHealth());
+        $this->assertStringContainsString('3 failed attempts', (string) $mailbox->disabledLabel());
+    }
+
+    public function test_poll_disabled_at_is_stamped_only_once_not_refreshed_on_every_later_failure(): void
+    {
+        config(['communications.poll_disable_threshold' => 2]);
+        $mailbox = $this->mailbox();
+        $recorder = new MailboxHealthRecorder();
+
+        $recorder->recordFailure($mailbox, 'connect_failed');
+        $recorder->recordFailure($mailbox, 'connect_failed'); // disables here
+        $mailbox->refresh();
+        $firstDisabledAt = $mailbox->poll_disabled_at->copy();
+
+        \Illuminate\Support\Carbon::setTestNow(now()->addHour());
+        $recorder->recordFailure($mailbox, 'connect_failed'); // already disabled -- must not move the timestamp
+        $mailbox->refresh();
+
+        $this->assertTrue($firstDisabledAt->eq($mailbox->poll_disabled_at), '"stopped N ago" must stay honest, not reset on every subsequent failure');
+        \Illuminate\Support\Carbon::setTestNow();
+    }
+
+    public function test_recordSuccess_and_recordBehind_clear_backoff_and_disabled_state(): void
+    {
+        $recorder = new MailboxHealthRecorder();
+
+        $failing = $this->mailbox(['consecutive_failures' => 5, 'next_poll_earliest_at' => now()->addHour(), 'poll_disabled_at' => now()]);
+        $recorder->recordSuccess($failing);
+        $failing->refresh();
+        $this->assertNull($failing->next_poll_earliest_at);
+        $this->assertNull($failing->poll_disabled_at);
+        $this->assertSame(0, $failing->consecutive_failures);
+
+        $disabled = $this->mailbox(['consecutive_failures' => 10, 'next_poll_earliest_at' => now()->addHour(), 'poll_disabled_at' => now()]);
+        $recorder->recordBehind($disabled, 3);
+        $disabled->refresh();
+        $this->assertNull($disabled->next_poll_earliest_at);
+        $this->assertNull($disabled->poll_disabled_at);
+        $this->assertSame('behind', $disabled->pollHealth(), 'behind must win now that disabled/backoff are cleared');
+    }
+
+    public function test_reset_backoff_on_manual_success_clears_state_without_touching_last_error(): void
+    {
+        // Test Connection's IMAP leg succeeding calls this directly -- it must
+        // NOT be conflated with recordSuccess()/recordBehind() (a Test
+        // Connection is not a poll, so it should not fabricate a poll outcome),
+        // only clear the back-off/disable state per Johan's "a successful poll
+        // OR TEST resets the counter and the back-off."
+        $mailbox = $this->mailbox(['consecutive_failures' => 7, 'next_poll_earliest_at' => now()->addHour(), 'poll_disabled_at' => now(), 'last_error' => 'auth_failed']);
+        $recorder = new MailboxHealthRecorder();
+
+        $recorder->resetBackoffOnManualSuccess($mailbox);
+        $mailbox->refresh();
+
+        $this->assertSame(0, $mailbox->consecutive_failures);
+        $this->assertNull($mailbox->next_poll_earliest_at);
+        $this->assertNull($mailbox->poll_disabled_at);
+    }
+
+    public function test_backoff_and_disable_thresholds_are_agency_configurable_and_clamped(): void
+    {
+        config(['communications.poll_backoff_base_seconds' => 300, 'communications.poll_disable_threshold' => 10]);
+        $mailbox = $this->mailbox();
+        DB::table('agencies')->where('id', $this->agencyId)->update([
+            'communication_poll_backoff_base_seconds' => 60,
+            'communication_poll_disable_threshold' => 4,
+        ]);
+        $recorder = new MailboxHealthRecorder();
+
+        $this->assertSame(60, $recorder->backoffBaseSeconds($mailbox), 'agency override wins over config default');
+        $this->assertSame(4, $recorder->disableThreshold($mailbox));
+
+        // Clamping: an absurd override never reopens the hole in either direction.
+        DB::table('agencies')->where('id', $this->agencyId)->update(['communication_poll_disable_threshold' => 1]);
+        $this->assertSame(2, $recorder->disableThreshold($mailbox), 'clamped to the minimum of 2 -- disabling after a single failure is too aggressive to allow');
+    }
 }

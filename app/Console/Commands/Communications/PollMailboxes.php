@@ -85,13 +85,41 @@ class PollMailboxes extends Command
         return self::SUCCESS;
     }
 
+    /**
+     * 2026-09-08/09 (Johan, back-off on failure) — the two checks that were
+     * MISSING before today. consecutive_failures already existed but nothing
+     * ever read it here: a mailbox that failed every cycle stayed "due" on
+     * the same fixed interval forever (worse — see the note below), which is
+     * what turned a brief provider-side block into a six-hour outage.
+     */
     private function isDue(CommunicationMailbox $mailbox): bool
     {
+        // The system gave up after too many consecutive failures. Stays
+        // excluded from every future cycle until a human intervenes or a
+        // successful Test Connection clears poll_disabled_at — never
+        // re-included just because time passed.
+        if ($mailbox->poll_disabled_at !== null) {
+            return false;
+        }
+        // Exponential back-off window still open from a recent failure.
+        if ($mailbox->next_poll_earliest_at !== null && $mailbox->next_poll_earliest_at->isFuture()) {
+            return false;
+        }
+
         if (! $mailbox->last_polled_at) {
             return true;
         }
         $interval = max(1, (int) $mailbox->poll_interval_minutes);
 
+        // NOTE (2026-09-08/09): last_polled_at is deliberately NEVER stamped on
+        // a connect/auth failure (ImapMailboxPoller::poll(), see its own
+        // comment) so it stays an honest "last genuine success" signal. Before
+        // today that meant a failing mailbox's clock never reset, so it looked
+        // permanently overdue and was dispatched on EVERY scheduler tick, not
+        // just its configured interval — the actual mechanism behind this
+        // morning's every-5-minutes hammering. next_poll_earliest_at above is
+        // what now actually paces a failing mailbox; this interval check is
+        // unchanged and still governs a healthy mailbox's normal cadence.
         return $mailbox->last_polled_at->lte(now()->subMinutes($interval));
     }
 }

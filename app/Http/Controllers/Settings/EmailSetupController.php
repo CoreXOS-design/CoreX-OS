@@ -200,6 +200,12 @@ class EmailSetupController extends Controller
             )->save();
         }
 
+        // 2026-09-08/09 (Johan, back-off on failure) — a human-proven-working
+        // IMAP leg resets any back-off/disable state immediately.
+        if ($append['ok']) {
+            app(\App\Services\Communications\MailboxHealthRecorder::class)->resetBackoffOnManualSuccess($mailbox);
+        }
+
         // AT-395 (2026-09-07) — this screen lists multiple mailboxes on one page
         // (unlike the compliance screen's single-mailbox form), so the result
         // must be tagged with which mailbox it belongs to.
