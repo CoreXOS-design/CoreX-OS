@@ -182,6 +182,27 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Test Connection rate limit (2026-09-08/09) — the actual cause of today's
+    | Afrihost ban, fixed here, not in the poller
+    |--------------------------------------------------------------------------
+    | Test Connection opens a REAL SMTP login and a REAL IMAP login against
+    | the mailbox's mail server. Clicking it on every mailbox on a shared host
+    | in quick succession is indistinguishable, from the host's side, from a
+    | brute-force credential-guessing burst — that is what triggered the ban,
+    | not a code defect in the poller. Throttled per HOST (App\Services\
+    | Communications\MailboxConnectionRateLimiter), not per mailbox, because
+    | the ban is per-IP against a host: 20 mailboxes sharing one host must
+    | share one limit, or the burst that caused this is still possible one
+    | mailbox at a time. Agency-overridable via
+    | agencies.communication_test_connection_max_attempts /
+    | _window_seconds. Clamped to sane bounds so a misconfigured override
+    | can't reopen the hole (max_attempts [1,20], window_seconds [30,3600]).
+    */
+    'test_connection_rate_limit_max_attempts' => (int) env('COMMUNICATIONS_TEST_CONNECTION_RATE_LIMIT_MAX_ATTEMPTS', 3),
+    'test_connection_rate_limit_window_seconds' => (int) env('COMMUNICATIONS_TEST_CONNECTION_RATE_LIMIT_WINDOW_SECONDS', 300),
+
+    /*
+    |--------------------------------------------------------------------------
     | Sent-folder candidates (AT-43)
     |--------------------------------------------------------------------------
     | Fallback paths tried (in order) when a server does not advertise the
