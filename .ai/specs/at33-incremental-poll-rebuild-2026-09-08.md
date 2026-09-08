@@ -438,6 +438,96 @@ leg, confirmed by reading `OutboundMailGuardServiceProvider`'s own docblock). On
 authenticates correctly, clicking "Test Connection" writes a real synthetic message into the real
 Sent folder every time. Reported to Johan directly; not touched.
 
+## 13. The real cause of the 2026-09-08 Afrihost ban, and the three fixes for it
+
+Everything in §1–§12 addresses the 50-second-budget-timeout problem — real, and now fixed by
+checkpointing (§10). It is **not** what caused the live incident that made this a critical-path,
+work-through-the-night problem. Johan traced that separately, precisely: he enabled outgoing mail
+on 20 mailboxes and clicked Test Connection on each in quick succession. Each click opens a real
+SMTP login **and** a real IMAP login — roughly 40 real logins to one host from one IP within
+minutes. That burst tripped Afrihost's brute-force protection (cPHulk). The poller then made it
+worse: with no back-off anywhere, it kept re-trying all 20 mailboxes every 5-minute scheduler tick
+for **six hours**, turning what should have been a ten-minute self-inflicted wound into an
+all-day outage. Three things were missing, and Johan ordered all three built the same night:
+
+### 13a. Rate limit on Test Connection — the actual cause, fixed first
+
+`app/Services/Communications/MailboxConnectionRateLimiter.php` throttles Test Connection **per
+host**, not per mailbox — the ban is per-IP against a host, so 20 mailboxes sharing one host must
+share one budget, or the exact burst that caused this remains possible one mailbox at a time.
+Backed by Laravel's own `RateLimiter` facade (standard fixed-window throttle, nothing bespoke).
+Checked *before* either real connection attempt in all three Test Connection entry points
+(`Compliance\CommunicationMailboxController`, `Settings\EmailSetupController`,
+`MyPortal\CommunicationCaptureController`); a refused click never touches the network and never
+itself counts against the limit. Also throttles the SMTP host separately when it differs from
+IMAP and outgoing doesn't share IMAP credentials. Agency-configurable
+(`communication_test_connection_max_attempts` / `_window_seconds`, agencies table), default 3
+attempts per 300 seconds, clamped `[1,20]` attempts / `[30,3600]` seconds. Plain-English refusal
+message names the host and the wait. Branch `at33-ratelimit-testconnection-2026-09-08`, commit
+`3c85d8e8d`. 7 tests, zero real network contact.
+
+### 13b. Back-off on failure — stops the forever-hammering
+
+`consecutive_failures` existed before this (AT-181) but was only ever recorded, never used to
+slow anything down. `PollMailboxes::isDue()` checked only `last_polled_at` vs
+`poll_interval_minutes` — and because `ImapMailboxPoller::poll()` deliberately never stamps
+`last_polled_at` on a connect/auth failure (kept as an honest "last genuine success" signal, see
+§1), a failing mailbox's clock never reset, so it looked permanently overdue and was dispatched
+on **every** 5-minute scheduler tick regardless of its configured interval — worse than a naive
+fixed-cadence retry, which is exactly the six-hour mechanism.
+
+`MailboxHealthRecorder::recordFailure()` now computes an exponential back-off (base, base×2,
+base×4… capped at a max) into `communication_mailboxes.next_poll_earliest_at`;
+`PollMailboxes::isDue()` excludes any mailbox still inside that window. After a configurable
+disable threshold, `poll_disabled_at` stops polling that mailbox entirely — distinct from the
+operator's own `active` flag (the system giving up is not the same fact as a manual switch, the
+same principle §11 established for Behind vs Failing) — until a human intervenes or a successful
+Test Connection proves it works again (`resetBackoffOnManualSuccess()`, wired into all three Test
+Connection entry points' IMAP leg). New `CommunicationMailbox::HEALTH_DISABLED` state, checked
+before Behind/Failing, its own "Needs attention" badge with a plain-English label naming the
+failure count. All three thresholds agency-configurable
+(`communication_poll_backoff_base_seconds` / `_max_seconds` / `communication_poll_disable_threshold`),
+defaults 300s / 21600s (6h) / 10 failures. Branch `at33-poll-backoff-2026-09-08`, commit
+`a96edaba3` (merged to QA1 as `5e6b32102`). 18 tests.
+
+### 13c. Circuit breaker — why six hours, not ten minutes
+
+Back-off alone paces *one* mailbox's own retries. It does nothing when many mailboxes share a
+host that is itself refusing every connection: 20 mailboxes each independently backing off still
+adds up to 20 real connection attempts to a blocked host every cycle. `App\Services\
+Communications\HostCircuitBreaker` implements the standard closed → open → single-probe → closed
+pattern, scoped by **host** (never agency or mailbox, same reasoning as 13a). `PollMailboxes::
+handle()` groups active mailboxes by host every cycle and evaluates each host's recent
+connect-class failure rate (`connect_failed`/`auth_failed`/`connect_timeout`, within a
+configurable lookback) *before* dispatching anything; once open, every mailbox on that host except
+a single, paced probe is held back. `PollMailboxJob::handle()` reports each poll's outcome back
+to the breaker for its host — a genuine success or a `read_timeout` (auth worked, the read was
+just slow — same connectable-proof logic as §11) closes it immediately; a connect-class failure
+keeps it open and paces the next probe. New `communication_host_circuit_breakers` table (one row
+per host) and a `comms.host_circuit_breaker_open` notification, backfilled into
+`notification_event_types` in the migration per CLAUDE.md's must-travel-reference-data rule.
+Fires once per open episode, naming the likely cause in plain English (a provider-side IP block,
+not bad passwords). Four thresholds agency-configurable (min mailboxes, failure %, probe
+interval, lookback window); when a host is shared by agencies with different overrides, the
+**minimum** (most conservative) value wins. Branch `at33-circuit-breaker-2026-09-08`, commit
+`97da57f5d`. 25 tests.
+
+**What is a setting and what is not, across all three (Johan's explicit standard):** every
+threshold, window, retry count, and back-off interval listed above is agency-configurable with a
+sane clamped default — nothing hardcoded. The mechanisms themselves are **not** settings and have
+no off switch: Test Connection is always rate-limited per host, a mailbox always backs off and
+can always be auto-disabled after repeated failure, and a host's breaker always opens under a
+concentrated failure rate. These are safety fixes, not preferences, per the same standing rule
+that kept checkpointing (§10) and the Behind/Failing distinction (§11) out of settings.
+
+**Honest status — say this plainly, do not imply coverage that doesn't exist:** none of the
+three has ever run against a real mailbox, and cannot tonight — Afrihost has blocked the live
+server's IP for `mail.hfcoastal.co.za`, and no code in this repository may attempt any connection
+to that host until Johan confirms the block is lifted. All three are proven by unit/feature tests
+against fake hosts and fake IMAP doubles only. The poller itself (§10/§11) was proven end-to-end
+against a real QA1 mailbox on 2026-09-08, before the ban — that proof stands on its own and is
+unrelated to tonight's three additions, which have real-server verification still outstanding.
+
 ## 9. Files changed (current, post-§2A UID rebuild, and §10/§11 checkpointing + health-state work)
 
 - `database/migrations/2026_09_08_170000_add_incremental_poll_watermarks_to_communication_mailboxes.php`
