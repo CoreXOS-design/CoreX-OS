@@ -507,8 +507,22 @@ function rentalAssessmentEditor({ currentUserId, incomeItems, expenseItems, addI
         formatAmount(v) {
             return (Number(v) || 0).toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
         },
+        // AT-392 — Johan, 2026-09-09: this read "3%" instead of "30%" on a
+        // real awaiting-authorisation record — the calculation itself was
+        // right (30% throughout), only this label was wrong, which is worse
+        // than a missing figure. Root cause: the old regex's leading dot
+        // was OPTIONAL (`\.?0+$`), so it stripped trailing zeros even with
+        // no decimal point at all — turning whole multiples of ten into
+        // nonsense (30→3, 40→4, 100→1) while leaving non-round values
+        // (28.5, 25) untouched, which is exactly why this looked like a
+        // one-off rather than a systematic bug. Fixed by first formatting
+        // to a fixed 2 decimals (so a "." is always present, mirroring the
+        // server-side rtrim(rtrim(number_format($v,2),'0'),'.') pattern
+        // used elsewhere for the same "30.00" -> "30" trim), THEN stripping
+        // trailing zeros — the decimal point itself stops the trailing-zero
+        // match from ever reaching into the integer part.
         trimPercent(v) {
-            return String(Number(v)).replace(/\.?0+$/, '');
+            return Number(v).toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
         },
         liveTotal(list) {
             return list.filter(i => !i.struck_out).reduce((sum, i) => sum + Number(i.amount || 0), 0);
