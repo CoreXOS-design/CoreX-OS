@@ -46,14 +46,33 @@ class MailboxHealthRecorder
             // previous cut-off run must not linger once the mailbox has
             // genuinely caught up.
             'messages_behind_estimate' => null,
+            // 2026-09-08/09 (Johan, back-off on failure) — a genuine success
+            // resets the back-off clock and un-disables the mailbox. "A
+            // successful poll or test resets the counter and the back-off."
+            'next_poll_earliest_at' => null,
+            'poll_disabled_at' => null,
         ])->save();
     }
 
-    /** Record a failed poll and alert if the streak first reaches the threshold. */
+    /**
+     * Record a failed poll, alert if the streak first reaches the alert threshold,
+     * and back off the NEXT attempt exponentially. After the disable threshold,
+     * polling STOPS entirely (PollMailboxes::isDue() excludes a disabled mailbox)
+     * until a human intervenes or a successful Test Connection clears it — see
+     * resetBackoffOnManualSuccess().
+     *
+     * 2026-09-08/09 (Johan) — this is what closes the six-hour tail of today's
+     * incident: consecutive_failures existed before today but was only ever
+     * recorded, never used to slow anything down, so a mailbox that failed
+     * every cycle was retried at the SAME fixed cadence forever.
+     */
     public function recordFailure(CommunicationMailbox $mailbox, string $reason): void
     {
         $failures = ((int) $mailbox->consecutive_failures) + 1;
-        $mailbox->forceFill([
+        $disableThreshold = $this->disableThreshold($mailbox);
+        $alreadyDisabled = $mailbox->poll_disabled_at !== null;
+
+        $mailbox->forceFill(array_merge([
             'last_error' => $reason,
             'last_error_at' => now(),
             'consecutive_failures' => $failures,
@@ -62,7 +81,18 @@ class MailboxHealthRecorder
             // Showing a stale backlog count next to Failing would be a second,
             // quieter version of the exact lie this fix removes.
             'messages_behind_estimate' => null,
-        ])->save();
+        ], $failures >= $disableThreshold
+            ? [
+                // Disabled: no further point scheduling a back-off, PollMailboxes
+                // will exclude it entirely. Only stamp poll_disabled_at the FIRST
+                // time the threshold is crossed, so "stopped N ago" stays honest
+                // even if something calls recordFailure again before isDue()
+                // catches up (e.g. a manually forced poll).
+                'poll_disabled_at' => $alreadyDisabled ? $mailbox->poll_disabled_at : now(),
+                'next_poll_earliest_at' => null,
+            ]
+            : ['next_poll_earliest_at' => now()->addSeconds($this->backoffSeconds($mailbox, $failures))]
+        ))->save();
 
         $this->maybeNotify($mailbox, $reason, $failures);
     }
@@ -86,7 +116,79 @@ class MailboxHealthRecorder
             'consecutive_failures' => 0,
             'failure_notified_at' => null,
             'messages_behind_estimate' => $messagesBehind !== null ? max(0, $messagesBehind) : null,
+            // 2026-09-08/09 (Johan, back-off) — auth + connect genuinely worked
+            // this run, so any prior back-off/disable is stale. Same reasoning
+            // as recordSuccess().
+            'next_poll_earliest_at' => null,
+            'poll_disabled_at' => null,
         ])->save();
+    }
+
+    /**
+     * 2026-09-08/09 (Johan, back-off on failure) — "A successful poll or test
+     * resets the counter and the back-off." Called by Test Connection when its
+     * IMAP leg succeeds, so a mailbox a human just proved working is
+     * immediately eligible for normal polling again rather than waiting out
+     * whatever back-off window or disable state it was in.
+     */
+    public function resetBackoffOnManualSuccess(CommunicationMailbox $mailbox): void
+    {
+        if ($mailbox->consecutive_failures === 0 && $mailbox->next_poll_earliest_at === null && $mailbox->poll_disabled_at === null) {
+            return;
+        }
+
+        $mailbox->forceFill([
+            'consecutive_failures' => 0,
+            'failure_notified_at' => null,
+            'next_poll_earliest_at' => null,
+            'poll_disabled_at' => null,
+        ])->save();
+    }
+
+    /**
+     * Exponential back-off for the Nth consecutive failure: base, base*2,
+     * base*4, … capped at the max. Agency-overridable base/max via
+     * agencies.communication_poll_backoff_base_seconds / _max_seconds.
+     */
+    public function backoffSeconds(CommunicationMailbox $mailbox, int $failures): int
+    {
+        $base = $this->backoffBaseSeconds($mailbox);
+        $max = $this->backoffMaxSeconds($mailbox);
+        $exponent = max(0, $failures - 1);
+        // Cap the exponent itself so 2**N can never overflow into a huge int
+        // before the min() below has a chance to clamp it — 30 consecutive
+        // failures already implies a multi-day back-off well past any sane
+        // max, so 2**30 headroom is far more than this will ever need.
+        $exponent = min($exponent, 30);
+
+        return max($base, min($max, (int) ($base * (2 ** $exponent))));
+    }
+
+    /** Agency override (agencies.communication_poll_backoff_base_seconds) ?? config default (300). Clamped [30, 3600]. */
+    public function backoffBaseSeconds(CommunicationMailbox $mailbox): int
+    {
+        $override = \App\Models\Agency::where('id', $mailbox->agency_id)->value('communication_poll_backoff_base_seconds');
+        $n = (int) ($override ?? config('communications.poll_backoff_base_seconds', 300));
+
+        return max(30, min(3600, $n ?: 300));
+    }
+
+    /** Agency override (agencies.communication_poll_backoff_max_seconds) ?? config default (21600 = 6h). Clamped [300, 86400]. */
+    public function backoffMaxSeconds(CommunicationMailbox $mailbox): int
+    {
+        $override = \App\Models\Agency::where('id', $mailbox->agency_id)->value('communication_poll_backoff_max_seconds');
+        $n = (int) ($override ?? config('communications.poll_backoff_max_seconds', 21600));
+
+        return max(300, min(86400, $n ?: 21600));
+    }
+
+    /** Agency override (agencies.communication_poll_disable_threshold) ?? config default (10). Clamped [2, 100]. */
+    public function disableThreshold(CommunicationMailbox $mailbox): int
+    {
+        $override = \App\Models\Agency::where('id', $mailbox->agency_id)->value('communication_poll_disable_threshold');
+        $n = (int) ($override ?? config('communications.poll_disable_threshold', 10));
+
+        return max(2, min(100, $n ?: 10));
     }
 
     /**
