@@ -549,7 +549,8 @@
 
             <div class="mt-4">
                 <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Notes</label>
-                <textarea rows="3" class="corex-input text-sm w-full" x-model="fields.notes" @blur="save()"></textarea>
+                <textarea rows="7" class="corex-input text-sm w-full" style="resize: none; overflow-y: auto;"
+                          x-model="fields.notes" x-init="autoGrowTextarea($el)" @input="autoGrowTextarea($el)" @blur="save()"></textarea>
             </div>
 
             <div class="flex items-center gap-1.5 text-xs mt-2 px-2 py-1 rounded-md" x-show="saveStatus"
@@ -613,7 +614,9 @@
                      see spec). --}}
                 @unless(in_array($rentalApplication->status, ['approved', 'declined'], true))
                     <p class="text-xs font-semibold uppercase tracking-wide mb-2" style="color: var(--text-muted);">Request more information</p>
-                    <textarea x-model="moreInfoNote" rows="6" class="corex-input text-xs w-full mb-2" placeholder="What do you need from the applicant? e.g.&#10;1. Three months' bank statements&#10;2. Payslip for August&#10;3. Proof of the R12,000 deposit on 14 August"></textarea>
+                    <textarea x-model="moreInfoNote" rows="7" class="corex-input text-xs w-full mb-2" style="resize: none; overflow-y: auto;"
+                              x-init="autoGrowTextarea($el)" @input="autoGrowTextarea($el)"
+                              placeholder="What do you need from the applicant? e.g.&#10;1. Three months' bank statements&#10;2. Payslip for August&#10;3. Proof of the R12,000 deposit on 14 August"></textarea>
                     <button type="button" class="corex-btn-outline text-xs w-full" :disabled="moreInfoSending || !moreInfoNote.trim()" @click="requestMoreInfo()" x-text="moreInfoSending ? 'Sending…' : 'Send to applicant'"></button>
                     <p class="text-xs mt-2" x-show="agentActionStatus" x-text="agentActionStatus" :style="agentActionError ? 'color: var(--ds-red, #dc2626);' : 'color: var(--ds-emerald, #059669);'"></p>
                 @endunless
@@ -812,6 +815,19 @@ function rentalReview({ saveUrl, initial, initialIncomeItems, initialExpenseItem
         saveStatus: initialSavedAt ? ('Saved at ' + formatTime(initialSavedAt)) : '',
         saveError: false,
         saveTimer: null,
+        // Johan: the Notes/Request-more-info boxes were too small and their
+        // own inner scrollbar sat inside a panel that was already
+        // scrolling — "you scroll and the wrong thing moves." Height
+        // tracks content exactly up to the cap (no scrollbar can appear
+        // below it since nothing overflows), then the textarea's own
+        // scroll takes over past that point. Called on init (so a saved
+        // note renders at its real height immediately, not just after the
+        // next keystroke) and on every input.
+        autoGrowTextarea(el) {
+            if (!el) return;
+            el.style.height = 'auto';
+            el.style.height = Math.min(el.scrollHeight, 320) + 'px';
+        },
         save() {
             clearTimeout(this.saveTimer);
             this.saveTimer = setTimeout(() => this.performSave(), 150);

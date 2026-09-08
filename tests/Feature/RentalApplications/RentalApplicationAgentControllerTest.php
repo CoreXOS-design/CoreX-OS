@@ -139,7 +139,7 @@ final class RentalApplicationAgentControllerTest extends TestCase
             'property_address_override', 'current_residential_address', 'emergency_contact_name',
             'emergency_contact_cell', 'emergency_contact_work', 'current_landlord_name', 'current_landlord_tel',
             'current_rental_amount', 'current_rental_from', 'current_rental_to', 'employer_address',
-            'employer_tel', 'occupation_date', 'rental_terms', 'special_conditions', 'adults', 'children',
+            'employer_tel', 'occupation_date', 'rental_term_months', 'special_conditions', 'adults', 'children',
         ] as $field) {
             $response->assertSee('name="' . $field . '"', false);
         }

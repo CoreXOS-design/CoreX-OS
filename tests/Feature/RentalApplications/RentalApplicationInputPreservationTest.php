@@ -151,7 +151,7 @@ final class RentalApplicationInputPreservationTest extends TestCase
             'employment_type' => 'permanently_employed',
             'employer_name' => 'Acme Corp', 'employer_position' => 'Manager', 'employer_tel' => '0399111222',
             'monthly_salary' => 25000, 'employer_address' => '2 Main Road, Margate',
-            'rental_terms' => '12 months', 'adults' => 'not-a-number', // forces the failure
+            'rental_term_months' => 12, 'adults' => 'not-a-number', // forces the failure
             'children' => 1, 'special_conditions' => 'Has a small dog',
             'declaration_signature' => $sig, 'tpn_consent_signature' => $sig,
         ];
@@ -166,11 +166,15 @@ final class RentalApplicationInputPreservationTest extends TestCase
             'Jane Applicant', '9001015800083', 'Single', 'South African', 'jane@example.com',
             '0821234567', '0399121111', '1 Old Road, Ramsgate', 'John Doe', '0827654321',
             'ABC Rentals', '0399123456', 'Acme Corp', 'Manager', '0399111222',
-            '2 Main Road, Margate', '12 months', 'Has a small dog',
+            '2 Main Road, Margate', 'Has a small dog',
         ] as $typed) {
             $show->assertSee($typed);
         }
         $show->assertSee('permanently_employed', false);
+        // rental_term_months is a quick-button choice (6/12/24), not free
+        // text — preserved via the Alpine x-data seed, not an old() echo
+        // inside a visible field.
+        $show->assertSee('months: 12', false);
     }
 
     // ── Round 4's own status form — note preservation ─────────────────────
