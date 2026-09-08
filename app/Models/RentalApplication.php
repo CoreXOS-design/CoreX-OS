@@ -21,7 +21,28 @@ class RentalApplication extends Model
     use BelongsToAgency, SoftDeletes;
 
     public const STATUSES = [
-        'draft', 'sent', 'in_progress', 'returned', 'under_assessment', 'approved', 'declined', 'withdrawn',
+        'draft', 'sent', 'in_progress', 'returned', 'reopened', 'under_assessment', 'approved', 'declined', 'withdrawn',
+    ];
+
+    /**
+     * Reopen/resubmit, 2026-09-08 — Johan: "after a rental application comes
+     * back to the agent, the agent must be able to send it BACK to the
+     * applicant so the applicant can reopen it, edit what they entered, and
+     * re-sign it." 'reopened' is deliberately its OWN status, not a reuse
+     * of 'sent'/'in_progress' (see the reopen-investigation report) — those
+     * already carry distinct meaning ('in_progress' specifically means
+     * "first document uploaded"), so overloading them would make "was this
+     * ever originally sent, or is it a reopen" undiscoverable from status
+     * alone.
+     *
+     * Only a RETURNED or ALREADY-UNDER-ASSESSMENT application can be
+     * reopened — an agent's own judgement call before the authoriser has
+     * decided anything. Deliberately excludes approved/declined/withdrawn:
+     * reopening past an authoriser's decision would mean overturning it,
+     * which is a different feature this build does not attempt.
+     */
+    public const REOPENABLE_STATUSES = [
+        'returned', 'under_assessment',
     ];
 
     /**
@@ -50,6 +71,21 @@ class RentalApplication extends Model
     /** Statuses at/after which a hand-set judgement call makes sense. */
     public const POST_RETURN_STATUSES = [
         'returned', 'under_assessment', 'approved', 'declined', 'withdrawn',
+    ];
+
+    /**
+     * Reopen/resubmit, 2026-09-08 — the agent's OWN edit form
+     * (RentalApplicationController::update()) must stay blocked while an
+     * application is 'reopened', same as it's blocked once returned — the
+     * applicant is the one editing those fields right now; the agent
+     * writing to the same fields at the same time is exactly the collision
+     * this build exists to prevent. 'reopened' is deliberately NOT added to
+     * POST_RETURN_STATUSES itself (that constant also gates the PUBLIC
+     * applicant link's "already submitted, read-only" treatment, and a
+     * reopened application must be the opposite of read-only there).
+     */
+    public const AGENT_EDIT_LOCKED_STATUSES = [
+        'returned', 'under_assessment', 'approved', 'declined', 'withdrawn', 'reopened',
     ];
 
     public const EMPLOYMENT_TYPES = [
@@ -206,6 +242,7 @@ class RentalApplication extends Model
     protected $fillable = [
         'agency_id', 'branch_id', 'contact_id', 'property_id', 'created_by_user_id',
         'status', 'delivery_mode', 'token', 'token_expires_at', 'submitted_at', 'submitted_for_approval_at', 'approved_rental_amount',
+        'current_generation', 'reopened_at', 'reopened_by_user_id', 'reopened_note',
         'property_address_override',
         'full_name', 'id_number', 'marital_status', 'spouse_name', 'spouse_id', 'citizenship',
         'current_residential_address', 'email', 'cell', 'work_number',
@@ -221,6 +258,8 @@ class RentalApplication extends Model
         'token_expires_at' => 'datetime',
         'submitted_at' => 'datetime',
         'submitted_for_approval_at' => 'datetime',
+        'reopened_at' => 'datetime',
+        'current_generation' => 'integer',
         'approved_rental_amount' => 'decimal:2',
         'current_rental_amount' => 'decimal:2',
         'monthly_salary' => 'decimal:2',
@@ -269,6 +308,28 @@ class RentalApplication extends Model
         return $this->hasMany(RentalApplicationSignature::class);
     }
 
+    /** Reopen/resubmit — the sealed, read-only history of every submission round, newest first. */
+    public function generations(): HasMany
+    {
+        return $this->hasMany(RentalApplicationGeneration::class)->orderByDesc('generation');
+    }
+
+    /**
+     * Reopen/resubmit — signatures belonging to the CURRENT generation only.
+     * Johan: "the applicant's earlier signatures do not carry over — if
+     * declared content changes, they must sign the new declaration." A
+     * signature from a superseded generation still exists in the database
+     * (never overwritten, never deleted — see the signatures-table
+     * migration), it simply stops being "the" signature the moment a newer
+     * generation exists. Every place that shows "has the applicant signed
+     * this" reads through here, never the raw signatures() relation, so
+     * that rule can't drift out of sync between call sites.
+     */
+    public function currentSignatures()
+    {
+        return $this->signatures()->where('generation', $this->current_generation);
+    }
+
     /**
      * Supporting documents filed through the SHARED documents table
      * (source_type='rental_application', source_id=$this->id) — the same
@@ -291,19 +352,26 @@ class RentalApplication extends Model
         return $this->hasMany(RentalApplicationAuditLog::class)->latest('created_at');
     }
 
+    /**
+     * Reopen/resubmit — filtered to the CURRENT generation (see
+     * currentSignatures()). Was `$this->signatures->firstWhere(...)` against
+     * the whole relation; now that a reopened-and-resubmitted application
+     * can carry more than one signature per kind (one per generation), that
+     * would risk showing a stale, superseded signature as if it were current.
+     */
     public function declarationSignature(): ?RentalApplicationSignature
     {
-        return $this->signatures->firstWhere('kind', 'declaration');
+        return $this->currentSignatures()->get()->firstWhere('kind', 'declaration');
     }
 
     public function tpnConsentSignature(): ?RentalApplicationSignature
     {
-        return $this->signatures->firstWhere('kind', 'tpn_consent');
+        return $this->currentSignatures()->get()->firstWhere('kind', 'tpn_consent');
     }
 
     public function isFullySigned(): bool
     {
-        return $this->signatures()->whereIn('kind', ['declaration', 'tpn_consent'])->count() === 2;
+        return $this->currentSignatures()->whereIn('kind', ['declaration', 'tpn_consent'])->count() === 2;
     }
 
     /**
@@ -336,6 +404,24 @@ class RentalApplication extends Model
     public function isSubmitted(): bool
     {
         return $this->submitted_at !== null;
+    }
+
+    /**
+     * Reopen/resubmit — Johan: "agent has review screen open, applicant
+     * resubmits mid-review... reuse the exact 409-conflict pattern you
+     * already built and shipped for document marks." A review screen loads
+     * showing `current_generation` at that moment; every agent-side write
+     * that could act on stale content passes it back as $expectedGeneration
+     * and calls this first. Mismatch (the applicant reopened-and-resubmitted
+     * since the page loaded) throws, caught by the controller into the same
+     * 409 JSON shape HandlesRentalApplicationDocumentMarks::applyHighlight()
+     * already returns for a marks-version conflict.
+     */
+    public function assertGenerationMatches(?int $expectedGeneration): void
+    {
+        if ($expectedGeneration !== null && $expectedGeneration !== $this->current_generation) {
+            throw new \App\Exceptions\RentalApplicationGenerationConflictException($this->current_generation);
+        }
     }
 
     /**

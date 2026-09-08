@@ -2800,6 +2800,10 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // form/route so it can never interfere with the existing checklist save above.
     Route::post('/settings/rental-applications/qualifying-formula', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateQualifyingFormula'])
         ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.qualifying-formula');
+
+    // Reopen/resubmit, 2026-09-08.
+    Route::post('/settings/rental-applications/reopen-link-expiry', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateReopenLinkExpiry'])
+        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.reopen-link-expiry');
     // AT-392 authoriser flow, 2026-09-08 — decline email wording, same settings screen.
     Route::post('/settings/rental-applications/decline-email', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateDeclineEmail'])
         ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.decline-email');
@@ -2904,6 +2908,12 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // own actions live under a separate prefix below, gated to authorisers.
         Route::post('/{rentalApplication}/review/request-more-info', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'requestMoreInfoFromApplicant'])->name('corex.rental-applications.review.request-more-info');
         Route::post('/{rentalApplication}/review/submit-for-approval', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'submitForApproval'])->name('corex.rental-applications.review.submit-for-approval');
+        // Reopen/resubmit, 2026-09-08 — send a returned/under-assessment
+        // application back to the applicant to fix an answer and re-sign.
+        Route::post('/{rentalApplication}/review/reopen', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'reopen'])->name('corex.rental-applications.review.reopen');
+        // Read-only "what was signed at each point" — one immutable
+        // snapshot per submission round (see RentalApplicationGeneration).
+        Route::get('/{rentalApplication}/generations/{generation}', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'showGeneration'])->name('corex.rental-applications.generations.show');
     });
 
     Route::post('/settings/presentations', [CoreXSettingsController::class, 'updatePresentations'])->middleware('permission:access_settings')->name('corex.settings.presentations.update');

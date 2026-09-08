@@ -6,6 +6,7 @@ use App\Mail\RentalApplicationApprovedMail;
 use App\Mail\RentalApplicationDeclineMail;
 use App\Mail\RentalApplicationInviteMail;
 use App\Mail\RentalApplicationMoreInfoRequestMail;
+use App\Mail\RentalApplicationReopenedMail;
 use App\Models\RentalApplication;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
@@ -59,6 +60,34 @@ class RentalApplicationMailer
             return true;
         } catch (\Throwable $e) {
             Log::warning('AT-392 rental application more-info-request mail failed', [
+                'rental_application_id' => $application->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            return false;
+        }
+    }
+
+    /**
+     * Reopen/resubmit, 2026-09-08 — the agent's "send it back to the
+     * applicant" notification. Same best-effort posture as sendInvite().
+     */
+    public function sendReopened(RentalApplication $application, string $note): bool
+    {
+        $recipientEmail = $application->recipientEmail();
+
+        if (! $recipientEmail || ! $application->token) {
+            return false;
+        }
+
+        try {
+            Mail::to($recipientEmail)->send(
+                (new RentalApplicationReopenedMail($application, $note))->fromAgent($application->createdBy)
+            );
+
+            return true;
+        } catch (\Throwable $e) {
+            Log::warning('AT-392 rental application reopened mail failed', [
                 'rental_application_id' => $application->id,
                 'error' => $e->getMessage(),
             ]);
