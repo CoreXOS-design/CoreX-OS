@@ -8,6 +8,8 @@ use App\Models\Document;
 use App\Models\RentalApplication;
 use App\Models\RentalApplicationAssessment;
 use App\Models\RentalApplicationDocumentHighlight;
+use App\Models\RentalApplicationExpenseItem;
+use App\Models\RentalApplicationIncomeItem;
 use App\Models\RentalApplicationQualifyingSetting;
 use App\Models\RentalApplicationStatusHistory;
 use App\Models\User;
@@ -162,8 +164,20 @@ class RentalApplicationAuthorisationController extends Controller
         $canOverride = $user->isRentalApplicationCO((int) $rentalApplication->agency_id);
         $alreadyDecided = in_array($rentalApplication->status, ['approved', 'declined'], true);
 
+        // Same shape the add/strike AJAX endpoints return (serializeItem()),
+        // built once here so the initial page load and every subsequent
+        // write agree on exactly what a row looks like — never a second,
+        // simpler shape hand-rolled in the blade that could drift from it.
+        $serializedIncomeItems = $assessment->exists
+            ? $assessment->incomeItems->map(fn ($i) => $this->serializeItem($i, $user))->values()
+            : collect();
+        $serializedExpenseItems = $assessment->exists
+            ? $assessment->expenseItems->map(fn ($i) => $this->serializeItem($i, $user))->values()
+            : collect();
+
         return view('corex.rental-applications.authorisation.show', compact(
-            'rentalApplication', 'assessment', 'maxRentPercent', 'result', 'documents', 'history', 'auditLog', 'canOverride', 'alreadyDecided'
+            'rentalApplication', 'assessment', 'maxRentPercent', 'result', 'documents', 'history', 'auditLog', 'canOverride', 'alreadyDecided',
+            'serializedIncomeItems', 'serializedExpenseItems'
         ));
     }
 
@@ -324,6 +338,178 @@ class RentalApplicationAuthorisationController extends Controller
 
         return redirect()->route('corex.rental-applications.authorisation.index')
             ->with('success', 'Sent back to the agent for more information.');
+    }
+
+    /**
+     * AT-392 authoriser assessment markup, 2026-09-08. Johan first: "so the
+     * auth can verify working through the doc... add / edit / remove
+     * (remove im thinking is just a strike out tick)." Then, confirmed
+     * directly, superseding "edit": "auth can rather strike out and re-add
+     * a value than edit a value. this way we have the evidence needed of
+     * who did what." This is Johan's stated rule, not a decision awaiting
+     * his review — his own reason (the evidence trail) is what drives every
+     * choice below where he didn't spell out the detail.
+     *
+     * There is no EDIT verb. Two mutations only:
+     *   STRIKE  — anyone with review/authorisation access, on ANY row,
+     *             including the agent's own capture. Server-enforced with
+     *             no ownership check at all — that's deliberate, not an
+     *             oversight: disagreement is expressed by striking +
+     *             adding, never by changing a figure in place, so there is
+     *             nothing to protect a row's owner FROM here.
+     *   ADD     — anyone with review/authorisation access, attributed to
+     *             them via added_by_user_id. Optionally carries
+     *             replaces_item_id — set when this add follows a strike in
+     *             the same flow, so the struck row and its replacement stay
+     *             linked ("this figure was replaced by that one, by this
+     *             person, at this time") even after a reload, not just for
+     *             the current page session.
+     *
+     * Editing another user's captured value is not a withheld permission —
+     * there is no code path anywhere below that can do it. Nobody may ever
+     * change a value someone else typed; the only way to correct it is to
+     * strike it and add the correct one.
+     */
+    public function addIncomeItem(Request $request, RentalApplication $rentalApplication, RentalApplicationAuditService $audit)
+    {
+        return $this->addAssessmentItem($request, $rentalApplication, $audit, RentalApplicationIncomeItem::class, 'income');
+    }
+
+    public function addExpenseItem(Request $request, RentalApplication $rentalApplication, RentalApplicationAuditService $audit)
+    {
+        return $this->addAssessmentItem($request, $rentalApplication, $audit, RentalApplicationExpenseItem::class, 'expense');
+    }
+
+    private function addAssessmentItem(Request $request, RentalApplication $rentalApplication, RentalApplicationAuditService $audit, string $modelClass, string $kind)
+    {
+        $this->guardCanView($rentalApplication);
+
+        $validated = $request->validate([
+            'description' => ['nullable', 'string', 'max:255'],
+            'amount' => ['required', 'numeric', 'min:0', 'max:9999999999.99'],
+            'replaces_item_id' => ['nullable', 'integer'],
+        ]);
+
+        $assessment = RentalApplicationAssessment::firstOrCreate(
+            ['rental_application_id' => $rentalApplication->id],
+            ['agency_id' => $rentalApplication->agency_id],
+        );
+
+        $replacesId = null;
+        if (!empty($validated['replaces_item_id'])) {
+            // Must genuinely be a struck row on THIS assessment — never a
+            // free-floating id a crafted request could point anywhere.
+            $struckRow = $modelClass::where('rental_application_assessment_id', $assessment->id)
+                ->where('id', $validated['replaces_item_id'])
+                ->whereNotNull('struck_out_at')
+                ->first();
+            $replacesId = $struckRow?->id;
+        }
+
+        $maxSort = $modelClass::where('rental_application_assessment_id', $assessment->id)->max('sort_order');
+
+        $item = $modelClass::create([
+            'agency_id' => $rentalApplication->agency_id,
+            'rental_application_assessment_id' => $assessment->id,
+            'description' => $validated['description'] ?? null,
+            'amount' => $validated['amount'],
+            'sort_order' => ($maxSort ?? -1) + 1,
+            'added_by_user_id' => $request->user()->id,
+            'replaces_item_id' => $replacesId,
+        ]);
+
+        $audit->log(
+            $rentalApplication,
+            eventCategory: 'authorisation',
+            eventType: 'assessment_item_added',
+            user: $request->user(),
+            newValues: ['kind' => $kind, 'description' => $item->description, 'amount' => (string) $item->amount, 'replaces_item_id' => $replacesId],
+            humanSummary: ($replacesId
+                ? "Replaced a struck-out {$kind} line with: "
+                : "Added a {$kind} line: ") . ($item->description ?: '(no description)') . ' — R' . number_format((float) $item->amount, 2),
+        );
+
+        return response()->json(['ok' => true, 'item' => $this->serializeItem($item, $request->user())]);
+    }
+
+    public function toggleStrikeIncomeItem(Request $request, RentalApplication $rentalApplication, RentalApplicationIncomeItem $item, RentalApplicationAuditService $audit)
+    {
+        return $this->toggleStrikeAssessmentItem($request, $rentalApplication, $item, $audit, 'income');
+    }
+
+    public function toggleStrikeExpenseItem(Request $request, RentalApplication $rentalApplication, RentalApplicationExpenseItem $item, RentalApplicationAuditService $audit)
+    {
+        return $this->toggleStrikeAssessmentItem($request, $rentalApplication, $item, $audit, 'expense');
+    }
+
+    /**
+     * "Remove" — Johan, verbatim: "remove im thinking is just a strike out
+     * tick - which leaves the amount there but removes it from the calcs...
+     * it shows the authoriser disagreed with a specific line rather than
+     * the figure quietly vanishing. It is an audit trail, not a display
+     * choice." Never a delete, never SoftDeletes — struck_out_at/by stay on
+     * the row, RentalApplicationAssessment::qualifyingResult() excludes a
+     * struck line from the total while every view still renders it.
+     * Toggle, not one-way — a reviewer can un-strike a line they struck in
+     * error. Deliberately NO ownership guard here (see this method's own
+     * class docblock above) — anyone with view access may strike ANY row.
+     */
+    private function toggleStrikeAssessmentItem(Request $request, RentalApplication $rentalApplication, $item, RentalApplicationAuditService $audit, string $kind)
+    {
+        $this->guardCanView($rentalApplication);
+        $this->guardItemBelongsToApplication($rentalApplication, $item);
+
+        $nowStriking = $item->struck_out_at === null;
+        $item->struck_out_at = $nowStriking ? now() : null;
+        $item->struck_out_by_user_id = $nowStriking ? $request->user()->id : null;
+        $item->save();
+
+        $audit->log(
+            $rentalApplication,
+            eventCategory: 'authorisation',
+            eventType: $nowStriking ? 'assessment_item_struck' : 'assessment_item_unstruck',
+            user: $request->user(),
+            newValues: ['kind' => $kind, 'description' => $item->description, 'amount' => (string) $item->amount],
+            humanSummary: ($nowStriking ? 'Struck out a ' : 'Restored a ') . "{$kind} line: " . ($item->description ?: '(no description)') . ' — R' . number_format((float) $item->amount, 2),
+        );
+
+        return response()->json(['ok' => true, 'item' => $this->serializeItem($item, $request->user())]);
+    }
+
+    private function guardItemBelongsToApplication(RentalApplication $rentalApplication, $item): void
+    {
+        abort_unless(
+            (int) $item->assessment->rental_application_id === (int) $rentalApplication->id,
+            404
+        );
+    }
+
+    private function serializeItem($item, User $viewer): array
+    {
+        $replacedBy = $item->replacedBy;
+
+        return [
+            'id' => $item->id,
+            'description' => $item->description,
+            'amount' => (float) $item->amount,
+            'struck_out' => $item->struck_out_at !== null,
+            // "by this person, at this time" — Johan's own phrasing for
+            // what the record must read as.
+            'struck_out_by' => $item->struckOutBy?->name,
+            'struck_out_at' => $item->struck_out_at?->format('d M Y H:i'),
+            'added_by_authoriser' => $item->added_by_user_id !== null,
+            'added_by' => $item->addedBy?->name,
+            'added_at' => $item->created_at?->format('d M Y H:i'),
+            'replaces_item_id' => $item->replaces_item_id,
+            // The struck row's own view of "what replaced me" — enough to
+            // render "→ replaced by R{amount}, by {who}, at {when}" right
+            // under the struck line without a second request.
+            'replaced_by_item_id' => $replacedBy?->id,
+            'replaced_by_amount' => $replacedBy !== null ? (float) $replacedBy->amount : null,
+            'replaced_by_description' => $replacedBy?->description,
+            'replaced_by_user' => $replacedBy?->addedBy?->name,
+            'replaced_by_at' => $replacedBy?->created_at?->format('d M Y H:i'),
+        ];
     }
 
     /**
