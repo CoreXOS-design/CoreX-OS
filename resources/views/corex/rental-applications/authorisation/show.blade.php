@@ -226,8 +226,13 @@
                      linked) — the server re-derives the authoritative figure
                      independently once a write round-trips; this is the same
                      rule shown live, not a second source of truth. --}}
+                {{-- 2026-09-08, night sweep at 1522px — --ds-slate-soft was
+                     never actually defined in corex.css, so its hardcoded
+                     #f1f5f9 fallback always won regardless of theme, against
+                     theme-aware (light-in-dark-mode) text — unreadable in
+                     dark mode. --surface-2 is the real, theme-aware token. --}}
                 <template x-if="statementMonths && incomeTotal() > 0">
-                    <div class="rounded-md p-3" style="background: var(--ds-slate-soft, #f1f5f9); border: 1px solid var(--border);">
+                    <div class="rounded-md p-3" style="background: var(--surface-2, #f9fafb); border: 1px solid var(--border);">
                         <p class="text-[11px] font-semibold uppercase tracking-wide mb-1" style="color: var(--text-muted);">Suggested check — not a rule</p>
                         <p class="text-sm">
                             Gross income <span x-text="'R' + formatAmount(grossIncome())"></span> — rent must not exceed <span x-text="trimPercent(maxRentPercent)"></span>% of this (<span x-text="'R' + formatAmount(maxAffordableRent())"></span>).
@@ -242,7 +247,7 @@
                     </div>
                 </template>
                 <template x-if="!(statementMonths && incomeTotal() > 0)">
-                    <div class="rounded-md p-3 text-xs" style="background: var(--ds-slate-soft, #f1f5f9); border: 1px solid var(--border); color: var(--text-muted);">
+                    <div class="rounded-md p-3 text-xs" style="background: var(--surface-2, #f9fafb); border: 1px solid var(--border); color: var(--text-muted);">
                         Not enough captured yet to run the affordability guideline (needs both income and the number of months).
                     </div>
                 </template>

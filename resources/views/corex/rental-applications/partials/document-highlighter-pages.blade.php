@@ -22,9 +22,14 @@
 
 {{-- Legend — Johan asked for this explicitly ("a map key"). All six marks
      at a glance: three categories, each shown in both roles' shades, with
-     the shared underline colour as a bottom bar on every swatch. --}}
+     the shared underline colour as a bottom bar on every swatch.
+
+     2026-09-08, night sweep at 1522px — --ds-slate-soft was never actually
+     defined in corex.css, so its hardcoded #f1f5f9 fallback always won
+     regardless of theme, against theme-aware (light-in-dark-mode) text —
+     unreadable in dark mode. --surface-2 is the real, theme-aware token. --}}
 <div class="flex flex-wrap items-center gap-4 py-2 px-3 rounded-md text-xs mb-2" x-show="!loading && !loadError"
-     style="background: var(--ds-slate-soft, #f1f5f9); border: 1px solid var(--border);">
+     style="background: var(--surface-2, #f9fafb); border: 1px solid var(--border);">
     <span class="font-semibold" style="color: var(--text-secondary);">Legend</span>
     <template x-for="c in categories" :key="c.key">
         <div class="flex items-center gap-1.5">
