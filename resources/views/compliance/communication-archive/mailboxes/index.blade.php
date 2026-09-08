@@ -126,27 +126,37 @@
                                 // after too many consecutive failures and needs a human. Distinct
                                 // from 'failing' (still retrying, just less often) and from
                                 // 'inactive' (an operator's own choice, not the system giving up).
+                                //
+                                // 2026-09-08 night run (Johan, via conductor) — 'stale' is a FIFTH
+                                // state, never folded into 'failing': no recorded error, a real
+                                // prior success exists, it just hasn't polled again recently. A
+                                // neutral badge (same treatment as inactive/pending) — it says
+                                // nothing about whether the mailbox actually works.
                                 $health = $m->pollHealth();
                                 $badge = [
                                     'inactive' => ['class' => 'ds-badge-default',  'label' => 'Inactive'],
                                     'pending'  => ['class' => 'ds-badge-info',     'label' => 'Pending'],
                                     'healthy'  => ['class' => 'ds-badge-success', 'label' => 'Healthy'],
                                     'behind'   => ['class' => 'ds-badge-warning', 'label' => 'Behind'],
+                                    'stale'    => ['class' => 'ds-badge-default', 'label' => 'Not polled recently'],
                                     'failing'  => ['class' => 'ds-badge-danger',  'label' => 'Failing'],
                                     'disabled' => ['class' => 'ds-badge-danger',  'label' => 'Needs attention'],
                                 ][$health];
                                 $reason = match ($health) {
                                     'behind' => $m->behindLabel(),
                                     'disabled' => $m->disabledLabel(),
+                                    'stale' => $m->staleLabel(),
                                     default => $m->lastErrorLabel() ?? $m->nextAttemptLabel(),
                                 };
                             @endphp
                             <span class="ds-badge {{ $badge['class'] }}" title="{{ $reason ?? 'Polling and ingesting normally.' }}">{{ $badge['label'] }}</span>
-                            @if($reason && in_array($health, ['behind', 'failing', 'disabled'], true))
+                            @if($reason && in_array($health, ['behind', 'failing', 'disabled', 'stale'], true))
                                 {{-- Visible, not hover-only -- a tooltip is easy to miss, and this is
                                      exactly the distinction ("catching up" vs "broken" vs "needs a
-                                     human") Johan needs to see without hovering over every row. --}}
-                                <div class="mt-1 text-xs" style="color: {{ $health === 'behind' ? 'var(--ds-amber)' : 'var(--ds-crimson)' }};">{{ $reason }}</div>
+                                     human" vs "just hasn't run recently") Johan needs to see without
+                                     hovering over every row. 'stale' gets the same neutral treatment
+                                     as the badge itself — it is not an alarm. --}}
+                                <div class="mt-1 text-xs" style="color: {{ match ($health) { 'behind' => 'var(--ds-amber)', 'stale' => 'var(--text-muted)', default => 'var(--ds-crimson)' } }};">{{ $reason }}</div>
                             @endif
                         </td>
                         <td class="px-4 py-3">
