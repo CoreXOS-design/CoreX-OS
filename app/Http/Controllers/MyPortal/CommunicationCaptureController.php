@@ -108,20 +108,27 @@ class CommunicationCaptureController extends Controller
 
         $testMime = "Subject: CoreX Sent-folder test\r\nFrom: {$mailbox->email_address}\r\nTo: {$mailbox->email_address}\r\nDate: " . now()->toRfc2822String() . "\r\n\r\nThis is a Sent-folder write test from CoreX.";
         $append = $appender->append($mailbox, $rawMime ?? $testMime);
-        $imapAppend = $append['ok']
-            ? ['ok' => true, 'message' => 'Sent folder found and writable.']
-            : ['ok' => false, 'message' => match ($append['reason']) {
-                'no_sent_folder' => 'Connected, but no Sent folder could be found.',
-                'append_failed' => 'Connected to the Sent folder, but writing to it was refused.',
-                'auth_failed' => 'Login failed — check the username and password.',
-                'incomplete_credentials' => 'Mailbox is missing an outgoing host, username or password.',
-                'connect_failed' => 'Could not connect to the mail server to check the Sent folder (the email itself may still have sent — see the SMTP result above).',
-                default => 'Could not connect to the mail server.',
-            }];
-        $mailbox->forceFill($append['ok']
-            ? ['last_sent_folder_append_at' => now(), 'last_sent_folder_append_error' => null]
-            : ['last_sent_folder_append_error' => $append['reason']]
-        )->save();
+        if ($append['reason'] === 'blocked_non_production') {
+            // AT-URGENT-2026-09-08 — a deliberate safety skip, not a failure:
+            // nothing was attempted, so the mailbox's real append-health
+            // fields are left exactly as they were.
+            $imapAppend = ['ok' => true, 'message' => 'Skipped — this is a non-production environment, so CoreX does not write a test message into the real Sent folder here.'];
+        } else {
+            $imapAppend = $append['ok']
+                ? ['ok' => true, 'message' => 'Sent folder found and writable.']
+                : ['ok' => false, 'message' => match ($append['reason']) {
+                    'no_sent_folder' => 'Connected, but no Sent folder could be found.',
+                    'append_failed' => 'Connected to the Sent folder, but writing to it was refused.',
+                    'auth_failed' => 'Login failed — check the username and password.',
+                    'incomplete_credentials' => 'Mailbox is missing an outgoing host, username or password.',
+                    'connect_failed' => 'Could not connect to the mail server to check the Sent folder (the email itself may still have sent — see the SMTP result above).',
+                    default => 'Could not connect to the mail server.',
+                }];
+            $mailbox->forceFill($append['ok']
+                ? ['last_sent_folder_append_at' => now(), 'last_sent_folder_append_error' => null]
+                : ['last_sent_folder_append_error' => $append['reason']]
+            )->save();
+        }
 
         return back()
             ->with('test_connection_result', ['smtp' => $smtp, 'imap_append' => $imapAppend])
