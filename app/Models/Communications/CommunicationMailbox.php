@@ -230,9 +230,10 @@ class CommunicationMailbox extends Model
         return match ($this->last_error) {
             null => null,
             'connect_failed' => 'Could not connect to the mail server',
+            'connect_timeout' => 'The mail server did not respond in time (timed out connecting)',
             'auth_failed' => 'Login failed — check the username and password',
             'incomplete_credentials' => 'Mailbox is missing host, username or password',
-            'read_timeout' => 'Connected, but reading the mailbox timed out',
+            'read_timeout' => 'Connected, but reading the mailbox timed out — likely a large backlog',
             default => ucfirst(str_replace('_', ' ', (string) $this->last_error)),
         };
     }

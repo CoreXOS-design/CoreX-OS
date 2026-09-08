@@ -49,11 +49,23 @@ class ImapMailboxPoller
         try {
             $client = $this->connect($mailbox);
         } catch (\Throwable $e) {
-            Log::error("Communication archive IMAP connect failed (mailbox {$mailbox->id}): {$e->getMessage()}");
+            // 2026-09-08 fix — webklex wraps the REAL socket/TLS error (e.g. "Connection timed
+            // out", the actual $errno/$errstr from stream_socket_client) inside a generic outer
+            // exception whose own message is a hardcoded "connection failed"/"connection setup
+            // failed". Logging $e->getMessage() alone threw that real reason away and left every
+            // failure looking identical — confirmed the root cause of this morning's live
+            // incident taking hours to diagnose from logs that only ever said two words.
+            $real = $this->unwrapRealMessage($e);
+            Log::error("Communication archive IMAP connect failed (mailbox {$mailbox->id}, {$mailbox->imap_host}:{$mailbox->imap_port}): {$real}");
             // Health (AT-181): distinguish a login rejection from an unreachable/failed connect so
             // the admin sees the actionable reason. Recorded BEFORE any last_polled_at stamp.
-            $this->health->recordFailure($mailbox, $this->classifyConnectError($e));
-            return ['status' => 'error', 'reason' => 'connect_failed', 'stats' => $stats];
+            // 2026-09-08 fix — classify() now sees the REAL unwrapped message, not the generic
+            // wrapper, so it can actually recognise "timed out" wording that was previously
+            // invisible to it; and the returned reason was hardcoded to 'connect_failed'
+            // regardless of what got classified — fixed to match what was actually recorded.
+            $classified = $this->classifyConnectError($real);
+            $this->health->recordFailure($mailbox, $classified);
+            return ['status' => 'error', 'reason' => $classified, 'stats' => $stats];
         }
 
         // Incremental polls read since last_polled_at (1-day overlap so a message
@@ -152,7 +164,7 @@ class ImapMailboxPoller
         } catch (ImapPollTimeoutException $e) {
             // A non-responsive folder read tripped the budget. Clean, logged
             // error — never a TimeoutExceededException from the queue worker.
-            Log::error("Communication archive IMAP poll timed out (mailbox {$mailbox->id}): {$e->getMessage()}");
+            Log::error("Communication archive IMAP poll timed out (mailbox {$mailbox->id}, {$mailbox->imap_host}:{$mailbox->imap_port}): {$e->getMessage()}");
             $status = 'error';
             $reason = 'read_timeout';
         } finally {
@@ -176,17 +188,53 @@ class ImapMailboxPoller
         return ['status' => $status, 'reason' => $reason, 'stats' => $stats];
     }
 
-    /** Classify a connect exception into an actionable reason (auth rejection vs connect failure). */
-    private function classifyConnectError(\Throwable $e): string
+    /**
+     * Classify a connect failure into an actionable reason (auth rejection vs a genuine
+     * timeout vs an outright connect failure). Takes the already-UNWRAPPED real message
+     * (see unwrapRealMessage()) — classifying webklex's generic outer wrapper text
+     * ("connection failed") could never distinguish anything, since that literal string
+     * carries no information about what actually happened underneath.
+     *
+     * 2026-09-08 fix — 'connect_timeout' added. Before this, a genuine timeout (the
+     * server not answering within communications.imap_timeout_seconds) fell into the
+     * same 'connect_failed' bucket as "the host is wrong"/"the server is down", which is
+     * exactly how a mailbox with a large, slow-to-read backlog stayed permanently
+     * mislabelled as broken even though nothing was actually wrong with its credentials.
+     */
+    private function classifyConnectError(string $realMessage): string
     {
-        $msg = strtolower($e->getMessage());
+        $msg = strtolower($realMessage);
         foreach (['authenticat', 'login', 'credential', 'password', 'invalid user', 'auth failed'] as $needle) {
             if (str_contains($msg, $needle)) {
                 return 'auth_failed';
             }
         }
+        foreach (['timed out', 'timeout', 'operation now in progress', 'etimedout'] as $needle) {
+            if (str_contains($msg, $needle)) {
+                return 'connect_timeout';
+            }
+        }
 
         return 'connect_failed';
+    }
+
+    /**
+     * webklex wraps the real underlying exception (the actual $errno/$errstr from
+     * stream_socket_client — e.g. "Connection timed out", "Connection refused") inside
+     * an outer exception whose OWN message is a hardcoded generic string ("connection
+     * failed"/"connection setup failed"), keeping the real one only as getPrevious().
+     * Walks the full chain to the deepest available message — never just the two-word
+     * wrapper — so both the log and the failure classification see what actually
+     * happened, not a label that means nothing on its own.
+     */
+    private function unwrapRealMessage(\Throwable $e): string
+    {
+        $current = $e;
+        while ($current->getPrevious() !== null) {
+            $current = $current->getPrevious();
+        }
+
+        return $current->getMessage() !== '' ? $current->getMessage() : $e->getMessage();
     }
 
     /**
