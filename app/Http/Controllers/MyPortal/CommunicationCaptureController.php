@@ -78,9 +78,20 @@ class CommunicationCaptureController extends Controller
         Request $request,
         CommunicationMailbox $mailbox,
         PerMailboxMailTransportBuilder $transportBuilder,
-        ImapSentFolderAppender $appender
+        ImapSentFolderAppender $appender,
+        \App\Services\Communications\MailboxConnectionRateLimiter $rateLimiter
     ) {
         $this->assertOwn($mailbox);
+
+        // 2026-09-08/09 (Johan) — the actual cause of today's Afrihost ban.
+        // Checked BEFORE any real connection is made.
+        if ($rateLimiter->tooManyAttempts($mailbox)) {
+            $message = $rateLimiter->throttledMessage($mailbox);
+            return back()
+                ->with('test_connection_result', ['smtp' => ['ok' => false, 'message' => $message], 'imap_append' => ['ok' => false, 'message' => $message]])
+                ->with('test_connection_mailbox_id', $mailbox->id);
+        }
+        $rateLimiter->hit($mailbox);
 
         $rawMime = null;
         try {

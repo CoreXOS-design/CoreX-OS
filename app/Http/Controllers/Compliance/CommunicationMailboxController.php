@@ -146,12 +146,25 @@ class CommunicationMailboxController extends Controller
         Request $request,
         CommunicationMailbox $mailbox,
         PerMailboxMailTransportBuilder $transportBuilder,
-        ImapSentFolderAppender $appender
+        ImapSentFolderAppender $appender,
+        \App\Services\Communications\MailboxConnectionRateLimiter $rateLimiter
     ) {
         abort_unless(
             CommunicationMailbox::query()->visibleTo(Auth::user())->whereKey($mailbox->id)->exists(),
             404
         );
+
+        // 2026-09-08/09 (Johan) — the actual cause of today's Afrihost ban.
+        // Checked BEFORE any real connection is made; a refused click never
+        // touches the network and never counts against the limit itself.
+        if ($rateLimiter->tooManyAttempts($mailbox)) {
+            $message = $rateLimiter->throttledMessage($mailbox);
+            return back()->with('test_connection_result', [
+                'smtp' => ['ok' => false, 'message' => $message],
+                'imap_append' => ['ok' => false, 'message' => $message],
+            ]);
+        }
+        $rateLimiter->hit($mailbox);
 
         $result = ['smtp' => ['ok' => false, 'message' => null], 'imap_append' => ['ok' => false, 'message' => null]];
 

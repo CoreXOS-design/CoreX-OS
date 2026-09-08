@@ -148,8 +148,20 @@ class EmailSetupController extends Controller
     public function testConnection(
         CommunicationMailbox $mailbox,
         \App\Services\Communications\PerMailboxMailTransportBuilder $transportBuilder,
-        \App\Services\Communications\ImapSentFolderAppender $appender
+        \App\Services\Communications\ImapSentFolderAppender $appender,
+        \App\Services\Communications\MailboxConnectionRateLimiter $rateLimiter
     ) {
+        // 2026-09-08/09 (Johan) — the actual cause of today's Afrihost ban.
+        // Checked BEFORE any real connection is made.
+        if ($rateLimiter->tooManyAttempts($mailbox)) {
+            $message = $rateLimiter->throttledMessage($mailbox);
+            return back()->with('test_connection_result', [
+                'smtp' => ['ok' => false, 'message' => $message],
+                'imap_append' => ['ok' => false, 'message' => $message],
+            ]);
+        }
+        $rateLimiter->hit($mailbox);
+
         $rawMime = null;
         try {
             $mailable = (new \Illuminate\Mail\Mailable())
