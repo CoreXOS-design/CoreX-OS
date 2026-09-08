@@ -108,13 +108,43 @@ final class MailboxHealthTest extends TestCase
             'active' => true, 'last_polled_at' => now()->subMinute(), 'last_error' => 'auth_failed', 'last_error_at' => now(),
         ])->pollHealth());
 
-        // Failing — stale: no successful poll within ~2 intervals (2×15 = 30m).
-        $this->assertSame('failing', $this->mailbox(['active' => true, 'last_polled_at' => now()->subMinutes(31)])->pollHealth());
+        // 2026-09-08 night run — Stale, NOT failing: a real prior success exists
+        // (last_polled_at is set), no recorded error, it has simply gone past the
+        // freshness window (2×15 = 30m). This used to collapse into 'failing' —
+        // the exact defect Johan reported ("shows FAILING when it simply has not
+        // been polled recently... nothing wrong, just stale").
+        $this->assertSame('stale', $this->mailbox([
+            'active' => true, 'last_polled_at' => now()->subMinutes(31), 'last_error' => null,
+        ])->pollHealth());
 
         // Failing — never polled AND overdue (created older than the stale window).
+        // Deliberately NOT 'stale': there is no prior success to point to here at
+        // all — this is the broken-setup signature, not "just hasn't run lately".
         $m = $this->mailbox(['active' => true, 'last_polled_at' => null]);
         $m->forceFill(['created_at' => now()->subHour()])->save();
         $this->assertSame('failing', $m->fresh()->pollHealth());
+    }
+
+    /**
+     * 2026-09-08 night run — precedence: a mailbox that is ALSO disabled or
+     * behind must report that, not stale, even though it would otherwise
+     * qualify as stale too (a disabled mailbox is stale by definition, but
+     * "needs a human" is the more actionable message; a behind mailbox is
+     * demonstrably working right now, so "hasn't polled" would be wrong).
+     */
+    public function test_stale_loses_precedence_to_disabled_and_behind(): void
+    {
+        $disabled = $this->mailbox([
+            'active' => true, 'last_polled_at' => now()->subMinutes(31), 'last_error' => null,
+            'poll_disabled_at' => now(),
+        ]);
+        $this->assertSame('disabled', $disabled->pollHealth());
+
+        $behind = $this->mailbox([
+            'active' => true, 'last_polled_at' => now()->subMinutes(31), 'last_error' => null,
+            'messages_behind_estimate' => 5,
+        ]);
+        $this->assertSame('behind', $behind->pollHealth());
     }
 
     public function test_stale_threshold_is_two_poll_intervals(): void
