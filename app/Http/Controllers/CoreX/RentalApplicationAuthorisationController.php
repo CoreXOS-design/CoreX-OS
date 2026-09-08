@@ -158,7 +158,16 @@ class RentalApplicationAuthorisationController extends Controller
         });
 
         $history = $rentalApplication->statusHistory()->with('changedBy')->latest('created_at')->get();
-        $auditLog = $rentalApplication->auditLog()->with('user')->latest('created_at')->get();
+
+        // Conductor, 2026-09-08 (night run) — a busy application's audit
+        // trail is unbounded by construction (every strike/add/replace/mark
+        // writes a row); rendering ALL of it buried the Decision panel below
+        // an ever-growing scroll and ran an uncapped query on every page
+        // load. Capped at a sane ceiling; the view shows the newest 10 by
+        // default with a "Show all" toggle for the rest of this page's load,
+        // and tells the user honestly if even the cap was hit.
+        $auditLogTotal = $rentalApplication->auditLog()->count();
+        $auditLog = $rentalApplication->auditLog()->with('user')->latest('created_at')->limit(200)->get();
 
         $user = $request->user();
         $canOverride = $user->isRentalApplicationCO((int) $rentalApplication->agency_id);
@@ -176,7 +185,7 @@ class RentalApplicationAuthorisationController extends Controller
             : collect();
 
         return view('corex.rental-applications.authorisation.show', compact(
-            'rentalApplication', 'assessment', 'maxRentPercent', 'result', 'documents', 'history', 'auditLog', 'canOverride', 'alreadyDecided',
+            'rentalApplication', 'assessment', 'maxRentPercent', 'result', 'documents', 'history', 'auditLog', 'auditLogTotal', 'canOverride', 'alreadyDecided',
             'serializedIncomeItems', 'serializedExpenseItems'
         ));
     }
