@@ -353,11 +353,24 @@
             </div>
 
             @if($auditLog->isNotEmpty())
-                <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
-                    <h2 class="text-sm font-semibold mb-3" style="color: var(--text-primary);">Audit Trail</h2>
+                {{-- Conductor, 2026-09-08 (night run): an unbounded render buried the
+                     Decision panel below a growing scroll on a busy application. Newest
+                     10 always visible; the rest behind a "Show all" toggle. The
+                     controller already caps the query itself at 200 — $auditLogTotal
+                     tells the truth if even that cap was hit. --}}
+                <div class="rounded-md p-4" x-data="{ showAllAudit: false }" style="background: var(--surface); border: 1px solid var(--border);">
+                    <div class="flex items-center justify-between mb-3">
+                        <h2 class="text-sm font-semibold" style="color: var(--text-primary);">Audit Trail ({{ $auditLogTotal }})</h2>
+                        @if($auditLog->count() > 10)
+                            <button type="button" class="text-xs underline" style="color: var(--text-muted);"
+                                    @click="showAllAudit = !showAllAudit"
+                                    x-text="showAllAudit ? 'Show fewer' : 'Show all {{ $auditLog->count() }} entries'"></button>
+                        @endif
+                    </div>
                     <div class="space-y-2 text-xs">
-                        @foreach($auditLog as $entry)
-                            <div class="pb-2" style="border-bottom: 1px solid var(--border);">
+                        @foreach($auditLog as $index => $entry)
+                            <div class="pb-2" style="border-bottom: 1px solid var(--border);"
+                                 @if($index >= 10) x-show="showAllAudit" x-cloak @endif>
                                 <div style="color: var(--text-primary);">
                                     <strong>{{ $entry->actor_label ?? ($entry->user->name ?? 'System') }}</strong>
                                     &mdash; {{ $entry->human_summary ?? $entry->event_type }}
@@ -372,6 +385,9 @@
                             </div>
                         @endforeach
                     </div>
+                    @if($auditLogTotal > $auditLog->count())
+                        <p class="mt-2 text-xs" style="color: var(--text-muted);">Showing the {{ $auditLog->count() }} most recent of {{ $auditLogTotal }} total entries.</p>
+                    @endif
                 </div>
             @endif
         </div>
