@@ -136,7 +136,14 @@ class RentalApplicationController extends Controller
 
         $query = RentalApplication::visibleTo($request->user(), $requestedScope)
             ->with(['contact', 'property', 'createdBy'])
-            ->whereNotIn('rental_applications.status', ['returned', 'under_assessment', 'approved', 'declined']);
+            // Reopen/resubmit, 2026-09-08 — 'reopened' excluded here too, to
+            // stay the exact complement of returned()'s own inclusion list
+            // below: an application belongs on ONE of these two screens,
+            // never both, never neither. A reopened application is
+            // conceptually still "with the applicant for review" (same
+            // bucket as returned/under_assessment), not back in the
+            // draft/sent/in_progress working set.
+            ->whereNotIn('rental_applications.status', ['returned', 'reopened', 'under_assessment', 'approved', 'declined']);
 
         $this->applySearchSortAndDateRange($query, $request, 'created_at', 'created_at');
 
@@ -173,8 +180,13 @@ class RentalApplicationController extends Controller
         // so this never advertises a screen the user cannot open.
         $returnedCount = 0;
         if ($request->user()->hasPermission('rental_applications.view_returned')) {
+            // Reopen/resubmit, 2026-09-08 — 'reopened' added. Without it, an
+            // agent who reopens an application loses it from this count
+            // (and from returned()'s own list below) the instant they act —
+            // exactly the applicant is mid-edit window an agent most needs
+            // to still see it in.
             $returnedCount = RentalApplication::visibleTo($request->user())
-                ->whereIn('rental_applications.status', ['returned', 'under_assessment', 'approved', 'declined'])
+                ->whereIn('rental_applications.status', ['returned', 'reopened', 'under_assessment', 'approved', 'declined'])
                 ->count();
         }
 
@@ -203,7 +215,11 @@ class RentalApplicationController extends Controller
             // 2026-09-08 comment: this screen's sort=contact/property links
             // (returned.blade.php) hit the exact same ambiguous-column
             // SQLSTATE 1052 this shares that method with index() to fix.
-            ->whereIn('rental_applications.status', ['in_progress', 'returned', 'under_assessment', 'approved', 'declined', 'withdrawn']);
+            // Reopen/resubmit, 2026-09-08 — 'reopened' added; same reasoning
+            // as $returnedCount above in index(). Without it, a reopened
+            // application vanishes from the one screen named for reviewing
+            // incoming applicant activity the moment an agent reopens it.
+            ->whereIn('rental_applications.status', ['in_progress', 'returned', 'reopened', 'under_assessment', 'approved', 'declined', 'withdrawn']);
 
         // Status filtering is centralised in applySearchSortAndDateRange()
         // now that index() needs it too — removed the duplicate here.
