@@ -115,16 +115,28 @@
                             @php
                                 // AT-181 — honest health badge. The manual on/off flag is only one
                                 // input; genuine ingestion health is derived from poll success + freshness.
+                                //
+                                // 2026-09-08 (Johan, part B) — 'behind' is its OWN visibly distinct
+                                // state, never folded into 'failing'. Connected and reading fine,
+                                // just not finished with a backlog yet -- not the same thing as
+                                // cannot connect, and the screen must not say otherwise.
                                 $health = $m->pollHealth();
                                 $badge = [
-                                    'inactive' => ['class' => 'ds-badge-default', 'label' => 'Inactive'],
-                                    'pending'  => ['class' => 'ds-badge-info',    'label' => 'Pending'],
+                                    'inactive' => ['class' => 'ds-badge-default',  'label' => 'Inactive'],
+                                    'pending'  => ['class' => 'ds-badge-info',     'label' => 'Pending'],
                                     'healthy'  => ['class' => 'ds-badge-success', 'label' => 'Healthy'],
+                                    'behind'   => ['class' => 'ds-badge-warning', 'label' => 'Behind'],
                                     'failing'  => ['class' => 'ds-badge-danger',  'label' => 'Failing'],
                                 ][$health];
-                                $reason = $m->lastErrorLabel();
+                                $reason = $health === 'behind' ? $m->behindLabel() : $m->lastErrorLabel();
                             @endphp
                             <span class="ds-badge {{ $badge['class'] }}" title="{{ $reason ?? 'Polling and ingesting normally.' }}">{{ $badge['label'] }}</span>
+                            @if($reason && in_array($health, ['behind', 'failing'], true))
+                                {{-- Visible, not hover-only -- a tooltip is easy to miss, and this is
+                                     exactly the distinction ("catching up" vs "broken") Johan needs to
+                                     see without hovering over every row. --}}
+                                <div class="mt-1 text-xs" style="color: {{ $health === 'behind' ? 'var(--ds-amber)' : 'var(--ds-crimson)' }};">{{ $reason }}</div>
+                            @endif
                         </td>
                         <td class="px-4 py-3">
                             @if(!$m->outgoing_enabled)

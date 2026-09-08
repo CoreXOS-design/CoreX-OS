@@ -302,6 +302,109 @@ final class ImapUidIncrementalPollTest extends TestCase
         $this->pollerWithFakeFolder($folder)->poll($this->mailbox);
         $this->assertSame(['UID', '51:*'], $conn->lastSearchTerms, 'the retry asked for the exact same messages the interrupted run never got to');
     }
+
+    /**
+     * 2026-09-08 (Johan, part A — checkpointing) — the root cause of the live
+     * incident: a mailbox whose backlog never fits in one budget window banked
+     * NOTHING and flatlined forever, re-walking the same starting point every
+     * run. This proves the fix precisely: three messages are genuinely proven
+     * (ingested) before the budget fires mid-fourth-message; the checkpoint
+     * must land on EXACTLY that boundary -- not the message that was mid-flight
+     * when the alarm fired, not fewer than what was actually proven.
+     */
+    public function test_a_budget_expiry_mid_run_checkpoints_exactly_what_was_proven_ingested(): void
+    {
+        config(['communications.imap_poll_budget_seconds' => 1]);
+        $conn = new FakeImapConnection(
+            uidValidity: 111,
+            uidNext: 200,
+            headers: [
+                100 => $this->rfc822Header('msg-100@test', 'newclient@example.test', 'Message A'),
+                101 => $this->rfc822Header('msg-101@test', 'newclient@example.test', 'Message B'),
+                102 => $this->rfc822Header('msg-102@test', 'newclient@example.test', 'Message C'),
+                103 => $this->rfc822Header('msg-103@test', 'newclient@example.test', 'Message D -- never reached this run'),
+                104 => $this->rfc822Header('msg-104@test', 'newclient@example.test', 'Message E -- never reached this run'),
+            ],
+            hangOnUid: 103, // the budget fires while fetching D's header -- its fate is UNKNOWN
+        );
+        app()->instance('test.fakeImapClient', $this->fakeClient($conn));
+        $folder = new FakeImapFolder($conn, uidsAvailableNow: [100, 101, 102, 103, 104]);
+
+        $result = $this->pollerWithFakeFolder($folder)->poll($this->mailbox);
+
+        $this->assertSame('error', $result['status']);
+        $this->assertSame('read_timeout', $result['reason']);
+
+        $this->mailbox->refresh();
+        $this->assertSame(102, $this->mailbox->last_uid_seen, 'checkpoint must land EXACTLY on the last PROVEN message -- not 103 (mid-flight, unknown fate), not 101 or less (real progress was made and must not be discarded)');
+        $this->assertNotNull($this->mailbox->inbox_uid_validity, 'a checkpoint establishes a real UID cursor even on a first pass that never fully completes -- the whole point of the fix');
+
+        $pending = CommunicationPending::where('agency_id', $this->mailbox->agency_id)->get();
+        $this->assertSame(3, $pending->count(), 'exactly A, B, C were proven ingested -- D and E were never touched');
+        $subjects = $pending->pluck('subject')->sort()->values()->all();
+        $this->assertSame(['Message A', 'Message B', 'Message C'], $subjects);
+
+        $this->assertNull($this->mailbox->backfill_completed_at, 'an interrupted run must never be recorded as a completed backfill');
+
+        // The NEXT poll must resume with a precise range picking up exactly where
+        // the checkpoint left off -- not restart the SINCE-window walk from
+        // scratch, which is the exact flatlining this fix closes.
+        $conn->hangOnUid = null;
+        config(['communications.imap_poll_budget_seconds' => 50]);
+        $this->pollerWithFakeFolder($folder)->poll($this->mailbox);
+        $this->assertSame(['UID', '103:*'], $conn->lastSearchTerms, 'resumption must ask for exactly the unproven range, never re-walk the proven prefix');
+    }
+
+    /**
+     * 2026-09-08 (Johan, part A) — "an interrupted run must be indistinguishable
+     * from a completed one as far as data integrity goes." Continues directly
+     * from the interrupted run above: once the second (resuming) poll finishes,
+     * the end state -- every message archived exactly once, cursor at the true
+     * end of the backlog -- must be identical to what a single, never-interrupted
+     * poll would have produced. No loss, no duplication, no trace of the
+     * interruption left in the data.
+     */
+    public function test_an_interrupted_run_followed_by_resumption_is_indistinguishable_from_one_clean_run(): void
+    {
+        config(['communications.imap_poll_budget_seconds' => 1]);
+        $conn = new FakeImapConnection(
+            uidValidity: 111,
+            uidNext: 200,
+            headers: [
+                100 => $this->rfc822Header('msg-100@test', 'newclient@example.test', 'Message A'),
+                101 => $this->rfc822Header('msg-101@test', 'newclient@example.test', 'Message B'),
+                102 => $this->rfc822Header('msg-102@test', 'newclient@example.test', 'Message C'),
+                103 => $this->rfc822Header('msg-103@test', 'newclient@example.test', 'Message D'),
+                104 => $this->rfc822Header('msg-104@test', 'newclient@example.test', 'Message E'),
+            ],
+            hangOnUid: 103,
+        );
+        app()->instance('test.fakeImapClient', $this->fakeClient($conn));
+        $folder = new FakeImapFolder($conn, uidsAvailableNow: [100, 101, 102, 103, 104]);
+
+        // Run 1: interrupted after A, B, C.
+        $r1 = $this->pollerWithFakeFolder($folder)->poll($this->mailbox);
+        $this->assertSame('error', $r1['status']);
+
+        // Run 2: resumes and finishes the rest cleanly.
+        $conn->hangOnUid = null;
+        config(['communications.imap_poll_budget_seconds' => 50]);
+        $r2 = $this->pollerWithFakeFolder($folder)->poll($this->mailbox);
+        $this->assertSame('success', $r2['status']);
+
+        $this->mailbox->refresh();
+        $this->assertSame(104, $this->mailbox->last_uid_seen, 'fully caught up to the true end of the backlog');
+
+        $pending = CommunicationPending::where('agency_id', $this->mailbox->agency_id)->get();
+        $this->assertSame(5, $pending->count(), 'all five messages present exactly once -- the interruption left no trace: no loss, no duplicate');
+        $subjects = $pending->pluck('subject')->sort()->values()->all();
+        $this->assertSame(['Message A', 'Message B', 'Message C', 'Message D', 'Message E'], $subjects);
+
+        // A third, no-op run confirms the end state is genuinely stable -- exactly
+        // the same guarantee a single uninterrupted run would leave behind.
+        $this->pollerWithFakeFolder($folder)->poll($this->mailbox);
+        $this->assertSame(5, CommunicationPending::where('agency_id', $this->mailbox->agency_id)->count(), 'still exactly five -- no duplicate created by re-polling a fully caught-up mailbox');
+    }
 }
 
 /**
@@ -318,6 +421,7 @@ final class FakeImapConnection implements ProtocolInterface
         public int $uidValidity,
         public int $uidNext,
         public array $headers, // uid => raw RFC822 header string
+        public ?int $hangOnUid = null, // simulates the budget firing mid-fetch of this specific message
     ) {
     }
 
@@ -349,6 +453,9 @@ final class FakeImapConnection implements ProtocolInterface
     public function fetch(array $items, int|array $uids, $x = null, $y = null): Response
     {
         $uid = is_array($uids) ? $uids[0] : $uids;
+        if ($this->hangOnUid !== null && $uid === $this->hangOnUid) {
+            sleep(3); // the pcntl watchdog fires mid-fetch of THIS uid, exactly like an unresponsive real server
+        }
         $row = ['BODY[HEADER]' => $this->headers[$uid] ?? ''];
         if (in_array('FLAGS', $items, true)) {
             $row['FLAGS'] = [];

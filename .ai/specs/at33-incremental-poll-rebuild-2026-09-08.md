@@ -324,7 +324,121 @@ days of real backlog at the time of testing).
   session round, `.ai/specs/at395-outgoing-mail-per-mailbox-smtp.md` §16.3) remains unfixed — a
   separate pipeline, unrelated to today's incoming-mail rebuild.
 
-## 9. Files changed (current, post-§2A UID rebuild)
+## 10. Part A (2026-09-08, second round) — incremental checkpointing closes the real live incident
+
+**The actual root cause**, found by reading `storage/logs/laravel.log` on live, not inferred: mailboxes
+8, 9, 11, 12, 13, 15, 19 hit `mailbox N read exceeded 50s budget` repeatedly from 07:21 onward. §2A's
+UID rebuild closes the STEADY-STATE gap (a mailbox that already caught up once resumes precisely). It
+did **not** close this one: `advanceUidCursor()` was only ever called once, after a folder's ENTIRE
+message loop ran to completion — a mailbox whose very first pass never finishes within budget banked
+NOTHING, so `inbox_uid_validity` stayed null forever and every run re-took the `since()` branch,
+re-walking (and re-fetching-a-header-for, to dedupe) the same growing prefix from scratch. Johan's
+words: *"it runs for a long time and then looks like it fails"* — flatlining, not merely slow.
+
+**The fix**, `app/Services/Communications/ImapMailboxPoller.php`: the per-message loop now updates
+`$maxUidThisRun` **only after that UID's outcome is proven** (ingested / already-duplicate / dropped
+before fetch / a real fetch failure) — never before, and never for a message whose fate was still
+unknown when the budget fired. When `ImapPollTimeoutException` propagates out of the message loop, an
+inner `catch` **checkpoints** whatever was genuinely proven (`advanceUidCursor()` with that exact
+value) before re-throwing to abort the whole poll exactly as before. The next poll resumes with a
+precise `UID {checkpoint+1}:*` search — never a re-walk of the SINCE window, even for a folder whose
+first pass never fully finishes. A checkpoint also records the folder's real UIDVALIDITY (read from
+`status()` before any message fetch, so it's valid regardless of how much of the backlog got through) —
+meaning a mailbox with a backlog too large for one budget window now gets a real UID cursor from its
+very first partial run, not after some hypothetical future full completion.
+
+**Non-negotiable invariant, unchanged in spirit from §2A, now proven at finer grain:** a message is
+never counted as handled while its outcome is still unknown. Every `continue`/success path in the
+per-message loop updates the cursor candidate at that exact point, not before; the one path that
+doesn't know (a timeout) rethrows before ever reaching an update. Deterministic proof, not an
+assurance: `tests/Feature/Communications/ImapUidIncrementalPollTest.php` —
+`test_a_budget_expiry_mid_run_checkpoints_exactly_what_was_proven_ingested` (three of five messages
+proven ingested, budget fires fetching the fourth — checkpoint lands on exactly the third, never the
+fourth, never fewer) and `test_an_interrupted_run_followed_by_resumption_is_indistinguishable_from_one_clean_run`
+(the two-poll end state — every message archived exactly once, cursor at the true end of backlog — is
+identical to what one uninterrupted poll would have produced).
+
+**Side-effect fix required for honesty:** `backfill_completed_at` (§ "one-time backfill marker") is
+now gated on `$status === 'success'`. Without this, a checkpoint on an interrupted first pass could
+set `inbox_uid_validity` non-null while the backlog is nowhere near caught up, silently drifting that
+marker's meaning from "genuinely done" to merely "started" — the same class of lie B fixes elsewhere.
+
+**NOT a setting.** The checkpoint mechanism is correct behaviour, not a tunable — per Johan's standing
+rule, safety fixes are never settings. There is no flag to disable it.
+
+## 11. Part B (2026-09-08) — "Behind" is not "Failing"
+
+**The defect, confirmed by reading the actual rendered state, not assumed:** `CommunicationMailbox::
+pollHealth()` collapsed every non-null `last_error` — `connect_failed`, `auth_failed`,
+`incomplete_credentials`, and `read_timeout` alike — into the single `HEALTH_FAILING` badge. The
+mailbox list view (`resources/views/compliance/communication-archive/mailboxes/index.blade.php`)
+showed a red "Failing" badge for all of them identically; the only place the real reason differed was
+a `title` tooltip attribute — hover-only, easy to never see. A mailbox that connected and
+authenticated fine, and was demonstrably still working (visible in Outlook), was shown exactly as
+broken as one that could not connect at all. Johan: *"The system told him a lie about its own state."*
+
+**The fix.** A new state, `CommunicationMailbox::HEALTH_BEHIND`, checked in `pollHealth()` BEFORE
+`last_error` — connected and reading fine, just not finished with a backlog, is a genuinely different
+condition from cannot-connect and must never share a badge with it. Driven by a new column,
+`messages_behind_estimate` (migration `2026_09_08_210000_...`), set only when a poll is cut off by our
+own time budget — computed as `(folder's UIDNEXT − 1) − (highest UID proven handled this run)`, an
+honest approximation read from data the poll already has, deliberately NOT a live IMAP status check
+from the list page (the list page does zero I/O by design — see the earlier failure investigation).
+
+`MailboxHealthRecorder` gets a new method, `recordBehind()`, mirroring `recordSuccess()`'s
+failure-state clearing (a mailbox that goes from failing to merely-behind has, in fact, recovered its
+connection) but setting the backlog estimate instead of leaving it null — and, the whole point, **it
+never calls `maybeNotify()`.** A `read_timeout` no longer feeds `consecutive_failures` or
+`failure_notified_at` at all; it cannot reach the admin "mailbox stopped receiving mail" alert by
+construction, not by a downstream filter. `recordFailure()` (genuine connect/auth/poll failures,
+unchanged) now also clears `messages_behind_estimate`, so a truly broken mailbox never shows a stale
+backlog count alongside "Failing" — a second, quieter version of the same lie.
+
+The badge (`index.blade.php`) gains a fifth, visibly distinct state — amber "Behind", never grouped
+with red "Failing" — and the reason text is now rendered INLINE below the badge, not hover-only, for
+both `behind` and `failing`, in Johan's language via `CommunicationMailbox::behindLabel()`: *"Connected
+— working through a backlog, about N message(s) behind."* Never "cannot connect."
+
+**Deterministic proof**, `tests/Feature/Communications/MailboxHealthTest.php`:
+`test_read_timeout_advances_last_polled_at_and_records_behind_not_failing` (replaces the old test that
+asserted the DEFECT's behaviour as correct — `last_error` stays null, `pollHealth()` is `'behind'`,
+never `'failing'`) and `test_a_budget_cutoff_never_raises_the_broken_mailbox_alert` (three consecutive
+budget cutoffs — exactly the shape that fires the genuine-failure alert at the default threshold —
+proves zero notifications sent and no alert episode ever opened).
+
+**NOT a setting.** The existence of a distinct "Behind" state, and the rule that a budget cutoff must
+never raise the broken-mailbox alert, are correct behaviour, not tunables — per Johan's standing rule,
+safety/honesty fixes are never settings. There is no flag to make read_timeout alert again.
+
+## 12. Real-mailbox status — said plainly, not implied
+
+**The poller has still never completed a real poll against a real mailbox with today's code.** A
+read-only, instrumented observation was run against `johan@hfcoastal.co.za` (mailbox id 12,
+`mail.hfcoastal.co.za:993`) on QA1 on 2026-09-08 specifically to gather real numbers for this work.
+One real connection attempt was made (`ImapMailboxPoller::connect()` directly): it failed in 3.06
+seconds with `NO [AUTHENTICATIONFAILED] Authentication failed.` — despite credentials having been
+re-saved to that row roughly six minutes earlier. No further attempts were made. **This is a QA1
+artefact, not something addressed by this work, and not something this session is closing** — QA1's
+mailbox credentials for the one real mailbox available do not currently authenticate; fixing that is
+Johan's or Andre's, not a poller-code problem, and the poller was never touched to work around it.
+
+The real per-message timing figures used to reason about A above (~0.75–1.9s per header round-trip,
+~17.5s for an 11-UID `SINCE` search) come from an **earlier session's** successful measurement against
+this same mailbox, before a coordinated database restore blanked its credentials — not from today.
+They remain the best real evidence available and are used as such, labelled as prior, not re-confirmed
+today. If they are stale once this mailbox authenticates again, checkpointing (§10) is far less
+sensitive to being wrong by 2x than the all-or-nothing design it replaces, since it now banks
+whatever a run genuinely completes rather than needing full completion to bank anything.
+
+**A separate, real defect found during this observation, NOT fixed here (out of scope for A/B/C/D):**
+`CommunicationMailboxController::testConnection()`'s Sent-folder-write leg
+(`ImapSentFolderAppender::append()`) makes a genuine `appendMessage()` call against a mailbox's real
+Sent folder — not read-only, not guarded by the QA outbound-mail guard (which only covers the SMTP
+leg, confirmed by reading `OutboundMailGuardServiceProvider`'s own docblock). On a mailbox that
+authenticates correctly, clicking "Test Connection" writes a real synthetic message into the real
+Sent folder every time. Reported to Johan directly; not touched.
+
+## 9. Files changed (current, post-§2A UID rebuild, and §10/§11 checkpointing + health-state work)
 
 - `database/migrations/2026_09_08_170000_add_incremental_poll_watermarks_to_communication_mailboxes.php`
   — added `inbox_uid_validity`/`sent_uid_validity`/`sent_last_uid`/`last_poll_duration_seconds`/
@@ -335,22 +449,35 @@ days of real backlog at the time of testing).
 - `database/migrations/2026_09_08_180000_drop_poll_lookback_hours_in_favour_of_uid_tracking.php`
   — ...DROPS it again, same day, per §2A.
 - `app/Models/Communications/CommunicationMailbox.php` (fillable/cast additions:
-  `inbox_uid_validity`, `sent_uid_validity`, `sent_last_uid`, etc.)
+  `inbox_uid_validity`, `sent_uid_validity`, `sent_last_uid`, etc.; §11 — new
+  `HEALTH_BEHIND` constant, `messages_behind_estimate` fillable/cast, `pollHealth()` checks it
+  before `last_error`, new `behindLabel()`)
 - `app/Models/Communications/CommunicationPending.php` (grace-day constants — unchanged by §2A)
 - `app/Services/Communications/ImapMailboxPoller.php` (§2A — UID cursor + UIDVALIDITY-mismatch
-  resync REPLACES the watermark+overlap code entirely; headers-first, filter-before-fetch,
-  fairness duration tracking, and the backfill-completed marker are unchanged)
+  resync REPLACES the watermark+overlap code entirely; §10 — per-message checkpointing on budget
+  expiry, `$behindEstimate` computed at both timeout sites and threaded to health recording,
+  `backfill_completed_at` gated on `$status === 'success'`; headers-first, filter-before-fetch,
+  and fairness duration tracking are unchanged)
+- `app/Services/Communications/MailboxHealthRecorder.php` (§11 — new `recordBehind()`;
+  `recordSuccess()`/`recordFailure()` now also clear `messages_behind_estimate`)
 - `app/Services/Communications/EmailArchiveIngestor.php` (pending-hold revival, `isAlreadySeen()`
-  public wrapper — unchanged by §2A)
-- `app/Services/Communications/PeekingMessageFetcher.php` (`peekHeader()` — unchanged by §2A)
-- `app/Jobs/Communications/PollMailboxJob.php` (`SLOW_QUEUE_NAME` — unchanged by §2A)
-- `app/Console/Commands/Communications/PollMailboxes.php` (slow-queue routing — unchanged by §2A)
+  public wrapper — unchanged by §2A/§10/§11)
+- `app/Services/Communications/PeekingMessageFetcher.php` (`peekHeader()` — unchanged)
+- `app/Jobs/Communications/PollMailboxJob.php` (`SLOW_QUEUE_NAME` — unchanged)
+- `app/Console/Commands/Communications/PollMailboxes.php` (slow-queue routing — unchanged)
 - `config/communications.php` (`pending_grace_days` default 4->7; `poll_lookback_hours` added
   then removed same day per §2A, replaced with an explanatory comment)
-- `tests/Feature/Communications/ImapUidIncrementalPollTest.php` (new, §2A — the four deterministic
-  UID-rebuild proofs)
-- `tests/Feature/Communications/MailboxHealthTest.php`,
-  `tests/Feature/Communications/ImapPollReadTimeoutTest.php` (trivial `status()` stub added to
-  two fake folder doubles — see §2A verification note)
+- `resources/views/compliance/communication-archive/mailboxes/index.blade.php` (§11 — fifth
+  "Behind" badge state, amber, visibly distinct from "Failing"; reason text now rendered inline,
+  not hover-only, for both `behind` and `failing`)
+- `database/migrations/2026_09_08_210000_add_messages_behind_estimate_to_communication_mailboxes.php`
+  (new, §11)
+- `tests/Feature/Communications/ImapUidIncrementalPollTest.php` (§2A's four deterministic
+  UID-rebuild proofs, plus §10's two checkpointing proofs — six total)
+- `tests/Feature/Communications/MailboxHealthTest.php` (§2A `status()` stub; §11 — the
+  read-timeout test rewritten to assert `behind` not `failing`, plus a new test proving the
+  alert episode never fires for a budget cutoff)
+- `tests/Feature/Communications/ImapPollReadTimeoutTest.php` (§2A `status()` stub only —
+  unaffected by §10/§11, this test never reaches the health-recording call)
 - QA1 infra: `/etc/systemd/system/corex-qa1-queue-mail-slow.service` (new, not in git — noted
   here so it's not lost; live/Staging need the equivalent provisioned separately)

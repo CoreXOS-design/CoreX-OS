@@ -286,9 +286,18 @@ final class MailboxHealthTest extends TestCase
         Notification::assertSentToTimes($admin, MailboxPollFailureNotification::class, 1);
     }
 
-    // ── Read-timeout classification (post-auth: advances last_polled_at, still a failure) ──
+    // ── Read-timeout classification (post-auth: advances last_polled_at, NOT a failure) ──
 
-    public function test_read_timeout_advances_last_polled_at_but_records_failure(): void
+    /**
+     * 2026-09-08 (Johan, part B) — REPLACES the old assertion that a read_timeout
+     * recorded 'failing'/last_error. That was the exact defect Johan reported: a
+     * mailbox that connected and authenticated fine got labelled the same as one
+     * that could not connect at all, while he could see the same account pulling
+     * normally in Outlook. A read cut short by our own time budget now gets its
+     * own honest state — connected, still working through a backlog — never the
+     * broken-mailbox badge.
+     */
+    public function test_read_timeout_advances_last_polled_at_and_records_behind_not_failing(): void
     {
         if (! function_exists('pcntl_alarm')) {
             $this->markTestSkipped('pcntl not available — the hard watchdog needs it.');
@@ -319,12 +328,68 @@ final class MailboxHealthTest extends TestCase
         $result = $poller->poll($mailbox);
         $mailbox->refresh();
 
-        $this->assertSame('read_timeout', $result['reason']);
-        $this->assertSame('read_timeout', $mailbox->last_error);
-        $this->assertSame(1, $mailbox->consecutive_failures);
-        // Auth SUCCEEDED, so last_polled_at legitimately advanced (the finally-path) — the failure
-        // is a read completion problem, not an auth problem. Badge still shows Failing via last_error.
+        $this->assertSame('read_timeout', $result['reason'], 'the internal reason stays distinct -- only the HEALTH recording changes');
+        $this->assertNull($mailbox->last_error, 'a read_timeout is NOT a failure -- connect + auth genuinely succeeded this run');
+        $this->assertSame(0, $mailbox->consecutive_failures, 'must never feed the same failure streak a real connect/auth failure does');
+        // Auth SUCCEEDED, so last_polled_at legitimately advanced (the finally-path) — this
+        // is a read completion problem, not an auth problem, and the badge must say so.
         $this->assertNotNull($mailbox->last_polled_at);
-        $this->assertSame('failing', $mailbox->pollHealth());
+        $this->assertSame('behind', $mailbox->pollHealth(), 'connected and reading fine, just not finished -- never "failing"');
+        $this->assertNotNull($mailbox->messages_behind_estimate, 'the honest state carries a real (if approximate) backlog estimate');
+        $this->assertStringContainsString('backlog', (string) $mailbox->behindLabel());
+        $this->assertStringNotContainsString('cannot connect', strtolower((string) $mailbox->behindLabel()));
+    }
+
+    /**
+     * 2026-09-08 (Johan, part B) — "The alert episode must not fire for a mailbox
+     * that is merely behind." Three consecutive read_timeouts is exactly the
+     * default alert threshold (3) that would fire Notification::assertSentTo for
+     * a genuine failure streak (see test_admin_alert_fires_once_at_threshold_and_
+     * resets_on_recovery above) -- proving zero notifications here proves the
+     * 'behind' path is genuinely routed away from the failure/alert machinery,
+     * not just relabelled at the display layer.
+     */
+    public function test_a_budget_cutoff_never_raises_the_broken_mailbox_alert(): void
+    {
+        if (! function_exists('pcntl_alarm')) {
+            $this->markTestSkipped('pcntl not available — the hard watchdog needs it.');
+        }
+
+        $this->seedMailboxPollFailureEventType();
+        Notification::fake();
+        $admin = $this->admin();
+        $mailbox = $this->mailbox();
+        config(['communications.imap_poll_budget_seconds' => 1]);
+
+        $poller = new class (app(EmailArchiveIngestor::class)) extends ImapMailboxPoller {
+            public function connect(CommunicationMailbox $mailbox)
+            {
+                $folder = new class {
+                    public function status() { return ['uidvalidity' => 0, 'uidnext' => 1]; }
+                    public function query() { return $this; }
+                    public function since($d) { return $this; }
+                    public function setFetchBody($b) { return $this; }
+                    public function get() { sleep(5); return []; }
+                };
+
+                return new class ($folder) {
+                    public function __construct(private $folder) {}
+                    public function getFolderByPath($path) { return $this->folder; }
+                    public function disconnect(): void {}
+                };
+            }
+        };
+
+        // Same mailbox, three consecutive budget cutoffs -- the exact shape that
+        // fires the admin alert for a genuine failure streak.
+        $poller->poll($mailbox);
+        $poller->poll($mailbox);
+        $poller->poll($mailbox);
+
+        $mailbox->refresh();
+        $this->assertSame('behind', $mailbox->pollHealth());
+        $this->assertSame(0, $mailbox->consecutive_failures, 'behind never accumulates a failure streak');
+        $this->assertNull($mailbox->failure_notified_at, 'no episode was ever opened -- nothing to alert on');
+        Notification::assertNothingSentTo($admin);
     }
 }

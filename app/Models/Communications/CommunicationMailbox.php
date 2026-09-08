@@ -32,6 +32,8 @@ class CommunicationMailbox extends Model
         'inbox_watermark_at', 'inbox_uid_validity', 'sent_watermark_at',
         'sent_last_uid', 'sent_uid_validity', 'last_poll_duration_seconds',
         'backfill_completed_at',
+        // 2026-09-08 (Johan, part B) — honest "Behind" health state.
+        'messages_behind_estimate',
     ];
 
     protected $casts = [
@@ -48,6 +50,7 @@ class CommunicationMailbox extends Model
         'last_error_at'      => 'datetime',
         'consecutive_failures' => 'integer',
         'failure_notified_at' => 'datetime',
+        'messages_behind_estimate' => 'integer',
         // AT-395 Phase A
         'outgoing_enabled'              => 'boolean',
         'use_imap_credentials_for_smtp' => 'boolean',
@@ -68,6 +71,13 @@ class CommunicationMailbox extends Model
     public const HEALTH_PENDING  = 'pending';  // active, never polled yet, not overdue
     public const HEALTH_HEALTHY  = 'healthy';  // active, last poll succeeded + recent
     public const HEALTH_FAILING  = 'failing';  // active, but erroring or stale/never-connected
+    // 2026-09-08 (Johan, part B) — connected fine, just working through a
+    // backlog our own time budget hasn't let it finish yet. NOT a failure:
+    // auth and the read both succeeded this run. Deliberately distinct from
+    // HEALTH_FAILING so the screen never shows "broken" for a mailbox that is
+    // demonstrably working (see BUILD_STANDARD — a status field must say what
+    // actually happened, not the closest existing label).
+    public const HEALTH_BEHIND   = 'behind';
 
     // Never serialised. The encrypted password is write-only from every UI/API —
     // the single sanctioned read path is the audited reveal (AT-37), which reads
@@ -208,6 +218,11 @@ class CommunicationMailbox extends Model
      * The HONEST health state (spec AT-181): the manual `active` flag is only one input.
      *
      *  - inactive : manually switched off.
+     *  - behind   : active, connected and authenticated FINE this run, but our own time
+     *               budget cut the read short partway through a backlog (2026-09-08, part
+     *               B). Checked BEFORE last_error/staleness on purpose: a mailbox that is
+     *               genuinely working must never be reported as broken just because it
+     *               hasn't finished yet.
      *  - failing  : active but the last poll errored, OR it has never connected / gone stale
      *               beyond ~2 intervals (the broken-setup signature — bad host/creds/TLS).
      *  - pending  : active, never polled yet, but not yet overdue for its first poll (a brand-new
@@ -218,6 +233,9 @@ class CommunicationMailbox extends Model
     {
         if (! $this->active) {
             return self::HEALTH_INACTIVE;
+        }
+        if ($this->messages_behind_estimate !== null) {
+            return self::HEALTH_BEHIND;
         }
         if ($this->last_error !== null) {
             return self::HEALTH_FAILING;
@@ -244,5 +262,21 @@ class CommunicationMailbox extends Model
             'read_timeout' => 'Connected, but reading the mailbox timed out — likely a large backlog',
             default => ucfirst(str_replace('_', ' ', (string) $this->last_error)),
         };
+    }
+
+    /**
+     * 2026-09-08 (Johan, part B) — Johan's own language: "Working through a backlog,
+     * about N messages behind", never "cannot connect". Null when not behind (the
+     * caller checks pollHealth() === HEALTH_BEHIND first).
+     */
+    public function behindLabel(): ?string
+    {
+        if ($this->messages_behind_estimate === null) {
+            return null;
+        }
+
+        return $this->messages_behind_estimate > 0
+            ? "Connected — working through a backlog, about {$this->messages_behind_estimate} message(s) behind."
+            : 'Connected — working through a backlog, catching up now.';
     }
 }

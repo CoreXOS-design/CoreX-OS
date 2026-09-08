@@ -31,7 +31,8 @@ class MailboxHealthRecorder
     {
         if ($mailbox->last_error === null
             && (int) $mailbox->consecutive_failures === 0
-            && $mailbox->failure_notified_at === null) {
+            && $mailbox->failure_notified_at === null
+            && $mailbox->messages_behind_estimate === null) {
             return;
         }
 
@@ -40,6 +41,11 @@ class MailboxHealthRecorder
             'last_error_at' => null,
             'consecutive_failures' => 0,
             'failure_notified_at' => null, // recovery ends the episode → the next failure alerts again
+            // 2026-09-08 (Johan, part B) — a fully successful poll means nothing
+            // is left unprocessed FOR THIS RUN; a stale "N behind" from a
+            // previous cut-off run must not linger once the mailbox has
+            // genuinely caught up.
+            'messages_behind_estimate' => null,
         ])->save();
     }
 
@@ -51,9 +57,36 @@ class MailboxHealthRecorder
             'last_error' => $reason,
             'last_error_at' => now(),
             'consecutive_failures' => $failures,
+            // 2026-09-08 (Johan, part B) — a genuine connect/auth/poll failure
+            // supersedes "behind": a broken mailbox isn't behind, it's broken.
+            // Showing a stale backlog count next to Failing would be a second,
+            // quieter version of the exact lie this fix removes.
+            'messages_behind_estimate' => null,
         ])->save();
 
         $this->maybeNotify($mailbox, $reason, $failures);
+    }
+
+    /**
+     * 2026-09-08 (Johan, part B) — a read cut short by OUR OWN time budget is not
+     * a failure: connect + auth genuinely succeeded this run (that is WHY we got
+     * to the read phase at all). Deliberately mirrors recordSuccess()'s failure-
+     * state clearing (a mailbox that was previously failing and is now merely
+     * behind has, in fact, recovered its connection) but sets the backlog
+     * estimate instead of leaving it null, and — the whole point — NEVER calls
+     * maybeNotify(). Alerting an admin that a working mailbox is broken is the
+     * same lie in a different channel; a mailbox catching up on a backlog does
+     * not belong in the same alert episode as one that cannot connect at all.
+     */
+    public function recordBehind(CommunicationMailbox $mailbox, ?int $messagesBehind): void
+    {
+        $mailbox->forceFill([
+            'last_error' => null,
+            'last_error_at' => null,
+            'consecutive_failures' => 0,
+            'failure_notified_at' => null,
+            'messages_behind_estimate' => $messagesBehind !== null ? max(0, $messagesBehind) : null,
+        ])->save();
     }
 
     /**
