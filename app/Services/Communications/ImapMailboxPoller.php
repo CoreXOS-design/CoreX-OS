@@ -117,8 +117,6 @@ class ImapMailboxPoller
         $status  = 'success';
         $reason  = null;
 
-        $lookbackHours = $this->pollLookbackHours($mailbox);
-
         try {
             foreach ($folders as $entry) {
                 $folder    = $entry['folder'];
@@ -127,48 +125,86 @@ class ImapMailboxPoller
                 $isInbound = $direction === Communication::DIRECTION_INBOUND;
                 $stats['folders']++;
 
-                // 2026-09-08 (item 1, Johan) — ROLLING OVERLAP WATERMARK, per folder.
-                // Each run searches from (this folder's last-completed watermark minus
-                // the lookback), never from the watermark exactly: IMAP's SINCE search
-                // is DATE granularity only (there is no "since 22:14"), so server-side
-                // narrowing is inherently coarse, and clock skew / a message arriving
-                // mid-poll / an out-of-order Date header are real gaps a hard cutoff
-                // leaves open. Safe ONLY because dedup is by Message-ID
-                // (EmailArchiveIngestor::alreadySeen()) — the overlap deliberately
-                // re-reads messages already processed; re-reading is cheap (headers
-                // first, below) and dedup makes re-processing a no-op.
+                // 2026-09-08 (Johan, replacing the same-day timestamp+overlap design) —
+                // UID-BASED INCREMENTAL POLLING. Every message has a permanent,
+                // monotonically increasing UID, scoped by the folder's UIDVALIDITY —
+                // the same mechanism every serious IMAP client (Outlook, Apple Mail,
+                // Thunderbird) uses to synchronise without losing mail. No clock, no
+                // timezone, no overlap window, no gap: a message arriving mid-read
+                // simply gets a higher UID than anything we've asked for and is
+                // collected on the next pass, deterministically — not "probably,
+                // within the lookback window."
                 //
-                // No watermark yet at all (first-ever poll for this folder) — no
-                // overlap subtraction needed, the backfill window is already wide.
-                $watermark = $isInbound ? $mailbox->inbox_watermark_at : $mailbox->sent_watermark_at;
-                $since = $watermark
-                    ? Carbon::parse($watermark)->subHours($lookbackHours)
-                    : now()->subDays($this->firstPollBackfillDays($mailbox));
-                // Captured BEFORE this folder's read starts — the watermark this folder
-                // advances to on success, so nothing that arrives DURING the read is
-                // ever missed (it will be inside the NEXT poll's overlap window).
-                $folderReadStartedAt = now();
+                // UIDVALIDITY IS CHECKED EVERY POLL, not just conceptually at "first
+                // poll" time — a folder can be rebuilt/migrated between any two polls.
+                // If it changed, every UID we hold for this folder is meaningless and
+                // MUST NOT be trusted (Johan: "getting this wrong loses mail
+                // permanently and invisibly"). On a mismatch: log loudly, discard the
+                // stored cursor, and fall through to the same bounded first-poll
+                // backfill window used for a genuinely new folder — never an
+                // unbounded rescan back to message 1, and never a silent continue
+                // against numbers that may now point at completely different
+                // messages.
+                $status_ = $folder->status();
+                $currentUidValidity = (int) ($status_['uidvalidity'] ?? 0);
+                $storedUidValidity = $isInbound ? $mailbox->inbox_uid_validity : $mailbox->sent_uid_validity;
+                $storedUid = $isInbound ? $mailbox->last_uid_seen : $mailbox->sent_last_uid;
+
+                if ($storedUidValidity !== null && $currentUidValidity !== 0 && (int) $storedUidValidity !== $currentUidValidity) {
+                    Log::error("Communication archive: UIDVALIDITY changed for mailbox {$mailbox->id} folder {$folderName} (stored={$storedUidValidity}, current={$currentUidValidity}) — every stored UID is now untrustworthy, forcing a bounded resync rather than risk silently skipping mail.");
+                    $storedUid = null; // discard — cannot trust it against the new numbering
+                }
+
+                $usingUidCursor = $storedUid !== null && $currentUidValidity !== 0;
 
                 try {
-                    // AT-257: fetch UIDs only (setFetchBody(false) — no body fetch, so the
-                    // server never sets \Seen). Each body is then pulled with a TRUE BODY.PEEK
-                    // below (PeekingMessageFetcher), so archiving never marks a message read —
-                    // not even if a message parse / the poll budget / the connection is
-                    // interrupted mid-message (the proven cause of AT-257).
-                    $messages = $folder->query()->since($since)->setFetchBody(false)->get();
+                    if ($usingUidCursor) {
+                        // The exact resume point every serious IMAP client uses.
+                        // whereUid() is NOT used here deliberately: it routes a
+                        // non-numeric value (a "n:*" range) through code that wraps
+                        // it in quotes, which is invalid IMAP syntax for a UID range
+                        // and would break the search — confirmed by reading webklex's
+                        // query-generation code directly. The "CUSTOM " prefix is the
+                        // library's own escape hatch for an unquoted raw criterion.
+                        $nextUid = ((int) $storedUid) + 1;
+                        $messages = $folder->query()->where('CUSTOM UID ' . $nextUid . ':*')->setFetchBody(false)->get();
+                    } else {
+                        // No usable UID cursor (first-ever poll for this folder, or a
+                        // just-detected UIDVALIDITY change) — the same bounded,
+                        // agency-configurable backfill window as before (default 7
+                        // days), so a first catch-up can never try to swallow a
+                        // mailbox's entire history at once.
+                        $since = now()->subDays($this->firstPollBackfillDays($mailbox));
+                        $messages = $folder->query()->since($since)->setFetchBody(false)->get();
+                    }
                 } catch (ImapPollTimeoutException $e) {
                     throw $e;
                 } catch (\Webklex\PHPIMAP\Exceptions\GetMessagesFailedException $e) {
                     Log::info("Communication archive IMAP search empty (mailbox {$mailbox->id}, {$folderName}): {$e->getMessage()}");
                     // An empty search still completed cleanly — advance this folder's
-                    // watermark. CRITICAL: only reached because nothing threw above.
-                    $this->advanceWatermark($mailbox, $isInbound, $folderReadStartedAt);
+                    // cursor. CRITICAL: only reached because nothing threw above.
+                    $this->advanceUidCursor($mailbox, $isInbound, $storedUid, $currentUidValidity, (int) ($status_['uidnext'] ?? 1));
                     continue;
                 }
+
+                // Highest UID actually returned by the search, tracked regardless of
+                // what happens to each message below (kept, dropped, duplicate,
+                // error) — the cursor advances on "we have looked at this range",
+                // exactly like every other IMAP client's sync state, not on "we
+                // archived something."
+                $maxUidThisRun = $storedUid !== null ? (int) $storedUid : 0;
 
                 foreach ($messages as $liteMessage) {
                     try {
                         $uid = (int) $liteMessage->getUid();
+                        // Tracked BEFORE anything that could throw below — the cursor
+                        // must reflect "we have looked at this UID" regardless of
+                        // whether it turned out to be kept, dropped, a duplicate, or
+                        // an error on our side. Only a budget timeout partway through
+                        // this loop stops the cursor from including it (see the
+                        // non-negotiable invariant at the advanceUidCursor() call
+                        // site below).
+                        $maxUidThisRun = max($maxUidThisRun, $uid);
 
                         // 2026-09-08 (items 2/3, Johan) — HEADERS FIRST. Fetch only the
                         // header (no body, no attachments — see PeekingMessageFetcher::
@@ -248,18 +284,19 @@ class ImapMailboxPoller
                 }
 
                 // This folder's ENTIRE message loop ran to completion with nothing
-                // throwing — genuinely done, safe to advance ITS watermark now.
+                // throwing — genuinely done, safe to advance ITS UID cursor now.
                 //
                 // CRITICAL (Johan, non-negotiable): if the budget watchdog fires
                 // ANYWHERE above — mid-search, mid-header-peek, mid-full-peek,
                 // mid-ingest — ImapPollTimeoutException propagates straight through
-                // this line without ever reaching it. This folder's watermark is
-                // NOT advanced, is left exactly as it was, and the next poll's
-                // overlap window covers the exact same unprocessed mail again. A
-                // failed or interrupted poll can only ever leave a watermark
-                // unchanged or advance it on genuine completion — there is no path
-                // that advances it on partial/failed work.
-                $this->advanceWatermark($mailbox, $isInbound, $folderReadStartedAt);
+                // this line without ever reaching it. This folder's stored UID is
+                // NOT advanced, is left exactly as it was, and the next poll asks
+                // the server for the exact same "UID {old+1}:*" range again — the
+                // same messages, not skipped, not silently dropped. A failed or
+                // interrupted poll can only ever leave the cursor unchanged or
+                // advance it on genuine completion — there is no path that advances
+                // it on partial/failed work.
+                $this->advanceUidCursor($mailbox, $isInbound, $maxUidThisRun > 0 ? $maxUidThisRun : null, $currentUidValidity, (int) ($status_['uidnext'] ?? 1));
             }
         } catch (ImapPollTimeoutException $e) {
             // A non-responsive folder read tripped the budget. Clean, logged
@@ -275,13 +312,13 @@ class ImapMailboxPoller
 
         // One-time backfill marker (item 7) — purely informational/audit (the
         // actual incremental-vs-backfill decision is already driven by
-        // per-folder watermark presence above, which is more robust than a
+        // per-folder UID-cursor presence above, which is more robust than a
         // single mailbox-wide flag would be). Stamped once every ENABLED
-        // folder has a real watermark, i.e. the initial catch-up is genuinely
-        // done for the whole mailbox.
+        // folder has a real UIDVALIDITY recorded, i.e. the initial catch-up
+        // is genuinely done for the whole mailbox.
         if (!$mailbox->backfill_completed_at
-            && (!$mailbox->poll_inbox || $mailbox->inbox_watermark_at)
-            && (!$mailbox->poll_sent || $mailbox->sent_watermark_at)) {
+            && (!$mailbox->poll_inbox || $mailbox->inbox_uid_validity !== null)
+            && (!$mailbox->poll_sent || $mailbox->sent_uid_validity !== null)) {
             $mailbox->forceFill(['backfill_completed_at' => now()])->save();
         }
 
@@ -369,31 +406,31 @@ class ImapMailboxPoller
     }
 
     /**
-     * 2026-09-08 (item 1, Johan) — rolling overlap lookback (hours): agency
-     * override (agencies.communication_poll_lookback_hours) ?? config default
-     * (12). Clamped to [1, 168] (one week). Dial-able down to e.g. 2 without a
-     * code change if 12h proves heavy on a large mailbox.
+     * 2026-09-08 (Johan) — advance ONE folder's UID cursor + UIDVALIDITY.
+     * Only ever called after that folder's entire message loop ran to
+     * completion with nothing throwing — see the call site's own comment for
+     * the non-negotiable invariant this protects: an interrupted or failed
+     * poll never reaches this method, so the stored UID can only ever stay
+     * unchanged or advance on genuine completion.
+     *
+     * $maxUid is null when the search returned zero messages AND there was no
+     * prior stored UID to fall back to (an empty folder on its first poll, or
+     * immediately after a UIDVALIDITY reset with nothing new since) — in that
+     * case the cursor is set to $uidNext - 1, the correct "nothing to catch up
+     * on, the next genuinely new message will be $uidNext" position, per RFC
+     * 3501's own guarantee about what UIDNEXT means. Never left null/0
+     * outright, which would make the NEXT poll's "UID 1:*" scan the entire
+     * folder history.
      */
-    private function pollLookbackHours(CommunicationMailbox $mailbox): int
+    private function advanceUidCursor(CommunicationMailbox $mailbox, bool $isInbound, ?int $maxUid, int $uidValidity, int $uidNext): void
     {
-        $override = $mailbox->agency?->communication_poll_lookback_hours;
-        $hours = (int) ($override ?? config('communications.poll_lookback_hours', 12));
+        $uidColumn = $isInbound ? 'last_uid_seen' : 'sent_last_uid';
+        $validityColumn = $isInbound ? 'inbox_uid_validity' : 'sent_uid_validity';
 
-        return max(1, min(168, $hours ?: 12));
-    }
-
-    /**
-     * 2026-09-08 (item 1, Johan) — advance ONE folder's watermark to the time
-     * its read started (never to "now", so nothing that arrives while THIS
-     * read was in flight is missed — it lands inside the next poll's overlap
-     * window instead). Only ever called after that folder's entire message
-     * loop ran to completion with nothing throwing — see the call site's own
-     * comment for the non-negotiable invariant this protects.
-     */
-    private function advanceWatermark(CommunicationMailbox $mailbox, bool $isInbound, Carbon $readStartedAt): void
-    {
-        $column = $isInbound ? 'inbox_watermark_at' : 'sent_watermark_at';
-        $mailbox->forceFill([$column => $readStartedAt])->save();
+        $mailbox->forceFill([
+            $uidColumn => $maxUid ?? max(0, $uidNext - 1),
+            $validityColumn => $uidValidity,
+        ])->save();
     }
 
     /**

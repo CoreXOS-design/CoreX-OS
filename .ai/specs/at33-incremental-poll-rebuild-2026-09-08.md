@@ -6,6 +6,126 @@ box flipped to `connect_failed` and stayed there for hours). Full investigation 
 `.ai/handover/AT-395-staging-handover.md` and this session's own conversation record cover the
 diagnosis; this spec covers the rebuild.
 
+> **SUPERSEDED, SAME DAY — read §2A before §2.** §2 below (rolling overlap window on a
+> timestamp watermark) was built, verified with real data, and then **rejected outright by
+> Johan** once he saw it named an unproven mid-poll-arrival gap instead of closing it ("we have
+> a gap, and we are naming it? why are we not fixing it? ... we dont ship problems or bugs. we
+> tackle them head on and fix them."). §2A documents the replacement he specified: IMAP
+> UID-based tracking, the same mechanism Outlook/Apple Mail/Thunderbird use. **§2, §3's overlap
+> framing, and the lookback-window parts of §7/§8 are HISTORICAL RECORD ONLY — describing a
+> design that shipped inside this same session and was then replaced before ever reaching
+> Staging.** Nothing in §2 is live in the current code. §9 (files changed) is current.
+
+## 2A. UID-based tracking — REPLACES §2 entirely (Johan's explicit rebuild order, same day)
+
+**Why the overlap design was rejected.** It could not prove a message arriving mid-poll was
+collected exactly once without waiting on real clock timing — the whole design rested on "the
+overlap window is wide enough," which is a probabilistic argument, not a proof. Johan's read:
+naming that as an accepted gap and shipping anyway is exactly the kind of compromise CoreX does
+not ship. His fix is deterministic by construction instead of probabilistic by margin.
+
+**The mechanism.** Every IMAP message has a permanent, monotonically increasing UID, scoped to
+one folder's UIDVALIDITY. `communication_mailboxes.last_uid_seen` / `.sent_last_uid` (columns
+already existed from the original AT-33 build) now hold the highest UID this folder has fully
+processed; `.inbox_uid_validity` / `.sent_uid_validity` (new, this migration) hold that folder's
+UIDVALIDITY at the time the cursor was recorded. Each poll:
+
+1. Reads `$folder->status()` for the folder's CURRENT `uidvalidity`/`uidnext` — cheap, no
+   SELECT/EXAMINE needed (webklex issues a plain IMAP `STATUS`).
+2. **Checks UIDVALIDITY every single poll**, not just at "first poll" — a folder can be rebuilt
+   or migrated between any two polls. If the stored value disagrees with the current one, every
+   UID this mailbox holds for that folder is meaningless. The mismatch is logged at ERROR
+   (`UIDVALIDITY changed for mailbox {id} folder {name} (stored=X, current=Y)`), the stored
+   cursor is discarded, and the poll falls through to the SAME bounded first-poll backfill window
+   already used for a brand-new folder — never an unbounded rescan to UID 1, and never a silent
+   continue against numbers that may now point at completely different messages.
+3. With a trustworthy stored UID, searches `UID {stored+1}:*` — server-side, exact, no clock, no
+   timezone, no lookback window, no re-read of anything already processed. Without one (first
+   poll for this folder, or a just-detected UIDVALIDITY mismatch), searches `SINCE (now -
+   firstPollBackfillDays)`, unchanged from before.
+4. The cursor advances to the highest UID actually returned by the search — tracked as each
+   message is seen, regardless of whether it's kept/dropped/duplicate/erroring — but the
+   **write only happens after that folder's entire message loop runs to completion with
+   nothing thrown**. The exact same non-negotiable invariant as the old watermark design,
+   now proven deterministically (§ "Verification" below) instead of only observed in practice:
+   an interrupted poll leaves the cursor exactly where it was: unchanged, never advanced,
+   never lost.
+5. `whereUid()` (webklex's own builder method) is NOT used — reading webklex's
+   `Query::generate_query()` showed it passes a UID range like `"1001:*"` through an
+   `is_numeric()` check to decide whether to quote the value; a range string isn't numeric, so
+   it gets wrapped in quotes, which is invalid IMAP syntax and would silently break the search.
+   The library's own `"CUSTOM "` prefix (`WhereQuery::validate_criteria()`) is the documented
+   escape hatch for an unquoted raw criterion — used as `where('CUSTOM UID 1001:*')`.
+
+**What this explicitly REMOVES — two mechanisms for one job is how the next bug hides:**
+
+- The rolling overlap window and its lookback entirely. `agencies.communication_poll_lookback_hours`
+  is DROPPED (migration `2026_09_08_180000_drop_poll_lookback_hours_in_favour_of_uid_tracking.php`).
+  `config('communications.poll_lookback_hours')` is removed from `config/communications.php`
+  (replaced with a one-line comment pointing here, so nobody re-adds it not knowing why it's gone).
+- `inbox_watermark_at` / `sent_watermark_at` (timestamp columns from the same-day earlier
+  migration) are no longer read or written anywhere in `ImapMailboxPoller`. **Left in the schema
+  rather than dropped in today's session** — genuinely dead, harmless, and a candidate for a
+  future cleanup migration, but dropping schema on the same day as replacing the code it served
+  was judged lower priority than shipping the fix itself; flagged here so it isn't mistaken for
+  load-bearing.
+- `advanceWatermark()` is gone, replaced by `advanceUidCursor()`.
+- Dedup by Message-ID (§3) is UNCHANGED and stays as the second line of defense, exactly as
+  Johan specified ("UID becomes primary, dedup stays as belt-and-braces") — it is what protects
+  against a message being processed twice if a UID range is ever re-asked for any reason (e.g.
+  after a UIDVALIDITY-triggered resync re-touches a UID already seen under the old numbering by
+  coincidence).
+
+**webklex UID/UIDVALIDITY support — confirmed real, not assumed** (Johan's requirement #6):
+`Folder::status()` → `Protocol::folderStatus()` returns `uidvalidity`/`uidnext` from a native
+IMAP `STATUS` command (RFC 3501) — read directly from webklex's own source, not inferred from
+docs. `WhereQuery`'s `"CUSTOM "` escape hatch makes a raw `UID n:*` search possible despite the
+`whereUid()` quoting bug (above). Both confirmed working against a real deterministic test
+harness (below), not just believed to work from reading the library's code.
+
+**Verification — deterministic this time, as Johan required.** New test file
+`tests/Feature/Communications/ImapUidIncrementalPollTest.php`, four scenarios, all passing
+against a fully faked IMAP wire (a `ProtocolInterface` implementation driving a real,
+never-network-connected `Webklex\PHPIMAP\Client`/`Message`, not a loose duck-typed stand-in) —
+UID numbers make every one of these exactly reproducible, no live timing dependency:
+
+1. `test_a_message_arriving_between_polls_is_collected_on_the_next_poll_exactly_once` — a
+   second message becomes visible on the server only between two polls; proves it's collected on
+   poll 2, exactly once, with poll 1's cursor unaffected.
+2. `test_rerunning_a_poll_immediately_collects_nothing_new_and_creates_no_duplicates` — proves
+   the exact next search issued after a completed poll is `UID {cursor+1}:*`, and re-running
+   against unchanged server state creates zero new rows.
+3. `test_uidvalidity_mismatch_forces_a_bounded_resync_not_a_silent_continue` — the mailbox holds
+   a stored UID+validity from before a simulated folder rebuild; the fake reports a DIFFERENT
+   validity; proves the ERROR log fires with the exact stored/current values, proves the poll
+   falls back to the SINCE path rather than trusting the stale UID range, and proves the message
+   under the NEW numbering is still collected (not silently skipped).
+4. `test_an_interrupted_poll_does_not_advance_the_stored_uid` — a simulated hung read trips the
+   pcntl budget watchdog mid-search; proves the stored UID is byte-identical to its pre-poll
+   value afterward, proves zero rows were created, and proves the very next poll re-asks for the
+   exact same UID range (nothing skipped, nothing lost).
+
+All 15 pre-existing regression tests in `MailboxHealthTest.php`, `ImapPollReadTimeoutTest.php`,
+and `SentFolderResolutionTest.php` still pass unchanged (two of their fake folder doubles needed
+a trivial `status()` stub returning `uidvalidity=0`, since `poll()` now calls it unconditionally
+on every folder — `uidvalidity=0` routes them down the same `SINCE`-backfill path they already
+exercised, so their actual assertions are untouched).
+
+**What's UNCHANGED and stays, per Johan's explicit confirmation:** nightly backfill (§ "one-time
+backfill marker" below), headers-first filtering (§4), the unknown-sender hold (§5), fairness
+routing to the `mail-slow` queue (§6), and honest error-reason classification. "That work is
+good and stays. This changes how we decide WHAT to fetch, not what we do with it."
+
+**Honest time cost.** The UID mechanism itself (search, cursor, UIDVALIDITY-mismatch resync) —
+roughly half a day's work once the design was clear, most of it in the webklex `whereUid()`
+quoting bug investigation (avoided a shipped-but-broken search) and the `Config`/`Client`
+bootstrap needed to build a genuinely faithful fake IMAP wire for the deterministic tests (four
+iterations of "construct the real `Client`, discover the next missing config key" before the
+harness ran at all — `masks`, `events`, `options`, `decoding`, and finally an `openFolder()`
+override, each one only discoverable by hitting the error, not foreseeable from documentation).
+That harness is now reusable for any future poller test that needs this level of fidelity
+without a live mail server.
+
 ## 1. The problem this replaces
 
 Before today, every poll re-scanned an entire coarse date window (`SINCE last_polled_at - 1
@@ -179,23 +299,20 @@ days of real backlog at the time of testing).
 
 ## 8. Not completed today — reported plainly, not glossed over
 
-- **A deliberately-triggered "message arrives mid-poll" test** (IMAP APPEND directly into the
-  real mailbox, no SMTP send to anyone, then a poll run to confirm it's picked up next cycle) was
-  planned but not executed — QA1's mailbox credentials were sanitised (blanked, by design, as
-  part of a coordinated live-testing-data restore to QA1) before this specific test ran. The
-  *mechanism* is exhausted-by-construction (the overlap window plus Message-ID dedup already
-  covers this case; every repeated real run in §7 is itself a live instance of "new mail
-  appeared since the last run, picked up exactly once, nothing duplicated") but a dedicated,
-  deliberate trigger test should still be run once real credentials are back on at least one QA1
-  mailbox.
+- **A deliberately-triggered "message arrives mid-poll" test** — RESOLVED by §2A. The overlap
+  design's version of this test (live IMAP APPEND, dependent on real timing) never ran before
+  QA1's credentials were sanitised. Johan rejected shipping on that unproven basis. The UID
+  rebuild's equivalent — `test_a_message_arriving_between_polls_is_collected_on_the_next_poll_exactly_once`
+  — is deterministic by construction (no live timing dependency at all) and passes. A live
+  confirmation against a real mailbox is still worth doing once QA1 credentials are restored, but
+  is no longer the thing standing between this design and being provably correct.
 - **Wizard entry (CLAUDE.md non-negotiable #10a) — Johan's call, not made unilaterally.**
-  `communication_poll_lookback_hours` and `communication_pending_grace_days` are both real,
-  functioning, agency-configurable settings as of today. Recommendation: **do NOT add either to
-  the Agency Onboarding Setup Wizard** — both are expert/rarely-touched operational tuning knobs
-  (a brand-new agency has no basis to answer "how many hours of email overlap" on day one; the
-  lookback specifically only matters once a real mailbox proves heavy under real load, which
-  can't be known at onboarding time). This is flagged as a recommendation for Johan to confirm or
-  override, not treated as decided.
+  `communication_pending_grace_days` remains a real, functioning, agency-configurable setting.
+  `communication_poll_lookback_hours` no longer exists (§2A — removed with the overlap
+  mechanism), so the recommendation below now applies to grace-days alone. Recommendation: **do
+  NOT add it to the Agency Onboarding Setup Wizard** — it's an expert/rarely-touched operational
+  tuning knob a brand-new agency has no basis to answer on day one. Flagged for Johan to confirm
+  or override, not treated as decided.
 - **"Never attempted" as a distinct recorded reason** (item 5's fourth category, alongside
   `connect_failed`/`auth_failed`/`connect_timeout`/`read_timeout`, all already distinct as of the
   prior session's work) was not built today — the concrete case (a mailbox's dispatch silently
@@ -207,19 +324,33 @@ days of real backlog at the time of testing).
   session round, `.ai/specs/at395-outgoing-mail-per-mailbox-smtp.md` §16.3) remains unfixed — a
   separate pipeline, unrelated to today's incoming-mail rebuild.
 
-## 9. Files changed
+## 9. Files changed (current, post-§2A UID rebuild)
 
 - `database/migrations/2026_09_08_170000_add_incremental_poll_watermarks_to_communication_mailboxes.php`
-- `database/migrations/2026_09_08_170100_add_poll_lookback_hours_to_agencies.php`
-- `app/Models/Communications/CommunicationMailbox.php` (fillable additions)
-- `app/Models/Communications/CommunicationPending.php` (grace-day constants)
-- `app/Services/Communications/ImapMailboxPoller.php` (the core rebuild — watermark, overlap,
-  headers-first, filter-before-fetch, fairness duration tracking, backfill marker)
+  — added `inbox_uid_validity`/`sent_uid_validity`/`sent_last_uid`/`last_poll_duration_seconds`/
+  `backfill_completed_at` (still load-bearing) alongside the now-dead `inbox_watermark_at`/
+  `sent_watermark_at` (left in schema, see §2A).
+- `database/migrations/2026_09_08_170100_add_poll_lookback_hours_to_agencies.php` — added
+  `communication_poll_lookback_hours`, then...
+- `database/migrations/2026_09_08_180000_drop_poll_lookback_hours_in_favour_of_uid_tracking.php`
+  — ...DROPS it again, same day, per §2A.
+- `app/Models/Communications/CommunicationMailbox.php` (fillable/cast additions:
+  `inbox_uid_validity`, `sent_uid_validity`, `sent_last_uid`, etc.)
+- `app/Models/Communications/CommunicationPending.php` (grace-day constants — unchanged by §2A)
+- `app/Services/Communications/ImapMailboxPoller.php` (§2A — UID cursor + UIDVALIDITY-mismatch
+  resync REPLACES the watermark+overlap code entirely; headers-first, filter-before-fetch,
+  fairness duration tracking, and the backfill-completed marker are unchanged)
 - `app/Services/Communications/EmailArchiveIngestor.php` (pending-hold revival, `isAlreadySeen()`
-  public wrapper)
-- `app/Services/Communications/PeekingMessageFetcher.php` (`peekHeader()`)
-- `app/Jobs/Communications/PollMailboxJob.php` (`SLOW_QUEUE_NAME`)
-- `app/Console/Commands/Communications/PollMailboxes.php` (slow-queue routing)
-- `config/communications.php` (`pending_grace_days` default 4->7, new `poll_lookback_hours`)
+  public wrapper — unchanged by §2A)
+- `app/Services/Communications/PeekingMessageFetcher.php` (`peekHeader()` — unchanged by §2A)
+- `app/Jobs/Communications/PollMailboxJob.php` (`SLOW_QUEUE_NAME` — unchanged by §2A)
+- `app/Console/Commands/Communications/PollMailboxes.php` (slow-queue routing — unchanged by §2A)
+- `config/communications.php` (`pending_grace_days` default 4->7; `poll_lookback_hours` added
+  then removed same day per §2A, replaced with an explanatory comment)
+- `tests/Feature/Communications/ImapUidIncrementalPollTest.php` (new, §2A — the four deterministic
+  UID-rebuild proofs)
+- `tests/Feature/Communications/MailboxHealthTest.php`,
+  `tests/Feature/Communications/ImapPollReadTimeoutTest.php` (trivial `status()` stub added to
+  two fake folder doubles — see §2A verification note)
 - QA1 infra: `/etc/systemd/system/corex-qa1-queue-mail-slow.service` (new, not in git — noted
   here so it's not lost; live/Staging need the equivalent provisioned separately)

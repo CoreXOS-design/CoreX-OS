@@ -61,21 +61,18 @@ return [
     | Inbound grace window (calendar days) before an unmatched inbound item
     | prunes. Clamped to a maximum of 30 by CommunicationPending::graceDays().
     | 2026-09-08 (Johan): raised default 4 -> 7 -- see CommunicationPending
-    | for why. Per-agency override: agencies.communication_poll_lookback_hours.
+    | for why. Per-agency override: agencies.communication_pending_grace_days.
     */
     'pending_grace_days' => (int) env('COMMUNICATIONS_PENDING_GRACE_DAYS', 7),
 
-    /*
-    | Rolling overlap lookback for incremental polling (item 1, Johan
-    | 2026-09-08). Each poll searches from (watermark - this many hours), not
-    | the watermark exactly -- IMAP's SINCE search is date-granularity only,
-    | so server-side narrowing is coarse by nature; the overlap plus
-    | Message-ID dedup (EmailArchiveIngestor::alreadySeen()) is how this
-    | stays correct instead of a hard cutoff that can silently lose mail on
-    | clock skew, a mid-poll arrival, or an out-of-order Date header.
-    | Per-agency override: agencies.communication_poll_lookback_hours.
-    */
-    'poll_lookback_hours' => (int) env('COMMUNICATIONS_POLL_LOOKBACK_HOURS', 12),
+    // 2026-09-08 -- a rolling timestamp-overlap lookback setting lived here
+    // briefly (same day) before being replaced by UID-based incremental
+    // polling (ImapMailboxPoller -- last_uid_seen/sent_last_uid +
+    // inbox_uid_validity/sent_uid_validity, no clock involved at all).
+    // Removed deliberately, not left dormant: two overlapping mechanisms for
+    // the same job is how the next bug hides (Johan). The
+    // agencies.communication_poll_lookback_hours column this fed was dropped
+    // in the same-day migration that replaced it.
 
     /*
     |--------------------------------------------------------------------------

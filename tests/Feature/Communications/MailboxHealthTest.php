@@ -189,6 +189,10 @@ final class MailboxHealthTest extends TestCase
             public function connect(CommunicationMailbox $mailbox)
             {
                 $folder = new class {
+                    // 2026-09-08 UID rebuild: poll() calls status() first for UIDVALIDITY;
+                    // 0 = "unknown", which routes the poller to the same since() backfill
+                    // path this fake already implements.
+                    public function status() { return ['uidvalidity' => 0, 'uidnext' => 1]; }
                     public function query() { return $this; }
                     public function since($d) { return $this; }
                     public function setFetchBody($b) { return $this; } // AT-257: poller fetches UIDs-only now
@@ -297,6 +301,7 @@ final class MailboxHealthTest extends TestCase
             public function connect(CommunicationMailbox $mailbox)
             {
                 $folder = new class {
+                    public function status() { return ['uidvalidity' => 0, 'uidnext' => 1]; }
                     public function query() { return $this; }
                     public function since($d) { return $this; }
                     public function setFetchBody($b) { return $this; } // AT-257: poller fetches UIDs-only now

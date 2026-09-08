@@ -61,6 +61,15 @@ final class ImapPollReadTimeoutTest extends TestCase
             {
                 // A fake client whose INBOX read blocks for 5s — well past the 1s budget.
                 $folder = new class {
+                    // 2026-09-08 UID rebuild: poll() now calls status() on every
+                    // folder up front to read UIDVALIDITY. uidvalidity=0 signals
+                    // "unknown" to the poller, which falls back to the same
+                    // since()-based backfill path this test already exercises.
+                    public function status()
+                    {
+                        return ['uidvalidity' => 0, 'uidnext' => 1];
+                    }
+
                     public function query()
                     {
                         return $this;
