@@ -27,6 +27,11 @@ class CommunicationMailbox extends Model
         'outgoing_active', 'last_send_error', 'last_send_error_at', 'consecutive_send_failures',
         'send_failure_notified_at', 'last_sent_at', 'last_sent_folder_append_error',
         'last_sent_folder_append_at',
+        // 2026-09-08 incremental-poll fix — per-folder watermark/UID cursor,
+        // fairness duration tracking, one-time backfill marker.
+        'inbox_watermark_at', 'inbox_uid_validity', 'sent_watermark_at',
+        'sent_last_uid', 'sent_uid_validity', 'last_poll_duration_seconds',
+        'backfill_completed_at',
     ];
 
     protected $casts = [
