@@ -96,24 +96,35 @@ class EmailArchiveIngestor
                 });
             }
 
-            // No contact match AND not a known attorney → discard. The never-business
-            // filter (AT-43, POPIA minimisation) still classifies WHY for the audit
-            // line, but under match-only every unmatched message is dropped regardless.
-            $dropReason = $this->ingestFilter->dropReasonForUnknown($counterpart, $mailbox->agency)
-                ?? 'no_contact_match';
+            // No contact match AND not a known attorney. The never-business filter
+            // (AT-43, POPIA minimisation) still applies first — a no-reply/service
+            // sender drops outright regardless of anything else.
+            $dropReason = $this->ingestFilter->dropReasonForUnknown($counterpart, $mailbox->agency);
 
-            Log::info('Communication archive: ingestion dropped (not stored)', [
-                'agency_id'   => $agencyId,
-                'mailbox_id'  => $mailbox->id,
-                'channel'     => Communication::CHANNEL_EMAIL,
-                'direction'   => $direction,
-                'sender'      => $counterpart,
-                'reason'      => $dropReason,
-                'occurred_at' => optional($msg['occurred_at'] ?? null)?->toIso8601String(),
-                'dropped_at'  => now()->toIso8601String(),
-            ]);
+            if ($dropReason !== null) {
+                Log::info('Communication archive: ingestion dropped (not stored)', [
+                    'agency_id'   => $agencyId,
+                    'mailbox_id'  => $mailbox->id,
+                    'channel'     => Communication::CHANNEL_EMAIL,
+                    'direction'   => $direction,
+                    'sender'      => $counterpart,
+                    'reason'      => $dropReason,
+                    'occurred_at' => optional($msg['occurred_at'] ?? null)?->toIso8601String(),
+                    'dropped_at'  => now()->toIso8601String(),
+                ]);
 
-            return self::RESULT_DROPPED;
+                return self::RESULT_DROPPED;
+            }
+
+            // 2026-09-08 (Johan) — a genuinely unknown sender who is NOT no-reply/service
+            // mail is exactly the mail most likely to be a real new enquiry, and exactly
+            // what must not be silently lost. HOLD it (communication_pending — dormant
+            // since AT-122 made match-first the default; revived here for this specific
+            // case, on Johan's explicit instruction) for the agency's grace window,
+            // visible on the triage screen so an agent can create the contact and claim
+            // it. Unclaimed past the window: communications:prune-pending soft-deletes
+            // it (POPIA data-minimisation) — never a hard delete, per the standing rule.
+            return $this->holdUnknownSender($mailbox, $msg, $externalId, $direction, $counterpart, $attachments);
         }
 
         // Matched → now (and only now) persist the raw .eml and build the index row.
@@ -201,6 +212,75 @@ class EmailArchiveIngestor
             // (agency-level mailboxes have no owner). Provenance only — not gated.
             'owner_user_id'          => $mailbox->user_id,
         ];
+    }
+
+    /**
+     * 2026-09-08 (Johan) — hold a genuinely unknown sender's mail for the
+     * agency's grace window (CommunicationPending::graceDays(), default 7,
+     * agency-configurable via agencies.communication_pending_grace_days).
+     * Visible on the staff triage screen (CommunicationTriageController) —
+     * an agent can create the contact there, which retroactively attaches
+     * this exact row to the archive (PendingAttachmentService, already
+     * built, unchanged). Left unclaimed past the window,
+     * communications:prune-pending soft-deletes it (already built,
+     * unchanged) — never a hard delete.
+     *
+     * Field mapping mirrors PendingAttachmentService::attach()'s reverse
+     * direction exactly (pending -> archive), so a row created here promotes
+     * cleanly with no field drift between the two paths.
+     */
+    private function holdUnknownSender(
+        CommunicationMailbox $mailbox,
+        array $msg,
+        string $externalId,
+        string $direction,
+        string $counterpart,
+        array $attachments,
+    ): string {
+        $agencyId = (int) $mailbox->agency_id;
+        $stored = $this->storage->store($agencyId, 'email', (string) ($msg['raw'] ?? ''));
+
+        CommunicationPending::create([
+            'agency_id'               => $agencyId,
+            'channel'                 => Communication::CHANNEL_EMAIL,
+            'direction'               => $direction,
+            'external_id'             => $externalId,
+            'thread_key'              => $msg['thread_key'] ?? null,
+            'from_identifier'         => $counterpart !== '' ? $counterpart : null,
+            'participant_identifiers' => array_values($msg['participants'] ?? []),
+            'occurred_at'             => $msg['occurred_at'] ?? now(),
+            'captured_at'             => now(),
+            'subject'                 => isset($msg['subject']) ? Str::limit((string) $msg['subject'], 1000, '') : null,
+            'body_text'               => $msg['body_text'] ?? null,
+            'body_preview'            => isset($msg['body_text']) ? Str::limit((string) $msg['body_text'], 160) : null,
+            'raw_path'                => $stored['path'],
+            'has_attachments'         => count($attachments) > 0,
+            'content_hash'            => $stored['content_hash'],
+            'source_ref'              => 'mailbox:' . $mailbox->id,
+            'expires_at'              => now()->addDays(CommunicationPending::graceDays($mailbox->agency)),
+        ]);
+
+        Log::info('Communication archive: unknown sender held for review', [
+            'agency_id'  => $agencyId,
+            'mailbox_id' => $mailbox->id,
+            'direction'  => $direction,
+            'sender'     => $counterpart,
+            'expires_at' => now()->addDays(CommunicationPending::graceDays($mailbox->agency))->toIso8601String(),
+        ]);
+
+        return self::RESULT_PENDING;
+    }
+
+    /**
+     * Public wrapper — 2026-09-08 (item 1, incremental poll) — lets the
+     * poller's header-stage pre-filter skip a full body fetch for a message
+     * it can already tell is a duplicate, using the EXACT SAME check
+     * ingest() itself uses (Message-ID based; see alreadySeen() below).
+     * Never a second, drifting implementation of "have we seen this."
+     */
+    public function isAlreadySeen(int $agencyId, string $externalId): bool
+    {
+        return $this->alreadySeen($agencyId, $externalId);
     }
 
     private function alreadySeen(int $agencyId, string $externalId): bool

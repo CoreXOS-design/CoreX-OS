@@ -41,6 +41,18 @@ class PollMailboxJob implements ShouldQueue, ShouldBeUnique
      */
     public const QUEUE_NAME = 'mail';
 
+    /**
+     * Fairness (item 6, Johan 2026-09-08) — a mailbox whose last poll ran long
+     * (PollMailboxes checks last_poll_duration_seconds against an operator
+     * threshold) is dispatched here instead, so it can never occupy a worker
+     * slot that would otherwise serve the other, well-behaved mailboxes. This
+     * is what stops one heavy mailbox starving the other nineteen — they no
+     * longer share a queue with it at all. Self-healing: the moment a poll on
+     * this queue completes quickly again, PollMailboxes routes its NEXT
+     * dispatch back to the normal queue.
+     */
+    public const SLOW_QUEUE_NAME = 'mail-slow';
+
     public int $tries = 3;
     public int $backoff = 120;
 

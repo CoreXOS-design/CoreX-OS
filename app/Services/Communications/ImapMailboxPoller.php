@@ -29,12 +29,26 @@ class ImapMailboxPoller
     public function __construct(
         private EmailArchiveIngestor $ingestor,
         private MailboxHealthRecorder $health = new MailboxHealthRecorder(),
+        ?ContactIdentifierResolver $contactResolver = null,
+        ?CommunicationIngestFilter $ingestFilter = null,
     ) {
+        // 2026-09-08 (items 2/3, headers-first + filter-before-fetch) — nullable
+        // with a container fallback so every existing call site (real app code
+        // always resolves via the container; the two test doubles in
+        // MailboxHealthTest.php/ImapPollReadTimeoutTest.php construct anonymous
+        // subclasses with `new class(app(EmailArchiveIngestor::class))` — a single
+        // positional arg) keeps working unchanged.
+        $this->contactResolver = $contactResolver ?? app(ContactIdentifierResolver::class);
+        $this->ingestFilter = $ingestFilter ?? app(CommunicationIngestFilter::class);
     }
+
+    private ContactIdentifierResolver $contactResolver;
+    private CommunicationIngestFilter $ingestFilter;
 
     public function poll(CommunicationMailbox $mailbox): array
     {
-        $stats = ['archived' => 0, 'pending' => 0, 'duplicate' => 0, 'errors' => 0, 'folders' => 0];
+        $stats = ['archived' => 0, 'pending' => 0, 'duplicate' => 0, 'errors' => 0, 'folders' => 0, 'dropped' => 0];
+        $pollStartedForDuration = now();
 
         if (! $mailbox->active) {
             return ['status' => 'skipped', 'reason' => 'inactive', 'stats' => $stats];
@@ -68,18 +82,10 @@ class ImapMailboxPoller
             return ['status' => 'error', 'reason' => $classified, 'stats' => $stats];
         }
 
-        // Incremental polls read since last_polled_at (1-day overlap so a message
-        // near the boundary is never missed). The FIRST poll backfills a small,
-        // agency-configurable window (default 7d) so the initial read fits the
-        // budget instead of trapping the mailbox in a never-completing 30-day pull.
-        $since = $mailbox->last_polled_at
-            ? Carbon::parse($mailbox->last_polled_at)->subDay()->startOfDay()
-            : now()->subDays($this->firstPollBackfillDays($mailbox));
-
-        // Stamp progress up-front, now that the connection succeeded and $since is
-        // fixed from the PRE-poll value. If the folder read later exceeds the budget
-        // and the worker is killed before `finally`, the mailbox must not re-attempt
-        // the full backfill every cycle — the next poll reads incrementally instead.
+        // Stamp progress up-front so a stuck read can't re-trigger a full backfill
+        // next cycle (last_polled_at drives the badge's staleness/health signal
+        // ONLY — the per-folder watermarks below drive the actual query boundary
+        // and are handled completely separately, see the CRITICAL note there).
         $mailbox->forceFill(['last_polled_at' => now()])->save();
 
         // Resolve actual Folder objects up front. Sent is resolved by its IMAP
@@ -111,12 +117,37 @@ class ImapMailboxPoller
         $status  = 'success';
         $reason  = null;
 
+        $lookbackHours = $this->pollLookbackHours($mailbox);
+
         try {
             foreach ($folders as $entry) {
                 $folder    = $entry['folder'];
                 $direction = $entry['direction'];
                 $folderName = $entry['label'];
+                $isInbound = $direction === Communication::DIRECTION_INBOUND;
                 $stats['folders']++;
+
+                // 2026-09-08 (item 1, Johan) — ROLLING OVERLAP WATERMARK, per folder.
+                // Each run searches from (this folder's last-completed watermark minus
+                // the lookback), never from the watermark exactly: IMAP's SINCE search
+                // is DATE granularity only (there is no "since 22:14"), so server-side
+                // narrowing is inherently coarse, and clock skew / a message arriving
+                // mid-poll / an out-of-order Date header are real gaps a hard cutoff
+                // leaves open. Safe ONLY because dedup is by Message-ID
+                // (EmailArchiveIngestor::alreadySeen()) — the overlap deliberately
+                // re-reads messages already processed; re-reading is cheap (headers
+                // first, below) and dedup makes re-processing a no-op.
+                //
+                // No watermark yet at all (first-ever poll for this folder) — no
+                // overlap subtraction needed, the backfill window is already wide.
+                $watermark = $isInbound ? $mailbox->inbox_watermark_at : $mailbox->sent_watermark_at;
+                $since = $watermark
+                    ? Carbon::parse($watermark)->subHours($lookbackHours)
+                    : now()->subDays($this->firstPollBackfillDays($mailbox));
+                // Captured BEFORE this folder's read starts — the watermark this folder
+                // advances to on success, so nothing that arrives DURING the read is
+                // ever missed (it will be inside the NEXT poll's overlap window).
+                $folderReadStartedAt = now();
 
                 try {
                     // AT-257: fetch UIDs only (setFetchBody(false) — no body fetch, so the
@@ -129,14 +160,69 @@ class ImapMailboxPoller
                     throw $e;
                 } catch (\Webklex\PHPIMAP\Exceptions\GetMessagesFailedException $e) {
                     Log::info("Communication archive IMAP search empty (mailbox {$mailbox->id}, {$folderName}): {$e->getMessage()}");
+                    // An empty search still completed cleanly — advance this folder's
+                    // watermark. CRITICAL: only reached because nothing threw above.
+                    $this->advanceWatermark($mailbox, $isInbound, $folderReadStartedAt);
                     continue;
                 }
 
                 foreach ($messages as $liteMessage) {
                     try {
                         $uid = (int) $liteMessage->getUid();
-                        // AT-257 — non-destructive read: BODY.PEEK[], never sets \Seen.
-                        $message = \App\Services\Communications\PeekingMessageFetcher::peek($client, $uid, $folderName);
+
+                        // 2026-09-08 (items 2/3, Johan) — HEADERS FIRST. Fetch only the
+                        // header (no body, no attachments — see PeekingMessageFetcher::
+                        // peekHeader()) and decide from that alone before ever paying for
+                        // the full message. A Property24 no-reply now costs one small
+                        // header fetch, never a body+attachment download.
+                        $headerMsg = PeekingMessageFetcher::peekHeader($client, $uid, $folderName);
+                        if ($headerMsg === null) {
+                            $stats['errors']++;
+                            Log::warning("Communication archive: header peek returned no content (mailbox {$mailbox->id}, uid {$uid})");
+                            continue;
+                        }
+
+                        // Dedup FIRST, on the header alone (Message-ID needs no body) —
+                        // the cheapest possible check, and the one the overlap window
+                        // depends on entirely. Same check ingest() itself uses
+                        // (EmailArchiveIngestor::isAlreadySeen() wraps the identical
+                        // private alreadySeen()) — never a second, drifting
+                        // implementation of "have we seen this."
+                        $messageId = $this->safe(fn () => (string) $headerMsg->getMessageId()) ?: '';
+                        if ($messageId !== '' && $this->ingestor->isAlreadySeen((int) $mailbox->agency_id, $messageId)) {
+                            $stats['duplicate']++;
+                            continue;
+                        }
+
+                        // Known-contact gate, same matching EmailArchiveIngestor uses
+                        // (ContactIdentifierResolver) — checked here, on the header
+                        // alone, so a no-reply/service-domain sender who is NOT a known
+                        // contact can be dropped before the full fetch. A sender who
+                        // MATCHES a contact always gets the full fetch regardless (never
+                        // let a real client's mail be filtered by a no-reply heuristic).
+                        $from = $this->firstAddress($headerMsg, 'getFrom') ?? '';
+                        $contact = $from !== '' ? $this->contactResolver->resolve($from, (int) $mailbox->agency_id) : null;
+
+                        if (!$contact) {
+                            $dropReason = $this->ingestFilter->dropReasonForUnknown($from, $mailbox->agency);
+                            if ($dropReason !== null) {
+                                $stats['dropped']++;
+                                Log::info('Communication archive: ingestion dropped before fetch (header-stage filter)', [
+                                    'agency_id'  => $mailbox->agency_id,
+                                    'mailbox_id' => $mailbox->id,
+                                    'direction'  => $direction,
+                                    'sender'     => $from,
+                                    'reason'     => $dropReason,
+                                ]);
+                                continue;
+                            }
+                        }
+
+                        // Reserved for mail we're actually going to keep (a known
+                        // contact -> archived) or might keep (genuinely unknown, not
+                        // no-reply/service -> held for review, item 4). Everything that
+                        // would just be dropped or was already seen never reaches here.
+                        $message = PeekingMessageFetcher::peek($client, $uid, $folderName);
                         if ($message === null) {
                             $stats['errors']++;
                             Log::warning("Communication archive: peek fetch returned no content (mailbox {$mailbox->id}, uid {$uid})");
@@ -160,6 +246,20 @@ class ImapMailboxPoller
                         Log::error("Communication archive ingest error (mailbox {$mailbox->id}): {$e->getMessage()}");
                     }
                 }
+
+                // This folder's ENTIRE message loop ran to completion with nothing
+                // throwing — genuinely done, safe to advance ITS watermark now.
+                //
+                // CRITICAL (Johan, non-negotiable): if the budget watchdog fires
+                // ANYWHERE above — mid-search, mid-header-peek, mid-full-peek,
+                // mid-ingest — ImapPollTimeoutException propagates straight through
+                // this line without ever reaching it. This folder's watermark is
+                // NOT advanced, is left exactly as it was, and the next poll's
+                // overlap window covers the exact same unprocessed mail again. A
+                // failed or interrupted poll can only ever leave a watermark
+                // unchanged or advance it on genuine completion — there is no path
+                // that advances it on partial/failed work.
+                $this->advanceWatermark($mailbox, $isInbound, $folderReadStartedAt);
             }
         } catch (ImapPollTimeoutException $e) {
             // A non-responsive folder read tripped the budget. Clean, logged
@@ -172,6 +272,24 @@ class ImapMailboxPoller
             try { $client->disconnect(); } catch (\Throwable $e) { /* ignore */ }
             $mailbox->forceFill(['last_polled_at' => now()])->save();
         }
+
+        // One-time backfill marker (item 7) — purely informational/audit (the
+        // actual incremental-vs-backfill decision is already driven by
+        // per-folder watermark presence above, which is more robust than a
+        // single mailbox-wide flag would be). Stamped once every ENABLED
+        // folder has a real watermark, i.e. the initial catch-up is genuinely
+        // done for the whole mailbox.
+        if (!$mailbox->backfill_completed_at
+            && (!$mailbox->poll_inbox || $mailbox->inbox_watermark_at)
+            && (!$mailbox->poll_sent || $mailbox->sent_watermark_at)) {
+            $mailbox->forceFill(['backfill_completed_at' => now()])->save();
+        }
+
+        // Fairness (item 6) — wall-clock cost of this exact poll, whatever the
+        // outcome. PollMailboxes reads this to route a chronically slow
+        // mailbox onto its own queue instead of sharing a worker slot with
+        // well-behaved ones.
+        $mailbox->forceFill(['last_poll_duration_seconds' => $pollStartedForDuration->diffInSeconds(now())])->save();
 
         // Health (AT-181). A fully successful poll clears the failure state. A read_timeout is a
         // POST-AUTH failure — the connect + login succeeded (so last_polled_at legitimately
@@ -248,6 +366,34 @@ class ImapMailboxPoller
         $days = (int) ($override ?? config('communications.first_poll_backfill_days', 7));
 
         return max(1, min(90, $days ?: 7));
+    }
+
+    /**
+     * 2026-09-08 (item 1, Johan) — rolling overlap lookback (hours): agency
+     * override (agencies.communication_poll_lookback_hours) ?? config default
+     * (12). Clamped to [1, 168] (one week). Dial-able down to e.g. 2 without a
+     * code change if 12h proves heavy on a large mailbox.
+     */
+    private function pollLookbackHours(CommunicationMailbox $mailbox): int
+    {
+        $override = $mailbox->agency?->communication_poll_lookback_hours;
+        $hours = (int) ($override ?? config('communications.poll_lookback_hours', 12));
+
+        return max(1, min(168, $hours ?: 12));
+    }
+
+    /**
+     * 2026-09-08 (item 1, Johan) — advance ONE folder's watermark to the time
+     * its read started (never to "now", so nothing that arrives while THIS
+     * read was in flight is missed — it lands inside the next poll's overlap
+     * window instead). Only ever called after that folder's entire message
+     * loop ran to completion with nothing throwing — see the call site's own
+     * comment for the non-negotiable invariant this protects.
+     */
+    private function advanceWatermark(CommunicationMailbox $mailbox, bool $isInbound, Carbon $readStartedAt): void
+    {
+        $column = $isInbound ? 'inbox_watermark_at' : 'sent_watermark_at';
+        $mailbox->forceFill([$column => $readStartedAt])->save();
     }
 
     /**

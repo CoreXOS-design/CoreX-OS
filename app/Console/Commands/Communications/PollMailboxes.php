@@ -54,6 +54,18 @@ class PollMailboxes extends Command
 
                     $job = PollMailboxJob::dispatch((int) $mailbox->id);
 
+                    // Fairness (item 6, Johan 2026-09-08) — route a mailbox with a
+                    // recent history of slow polls onto its own queue (see
+                    // PollMailboxJob::SLOW_QUEUE_NAME) so it can never occupy a
+                    // worker slot the other, well-behaved mailboxes need. Checked
+                    // on the mailbox's OWN last recorded duration — self-healing,
+                    // not a permanent flag: the moment a poll on the slow queue
+                    // completes quickly again, its next dispatch goes back here.
+                    $slowThreshold = max(1, (int) PerformanceSetting::get('mailbox_poll_slow_threshold_seconds', 20));
+                    if ((int) ($mailbox->last_poll_duration_seconds ?? 0) > $slowThreshold) {
+                        $job->onQueue(PollMailboxJob::SLOW_QUEUE_NAME);
+                    }
+
                     if ($stagger > 0) {
                         $delay = min($dispatched * $stagger, $maxDelay);
                         if ($delay > 0) {

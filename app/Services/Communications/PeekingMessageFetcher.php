@@ -38,9 +38,32 @@ class PeekingMessageFetcher
      */
     public static function peek($client, int $uid, ?string $folderPath = null): ?Message
     {
+        return self::fetchAndRehydrate($client, $uid, $folderPath, 'BODY.PEEK[TEXT]', 'BODY[TEXT]');
+    }
+
+    /**
+     * 2026-09-08 (headers-first, item 2) — the SAME non-destructive peek, but
+     * without ever requesting the message TEXT. Every header-derived accessor
+     * (getFrom/getSubject/getDate/getMessageId) works exactly as on a full
+     * peek(); getTextBody()/getHTMLBody()/getAttachments() return empty,
+     * because the body was never asked for.
+     *
+     * Still a two-item fetch (BODY.PEEK[HEADER] + FLAGS, not header alone) —
+     * see the class docblock: a single-item BODY.PEEK[...] fetch throws in
+     * webklex's response parser, verified against the live server. FLAGS is
+     * already the cheapest possible second item and — bonus — means the
+     * separate flags() round trip peek() makes isn't needed here either.
+     */
+    public static function peekHeader($client, int $uid, ?string $folderPath = null): ?Message
+    {
+        return self::fetchAndRehydrate($client, $uid, $folderPath, 'FLAGS', null);
+    }
+
+    private static function fetchAndRehydrate($client, int $uid, ?string $folderPath, string $secondItem, ?string $bodyKey): ?Message
+    {
         $conn = $client->getConnection();
 
-        $data = $conn->fetch(['BODY.PEEK[HEADER]', 'BODY.PEEK[TEXT]'], [$uid], null, IMAP::ST_UID)
+        $data = $conn->fetch(['BODY.PEEK[HEADER]', $secondItem], [$uid], null, IMAP::ST_UID)
             ->validatedData();
 
         $row = $data[$uid] ?? null;
@@ -49,12 +72,17 @@ class PeekingMessageFetcher
         }
 
         $header = (string) ($row['BODY[HEADER]'] ?? '');
-        $body   = (string) ($row['BODY[TEXT]'] ?? '');
+        $body   = $bodyKey !== null ? (string) ($row[$bodyKey] ?? '') : '';
 
-        // Flags via a FETCH FLAGS (does not set \Seen), so the rehydrated message
-        // reports its true server-side seen/unseen state.
-        $flagsData = $conn->flags([$uid], IMAP::ST_UID)->validatedData();
-        $flags = (is_array($flagsData[$uid] ?? null)) ? $flagsData[$uid] : [];
+        // Flags: either already in $row (the header+FLAGS fetch above) or via a
+        // separate FETCH FLAGS (peek()'s header+TEXT fetch doesn't return them).
+        // Neither path sets \Seen.
+        if ($bodyKey === null) {
+            $flags = is_array($row['FLAGS'] ?? null) ? $row['FLAGS'] : [];
+        } else {
+            $flagsData = $conn->flags([$uid], IMAP::ST_UID)->validatedData();
+            $flags = (is_array($flagsData[$uid] ?? null)) ? $flagsData[$uid] : [];
+        }
 
         // Message::make() does `setFolderPath($client->getFolderPath())`, and that
         // getter returns the client's active_folder, which is nullable and is NOT

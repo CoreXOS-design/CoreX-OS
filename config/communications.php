@@ -59,9 +59,23 @@ return [
 
     /*
     | Inbound grace window (calendar days) before an unmatched inbound item
-    | prunes. Clamped to a maximum of 5 by CommunicationPending::graceDays().
+    | prunes. Clamped to a maximum of 30 by CommunicationPending::graceDays().
+    | 2026-09-08 (Johan): raised default 4 -> 7 -- see CommunicationPending
+    | for why. Per-agency override: agencies.communication_poll_lookback_hours.
     */
-    'pending_grace_days' => (int) env('COMMUNICATIONS_PENDING_GRACE_DAYS', 4),
+    'pending_grace_days' => (int) env('COMMUNICATIONS_PENDING_GRACE_DAYS', 7),
+
+    /*
+    | Rolling overlap lookback for incremental polling (item 1, Johan
+    | 2026-09-08). Each poll searches from (watermark - this many hours), not
+    | the watermark exactly -- IMAP's SINCE search is date-granularity only,
+    | so server-side narrowing is coarse by nature; the overlap plus
+    | Message-ID dedup (EmailArchiveIngestor::alreadySeen()) is how this
+    | stays correct instead of a hard cutoff that can silently lose mail on
+    | clock skew, a mid-poll arrival, or an out-of-order Date header.
+    | Per-agency override: agencies.communication_poll_lookback_hours.
+    */
+    'poll_lookback_hours' => (int) env('COMMUNICATIONS_POLL_LOOKBACK_HOURS', 12),
 
     /*
     |--------------------------------------------------------------------------

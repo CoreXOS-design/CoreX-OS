@@ -18,9 +18,16 @@ class CommunicationPending extends Model
 
     protected $table = 'communication_pending';
 
-    /** Grace window (calendar days) before an unmatched inbound item prunes. */
-    const DEFAULT_GRACE_DAYS = 4;
-    const MAX_GRACE_DAYS     = 5;
+    /**
+     * Grace window (calendar days) before an unmatched inbound item prunes.
+     * 2026-09-08 (Johan) — raised from 4 to 7: a genuinely unknown sender is
+     * exactly the mail least likely to want losing, and needs a real week for
+     * an agent to notice and claim it. MAX raised to 30 so an agency can
+     * genuinely extend the window (the old ceiling of 5 was below the new
+     * default itself).
+     */
+    const DEFAULT_GRACE_DAYS = 7;
+    const MAX_GRACE_DAYS     = 30;
 
     protected $fillable = [
         'agency_id', 'channel', 'direction', 'external_id', 'thread_key',
