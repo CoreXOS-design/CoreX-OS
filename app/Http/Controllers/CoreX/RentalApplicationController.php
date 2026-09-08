@@ -152,7 +152,33 @@ class RentalApplicationController extends Controller
                 ->withQueryString();
         }
 
-        return view('corex.rental-applications.index', compact('applications', 'archived', 'canSeeBranch', 'canSeeAgency', 'perPage'));
+        // AT-392, Johan (2026-09-08) — the two-screen split (this list =
+        // pre-submission pipeline, Returned Applications = everything the
+        // tenant has actually sent back) is deliberate and documented in
+        // the spec — NOT changed here, per his explicit instruction. What
+        // was missing was discoverability: "I create a rental application
+        // — it will sit under rental applications until the application
+        // has been returned. He expects it to move on return. The split
+        // is right; he just could not find the second screen." A dead end
+        // for an agent who sends an application and comes back later.
+        //
+        // Deliberately counts ONLY the statuses this list itself excludes
+        // (index()'s own whereNotIn above) — NOT in_progress/withdrawn,
+        // which already show right here too (see returned()'s own
+        // comment: those two are intentionally visible on both screens).
+        // Counting them here would tell an agent "N things live over
+        // there" when some of those N are already in the table in front
+        // of them — a number that lies is worse than no number. Gated on
+        // the same permission as the sidebar link and the screen itself,
+        // so this never advertises a screen the user cannot open.
+        $returnedCount = 0;
+        if ($request->user()->hasPermission('rental_applications.view_returned')) {
+            $returnedCount = RentalApplication::visibleTo($request->user())
+                ->whereIn('rental_applications.status', ['returned', 'under_assessment', 'approved', 'declined'])
+                ->count();
+        }
+
+        return view('corex.rental-applications.index', compact('applications', 'archived', 'canSeeBranch', 'canSeeAgency', 'perPage', 'returnedCount'));
     }
 
     /**

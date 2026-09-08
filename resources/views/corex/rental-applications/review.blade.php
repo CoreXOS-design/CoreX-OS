@@ -295,7 +295,17 @@
                         <dt style="color: var(--text-muted);">Current landlord</dt><dd>{{ $rentalApplication->current_landlord_name ?? '—' }}</dd>
                         <dt style="color: var(--text-muted);">Adults / Children</dt><dd>{{ $rentalApplication->adults ?? '—' }} / {{ $rentalApplication->children ?? '—' }}</dd>
                     </dl>
-                    <a href="{{ route('corex.rental-applications.show', $rentalApplication) }}" class="text-xs inline-block mt-3" style="color: var(--ds-blue, #2563eb);">View / edit full application &rarr;</a>
+                    {{--
+                        AT-392, Johan (2026-09-08) — this link's destination
+                        has been correctly read-only since the earlier
+                        signed-application fix; the label saying "edit" was
+                        stale and actively misleading about whether a
+                        signed document could still be tampered with. "Fix
+                        the stale label... it is actively misleading Johan
+                        about whether we are letting him tamper with a
+                        signed document."
+                    --}}
+                    <a href="{{ route('corex.rental-applications.show', $rentalApplication) }}" class="text-xs inline-block mt-3" style="color: var(--ds-blue, #2563eb);">View submitted application &rarr;</a>
                 </div>
             </div>
 

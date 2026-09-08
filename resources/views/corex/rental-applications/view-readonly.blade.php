@@ -144,16 +144,40 @@
         </div>
     </div>
 
-    <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+    {{--
+        Johan, driving this himself (2026-09-08): "the embedded PDF took
+        about five seconds to appear, showing an empty dark viewer panel
+        the whole time with no indication anything was loading. I
+        initially recorded it as broken." The PDF is generated server-side
+        (RentalApplicationPdfService, Puppeteer) on each request, not
+        cached — a real few-second wait is expected, so the fix is telling
+        the agent that, not making it faster. x-show hides on the
+        iframe's own @load event; no fixed timer, so it never lies about
+        whether the PDF has actually arrived.
+    --}}
+    <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);" x-data="{ pdfLoaded: false }">
         <h2 class="text-sm font-semibold mb-3" style="color: var(--text-primary);">Submitted Application</h2>
-        <iframe src="{{ route('corex.rental-applications.pdf-inline', $rentalApplication) }}"
-                title="Rental application as submitted and signed"
-                style="width: 100%; height: 85vh; border: 1px solid var(--border); border-radius: 6px; background: #fff;">
-            <p class="text-xs" style="color: var(--text-muted);">
-                Your browser can't display the PDF inline.
-                <a href="{{ route('corex.rental-applications.pdf', $rentalApplication) }}" style="color: var(--brand-icon, #2563eb);">Download it instead</a>.
-            </p>
-        </iframe>
+        <div class="relative" style="height: 85vh;">
+            <div x-show="!pdfLoaded" x-transition.opacity
+                 class="absolute inset-0 flex flex-col items-center justify-center gap-3 text-sm rounded-md"
+                 style="background: var(--surface-2, #f9fafb); border: 1px solid var(--border); color: var(--text-secondary);">
+                <svg class="animate-spin" style="width: 1.75rem; height: 1.75rem; color: var(--brand-icon, #2563eb);" viewBox="0 0 24 24" fill="none">
+                    <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" stroke-opacity="0.25"></circle>
+                    <path d="M22 12a10 10 0 0 0-10-10" stroke="currentColor" stroke-width="3" stroke-linecap="round"></path>
+                </svg>
+                <span>Loading the signed application&hellip;</span>
+            </div>
+            <iframe src="{{ route('corex.rental-applications.pdf-inline', $rentalApplication) }}"
+                    title="Rental application as submitted and signed"
+                    @load="pdfLoaded = true"
+                    x-show="pdfLoaded"
+                    style="width: 100%; height: 100%; border: 1px solid var(--border); border-radius: 6px; background: #fff;">
+                <p class="text-xs" style="color: var(--text-muted);">
+                    Your browser can't display the PDF inline.
+                    <a href="{{ route('corex.rental-applications.pdf', $rentalApplication) }}" style="color: var(--brand-icon, #2563eb);">Download it instead</a>.
+                </p>
+            </iframe>
+        </div>
     </div>
 </div>
 @endsection

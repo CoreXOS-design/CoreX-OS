@@ -33,6 +33,24 @@
         <div class="rounded-md px-4 py-3 text-sm" style="background: var(--ds-emerald-soft, #ecfdf5); color: var(--ds-emerald, #059669);">{{ session('success') }}</div>
     @endif
 
+    {{--
+        AT-392, Johan (2026-09-08): "I create a rental application — it
+        will sit under rental applications until the application has been
+        returned." The two-screen split is deliberate and stays — this is
+        the discoverability fix, not a redesign. Always visible (not just
+        in the empty state) so an agent who sends an application and comes
+        back later never hits a dead end wondering where it went once the
+        tenant replies.
+    --}}
+    @if($returnedCount > 0)
+        <div class="rounded-md px-4 py-3 text-sm flex items-center justify-between flex-wrap gap-2" style="background: var(--ds-blue-soft, #eff6ff); border: 1px solid var(--ds-blue, #2563eb); color: var(--text-primary);">
+            <span>
+                {{ $returnedCount }} {{ Str::plural('application', $returnedCount) }} the tenant has sent back {{ $returnedCount === 1 ? "isn't" : "aren't" }} shown here — they move to Returned Applications once the tenant replies.
+            </span>
+            <a href="{{ route('corex.rental-applications.returned') }}" class="corex-btn-primary text-xs shrink-0">Go to Returned Applications ({{ $returnedCount }}) &rarr;</a>
+        </div>
+    @endif
+
     {{-- 2026-09-08 — Johan's permanent CRUD standard: own/branch/agency
          scope TOGGLE, same segmented-link pattern as the buyer pipeline
          board (command-center/buyers/pipeline.blade.php's "Layer 3" toggle)
@@ -146,8 +164,14 @@
                         No rental applications match this search. Try clearing a filter{{ ($canSeeBranch || $canSeeAgency) && request('scope', 'own') === 'own' ? ', or widen the scope above' : '' }}.
                     @elseif(request('scope', 'own') === 'own' && ($canSeeBranch || $canSeeAgency))
                         You have no rental applications of your own yet. Try {{ $canSeeAgency ? 'Agency' : 'Branch' }} above if you're expecting to see a colleague's.
+                        @if($returnedCount > 0)
+                            <br>Applications the tenant has sent back don't show here — see <a href="{{ route('corex.rental-applications.returned') }}" style="color: var(--brand-icon, #2563eb);">Returned Applications ({{ $returnedCount }})</a>.
+                        @endif
                     @else
                         No rental applications yet.
+                        @if($returnedCount > 0)
+                            <br>Applications the tenant has sent back don't show here — see <a href="{{ route('corex.rental-applications.returned') }}" style="color: var(--brand-icon, #2563eb);">Returned Applications ({{ $returnedCount }})</a>.
+                        @endif
                     @endif
                 </td></tr>
                 @endforelse

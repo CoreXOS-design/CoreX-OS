@@ -11,8 +11,22 @@
 @section('corex-content')
 <div class="w-full space-y-5">
     <div class="rounded-md px-6 py-5 corex-page-banner">
-        <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Returned Applications</h1>
-        <p class="text-xs" style="color: var(--text-muted);">Applications the tenant has submitted, for the rental team to work through.</p>
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Returned Applications</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Applications the tenant has submitted, for the rental team to work through.</p>
+            </div>
+            {{--
+                AT-392, Johan (2026-09-08) — "make the relationship between
+                the two screens legible from both directions." The count
+                link back on Rental Applications points here; this is the
+                way back, so an agent can move between "building/sending"
+                and "the tenant has replied" without hunting the sidebar.
+            --}}
+            @permission('rental_applications.view')
+            <a href="{{ route('corex.rental-applications.index') }}" class="corex-btn-outline text-xs">&larr; Rental Applications</a>
+            @endpermission
+        </div>
     </div>
 
     <div class="flex gap-2">

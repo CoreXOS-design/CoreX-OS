@@ -4493,3 +4493,125 @@ checkout per the standing coordination process. The
 `has_unpaid_transactions` migration still needs `php artisan migrate`
 run on QA1's shared database once this lands, since it adds a new
 column.
+
+## Round 13 — the two-screen split stays; fixed discoverability, not architecture (Johan, QA1, 2026-09-08)
+
+Johan drove QA1 himself and found application 9 (`under_assessment`,
+already submitted for approval) invisible on `/corex/rental-applications`
+under every scope and with "Show archived" on. Investigated read-only
+first, reported back before building, per his own instruction.
+
+### What was actually true (confirmed, not assumed)
+
+- `RentalApplicationController::index()` deliberately excludes
+  `['returned', 'under_assessment', 'approved', 'declined']`
+  (`whereNotIn`) — matched exactly by the status filter dropdown
+  (`index.blade.php`, hardcoded `['draft', 'sent', 'in_progress',
+  'withdrawn']`). This is the **pre-submission pipeline** list.
+- `GET /corex/rental-applications/returned`
+  (`RentalApplicationController::returned()`) is a real, separate,
+  already-built, already-linked screen (sidebar: "Returned
+  Applications") holding exactly the complement:
+  `['in_progress', 'returned', 'under_assessment', 'approved',
+  'declined', 'withdrawn']`. `in_progress` and `withdrawn` deliberately
+  appear on BOTH screens (documented in the method's own comment,
+  earlier round) — nothing else overlaps.
+- Confirmed on Johan's real account: `hasPermission('rental_applications
+  .view_returned') === true`, scope ceiling `all`. The screen was
+  reachable and would have shown application 9 the whole time — he
+  had not tried the second tab.
+- **This is documented, deliberate design from an earlier round** ("Bug
+  1 — the list had no row actions": *"dropdown scoped to the statuses
+  that actually appear on this screen (draft, sent, in_progress — the
+  rest live on Returned Applications)"*) — not a defect, not something
+  the database refresh changed.
+- One genuine, unrelated defect found while investigating: `review
+  .blade.php:298`'s link to the read-only view was still labelled
+  "View / edit full application →", even though its destination
+  (`corex.rental-applications.show`) has correctly served the read-only
+  view for any submitted application since the earlier read-only-view
+  fix. The label was stale, not the behaviour — but Johan's whole
+  concern with this feature is "are we tampering with a signed
+  document," so a link that says "edit" next to a document he was told
+  is un-editable is a real trust problem on its own.
+
+### Johan's decision
+
+**Keep the two-screen split. Do not fold the lists together.** His own
+words: *"I create a rental application — it will sit under rental
+applications until the application has been returned."* He expects it
+to move on return — the split matches his own mental model; he simply
+could not find the second screen. Folding two screens into one would be
+a redesign nobody asked for. **`index()`'s status set and scope
+defaults are unchanged in this round** — confirmed by diff, not just by
+intent.
+
+### What was built — discoverability only
+
+1. **A live, permission-gated count with a direct link, on both empty
+   and populated states of `/corex/rental-applications`.**
+   `RentalApplicationController::index()` now also computes
+   `$returnedCount` — same `visibleTo($user)` default-to-ceiling scope
+   `returned()` itself uses, same status set `index()` itself excludes
+   (`['returned', 'under_assessment', 'approved', 'declined']` —
+   deliberately NOT `in_progress`/`withdrawn`, since those already show
+   on this screen too; counting them would tell an agent "N things live
+   over there" while some of those N sit in the table in front of them).
+   Gated on `rental_applications.view_returned` so it never advertises
+   a screen the user cannot open. Rendered as: (a) a persistent banner
+   above the table whenever the count is above zero, regardless of
+   whether the current filter/scope has any rows to show, and (b) folded
+   into both empty-state branches in Johan's own language: *"Applications
+   the tenant has sent back don't show here — see Returned Applications
+   (N)."*
+2. **A way back.** `returned.blade.php`'s header gained a
+   "← Rental Applications" link (permission-gated the same as the
+   sidebar's own link to that screen), so the relationship is legible
+   from both directions, not just one.
+3. **The stale label fixed.** `review.blade.php:298` now reads "View
+   submitted application →" — same destination, wording that matches
+   what it actually does.
+4. **Loading state on the embedded signed-PDF viewer**, found by Johan
+   driving the read-only view himself: *"the embedded PDF took about
+   five seconds to appear, showing an empty dark viewer panel the whole
+   time with no indication anything was loading. I initially recorded
+   it as broken. Johan will do the same."* The PDF is generated
+   server-side per request (`RentalApplicationPdfService`, Puppeteer,
+   not cached) — a genuine few-second wait, not a bug to make faster.
+   `view-readonly.blade.php`'s iframe now sits under a spinner + "Loading
+   the signed application…" overlay, hidden on the iframe's own `@load`
+   event (no fixed timer — never claims the PDF has arrived before it
+   actually has).
+
+### Verified on records not created for this task
+
+Application 9 (real, agency 1, branch 1, `under_assessment`,
+`submitted_for_approval_at` set) used throughout — created by Johan's
+own earlier testing, not by this round. Confirmed over real HTTP, on the
+real QA1 checkout: the banner and count render correctly on
+`/corex/rental-applications` for a real admin account, the count matches
+a direct query, the link lands on `/corex/rental-applications/returned`
+and shows application 9, the return link works, the review-screen label
+change renders, and the PDF viewer shows the loading state before the
+signed PDF appears (confirmed via the real ~5s generation delay, not
+simulated).
+
+### Files touched
+
+- `app/Http/Controllers/CoreX/RentalApplicationController.php` —
+  `index()` computes `$returnedCount`
+- `resources/views/corex/rental-applications/index.blade.php` — banner +
+  empty-state wording
+- `resources/views/corex/rental-applications/returned.blade.php` — way
+  back
+- `resources/views/corex/rental-applications/review.blade.php` — stale
+  label fixed
+- `resources/views/corex/rental-applications/view-readonly.blade.php` —
+  PDF loading state
+
+### Still open, Johan's call, not mine
+
+Johan is separately weighing whether to put the two-screen question back
+to himself as a decision he may want to revisit later. This round does
+not pre-empt that — it only fixes discoverability of the design as it
+stands today.
