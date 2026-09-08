@@ -71,9 +71,25 @@ class RentalApplicationGeneration extends Model
         return static::where('rental_application_id', $rentalApplicationId)->orderByDesc('generation')->first();
     }
 
-    /** Compute the chained content hash for a given prior hash + snapshot. */
+    /**
+     * Compute the chained content hash for a given prior hash + snapshot.
+     *
+     * 2026-09-08 — caught by RentalApplicationReopenTest: MySQL's native
+     * JSON column type normalizes key order on storage, so re-encoding a
+     * value read back from `snapshot_json` (via Eloquent's array cast)
+     * produced a DIFFERENT byte sequence than the encoding used when the
+     * hash was first computed at seal() time — even though the underlying
+     * data was identical, making verifyChain() report tampering on every
+     * genuine row. ksort() here, on both the seal-time and verify-time
+     * call, makes the encoding canonical regardless of MySQL's own storage
+     * order or PHP's array insertion order. Flat, one level — snapshot_json
+     * is a flat field=>scalar map (see seal()), never nested, so a single
+     * top-level ksort is sufficient.
+     */
     public static function computeHash(?string $prevHash, array $snapshot): string
     {
+        ksort($snapshot);
+
         return hash('sha256', ($prevHash ?? '') . json_encode($snapshot, JSON_THROW_ON_ERROR));
     }
 
