@@ -31,7 +31,7 @@
 
     <div class="flex gap-2">
         <a href="{{ route('corex.rental-applications.returned', request()->except(['status', 'page'])) }}" class="corex-btn-outline text-xs {{ !request('status') ? 'corex-tab-active' : '' }}">All</a>
-        @foreach(['in_progress', 'returned', 'under_assessment', 'approved', 'declined', 'withdrawn'] as $status)
+        @foreach(['in_progress', 'returned', 'reopened', 'under_assessment', 'approved', 'declined', 'withdrawn'] as $status)
             <a href="{{ route('corex.rental-applications.returned', array_merge(request()->except('page'), ['status' => $status])) }}"
                class="corex-btn-outline text-xs {{ request('status') === $status ? 'corex-tab-active' : '' }}">
                 {{ str_replace('_', ' ', ucfirst($status)) }}
