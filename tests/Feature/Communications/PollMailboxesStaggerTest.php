@@ -172,4 +172,64 @@ final class PollMailboxesStaggerTest extends TestCase
 
         Queue::assertPushed(PollMailboxJob::class, 2);
     }
+
+    // ── Back-off on failure (2026-09-08/09, Johan) ─────────────────────────────
+    // consecutive_failures existed before today but nothing here ever read it —
+    // a mailbox that failed every cycle stayed "due" forever, dispatched on
+    // EVERY scheduler tick (see isDue()'s own comment on why last_polled_at
+    // never resetting made this worse than the fixed interval alone would
+    // suggest). These prove the two new checks actually exclude dispatch.
+
+    public function test_a_mailbox_disabled_by_the_system_is_never_dispatched_regardless_of_how_overdue_it_looks(): void
+    {
+        Queue::fake();
+        CommunicationMailbox::create([
+            'agency_id' => $this->agencyId, 'email_address' => 'disabled@agency.test',
+            'imap_host' => 'imap.agency.test', 'imap_port' => 993, 'username' => 'disabled@agency.test',
+            'encrypted_password' => 'secret', 'poll_inbox' => true, 'poll_sent' => false,
+            'poll_interval_minutes' => 15, 'active' => true,
+            // Never polled AND long overdue by every other signal -- only
+            // poll_disabled_at should be what keeps this out.
+            'last_polled_at' => null, 'consecutive_failures' => 12,
+            'poll_disabled_at' => now()->subDays(3),
+        ]);
+
+        $this->artisan('communications:poll-mailboxes')->assertSuccessful();
+
+        Queue::assertNotPushed(PollMailboxJob::class);
+    }
+
+    public function test_a_mailbox_still_inside_its_backoff_window_is_not_dispatched(): void
+    {
+        Queue::fake();
+        CommunicationMailbox::create([
+            'agency_id' => $this->agencyId, 'email_address' => 'backingoff@agency.test',
+            'imap_host' => 'imap.agency.test', 'imap_port' => 993, 'username' => 'backingoff@agency.test',
+            'encrypted_password' => 'secret', 'poll_inbox' => true, 'poll_sent' => false,
+            'poll_interval_minutes' => 15, 'active' => true,
+            'last_polled_at' => null, 'consecutive_failures' => 2,
+            'next_poll_earliest_at' => now()->addMinutes(10),
+        ]);
+
+        $this->artisan('communications:poll-mailboxes')->assertSuccessful();
+
+        Queue::assertNotPushed(PollMailboxJob::class);
+    }
+
+    public function test_a_mailbox_whose_backoff_window_has_elapsed_is_dispatched_again(): void
+    {
+        Queue::fake();
+        CommunicationMailbox::create([
+            'agency_id' => $this->agencyId, 'email_address' => 'recovering@agency.test',
+            'imap_host' => 'imap.agency.test', 'imap_port' => 993, 'username' => 'recovering@agency.test',
+            'encrypted_password' => 'secret', 'poll_inbox' => true, 'poll_sent' => false,
+            'poll_interval_minutes' => 15, 'active' => true,
+            'last_polled_at' => null, 'consecutive_failures' => 2,
+            'next_poll_earliest_at' => now()->subSecond(), // just elapsed
+        ]);
+
+        $this->artisan('communications:poll-mailboxes')->assertSuccessful();
+
+        Queue::assertPushed(PollMailboxJob::class, 1);
+    }
 }

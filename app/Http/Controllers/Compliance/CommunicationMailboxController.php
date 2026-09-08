@@ -226,6 +226,16 @@ class CommunicationMailboxController extends Controller
             )->save();
         }
 
+        // 2026-09-08/09 (Johan, back-off on failure) — "A successful poll or
+        // test resets the counter and the back-off." The IMAP leg succeeding
+        // here is a real, human-triggered proof this mailbox can connect and
+        // authenticate — a mailbox that was disabled or backing off must not
+        // sit there until its next scheduled attempt when a human just showed
+        // it works.
+        if ($append['ok']) {
+            app(\App\Services\Communications\MailboxHealthRecorder::class)->resetBackoffOnManualSuccess($mailbox);
+        }
+
         return back()->with('test_connection_result', $result);
     }
 

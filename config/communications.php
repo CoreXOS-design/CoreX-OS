@@ -134,6 +134,31 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Poll back-off on failure (2026-09-08/09, Johan) — stops the forever-hammering
+    |--------------------------------------------------------------------------
+    | consecutive_failures existed before today but was only ever RECORDED —
+    | PollMailboxes::isDue() checked just last_polled_at vs poll_interval_minutes,
+    | so a mailbox that failed every cycle got dispatched again at the SAME fixed
+    | cadence forever. 20 mailboxes retried every 5 minutes for six hours is what
+    | turned a brief provider-side block into an all-day outage.
+    |
+    | poll_backoff_base_seconds — first back-off step, doubled per additional
+    |   consecutive failure (1st failure -> base, 2nd -> base*2, 3rd -> base*4, …),
+    |   capped at poll_backoff_max_seconds. Agency-overridable via
+    |   agencies.communication_poll_backoff_base_seconds.
+    | poll_backoff_max_seconds  — ceiling on the growing back-off. Agency-overridable
+    |   via agencies.communication_poll_backoff_max_seconds.
+    | poll_disable_threshold    — consecutive failures before polling STOPS entirely
+    |   (communication_mailboxes.poll_disabled_at) rather than continuing to back
+    |   off. Requires a human to intervene, or a successful Test Connection, to
+    |   clear. Agency-overridable via agencies.communication_poll_disable_threshold.
+    */
+    'poll_backoff_base_seconds' => (int) env('COMMUNICATIONS_POLL_BACKOFF_BASE_SECONDS', 300),
+    'poll_backoff_max_seconds' => (int) env('COMMUNICATIONS_POLL_BACKOFF_MAX_SECONDS', 21600),
+    'poll_disable_threshold' => (int) env('COMMUNICATIONS_POLL_DISABLE_THRESHOLD', 10),
+
+    /*
+    |--------------------------------------------------------------------------
     | Outgoing mail (AT-395 Phase A) — per-mailbox SMTP send + Sent-folder copy
     |--------------------------------------------------------------------------
     | Consecutive failed sends before the agency's admins are alerted (once per

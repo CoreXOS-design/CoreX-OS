@@ -141,6 +141,12 @@ class CommunicationCaptureController extends Controller
             )->save();
         }
 
+        // 2026-09-08/09 (Johan, back-off on failure) — a human-proven-working
+        // IMAP leg resets any back-off/disable state immediately.
+        if ($append['ok']) {
+            app(\App\Services\Communications\MailboxHealthRecorder::class)->resetBackoffOnManualSuccess($mailbox);
+        }
+
         return back()
             ->with('test_connection_result', ['smtp' => $smtp, 'imap_append' => $imapAppend])
             ->with('test_connection_mailbox_id', $mailbox->id);
