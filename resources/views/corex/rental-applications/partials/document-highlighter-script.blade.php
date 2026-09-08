@@ -100,15 +100,26 @@ function rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, curre
 
         // Highlighter size, 2026-09-08 — Johan: "current on highlights too
         // much lines on bank statement - lines are small there." Three
-        // presets, not a slider. 'medium' (22) is the unchanged prior
-        // default, so nothing changes for anyone who never touches this.
+        // presets, not a slider.
+        //
+        // 2026-09-08, revised — Johan, testing live: at Thin (and to a
+        // lesser extent Medium) a mark read as "a hairline dark-green
+        // stroke", no visible translucent band — only at Thick did the
+        // agreed marker-pen look actually show up. Root cause: the
+        // UNDERLINE was a fixed 3px at every size, so at a 10px fill it was
+        // 30% of the band's own width, fully opaque next to a fill at only
+        // 0.4 opacity — the underline visually dominated. Fixed alongside
+        // strokesSvgFor() below: bigger fill sizes (10/16/24, Johan's own
+        // numbers, checked by eye against the real document, not derived by
+        // arithmetic), a slimmer fixed 2px underline so it can never
+        // out-weigh even the thinnest band, and a higher fill opacity.
         strokeSizes: [
             { key: 'thin',   label: 'Thin',   px: 10 },
-            { key: 'medium', label: 'Medium', px: 22 },
-            { key: 'thick',  label: 'Thick',  px: 36 },
+            { key: 'medium', label: 'Medium', px: 16 },
+            { key: 'thick',  label: 'Thick',  px: 24 },
         ],
         strokeSizeKey: 'medium',
-        strokeWidth: 22,
+        strokeWidth: 16,
         setStrokeSize(key) {
             const s = this.strokeSizes.find(s => s.key === key);
             if (!s) return;
@@ -234,9 +245,35 @@ function rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, curre
                 this.loading = false;
             }
         },
-        /** Version-conflict recovery (Johan: visible and recoverable, not silent — no live locking). Discards this tab's unsaved marks and re-fetches the current, now-authoritative state. */
+        /**
+         * Version-conflict recovery (Johan: visible and recoverable, not
+         * silent — no live locking). Re-fetches the current, now-
+         * authoritative state (fresh page images, the current version,
+         * anyone else's marks) — but does NOT throw away marks this tab
+         * drew and hadn't saved yet.
+         *
+         * 2026-09-08 — Johan: "nobody should lose what they just drew
+         * because of a save refusal. The marks must stay on screen so the
+         * user can save them after reloading." The original version just
+         * called loadDocument(), which resets `marks` to whatever the
+         * server already knew about — exactly the marks that caused the
+         * conflict AND the one just drawn both vanished. Fixed by
+         * snapshotting anything in `this.marks` whose id isn't anywhere in
+         * `_savedByPage` (i.e. drawn locally since the last load/save, the
+         * server has never heard of it) before reloading, then re-adding
+         * it on top of the freshly-loaded state and marking the document
+         * dirty again so the banner clears but Save is still live.
+         */
         async reloadHighlighter() {
+            const pending = this.marks.filter(m => m.id && !this._isMarkKnownToServer(m.id));
             await this.loadDocument();
+            if (pending.length) {
+                this.marks.push(...pending);
+                this.dirty = true;
+            }
+        },
+        _isMarkKnownToServer(id) {
+            return Object.values(this._savedByPage).some(list => (list || []).some(m => m.id === id));
         },
         // Progressive load, 2026-09-08 — runs AFTER page 1 is already on
         // screen; deliberately not awaited by openHighlighter() so the viewer
@@ -385,13 +422,22 @@ function rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, curre
                 '<polyline points="' + points.map(pt => Number(pt.x) + ',' + Number(pt.y)).join(' ') + '" fill="none" stroke="' + color + '" stroke-opacity="' + opacity + '" stroke-width="' + Number(width) + '" stroke-linecap="round" stroke-linejoin="round"></polyline>';
             let svg = '';
             this.strokesFor(p).forEach(m => {
-                svg += poly(m.points, this.fillFor(m), m.width, 0.4);
-                const offset = (m.width || this.strokeWidth) * 0.45;
-                svg += poly(m.points.map(pt => ({ x: pt.x, y: pt.y + offset })), this.underlineFor(m), 3, 1);
+                // Floor, 2026-09-08 — Johan: "with a floor so it can never
+                // collapse." A mark restored from an old save (or scaled
+                // down oddly by the raster<->display conversion) must still
+                // read as a real band, never thin out to a hairline.
+                const fillWidth = Math.max(m.width, 8);
+                svg += poly(m.points, this.fillFor(m), fillWidth, 0.5);
+                // Underline stays a small FIXED 2px at every size — Johan:
+                // "the underline stays 1-2px and never dominates" — so even
+                // the thinnest band (10px) keeps it a clearly subordinate
+                // accent, not a competing stroke.
+                const offset = fillWidth * 0.45;
+                svg += poly(m.points.map(pt => ({ x: pt.x, y: pt.y + offset })), this.underlineFor(m), 2, 1);
             });
             if (this.drag.active && this.drag.page === p && this.activeTool === 'highlight') {
                 const preview = { category: this.activeCategory, authorRole: this.currentUserRole };
-                svg += poly(this.drag.points, this.fillFor(preview), this.strokeWidth, 0.4);
+                svg += poly(this.drag.points, this.fillFor(preview), Math.max(this.strokeWidth, 8), 0.5);
             }
             return svg;
         },
