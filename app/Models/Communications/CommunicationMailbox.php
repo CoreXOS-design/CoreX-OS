@@ -89,6 +89,15 @@ class CommunicationMailbox extends Model
     // to look at this" is a different, more urgent message than "currently
     // erroring, will keep retrying."
     public const HEALTH_DISABLED = 'disabled';
+    // 2026-09-08 night run (Johan, via conductor) — "a mailbox shows a red
+    // FAILING badge when it simply has not been polled recently — last_error
+    // null, nothing wrong, just stale." Previously last_polled_at going past
+    // the freshness window collapsed straight into HEALTH_FAILING, the same
+    // label as a genuine connect/auth error, on a mailbox that had a real
+    // prior success and no recorded error at all. Checked right before
+    // HEALTH_FAILING: only fires when nothing else (disabled/behind/an
+    // actual last_error) already explains the state.
+    public const HEALTH_STALE = 'stale';
 
     // Never serialised. The encrypted password is write-only from every UI/API —
     // the single sanctioned read path is the audited reveal (AT-37), which reads
@@ -240,8 +249,14 @@ class CommunicationMailbox extends Model
      *               B). Checked BEFORE last_error/staleness on purpose: a mailbox that is
      *               genuinely working must never be reported as broken just because it
      *               hasn't finished yet.
-     *  - failing  : active but the last poll errored, OR it has never connected / gone stale
-     *               beyond ~2 intervals (the broken-setup signature — bad host/creds/TLS).
+     *  - failing  : active but the last poll errored, OR it has NEVER successfully connected
+     *               and is overdue for its first poll (the broken-setup signature — bad
+     *               host/creds/TLS). A mailbox that never once succeeded gets no benefit of
+     *               the doubt — "stale" below only applies once there is a real prior success.
+     *  - stale    : (2026-09-08 night run) active, no recorded error, DID successfully poll
+     *               before, but that success has gone past the freshness window — the
+     *               scheduler simply hasn't gotten back to it. Says nothing about whether the
+     *               mailbox actually works; never the same label as a genuine failure.
      *  - pending  : active, never polled yet, but not yet overdue for its first poll (a brand-new
      *               mailbox the scheduler simply has not reached — not a failure).
      *  - healthy  : active, last poll succeeded, and it is within its freshness window.
@@ -261,9 +276,10 @@ class CommunicationMailbox extends Model
             return self::HEALTH_FAILING;
         }
         if ($this->last_polled_at !== null) {
-            return $this->isPollStale() ? self::HEALTH_FAILING : self::HEALTH_HEALTHY;
+            return $this->isPollStale() ? self::HEALTH_STALE : self::HEALTH_HEALTHY;
         }
-        // Never polled: pending until it is overdue for a first poll, then failing.
+        // Never polled: pending until it is overdue for a first poll, then failing —
+        // no prior success exists here, so this is the broken-setup signature, not stale.
         $overdue = $this->created_at !== null
             && $this->created_at->lt(now()->subMinutes($this->staleThresholdMinutes()));
 
@@ -298,6 +314,22 @@ class CommunicationMailbox extends Model
         return $this->messages_behind_estimate > 0
             ? "Connected — working through a backlog, about {$this->messages_behind_estimate} message(s) behind."
             : 'Connected — working through a backlog, catching up now.';
+    }
+
+    /**
+     * 2026-09-08 night run (Johan, via conductor) — plain-English explanation for
+     * HEALTH_STALE. Deliberately does NOT say "error" or "failing" anywhere —
+     * the whole point of this state is that nothing is known to be wrong, the
+     * scheduler just hasn't gotten back to this mailbox yet. Null when not
+     * stale (caller checks pollHealth() first).
+     */
+    public function staleLabel(): ?string
+    {
+        if ($this->last_polled_at === null) {
+            return null;
+        }
+
+        return "Not polled since {$this->last_polled_at->format('d M H:i')} ({$this->last_polled_at->diffForHumans()}) — no error, it just hasn't run recently.";
     }
 
     /**
