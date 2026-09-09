@@ -416,6 +416,8 @@ Route::middleware(['auth:sanctum', 'app_access'])->group(function () {
                 'id' => $user->id,
                 'name' => $user->name,
                 'email' => $user->email,
+                'role' => $user->role,
+                'role_label' => $user->roleModel()?->label ?? ucfirst((string) ($user->role ?? 'agent')),
                 'branch' => $user->branch?->name ?? null,
                 'ffc_status' => $user->ffc_status ?? null,
                 'agency' => $agency ? [
@@ -425,6 +427,13 @@ Route::middleware(['auth:sanctum', 'app_access'])->group(function () {
                 ] : null,
             ]);
         })->name('v1.profile');
+
+        // Mobile Profile screen — FFC/cell/WhatsApp/socials view+edit, plus the
+        // public agent-page preview URL. Spec: .ai/specs/mobile-agent-profile.md
+        Route::get('/mobile/profile', [\App\Http\Controllers\Api\MobileProfileController::class, 'show'])
+            ->name('v1.mobile.profile.show');
+        Route::patch('/mobile/profile', [\App\Http\Controllers\Api\MobileProfileController::class, 'update'])
+            ->name('v1.mobile.profile.update');
 
         // Mobile "Delete my account" (Apple 5.1.1(v)). Turns app_access OFF —
         // see .ai/specs/mobile-app-access.md. Does not touch the User row.
