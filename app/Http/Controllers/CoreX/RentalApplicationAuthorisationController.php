@@ -223,9 +223,22 @@ class RentalApplicationAuthorisationController extends Controller
         // same reasoning as RentalApplicationReviewController::show().
         $markColors = \App\Models\RentalApplicationMarkColorSetting::colorsFor((int) $rentalApplication->agency_id);
 
-        return view('corex.rental-applications.authorisation.show', compact(
+        // Unified screen, 2026-09-09 — Johan: "did I not tell you the
+        // reviewer screen is essentially the same screen as the agent
+        // screen? same fucking problem I have been describing all along."
+        // This route stays separate (guardCanView()'s RO/CO tier check is a
+        // genuinely different question from guardRentalApplication()'s
+        // ownership/branch/agency scope — collapsing the two guards would be
+        // exactly the fragile conflation that's bitten this feature before),
+        // but now renders the SAME view as RentalApplicationReviewController
+        // ::show() rather than a second blade — $viewerRole is the only
+        // thing telling it which role is looking. The authorisation queue's
+        // links are unchanged; they still point here.
+        $viewerRole = 'authoriser';
+
+        return view('corex.rental-applications.review', compact(
             'rentalApplication', 'assessment', 'maxRentPercent', 'result', 'documents', 'history', 'auditLog', 'auditLogTotal', 'canOverride', 'alreadyDecided',
-            'blockedBySelfApproval', 'serializedIncomeItems', 'serializedExpenseItems', 'markColors'
+            'blockedBySelfApproval', 'serializedIncomeItems', 'serializedExpenseItems', 'markColors', 'viewerRole'
         ));
     }
 
