@@ -523,6 +523,10 @@ Route::middleware(['auth:sanctum', 'app_access'])->group(function () {
             // itself, so anything that arrived untagged stayed untagged forever
             // on mobile. See MobilePropertyController::assignGalleryTag().
             Route::put('/{property}/gallery/assign',        [MobilePropertyController::class, 'assignGalleryTag'])->name('v1.mobile.properties.gallery.assign');
+            // Drag-reorder the photo grid (or one tag's bucket) and the tag list
+            // itself. Spec: .ai/specs/mobile-gallery-sort.md
+            Route::put('/{property}/gallery/reorder',       [MobilePropertyController::class, 'reorderImages'])->name('v1.mobile.properties.gallery.reorder');
+            Route::put('/{property}/gallery/tags/reorder',  [MobilePropertyController::class, 'reorderGalleryTags'])->name('v1.mobile.properties.gallery.tags.reorder');
             // Take a photo back off the listing. Needed once the app enqueues at
             // the shutter and drains without waiting for the camera to close: a
             // photo deleted in review may already be on the server, and until now
