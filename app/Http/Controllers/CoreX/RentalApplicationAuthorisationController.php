@@ -44,6 +44,7 @@ use Illuminate\View\View;
 class RentalApplicationAuthorisationController extends Controller
 {
     use HandlesRentalApplicationDocumentMarks;
+    use \App\Http\Controllers\Concerns\FiltersRentalApplicationList;
 
     /** Mime types the browser can render natively — mirrors RentalApplicationReviewController exactly. */
     private const INLINE_VIEWABLE_MIME_PREFIXES = ['application/pdf', 'image/'];
@@ -135,6 +136,16 @@ class RentalApplicationAuthorisationController extends Controller
      * the underlying BelongsToAgency global scope on RentalApplication still
      * means a user can only ever see their OWN agency's applications, cross-
      * agency data never reaches this query at all.
+     *
+     * Search/sort, 2026-09-09 (design-standard audit) — Johan: "search must
+     * cover what an RO or CO would actually type: applicant name, property,
+     * agent." Reuses FiltersRentalApplicationList — the exact same logic
+     * index()/returned() already have — rather than a third hand-rolled
+     * copy. Sortable: contact, property, agent, submitted. Default stays
+     * submitted-oldest-first (unchanged from before this task): the point
+     * of a decision queue is working the longest-waiting application first,
+     * so this is the one screen where the shared trait's own default
+     * (newest-first) would be the wrong choice — passed explicitly.
      */
     public function index(Request $request): View
     {
@@ -142,11 +153,13 @@ class RentalApplicationAuthorisationController extends Controller
         abort_unless($user->isRentalApplicationRO() || $user->isRentalApplicationCO(), 403,
             'You are not configured as a rental application Reviewer or Override user. Ask an admin to add you in Settings.');
 
-        $applications = RentalApplication::whereNotNull('submitted_for_approval_at')
-            ->where('status', 'under_assessment')
-            ->with(['contact', 'property'])
-            ->orderBy('submitted_for_approval_at')
-            ->paginate(20);
+        $query = RentalApplication::whereNotNull('submitted_for_approval_at')
+            ->where('rental_applications.status', 'under_assessment')
+            ->with(['contact', 'property', 'createdBy']);
+
+        $this->applySearchSortAndDateRange($query, $request, 'submitted_for_approval_at', 'submitted_for_approval_at', 'asc');
+
+        $applications = $query->paginate(20)->withQueryString();
 
         return view('corex.rental-applications.authorisation.index', compact('applications'));
     }

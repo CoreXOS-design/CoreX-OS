@@ -25,92 +25,7 @@ use Illuminate\View\View;
 class RentalApplicationController extends Controller
 {
     use \App\Http\Controllers\Concerns\AuthorizesRentalApplicationAccess;
-
-    /**
-     * Search fields (spec §"Agent-side hardening", widened 2026-09-08 per
-     * Johan's CRUD standard): contact full name/email, PLUS the
-     * application's own captured full_name/email/id_number (Fill & Review
-     * data can differ from — or exist without — a linked Contact, so
-     * searching only the Contact silently missed applications), property
-     * address (both the linked Property's own address and the free-text
-     * property_address_override), and the application id itself as the
-     * "reference" (an agent quoting "#42"). No separate passport-number or
-     * unit-number column exists on this table (checked the migration) —
-     * reported, not invented; id_number is the only identity field this
-     * schema actually carries today.
-     * Sortable columns: contact name, property, status, created, updated,
-     * agent (created_by_user_id — the module's "agent" per its own
-     * scopeVisibleTo() docblock). Default sort: created_at desc (newest
-     * first) — unchanged from before this standard, now explicit and
-     * user-controllable.
-     */
-    private function applySearchSortAndDateRange($query, Request $request, string $dateColumn, string $defaultSort)
-    {
-        // 2026-09-08 — every column below is qualified with the
-        // rental_applications table explicitly. Found over real HTTP (not
-        // by reading the blade — a plain sort=contact/property request
-        // 500'd): contacts, users, AND properties all carry their own id,
-        // email, id_number, status, created_at, updated_at (and
-        // contacts/users also branch_id/created_by_user_id — see
-        // RentalApplication::scopeVisibleTo()). The moment this query is
-        // combined with a LEFT JOIN to any of those tables (which sorting
-        // by Applicant/Property/Agent already does, below), an unqualified
-        // column throws SQLSTATE 1052 "ambiguous". Pre-existing for
-        // sort=contact/property before this task touched the file; also
-        // hit by the new sort=agent. Qualifying every reference here fixes
-        // all of them at once, in the one place they're all built.
-        if ($request->filled('q')) {
-            $q = trim((string) $request->string('q'));
-            $query->where(function ($w) use ($q) {
-                $w->where('rental_applications.id', 'like', "%{$q}%")
-                    ->orWhere('rental_applications.full_name', 'like', "%{$q}%")
-                    ->orWhere('rental_applications.email', 'like', "%{$q}%")
-                    ->orWhere('rental_applications.id_number', 'like', "%{$q}%")
-                    ->orWhere('rental_applications.property_address_override', 'like', "%{$q}%")
-                    ->orWhereHas('contact', fn ($c) => $c->where('first_name', 'like', "%{$q}%")
-                        ->orWhere('last_name', 'like', "%{$q}%")
-                        ->orWhere('email', 'like', "%{$q}%"))
-                    ->orWhereHas('property', fn ($p) => $p->where('address', 'like', "%{$q}%")
-                        ->orWhere('title', 'like', "%{$q}%"));
-            });
-        }
-
-        if ($request->filled('status')) {
-            $query->where('rental_applications.status', $request->string('status'));
-        }
-
-        if ($request->filled('date_from')) {
-            $query->whereDate("rental_applications.{$dateColumn}", '>=', $request->date('date_from'));
-        }
-        if ($request->filled('date_to')) {
-            $query->whereDate("rental_applications.{$dateColumn}", '<=', $request->date('date_to'));
-        }
-
-        $sortable = [
-            'contact'  => 'contacts.last_name',
-            'property' => 'properties.address',
-            'status'   => 'rental_applications.status',
-            'date'     => "rental_applications.{$dateColumn}",
-            'updated'  => 'rental_applications.updated_at',
-            'agent'    => 'users.name',
-        ];
-        $sort = $sortable[$request->string('sort')->toString()] ?? "rental_applications.{$defaultSort}";
-        $direction = $request->string('direction')->toString() === 'asc' ? 'asc' : 'desc';
-
-        if ($sort === 'users.name') {
-            $query->leftJoin('users', 'users.id', '=', 'rental_applications.created_by_user_id')
-                ->orderBy('users.name', $direction)
-                ->select('rental_applications.*');
-        } elseif (in_array($sort, ['contacts.last_name', 'properties.address'], true)) {
-            $query->leftJoin($sort === 'contacts.last_name' ? 'contacts' : 'properties', $sort === 'contacts.last_name' ? 'contacts.id' : 'properties.id', '=', $sort === 'contacts.last_name' ? 'rental_applications.contact_id' : 'rental_applications.property_id')
-                ->orderBy($sort, $direction)
-                ->select('rental_applications.*');
-        } else {
-            $query->orderBy($sort, $direction);
-        }
-
-        return $query;
-    }
+    use \App\Http\Controllers\Concerns\FiltersRentalApplicationList;
 
     /**
      * 2026-09-08 — Johan's permanent CRUD standard: "search / sort / own /
@@ -226,6 +141,11 @@ class RentalApplicationController extends Controller
         $canSeeBranch = in_array($maxScope, ['branch', 'all'], true);
         $canSeeAgency = $maxScope === 'all';
 
+        // 2026-09-09 (design-standard audit) — Johan: "per-page control,
+        // matching the index screen's 10-100 range sitting right next to
+        // it." Same clamp, same default (25), as index()'s own $perPage.
+        $perPage = min(100, max(10, $request->integer('per_page', 25)));
+
         $query = RentalApplication::visibleTo($request->user(), $requestedScope)
             ->with(['contact', 'property', 'signatures'])
             // Table-qualified — see applySearchSortAndDateRange()'s own
@@ -242,9 +162,9 @@ class RentalApplicationController extends Controller
         // now that index() needs it too — removed the duplicate here.
         $this->applySearchSortAndDateRange($query, $request, 'submitted_at', 'submitted_at');
 
-        $applications = $query->paginate(25)->withQueryString();
+        $applications = $query->paginate($perPage)->withQueryString();
 
-        return view('corex.rental-applications.returned', compact('applications', 'canSeeBranch', 'canSeeAgency'));
+        return view('corex.rental-applications.returned', compact('applications', 'canSeeBranch', 'canSeeAgency', 'perPage'));
     }
 
     /**
