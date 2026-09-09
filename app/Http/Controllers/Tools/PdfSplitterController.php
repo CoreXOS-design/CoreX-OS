@@ -1363,7 +1363,13 @@ class PdfSplitterController extends Controller
                 $nameAlreadyFiled = fn (string $name) => $this->propertyDocNameExists($property->id, $name);
             }
 
-            $baseName = $subjectLabel . ' · ' . $docLabel . ' · ' . $fileDate;
+            // A document-type label may legitimately contain a slash ('IDs / Identity'),
+            // and so may a contact or address subject. A slash in a stored filename makes
+            // every later download of it a 500, so the name is sanitised HERE — before the
+            // duplicate check below — so that check compares the form actually stored.
+            $baseName = \App\Models\Document::sanitizeOriginalName(
+                $subjectLabel . ' · ' . $docLabel . ' · ' . $fileDate
+            );
             $n = 1;
             $filename = $baseName . '.pdf';
             while (in_array($filename, $usedNames, true) || $nameAlreadyFiled($filename)) {

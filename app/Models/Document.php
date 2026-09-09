@@ -63,6 +63,37 @@ class Document extends Model
 
     // ── Helpers ──
 
+    /**
+     * A stored display name may never contain a path separator.
+     *
+     * Symfony's Content-Disposition builder rejects "/" and "\\" outright
+     * (HeaderUtils::makeDisposition), so a document whose original_name carries
+     * one throws InvalidArgumentException on EVERY download or inline view of
+     * it — the file's bytes are fine, its name is simply unusable. That is a
+     * 500 "Something went wrong" at all 11+ serve call-sites at once, not at
+     * the one that happened to be clicked.
+     *
+     * The names came from the PDF splitter, which composes
+     * "Subject · DocType · Date.pdf" — and one document-type label is literally
+     * "IDs / Identity", so the slash landed inside the filename. Sanitising at
+     * the model means no writer anywhere can put a broken name in the table,
+     * whatever composes it. Paired with the splitter sanitising its own
+     * baseName so its duplicate-name check compares the stored form.
+     */
+    public static function sanitizeOriginalName(?string $name): ?string
+    {
+        if ($name === null) {
+            return null;
+        }
+
+        return trim(str_replace(['/', '\\'], '-', $name));
+    }
+
+    public function setOriginalNameAttribute($value): void
+    {
+        $this->attributes['original_name'] = static::sanitizeOriginalName($value);
+    }
+
     public function url(): string
     {
         return Storage::disk($this->disk)->url($this->storage_path);
