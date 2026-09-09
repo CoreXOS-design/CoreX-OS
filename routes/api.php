@@ -378,6 +378,7 @@ Route::middleware(['auth:sanctum', 'app_access'])->group(function () {
                 'id' => $user->id,
                 'name' => $user->name,
                 'email' => $user->email,
+                'is_assistant' => (bool) $user->is_assistant,
                 'branch' => $user->branch?->name ?? null,
                 'ffc_status' => $user->ffc_status ?? null,
                 'agency' => $agency ? [
@@ -418,6 +419,7 @@ Route::middleware(['auth:sanctum', 'app_access'])->group(function () {
                 'email' => $user->email,
                 'role' => $user->role,
                 'role_label' => $user->roleModel()?->label ?? ucfirst((string) ($user->role ?? 'agent')),
+                'is_assistant' => (bool) $user->is_assistant,
                 'branch' => $user->branch?->name ?? null,
                 'ffc_status' => $user->ffc_status ?? null,
                 'agency' => $agency ? [
@@ -732,6 +734,7 @@ Route::middleware(['auth:sanctum', 'app_access'])->group(function () {
             'id' => $user->id,
             'name' => $user->name,
             'email' => $user->email,
+            'is_assistant' => (bool) $user->is_assistant,
             'branch' => $user->branch?->name ?? null,
             'ffc_status' => $user->ffc_status ?? null,
             'agency' => $agency ? [

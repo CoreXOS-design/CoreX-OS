@@ -2802,10 +2802,17 @@ class PropertyController extends Controller
                 // agent. This route is public, so resolve past AgencyScope, but
                 // only honour an agent belonging to THIS property's agency — never
                 // surface a cross-agency contact on a public page.
-                $displayAgent = User::withoutGlobalScope(\App\Models\Scopes\AgencyScope::class)
+                $candidate = User::withoutGlobalScope(\App\Models\Scopes\AgencyScope::class)
                     ->where('id', (int) $agentChoice)
                     ->where('agency_id', $property->agency_id)
                     ->first();
+
+                // AT-267 — an assistant never surfaces themselves on a listing
+                // preview, even via a hand-built ?agent=<id> link; falls back
+                // to the listing agent below, same as the `me` branch.
+                if ($candidate && ! $candidate->is_assistant) {
+                    $displayAgent = $candidate;
+                }
             } elseif ($agentChoice === 'me' && $authUser && ! $authUser->is_assistant) {
                 // AT-267 — an assistant never surfaces themselves on a listing
                 // preview; it falls back to the listing agent below.
