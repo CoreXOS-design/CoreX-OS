@@ -135,6 +135,25 @@ final class RentalApplicationHighlighterTest extends TestCase
         $this->assertFalse($h->fresh()->trashed());
     }
 
+    /**
+     * created_by, 2026-09-09 — Johan asked who created "ZZ Deposit Verify"
+     * and the table had no answer at all. Set going forward from the
+     * authenticated user, never backfilled for the rows created before it
+     * existed.
+     */
+    public function test_store_records_the_authenticated_user_as_creator(): void
+    {
+        $owner = $this->owner();
+
+        $this->actingAs($owner)->post(route('corex.settings.rental-applications.highlighters.store'), [
+            'label' => 'Pet Deposit', 'color' => '#2d6cdf', 'role_scope' => 'agent',
+        ])->assertSessionDoesntHaveErrors();
+
+        $h = RentalApplicationHighlighter::where('agency_id', $this->agency->id)->where('label', 'Pet Deposit')->firstOrFail();
+        $this->assertSame($owner->id, $h->created_by);
+        $this->assertTrue($h->creator->is($owner));
+    }
+
     public function test_an_invalid_colour_is_rejected(): void
     {
         $owner = $this->owner();

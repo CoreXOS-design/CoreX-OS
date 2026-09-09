@@ -33,6 +33,7 @@ class RentalApplicationHighlighterController extends Controller
             'label' => $validated['label'],
             'color' => $validated['color'],
             'role_scope' => $validated['role_scope'],
+            'created_by' => $request->user()->id,
             'sort_order' => $this->nextSortOrder($agencyId),
         ]);
 

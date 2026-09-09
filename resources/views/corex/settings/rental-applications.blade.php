@@ -178,6 +178,13 @@
                         @endforeach
                     </form>
                 @endif
+                {{-- 2026-09-09 (Johan) — created_by is nullable and never
+                     backfilled; the 39 pre-existing rows have no creator on
+                     record and never will. Say so plainly rather than
+                     leaving a gap. --}}
+                <div class="text-[11px] mb-1" style="color: var(--text-muted); margin-left: 2px;" @if(!$highlighter->creator) title="This highlighter was created before this was tracked." @endif>
+                    {{ $highlighter->creator ? 'Added by ' . $highlighter->creator->name : 'Creator not recorded' }}
+                </div>
                 <form method="POST" action="{{ route('corex.settings.rental-applications.highlighters.archive', $highlighter) }}" style="display:inline;" onsubmit="return confirm('Archive this highlighter? Existing marks made with it keep their colour — it just won\'t be choosable for new marks.');">
                     @csrf
                     <button type="submit" class="text-xs" style="color: var(--text-muted); margin-left: 0;">Archive</button>
@@ -220,6 +227,9 @@
                             <span style="display:inline-block; width:16px; height:16px; border-radius:3px; background: {{ $highlighter->color }};"></span>
                             <span style="color: var(--text-secondary);">{{ $highlighter->label }}</span>
                             <span style="color: var(--text-muted);">({{ $highlighter->role_scope === 'both' ? 'Agent + Authoriser' : ucfirst($highlighter->role_scope) }})</span>
+                            <span style="color: var(--text-muted);" @if(!$highlighter->creator) title="This highlighter was created before this was tracked." @endif>
+                                &middot; {{ $highlighter->creator ? 'Added by ' . $highlighter->creator->name : 'Creator not recorded' }}
+                            </span>
                             <form method="POST" action="{{ route('corex.settings.rental-applications.highlighters.restore', $highlighter->id) }}">
                                 @csrf
                                 <button type="submit" style="color: var(--ds-blue, #2563eb);">Restore</button>

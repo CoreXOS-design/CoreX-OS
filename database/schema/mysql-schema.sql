@@ -3252,11 +3252,13 @@ CREATE TABLE `communication_mailboxes` (
   `smtp_from_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `outgoing_active` tinyint(1) NOT NULL DEFAULT '1',
   `last_send_error` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `last_send_error_detail` text COLLATE utf8mb4_unicode_ci,
   `last_send_error_at` timestamp NULL DEFAULT NULL,
   `consecutive_send_failures` int unsigned NOT NULL DEFAULT '0',
   `send_failure_notified_at` timestamp NULL DEFAULT NULL,
   `last_sent_at` timestamp NULL DEFAULT NULL,
   `last_sent_folder_append_error` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `last_sent_folder_append_error_detail` text COLLATE utf8mb4_unicode_ci,
   `last_sent_folder_append_at` timestamp NULL DEFAULT NULL,
   `email_address` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `imap_host` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
@@ -3270,6 +3272,7 @@ CREATE TABLE `communication_mailboxes` (
   `poll_interval_minutes` int unsigned NOT NULL DEFAULT '15',
   `last_polled_at` timestamp NULL DEFAULT NULL,
   `last_error` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `last_error_detail` text COLLATE utf8mb4_unicode_ci,
   `last_error_at` timestamp NULL DEFAULT NULL,
   `consecutive_failures` int unsigned NOT NULL DEFAULT '0',
   `next_poll_earliest_at` timestamp NULL DEFAULT NULL,
@@ -12034,13 +12037,16 @@ CREATE TABLE `rental_application_highlighters` (
   `label` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
   `color` varchar(7) COLLATE utf8mb4_unicode_ci NOT NULL,
   `role_scope` enum('agent','authoriser','both') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `created_by` bigint unsigned DEFAULT NULL,
   `sort_order` int unsigned NOT NULL DEFAULT '0',
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   `deleted_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `rental_application_highlighters_agency_id_role_scope_index` (`agency_id`,`role_scope`),
-  CONSTRAINT `rental_application_highlighters_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE
+  KEY `rental_application_highlighters_created_by_foreign` (`created_by`),
+  CONSTRAINT `rental_application_highlighters_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `rental_application_highlighters_created_by_foreign` FOREIGN KEY (`created_by`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `rental_application_income_items`;
@@ -16269,3 +16275,5 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1280,'2026_09_09_0
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1284,'2026_09_09_060000_create_rental_application_highlighters_table',269);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1285,'2026_09_09_060100_seed_and_backfill_rental_application_highlighters',269);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1286,'2026_09_09_060200_drop_rental_application_mark_color_settings_table',269);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1287,'2026_09_09_050000_add_error_detail_to_communication_mailboxes',270);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1288,'2026_09_09_070000_add_created_by_to_rental_application_highlighters_table',271);

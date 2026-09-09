@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Models\Concerns\BelongsToAgency;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 /**
@@ -28,11 +29,22 @@ class RentalApplicationHighlighter extends Model
     public const ROLE_BOTH = 'both';
     public const ROLE_SCOPES = [self::ROLE_AGENT, self::ROLE_AUTHORISER, self::ROLE_BOTH];
 
-    protected $fillable = ['agency_id', 'label', 'color', 'role_scope', 'sort_order'];
+    protected $fillable = ['agency_id', 'label', 'color', 'role_scope', 'sort_order', 'created_by'];
 
     protected $casts = [
         'sort_order' => 'integer',
     ];
+
+    /**
+     * Nullable and never backfilled — the 39 rows that existed before this
+     * column shipped (including the six seeded defaults) have no creator on
+     * record and never will; the settings screen says so honestly rather
+     * than guessing.
+     */
+    public function creator(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'created_by');
+    }
 
     /**
      * The six starting highlighters — Johan: "sensible defaults so it works
@@ -120,6 +132,7 @@ class RentalApplicationHighlighter extends Model
     {
         return static::withTrashed()
             ->where('agency_id', $agencyId)
+            ->with('creator')
             ->orderBy('sort_order')
             ->get();
     }
