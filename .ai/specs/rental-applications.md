@@ -5279,3 +5279,151 @@ shows a handle at all, hovered or not.
 - `resources/views/corex/settings/rental-applications.blade.php` — Highlighter Colours settings block
 - `routes/web.php` — `corex.settings.rental-applications.mark-colors`
 - `tests/Feature/RentalApplications/RentalApplicationMarkColorSettingTest.php` — new, 5 tests
+
+## Unified agent/authoriser screen (AT-392, 2026-09-09, cc5)
+
+### The defect — Johan, verbatim, after finding it himself on QA1
+
+"did I not tell you the reviewer screen is essentially the same screen as
+the agent screen? same fucking problem I have been describing all along.
+how does the reviewer work through the bank statement as example and look
+at what the agent marked / captured etc.?"
+
+He'd been saying this since the authoriser screen was first built. The
+agent's review screen and the authoriser's screen had been built as two
+structurally different layouts for the same job: the agent had documents
+in the main column with the assessment panel down the right (opening the
+highlighter in place); the authoriser had the agent's assessment as a
+list in the MAIN column with the Decision box down the right, documents
+below the assessment. Two different shapes, duplicated components,
+exactly the "bitten repeatedly by two versions of the same thing" pattern
+this session kept running into elsewhere.
+
+### The fix — one blade, two routes, role-gated
+
+`resources/views/corex/rental-applications/review.blade.php` is now the
+ONE canonical view for both roles. `RentalApplicationReviewController::
+show()` and `RentalApplicationAuthorisationController::show()` both
+render it, differing only in the `$viewerRole` ('agent'|'authoriser')
+they pass plus their own already-correctly-guarded data.
+`authorisation/show.blade.php` is deleted — there is no second copy left
+to drift.
+
+The two ROUTES and their guards stayed separate on purpose:
+`guardRentalApplication()` (agent — a permission-scope question: own/
+branch/all) and `guardCanView()`/`guardCanDecide()` (authoriser — an
+RO/CO tier-membership question) answer genuinely different authorization
+questions. Collapsing them into one combined guard would be exactly the
+kind of fragile conflation this session has been bitten by before. The
+authorisation queue's links are unchanged — they still point at the
+authorisation route, which now renders this screen instead of a second
+one.
+
+Layout: one class family now (`.rental-review-columns/-main/-aside`) —
+was `.rental-review-*` (agent) and `.rah-auth-*` (authoriser), the exact
+kind of duplicate CSS the merge exists to remove. The authoriser's aside
+went from 320px to the agent's original 260px; if that reads cramped in
+practice, it's a one-line width change, not a rebuild. The authoriser's
+highlighter toolbar — previously inline per-document, no sticky header —
+moved onto the shared `<x-sticky-action-bar>`, same as the agent's,
+so "same layout for both roles" is literally true rather than visually
+similar.
+
+### What's role-gated, and why
+
+- **Assessment panel** — agent: inline-edit rows, autosave (`rentalReview()`
+  bound to the root x-data, unchanged from before the merge). Authoriser:
+  read-only agent values, strike-and-add only, never edit
+  (`rentalAssessmentEditor()`, a NESTED x-data scope inside the panel,
+  same as before the merge — the highlighter's marks are the root
+  component's concern, the assessment items are this nested scope's).
+- **Property link** (header) — agent-only. An authoriser reviewing
+  someone else's application isn't deciding which property it's tested
+  against; also, the link this widget's "View submitted application"
+  companion points at (`RentalApplicationController::show()`) is guarded
+  by `guardRentalApplication()`'s permission-scope check, which an
+  authoriser viewing another agent's application isn't guaranteed to
+  pass — handing them a link that can 403 isn't a real feature.
+- **Document upload** — agent-only, same reasoning: adding new source
+  documents to someone else's application wasn't asked for here.
+- **Decision block** (Approve/Decline/Request More Info, and the
+  self-approval explanation) — authoriser-only, at the bottom of the
+  shared aside, per Johan's instruction.
+- **Audit Trail** — moved to the MAIN column, below Supporting Documents,
+  now visible to BOTH roles. Johan's ruling: "VISIBLE for now... an agent
+  seeing what happened to their own submission is a feature not a leak."
+  Whether an authoriser's decline/override REASONING specifically should
+  stay visible to the agent is still open — put to Johan separately. The
+  reason line is its own small, cleanly separable `@if` in the blade
+  (`resources/views/.../review.blade.php`, the Audit Trail block) so
+  hiding it later is a one-line change, not a rebuild, exactly as asked.
+
+### Known gap, flagged rather than rushed
+
+Johan's instruction: "Struck lines stay visible to the agent for
+transparency; the strike and add buttons are RO/CO only." Today the
+agent sees this ONLY through the shared audit trail's text log ("Andre
+Roets — Struck out an income line..."), not inline in the assessment
+panel's own row list — the agent's row list is still the pre-existing
+`rentalReview()` inline-edit view, built from a plain `{id, description,
+amount}` shape with no `struck_out_at`/`added_by_user_id` awareness at
+all, unchanged since before this merge.
+
+Making the agent's row list itself struck-aware is a real, contained
+follow-up: reuse `RentalApplicationAuthorisationController::
+serializeItem()`'s richer shape for the agent's `$initialIncomeItems`/
+`$initialExpenseItems` too (extracting it to somewhere both controllers
+can reach), then render struck/authoriser-added rows read-only (matching
+the authoriser's own struck-through + attribution display) while keeping
+the agent's OWN live rows in the existing editable inputs. Deliberately
+NOT attempted in this pass — `rentalReview()`'s autosave/row-matching
+logic has a documented history of subtle, real bugs (the focus-jump
+infinite loop, the "10000" → five single-digit-rows regression, the
+description/amount transposition Johan hit live on QA1) and touching it
+further tonight, un-tested, right before Johan's own review, was a worse
+risk than shipping with this gap named plainly.
+
+### Coordination with cc6
+
+cc6 owns `document-highlighter-script.blade.php` / `document-highlighter-
+pages.blade.php` internals (the freehand rebuild, landed same night —
+commits `2653cb6ef`/`075a80a1c`) — this merge doesn't touch either file,
+only where the highlighter's mount point sits on the page and which
+route's toolbar renders around it. Agreed directly before either side
+wrote anything: cc6 confirmed their rebuild is purely internal to those
+two files, not touching layout/mount-point structure.
+
+### Verified
+
+Real dispatch, not assumed, on applications 4 and 9 (never touched
+application 12 — Johan's clean record for his own testing):
+
+- Agent view (user 22) and authoriser view (user 43, CO) both render the
+  same blade for the same application without error.
+- Agent view: property-link widget and document-upload present; strike
+  UI and Decision panel absent.
+- Authoriser view: strike UI and Decision panel (Approve/Decline/Request
+  More Information) present; property-link widget and document-upload
+  absent; inline agent-edit rows absent.
+- A real strike action (application 4, income item 1) round-tripped
+  correctly: authoriser's view shows the struck row and the audit entry;
+  the SAME audit entry is now visible on the agent's view too (the
+  shared audit trail working as designed). Application 4 restored to
+  baseline after.
+- Application 12 confirmed unchanged (`status=under_assessment`,
+  `full_name=Thabo Mokoena`) before and after every test above.
+
+### Files touched
+
+- `resources/views/corex/rental-applications/review.blade.php` — now the
+  shared view for both roles, role-gated throughout
+- `resources/views/corex/rental-applications/authorisation/show.blade.php`
+  — deleted
+- `app/Http/Controllers/CoreX/RentalApplicationReviewController.php` —
+  `$viewerRole='agent'`, audit trail query added (was authoriser-only)
+- `app/Http/Controllers/CoreX/RentalApplicationAuthorisationController.php`
+  — `$viewerRole='authoriser'`, renders `corex.rental-applications.review`
+  instead of its own blade
+
+No migration — purely a presentation-layer consolidation; every field
+and endpoint underneath is unchanged.

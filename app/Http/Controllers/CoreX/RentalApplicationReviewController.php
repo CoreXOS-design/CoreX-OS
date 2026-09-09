@@ -159,8 +159,22 @@ class RentalApplicationReviewController extends Controller
         // do not show anyone six" — a picker-UI rule, not a data-hiding one).
         $markColors = \App\Models\RentalApplicationMarkColorSetting::colorsFor((int) $rentalApplication->agency_id);
 
+        // Unified screen, 2026-09-09 — Johan: "did I not tell you the
+        // reviewer screen is essentially the same screen as the agent
+        // screen?" This controller and RentalApplicationAuthorisationController
+        // now render the SAME view; $viewerRole is the only thing that tells
+        // it which role is looking. Audit trail moved here too — visible to
+        // both roles now, per Johan's ruling ("an agent seeing what happened
+        // to their own submission is a feature not a leak") — same cap/toggle
+        // as the authoriser screen already had, so a busy application can't
+        // bury anything below it on either screen.
+        $viewerRole = 'agent';
+        $auditLogTotal = $rentalApplication->auditLog()->count();
+        $auditLog = $rentalApplication->auditLog()->with('user')->latest('created_at')->limit(200)->get();
+
         return view('corex.rental-applications.review', compact(
-            'rentalApplication', 'assessment', 'maxRentPercent', 'result', 'documents', 'moreInfoRequestedNote', 'markColors'
+            'rentalApplication', 'assessment', 'maxRentPercent', 'result', 'documents', 'moreInfoRequestedNote', 'markColors',
+            'viewerRole', 'auditLog', 'auditLogTotal'
         ))->with('isPendingAuthorisation', $rentalApplication->isPendingAuthorisation());
     }
 
