@@ -56,7 +56,7 @@ final class ImapSentFolderAppenderGuardTest extends TestCase
 
         $result = $appender->append($this->mailbox(), 'Subject: test\r\n\r\nbody');
 
-        $this->assertSame(['ok' => false, 'reason' => 'intercepted'], $result);
+        $this->assertSame(['ok' => false, 'reason' => 'intercepted', 'detail' => null], $result);
         $this->assertSame(0, $poller->connectCalls, 'The IMAP connection must never be opened when the guard is active — that is the entire point of the fix.');
     }
 
@@ -106,6 +106,10 @@ final class ImapSentFolderAppenderGuardTest extends TestCase
 
         $this->assertSame(1, $poller->connectCalls, 'On the confirmed live host, append() must behave exactly as before — a real connection attempt is made.');
         $this->assertNotSame('intercepted', $result['reason']);
-        $this->assertSame('connect_failed', $result['reason']);
+        // 2026-09-09 (diagnostics) — a message matching none of MailFailureClassifier's
+        // known patterns classifies honestly as 'unknown', not a guessed 'connect_failed' —
+        // "never invent a cause" (Johan). The raw text is still captured as $result['detail'].
+        $this->assertSame('unknown', $result['reason']);
+        $this->assertSame('simulated connect failure — proves we got past the guard', $result['detail']);
     }
 }

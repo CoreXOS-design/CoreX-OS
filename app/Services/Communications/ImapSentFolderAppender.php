@@ -29,11 +29,20 @@ use Illuminate\Support\Facades\Log;
  */
 class ImapSentFolderAppender
 {
-    public function __construct(private ImapMailboxPoller $poller)
-    {
+    public function __construct(
+        private ImapMailboxPoller $poller,
+        private MailFailureClassifier $failureClassifier = new MailFailureClassifier(),
+    ) {
     }
 
-    /** @return array{ok: bool, reason: ?string} */
+    /**
+     * 2026-09-09 (Johan, diagnostics) — $detail is the RAW server/socket text
+     * behind $reason, never discarded, so a caller can persist it for an
+     * engineer to see exactly what the server said. Null when $ok is true or
+     * when nothing was actually attempted (intercepted/incomplete_credentials).
+     *
+     * @return array{ok: bool, reason: ?string, detail: ?string}
+     */
     public function append(CommunicationMailbox $mailbox, string $rawMime): array
     {
         if (OutboundMailGuard::isActive()) {
@@ -48,44 +57,33 @@ class ImapSentFolderAppender
                 'action' => 'imap_sent_folder_append',
             ]);
 
-            return ['ok' => false, 'reason' => 'intercepted'];
+            return ['ok' => false, 'reason' => 'intercepted', 'detail' => null];
         }
 
         if (empty($mailbox->imap_host) || empty($mailbox->username) || empty($mailbox->resolvedSmtpPassword() ?: $mailbox->encrypted_password)) {
-            return ['ok' => false, 'reason' => 'incomplete_credentials'];
+            return ['ok' => false, 'reason' => 'incomplete_credentials', 'detail' => null];
         }
 
         try {
             $client = $this->poller->connect($mailbox);
         } catch (\Throwable $e) {
-            Log::warning("AT-395 Sent-folder append: connect failed (mailbox {$mailbox->id}): {$e->getMessage()}");
-            return ['ok' => false, 'reason' => $this->classify($e)];
+            $real = $this->poller->unwrapRealMessage($e);
+            Log::warning("AT-395 Sent-folder append: connect failed (mailbox {$mailbox->id}): {$real}");
+            return ['ok' => false, 'reason' => $this->failureClassifier->classifyConnect($real), 'detail' => $real];
         }
 
         try {
             $sent = $this->poller->resolveSentFolder($client);
             if (! $sent) {
-                return ['ok' => false, 'reason' => 'no_sent_folder'];
+                return ['ok' => false, 'reason' => 'no_sent_folder', 'detail' => null];
             }
 
             $sent->appendMessage($rawMime, ['\\Seen']);
 
-            return ['ok' => true, 'reason' => null];
+            return ['ok' => true, 'reason' => null, 'detail' => null];
         } catch (\Throwable $e) {
             Log::warning("AT-395 Sent-folder append: write failed (mailbox {$mailbox->id}): {$e->getMessage()}");
-            return ['ok' => false, 'reason' => 'append_failed'];
+            return ['ok' => false, 'reason' => 'append_failed', 'detail' => $e->getMessage()];
         }
-    }
-
-    private function classify(\Throwable $e): string
-    {
-        $msg = strtolower($e->getMessage());
-        foreach (['authenticat', 'login', 'credential', 'password', 'invalid user', 'auth failed'] as $needle) {
-            if (str_contains($msg, $needle)) {
-                return 'auth_failed';
-            }
-        }
-
-        return 'connect_failed';
     }
 }
