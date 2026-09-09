@@ -15,6 +15,21 @@
         <div class="rounded-md px-4 py-3 text-sm" style="background: var(--ds-emerald-soft, #ecfdf5); color: var(--ds-emerald, #059669);">{{ session('success') }}</div>
     @endif
 
+    {{-- 2026-09-10 (cc5 regression pass) — this whole page had no error
+         display at all: a validation failure on any form here (an invalid
+         colour, and now a duplicate highlighter label) redirected back with
+         $errors populated but nothing ever rendered it — a rejected save
+         that looked identical to a silently accepted one. Generic, page-
+         wide, not per-form: this page has many small forms and the failing
+         one isn't always obvious from where the page scrolls back to. --}}
+    @if($errors->any())
+        <div class="rounded-md px-4 py-3 text-sm" style="background: var(--ds-red-soft, #fef2f2); color: var(--ds-red, #dc2626); border: 1px solid var(--ds-red, #dc2626);">
+            @foreach($errors->all() as $error)
+                <div>{{ $error }}</div>
+            @endforeach
+        </div>
+    @endif
+
     <form method="POST" action="{{ route('corex.settings.rental-applications.update') }}" class="space-y-4">
         @csrf
 

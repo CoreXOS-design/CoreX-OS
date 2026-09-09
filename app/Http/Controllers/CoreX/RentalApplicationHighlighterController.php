@@ -28,6 +28,8 @@ class RentalApplicationHighlighterController extends Controller
             'role_scope' => ['required', Rule::in(RentalApplicationHighlighter::ROLE_SCOPES)],
         ]);
 
+        $this->assertLabelNotDuplicated($agencyId, $validated['label'], $validated['role_scope']);
+
         RentalApplicationHighlighter::create([
             'agency_id' => $agencyId,
             'label' => $validated['label'],
@@ -51,6 +53,8 @@ class RentalApplicationHighlighterController extends Controller
             'role_scope' => ['required', Rule::in(RentalApplicationHighlighter::ROLE_SCOPES)],
         ]);
 
+        $this->assertLabelNotDuplicated($highlighter->agency_id, $validated['label'], $validated['role_scope'], excludeId: $highlighter->id);
+
         $highlighter->update($validated);
 
         return redirect()->route('corex.settings.rental-applications.edit')
@@ -71,6 +75,8 @@ class RentalApplicationHighlighterController extends Controller
     {
         $row = RentalApplicationHighlighter::withTrashed()->findOrFail($highlighter);
         $this->authorizeAgency($request, $row);
+
+        $this->assertLabelNotDuplicated($row->agency_id, $row->label, $row->role_scope, excludeId: $row->id);
 
         $row->restore();
 
@@ -110,6 +116,35 @@ class RentalApplicationHighlighterController extends Controller
     private function nextSortOrder(int $agencyId): int
     {
         return (int) (RentalApplicationHighlighter::withTrashed()->where('agency_id', $agencyId)->max('sort_order') ?? -1) + 1;
+    }
+
+    /**
+     * cc5 regression pass, 2026-09-10 — Johan: "Highlighter labels allow
+     * silent duplicates per agency — no uniqueness check on store()." Scoped
+     * to (agency, label, role_scope) among ACTIVE rows only: the six seeded
+     * defaults deliberately reuse the same three labels across agent and
+     * authoriser scope ("Income" exists for both), so a blanket per-agency
+     * uniqueness would break the defaults every agency ships with. Archived
+     * rows never block a new one — archiving an old "Deposit Proof" and
+     * later adding a fresh one by the same name is a normal, expected
+     * workflow, not a duplicate. Checked on store(), update() (renaming
+     * INTO a collision), and restore() (a duplicate can appear on either
+     * side of that action) — the same rule everywhere a label can end up
+     * active, not just the one entry point named in the report.
+     */
+    private function assertLabelNotDuplicated(int $agencyId, string $label, string $roleScope, ?int $excludeId = null): void
+    {
+        $exists = RentalApplicationHighlighter::where('agency_id', $agencyId)
+            ->where('label', $label)
+            ->where('role_scope', $roleScope)
+            ->when($excludeId !== null, fn ($q) => $q->where('id', '!=', $excludeId))
+            ->exists();
+
+        if ($exists) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'label' => "A highlighter named '{$label}' already exists for this role. Choose a different label, or archive the existing one first.",
+            ]);
+        }
     }
 
     private function authorizeAgency(Request $request, RentalApplicationHighlighter $highlighter): void

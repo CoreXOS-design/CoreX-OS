@@ -205,4 +205,104 @@ final class RentalApplicationHighlighterTest extends TestCase
         $reloaded = RentalApplicationHighlighter::where('agency_id', $this->agency->id)->where('role_scope', 'agent')->orderBy('sort_order')->pluck('id')->all();
         $this->assertSame($reversed, $reloaded);
     }
+
+    /**
+     * cc5 regression pass, 2026-09-10 — Johan: "Highlighter labels allow
+     * silent duplicates per agency — no uniqueness check on store()."
+     * Scoped to (agency, label, role_scope): the SAME label across
+     * different role_scope values must still be allowed — the six seeded
+     * defaults themselves reuse "Income"/"Expense"/"Unpaid" across agent
+     * and authoriser scope, so a blanket per-agency check would break the
+     * defaults every agency ships with.
+     */
+    public function test_store_rejects_a_duplicate_label_for_the_same_role_scope(): void
+    {
+        $owner = $this->owner();
+        RentalApplicationHighlighter::create([
+            'agency_id' => $this->agency->id, 'label' => 'Deposit Proof', 'color' => '#2d6cdf', 'role_scope' => 'agent', 'sort_order' => 0,
+        ]);
+
+        $this->actingAs($owner)->post(route('corex.settings.rental-applications.highlighters.store'), [
+            'label' => 'Deposit Proof', 'color' => '#ff0000', 'role_scope' => 'agent',
+        ])->assertSessionHasErrors('label');
+
+        $this->assertSame(1, RentalApplicationHighlighter::where('agency_id', $this->agency->id)->where('label', 'Deposit Proof')->count());
+    }
+
+    public function test_store_allows_the_same_label_across_different_role_scopes(): void
+    {
+        $owner = $this->owner();
+        RentalApplicationHighlighter::create([
+            'agency_id' => $this->agency->id, 'label' => 'Deposit Proof', 'color' => '#2d6cdf', 'role_scope' => 'agent', 'sort_order' => 0,
+        ]);
+
+        $this->actingAs($owner)->post(route('corex.settings.rental-applications.highlighters.store'), [
+            'label' => 'Deposit Proof', 'color' => '#ff0000', 'role_scope' => 'authoriser',
+        ])->assertSessionDoesntHaveErrors();
+
+        $this->assertSame(2, RentalApplicationHighlighter::where('agency_id', $this->agency->id)->where('label', 'Deposit Proof')->count());
+    }
+
+    public function test_store_allows_a_label_matching_an_archived_highlighter(): void
+    {
+        $owner = $this->owner();
+        $archived = RentalApplicationHighlighter::create([
+            'agency_id' => $this->agency->id, 'label' => 'Deposit Proof', 'color' => '#2d6cdf', 'role_scope' => 'agent', 'sort_order' => 0,
+        ]);
+        $archived->delete();
+
+        $this->actingAs($owner)->post(route('corex.settings.rental-applications.highlighters.store'), [
+            'label' => 'Deposit Proof', 'color' => '#ff0000', 'role_scope' => 'agent',
+        ])->assertSessionDoesntHaveErrors();
+
+        $this->assertSame(1, RentalApplicationHighlighter::where('agency_id', $this->agency->id)->where('label', 'Deposit Proof')->count());
+    }
+
+    public function test_update_rejects_renaming_into_a_collision(): void
+    {
+        $owner = $this->owner();
+        RentalApplicationHighlighter::create([
+            'agency_id' => $this->agency->id, 'label' => 'Pet Deposit', 'color' => '#000000', 'role_scope' => 'agent', 'sort_order' => 0,
+        ]);
+        $target = RentalApplicationHighlighter::create([
+            'agency_id' => $this->agency->id, 'label' => 'Deposit Proof', 'color' => '#2d6cdf', 'role_scope' => 'agent', 'sort_order' => 1,
+        ]);
+
+        $this->actingAs($owner)->put(route('corex.settings.rental-applications.highlighters.update', $target), [
+            'label' => 'Pet Deposit', 'color' => '#2d6cdf', 'role_scope' => 'agent',
+        ])->assertSessionHasErrors('label');
+
+        $this->assertSame('Deposit Proof', $target->fresh()->label);
+    }
+
+    public function test_update_allows_saving_a_highlighter_with_its_own_unchanged_label(): void
+    {
+        $owner = $this->owner();
+        $target = RentalApplicationHighlighter::create([
+            'agency_id' => $this->agency->id, 'label' => 'Deposit Proof', 'color' => '#2d6cdf', 'role_scope' => 'agent', 'sort_order' => 0,
+        ]);
+
+        $this->actingAs($owner)->put(route('corex.settings.rental-applications.highlighters.update', $target), [
+            'label' => 'Deposit Proof', 'color' => '#ff0000', 'role_scope' => 'agent',
+        ])->assertSessionDoesntHaveErrors();
+
+        $this->assertSame('#ff0000', $target->fresh()->color);
+    }
+
+    public function test_restore_rejects_when_it_would_collide_with_an_active_highlighter(): void
+    {
+        $owner = $this->owner();
+        $archived = RentalApplicationHighlighter::create([
+            'agency_id' => $this->agency->id, 'label' => 'Deposit Proof', 'color' => '#000000', 'role_scope' => 'agent', 'sort_order' => 0,
+        ]);
+        $archived->delete();
+        RentalApplicationHighlighter::create([
+            'agency_id' => $this->agency->id, 'label' => 'Deposit Proof', 'color' => '#2d6cdf', 'role_scope' => 'agent', 'sort_order' => 1,
+        ]);
+
+        $this->actingAs($owner)->post(route('corex.settings.rental-applications.highlighters.restore', $archived->id))
+            ->assertSessionHasErrors('label');
+
+        $this->assertTrue($archived->fresh()->trashed());
+    }
 }
