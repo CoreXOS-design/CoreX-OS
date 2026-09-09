@@ -29,25 +29,34 @@
      strokes darken naturally instead of an opaque line painting over
      anything.
 
-     Six colours, now agency-configurable (Johan: "admin can pick 6
-     colours - agent 3 and auth 3") — `markColors` is passed in from the
-     controller as `{ agent: {income,expense,unpaid}, authoriser:
-     {income,expense,unpaid} }` (RentalApplicationMarkColorSetting::
-     colorsFor(), agency-configurable with sensible defaults, never
-     hardcoded). BOTH roles' colours are always present here — rendering
-     an EXISTING mark needs its AUTHOR's colour regardless of who's
-     viewing, so this can't be trimmed to "just mine." The drawing
-     TOOLBAR is the one place that only ever offers the CURRENT user's own
-     three (myColorFor() below) — Johan: "an agent sees their three; an
-     authoriser sees theirs... do not show anyone six."
+     Highlighter collection expansion, 2026-09-09 — Johan: "we allow an
+     agency to set up which highlighters they want... an agency can have
+     10 highlighters set up, each with their own label." Replaces the
+     fixed three-category/six-colour scheme entirely: `highlighters` is
+     the agency's own arbitrary-length collection, passed in from the
+     controller as an array of `{id, label, color, role_scope, archived}`
+     (RentalApplicationHighlighter::allFor()) — full CRUD on the settings
+     screen, never hardcoded. EVERY highlighter is always present here,
+     including archived ones — rendering an EXISTING mark
+     (fillFor()/mark.highlighterId) must resolve its colour regardless of
+     archived state (Johan: "an archived highlighter still renders its
+     existing marks perfectly"). The drawing PICKER is the one place that
+     only ever offers the CURRENT user's own active, role-visible ones
+     (pickerHighlighters()) — Johan: "do not show anyone six," now "do not
+     show anyone the other role's, or the archived ones." It is a single
+     dropdown button, not one button per highlighter — a row of swatches
+     stopped scaling once the count became agency-defined rather than a
+     fixed three (see the picker markup in review.blade.php /
+     authorisation/show.blade.php); the same dropdown works whether an
+     agency has configured 2 highlighters or 12.
 
-     The three category KEYS (income/expense/unpaid) and their LABELS stay
-     fixed — only their colour is admin-configurable, not their meaning
-     (flagged to the conductor as a design question, not decided silently
-     — this is the recommended default pending confirmation).
+     A recoloured highlighter changes every mark drawn with it, because
+     fillFor() always resolves live against `highlighters` — a saved mark
+     stores `highlighterId`, never a copy of the colour (Johan: "it is the
+     same pen, refilled with different ink").
 
-     Every mark stores a stable id, its author (id/name/role), and its
-     category. A user may edit (remove) only their own marks —
+     Every mark stores a stable id, its author (id/name/role), and which
+     highlighter drew it. A user may edit (remove) only their own marks —
      canEditMark() gates every remove control in the shared page-rendering
      partial. A save sends `base_version` (the marks_version this tab
      loaded) and the server refuses (409) if it has since moved — a
@@ -55,7 +64,7 @@
      never silently overwritten. No live locking — Johan: "more machinery
      than the problem needs." --}}
 <script>
-function rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, currentUserName, currentUserRole, markColors } = {}) {
+function rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, currentUserName, currentUserRole, highlighters } = {}) {
     return {
         markedUpDocIds: initialMarkedUpDocIds || [],
         currentUserId: currentUserId ?? null,
@@ -85,34 +94,56 @@ function rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, curre
         pagesLoading: false,
         _savedByPage: {},
         loadedVersion: 0, // marks_version at the moment this document was (re)loaded — sent back as base_version on save
-        marks: [],   // FLAT array: {id, type:'highlight', page, points:[{x,y}], width, category, authorUserId, authorName, authorRole} | {id, type:'note', page, x, y, text, category, authorUserId, authorName, authorRole}
+        marks: [],   // FLAT array: {id, type:'highlight', page, points:[{x,y}], width, highlighterId, authorUserId, authorName, authorRole} | {id, type:'note', page, x, y, text, highlighterId, authorUserId, authorName, authorRole}
         dirty: false,
 
-        // Freehand redesign, 2026-09-09 — category is what the agent/
-        // authoriser picks (fixed keys/labels); the COLOUR comes from
-        // markColors[authorRole][category], agency-configurable, never
-        // hardcoded. Defaults here match this feature's own original
-        // palette exactly — an agency that never opens the settings screen
-        // sees no visual change from tonight's build.
-        categories: [
-            { key: 'income',  label: 'Income' },
-            { key: 'expense', label: 'Expense' },
-            { key: 'unpaid',  label: 'Unpaid' },
-        ],
-        markColors: markColors || {
-            agent: { income: '#a7f3cf', expense: '#fde8a8', unpaid: '#fbcdc9' },
-            authoriser: { income: '#4ec99a', expense: '#f2b33d', unpaid: '#ee7c72' },
+        // Highlighter collection expansion, 2026-09-09 — Johan: "an agency
+        // can have 10 highlighters set up, each with their own label."
+        // Replaces the fixed three-category picker: `highlighters` is the
+        // agency's own arbitrary-length collection — {id, label, color,
+        // role_scope, archived} — passed in from the controller
+        // (RentalApplicationHighlighter::allFor()). EVERY highlighter is
+        // present here, including archived ones: rendering an EXISTING mark
+        // (fillFor()) must resolve its colour regardless of archived state
+        // — Johan: "an archived highlighter still renders its existing
+        // marks perfectly." Only the DRAWING PICKER (pickerHighlighters())
+        // filters to active + role-visible — the same "don't show anyone
+        // six" rule as before, now "don't show anyone the other role's, or
+        // the archived ones."
+        highlighters: highlighters || [],
+        activeHighlighterId: null,
+        pickerOpen: false,
+        /** Choosable right now for a NEW mark — not archived, visible to this viewer's role (its own scope, or 'both'), in the agency's own configured order. Works identically whether an agency has 2 or 12. */
+        pickerHighlighters() {
+            return this.highlighters.filter(h => !h.archived && (h.role_scope === this.currentUserRole || h.role_scope === 'both'));
         },
-        activeCategory: 'income',
-        /** An EXISTING mark's own colour — keyed by its AUTHOR's role, regardless of who is currently viewing. */
+        /** The currently-selected highlighter object, or null if none is choosable (an agency with zero highlighters configured for this role — full CRUD makes that a real, if rare, state). */
+        activeHighlighter() {
+            return this.highlighters.find(h => h.id === this.activeHighlighterId) || null;
+        },
+        selectHighlighter(id) {
+            this.activeHighlighterId = id;
+            this.pickerOpen = false;
+        },
+        /** The legend's own list — every NON-archived highlighter (so it always explains what's currently choosable, for either role) PLUS any archived highlighter that still has at least one mark actually on THIS open document, so an old mark's colour is never left unexplained just because someone tidied the settings screen. */
+        legendHighlighters() {
+            const usedArchivedIds = new Set(
+                this.marks.filter(m => m.highlighterId !== null).map(m => m.highlighterId)
+            );
+
+            return this.highlighters.filter(h => !h.archived || usedArchivedIds.has(h.id));
+        },
+        /** An EXISTING mark's own colour — resolved live against `highlighters` (including archived), never a value frozen at draw time. Johan: "the same pen, refilled with different ink" — recolouring a highlighter here changes every mark drawn with it, on the next render. */
         fillFor(mark) {
-            const role = (mark && mark.authorRole === 'authoriser') ? 'authoriser' : 'agent';
-            const category = (mark && mark.category) || 'unpaid';
-            return (this.markColors[role] && this.markColors[role][category]) || '#94a3b8';
+            const h = this.highlighters.find(h => h.id === (mark && mark.highlighterId));
+
+            return h ? h.color : '#94a3b8';
         },
-        /** The drawing toolbar's own colour for a category — ALWAYS the current viewer's own three, never the other role's (Johan: "do not show anyone six"). */
-        myColorFor(category) {
-            return (this.markColors[this.currentUserRole] && this.markColors[this.currentUserRole][category]) || '#94a3b8';
+        /** A note popover's own "which highlighter" caption — the highlighter's own label, resolved the same way fillFor() resolves its colour. */
+        labelFor(mark) {
+            const h = this.highlighters.find(h => h.id === (mark && mark.highlighterId));
+
+            return h ? h.label : 'Unlabelled';
         },
         canEditMark(mark) {
             return mark.authorUserId === null || mark.authorUserId === undefined || mark.authorUserId === this.currentUserId;
@@ -214,7 +245,12 @@ function rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, curre
             this.pagesLoading = false;
             this.openNote = null;
             this.pendingNote = null;
-            this.activeCategory = 'income';
+            // Default to the first of THIS viewer's own choosable
+            // highlighters, in the agency's own configured order — never a
+            // hardcoded category. null (drawing disabled, see the toolbar)
+            // if this agency has none configured for this role right now.
+            const firstChoosable = this.pickerHighlighters()[0];
+            this.activeHighlighterId = firstChoosable ? firstChoosable.id : null;
             this.loading = true;
             try {
                 const res = await fetch(this.firstPageUrl, { headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }, credentials: 'same-origin' });
@@ -376,15 +412,18 @@ function rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, curre
                 const scaleX = img.clientWidth / page.width;
                 const scaleY = img.clientHeight / page.height;
                 saved.forEach(m => {
-                    // category/id/author survive round-trips verbatim — the
-                    // server pass-through of an unchanged mark preserves them
-                    // exactly (see RentalApplicationDocumentHighlightService::
-                    // normalizeForStorage()). A mark with no category/author
-                    // is a genuinely legacy one, saved before this scheme
-                    // existed — left honestly unattributed, not guessed.
+                    // highlighter_id/id/author survive round-trips verbatim
+                    // — the server pass-through of an unchanged mark
+                    // preserves them exactly (see
+                    // RentalApplicationDocumentHighlightService::
+                    // normalizeForStorage()). A mark with no
+                    // highlighter_id/author is a genuinely legacy one,
+                    // saved before this scheme existed — left honestly
+                    // unattributed, not guessed. fillFor() falls back to a
+                    // neutral grey for those rather than resolving nothing.
                     const common = {
                         id: m.id || null,
-                        category: m.category || null,
+                        highlighterId: m.highlighter_id ?? null,
                         authorUserId: m.author_user_id ?? null,
                         authorName: m.author_name || null,
                         authorRole: m.author_role || null,
@@ -483,7 +522,7 @@ function rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, curre
                 svg += poly(m.points, this.fillFor(m), fillWidth, 0.55, m.id);
             });
             if (this.drag.active && this.drag.page === p && this.activeTool === 'highlight') {
-                const preview = { category: this.activeCategory, authorRole: this.currentUserRole };
+                const preview = { highlighterId: this.activeHighlighterId };
                 svg += poly(this.drag.points, this.fillFor(preview), Math.max(this.strokeWidth, 8), 0.55, null);
             }
             return svg;
@@ -636,11 +675,18 @@ function rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, curre
             }
             if (!this.drag.active || this.drag.page !== page) return;
             try { e.currentTarget.releasePointerCapture(e.pointerId); } catch (_) {}
-            if (this.drag.points.length >= 2) {
+            // Highlighter collection expansion, 2026-09-09 — an agency can
+            // archive every highlighter for a role (full CRUD makes that a
+            // real, if rare, state). Refuse to create a mark with no
+            // colour behind it rather than silently falling back to
+            // something unintended — the toolbar already disables drawing
+            // in this state (see review.blade.php), this is the same rule
+            // enforced at the one call site that actually creates a mark.
+            if (this.drag.points.length >= 2 && this.activeHighlighterId !== null) {
                 this.pushHistory();
                 this.marks.push({
                     id: this.generateMarkId(), type: 'highlight', page, points: this.drag.points, width: this.strokeWidth,
-                    category: this.activeCategory, authorUserId: this.currentUserId, authorName: this.currentUserName, authorRole: this.currentUserRole,
+                    highlighterId: this.activeHighlighterId, authorUserId: this.currentUserId, authorName: this.currentUserName, authorRole: this.currentUserRole,
                 });
                 this.dirty = true;
             }
@@ -649,11 +695,11 @@ function rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, curre
         commitNote() {
             if (!this.pendingNote) return;
             const text = this.pendingNoteText.trim();
-            if (text !== '') {
+            if (text !== '' && this.activeHighlighterId !== null) {
                 this.pushHistory();
                 this.marks.push({
                     id: this.generateMarkId(), type: 'note', page: this.pendingNote.page, x: this.pendingNote.x, y: this.pendingNote.y, text,
-                    category: this.activeCategory, authorUserId: this.currentUserId, authorName: this.currentUserName, authorRole: this.currentUserRole,
+                    highlighterId: this.activeHighlighterId, authorUserId: this.currentUserId, authorName: this.currentUserName, authorRole: this.currentUserRole,
                 });
                 this.dirty = true;
             }
@@ -687,7 +733,7 @@ function rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, curre
                     const scaleY = page.height / img.clientHeight;
 
                     const toServerMark = m => ({
-                        id: m.id, category: m.category,
+                        id: m.id, highlighter_id: m.highlighterId,
                         // author fields are NOT sent — the server always
                         // stamps the CURRENT caller onto a genuinely new
                         // mark (unrecognised id) and never trusts a client-

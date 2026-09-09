@@ -4,6 +4,7 @@ namespace App\Services\RentalApplications;
 
 use App\Models\Document;
 use App\Models\RentalApplicationDocumentHighlight;
+use App\Models\RentalApplicationHighlighter;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Support\Facades\Storage;
 use Symfony\Component\Process\Process;
@@ -37,16 +38,30 @@ use Symfony\Component\Process\Process;
  * saved before the six-colour category system landed — kept and rendered
  * as-is rather than force-migrated (see burnMark()).
  *
- * 2026-09-08 — Johan approved a six-colour scheme: HUE = category (income
- * green / expense amber / unpaid red), ROLE = treatment (agent = light fill,
- * authoriser = darker fill + a solid underline in a third, role-neutral
- * shade) — readable in greyscale and colour-blind-safe by design (light vs
- * dark carries role even when hue doesn't). Each mark also now carries a
- * stable id and its author, so a user can edit only their own marks
- * (RentalApplicationMarkOwnershipException) and a genuine save-time
+ * 2026-09-08 — Johan approved a six-colour scheme. Each mark also now
+ * carries a stable id and its author, so a user can edit only their own
+ * marks (RentalApplicationMarkOwnershipException) and a genuine save-time
  * collision is caught rather than silently overwritten
  * (RentalApplicationMarkVersionConflictException, backed by the
  * `marks_version` column — see this table's own migration).
+ *
+ * Highlighter collection expansion, 2026-09-09 — Johan: "an agency can have
+ * 10 highlighters set up, each with their own label." The fixed six-colour
+ * category scheme is replaced by RentalApplicationHighlighter — an
+ * agency-owned, arbitrary-length collection. A mark now stores
+ * `highlighter_id`, resolved live against that table (never a colour value
+ * frozen at draw time — Johan: "it is the same pen, refilled with different
+ * ink"). `category`/CATEGORY_COLORS survive ONLY as a fallback for a mark
+ * that predates this migration and somehow has no `highlighter_id` (should
+ * never happen after the backfill migration, but a resolvable fallback
+ * costs nothing and means a resolution gap degrades gracefully instead of
+ * throwing). Also removed here: the underline. Johan, from real marked-up
+ * bank statements: "no lines as it strikes out" — the flattened download
+ * must render the same design as the live screen, translucent ink only,
+ * genuinely MULTIPLY-blended (see multiplyBlendStroke()) so overlapping
+ * strokes darken the same way on both surfaces. GD has no native blend-mode
+ * support (no Imagick on this box — checked), so this hand-rolls the same
+ * per-pixel multiply math the browser's mix-blend-mode:multiply performs.
  */
 class RentalApplicationDocumentHighlightService
 {
@@ -62,44 +77,24 @@ class RentalApplicationDocumentHighlightService
 
     private const DEFAULT_COLOR = 'yellow';
 
-    public const CATEGORIES = ['income', 'expense', 'unpaid'];
-
-    private const DEFAULT_CATEGORY = 'unpaid';
-
     /**
-     * Six-colour scheme, approved by Johan 2026-09-08. RGB triples — GD has
-     * no notion of a CSS custom property, so this is necessarily its own
-     * literal copy; the single source of truth for the browser side is the
-     * CSS custom properties consumed in
-     * partials/document-highlighter-script.blade.php (cc4 owns their
-     * definition). If these two ever need to change, they change together.
+     * Fallback-only, 2026-09-09 — superseded by RentalApplicationHighlighter
+     * for every mark that carries a `highlighter_id` (which is every mark
+     * after the backfill migration). Kept only so a mark that somehow still
+     * has a `category` but no resolvable `highlighter_id` degrades to its
+     * old colour instead of failing to render.
      */
     public const CATEGORY_COLORS = [
-        'income' => [
-            'agent' => [167, 243, 207],       // #a7f3cf
-            'authoriser' => [78, 201, 154],   // #4ec99a
-            'underline' => [4, 108, 78],      // #046c4e
-        ],
-        'expense' => [
-            'agent' => [253, 232, 168],       // #fde8a8
-            'authoriser' => [242, 179, 61],   // #f2b33d
-            'underline' => [154, 91, 6],      // #9a5b06
-        ],
-        'unpaid' => [
-            'agent' => [251, 205, 201],       // #fbcdc9
-            'authoriser' => [238, 124, 114],  // #ee7c72
-            'underline' => [169, 29, 19],     // #a91d13
-        ],
+        'income' => ['agent' => [167, 243, 207], 'authoriser' => [78, 201, 154]],
+        'expense' => ['agent' => [253, 232, 168], 'authoriser' => [242, 179, 61]],
+        'unpaid' => ['agent' => [251, 205, 201], 'authoriser' => [238, 124, 114]],
     ];
 
-    /** Alpha 0 (opaque) – 127 (fully transparent), GD scale. ~35% opacity, like a real marker. */
+    /** Alpha 0 (opaque) – 127 (fully transparent), GD scale. ~35% opacity, like a real marker. Same value the live screen's opacity (0.55) was tuned against. */
     private const ALPHA = 82;
 
     /** Highlighter stroke thickness in RASTER px at DPI above. */
     private const STROKE_WIDTH = 26;
-
-    /** Underline stroke thickness in RASTER px — a fixed thin rule under the fill, not proportional to the highlighter's own width. */
-    private const UNDERLINE_WIDTH = 8;
 
     /**
      * The document's real, true page count. Public so the controller can
@@ -236,8 +231,22 @@ class RentalApplicationDocumentHighlightService
             throw new \App\Exceptions\RentalApplicationMarkVersionConflictException($currentVersion);
         }
 
+        // Highlighter collection expansion, 2026-09-09 — fetched ONCE per
+        // save, then threaded through both the new-mark validation
+        // (normalizeForStorage()/normalizeNewMark(), which only needs the
+        // ACTIVE ones visible to $authorRole) and the burn step
+        // (resolveMarkColors(), which needs EVERY highlighter — including
+        // archived — since an archived one must keep resolving colour for
+        // marks already drawn with it).
+        $agencyHighlighters = RentalApplicationHighlighter::allFor($agencyId);
+        $highlighterColors = $agencyHighlighters->pluck('color', 'id')->all();
+        $validHighlighterIds = $agencyHighlighters
+            ->reject(fn ($h) => $h->trashed())
+            ->filter(fn ($h) => in_array($h->role_scope, [$authorRole, RentalApplicationHighlighter::ROLE_BOTH], true))
+            ->pluck('id')->flip()->all();
+
         $existingByPage = (array) ($highlight->marks_json ?? []);
-        $normalized = $this->normalizeForStorage($marksByPage, $existingByPage, $userId, $userName, $authorRole);
+        $normalized = $this->normalizeForStorage($marksByPage, $existingByPage, $userId, $userName, $authorRole, $validHighlighterIds);
         $flatCount = array_sum(array_map('count', $normalized));
 
         $highlight->agency_id = $agencyId;
@@ -259,10 +268,17 @@ class RentalApplicationDocumentHighlightService
         try {
             foreach ($pagePaths as $i => $path) {
                 $img = imagecreatefrompng($path);
+                // multiplyBlendStroke() reads/writes raw truecolor pixel
+                // ints — pdftoppm output is normally already truecolor, but
+                // force it so this never silently degrades against a
+                // palette-based source.
+                if (! imageistruecolor($img)) {
+                    imagepalettetotruecolor($img);
+                }
                 $marks = $normalized[$i] ?? [];
                 imagealphablending($img, true);
                 foreach ($marks as $m) {
-                    $this->burnMark($img, $m);
+                    $this->burnMark($img, $m, $highlighterColors);
                 }
                 $images[$i] = $img;
             }
@@ -284,83 +300,175 @@ class RentalApplicationDocumentHighlightService
     }
 
     /**
-     * Resolves a mark's fill + underline RGB. Category+role marks (every
-     * mark drawn since 2026-09-08) use the six-colour scheme; a genuinely
-     * legacy mark (saved before that — has an old `color` key, no
-     * `category`) keeps rendering in its original yellow/green/pink/blue,
-     * never force-migrated to a category it was never given.
+     * Resolves a mark's fill RGB. `highlighter_id` (every mark after the
+     * backfill migration) is authoritative — looked up against the
+     * agency's OWN highlighter colours passed in from applyMarks(), never a
+     * value frozen at draw time, so recolouring a highlighter changes every
+     * existing mark's rendering here too (Johan: "the same pen, refilled
+     * with different ink"). `category`/`color` are fallback-only, for a
+     * mark that somehow has no resolvable `highlighter_id`.
      *
-     * @return array{fill: array{int,int,int}, underline: ?array{int,int,int}}
+     * @param  array<int,string>  $highlighterColors  highlighter id => "#rrggbb", for THIS mark's agency, including archived highlighters
+     * @return array{int,int,int}
      */
-    private function resolveMarkColors(array $m): array
+    private function resolveMarkColors(array $m, array $highlighterColors): array
     {
+        $highlighterId = $m['highlighter_id'] ?? null;
+        if ($highlighterId !== null && isset($highlighterColors[$highlighterId])) {
+            return $this->hexToRgb($highlighterColors[$highlighterId]);
+        }
+
         $category = $m['category'] ?? null;
         if ($category !== null && isset(self::CATEGORY_COLORS[$category])) {
             $role = ($m['author_role'] ?? null) === 'authoriser' ? 'authoriser' : 'agent';
-            $scheme = self::CATEGORY_COLORS[$category];
 
-            return ['fill' => $scheme[$role], 'underline' => $scheme['underline']];
+            return self::CATEGORY_COLORS[$category][$role];
         }
 
-        $legacy = self::COLORS[$m['color'] ?? self::DEFAULT_COLOR] ?? self::COLORS[self::DEFAULT_COLOR];
-
-        return ['fill' => $legacy, 'underline' => null];
+        return self::COLORS[$m['color'] ?? self::DEFAULT_COLOR] ?? self::COLORS[self::DEFAULT_COLOR];
     }
 
-    /** @param \GdImage $img */
-    private function burnMark($img, array $m): void
+    /** @return array{int,int,int} */
+    private function hexToRgb(string $hex): array
     {
-        $colors = $this->resolveMarkColors($m);
-        $rgb = $colors['fill'];
-        $fill = imagecolorallocatealpha($img, $rgb[0], $rgb[1], $rgb[2], self::ALPHA);
+        $hex = ltrim($hex, '#');
+        if (strlen($hex) !== 6) {
+            return self::COLORS[self::DEFAULT_COLOR];
+        }
+
+        return [hexdec(substr($hex, 0, 2)), hexdec(substr($hex, 2, 2)), hexdec(substr($hex, 4, 2))];
+    }
+
+    /**
+     * @param  \GdImage  $img
+     * @param  array<int,string>  $highlighterColors
+     */
+    private function burnMark($img, array $m, array $highlighterColors): void
+    {
+        $rgb = $this->resolveMarkColors($m, $highlighterColors);
 
         if (($m['type'] ?? null) === 'note') {
-            $this->burnNote($img, $m, $fill, $rgb, $colors['underline']);
+            $this->burnNote($img, $m, $rgb);
 
             return;
         }
 
-        // Highlighter stroke — a real marker-pen gesture (Johan: "click and
-        // drag to mark... the way a marker pen works"), not a rectangle: a
-        // thick translucent line following the ACTUAL drag path, point to
-        // point, with a filled circle at every joint so fast direction
-        // changes don't leave visible gaps.
+        // Highlighter stroke — a real marker-pen gesture, translucent ink
+        // only, following the ACTUAL drag path. No underline, no border of
+        // any kind — Johan, from real marked-up bank statements: "no lines
+        // as it strikes out," and the flattened download must render the
+        // same design as the live screen. multiplyBlendStroke() is a
+        // genuine MULTIPLY blend (GD has no native blend-mode support — no
+        // Imagick on this box), matching the browser's
+        // mix-blend-mode:multiply so overlapping strokes darken against
+        // each other the same way on both surfaces.
         $points = $m['points'] ?? [];
         if (count($points) < 2) {
             return;
         }
-        $half = (int) round((($m['width'] ?? self::STROKE_WIDTH)) / 2);
-        imagesetthickness($img, max(1, $half * 2));
+        $width = (int) round((float) ($m['width'] ?? self::STROKE_WIDTH));
+        $this->multiplyBlendStroke($img, $points, $width, $rgb);
+    }
+
+    /**
+     * Hand-rolled MULTIPLY blend — GD's own drawing primitives
+     * (imagecolorallocatealpha + imageline/imagefilledellipse) only do
+     * normal Porter-Duff "over" compositing, which is NOT what the live
+     * screen does (mix-blend-mode:multiply). The visible difference matters
+     * here specifically: multiply is what makes two overlapping strokes
+     * darken against each other, not just against the page — "over"
+     * compositing does not reproduce that, so the flattened download would
+     * visibly disagree with the live screen on any document with crossing
+     * strokes.
+     *
+     * Confined to the stroke's own bounding box (padded by half its width),
+     * never the full page — the RDP-simplified, capped point count keeps
+     * this bounded even on a dense document (see the browser's own
+     * simplifyPath()/MAX_STROKE_POINTS).
+     *
+     * @param  array<int, array{x: float|int, y: float|int}>  $points
+     * @param  array{int,int,int}  $rgb
+     */
+    private function multiplyBlendStroke($img, array $points, int $width, array $rgb): void
+    {
+        $half = max(1, (int) round($width / 2));
+
+        $minX = $maxX = (int) round($points[0]['x']);
+        $minY = $maxY = (int) round($points[0]['y']);
+        foreach ($points as $p) {
+            $minX = min($minX, (int) round($p['x']));
+            $maxX = max($maxX, (int) round($p['x']));
+            $minY = min($minY, (int) round($p['y']));
+            $maxY = max($maxY, (int) round($p['y']));
+        }
+
+        $imgW = imagesx($img);
+        $imgH = imagesy($img);
+        $minX = max(0, $minX - $half);
+        $minY = max(0, $minY - $half);
+        $maxX = min($imgW - 1, $maxX + $half);
+        $maxY = min($imgH - 1, $maxY + $half);
+        $boxW = $maxX - $minX + 1;
+        $boxH = $maxY - $minY + 1;
+        if ($boxW < 1 || $boxH < 1) {
+            return;
+        }
+
+        // Mask: opaque white stroke on a transparent canvas — any pixel
+        // whose alpha channel isn't fully transparent is "covered by ink."
+        $mask = imagecreatetruecolor($boxW, $boxH);
+        imagesavealpha($mask, true);
+        imagealphablending($mask, false);
+        imagefill($mask, 0, 0, imagecolorallocatealpha($mask, 0, 0, 0, 127));
+        imagealphablending($mask, true);
+        $opaqueWhite = imagecolorallocate($mask, 255, 255, 255);
+        imagesetthickness($mask, max(1, $half * 2));
         for ($i = 1; $i < count($points); $i++) {
-            imageline($img, (int) $points[$i - 1]['x'], (int) $points[$i - 1]['y'], (int) $points[$i]['x'], (int) $points[$i]['y'], $fill);
+            imageline(
+                $mask,
+                (int) round($points[$i - 1]['x']) - $minX, (int) round($points[$i - 1]['y']) - $minY,
+                (int) round($points[$i]['x']) - $minX, (int) round($points[$i]['y']) - $minY,
+                $opaqueWhite,
+            );
         }
         foreach ($points as $p) {
-            imagefilledellipse($img, (int) $p['x'], (int) $p['y'], $half * 2, $half * 2, $fill);
+            imagefilledellipse($mask, (int) round($p['x']) - $minX, (int) round($p['y']) - $minY, $half * 2, $half * 2, $opaqueWhite);
         }
-        imagesetthickness($img, 1);
+        imagesetthickness($mask, 1);
 
-        // Six-colour scheme, 2026-09-08 — a solid, OPAQUE thin rule under
-        // the stroke in the category's role-neutral "underline" shade. Same
-        // vertical-offset simplification the live client uses (see
-        // strokesSvgFor() in the shared JS factory): real strokes on this
-        // screen are drawn over roughly-horizontal statement lines, so a
-        // fixed downward offset reads as an underline for the documents
-        // this tool actually sees, without needing true perpendicular-to-
-        // path geometry for an arbitrary drag angle.
-        if ($colors['underline'] !== null) {
-            $u = imagecolorallocate($img, $colors['underline'][0], $colors['underline'][1], $colors['underline'][2]);
-            $offset = (int) round($half * 0.9);
-            imagesetthickness($img, self::UNDERLINE_WIDTH);
-            for ($i = 1; $i < count($points); $i++) {
-                imageline(
-                    $img,
-                    (int) $points[$i - 1]['x'], (int) $points[$i - 1]['y'] + $offset,
-                    (int) $points[$i]['x'], (int) $points[$i]['y'] + $offset,
-                    $u,
+        // GD alpha is inverted (0 = opaque, 127 = fully transparent);
+        // ALPHA (82) is already on that scale, so this is "how much ink"
+        // as a 0..1 fraction — matches the live screen's 0.55 stroke-
+        // opacity closely (both independently tuned to read as real ink
+        // against a page, not derived from one another).
+        $alpha = (127 - self::ALPHA) / 127;
+
+        for ($y = 0; $y < $boxH; $y++) {
+            for ($x = 0; $x < $boxW; $x++) {
+                $maskPixel = imagecolorat($mask, $x, $y);
+                if ((($maskPixel >> 24) & 0x7F) >= 127) {
+                    continue; // not covered by the stroke
+                }
+
+                $realX = $minX + $x;
+                $realY = $minY + $y;
+                $backdrop = imagecolorat($img, $realX, $realY);
+                $br = ($backdrop >> 16) & 0xFF;
+                $bgc = ($backdrop >> 8) & 0xFF;
+                $bb = $backdrop & 0xFF;
+
+                $nr = (int) round($br * (1 - $alpha) + $alpha * ($br * $rgb[0] / 255));
+                $ng = (int) round($bgc * (1 - $alpha) + $alpha * ($bgc * $rgb[1] / 255));
+                $nb = (int) round($bb * (1 - $alpha) + $alpha * ($bb * $rgb[2] / 255));
+
+                imagesetpixel(
+                    $img, $realX, $realY,
+                    (max(0, min(255, $nr)) << 16) | (max(0, min(255, $ng)) << 8) | max(0, min(255, $nb)),
                 );
             }
-            imagesetthickness($img, 1);
         }
+
+        imagedestroy($mask);
     }
 
     /**
@@ -377,7 +485,8 @@ class RentalApplicationDocumentHighlightService
      * to DPI, matching how Docuperfect\DocumentFlattener sizes its own
      * burned-in text elsewhere in this codebase.
      */
-    private function burnNote($img, array $m, int $fill, array $rgb, ?array $underlineRgb): void
+    /** @param array{int,int,int} $rgb */
+    private function burnNote($img, array $m, array $rgb): void
     {
         $x = (int) round((float) ($m['x'] ?? 0));
         $y = (int) round((float) ($m['y'] ?? 0));
@@ -392,14 +501,15 @@ class RentalApplicationDocumentHighlightService
         $boxW = 420;
         $boxH = 36 + (count($lines) * $lineHeight);
 
+        $fill = imagecolorallocatealpha($img, $rgb[0], $rgb[1], $rgb[2], self::ALPHA);
         $opaque = imagecolorallocate($img, $rgb[0], $rgb[1], $rgb[2]);
-        // Six-colour scheme, 2026-09-08 — the marker dot's border carries the
-        // category's role-neutral "underline" shade (same signal an
-        // underline gives a stroke); legacy marks with no category keep the
-        // old darkened-fill border they always had.
-        $border = $underlineRgb !== null
-            ? imagecolorallocate($img, $underlineRgb[0], $underlineRgb[1], $underlineRgb[2])
-            : imagecolorallocate($img, max(0, $rgb[0] - 60), max(0, $rgb[1] - 60), max(0, $rgb[2] - 60));
+        // Highlighter collection expansion, 2026-09-09 — a note pin isn't a
+        // stroke crossing text, so a border here isn't the "line as it
+        // strikes out" Johan ruled out; a plain darkened-fill border is
+        // just contrast so the pin/box read against the page, same
+        // treatment for every highlighter now (no more role-neutral
+        // "underline" shade — that concept is gone).
+        $border = imagecolorallocate($img, max(0, $rgb[0] - 60), max(0, $rgb[1] - 60), max(0, $rgb[2] - 60));
         $textColor = imagecolorallocate($img, 40, 40, 40);
 
         imagefilledellipse($img, $x, $y, 18, 18, $opaque);
@@ -455,9 +565,10 @@ class RentalApplicationDocumentHighlightService
      *     always stamped with the CURRENT caller as author, never a
      *     client-supplied one.
      *
+     * @param  array<int,bool>  $validHighlighterIds  highlighter id => true — active, belongs to this agency, visible to $authorRole (own scope or 'both'). A genuinely new mark referencing anything else is dropped, not guessed at.
      * @throws \App\Exceptions\RentalApplicationMarkOwnershipException
      */
-    private function normalizeForStorage(array $marksByPage, array $existingByPage, int $userId, string $userName, string $authorRole): array
+    private function normalizeForStorage(array $marksByPage, array $existingByPage, int $userId, string $userName, string $authorRole, array $validHighlighterIds): array
     {
         $out = [];
         $pages = array_unique(array_merge(
@@ -513,7 +624,7 @@ class RentalApplicationDocumentHighlightService
                 }
 
                 // A genuinely new mark.
-                $normalized = $this->normalizeNewMark($m, $userId, $userName, $authorRole);
+                $normalized = $this->normalizeNewMark($m, $userId, $userName, $authorRole, $validHighlighterIds);
                 if ($normalized === null) {
                     continue;
                 }
@@ -590,16 +701,27 @@ class RentalApplicationDocumentHighlightService
         return null;
     }
 
-    /** @return array|null null if the mark is malformed and should be silently dropped (shape already validated at the HTTP layer — this is the belt to that braces). */
-    private function normalizeNewMark(array $m, int $userId, string $userName, string $authorRole): ?array
+    /**
+     * @param  array<int,bool>  $validHighlighterIds
+     * @return array|null null if the mark is malformed OR its highlighter_id
+     *     doesn't resolve to something this agency/role may actually use
+     *     right now (archived, someone else's agency, wrong role, or just
+     *     missing) — dropped rather than guessed at, same as any other
+     *     malformed-mark case here (shape already validated at the HTTP
+     *     layer — this is the belt to that braces).
+     */
+    private function normalizeNewMark(array $m, int $userId, string $userName, string $authorRole, array $validHighlighterIds): ?array
     {
         $type = ($m['type'] ?? null) === 'note' ? 'note' : 'highlight';
-        $category = in_array($m['category'] ?? null, self::CATEGORIES, true) ? $m['category'] : self::DEFAULT_CATEGORY;
+        $highlighterId = $m['highlighter_id'] ?? null;
+        if (! is_int($highlighterId) || ! isset($validHighlighterIds[$highlighterId])) {
+            return null;
+        }
         $id = isset($m['id']) && is_string($m['id']) && $m['id'] !== '' ? mb_substr($m['id'], 0, 64) : (string) \Illuminate\Support\Str::uuid();
 
         $base = [
             'id' => $id,
-            'category' => $category,
+            'highlighter_id' => $highlighterId,
             'author_user_id' => $userId,
             'author_name' => mb_substr($userName, 0, 100),
             'author_role' => $authorRole,

@@ -115,38 +115,120 @@
         </form>
     </div>
 
-    {{-- Highlighter freehand redesign, 2026-09-09 — Johan: "admin can pick 6
-         colours - agent 3 and auth 3." Category KEYS/LABELS (Income/Expense/
-         Unpaid) stay fixed — only their colour is configurable here, split
-         one row per role so it's visually obvious which three belong to
-         which. Never writes a row until saved — colorsFor() returns these
-         same defaults on every screen that renders a mark until then. --}}
+    {{-- Highlighter collection expansion, 2026-09-09 — Johan: "we allow an
+         agency to set up which highlighters they want... as many as they
+         want, each with their own label." Replaces the fixed
+         three-category/six-colour block: full CRUD over an agency-owned,
+         arbitrary-length collection (RentalApplicationHighlighter). Label
+         and colour are both agency-configurable now — "each with their own
+         label" settles what was previously an open question (whether
+         category labels, not just colours, should be admin-configurable).
+         Archiving (not deleting) is the only removal — an archived
+         highlighter keeps rendering every mark already drawn with it, it
+         just disappears from the drawing picker; restorable below. --}}
     <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
-        <h2 class="text-sm font-semibold mb-1" style="color: var(--text-primary);">Highlighter Colours</h2>
+        <h2 class="text-sm font-semibold mb-1" style="color: var(--text-primary);">Highlighters</h2>
         <p class="text-xs mb-3" style="color: var(--text-muted);">
-            The colours agents and authorisers use to mark up application documents (Income,
-            Expense, Unpaid). Each role sees only its own three colours while drawing — both
-            sets are shown together here, and in the legend, so either role can read the
-            other's marks.
+            The highlighters agents and authorisers use to mark up application documents — as
+            many as you want, each with its own label, colour, and which role(s) may use it.
+            Recolouring one here changes every mark already drawn with it, everywhere it's
+            shown. Archiving keeps existing marks exactly as they render today; it just removes
+            that highlighter from the picker for new marks.
         </p>
 
-        <form method="POST" action="{{ route('corex.settings.rental-applications.mark-colors') }}" class="space-y-3">
-            @csrf
-            @foreach(['agent' => 'Agent', 'authoriser' => 'Authoriser'] as $roleKey => $roleLabel)
-                <div class="flex items-end gap-4">
-                    <span class="text-xs font-medium w-20" style="color: var(--text-secondary);">{{ $roleLabel }}</span>
-                    @foreach(['income' => 'Income', 'expense' => 'Expense', 'unpaid' => 'Unpaid'] as $catKey => $catLabel)
-                        <div>
-                            <label class="block text-[11px] mb-1" style="color: var(--text-muted);">{{ $catLabel }}</label>
-                            <input type="color" name="{{ $roleKey }}_{{ $catKey }}_color"
-                                   value="{{ old($roleKey.'_'.$catKey.'_color', $markColors[$roleKey][$catKey]) }}"
-                                   class="corex-input" style="width: 48px; height: 32px; padding: 2px;">
+        @php
+            $activeHighlighters = $highlighters->reject->trashed()->values();
+            $archivedHighlighters = $highlighters->filter->trashed();
+            $activeIds = $activeHighlighters->pluck('id')->all();
+        @endphp
+
+        <div class="space-y-2 mb-4">
+            @forelse($activeHighlighters as $i => $highlighter)
+                <form method="POST" action="{{ route('corex.settings.rental-applications.highlighters.update', $highlighter) }}" class="flex items-center gap-2">
+                    @csrf
+                    @method('PUT')
+                    <span class="flex flex-col" style="line-height: 1;">
+                        <button type="submit" form="reorder-up-{{ $highlighter->id }}" @disabled($i === 0) title="Move up" class="text-xs" style="opacity: {{ $i === 0 ? '0.3' : '1' }};">&#9650;</button>
+                        <button type="submit" form="reorder-down-{{ $highlighter->id }}" @disabled($i === count($activeIds) - 1) title="Move down" class="text-xs" style="opacity: {{ $i === count($activeIds) - 1 ? '0.3' : '1' }};">&#9660;</button>
+                    </span>
+                    <input type="color" name="color" value="{{ old('color', $highlighter->color) }}" class="corex-input" style="width: 40px; height: 32px; padding: 2px; flex-shrink: 0;">
+                    <input type="text" name="label" value="{{ old('label', $highlighter->label) }}" maxlength="100" required class="corex-input text-xs" style="width: 140px;">
+                    <select name="role_scope" class="corex-input text-xs" style="width: 130px;">
+                        @foreach(['agent' => 'Agent', 'authoriser' => 'Authoriser', 'both' => 'Agent + Authoriser'] as $val => $roleLabel)
+                            <option value="{{ $val }}" @selected(old('role_scope', $highlighter->role_scope) === $val)>{{ $roleLabel }}</option>
+                        @endforeach
+                    </select>
+                    <button type="submit" class="text-xs" style="color: var(--ds-blue, #2563eb);">Save</button>
+                </form>
+                @if($i > 0)
+                    @php $swappedUp = $activeIds; [$swappedUp[$i - 1], $swappedUp[$i]] = [$swappedUp[$i], $swappedUp[$i - 1]]; @endphp
+                    <form id="reorder-up-{{ $highlighter->id }}" method="POST" action="{{ route('corex.settings.rental-applications.highlighters.reorder') }}" style="display:none;">
+                        @csrf
+                        @foreach($swappedUp as $orderedId)
+                            <input type="hidden" name="order[]" value="{{ $orderedId }}">
+                        @endforeach
+                    </form>
+                @endif
+                @if($i < count($activeIds) - 1)
+                    @php $swappedDown = $activeIds; [$swappedDown[$i], $swappedDown[$i + 1]] = [$swappedDown[$i + 1], $swappedDown[$i]]; @endphp
+                    <form id="reorder-down-{{ $highlighter->id }}" method="POST" action="{{ route('corex.settings.rental-applications.highlighters.reorder') }}" style="display:none;">
+                        @csrf
+                        @foreach($swappedDown as $orderedId)
+                            <input type="hidden" name="order[]" value="{{ $orderedId }}">
+                        @endforeach
+                    </form>
+                @endif
+                <form method="POST" action="{{ route('corex.settings.rental-applications.highlighters.archive', $highlighter) }}" style="display:inline;" onsubmit="return confirm('Archive this highlighter? Existing marks made with it keep their colour — it just won\'t be choosable for new marks.');">
+                    @csrf
+                    <button type="submit" class="text-xs" style="color: var(--text-muted); margin-left: 0;">Archive</button>
+                </form>
+            @empty
+                <p class="text-xs" style="color: var(--text-muted);">No highlighters configured yet — the six starting ones below are the defaults every agency ships with.</p>
+            @endforelse
+        </div>
+
+        <div class="pt-2 mb-4" style="border-top: 1px solid var(--border);">
+            <h3 class="text-xs font-semibold mb-2" style="color: var(--text-secondary);">Add a highlighter</h3>
+            <form method="POST" action="{{ route('corex.settings.rental-applications.highlighters.store') }}" class="flex items-end gap-2">
+                @csrf
+                <div>
+                    <label class="block text-[11px] mb-1" style="color: var(--text-muted);">Colour</label>
+                    <input type="color" name="color" value="{{ old('color', '#94a3b8') }}" class="corex-input" style="width: 40px; height: 32px; padding: 2px;">
+                </div>
+                <div>
+                    <label class="block text-[11px] mb-1" style="color: var(--text-muted);">Label</label>
+                    <input type="text" name="label" value="{{ old('label') }}" maxlength="100" placeholder="e.g. Deposit" required class="corex-input text-xs" style="width: 140px;">
+                </div>
+                <div>
+                    <label class="block text-[11px] mb-1" style="color: var(--text-muted);">Who may use it</label>
+                    <select name="role_scope" class="corex-input text-xs" style="width: 130px;">
+                        <option value="agent">Agent</option>
+                        <option value="authoriser">Authoriser</option>
+                        <option value="both">Agent + Authoriser</option>
+                    </select>
+                </div>
+                <button type="submit" class="corex-btn-primary text-xs">Add</button>
+            </form>
+        </div>
+
+        @if($archivedHighlighters->isNotEmpty())
+            <div class="pt-2" style="border-top: 1px solid var(--border);">
+                <h3 class="text-xs font-semibold mb-2" style="color: var(--text-secondary);">Archived</h3>
+                <div class="space-y-1">
+                    @foreach($archivedHighlighters as $highlighter)
+                        <div class="flex items-center gap-2 text-xs" style="opacity: 0.7;">
+                            <span style="display:inline-block; width:16px; height:16px; border-radius:3px; background: {{ $highlighter->color }};"></span>
+                            <span style="color: var(--text-secondary);">{{ $highlighter->label }}</span>
+                            <span style="color: var(--text-muted);">({{ $highlighter->role_scope === 'both' ? 'Agent + Authoriser' : ucfirst($highlighter->role_scope) }})</span>
+                            <form method="POST" action="{{ route('corex.settings.rental-applications.highlighters.restore', $highlighter->id) }}">
+                                @csrf
+                                <button type="submit" style="color: var(--ds-blue, #2563eb);">Restore</button>
+                            </form>
                         </div>
                     @endforeach
                 </div>
-            @endforeach
-            <button type="submit" class="corex-btn-primary text-xs">Save Colours</button>
-        </form>
+            </div>
+        @endif
     </div>
 
     {{-- AT-392 authoriser flow, 2026-09-08 — Johan: "each agency will want

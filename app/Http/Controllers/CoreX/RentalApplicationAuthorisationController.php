@@ -219,9 +219,13 @@ class RentalApplicationAuthorisationController extends Controller
             ? $assessment->expenseItems->map(fn ($i) => $this->serializeItem($i, $user))->values()
             : collect();
 
-        // Highlighter freehand redesign, 2026-09-09 — BOTH roles' colours,
-        // same reasoning as RentalApplicationReviewController::show().
-        $markColors = \App\Models\RentalApplicationMarkColorSetting::colorsFor((int) $rentalApplication->agency_id);
+        // Highlighter collection expansion, 2026-09-09 — same reasoning as
+        // RentalApplicationReviewController::show().
+        $highlighters = \App\Models\RentalApplicationHighlighter::allFor((int) $rentalApplication->agency_id)
+            ->map(fn ($h) => [
+                'id' => $h->id, 'label' => $h->label, 'color' => $h->color,
+                'role_scope' => $h->role_scope, 'archived' => $h->trashed(),
+            ])->values();
 
         // Unified screen, 2026-09-09 — Johan: "did I not tell you the
         // reviewer screen is essentially the same screen as the agent
@@ -238,7 +242,7 @@ class RentalApplicationAuthorisationController extends Controller
 
         return view('corex.rental-applications.review', compact(
             'rentalApplication', 'assessment', 'maxRentPercent', 'result', 'documents', 'history', 'auditLog', 'auditLogTotal', 'canOverride', 'alreadyDecided',
-            'blockedBySelfApproval', 'serializedIncomeItems', 'serializedExpenseItems', 'markColors', 'viewerRole'
+            'blockedBySelfApproval', 'serializedIncomeItems', 'serializedExpenseItems', 'highlighters', 'viewerRole'
         ));
     }
 

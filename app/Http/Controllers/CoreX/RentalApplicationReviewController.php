@@ -164,13 +164,20 @@ class RentalApplicationReviewController extends Controller
             ? ['reason' => $latestHistory->note]
             : null;
 
-        // Highlighter freehand redesign, 2026-09-09 — BOTH roles' colours are
-        // sent (the legend needs all six to explain marks either role has
-        // already drawn on a shared page); the JS itself is what only ever
-        // offers the CURRENT user's own three on the drawing toolbar
-        // (Johan: "an agent sees their three; an authoriser sees theirs...
-        // do not show anyone six" — a picker-UI rule, not a data-hiding one).
-        $markColors = \App\Models\RentalApplicationMarkColorSetting::colorsFor((int) $rentalApplication->agency_id);
+        // Highlighter collection expansion, 2026-09-09 — Johan: "an agency
+        // can have 10 highlighters set up." EVERY highlighter for this
+        // agency is sent, including archived ones (the legend, and
+        // fillFor() for an existing mark, need to resolve colours
+        // regardless of archived state) — the JS itself is what only ever
+        // offers the CURRENT user's own active, role-visible ones on the
+        // drawing toolbar (Johan: "do not show anyone six" — now "do not
+        // show anyone the other role's, or the archived ones" — a
+        // picker-UI rule, not a data-hiding one).
+        $highlighters = \App\Models\RentalApplicationHighlighter::allFor((int) $rentalApplication->agency_id)
+            ->map(fn ($h) => [
+                'id' => $h->id, 'label' => $h->label, 'color' => $h->color,
+                'role_scope' => $h->role_scope, 'archived' => $h->trashed(),
+            ])->values();
 
         // Unified screen, 2026-09-09 — Johan: "did I not tell you the
         // reviewer screen is essentially the same screen as the agent
@@ -186,7 +193,7 @@ class RentalApplicationReviewController extends Controller
         $auditLog = $rentalApplication->auditLog()->with('user')->latest('created_at')->limit(200)->get();
 
         return view('corex.rental-applications.review', compact(
-            'rentalApplication', 'assessment', 'maxRentPercent', 'result', 'documents', 'moreInfoRequestedNote', 'declineInfo', 'markColors',
+            'rentalApplication', 'assessment', 'maxRentPercent', 'result', 'documents', 'moreInfoRequestedNote', 'declineInfo', 'highlighters',
             'viewerRole', 'auditLog', 'auditLogTotal'
         ))->with('isPendingAuthorisation', $rentalApplication->isPendingAuthorisation());
     }

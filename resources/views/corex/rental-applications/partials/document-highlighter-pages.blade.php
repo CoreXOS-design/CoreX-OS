@@ -11,43 +11,39 @@
      rentalDocumentHighlighter() Alpine state, no Blade-side parameters
      needed.
 
-     Freehand redesign, 2026-09-09: HUE = category (income/expense/unpaid),
-     ROLE = which of the two role-specific palettes a mark's colour comes
-     from (agent vs authoriser) — six colours total, agency-configurable
-     (RentalApplicationMarkColorSetting), never hardcoded. No underline, no
-     border, no outline of any kind on a mark itself — Johan, from real
-     marked-up bank statements: "no lines as it strikes out," since this
-     module has a genuine strike-out feature a line would be confused with.
-     Colours come from fillFor()/myColorFor() in the shared JS factory,
-     reading `markColors` (passed in from the controller) — never CSS
-     custom properties, never hardcoded in this markup. --}}
+     Highlighter collection expansion, 2026-09-09 — Johan: "an agency can
+     have 10 highlighters set up, each with their own label." Replaces the
+     fixed three-category/six-colour scheme entirely: an agency-owned,
+     arbitrary-length collection (RentalApplicationHighlighter), never
+     hardcoded. No underline, no border, no outline of any kind on a mark
+     itself — Johan, from real marked-up bank statements: "no lines as it
+     strikes out," since this module has a genuine strike-out feature a
+     line would be confused with. Colours come from fillFor() in the
+     shared JS factory, reading `highlighters` (passed in from the
+     controller) — never CSS custom properties, never hardcoded here. --}}
 
-{{-- Legend — Johan asked for this explicitly ("a map key"). Still shows
-     BOTH roles' swatches (an agent needs to be able to read an
-     authoriser's marks on a shared page, and vice versa) — just square
-     colour swatches now, no underline bar, since a mark itself no longer
-     has one either.
+{{-- Legend — Johan asked for this explicitly ("a map key"). Driven by
+     legendHighlighters() — every currently-choosable highlighter, plus
+     any archived one that still has a mark on THIS open document (an old
+     mark's colour is never left unexplained just because someone tidied
+     the settings screen). Each row carries its own role tag now that role
+     is a per-highlighter property, not a fixed second axis.
 
      2026-09-08, night sweep at 1522px — --ds-slate-soft was never actually
      defined in corex.css, so its hardcoded #f1f5f9 fallback always won
      regardless of theme, against theme-aware (light-in-dark-mode) text —
      unreadable in dark mode. --surface-2 is the real, theme-aware token. --}}
-<div class="flex flex-wrap items-center gap-4 py-2 px-3 rounded-md text-xs mb-2" x-show="!loading && !loadError"
+<div class="flex flex-wrap items-center gap-3 py-2 px-3 rounded-md text-xs mb-2" x-show="!loading && !loadError"
      style="background: var(--surface-2, #f9fafb); border: 1px solid var(--border);">
     <span class="font-semibold" style="color: var(--text-secondary);">Legend</span>
-    <template x-for="c in categories" :key="c.key">
-        <div class="flex items-center gap-1.5">
-            <span style="color: var(--text-muted);" x-text="c.label"></span>
-            <span class="flex items-center gap-0.5">
-                <span :style="{ display:'inline-block', width:'20px', height:'14px', borderRadius:'3px', background: markColors.agent[c.key] }" title="Agent"></span>
-                <span style="color: var(--text-muted); font-size: 10px;">agent</span>
-            </span>
-            <span class="flex items-center gap-0.5">
-                <span :style="{ display:'inline-block', width:'20px', height:'14px', borderRadius:'3px', background: markColors.authoriser[c.key] }" title="Authoriser"></span>
-                <span style="color: var(--text-muted); font-size: 10px;">authoriser</span>
-            </span>
-        </div>
+    <template x-for="h in legendHighlighters()" :key="h.id">
+        <span class="flex items-center gap-1">
+            <span :style="{ display:'inline-block', width:'20px', height:'14px', borderRadius:'3px', background: h.color, opacity: h.archived ? '0.5' : '1' }"></span>
+            <span style="color: var(--text-muted);" x-text="h.label"></span>
+            <span style="color: var(--text-muted); font-size: 10px;" x-text="'(' + (h.role_scope === 'both' ? 'agent + authoriser' : h.role_scope) + (h.archived ? ', archived' : '') + ')'"></span>
+        </span>
     </template>
+    <span class="text-[11px]" style="color: var(--text-muted);" x-show="legendHighlighters().length === 0">No highlighters configured yet.</span>
 </div>
 
 <template x-if="loading">
@@ -160,14 +156,11 @@
                                 :style="{ position:'absolute', left:(mark.points[0].x-9)+'px', top:(mark.points[0].y-9)+'px', width:'18px', height:'18px', borderRadius:'9999px', background:'#475569', color:'#fff', fontSize:'12px', lineHeight:'16px', textAlign:'center', border:'1px solid #fff', padding:'0', pointerEvents:'auto', cursor:'pointer' }">&times;</button>
                     </template>
                     {{-- Notes — a pinned marker + its text, visible inline. Dot
-                         fill carries category+role (fillFor, same as a
-                         highlight stroke's own colour) with a plain fixed
-                         white ring for contrast — freehand redesign,
-                         2026-09-09: this is a discrete pin, not a stroke
-                         crossing text, so a border here isn't the "line as
-                         it strikes out" Johan ruled out; underlineFor() (the
-                         removed role/colour split) doesn't apply to a marker
-                         that was never role-doubled anyway.
+                         fill resolves to its highlighter's colour (fillFor,
+                         same as a highlight stroke) with a plain fixed
+                         white ring for contrast — this is a discrete pin,
+                         not a stroke crossing text, so a border here isn't
+                         the "line as it strikes out" Johan ruled out.
                          2026-09-08 — Johan: "note does not work - clicked, shows
                          small modal but cannot type anything in it." Root cause,
                          found the same way as the highlighter bug above (a real
@@ -191,7 +184,7 @@
                             <div x-show="openNote && openNote.page === page.index && openNote.index === ni" x-cloak
                                  class="rounded-md p-2" style="position:absolute; top:20px; left:0; width:240px; background: var(--surface); border:1px solid var(--border); box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 10;">
                                 <p class="text-sm mb-1" style="white-space:pre-wrap; color: var(--text-primary);" x-text="note.text"></p>
-                                <p class="text-[11px] mb-2" style="color: var(--text-muted);" x-text="(note.authorName || 'Unknown') + ' · ' + (note.category || 'unpaid')"></p>
+                                <p class="text-[11px] mb-2" style="color: var(--text-muted);" x-text="(note.authorName || 'Unknown') + ' · ' + labelFor(note)"></p>
                                 <div class="flex justify-end gap-2">
                                     <button type="button" x-show="canEditMark(note)" class="text-xs" style="color: var(--ds-crimson, #dc2626);" @click="removeMark(page.index, ni, 'note')">Remove</button>
                                     <button type="button" class="text-xs" style="color: var(--text-muted);" @click="openNote = null">Close</button>
