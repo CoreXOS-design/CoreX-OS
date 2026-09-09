@@ -76,7 +76,8 @@ final class TestConnectionBlockedAppendTest extends TestCase
 
         $controller = new CommunicationMailboxController();
         $rateLimiter = app(\App\Services\Communications\MailboxConnectionRateLimiter::class);
-        $response = $controller->testConnection(new Request(), $mailbox, $blockedSmtpBuilder, $appender, $rateLimiter);
+        $hostBreaker = app(\App\Services\Communications\HostCircuitBreaker::class);
+        $response = $controller->testConnection(new Request(), $mailbox, $blockedSmtpBuilder, $appender, $rateLimiter, $hostBreaker);
 
         $flashed = $response->getSession()->get('test_connection_result');
 

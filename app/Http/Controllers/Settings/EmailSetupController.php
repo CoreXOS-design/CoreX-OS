@@ -57,7 +57,26 @@ class EmailSetupController extends Controller
             ];
         }
 
-        return view('settings.email-setup.index', compact('users', 'mailIntercept'));
+        // 2026-09-09 (Johan, auth-lock safeguard) — "Johan must be able to
+        // see it before he clicks anything." Same budget visibility as the
+        // compliance mailboxes screen (CommunicationMailboxController::index()).
+        $hostBreaker = app(\App\Services\Communications\HostCircuitBreaker::class);
+        $hostAuthStatus = [];
+        foreach ($users as $user) {
+            foreach ($user->commMailboxes as $m) {
+                foreach ($hostBreaker->hostsFor($m) as $host) {
+                    if (! isset($hostAuthStatus[$host])) {
+                        $hostAuthStatus[$host] = [
+                            'locked' => $hostBreaker->isAuthLocked($host),
+                            'label' => $hostBreaker->authBudgetLabel($host),
+                            'count' => $hostBreaker->authFailureCount($host),
+                        ];
+                    }
+                }
+            }
+        }
+
+        return view('settings.email-setup.index', compact('users', 'mailIntercept', 'hostAuthStatus'));
     }
 
     /** Create a capture mailbox for a specific user (set_by = agency). */
@@ -167,7 +186,8 @@ class EmailSetupController extends Controller
         CommunicationMailbox $mailbox,
         \App\Services\Communications\PerMailboxMailTransportBuilder $transportBuilder,
         \App\Services\Communications\ImapSentFolderAppender $appender,
-        \App\Services\Communications\MailboxConnectionRateLimiter $rateLimiter
+        \App\Services\Communications\MailboxConnectionRateLimiter $rateLimiter,
+        \App\Services\Communications\HostCircuitBreaker $hostBreaker
     ) {
         // 2026-09-08/09 (Johan) — the actual cause of today's Afrihost ban.
         // Checked BEFORE any real connection is made.
@@ -177,6 +197,16 @@ class EmailSetupController extends Controller
                 'smtp' => ['ok' => false, 'message' => $message],
                 'imap_append' => ['ok' => false, 'message' => $message],
             ]);
+        }
+
+        // 2026-09-09 (Johan, auth-lock safeguard) — see CommunicationMailboxController::testConnection() for the full rationale.
+        foreach ($hostBreaker->hostsFor($mailbox) as $lockedHost) {
+            if ($hostBreaker->isAuthLocked($lockedHost)) {
+                $message = "Blocked — {$lockedHost} has hit our internal login-failure limit ({$hostBreaker->authBudgetLabel($lockedHost)}) and Test Connection is refused to protect the mailbox from being locked out by the mail provider. Confirm the correct credentials, then ask an admin to reset the login lock.";
+                return back()
+                    ->with('test_connection_result', ['smtp' => ['ok' => false, 'message' => $message], 'imap_append' => ['ok' => false, 'message' => $message]])
+                    ->with('test_connection_mailbox_id', $mailbox->id);
+            }
         }
         $rateLimiter->hit($mailbox);
 
@@ -204,10 +234,12 @@ class EmailSetupController extends Controller
                 'last_send_error_at' => now(),
                 'consecutive_send_failures' => (int) $mailbox->consecutive_send_failures + 1,
             ])->save();
+            $hostBreaker->recordAuthFailureIfApplicable(strtolower(trim((string) $mailbox->smtp_host)), $e->sanitisedReason);
         }
 
         $testMime = "Subject: CoreX Sent-folder test\r\nFrom: {$mailbox->email_address}\r\nTo: {$mailbox->email_address}\r\nDate: " . now()->toRfc2822String() . "\r\n\r\nThis is a Sent-folder write test from CoreX.";
         $append = $appender->append($mailbox, $rawMime ?? $testMime);
+        $hostBreaker->recordAuthFailureIfApplicable(strtolower(trim((string) $mailbox->imap_host)), $append['reason'] ?? null);
         if ($append['reason'] === 'intercepted') {
             // AT-URGENT-2026-09-08/09 — a deliberate safety skip, not a
             // failure: nothing was attempted, so the mailbox's real
