@@ -9,6 +9,7 @@ use App\Models\Branch;
 use App\Models\Contact;
 use App\Models\RentalApplication;
 use App\Models\RentalApplicationDocumentHighlight;
+use App\Models\RentalApplicationHighlighter;
 use App\Models\User;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -129,6 +130,18 @@ final class RentalApplicationDocumentMarkSaveTest extends TestCase
         self::assertCount(1, $remaining['pages'], 'remaining pages after page 1 of a 2-page document');
         self::assertSame(1, $remaining['pages'][0]['index']);
 
+        // Highlighter collection expansion, 2026-09-09 — a mark now
+        // references a real RentalApplicationHighlighter row (agency-owned)
+        // instead of a hardcoded category string. This test's agency is
+        // created directly (Agency::create()), not through the HTTP
+        // create-agency flow that fires AgencyCreated — so the six
+        // defaults aren't auto-seeded here; seed them explicitly the same
+        // way SeedDefaultRentalApplicationHighlighters does for a real
+        // new agency.
+        RentalApplicationHighlighter::seedDefaultsFor($this->agency->id);
+        $incomeHighlighter = RentalApplicationHighlighter::where('agency_id', $this->agency->id)
+            ->where('label', 'Income')->where('role_scope', 'agent')->firstOrFail();
+
         // ── Step 2: save one mark on each page, using the version the
         // client actually loaded — this is the exact scenario Johan
         // reported failing with a false 409. ──
@@ -137,7 +150,7 @@ final class RentalApplicationDocumentMarkSaveTest extends TestCase
                 'base_version' => $baseVersion,
                 'marks' => [
                     0 => [[
-                        'id' => 'test-mark-page-0', 'type' => 'highlight', 'category' => 'income',
+                        'id' => 'test-mark-page-0', 'type' => 'highlight', 'highlighter_id' => $incomeHighlighter->id,
                         'points' => [['x' => 10, 'y' => 10], ['x' => 100, 'y' => 10]], 'width' => 16,
                     ]],
                     1 => [], // page 2 genuinely has no marks — still named, per the completeness rule
@@ -152,7 +165,7 @@ final class RentalApplicationDocumentMarkSaveTest extends TestCase
         $highlight = RentalApplicationDocumentHighlight::where('document_id', $document->id)->firstOrFail();
         self::assertSame(1, $highlight->marks_version);
         self::assertCount(1, $highlight->marks_json[0] ?? []);
-        self::assertSame('income', $highlight->marks_json[0][0]['category']);
+        self::assertSame($incomeHighlighter->id, $highlight->marks_json[0][0]['highlighter_id']);
         self::assertSame($agent->id, $highlight->marks_json[0][0]['author_user_id']);
         self::assertSame('agent', $highlight->marks_json[0][0]['author_role']);
 
@@ -182,11 +195,14 @@ final class RentalApplicationDocumentMarkSaveTest extends TestCase
         ])->assertOk();
 
         // This client is still holding the ORIGINAL version 0 it loaded before that happened.
+        // (The version check runs before any mark is normalised, so this
+        // mark's highlighter_id genuinely doesn't need to resolve to
+        // anything real — the save is refused before it would matter.)
         $response = $this->actingAs($agent)->postJson(route('corex.rental-applications.documents.highlight', [$app, $document]), [
             'base_version' => 0,
             'marks' => [
                 0 => [[
-                    'id' => 'stale-client-mark', 'type' => 'highlight', 'category' => 'unpaid',
+                    'id' => 'stale-client-mark', 'type' => 'highlight', 'highlighter_id' => 999999,
                     'points' => [['x' => 5, 'y' => 5], ['x' => 50, 'y' => 5]], 'width' => 16,
                 ]],
                 1 => [],
