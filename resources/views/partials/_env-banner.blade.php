@@ -85,10 +85,13 @@
         // own MAIL_*_HOST/PORT and can be pointed at real SMTP even while the
         // default mailer is safely local. Claiming "your mail is caught here"
         // is only true if ALL of them are actually local.
-        $mailpitActive = collect(['smtp', 'corex', 'otp'])->every(
-            fn (string $mailer) => config("mail.mailers.{$mailer}.host") === '127.0.0.1'
-                && (int) config("mail.mailers.{$mailer}.port") === 1025
-        );
+        //
+        // 2026-09-09 — reuses OutboundMailGuard::hasLocalSink(), the same
+        // check the outbound-mail kill switch now uses to decide whether to
+        // forward a captured message to Mailpit as a convenience. One
+        // source of truth for "does a local mail catcher exist here",
+        // rather than two copies of the same config check drifting apart.
+        $mailpitActive = \App\Support\OutboundMailGuard::hasLocalSink();
     @endphp
     <div role="status" aria-label="Environment: {{ $envLabel }}"
          style="flex:0 0 auto; width:100%; height:24px; line-height:24px;

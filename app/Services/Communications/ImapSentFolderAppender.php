@@ -37,14 +37,18 @@ class ImapSentFolderAppender
     public function append(CommunicationMailbox $mailbox, string $rawMime): array
     {
         if (OutboundMailGuard::isActive()) {
-            Log::warning('OUTBOUND MAIL BLOCKED — non-production environment', [
+            // 2026-09-09 — was 'blocked_non_production', but isActive() can now
+            // also be true on production (a super admin forced interception on
+            // during an incident) — the old name would have been a lie exactly
+            // there. 'intercepted' is true regardless of why.
+            Log::warning('OUTBOUND MAIL INTERCEPTED', [
                 'app_env' => config('app.env'),
                 'app_url' => config('app.url'),
                 'mailbox_id' => $mailbox->id,
                 'action' => 'imap_sent_folder_append',
             ]);
 
-            return ['ok' => false, 'reason' => 'blocked_non_production'];
+            return ['ok' => false, 'reason' => 'intercepted'];
         }
 
         if (empty($mailbox->imap_host) || empty($mailbox->username) || empty($mailbox->resolvedSmtpPassword() ?: $mailbox->encrypted_password)) {

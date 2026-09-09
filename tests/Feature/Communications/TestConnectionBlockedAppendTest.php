@@ -75,7 +75,8 @@ final class TestConnectionBlockedAppendTest extends TestCase
         $appender = new ImapSentFolderAppender($poller);
 
         $controller = new CommunicationMailboxController();
-        $response = $controller->testConnection(new Request(), $mailbox, $blockedSmtpBuilder, $appender);
+        $rateLimiter = app(\App\Services\Communications\MailboxConnectionRateLimiter::class);
+        $response = $controller->testConnection(new Request(), $mailbox, $blockedSmtpBuilder, $appender, $rateLimiter);
 
         $flashed = $response->getSession()->get('test_connection_result');
 
@@ -83,7 +84,7 @@ final class TestConnectionBlockedAppendTest extends TestCase
         $this->assertFalse($flashed['smtp']['ok'], 'The SMTP leg is genuinely blocked in this environment — that part is unchanged.');
         $this->assertTrue($flashed['imap_append']['ok'], 'A guard-blocked append must not render as a Fail — nothing was attempted, it is not an error.');
         $this->assertStringNotContainsStringIgnoringCase('fail', $flashed['imap_append']['message']);
-        $this->assertStringContainsString('non-production', $flashed['imap_append']['message']);
+        $this->assertStringContainsString('interception is currently on', $flashed['imap_append']['message']);
 
         $mailbox->refresh();
         $this->assertNull($mailbox->last_sent_folder_append_error, 'A skipped append must not record an "error" reason against the mailbox — nothing about its real append health is known from this attempt.');
