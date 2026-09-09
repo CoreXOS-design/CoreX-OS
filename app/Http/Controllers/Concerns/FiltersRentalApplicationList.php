@@ -101,6 +101,19 @@ trait FiltersRentalApplicationList
             $query->orderBy($sort, $direction);
         }
 
+        // cc5 regression pass, 2026-09-10 — rows tying on the sort column
+        // (e.g. two applications created the same second, or NULL on both
+        // sides of a nullable sort column) had no stable order: MySQL makes
+        // no guarantee about tie order, so a reload or a page-2 fetch could
+        // silently reshuffle or repeat/skip a row against the ties on the
+        // page boundary. A deterministic tie-breaker on the primary key
+        // fixes the order across reloads regardless of what ties. Applied
+        // last so it never overrides the requested sort, only breaks ties
+        // within it — same $direction as the primary sort, not a fixed one,
+        // so "newest first" also means "highest id first" among ties, not a
+        // direction-independent id order that would look wrong reversed.
+        $query->orderBy('rental_applications.id', $direction);
+
         return $query;
     }
 }

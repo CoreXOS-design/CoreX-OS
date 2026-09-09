@@ -101,6 +101,37 @@ final class RentalApplicationCrudStandardTest extends TestCase
         $this->assertLessThan(strpos($descending, 'Marker Sent Row'), strpos($descending, 'Marker InProgress Row'));
     }
 
+    /**
+     * cc5 regression pass, 2026-09-10 — Johan: "No secondary sort in the
+     * shared trait — rows tying on the sort column have no stable order
+     * across reloads." Forces two rows to a genuinely identical timestamp
+     * (real-world: two applications created the same second) on the sort
+     * column itself, then asserts the SAME order comes back on repeated
+     * requests — the id tie-breaker in FiltersRentalApplicationList is what
+     * makes that true; without it MySQL gives no ordering guarantee among
+     * ties at all.
+     */
+    public function test_ties_on_the_sort_column_have_a_stable_deterministic_order(): void
+    {
+        $admin = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branchA->id, 'role' => 'admin']);
+        $first = $this->application($admin, $this->branchA, ['property_address_override' => 'Tie Row First']);
+        $second = $this->application($admin, $this->branchA, ['property_address_override' => 'Tie Row Second']);
+
+        $tiedAt = now();
+        \Illuminate\Support\Facades\DB::table('rental_applications')->whereIn('id', [$first->id, $second->id])->update(['created_at' => $tiedAt]);
+
+        $ascending1 = $this->actingAs($admin)->get(route('corex.rental-applications.index', ['sort' => 'date', 'direction' => 'asc']))->getContent();
+        $ascending2 = $this->actingAs($admin)->get(route('corex.rental-applications.index', ['sort' => 'date', 'direction' => 'asc']))->getContent();
+
+        // Same request, twice — must agree with itself every time, not just by luck.
+        $order1 = strpos($ascending1, 'Tie Row First') < strpos($ascending1, 'Tie Row Second');
+        $order2 = strpos($ascending2, 'Tie Row First') < strpos($ascending2, 'Tie Row Second');
+        $this->assertSame($order1, $order2, 'identical ties must produce the identical order on every request, not a coin flip');
+
+        // And the tie-breaker is genuinely the id, ascending with the primary sort: lower id (created first) sorts first in ASC.
+        $this->assertLessThan(strpos($ascending1, 'Tie Row Second'), strpos($ascending1, 'Tie Row First'));
+    }
+
     // ── Date range ────────────────────────────────────────────────────
 
     public function test_date_range_excludes_applications_outside_the_window(): void
