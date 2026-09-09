@@ -6223,3 +6223,54 @@ withdrawn along with §3, so it does **not** go in the wizard).
 
 No code, migration, or UI for this feature is written until Johan responds
 to these.
+
+## Drawer/form fitness check for a tenant wishlist (AT-392, 2026-09-09, cc4)
+
+Checked before build, as required: does the reused Core Matches drawer
+(`corex/contacts/_match-form.blade.php`, wrapped in the drawer pattern from
+`command-center/buyers/detail.blade.php:580-615`) actually work for a
+tenant/rental wishlist, or is it shaped only for buyers?
+
+**It already works for rentals, structurally — confirmed, not assumed:**
+
+- The form already has a real Sale/Rental toggle
+  (`_match-form.blade.php:95-107` — Alpine `listingType`, two buttons,
+  posts `listing_type` as either value), not something bolted on for sale
+  only.
+- `pet_friendly` already exists as a feature-chip option
+  (`ContactMatchController.php:28`) — the one rental-specific "wishlist"
+  detail Johan mentioned by name in the original ask is already there.
+- No route-level permission blocks an ordinary agent from using it —
+  `matches.store`/`matches.update` (`routes/web.php:3964-3966`) carry no
+  extra `permission:` middleware beyond the group every agent already has;
+  only `convertToDeal` is separately gated.
+- Saving a countable wishlist here auto-lands the contact on the Buyer
+  Pipeline as a "New" lead (`ContactMatchObserver::created()`, no
+  listing-type distinction in that observer). This is **existing,
+  deliberate behaviour**, not a side effect to design around — the Buyer
+  Pipeline already treats rental-wishlist holders as "tenant leads"
+  (`BuyerPipelineController.php`'s own filter language) for exactly this
+  reason, and portal-originated rental wishlists already do this today.
+  Reusing the same form for an agent-authored tenant wishlist gives the
+  agency the same visibility they already get from a portal-originated
+  one — correct, not a leak.
+
+**Two small, in-scope changes needed — named here so neither is discovered
+mid-build:**
+
+1. A brand-new wishlist defaults to `listing_type: 'sale'`
+   (`_match-form.blade.php:44`). The new rental-application call site must
+   pass `'rental'` as the initial value when opening the drawer — one
+   parameter at the new call site, no change to the shared partial or its
+   default for every other caller.
+2. The form's uncountable-wishlist warning reads "This buyer won't be
+   counted in matches yet" (`_match-form.blade.php` inline copy) — generic
+   "buyer" wording, consistent with how this same screen already labels
+   tenant-wishlist holders everywhere else in the system. Cosmetically
+   imperfect on a screen that's otherwise entirely about a rental
+   applicant, but not a defect and not required to change — flagged so
+   it's a deliberate "leave as-is" if Johan doesn't ask for role-aware
+   wording, not an oversight.
+
+No other change to the shared form, its validation, or its model is
+required to serve this feature.
