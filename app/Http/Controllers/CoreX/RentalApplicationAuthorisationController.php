@@ -69,6 +69,29 @@ class RentalApplicationAuthorisationController extends Controller
     }
 
     /**
+     * Johan, 2026-09-09, verbatim ruling: "Self approve should only work for
+     * the co of rentals or admin - rest agents and ro can not approve their
+     * own." Applies to every decision (approve/decline/request-more-info) —
+     * the point is an independent set of eyes on the file, and a self-
+     * reviewer asking themselves for more information isn't independent
+     * review either. "Administrator" isn't a separate concept here — the
+     * plain users.role column, same check AgencySetupWizardController
+     * already uses ('admin'); super_admin included too since it's strictly
+     * the same tier one level up, not a different concept.
+     */
+    private function guardNotSelfApproving(RentalApplication $rentalApplication, User $user): void
+    {
+        if ((int) $rentalApplication->created_by_user_id !== (int) $user->id) {
+            return;
+        }
+
+        $isAdminTier = in_array($user->role, ['admin', 'super_admin'], true);
+        $isCO = $user->isRentalApplicationCO((int) $rentalApplication->agency_id);
+
+        abort_unless($isAdminTier || $isCO, 403, 'You created this application, so it needs another authoriser.');
+    }
+
+    /**
      * @return array{tier: string, is_override: bool}
      */
     private function guardCanDecide(RentalApplication $rentalApplication): array
@@ -80,6 +103,8 @@ class RentalApplicationAuthorisationController extends Controller
         $isRO = $user->isRentalApplicationRO((int) $rentalApplication->agency_id);
         $isCO = $user->isRentalApplicationCO((int) $rentalApplication->agency_id);
         abort_unless($isRO || $isCO, 403, 'Only a configured Reviewer or Override user may act on this application.');
+
+        $this->guardNotSelfApproving($rentalApplication, $user);
 
         $alreadyDecided = in_array($rentalApplication->status, ['approved', 'declined'], true);
 
@@ -173,6 +198,16 @@ class RentalApplicationAuthorisationController extends Controller
         $canOverride = $user->isRentalApplicationCO((int) $rentalApplication->agency_id);
         $alreadyDecided = in_array($rentalApplication->status, ['approved', 'declined'], true);
 
+        // Johan, 2026-09-09 — self-approval block (see guardNotSelfApproving()
+        // on the decision endpoints for the server-enforced version this
+        // mirrors). Computed here, read-only, purely so the Decision panel
+        // can say WHY the buttons are gone instead of leaving Johan to guess
+        // — never the actual gate; guardNotSelfApproving() alone decides
+        // what the server will accept.
+        $selfCreated = (int) $rentalApplication->created_by_user_id === (int) $user->id;
+        $isAdminTier = in_array($user->role, ['admin', 'super_admin'], true);
+        $blockedBySelfApproval = $selfCreated && ! $isAdminTier && ! $canOverride;
+
         // Same shape the add/strike AJAX endpoints return (serializeItem()),
         // built once here so the initial page load and every subsequent
         // write agree on exactly what a row looks like — never a second,
@@ -186,7 +221,7 @@ class RentalApplicationAuthorisationController extends Controller
 
         return view('corex.rental-applications.authorisation.show', compact(
             'rentalApplication', 'assessment', 'maxRentPercent', 'result', 'documents', 'history', 'auditLog', 'auditLogTotal', 'canOverride', 'alreadyDecided',
-            'serializedIncomeItems', 'serializedExpenseItems'
+            'blockedBySelfApproval', 'serializedIncomeItems', 'serializedExpenseItems'
         ));
     }
 
@@ -318,6 +353,7 @@ class RentalApplicationAuthorisationController extends Controller
             $user->isRentalApplicationRO((int) $rentalApplication->agency_id) || $user->isRentalApplicationCO((int) $rentalApplication->agency_id),
             403,
         );
+        $this->guardNotSelfApproving($rentalApplication, $user);
         abort_unless($rentalApplication->isPendingAuthorisation(), 422, 'This application is not currently awaiting authorisation.');
 
         // A blank request tells the agent nothing — required, same reasoning

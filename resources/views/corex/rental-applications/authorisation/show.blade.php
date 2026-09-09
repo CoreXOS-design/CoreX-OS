@@ -394,60 +394,73 @@
 
         <div class="rah-auth-aside rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
             <h2 class="text-sm font-semibold mb-1" style="color: var(--text-primary);">Decision</h2>
-            <p class="text-xs mb-3" style="color: var(--text-muted);">
-                @if($alreadyDecided && $canOverride)
-                    Acting below overrides the existing decision — a reason is required.
-                @else
-                    Approve, decline, or ask the agent for more information.
-                @endif
-            </p>
+            @if($blockedBySelfApproval)
+                {{-- Johan, 2026-09-09, verbatim: "Self approve should only work
+                     for the co of rentals or admin - rest agents and ro can
+                     not approve their own." Server-enforced on every decision
+                     endpoint (guardNotSelfApproving()) — this is the reason
+                     shown, not the only thing stopping it. Never a missing
+                     button with no explanation. --}}
+                <div class="rounded-md p-3 text-xs" style="background: var(--surface-2); color: var(--text-primary); border: 1px solid var(--ds-amber, #f59e0b);">
+                    <strong>You created this application, so it needs another authoriser.</strong>
+                    <p class="mt-1" style="color: var(--text-muted);">Only a CO (Override) user or an administrator may approve, decline, or request more information on an application they created themselves. Ask another authoriser to act on this one.</p>
+                </div>
+            @else
+                <p class="text-xs mb-3" style="color: var(--text-muted);">
+                    @if($alreadyDecided && $canOverride)
+                        Acting below overrides the existing decision — a reason is required.
+                    @else
+                        Approve, decline, or ask the agent for more information.
+                    @endif
+                </p>
 
-            {{-- Approve --}}
-            <div class="rounded-md p-3 mb-3" style="border: 1px solid var(--border);">
-                <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Approve — monthly amount</label>
-                {{-- Johan, 2026-09-08 — "hitting the . on an amount clears the
-                     values". type="number" + x-model writes the browser's own
-                     parsed .value back into the field; a lone trailing "."
-                     doesn't parse as a number yet, so the write-back silently
-                     drops it mid-type. text + inputmode="decimal" gives the
-                     same numeric keyboard on mobile with none of that native
-                     parsing interference — the raw typed string passes
-                     through untouched; sanitizeNumericInput() on the server
-                     is the only place that ever interprets it. --}}
-                <input type="text" inputmode="decimal" x-model="approveAmount" class="corex-input text-sm w-full mb-2" placeholder="0.00">
-                <textarea x-model="approveReason" rows="2" class="corex-input text-xs w-full mb-2" placeholder="{{ $alreadyDecided ? 'Reason for override (required)' : 'Notes (optional)' }}"></textarea>
-                <form method="POST" action="{{ route('corex.rental-applications.authorisation.approve', $rentalApplication) }}" @submit="$refs.approveAmountField.value = approveAmount; $refs.approveReasonField.value = approveReason">
-                    @csrf
-                    <input type="hidden" name="approved_rental_amount" x-ref="approveAmountField">
-                    <input type="hidden" name="reason" x-ref="approveReasonField">
-                    <button type="submit" class="corex-btn-primary text-xs w-full" :disabled="!approveAmount">Approve</button>
-                </form>
-            </div>
-
-            {{-- Decline --}}
-            <div class="rounded-md p-3 mb-3" style="border: 1px solid var(--border);">
-                <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Decline</label>
-                <textarea x-model="declineReason" rows="2" class="corex-input text-xs w-full mb-2" placeholder="{{ $alreadyDecided ? 'Reason for override (required)' : 'Notes (optional)' }}"></textarea>
-                <form method="POST" action="{{ route('corex.rental-applications.authorisation.decline', $rentalApplication) }}" @submit="$refs.declineReasonField.value = declineReason">
-                    @csrf
-                    <input type="hidden" name="reason" x-ref="declineReasonField">
-                    <button type="submit" class="corex-btn-outline text-xs w-full" style="color: var(--ds-red, #dc2626); border-color: var(--ds-red, #dc2626);">Decline</button>
-                </form>
-            </div>
-
-            {{-- Request more information (only while pending — not an override action) --}}
-            @unless($alreadyDecided)
-                <div class="rounded-md p-3" style="border: 1px solid var(--border);">
-                    <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Request more information</label>
-                    <p class="text-xs mb-2" style="color: var(--text-muted);">Sends this back to the agent, not the applicant.</p>
-                    <textarea x-model="moreInfoReason" rows="2" class="corex-input text-xs w-full mb-2" placeholder="What's missing? (required)"></textarea>
-                    <form method="POST" action="{{ route('corex.rental-applications.authorisation.request-more-info', $rentalApplication) }}" @submit="$refs.moreInfoReasonField.value = moreInfoReason">
+                {{-- Approve --}}
+                <div class="rounded-md p-3 mb-3" style="border: 1px solid var(--border);">
+                    <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Approve — monthly amount</label>
+                    {{-- Johan, 2026-09-08 — "hitting the . on an amount clears the
+                         values". type="number" + x-model writes the browser's own
+                         parsed .value back into the field; a lone trailing "."
+                         doesn't parse as a number yet, so the write-back silently
+                         drops it mid-type. text + inputmode="decimal" gives the
+                         same numeric keyboard on mobile with none of that native
+                         parsing interference — the raw typed string passes
+                         through untouched; sanitizeNumericInput() on the server
+                         is the only place that ever interprets it. --}}
+                    <input type="text" inputmode="decimal" x-model="approveAmount" class="corex-input text-sm w-full mb-2" placeholder="0.00">
+                    <textarea x-model="approveReason" rows="2" class="corex-input text-xs w-full mb-2" placeholder="{{ $alreadyDecided ? 'Reason for override (required)' : 'Notes (optional)' }}"></textarea>
+                    <form method="POST" action="{{ route('corex.rental-applications.authorisation.approve', $rentalApplication) }}" @submit="$refs.approveAmountField.value = approveAmount; $refs.approveReasonField.value = approveReason">
                         @csrf
-                        <input type="hidden" name="reason" x-ref="moreInfoReasonField">
-                        <button type="submit" class="corex-btn-outline text-xs w-full" :disabled="!moreInfoReason.trim()">Request More Information</button>
+                        <input type="hidden" name="approved_rental_amount" x-ref="approveAmountField">
+                        <input type="hidden" name="reason" x-ref="approveReasonField">
+                        <button type="submit" class="corex-btn-primary text-xs w-full" :disabled="!approveAmount">Approve</button>
                     </form>
                 </div>
-            @endunless
+
+                {{-- Decline --}}
+                <div class="rounded-md p-3 mb-3" style="border: 1px solid var(--border);">
+                    <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Decline</label>
+                    <textarea x-model="declineReason" rows="2" class="corex-input text-xs w-full mb-2" placeholder="{{ $alreadyDecided ? 'Reason for override (required)' : 'Notes (optional)' }}"></textarea>
+                    <form method="POST" action="{{ route('corex.rental-applications.authorisation.decline', $rentalApplication) }}" @submit="$refs.declineReasonField.value = declineReason">
+                        @csrf
+                        <input type="hidden" name="reason" x-ref="declineReasonField">
+                        <button type="submit" class="corex-btn-outline text-xs w-full" style="color: var(--ds-red, #dc2626); border-color: var(--ds-red, #dc2626);">Decline</button>
+                    </form>
+                </div>
+
+                {{-- Request more information (only while pending — not an override action) --}}
+                @unless($alreadyDecided)
+                    <div class="rounded-md p-3" style="border: 1px solid var(--border);">
+                        <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Request more information</label>
+                        <p class="text-xs mb-2" style="color: var(--text-muted);">Sends this back to the agent, not the applicant.</p>
+                        <textarea x-model="moreInfoReason" rows="2" class="corex-input text-xs w-full mb-2" placeholder="What's missing? (required)"></textarea>
+                        <form method="POST" action="{{ route('corex.rental-applications.authorisation.request-more-info', $rentalApplication) }}" @submit="$refs.moreInfoReasonField.value = moreInfoReason">
+                            @csrf
+                            <input type="hidden" name="reason" x-ref="moreInfoReasonField">
+                            <button type="submit" class="corex-btn-outline text-xs w-full" :disabled="!moreInfoReason.trim()">Request More Information</button>
+                        </form>
+                    </div>
+                @endunless
+            @endif
         </div>
     </div>
 </div>
