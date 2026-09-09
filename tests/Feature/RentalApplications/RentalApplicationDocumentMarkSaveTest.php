@@ -217,4 +217,91 @@ final class RentalApplicationDocumentMarkSaveTest extends TestCase
         self::assertSame(1, $highlight->marks_version, 'the refused save must not have moved the version at all');
         self::assertEmpty($highlight->marks_json[0] ?? []);
     }
+
+    /**
+     * cc5 regression pass, 2026-09-10 — Johan's exact reported scenario:
+     * "an agency can archive every highlighter for a role, and in that
+     * state the highlighter picker visibly disables while the Note button
+     * does NOT. An agent types a real note, hits save, and it vanishes with
+     * no warning." Archives every 'agent'-scope highlighter (both role_scope
+     * = 'agent' and 'both', since either is choosable by an agent), then
+     * saves a note with NO highlighter_id at all — exactly what the client
+     * now sends in this state (see commitNote()'s fix). Must persist.
+     */
+    public function test_a_note_saves_even_when_every_highlighter_for_the_authors_role_is_archived(): void
+    {
+        $agent = $this->agent();
+        $app = $this->application();
+        $document = $this->attachTwoPageDocument($app, $agent);
+
+        RentalApplicationHighlighter::seedDefaultsFor($this->agency->id);
+        RentalApplicationHighlighter::where('agency_id', $this->agency->id)
+            ->whereIn('role_scope', ['agent', 'both'])
+            ->get()
+            ->each(fn (RentalApplicationHighlighter $h) => $h->delete());
+
+        self::assertSame(
+            0,
+            RentalApplicationHighlighter::pickerFor($this->agency->id, 'agent')->count(),
+            'fixture must genuinely leave the agent role with nothing choosable, or this test proves nothing'
+        );
+
+        $response = $this->actingAs($agent)
+            ->postJson(route('corex.rental-applications.documents.highlight', [$app, $document]), [
+                'base_version' => 0,
+                'marks' => [
+                    0 => [[
+                        'id' => 'note-no-highlighter', 'type' => 'note',
+                        'x' => 20, 'y' => 30, 'text' => 'Tenant confirmed this is the correct bank statement.',
+                    ]],
+                    1 => [],
+                ],
+            ]);
+
+        $response->assertOk();
+        self::assertSame(1, $response->json('mark_count'), 'the note must be counted as saved, not silently dropped');
+
+        $highlight = RentalApplicationDocumentHighlight::where('document_id', $document->id)->firstOrFail();
+        self::assertCount(1, $highlight->marks_json[0] ?? [], 'the note must actually be persisted, not just claimed in the response');
+        self::assertSame('note', $highlight->marks_json[0][0]['type']);
+        self::assertSame('Tenant confirmed this is the correct bank statement.', $highlight->marks_json[0][0]['text']);
+        self::assertNull($highlight->marks_json[0][0]['highlighter_id'], 'no highlighter was available, so this must be explicitly null, never a guessed/default id');
+    }
+
+    /**
+     * The mirror case: a HIGHLIGHT (not a note) in the same all-archived
+     * state must still be refused — a stroke's entire meaning is its
+     * colour, unlike a note. Proves the note fix did not loosen this
+     * deliberate, unchanged rule.
+     */
+    public function test_a_highlight_is_still_dropped_when_every_highlighter_for_the_authors_role_is_archived(): void
+    {
+        $agent = $this->agent();
+        $app = $this->application();
+        $document = $this->attachTwoPageDocument($app, $agent);
+
+        RentalApplicationHighlighter::seedDefaultsFor($this->agency->id);
+        RentalApplicationHighlighter::where('agency_id', $this->agency->id)
+            ->whereIn('role_scope', ['agent', 'both'])
+            ->get()
+            ->each(fn (RentalApplicationHighlighter $h) => $h->delete());
+
+        $response = $this->actingAs($agent)
+            ->postJson(route('corex.rental-applications.documents.highlight', [$app, $document]), [
+                'base_version' => 0,
+                'marks' => [
+                    0 => [[
+                        'id' => 'highlight-no-highlighter', 'type' => 'highlight', 'highlighter_id' => 999999,
+                        'points' => [['x' => 5, 'y' => 5], ['x' => 50, 'y' => 5]], 'width' => 16,
+                    ]],
+                    1 => [],
+                ],
+            ]);
+
+        $response->assertOk();
+        self::assertSame(0, $response->json('mark_count'), 'a highlight with no resolvable colour is still refused');
+
+        $highlight = RentalApplicationDocumentHighlight::where('document_id', $document->id)->firstOrFail();
+        self::assertEmpty($highlight->marks_json[0] ?? []);
+    }
 }

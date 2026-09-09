@@ -677,11 +677,13 @@ function rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, curre
             try { e.currentTarget.releasePointerCapture(e.pointerId); } catch (_) {}
             // Highlighter collection expansion, 2026-09-09 — an agency can
             // archive every highlighter for a role (full CRUD makes that a
-            // real, if rare, state). Refuse to create a mark with no
+            // real, if rare, state). Refuse to create a HIGHLIGHT with no
             // colour behind it rather than silently falling back to
             // something unintended — the toolbar already disables drawing
             // in this state (see review.blade.php), this is the same rule
             // enforced at the one call site that actually creates a mark.
+            // Deliberately NOT applied to notes (see commitNote() below) —
+            // a stroke's entire meaning IS its colour; a note's isn't.
             if (this.drag.points.length >= 2 && this.activeHighlighterId !== null) {
                 this.pushHistory();
                 this.marks.push({
@@ -695,7 +697,19 @@ function rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, curre
         commitNote() {
             if (!this.pendingNote) return;
             const text = this.pendingNoteText.trim();
-            if (text !== '' && this.activeHighlighterId !== null) {
+            // 2026-09-10 (cc5 regression pass, silent data loss) — a note is
+            // text, not a colour. This used to require activeHighlighterId
+            // !== null (copied from the highlight guard right above without
+            // reconsidering whether it made sense here), so an agency
+            // archiving every highlighter for a role made the Note button
+            // (never disabled — see review.blade.php) type a real note that
+            // silently vanished on commit: no error, textarea just closed.
+            // fillFor()/labelFor() above already render a null highlighterId
+            // gracefully ('#94a3b8' / 'Unlabelled'), and the server side
+            // (RentalApplicationDocumentHighlightService::normalizeNewMark())
+            // now accepts a note with no highlighter_id the same way — so a
+            // note never needs one at all, regardless of what's archived.
+            if (text !== '') {
                 this.pushHistory();
                 this.marks.push({
                     id: this.generateMarkId(), type: 'note', page: this.pendingNote.page, x: this.pendingNote.x, y: this.pendingNote.y, text,

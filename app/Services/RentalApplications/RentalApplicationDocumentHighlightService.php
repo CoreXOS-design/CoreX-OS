@@ -769,25 +769,42 @@ class RentalApplicationDocumentHighlightService
 
     /**
      * @param  array<int,bool>  $validHighlighterIds
-     * @return array|null null if the mark is malformed OR its highlighter_id
-     *     doesn't resolve to something this agency/role may actually use
-     *     right now (archived, someone else's agency, wrong role, or just
-     *     missing) — dropped rather than guessed at, same as any other
-     *     malformed-mark case here (shape already validated at the HTTP
-     *     layer — this is the belt to that braces).
+     * @return array|null null if the mark is malformed, or — for a
+     *     HIGHLIGHT only — its highlighter_id doesn't resolve to something
+     *     this agency/role may actually use right now (archived, someone
+     *     else's agency, wrong role, or just missing). A stroke's entire
+     *     meaning IS its colour, so a highlight with no resolvable colour is
+     *     refused (shape already validated at the HTTP layer — this is the
+     *     belt to that braces).
+     *
+     *     2026-09-10 (cc5 regression pass, silent data loss) — a NOTE is
+     *     text, not a colour, and never required a resolvable highlighter_id
+     *     here. An agency archiving every highlighter for a role made the
+     *     picker disable (correctly) but left the Note button enabled
+     *     (correctly — see review.blade.php/commitNote()), and this
+     *     function silently dropped the note anyway on the one call site
+     *     that actually persists it — a real note, with real text, typed by
+     *     an agent, discarded with no error shown anywhere. A note's
+     *     highlighter_id is now optional attribution/colour only: present
+     *     and valid, it's kept; absent or no longer valid, it's stored null
+     *     — resolveMarkColors()/fillFor() already render that gracefully
+     *     (a neutral default colour), so nothing about the render path
+     *     needed to change, only this refusal.
      */
     private function normalizeNewMark(array $m, int $userId, string $userName, string $authorRole, array $validHighlighterIds): ?array
     {
         $type = ($m['type'] ?? null) === 'note' ? 'note' : 'highlight';
-        $highlighterId = $m['highlighter_id'] ?? null;
-        if (! is_int($highlighterId) || ! isset($validHighlighterIds[$highlighterId])) {
+        $rawHighlighterId = $m['highlighter_id'] ?? null;
+        $resolvedHighlighterId = is_int($rawHighlighterId) && isset($validHighlighterIds[$rawHighlighterId]) ? $rawHighlighterId : null;
+
+        if ($type !== 'note' && $resolvedHighlighterId === null) {
             return null;
         }
         $id = isset($m['id']) && is_string($m['id']) && $m['id'] !== '' ? mb_substr($m['id'], 0, 64) : (string) \Illuminate\Support\Str::uuid();
 
         $base = [
             'id' => $id,
-            'highlighter_id' => $highlighterId,
+            'highlighter_id' => $resolvedHighlighterId,
             'author_user_id' => $userId,
             'author_name' => mb_substr($userName, 0, 100),
             'author_role' => $authorRole,
