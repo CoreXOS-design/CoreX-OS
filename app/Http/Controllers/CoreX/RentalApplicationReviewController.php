@@ -151,6 +151,19 @@ class RentalApplicationReviewController extends Controller
             ? trim(substr($latestHistory->note, strlen('Authoriser requested more information:')))
             : null;
 
+        // Johan, 2026-09-09, verbatim: "yes they should see it. the auth
+        // needs to report back to the agent why the application has been
+        // rejected." Read as a requirement, not a visibility setting — the
+        // reason existing somewhere in the audit trail for the agent to go
+        // find isn't enough; this is the outcome itself, shown at the top
+        // of the page. If status is currently 'declined', the LATEST
+        // history row is guaranteed to be the one that set it there (any
+        // later action would have moved status away from 'declined'), so
+        // no separate query is needed — same $latestHistory as above.
+        $declineInfo = ($rentalApplication->status === 'declined' && $latestHistory && $latestHistory->to_status === 'declined')
+            ? ['reason' => $latestHistory->note]
+            : null;
+
         // Highlighter freehand redesign, 2026-09-09 — BOTH roles' colours are
         // sent (the legend needs all six to explain marks either role has
         // already drawn on a shared page); the JS itself is what only ever
@@ -173,7 +186,7 @@ class RentalApplicationReviewController extends Controller
         $auditLog = $rentalApplication->auditLog()->with('user')->latest('created_at')->limit(200)->get();
 
         return view('corex.rental-applications.review', compact(
-            'rentalApplication', 'assessment', 'maxRentPercent', 'result', 'documents', 'moreInfoRequestedNote', 'markColors',
+            'rentalApplication', 'assessment', 'maxRentPercent', 'result', 'documents', 'moreInfoRequestedNote', 'declineInfo', 'markColors',
             'viewerRole', 'auditLog', 'auditLogTotal'
         ))->with('isPendingAuthorisation', $rentalApplication->isPendingAuthorisation());
     }

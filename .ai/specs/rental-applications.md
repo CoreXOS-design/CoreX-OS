@@ -5427,3 +5427,92 @@ application 12 — Johan's clean record for his own testing):
 
 No migration — purely a presentation-layer consolidation; every field
 and endpoint underneath is unchanged.
+
+## Decline is a reported outcome, not a log entry (AT-392, 2026-09-09, cc5)
+
+### Johan's ruling, stronger than "make it visible"
+
+The "known gap" the unified-screen build flagged — struck lines and
+authoriser actions only being visible to the agent through the shared
+audit trail, not a first-class outcome — got a direct answer for decline
+specifically. Johan, verbatim: "yes they should see it. the auth needs
+to report back to the agent why the application has been rejected."
+
+Read as a requirement, not a visibility setting: it is not enough that
+the reason exists in the audit trail for the agent to go find. The
+authoriser is REPORTING BACK. The agent must be told, prominently,
+without hunting.
+
+### What changed
+
+1. **Decline's reason is required unconditionally now** —
+   `RentalApplicationAuthorisationController::decline()` validates
+   `'reason' => ['required', ...]` regardless of override status (was
+   conditional on override only, meaning a first-decision decline could
+   go out with no reason at all — exactly the failure Johan is closing).
+   Reflected client-side too: the Decline button is `:disabled` until
+   `declineReason` is non-empty, same pattern Approve's amount field
+   already used.
+2. **A new banner, agent-only, at the TOP of the page** — above the
+   two-column layout entirely, same position as the authoriser's own
+   "already has a decision" banner. Shows the decline reason verbatim.
+   `RentalApplicationReviewController::show()` computes `$declineInfo`
+   from the same `$latestHistory` row `$moreInfoRequestedNote` already
+   reads (if status is currently 'declined', the latest history row is
+   guaranteed to be the one that set it there — no second query needed).
+3. **Approve stays reason-optional** on a first decision — Johan: "an
+   approval with an amount is self-explanatory." Unchanged.
+4. **Request More Information is unchanged** — Johan confirmed it
+   "already works this way," i.e. it already genuinely reaches the
+   agent (last night's fix), so no repositioning was asked for or done.
+   Its own banner stays where it was, in the aside's Actions block.
+
+The existing "Declined. The applicant has been notified." line in the
+aside's Actions block was left as-is — it answers a different question
+(did the applicant get told) than the new top banner (why, for the
+agent specifically), so the two aren't redundant.
+
+### Test — Johan's own framing
+
+"Ask yourself the question the agent will ask: I submitted this, it
+came back declined, why? If the answer is not obvious within one second
+of opening the application, it is not built right." Verified against
+that literally: the banner renders before the two-column layout markup
+in the compiled HTML, i.e. it's the first substantive content on the
+page after the sticky header, not something requiring a scroll or a
+click to find.
+
+### Verified
+
+Real dispatch on application 4 (never touched 12 — Johan's clean
+record, confirmed unchanged before and after):
+
+- Decline with no reason → `ValidationException`, DB status unchanged.
+- Decline with a reason → succeeds, DB status becomes `declined`.
+- Agent's re-render of the same application: banner present, reason
+  text present (HTML-escaped, as it should be), banner's position in
+  the rendered HTML precedes the two-column layout markup.
+- Authoriser's own Decline form: button correctly `:disabled` without a
+  reason typed; placeholder correctly reads "required."
+- Application 4's status/submitted_for_approval_at restored to baseline
+  after; the status-history/audit rows the test created were left in
+  place, not deleted — "the audit trail is evidence and we do not tidy
+  evidence," Johan's own standing rule from earlier the same night.
+
+### Coordination with cc6
+
+Notified before starting: cc6 is expanding highlighter categories from
+a fixed six to an agency-configurable collection, landing in this same
+screen. This change doesn't touch the toolbar/category-picker area at
+all — confirmed no overlap.
+
+### Files touched
+
+- `app/Http/Controllers/CoreX/RentalApplicationAuthorisationController.php`
+  — `decline()`'s validation, unconditional `required`
+- `app/Http/Controllers/CoreX/RentalApplicationReviewController.php` —
+  `$declineInfo` computed and passed to the view
+- `resources/views/corex/rental-applications/review.blade.php` — new
+  top-of-page agent banner; Decline form's placeholder + `:disabled`
+
+No migration.

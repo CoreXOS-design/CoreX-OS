@@ -252,6 +252,22 @@
         </div>
     @endif
 
+    @if($viewerRole === 'agent' && $declineInfo)
+        {{-- Johan, 2026-09-09, verbatim: "yes they should see it. the auth
+             needs to report back to the agent why the application has been
+             rejected." Not enough for the reason to exist in the audit
+             trail for the agent to go find — this is the outcome itself,
+             at the top where the agent will see it within one second of
+             opening the application, not buried below the documents. The
+             audit trail (main column, below Supporting Documents) keeps
+             its own copy as history — that's a separate thing; this is the
+             report-back. --}}
+        <div class="rounded-md px-4 py-3 text-sm mt-4" style="background: var(--ds-red-soft, #fef2f2); color: var(--ds-red, #dc2626); border: 1px solid var(--ds-red, #dc2626);">
+            <strong>Declined.</strong>
+            <div class="mt-1 whitespace-pre-wrap" style="color: var(--text-primary);">{{ $declineInfo['reason'] }}</div>
+        </div>
+    @endif
+
     {{-- Save confirmation, 2026-09-08 — Johan: "if I edit / highlight anything on
          the pdf will it automatically save?" It did not autosave, and answering
          that ambiguity is the fix: highlighting/notes are EXPLICIT-save only.
@@ -834,11 +850,19 @@
 
                         <div class="rounded-md p-3 mb-3" style="border: 1px solid var(--border);">
                             <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Decline</label>
-                            <textarea x-model="declineReason" rows="2" class="corex-input text-xs w-full mb-2" placeholder="{{ $alreadyDecided ? 'Reason for override (required)' : 'Notes (optional)' }}"></textarea>
+                            {{-- Johan, 2026-09-09, verbatim: "the auth needs to report
+                                 back to the agent why the application has been
+                                 rejected." A decline with no reason tells the agent
+                                 nothing — required on every decline now, not just an
+                                 override, server-enforced (guardCanDecide()'s caller
+                                 now validates 'reason' => 'required' unconditionally)
+                                 and reflected here so the button can't even be
+                                 clicked without one. --}}
+                            <textarea x-model="declineReason" rows="2" class="corex-input text-xs w-full mb-2" placeholder="Reason for decline (required) — the agent will see this"></textarea>
                             <form method="POST" action="{{ route('corex.rental-applications.authorisation.decline', $rentalApplication) }}" @submit="$refs.declineReasonField.value = declineReason">
                                 @csrf
                                 <input type="hidden" name="reason" x-ref="declineReasonField">
-                                <button type="submit" class="corex-btn-outline text-xs w-full" style="color: var(--ds-red, #dc2626); border-color: var(--ds-red, #dc2626);">Decline</button>
+                                <button type="submit" class="corex-btn-outline text-xs w-full" style="color: var(--ds-red, #dc2626); border-color: var(--ds-red, #dc2626);" :disabled="!declineReason.trim()">Decline</button>
                             </form>
                         </div>
 
