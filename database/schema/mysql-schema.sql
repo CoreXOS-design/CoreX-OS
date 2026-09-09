@@ -356,6 +356,10 @@ CREATE TABLE `agencies` (
   `communication_poll_backoff_base_seconds` int unsigned DEFAULT NULL,
   `communication_poll_backoff_max_seconds` int unsigned DEFAULT NULL,
   `communication_poll_disable_threshold` tinyint unsigned DEFAULT NULL,
+  `communication_circuit_breaker_min_mailboxes` tinyint unsigned DEFAULT NULL,
+  `communication_circuit_breaker_failure_threshold_percent` tinyint unsigned DEFAULT NULL,
+  `communication_circuit_breaker_probe_interval_minutes` int unsigned DEFAULT NULL,
+  `communication_circuit_breaker_lookback_minutes` int unsigned DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `agencies_slug_unique` (`slug`),
   UNIQUE KEY `agencies_privacy_policy_token_unique` (`privacy_policy_token`),
@@ -3156,6 +3160,24 @@ CREATE TABLE `communication_flags` (
   CONSTRAINT `cf_agency_fk` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
   CONSTRAINT `cf_contradby_fk` FOREIGN KEY (`contradicted_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
   CONSTRAINT `cf_user_fk` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `communication_host_circuit_breakers`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `communication_host_circuit_breakers` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `host` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `state` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'closed',
+  `opened_at` timestamp NULL DEFAULT NULL,
+  `last_probe_at` timestamp NULL DEFAULT NULL,
+  `consecutive_probe_failures` int unsigned NOT NULL DEFAULT '0',
+  `auth_failure_count` int unsigned NOT NULL DEFAULT '0',
+  `auth_locked_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `communication_host_circuit_breakers_host_unique` (`host`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `communication_learned_refs`;
@@ -8411,6 +8433,43 @@ CREATE TABLE `onboarding_checklists` (
   CONSTRAINT `onboarding_checklists_completed_by_foreign` FOREIGN KEY (`completed_by`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `outbound_mail_guard_captures`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `outbound_mail_guard_captures` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `to_addresses` text COLLATE utf8mb4_unicode_ci NOT NULL,
+  `cc_addresses` text COLLATE utf8mb4_unicode_ci,
+  `bcc_addresses` text COLLATE utf8mb4_unicode_ci,
+  `subject` text COLLATE utf8mb4_unicode_ci,
+  `raw_mime` longtext COLLATE utf8mb4_unicode_ci NOT NULL,
+  `environment` varchar(40) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `forwarded_to_sink` tinyint(1) NOT NULL DEFAULT '0',
+  `captured_at` timestamp NOT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `outbound_mail_guard_captures_captured_at_index` (`captured_at`),
+  KEY `outbound_mail_guard_captures_environment_index` (`environment`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `outbound_mail_guard_toggle_audit`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `outbound_mail_guard_toggle_audit` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `user_id` bigint unsigned NOT NULL,
+  `direction` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `reason` text COLLATE utf8mb4_unicode_ci NOT NULL,
+  `environment` varchar(40) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `outbound_mail_guard_toggle_audit_user_id_foreign` (`user_id`),
+  KEY `outbound_mail_guard_toggle_audit_created_at_index` (`created_at`),
+  CONSTRAINT `outbound_mail_guard_toggle_audit_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `outreach_queue`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -11966,6 +12025,24 @@ CREATE TABLE `rental_application_generations` (
   CONSTRAINT `rental_application_generations_rental_application_id_foreign` FOREIGN KEY (`rental_application_id`) REFERENCES `rental_applications` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `rental_application_highlighters`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `rental_application_highlighters` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `label` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `color` varchar(7) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `role_scope` enum('agent','authoriser','both') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `sort_order` int unsigned NOT NULL DEFAULT '0',
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `rental_application_highlighters_agency_id_role_scope_index` (`agency_id`,`role_scope`),
+  CONSTRAINT `rental_application_highlighters_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `rental_application_income_items`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -12062,7 +12139,7 @@ CREATE TABLE `rental_applications` (
   `contact_id` bigint unsigned NOT NULL,
   `property_id` bigint unsigned DEFAULT NULL,
   `created_by_user_id` bigint unsigned DEFAULT NULL,
-  `status` enum('draft','sent','in_progress','returned','under_assessment','approved','declined','withdrawn') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'draft',
+  `status` enum('draft','sent','in_progress','returned','reopened','under_assessment','approved','declined','withdrawn') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'draft',
   `current_generation` int unsigned NOT NULL DEFAULT '1',
   `submitted_for_approval_at` timestamp NULL DEFAULT NULL,
   `reopened_at` timestamp NULL DEFAULT NULL,
@@ -16183,3 +16260,12 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1271,'2026_09_08_2
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1272,'2026_09_08_210200_create_rental_application_generations_table',262);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1273,'2026_09_08_210300_add_reopen_link_expiry_to_rental_application_qualifying_settings',262);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1274,'2026_09_09_020000_add_poll_backoff_to_communication_mailboxes',263);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1275,'2026_09_08_220000_add_reopened_status_to_rental_applications',264);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1276,'2026_09_09_030000_create_communication_host_circuit_breakers_table',265);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1277,'2026_09_09_040000_create_outbound_mail_guard_captures_table',266);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1278,'2026_09_09_040100_create_outbound_mail_guard_toggle_audit_table',266);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1279,'2026_09_09_040000_create_rental_application_mark_color_settings_table',267);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1280,'2026_09_09_040000_add_auth_lock_to_communication_host_circuit_breakers',268);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1284,'2026_09_09_060000_create_rental_application_highlighters_table',269);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1285,'2026_09_09_060100_seed_and_backfill_rental_application_highlighters',269);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1286,'2026_09_09_060200_drop_rental_application_mark_color_settings_table',269);
