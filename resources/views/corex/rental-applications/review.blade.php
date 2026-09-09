@@ -523,6 +523,18 @@
                                 @if($entry->reason)
                                     <div class="mt-0.5 whitespace-pre-wrap" style="color: var(--text-secondary);">{{ $entry->reason }}</div>
                                 @endif
+                                {{-- 2026-09-09 (Johan) — a genuine web action must read as normal
+                                     (no badge, no clutter). Anything the audit context stamped a
+                                     non-null `source` on — console/tinker, a queued job, an import —
+                                     is not a person clicking through CoreX, and an evidentiary trail
+                                     must say so. Same collapsed-disclosure pattern as "Raw server
+                                     response" on the mailbox diagnostics screen. --}}
+                                @if($entry->source)
+                                    <details class="mt-0.5">
+                                        <summary class="text-xs cursor-pointer" style="color: var(--text-muted);" title="This entry was written by a script or command-line session, not a person clicking through CoreX.">Recorded outside the app</summary>
+                                        <div class="mt-0.5 text-xs" style="color: var(--text-muted);">Raw source: {{ $entry->source }}</div>
+                                    </details>
+                                @endif
                             </div>
                         @endforeach
                     </div>
