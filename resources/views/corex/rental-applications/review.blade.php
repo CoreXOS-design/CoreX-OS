@@ -38,7 +38,7 @@
          currentUserId: {{ Js::from(auth()->id()) }},
          currentUserName: {{ Js::from(auth()->user()->name) }},
          currentUserRole: 'agent',
-         markColors: {{ Js::from($markColors) }},
+         highlighters: {{ Js::from($highlighters) }},
          requestMoreInfoUrl: '{{ route('corex.rental-applications.review.request-more-info', $rentalApplication) }}',
          submitForApprovalUrl: '{{ route('corex.rental-applications.review.submit-for-approval', $rentalApplication) }}',
          reopenUrl: '{{ route('corex.rental-applications.review.reopen', $rentalApplication) }}',
@@ -158,21 +158,42 @@
                         <button type="button" class="text-xs px-2 py-1 rounded-md" @click="activeTool = 'note'"
                                 :style="{ border:'1px solid var(--border)', background: activeTool === 'note' ? 'var(--ds-blue-soft, #eff6ff)' : 'transparent', fontWeight: activeTool === 'note' ? '700' : '400' }">Note</button>
                     </div>
-                    {{-- Category picker, freehand redesign 2026-09-09 — the
-                         agent picks WHAT this mark is (Income, Expense,
-                         Unpaid); the colour is whichever of THEIR OWN three
-                         admin-configured colours that category currently
-                         maps to (myColorFor() — never the other role's
-                         three, never all six). No underline concept left to
-                         show here at all now that marks carry ink only —
-                         selection itself is shown as a solid ring in the
-                         mark's own colour, not a second accent hue. --}}
-                    <div class="flex items-center gap-1" x-show="!loading && !loadError">
-                        <template x-for="c in categories" :key="c.key">
-                            <button type="button" class="text-xs px-2 py-1 rounded-md" @click="activeCategory = c.key"
-                                    :style="{ border: (activeCategory === c.key ? '2px solid ' + myColorFor(c.key) : '1px solid var(--border)'), background: myColorFor(c.key), opacity: activeCategory === c.key ? '1' : '0.55', fontWeight: activeCategory === c.key ? '700' : '400' }"
-                                    x-text="c.label"></button>
-                        </template>
+                    {{-- Highlighter picker, collection expansion 2026-09-09
+                         — Johan: "an agency can have 10 highlighters set
+                         up, each with their own label." A row of buttons
+                         (the old three-category picker) stopped scaling
+                         the moment the count became agency-defined rather
+                         than a fixed three — Johan: "a row of ten swatches
+                         ... will be unusable and will crowd out Highlight,
+                         Note, thickness and Undo." One dropdown button
+                         instead: its own footprint never changes whether
+                         an agency has configured 2 highlighters or 12 —
+                         only the list inside the dropdown grows. Only the
+                         viewer's own active, role-visible highlighters
+                         appear (pickerHighlighters()) — never the other
+                         role's, never archived ones. --}}
+                    <div class="relative" x-show="!loading && !loadError">
+                        <button type="button" class="text-xs px-2 py-1 rounded-md flex items-center gap-1.5"
+                                @click="pickerOpen = !pickerOpen" :disabled="!activeHighlighter()"
+                                :style="{ border:'1px solid var(--border)', opacity: activeHighlighter() ? '1' : '0.6', cursor: activeHighlighter() ? 'pointer' : 'default' }">
+                            <span :style="{ display:'inline-block', width:'12px', height:'12px', borderRadius:'3px', flexShrink:'0', background: activeHighlighter() ? activeHighlighter().color : 'transparent', border: activeHighlighter() ? 'none' : '1px dashed var(--text-muted)' }"></span>
+                            <span x-text="activeHighlighter() ? activeHighlighter().label : 'No highlighter'"></span>
+                            <span style="font-size:9px;" x-show="pickerHighlighters().length > 0">&#9662;</span>
+                        </button>
+                        <div x-show="pickerOpen" x-cloak @click.outside="pickerOpen = false"
+                             class="absolute z-20 mt-1 rounded-md py-1" style="min-width:170px; max-height:280px; overflow-y:auto; background: var(--surface); border:1px solid var(--border); box-shadow: 0 4px 12px rgba(0,0,0,0.15);">
+                            <template x-for="h in pickerHighlighters()" :key="h.id">
+                                <button type="button" class="text-xs w-full text-left px-3 py-1.5 flex items-center gap-2"
+                                        @click="selectHighlighter(h.id)"
+                                        :style="{ background: activeHighlighterId === h.id ? 'var(--ds-blue-soft, #eff6ff)' : 'transparent', fontWeight: activeHighlighterId === h.id ? '700' : '400' }">
+                                    <span :style="{ display:'inline-block', width:'12px', height:'12px', borderRadius:'3px', flexShrink:'0', background: h.color }"></span>
+                                    <span x-text="h.label"></span>
+                                </button>
+                            </template>
+                            <template x-if="pickerHighlighters().length === 0">
+                                <div class="text-xs px-3 py-1.5" style="color: var(--text-muted); width:220px; white-space:normal;">No highlighters are configured for your role yet — add one under Settings → Rental Applications.</div>
+                            </template>
+                        </div>
                     </div>
                     {{-- Highlighter size, 2026-09-08 — Johan: "we need a way
                          to adjust the highlighter smaller or larger. current
@@ -700,7 +721,7 @@
 @include('corex.rental-applications.partials.document-highlighter-script')
 
 <script>
-function rentalReview({ saveUrl, initial, initialIncomeItems, initialExpenseItems, initialResult, initialSavedAt, initialMarkedUpDocIds, currentUserId, currentUserName, currentUserRole, markColors, requestMoreInfoUrl, submitForApprovalUrl, reopenUrl, expectedGeneration }) {
+function rentalReview({ saveUrl, initial, initialIncomeItems, initialExpenseItems, initialResult, initialSavedAt, initialMarkedUpDocIds, currentUserId, currentUserName, currentUserRole, highlighters, requestMoreInfoUrl, submitForApprovalUrl, reopenUrl, expectedGeneration }) {
     return {
         // 2026-09-08 — the highlight/note viewer state+methods (activeDocId,
         // pages, marks, openHighlighter()/applyHighlights()/etc.) now live in
@@ -708,7 +729,7 @@ function rentalReview({ saveUrl, initial, initialIncomeItems, initialExpenseItem
         // partials/document-highlighter-script.blade.php, included below)
         // — the authoriser screen spreads the same factory in rather than
         // this logic being copy-pasted a second time.
-        ...rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, currentUserName, currentUserRole, markColors }),
+        ...rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, currentUserName, currentUserRole, highlighters }),
 
         // 2026-09-08 — Johan: "clicking back to application shows a changes
         // may be lost popup but there's no save button visible anywhere." No

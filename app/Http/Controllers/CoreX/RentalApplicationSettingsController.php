@@ -9,7 +9,7 @@ use App\Models\RentalApplication;
 use App\Models\RentalApplicationChecklistConfig;
 use App\Models\RentalApplicationDeclineEmailSetting;
 use App\Models\RentalApplicationDocumentRequirement;
-use App\Models\RentalApplicationMarkColorSetting;
+use App\Models\RentalApplicationHighlighter;
 use App\Models\RentalApplicationQualifyingSetting;
 use App\Models\User;
 use Illuminate\Http\Request;
@@ -69,12 +69,14 @@ class RentalApplicationSettingsController extends Controller
         // saves their own — see RentalApplicationDeclineEmailSetting.
         $declineEmail = RentalApplicationDeclineEmailSetting::forAgency($agencyId);
 
-        // Highlighter freehand redesign, 2026-09-09 — Johan: "admin can pick
-        // 6 colours - agent 3 and auth 3."
-        $markColors = RentalApplicationMarkColorSetting::colorsFor($agencyId);
+        // Highlighter collection expansion, 2026-09-09 — Johan: "an agency
+        // can have 10 highlighters set up, each with their own label."
+        // allFor() includes archived rows (withTrashed) so the screen can
+        // show its own "archived — restore" section; the view splits them.
+        $highlighters = RentalApplicationHighlighter::allFor($agencyId);
 
         return view('corex.settings.rental-applications', compact(
-            'documentTypes', 'checklists', 'isConfigured', 'qualifyingMaxRentPercent', 'qualifyingExceedsLegalCeiling', 'agencyUsers', 'roUserIds', 'coUserIds', 'declineEmail', 'reopenLinkExpiryDays', 'markColors'
+            'documentTypes', 'checklists', 'isConfigured', 'qualifyingMaxRentPercent', 'qualifyingExceedsLegalCeiling', 'agencyUsers', 'roUserIds', 'coUserIds', 'declineEmail', 'reopenLinkExpiryDays', 'highlighters'
         ));
     }
 
@@ -217,36 +219,6 @@ class RentalApplicationSettingsController extends Controller
 
         return redirect()->route('corex.settings.rental-applications.edit')
             ->with('success', 'Reopened link expiry saved.');
-    }
-
-    /**
-     * Highlighter freehand redesign, 2026-09-09 — Johan: "admin can pick 6
-     * colours - agent 3 and auth 3." Separate route/method, same reasoning
-     * as updateQualifyingFormula() above (this save can never interfere
-     * with any other form on this screen). Regex enforces a genuine 6-hex
-     * colour so a bad value can never reach a mark's rendered style.
-     */
-    public function updateMarkColors(Request $request)
-    {
-        $agencyId = $request->user()->effectiveAgencyId();
-
-        $rule = ['required', 'regex:/^#[0-9a-fA-F]{6}$/'];
-        $validated = $request->validate([
-            'agent_income_color' => $rule,
-            'agent_expense_color' => $rule,
-            'agent_unpaid_color' => $rule,
-            'authoriser_income_color' => $rule,
-            'authoriser_expense_color' => $rule,
-            'authoriser_unpaid_color' => $rule,
-        ]);
-
-        RentalApplicationMarkColorSetting::updateOrCreate(
-            ['agency_id' => $agencyId],
-            $validated,
-        );
-
-        return redirect()->route('corex.settings.rental-applications.edit')
-            ->with('success', 'Highlighter colours saved.');
     }
 
     public function update(Request $request)

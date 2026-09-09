@@ -318,6 +318,13 @@ class AppServiceProvider extends ServiceProvider
             \App\Events\AgencyCreated::class,
             \App\Listeners\Onboarding\CreateAgencySetupPortal::class,
         );
+        // Highlighter collection expansion, 2026-09-09 — a second,
+        // independent reaction to the same AgencyCreated signal: seeds the
+        // six starting highlighters for a brand-new agency.
+        Event::listen(
+            \App\Events\AgencyCreated::class,
+            \App\Listeners\Onboarding\SeedDefaultRentalApplicationHighlighters::class,
+        );
         Event::listen(
             \App\Events\Contact\ContactTestimonialSubmitted::class,
             \App\Listeners\Contacts\NotifyAgentOfClientTestimonial::class,

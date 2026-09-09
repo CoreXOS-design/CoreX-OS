@@ -27,7 +27,7 @@
          currentUserId: {{ Js::from(auth()->id()) }},
          currentUserName: {{ Js::from(auth()->user()->name) }},
          currentUserRole: 'authoriser',
-         markColors: {{ Js::from($markColors) }},
+         highlighters: {{ Js::from($highlighters) }},
      })">
 
     <div class="rounded-md px-6 py-4 corex-page-banner flex items-center justify-between">
@@ -309,17 +309,33 @@
                                             <button type="button" class="text-xs px-2 py-1 rounded-md" @click="activeTool = 'note'"
                                                     :style="{ border:'1px solid var(--border)', background: activeTool === 'note' ? 'var(--ds-blue-soft, #eff6ff)' : 'transparent', fontWeight: activeTool === 'note' ? '700' : '400' }">Note</button>
                                         </div>
-                                        {{-- Category picker, freehand redesign 2026-09-09 — the
-                                             authoriser picks WHAT this mark is (Income, Expense,
-                                             Unpaid); the colour is whichever of THEIR OWN three
-                                             admin-configured colours that category maps to
-                                             (myColorFor()) — never the agent's three, never all six. --}}
-                                        <div class="flex items-center gap-1">
-                                            <template x-for="c in categories" :key="c.key">
-                                                <button type="button" class="text-xs px-2 py-1 rounded-md" @click="activeCategory = c.key"
-                                                        :style="{ border: (activeCategory === c.key ? '2px solid ' + myColorFor(c.key) : '1px solid var(--border)'), background: myColorFor(c.key), opacity: activeCategory === c.key ? '1' : '0.55', fontWeight: activeCategory === c.key ? '700' : '400' }"
-                                                        x-text="c.label"></button>
-                                            </template>
+                                        {{-- Highlighter picker, collection expansion 2026-09-09 —
+                                             same reasoning/markup as review.blade.php's own picker:
+                                             one dropdown button regardless of how many highlighters
+                                             the agency has configured, listing only the authoriser's
+                                             own active, role-visible ones. --}}
+                                        <div class="relative">
+                                            <button type="button" class="text-xs px-2 py-1 rounded-md flex items-center gap-1.5"
+                                                    @click="pickerOpen = !pickerOpen" :disabled="!activeHighlighter()"
+                                                    :style="{ border:'1px solid var(--border)', opacity: activeHighlighter() ? '1' : '0.6', cursor: activeHighlighter() ? 'pointer' : 'default' }">
+                                                <span :style="{ display:'inline-block', width:'12px', height:'12px', borderRadius:'3px', flexShrink:'0', background: activeHighlighter() ? activeHighlighter().color : 'transparent', border: activeHighlighter() ? 'none' : '1px dashed var(--text-muted)' }"></span>
+                                                <span x-text="activeHighlighter() ? activeHighlighter().label : 'No highlighter'"></span>
+                                                <span style="font-size:9px;" x-show="pickerHighlighters().length > 0">&#9662;</span>
+                                            </button>
+                                            <div x-show="pickerOpen" x-cloak @click.outside="pickerOpen = false"
+                                                 class="absolute z-20 mt-1 rounded-md py-1" style="min-width:170px; max-height:280px; overflow-y:auto; background: var(--surface); border:1px solid var(--border); box-shadow: 0 4px 12px rgba(0,0,0,0.15);">
+                                                <template x-for="h in pickerHighlighters()" :key="h.id">
+                                                    <button type="button" class="text-xs w-full text-left px-3 py-1.5 flex items-center gap-2"
+                                                            @click="selectHighlighter(h.id)"
+                                                            :style="{ background: activeHighlighterId === h.id ? 'var(--ds-blue-soft, #eff6ff)' : 'transparent', fontWeight: activeHighlighterId === h.id ? '700' : '400' }">
+                                                        <span :style="{ display:'inline-block', width:'12px', height:'12px', borderRadius:'3px', flexShrink:'0', background: h.color }"></span>
+                                                        <span x-text="h.label"></span>
+                                                    </button>
+                                                </template>
+                                                <template x-if="pickerHighlighters().length === 0">
+                                                    <div class="text-xs px-3 py-1.5" style="color: var(--text-muted); width:220px; white-space:normal;">No highlighters are configured for your role yet — add one under Settings → Rental Applications.</div>
+                                                </template>
+                                            </div>
                                         </div>
                                         <div class="flex items-center gap-1" x-show="activeTool === 'highlight'">
                                             <template x-for="s in strokeSizes" :key="s.key">
@@ -468,10 +484,10 @@
 @include('corex.rental-applications.partials.document-highlighter-script')
 
 <script>
-function rentalAuthorisationViewer({ initialMarkedUpDocIds, currentUserId, currentUserName, currentUserRole, markColors }) {
+function rentalAuthorisationViewer({ initialMarkedUpDocIds, currentUserId, currentUserName, currentUserRole, highlighters }) {
     return {
         // Shared highlight/note viewer — see partials/document-highlighter-script.blade.php.
-        ...rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, currentUserName, currentUserRole, markColors }),
+        ...rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, currentUserName, currentUserRole, highlighters }),
 
         // Decision panel fields — unchanged from before this screen grew a document viewer.
         approveAmount: '',
