@@ -309,8 +309,14 @@ class RentalApplicationAuthorisationController extends Controller
     ) {
         $decision = $this->guardCanDecide($rentalApplication);
 
+        // Johan, 2026-09-09, verbatim: "yes they should see it. the auth
+        // needs to report back to the agent why the application has been
+        // rejected." A decline with no reason tells the agent nothing — the
+        // exact failure this closes. Required unconditionally now, not just
+        // on override; Approve stays reason-optional on a first decision
+        // (Johan: "an approval with an amount is self-explanatory").
         $validated = $request->validate([
-            'reason' => $decision['is_override'] ? ['required', 'string', 'max:2000'] : ['nullable', 'string', 'max:2000'],
+            'reason' => ['required', 'string', 'max:2000'],
         ]);
 
         $fromStatus = $rentalApplication->status;
