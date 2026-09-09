@@ -151,8 +151,16 @@ class RentalApplicationReviewController extends Controller
             ? trim(substr($latestHistory->note, strlen('Authoriser requested more information:')))
             : null;
 
+        // Highlighter freehand redesign, 2026-09-09 — BOTH roles' colours are
+        // sent (the legend needs all six to explain marks either role has
+        // already drawn on a shared page); the JS itself is what only ever
+        // offers the CURRENT user's own three on the drawing toolbar
+        // (Johan: "an agent sees their three; an authoriser sees theirs...
+        // do not show anyone six" — a picker-UI rule, not a data-hiding one).
+        $markColors = \App\Models\RentalApplicationMarkColorSetting::colorsFor((int) $rentalApplication->agency_id);
+
         return view('corex.rental-applications.review', compact(
-            'rentalApplication', 'assessment', 'maxRentPercent', 'result', 'documents', 'moreInfoRequestedNote'
+            'rentalApplication', 'assessment', 'maxRentPercent', 'result', 'documents', 'moreInfoRequestedNote', 'markColors'
         ))->with('isPendingAuthorisation', $rentalApplication->isPendingAuthorisation());
     }
 

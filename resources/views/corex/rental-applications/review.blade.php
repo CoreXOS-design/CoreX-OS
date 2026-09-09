@@ -38,6 +38,7 @@
          currentUserId: {{ Js::from(auth()->id()) }},
          currentUserName: {{ Js::from(auth()->user()->name) }},
          currentUserRole: 'agent',
+         markColors: {{ Js::from($markColors) }},
          requestMoreInfoUrl: '{{ route('corex.rental-applications.review.request-more-info', $rentalApplication) }}',
          submitForApprovalUrl: '{{ route('corex.rental-applications.review.submit-for-approval', $rentalApplication) }}',
          reopenUrl: '{{ route('corex.rental-applications.review.reopen', $rentalApplication) }}',
@@ -157,16 +158,19 @@
                         <button type="button" class="text-xs px-2 py-1 rounded-md" @click="activeTool = 'note'"
                                 :style="{ border:'1px solid var(--border)', background: activeTool === 'note' ? 'var(--ds-blue-soft, #eff6ff)' : 'transparent', fontWeight: activeTool === 'note' ? '700' : '400' }">Note</button>
                     </div>
-                    {{-- Category picker, 2026-09-08 — Johan-approved six-colour
-                         scheme: the agent picks WHAT this mark is (Income,
-                         Expense, Unpaid), not a raw colour. The colour and the
-                         underline follow from that category plus who's
-                         drawing (agent = lighter fill here). Applies to both
-                         tools. --}}
+                    {{-- Category picker, freehand redesign 2026-09-09 — the
+                         agent picks WHAT this mark is (Income, Expense,
+                         Unpaid); the colour is whichever of THEIR OWN three
+                         admin-configured colours that category currently
+                         maps to (myColorFor() — never the other role's
+                         three, never all six). No underline concept left to
+                         show here at all now that marks carry ink only —
+                         selection itself is shown as a solid ring in the
+                         mark's own colour, not a second accent hue. --}}
                     <div class="flex items-center gap-1" x-show="!loading && !loadError">
                         <template x-for="c in categories" :key="c.key">
                             <button type="button" class="text-xs px-2 py-1 rounded-md" @click="activeCategory = c.key"
-                                    :style="{ border: '1px solid var(--border)', background: activeCategory === c.key ? fillFor({category: c.key, authorRole: currentUserRole}) : 'transparent', fontWeight: activeCategory === c.key ? '700' : '400', borderBottom: activeCategory === c.key ? ('3px solid ' + markPalette[c.key].underline) : '1px solid var(--border)' }"
+                                    :style="{ border: (activeCategory === c.key ? '2px solid ' + myColorFor(c.key) : '1px solid var(--border)'), background: myColorFor(c.key), opacity: activeCategory === c.key ? '1' : '0.55', fontWeight: activeCategory === c.key ? '700' : '400' }"
                                     x-text="c.label"></button>
                         </template>
                     </div>
@@ -696,7 +700,7 @@
 @include('corex.rental-applications.partials.document-highlighter-script')
 
 <script>
-function rentalReview({ saveUrl, initial, initialIncomeItems, initialExpenseItems, initialResult, initialSavedAt, initialMarkedUpDocIds, currentUserId, currentUserName, currentUserRole, requestMoreInfoUrl, submitForApprovalUrl, reopenUrl, expectedGeneration }) {
+function rentalReview({ saveUrl, initial, initialIncomeItems, initialExpenseItems, initialResult, initialSavedAt, initialMarkedUpDocIds, currentUserId, currentUserName, currentUserRole, markColors, requestMoreInfoUrl, submitForApprovalUrl, reopenUrl, expectedGeneration }) {
     return {
         // 2026-09-08 — the highlight/note viewer state+methods (activeDocId,
         // pages, marks, openHighlighter()/applyHighlights()/etc.) now live in
@@ -704,7 +708,7 @@ function rentalReview({ saveUrl, initial, initialIncomeItems, initialExpenseItem
         // partials/document-highlighter-script.blade.php, included below)
         // — the authoriser screen spreads the same factory in rather than
         // this logic being copy-pasted a second time.
-        ...rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, currentUserName, currentUserRole }),
+        ...rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, currentUserName, currentUserRole, markColors }),
 
         // 2026-09-08 — Johan: "clicking back to application shows a changes
         // may be lost popup but there's no save button visible anywhere." No

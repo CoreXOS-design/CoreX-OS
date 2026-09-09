@@ -219,9 +219,13 @@ class RentalApplicationAuthorisationController extends Controller
             ? $assessment->expenseItems->map(fn ($i) => $this->serializeItem($i, $user))->values()
             : collect();
 
+        // Highlighter freehand redesign, 2026-09-09 — BOTH roles' colours,
+        // same reasoning as RentalApplicationReviewController::show().
+        $markColors = \App\Models\RentalApplicationMarkColorSetting::colorsFor((int) $rentalApplication->agency_id);
+
         return view('corex.rental-applications.authorisation.show', compact(
             'rentalApplication', 'assessment', 'maxRentPercent', 'result', 'documents', 'history', 'auditLog', 'auditLogTotal', 'canOverride', 'alreadyDecided',
-            'blockedBySelfApproval', 'serializedIncomeItems', 'serializedExpenseItems'
+            'blockedBySelfApproval', 'serializedIncomeItems', 'serializedExpenseItems', 'markColors'
         ));
     }
 

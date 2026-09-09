@@ -11,18 +11,22 @@
      rentalDocumentHighlighter() Alpine state, no Blade-side parameters
      needed.
 
-     Six-colour scheme, Johan-approved 2026-09-08: HUE = category (income
-     green / expense amber / unpaid red), ROLE = treatment (agent = lighter
-     fill, authoriser = darker fill, both share one role-neutral "underline"
-     shade per category) — colour-blind-safe and greyscale-safe by design,
-     since light-vs-dark carries role even when hue doesn't. Colours come
-     from fillFor()/underlineFor() in the shared JS factory, which read CSS
-     custom properties (cc4 owns their definition) with literal fallbacks —
-     never hard-coded here in the markup. --}}
+     Freehand redesign, 2026-09-09: HUE = category (income/expense/unpaid),
+     ROLE = which of the two role-specific palettes a mark's colour comes
+     from (agent vs authoriser) — six colours total, agency-configurable
+     (RentalApplicationMarkColorSetting), never hardcoded. No underline, no
+     border, no outline of any kind on a mark itself — Johan, from real
+     marked-up bank statements: "no lines as it strikes out," since this
+     module has a genuine strike-out feature a line would be confused with.
+     Colours come from fillFor()/myColorFor() in the shared JS factory,
+     reading `markColors` (passed in from the controller) — never CSS
+     custom properties, never hardcoded in this markup. --}}
 
-{{-- Legend — Johan asked for this explicitly ("a map key"). All six marks
-     at a glance: three categories, each shown in both roles' shades, with
-     the shared underline colour as a bottom bar on every swatch.
+{{-- Legend — Johan asked for this explicitly ("a map key"). Still shows
+     BOTH roles' swatches (an agent needs to be able to read an
+     authoriser's marks on a shared page, and vice versa) — just square
+     colour swatches now, no underline bar, since a mark itself no longer
+     has one either.
 
      2026-09-08, night sweep at 1522px — --ds-slate-soft was never actually
      defined in corex.css, so its hardcoded #f1f5f9 fallback always won
@@ -34,11 +38,16 @@
     <template x-for="c in categories" :key="c.key">
         <div class="flex items-center gap-1.5">
             <span style="color: var(--text-muted);" x-text="c.label"></span>
-            <span :style="{ display:'inline-block', width:'24px', height:'12px', background: markPalette[c.key].agentFill, borderBottom: '3px solid ' + markPalette[c.key].underline }" title="Agent"></span>
-            <span :style="{ display:'inline-block', width:'24px', height:'12px', background: markPalette[c.key].authoriserFill, borderBottom: '3px solid ' + markPalette[c.key].underline }" title="Authoriser"></span>
+            <span class="flex items-center gap-0.5">
+                <span :style="{ display:'inline-block', width:'20px', height:'14px', borderRadius:'3px', background: markColors.agent[c.key] }" title="Agent"></span>
+                <span style="color: var(--text-muted); font-size: 10px;">agent</span>
+            </span>
+            <span class="flex items-center gap-0.5">
+                <span :style="{ display:'inline-block', width:'20px', height:'14px', borderRadius:'3px', background: markColors.authoriser[c.key] }" title="Authoriser"></span>
+                <span style="color: var(--text-muted); font-size: 10px;">authoriser</span>
+            </span>
         </div>
     </template>
-    <span style="color: var(--text-muted);">lighter = agent &middot; darker = authoriser</span>
 </div>
 
 <template x-if="loading">
@@ -92,11 +101,26 @@
                      @pointerup.prevent="endDraw($event, page.index)"
                      @pointercancel.prevent="endDraw($event, page.index)"
                      @dragstart.prevent>
-                    {{-- Highlight strokes — connected line segments following the
-                         actual drag path, an SVG polyline with a thick translucent
-                         stroke (a real marker-pen gesture, not a rectangle), plus a
-                         second, thin OPAQUE "underline" polyline in the category's
-                         role-neutral shade — the six-colour scheme's role signal.
+                    {{-- Highlight strokes — freehand redesign, 2026-09-09.
+                         Freehand ink following the actual drawn path (round
+                         caps/joins, a real marker-pen gesture, never a
+                         rectangle), translucent, blended with
+                         mix-blend-mode:multiply so text underneath stays
+                         readable and overlapping strokes darken naturally —
+                         Johan, from real marked-up bank statements: "no
+                         lines as it strikes out" (the underline this used to
+                         carry drew a hard line through crossed text, which
+                         reads as struck-out — colliding with the real
+                         strike-out feature on the assessment panel). The
+                         blend mode is set on EACH POLYLINE individually
+                         (strokesSvgFor(), not here on the SVG container) —
+                         setting it on the container instead would flatten
+                         all strokes into one composited layer first (plain
+                         alpha blending each other), then multiply that
+                         WHOLE layer against the page once; per-polyline
+                         blending is what makes two overlapping strokes
+                         genuinely compound and darken against EACH OTHER,
+                         not just against the page beneath both.
                          2026-09-08 — Johan: "highlighter dont work - just shows a
                          little black x but no colour applied." Root cause found by
                          actually loading the screen (real browser console, not a
@@ -115,18 +139,35 @@
                          SVG at all, still fully reactive since x-html re-evaluates
                          on every dependency change same as x-text/x-show. --}}
                     <svg class="absolute inset-0" style="pointer-events:none; width:100%; height:100%;"
-                         x-html="strokesSvgFor(page.index)"></svg>
-                    {{-- Remove-stroke handles (one per stroke, at its first point) —
-                         only for marks the current user owns (or unattributed
-                         legacy marks); someone else's mark shows no × at all. --}}
+                         x-html="strokesSvgFor(page.index)"
+                         @mouseover="if ($event.target.dataset.markId) hoveredMarkId = $event.target.dataset.markId"
+                         @mouseout="if ($event.target.dataset.markId && $event.target.dataset.markId === hoveredMarkId) hoveredMarkId = null"></svg>
+                    {{-- Remove-stroke handle, freehand redesign 2026-09-09 —
+                         Johan: "every stroke currently carries a black
+                         circled x... eight of them scattered down the
+                         page... competes with the marks themselves." Now
+                         appears ONLY for the one stroke currently under the
+                         cursor (hoveredMarkId, set by the SVG's own
+                         @mouseover/@mouseout above via real hit-testing
+                         against the drawn ink, not a bounding box) — and
+                         only if it's a mark the current user actually owns
+                         (or an unattributed legacy mark); someone else's
+                         mark never shows a × at all, hovered or not. --}}
                     <template x-for="(mark, mi) in strokesFor(page.index)" :key="'r'+mi">
-                        <button type="button" title="Remove this mark" x-show="canEditMark(mark)"
+                        <button type="button" title="Remove this mark" x-show="canEditMark(mark) && mark.id && hoveredMarkId === mark.id"
+                                @mouseover="hoveredMarkId = mark.id" @mouseout="if (hoveredMarkId === mark.id) hoveredMarkId = null"
                                 @pointerdown.stop.prevent="removeMark(page.index, mi, 'highlight')"
                                 :style="{ position:'absolute', left:(mark.points[0].x-9)+'px', top:(mark.points[0].y-9)+'px', width:'18px', height:'18px', borderRadius:'9999px', background:'#475569', color:'#fff', fontSize:'12px', lineHeight:'16px', textAlign:'center', border:'1px solid #fff', padding:'0', pointerEvents:'auto', cursor:'pointer' }">&times;</button>
                     </template>
                     {{-- Notes — a pinned marker + its text, visible inline. Dot
-                         fill/border now carry category+role (fillFor/underlineFor)
-                         instead of the old 4-colour scheme.
+                         fill carries category+role (fillFor, same as a
+                         highlight stroke's own colour) with a plain fixed
+                         white ring for contrast — freehand redesign,
+                         2026-09-09: this is a discrete pin, not a stroke
+                         crossing text, so a border here isn't the "line as
+                         it strikes out" Johan ruled out; underlineFor() (the
+                         removed role/colour split) doesn't apply to a marker
+                         that was never role-doubled anyway.
                          2026-09-08 — Johan: "note does not work - clicked, shows
                          small modal but cannot type anything in it." Root cause,
                          found the same way as the highlighter bug above (a real
@@ -145,7 +186,7 @@
                          its popover buttons had the same latent exposure). --}}
                     <template x-for="(note, ni) in notesFor(page.index)" :key="'n'+ni">
                         <div @pointerdown.stop :style="{ position:'absolute', left:note.x+'px', top:note.y+'px', transform:'translate(-50%,-50%)', pointerEvents:'auto' }">
-                            <div class="rounded-full" :style="{ width:'16px', height:'16px', background: fillFor(note), border:'2px solid ' + underlineFor(note), boxShadow:'0 0 0 1px rgba(0,0,0,0.3)', cursor:'pointer' }"
+                            <div class="rounded-full" :style="{ width:'16px', height:'16px', background: fillFor(note), border:'2px solid #fff', boxShadow:'0 0 0 1px rgba(0,0,0,0.3)', cursor:'pointer' }"
                                  @click="toggleNotePopover(page.index, ni)"></div>
                             <div x-show="openNote && openNote.page === page.index && openNote.index === ni" x-cloak
                                  class="rounded-md p-2" style="position:absolute; top:20px; left:0; width:240px; background: var(--surface); border:1px solid var(--border); box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 10;">

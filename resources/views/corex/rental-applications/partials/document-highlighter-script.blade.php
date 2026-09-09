@@ -15,28 +15,47 @@
      pages/marks/activeDocId-shaped state, which is what makes the split
      safe.
 
-     Six-colour scheme + ownership, Johan-approved 2026-09-08:
-       HUE = category (income green / expense amber / unpaid red).
-       ROLE = treatment (agent = lighter fill, authoriser = darker fill; a
-       third, role-neutral "underline" shade per category carries role even
-       when hue can't — readable in greyscale, safe for red/green colour-
-       blindness). Colours come from CSS custom properties cc4 owns the
-       definition of (var(--rah-mark-<category>-<agent|authoriser>-fill, #hex)
-       / var(--rah-mark-<category>-underline, #hex)) — the hex values below
-       are ONLY the fallback if those properties are never defined; they are
-       never read directly by anything that draws a mark. If cc4's tokens
-       use different names, only the var() names below need to change.
+     Freehand redesign, 2026-09-09 — Johan, from real marked-up bank
+     statements: "no lines as it strikes out." The original design was a
+     horizontal band plus a solid underline, which assumed a clean swipe
+     along one line of text. Nobody marks up that way — strokes wander
+     across several rows, loop around a figure, overlap each other. A hard
+     line drawn through crossed text reads as struck-out, colliding with
+     the real strike-out feature on the assessment panel. Fixed by
+     removing the underline concept ENTIRELY: a mark is now translucent
+     ink only, following the actual drawn path with round caps/joins (a
+     real marker pen), blended with `mix-blend-mode: multiply` (see
+     strokesSvgFor()) so text underneath stays readable and overlapping
+     strokes darken naturally instead of an opaque line painting over
+     anything.
 
-       Every mark stores a stable id, its author (id/name/role), and its
-       category. A user may edit (remove) only their own marks —
-       canEditMark() gates every remove control in the shared page-rendering
-       partial. A save sends `base_version` (the marks_version this tab
-       loaded) and the server refuses (409) if it has since moved — a
-       genuine collision is visible and recoverable (reloadHighlighter()),
-       never silently overwritten. No live locking — Johan: "more machinery
-       than the problem needs." --}}
+     Six colours, now agency-configurable (Johan: "admin can pick 6
+     colours - agent 3 and auth 3") — `markColors` is passed in from the
+     controller as `{ agent: {income,expense,unpaid}, authoriser:
+     {income,expense,unpaid} }` (RentalApplicationMarkColorSetting::
+     colorsFor(), agency-configurable with sensible defaults, never
+     hardcoded). BOTH roles' colours are always present here — rendering
+     an EXISTING mark needs its AUTHOR's colour regardless of who's
+     viewing, so this can't be trimmed to "just mine." The drawing
+     TOOLBAR is the one place that only ever offers the CURRENT user's own
+     three (myColorFor() below) — Johan: "an agent sees their three; an
+     authoriser sees theirs... do not show anyone six."
+
+     The three category KEYS (income/expense/unpaid) and their LABELS stay
+     fixed — only their colour is admin-configurable, not their meaning
+     (flagged to the conductor as a design question, not decided silently
+     — this is the recommended default pending confirmation).
+
+     Every mark stores a stable id, its author (id/name/role), and its
+     category. A user may edit (remove) only their own marks —
+     canEditMark() gates every remove control in the shared page-rendering
+     partial. A save sends `base_version` (the marks_version this tab
+     loaded) and the server refuses (409) if it has since moved — a
+     genuine collision is visible and recoverable (reloadHighlighter()),
+     never silently overwritten. No live locking — Johan: "more machinery
+     than the problem needs." --}}
 <script>
-function rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, currentUserName, currentUserRole } = {}) {
+function rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, currentUserName, currentUserRole, markColors } = {}) {
     return {
         markedUpDocIds: initialMarkedUpDocIds || [],
         currentUserId: currentUserId ?? null,
@@ -69,27 +88,31 @@ function rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, curre
         marks: [],   // FLAT array: {id, type:'highlight', page, points:[{x,y}], width, category, authorUserId, authorName, authorRole} | {id, type:'note', page, x, y, text, category, authorUserId, authorName, authorRole}
         dirty: false,
 
-        // Six-colour scheme — category is what the agent/authoriser picks;
-        // role (which shade of it) comes from whoever authored the mark, not
-        // whoever is currently looking at it.
+        // Freehand redesign, 2026-09-09 — category is what the agent/
+        // authoriser picks (fixed keys/labels); the COLOUR comes from
+        // markColors[authorRole][category], agency-configurable, never
+        // hardcoded. Defaults here match this feature's own original
+        // palette exactly — an agency that never opens the settings screen
+        // sees no visual change from tonight's build.
         categories: [
             { key: 'income',  label: 'Income' },
             { key: 'expense', label: 'Expense' },
             { key: 'unpaid',  label: 'Unpaid' },
         ],
-        markPalette: {
-            income:  { agentFill: 'var(--rah-mark-income-agent-fill, #a7f3cf)',  authoriserFill: 'var(--rah-mark-income-authoriser-fill, #4ec99a)',  underline: 'var(--rah-mark-income-underline, #046c4e)' },
-            expense: { agentFill: 'var(--rah-mark-expense-agent-fill, #fde8a8)', authoriserFill: 'var(--rah-mark-expense-authoriser-fill, #f2b33d)', underline: 'var(--rah-mark-expense-underline, #9a5b06)' },
-            unpaid:  { agentFill: 'var(--rah-mark-unpaid-agent-fill, #fbcdc9)',  authoriserFill: 'var(--rah-mark-unpaid-authoriser-fill, #ee7c72)',  underline: 'var(--rah-mark-unpaid-underline, #a91d13)' },
+        markColors: markColors || {
+            agent: { income: '#a7f3cf', expense: '#fde8a8', unpaid: '#fbcdc9' },
+            authoriser: { income: '#4ec99a', expense: '#f2b33d', unpaid: '#ee7c72' },
         },
         activeCategory: 'income',
+        /** An EXISTING mark's own colour — keyed by its AUTHOR's role, regardless of who is currently viewing. */
         fillFor(mark) {
-            const p = this.markPalette[mark && mark.category] || this.markPalette.unpaid;
-            return (mark && mark.authorRole === 'authoriser') ? p.authoriserFill : p.agentFill;
+            const role = (mark && mark.authorRole === 'authoriser') ? 'authoriser' : 'agent';
+            const category = (mark && mark.category) || 'unpaid';
+            return (this.markColors[role] && this.markColors[role][category]) || '#94a3b8';
         },
-        underlineFor(mark) {
-            const p = this.markPalette[mark && mark.category] || this.markPalette.unpaid;
-            return p.underline;
+        /** The drawing toolbar's own colour for a category — ALWAYS the current viewer's own three, never the other role's (Johan: "do not show anyone six"). */
+        myColorFor(category) {
+            return (this.markColors[this.currentUserRole] && this.markColors[this.currentUserRole][category]) || '#94a3b8';
         },
         canEditMark(mark) {
             return mark.authorUserId === null || mark.authorUserId === undefined || mark.authorUserId === this.currentUserId;
@@ -102,17 +125,13 @@ function rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, curre
         // much lines on bank statement - lines are small there." Three
         // presets, not a slider.
         //
-        // 2026-09-08, revised — Johan, testing live: at Thin (and to a
-        // lesser extent Medium) a mark read as "a hairline dark-green
-        // stroke", no visible translucent band — only at Thick did the
-        // agreed marker-pen look actually show up. Root cause: the
-        // UNDERLINE was a fixed 3px at every size, so at a 10px fill it was
-        // 30% of the band's own width, fully opaque next to a fill at only
-        // 0.4 opacity — the underline visually dominated. Fixed alongside
-        // strokesSvgFor() below: bigger fill sizes (10/16/24, Johan's own
-        // numbers, checked by eye against the real document, not derived by
-        // arithmetic), a slimmer fixed 2px underline so it can never
-        // out-weigh even the thinnest band, and a higher fill opacity.
+        // Freehand redesign, 2026-09-09 — "thickness stays, and now matters
+        // more since there is no underline to carry the colour. All three
+        // must read clearly as ink." With the underline gone, opacity and
+        // the multiply blend (strokesSvgFor()) are what make even Thin read
+        // as real ink rather than a hairline — verified by eye against a
+        // real dense document, not derived by arithmetic (see the freehand
+        // redesign's own verification pass).
         strokeSizes: [
             { key: 'thin',   label: 'Thin',   px: 10 },
             { key: 'medium', label: 'Medium', px: 16 },
@@ -397,6 +416,16 @@ function rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, curre
         },
         strokesFor(p) { return this.marks.filter(m => m.type === 'highlight' && m.page === p); },
         notesFor(p) { return this.marks.filter(m => m.type === 'note' && m.page === p); },
+        // Delete-handle hover, freehand redesign 2026-09-09 — Johan: "every
+        // stroke currently carries a black circled x... eight of them
+        // scattered down the page... competes with the marks themselves."
+        // Fixed by tracking which mark's INK is currently under the cursor
+        // (set via @mouseover/@mouseout delegated on the <svg> itself, in
+        // document-highlighter-pages.blade.php — each polyline below carries
+        // pointer-events:stroke + a data-mark-id so the browser's own hit-
+        // testing against the actual drawn path decides "hovering," not a
+        // bounding box) and only rendering that ONE mark's remove handle.
+        hoveredMarkId: null,
         // 2026-09-08 — built as a markup STRING and bound via x-html on the
         // <svg> itself, deliberately NOT <template x-for>/<template x-if>
         // inside the svg (a browser parses <template> INSIDE an <svg> as
@@ -408,18 +437,37 @@ function rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, curre
         // from this component's own numeric drag/mark state, never free-typed
         // text, so there is nothing here that needs HTML-escaping.
         //
-        // Six-colour scheme, 2026-09-08 — TWO polylines per stroke: the wide
-        // translucent fill (the category+role colour) plus a thin, fully
-        // opaque "underline" polyline offset downward — the role-neutral
-        // signal that survives a bad greyscale scan or red/green colour-
-        // blindness. The offset is a fixed vertical shift, not a true
-        // perpendicular-to-path one: strokes on this screen are drawn over
-        // roughly-horizontal statement lines, so this reads as an underline
-        // for the documents the tool actually sees without needing full
-        // perpendicular-vector geometry for an arbitrary drag angle.
+        // Freehand redesign, 2026-09-09 — ONE polyline per stroke now (the
+        // underline is gone entirely), following the mark's actual drawn
+        // path with round caps/joins — a real marker-pen gesture, never a
+        // rectangle. `mix-blend-mode:multiply` (set in CSS on the SVG
+        // itself, see document-highlighter-pages.blade.php) is what keeps
+        // text underneath readable and makes overlapping strokes darken
+        // naturally instead of an opaque band painting over anything —
+        // Johan: "if the printed figures become hard to read, the whole
+        // feature is worthless." pointer-events:stroke + data-mark-id on
+        // each polyline is what makes hover-to-reveal-delete (above)
+        // possible — an SVG child can enable its own hit-testing even
+        // though the parent <svg> stays pointer-events:none for everything
+        // else, so drawing a NEW stroke elsewhere on the page is untouched.
         strokesSvgFor(p) {
-            const poly = (points, color, width, opacity) =>
-                '<polyline points="' + points.map(pt => Number(pt.x) + ',' + Number(pt.y)).join(' ') + '" fill="none" stroke="' + color + '" stroke-opacity="' + opacity + '" stroke-width="' + Number(width) + '" stroke-linecap="round" stroke-linejoin="round"></polyline>';
+            // `mix-blend-mode:multiply` is set on EACH polyline here, not
+            // once on the containing <svg> (document-highlighter-pages.blade.php)
+            // — a blend mode set on the SVG container would flatten every
+            // stroke into one composited layer first (plain alpha-blending
+            // them together) and only THEN multiply that single result
+            // against the page once. Set per-polyline instead, each stroke
+            // multiplies independently against everything already beneath
+            // it — other strokes AND the page image — which is what makes
+            // two overlapping strokes genuinely compound and darken further,
+            // not just darken once as a flattened group.
+            const poly = (points, color, width, opacity, markId) =>
+                '<polyline points="' + points.map(pt => Number(pt.x) + ',' + Number(pt.y)).join(' ') + '"'
+                + ' fill="none" stroke="' + color + '" stroke-opacity="' + opacity + '" stroke-width="' + Number(width) + '"'
+                + ' stroke-linecap="round" stroke-linejoin="round"'
+                + ' style="mix-blend-mode:multiply;' + (markId ? ' cursor:pointer;' : '') + '"'
+                + (markId ? ' pointer-events="stroke" data-mark-id="' + markId + '"' : '')
+                + '></polyline>';
             let svg = '';
             this.strokesFor(p).forEach(m => {
                 // Floor, 2026-09-08 — Johan: "with a floor so it can never
@@ -427,17 +475,16 @@ function rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, curre
                 // down oddly by the raster<->display conversion) must still
                 // read as a real band, never thin out to a hairline.
                 const fillWidth = Math.max(m.width, 8);
-                svg += poly(m.points, this.fillFor(m), fillWidth, 0.5);
-                // Underline stays a small FIXED 2px at every size — Johan:
-                // "the underline stays 1-2px and never dominates" — so even
-                // the thinnest band (10px) keeps it a clearly subordinate
-                // accent, not a competing stroke.
-                const offset = fillWidth * 0.45;
-                svg += poly(m.points.map(pt => ({ x: pt.x, y: pt.y + offset })), this.underlineFor(m), 2, 1);
+                // Opacity raised slightly from the original 0.5 now that
+                // there's no underline to lean on for legibility — verified
+                // by eye against a real dense document (multiply blend
+                // already darkens more assertively than plain alpha ever
+                // did, so this is a small nudge, not a big compensation).
+                svg += poly(m.points, this.fillFor(m), fillWidth, 0.55, m.id);
             });
             if (this.drag.active && this.drag.page === p && this.activeTool === 'highlight') {
                 const preview = { category: this.activeCategory, authorRole: this.currentUserRole };
-                svg += poly(this.drag.points, this.fillFor(preview), Math.max(this.strokeWidth, 8), 0.5);
+                svg += poly(this.drag.points, this.fillFor(preview), Math.max(this.strokeWidth, 8), 0.55, null);
             }
             return svg;
         },
@@ -506,8 +553,19 @@ function rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, curre
             const x = e.clientX - r.left, y = e.clientY - r.top;
             this.drag = { active: true, page, points: [{ x, y }] };
         },
+        // Defensive backstop, freehand redesign 2026-09-09 (Johan: "say how
+        // you will keep that sane"). A real hand-drawn stroke, even a long
+        // loopy one, is nowhere near this — a full-page zigzag at the
+        // existing 2px-minimum spacing is still well under 1000 points. This
+        // exists only to bound a pathological case (a very long, very slow
+        // drag, or a crafted request) rather than let a single stroke grow
+        // without limit; RDP simplification (below, applied at save time)
+        // is what actually keeps a normal dense-document session's total
+        // storage small, this is just the ceiling that can never be crossed.
+        MAX_STROKE_POINTS: 800,
         moveDraw(e, page) {
             if (!this.drag.active || this.drag.page !== page) return;
+            if (this.drag.points.length >= this.MAX_STROKE_POINTS) return;
             const r = e.currentTarget.getBoundingClientRect();
             const x = e.clientX - r.left, y = e.clientY - r.top;
             const last = this.drag.points[this.drag.points.length - 1];
@@ -516,6 +574,45 @@ function rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, curre
             if (!last || Math.hypot(x - last.x, y - last.y) > 2) {
                 this.drag.points.push({ x, y });
             }
+        },
+        /**
+         * Ramer–Douglas–Peucker path simplification, freehand redesign
+         * 2026-09-09 — applied once at SAVE time (not while drawing, so the
+         * live gesture never feels different from what gets stored), on top
+         * of the existing 2px-minimum-spacing throttle above. A slow or
+         * wobbly hand produces far more points than the visual shape
+         * actually needs; a small epsilon (in RASTER document pixels, not
+         * screen pixels, so it scales with the document's own resolution
+         * rather than the viewer's zoom) removes the redundant ones while
+         * staying visually identical — never a visible change to the shape,
+         * only to how many points describe it.
+         */
+        simplifyPath(points, epsilon) {
+            if (points.length < 3) return points;
+            const sqEpsilon = epsilon * epsilon;
+            const sqDistToSegment = (p, a, b) => {
+                let dx = b.x - a.x, dy = b.y - a.y;
+                if (dx === 0 && dy === 0) { dx = p.x - a.x; dy = p.y - a.y; return dx * dx + dy * dy; }
+                const t = Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / (dx * dx + dy * dy)));
+                const projX = a.x + t * dx, projY = a.y + t * dy;
+                dx = p.x - projX; dy = p.y - projY;
+                return dx * dx + dy * dy;
+            };
+            const simplifySegment = (pts) => {
+                if (pts.length < 3) return pts;
+                let maxDist = 0, maxIndex = 0;
+                for (let i = 1; i < pts.length - 1; i++) {
+                    const d = sqDistToSegment(pts[i], pts[0], pts[pts.length - 1]);
+                    if (d > maxDist) { maxDist = d; maxIndex = i; }
+                }
+                if (maxDist > sqEpsilon) {
+                    const left = simplifySegment(pts.slice(0, maxIndex + 1));
+                    const right = simplifySegment(pts.slice(maxIndex));
+                    return left.slice(0, -1).concat(right);
+                }
+                return [pts[0], pts[pts.length - 1]];
+            };
+            return simplifySegment(points);
         },
         endDraw(e, page) {
             if (this.activeTool === 'note') {
@@ -600,12 +697,19 @@ function rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, curre
                         // RentalApplicationDocumentHighlightService::
                         // normalizeForStorage()).
                     });
-                    const strokes = this.strokesFor(page.index).map(m => ({
-                        ...toServerMark(m),
-                        type: 'highlight',
-                        points: m.points.map(p => ({ x: Math.round(p.x * scaleX), y: Math.round(p.y * scaleY) })),
-                        width: Math.round(m.width * scaleX),
-                    }));
+                    const strokes = this.strokesFor(page.index).map(m => {
+                        // RASTER px first, THEN simplify — epsilon is in the
+                        // document's own resolution, not the viewer's zoom,
+                        // so a stroke drawn at any screen size simplifies by
+                        // the same real-world amount.
+                        const rasterPoints = m.points.map(p => ({ x: Math.round(p.x * scaleX), y: Math.round(p.y * scaleY) }));
+                        return {
+                            ...toServerMark(m),
+                            type: 'highlight',
+                            points: this.simplifyPath(rasterPoints, 1.5),
+                            width: Math.round(m.width * scaleX),
+                        };
+                    });
                     const notes = this.notesFor(page.index).map(m => ({
                         ...toServerMark(m),
                         type: 'note',
