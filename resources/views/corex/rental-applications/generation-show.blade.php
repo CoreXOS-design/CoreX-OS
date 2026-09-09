@@ -27,7 +27,14 @@
     </div>
 
     @unless($isLatest)
-        <div class="mb-4 rounded-md px-3 py-2 text-xs" style="background: var(--ds-amber-soft, #fffbeb); border: 1px solid var(--ds-amber, #f59e0b); color: var(--text-primary);">
+        {{-- Regression walk, 2026-09-09 — found live: --text-primary is
+             theme-dependent (light text in this app's dark theme), which is
+             invisible against this box's always-light amber background.
+             Fixed the same way the settings screen's own amber banner
+             already does it (rental-applications.blade.php's qualifying-
+             formula warning) — a fixed dark amber text colour that reads
+             correctly regardless of the surrounding theme. --}}
+        <div class="mb-4 rounded-md px-3 py-2 text-xs" style="background: var(--ds-amber-soft, #fffbeb); border: 1px solid var(--ds-amber, #b45309); color: var(--ds-amber, #b45309);">
             This is a PREVIOUS submission — the applicant has since reopened and resubmitted a newer version
             (submission {{ $latestGeneration }}). This view is read-only history and cannot be edited.
         </div>
@@ -38,12 +45,25 @@
             What was submitted
         </div>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 px-3 py-3">
+            @php
+                // Regression walk, 2026-09-09 — found live: a date field
+                // (e.g. occupation_date) round-trips through the JSON
+                // snapshot as a full Carbon-cast ISO timestamp
+                // ("2001-02-01T22:00:00.000000Z" — the time-of-day and 'Z'
+                // are UTC-conversion noise Laravel's date cast adds on
+                // serialization, not real data), which rendered raw and
+                // unreadable. These three are the only date-typed fields in
+                // RentalApplication::fieldValidationRules() — formatted
+                // explicitly here rather than guessing by regex.
+                $dateFields = ['current_rental_from', 'current_rental_to', 'occupation_date'];
+            @endphp
             @foreach($sealed->snapshot_json as $field => $value)
                 @continue(is_null($value) || $value === '')
                 <div class="text-xs py-1" style="border-bottom: 1px solid var(--border);">
                     <span style="color: var(--text-muted);">{{ \Illuminate\Support\Str::headline($field) }}:</span>
                     <span style="color: var(--text-primary);" class="font-medium">
                         @if(is_bool($value)) {{ $value ? 'Yes' : 'No' }}
+                        @elseif(in_array($field, $dateFields, true)) {{ \Illuminate\Support\Carbon::parse($value)->format('d M Y') }}
                         @else {{ $value }}
                         @endif
                     </span>
