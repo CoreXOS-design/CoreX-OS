@@ -6004,3 +6004,222 @@ their own two-shape actions).
 
 No code, migration, or UI for this feature is written until Johan responds
 to these six.
+
+## SUPERSEDES THE SECTION ABOVE — agent sends, not auto-send (AT-392, 2026-09-09, cc4) — SPEC, PENDING JOHAN'S APPROVAL, NO CODE WRITTEN YET
+
+Johan changed the flow after reading the spec above. **The entire "auto-send
+/ agent-review toggle" section above (§3) is void.** Approval no longer
+emails the applicant at all. Sections 1 (contact status) and the two
+carried-in defects from the section above are unaffected and still stand as
+specced. This section replaces §2 and §3 above in full.
+
+### The flow, in Johan's words
+
+1. Agent does their work and submits to the authoriser. (Unchanged.)
+2. Authoriser reviews, is happy, approves, and types the approved amount.
+   (Already exists — unchanged, see §"What already exists" above.)
+3. Approval sends the application **back to the agent**. It does **not**
+   email the applicant at this point. Johan: *"no, agent gets back and upon
+   them being happy it gets sent out."*
+4. The agent sees it needs them — on their **dashboard** and on the
+   **application list**, both, not only inside the application record.
+5. The agent completes the tenant wishlist **in a modal** — Johan: *"modal
+   showing same as core matches on contact - we have this already."*
+6. When the agent is happy, **they** send. One email: the approval, the
+   amount, and the matched properties, together.
+
+**Why the agent, not the authoriser** — Johan: *"agent, not auth will speak
+to tenant and find out what they're looking for."* The agent owns the
+client relationship; the authoriser's job ends at the credit decision.
+
+### What changes in the already-built approve() action
+
+`RentalApplicationAuthorisationController::approve()` (line 249-301, cited
+in full above) keeps its validation, status write, audit log, and status
+history exactly as-is — nothing about the approval DECISION changes. Only
+its tail changes:
+
+- **Removed:** the unconditional `$mailer->sendApproved($rentalApplication)`
+  call (line 301). Approval no longer sends anything to the applicant.
+- **Added:** the application needs a new agent-facing marker — proposed
+  `awaiting_agent_send` as an additional flag (not a new top-level
+  `RentalApplication.status` value; `status` stays `'approved'`, since the
+  authoriser's decision is final and unambiguous — this is a "has the agent
+  released it yet" question, orthogonal to the credit decision). Proposed
+  column: `rental_applications.applicant_notified_at` (nullable timestamp)
+  — `NULL` means "approved but the agent hasn't sent it," non-null means
+  "the agent has sent the approval email." This single column drives every
+  surfacing requirement below (dashboard, list, modal-gate) without a
+  second status enum to keep in sync with `status`.
+
+### Where the agent sees it needs them (point 4)
+
+- **Dashboard:** a new card/row, "Approved — needs your wishlist & send"
+  (or equivalent existing dashboard-widget pattern — reuse whatever
+  component already lists this agent's other rental-application action
+  items, e.g. "awaiting your review" if one exists, rather than inventing a
+  new widget shape). Query: `RentalApplication::where('created_by_user_id',
+  $agent->id)->where('status', 'approved')->whereNull('applicant_notified_at')`.
+- **Application list:** the same query surfaces as a visible state/badge
+  on the existing rental-applications list screen (whichever list the
+  agent already uses to see their applications) — "Approved, ready to
+  send" — not a separate list.
+- **Inside the application:** the review screen already shows status; it
+  gains the wishlist-modal trigger and the "Send to applicant" action,
+  gated on `status === 'approved' && applicant_notified_at === null` and
+  on the same agent-ownership guard the rest of this feature already uses.
+
+### The wishlist modal (point 5) — reusing existing UI, not building a second editor
+
+**Component being reused:** `resources/views/corex/contacts/_match-form.blade.php`
+— the actual Core Matches / wishlist form partial, already used in two
+places today: inline on `corex/contacts/show.blade.php:1492`, and as a
+right-side slide-over drawer on
+`resources/views/command-center/buyers/detail.blade.php:580-615`
+(`wishlistDrawerOpen` / `wishlistEditingId`, Alpine-driven, posting to
+`ContactMatchController::store()`/`update()`). Johan's "modal showing same
+as core matches on contact" is this drawer pattern. The build reuses
+**both** the form partial and the drawer wrapper — same Alpine open/close
+shape, same partial, new trigger point and new post-action only
+(redirect/refresh back to the rental application screen instead of the
+buyer detail page).
+
+**What it operates on:** the applicant's own `ContactMatch` (rental,
+belonging to `$rentalApplication->contact`) — not a new model, not a
+rental-application-specific wishlist. If the contact already has one
+(pre-filled from a portal-lead seed — see below), the modal opens in edit
+mode against it. If not, it opens in create mode
+(`'listing_type' => 'rental'` pre-selected, not left to the agent to
+choose) exactly as `_match-form` already supports via its existing
+`$isEdit` branch — no new form fields, no new validation rules.
+
+### THE PORTAL-LEAD FINDING — reported to the coordinator as its own message before this spec section, restated here for the record
+
+Verified: `App\Services\Buyers\BuyerLeadCascadeService::seedFromListing()`
+(`app/Services/Buyers/BuyerLeadCascadeService.php:77`) is called live from
+three lead-ingestion paths — `Property24/P24LeadService.php:225`,
+`PrivateProperty/PpLeadService.php:235`, `Website/WebsiteLeadService.php:222`
+— and derives a real, countable `ContactMatch` (suburb, price band around
+the enquired listing's price, `beds_min`, `property_type`) from the
+enquired listing, with `listing_type` correctly inherited from that
+listing (a rental enquiry seeds a rental wishlist). This is real, wired
+infrastructure, not aspirational.
+
+QA1's current data shows zero overlap between rental-application contacts
+and rental wishlists — but every one of the 19 contacts behind today's
+QA1 rental applications is synthetic test data (names like "Test",
+"Persona AgentTest", "ZZ CC4 Verify Tenant"; 18 of 19 have
+`buyer_source = NULL` and `is_buyer = 0`, meaning none ever passed through
+a lead-ingestion path at all). The `rental_applications` table itself was
+migrated 2026-09-04 — this feature has never yet been used by a real
+applicant anywhere. There is no real population yet to test Johan's belief
+against; the mechanism that would make it true is confirmed live and
+correctly wired, and will apply automatically to any real tenant who
+enquires on a rental listing and later becomes a rental applicant.
+
+**Consequence for the modal:** per Johan's own instruction, given the
+mechanism is confirmed real, **the modal pre-fills from any existing
+`ContactMatch` the contact already has** (portal-seeded or otherwise) —
+the agent is confirming/refining a real signal, not typing from scratch,
+for exactly the population Johan expects to be "most" of real applicants
+once this ships. For the remainder (manually-captured applicants with no
+prior lead, or portal leads where auto-seed was toggled off), the modal
+opens empty in create mode, same partial, same behaviour `_match-form`
+already has today for a first-time wishlist.
+
+### The wishlist fallback rule — proposed, not decided (Johan does not want the email blocked)
+
+Johan: *"if agent has not updated the wishlist the email goes out with
+just some rental properties."* Proposed rule, built on `ContactMatch`'s
+own existing `isCountable()` gate
+(`app/Models/ContactMatch.php:556-568` — the same test
+`PropertyMatchScoringService` already uses to exclude thin wishlists from
+real scoring, so this introduces no new "thin" definition):
+
+1. If the contact has an active, **countable** rental `ContactMatch` →
+   run `MatchingService::propertiesForMatch()` against it exactly as
+   already scoped (own agency stock only). This is the real match.
+2. If the contact has no rental `ContactMatch`, or has one that exists but
+   is **not countable** (agent opened the modal and left it effectively
+   empty, or never opened it at all) → fall back to: own-agency rental
+   stock, on-market, **at or under the approved amount**, ranked by price
+   descending (closest to the budget), capped at the same
+   agency-configurable maximum (§ below) used for a real match.
+3. Either branch can legitimately return zero properties (empty stock
+   under that amount) — the email still sends in that case too, with no
+   property section, per the standing "never block the approval on a
+   merchandising nice-to-have" reasoning from the section above.
+
+This makes "the agent hasn't touched the wishlist yet" a graceful
+degrade, not a blocker — exactly what Johan asked for — while a real,
+either agent-confirmed-portal-seeded or agent-authored wishlist gets the
+better, criteria-scored result.
+
+**Maximum properties per email:** unchanged from the proposal above —
+agency-configurable, default 5, same settings screen.
+
+### Files this touches (once approved — not built yet)
+
+- `app/Http/Controllers/CoreX/RentalApplicationAuthorisationController.php`
+  — `approve()` tail: remove `sendApproved()` call, no other change to the
+  decision logic.
+- New migration: `rental_applications.applicant_notified_at` (nullable
+  timestamp).
+- Agent dashboard widget query + existing rental-applications list view —
+  surfacing `status='approved' AND applicant_notified_at IS NULL`.
+- New agent-facing action (name TBD at build time, e.g. `sendApproval()`
+  on a controller in the agent's own namespace, not the authoriser's) —
+  gates on ownership, composes `RentalApplicationApprovedMail` with the
+  matched/fallback property list, sends via `RentalApplicationMailer`
+  (new method, same class, same guard coverage already proven), sets
+  `applicant_notified_at`, audit-logs the send.
+- Wishlist modal: new trigger + drawer markup on the agent's rental
+  application review screen, reusing `corex/contacts/_match-form.blade.php`
+  verbatim and the drawer pattern from
+  `command-center/buyers/detail.blade.php:580-615`. No new Blade
+  form, no new `ContactMatch` fields, no new validation rules.
+- `RentalApplicationApprovedMail` — gains the matched-properties section
+  (real match or fallback, per the rule above), still not
+  agency-configurable text (unchanged from the earlier finding — not
+  asked for).
+
+### Contact status, defects, design standard, navigation — unchanged from the section above
+
+Everything else specced in the superseded section still applies as
+written and is not repeated here: `rental_application_status` on Contact
+(derived, domain-event-driven, distinctly named from `buyer_state`/
+`contact_type_id`), the two cc5-found evidentiary defects (reopen reason
+invisible to the applicant; no audit/status-history on submit/resubmit),
+the design-standard requirements (list/search/sort/filter/pagination +
+empty state on Contact's Rental History, OWN/BRANCH/AGENCY scoping, soft
+delete only), and the navigation entries (Rental History tab on the
+Contact page; settings screen already reachable; Setup Wizard entry for
+the max-properties-per-email setting — the auto-send toggle itself is
+withdrawn along with §3, so it does **not** go in the wizard).
+
+### Open questions for Johan — carried and revised
+
+1. Does a decline stop a contact from having a future application?
+   Proposed: **no** (unchanged).
+2. Is the approved amount monthly rent affordability, in rand per month?
+   Proposed: **yes** (unchanged).
+3. **Withdrawn** — "does the approval email still go without properties"
+   is now folded into the fallback rule above (yes, it always sends;
+   proposed, not decided).
+4. Is pre-filling the wishlist modal from an existing portal-seeded
+   `ContactMatch` (rather than always opening empty) the right default,
+   given the portal-lead finding above? Proposed: **yes**.
+5. Is the fallback rule above (own rental stock at/under the approved
+   amount, price-descending, same cap as a real match) the right shape
+   when the wishlist is thin or absent? Proposed: **yes**.
+6. `applicant_notified_at` as the mechanism distinguishing "approved" from
+   "approved and sent" (rather than a second `status` value) — agreed
+   approach, or does Johan want this visible as a distinct status value
+   somewhere (e.g. in the Contact's `rental_application_status` history)?
+   Proposed: keep `rental_application_status` mirroring `RentalApplication.status`
+   only (`approved`/`declined`/etc.) — "sent" is an agent-side operational
+   detail, not a contact-facing outcome, so it does not need its own
+   contact-status value.
+
+No code, migration, or UI for this feature is written until Johan responds
+to these.
