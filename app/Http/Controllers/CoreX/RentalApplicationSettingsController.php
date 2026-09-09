@@ -71,12 +71,44 @@ class RentalApplicationSettingsController extends Controller
 
         // Highlighter collection expansion, 2026-09-09 — Johan: "an agency
         // can have 10 highlighters set up, each with their own label."
-        // allFor() includes archived rows (withTrashed) so the screen can
-        // show its own "archived — restore" section; the view splits them.
-        $highlighters = RentalApplicationHighlighter::allFor($agencyId);
+        //
+        // Design-standard audit, 2026-09-09 (lowest priority of the four
+        // gaps, built last) — Johan: "search, sort and pagination." Active
+        // highlighters are NOT filtered/paginated server-side: the reorder
+        // up/down buttons depend on $activeIds being the FULL, gapless,
+        // correctly-ordered set (the swap arrays below in the view are
+        // built from it) — filtering that array before it reaches the view
+        // would silently swap the wrong neighbours the moment a filter or
+        // page boundary hid a row. Search on active rows is therefore
+        // client-side only (Alpine x-show in the view) — every row still
+        // reaches the page, so reorder stays correct regardless of what's
+        // visually filtered. Archived rows have no such dependency (no
+        // reorder, just Restore), so search/sort/pagination on THEM are
+        // real, server-side, query-string-driven — same $highlighterQuery
+        // also drives the client-side active filter, so one search box
+        // covers both halves of the screen.
+        $highlighterQuery = trim((string) $request->get('highlighter_q', ''));
+        $highlighterArchivedSort = $request->get('highlighter_archived_sort') === 'recent' ? 'recent' : 'label';
+
+        $activeHighlighters = RentalApplicationHighlighter::where('agency_id', $agencyId)
+            ->with('creator')
+            ->orderBy('sort_order')
+            ->get();
+
+        $archivedHighlightersQuery = RentalApplicationHighlighter::onlyTrashed()
+            ->where('agency_id', $agencyId)
+            ->with('creator');
+        if ($highlighterQuery !== '') {
+            $archivedHighlightersQuery->where('label', 'like', "%{$highlighterQuery}%");
+        }
+        $archivedHighlightersQuery->orderBy(
+            $highlighterArchivedSort === 'recent' ? 'deleted_at' : 'label',
+            $highlighterArchivedSort === 'recent' ? 'desc' : 'asc'
+        );
+        $archivedHighlighters = $archivedHighlightersQuery->paginate(10, ['*'], 'highlighter_archived_page')->withQueryString();
 
         return view('corex.settings.rental-applications', compact(
-            'documentTypes', 'checklists', 'isConfigured', 'qualifyingMaxRentPercent', 'qualifyingExceedsLegalCeiling', 'agencyUsers', 'roUserIds', 'coUserIds', 'declineEmail', 'reopenLinkExpiryDays', 'highlighters'
+            'documentTypes', 'checklists', 'isConfigured', 'qualifyingMaxRentPercent', 'qualifyingExceedsLegalCeiling', 'agencyUsers', 'roUserIds', 'coUserIds', 'declineEmail', 'reopenLinkExpiryDays', 'activeHighlighters', 'archivedHighlighters', 'highlighterQuery', 'highlighterArchivedSort'
         ));
     }
 

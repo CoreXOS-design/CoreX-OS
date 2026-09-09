@@ -126,7 +126,7 @@
          Archiving (not deleting) is the only removal — an archived
          highlighter keeps rendering every mark already drawn with it, it
          just disappears from the drawing picker; restorable below. --}}
-    <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+    <div id="highlighters" class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
         <h2 class="text-sm font-semibold mb-1" style="color: var(--text-primary);">Highlighters</h2>
         <p class="text-xs mb-3" style="color: var(--text-muted);">
             The highlighters agents and authorisers use to mark up application documents — as
@@ -137,13 +137,37 @@
         </p>
 
         @php
-            $activeHighlighters = $highlighters->reject->trashed()->values();
-            $archivedHighlighters = $highlighters->filter->trashed();
             $activeIds = $activeHighlighters->pluck('id')->all();
         @endphp
 
-        <div class="space-y-2 mb-4">
-            @forelse($activeHighlighters as $i => $highlighter)
+        {{-- 2026-09-09 (design-standard audit) — one search box drives both
+             halves: it live-filters active rows client-side (x-show below,
+             never touching $activeIds — reorder stays correct regardless
+             of what's visually hidden) and, on submit, re-queries the
+             archived list server-side. Archived sort/pagination are real
+             (archived rows have no reorder dependency to protect). --}}
+        <div x-data="{ highlighterFilter: @js($highlighterQuery) }" class="mb-3">
+            <form method="GET" action="{{ route('corex.settings.rental-applications.edit') }}#highlighters" class="flex flex-wrap items-end gap-2">
+                <div>
+                    <label class="block text-[11px] mb-1" style="color: var(--text-muted);">Search highlighters</label>
+                    <input type="text" name="highlighter_q" x-model="highlighterFilter" placeholder="Label" class="corex-input text-xs" style="width: 180px;">
+                </div>
+                <div>
+                    <label class="block text-[11px] mb-1" style="color: var(--text-muted);">Sort archived</label>
+                    <select name="highlighter_archived_sort" class="corex-input text-xs" onchange="this.form.submit()">
+                        <option value="label" @selected($highlighterArchivedSort === 'label')>A&ndash;Z</option>
+                        <option value="recent" @selected($highlighterArchivedSort === 'recent')>Most recently archived</option>
+                    </select>
+                </div>
+                <button type="submit" class="corex-btn-outline text-xs">Search</button>
+                @if($highlighterQuery !== '')
+                    <a href="{{ route('corex.settings.rental-applications.edit') }}#highlighters" class="corex-btn-outline text-xs">Clear</a>
+                @endif
+            </form>
+
+            <div class="space-y-2 mb-4 mt-3">
+                @forelse($activeHighlighters as $i => $highlighter)
+                    <div x-show="highlighterFilter === '' || {{ \Illuminate\Support\Js::from(strtolower($highlighter->label)) }}.includes(highlighterFilter.toLowerCase())">
                 <form method="POST" action="{{ route('corex.settings.rental-applications.highlighters.update', $highlighter) }}" class="flex items-center gap-2">
                     @csrf
                     @method('PUT')
@@ -189,9 +213,11 @@
                     @csrf
                     <button type="submit" class="text-xs" style="color: var(--text-muted); margin-left: 0;">Archive</button>
                 </form>
+                    </div>
             @empty
                 <p class="text-xs" style="color: var(--text-muted);">No highlighters configured yet — the six starting ones below are the defaults every agency ships with.</p>
             @endforelse
+            </div>
         </div>
 
         <div class="pt-2 mb-4" style="border-top: 1px solid var(--border);">
@@ -218,9 +244,20 @@
             </form>
         </div>
 
-        @if($archivedHighlighters->isNotEmpty())
-            <div class="pt-2" style="border-top: 1px solid var(--border);">
-                <h3 class="text-xs font-semibold mb-2" style="color: var(--text-secondary);">Archived</h3>
+        {{-- 2026-09-09 (design-standard audit) — this whole block used to be
+             wrapped in @if($archivedHighlighters->isNotEmpty()), so an
+             agency with nothing archived rendered NOTHING here — the exact
+             class of bug already fixed on the rental application audit
+             trail tonight: a genuinely empty section is indistinguishable
+             from a missing one. The heading now always renders; only the
+             body switches between the real list and a plain-language empty
+             state, same wording already used for archived rental
+             applications on this module's own index screen. --}}
+        <div class="pt-2" style="border-top: 1px solid var(--border);">
+            <h3 class="text-xs font-semibold mb-2" style="color: var(--text-secondary);">Archived</h3>
+            @if($archivedHighlighters->isEmpty())
+                <p class="text-xs" style="color: var(--text-muted);">Nothing archived.</p>
+            @else
                 <div class="space-y-1">
                     @foreach($archivedHighlighters as $highlighter)
                         <div class="flex items-center gap-2 text-xs" style="opacity: 0.7;">
@@ -237,8 +274,9 @@
                         </div>
                     @endforeach
                 </div>
-            </div>
-        @endif
+                {{ $archivedHighlighters->onEachSide(1)->fragment('highlighters')->links() }}
+            @endif
+        </div>
     </div>
 
     {{-- AT-392 authoriser flow, 2026-09-08 — Johan: "each agency will want
