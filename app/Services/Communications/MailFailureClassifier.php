@@ -105,12 +105,35 @@ class MailFailureClassifier
             self::AUTH_FAILED => 'The server rejected the username or password. Check the password is correct, or reset it at the mail host, then use Test Connection to confirm.',
             self::MAILBOX_NOT_FOUND => 'The server says this mailbox or account does not exist. Check the email address / username is correct.',
             self::CONNECTION_REFUSED => 'The connection was refused, or this server may be blocking our address — this is NOT a credentials problem. If this continues, contact the mail host.',
-            self::CONNECT_TIMEOUT => 'The mail server did not respond in time. It may be slow or temporarily unreachable — usually not a credentials problem.',
+            self::CONNECT_TIMEOUT => $this->friendlyForConnectTimeout(),
             self::CONNECT_FAILED => 'Could not reach the mail server at all. Check the host name and port are correct, or that the server is online.',
             self::TLS_FAILED => 'The secure connection (TLS/SSL) failed. Check the encryption setting matches this port.',
             self::UNKNOWN => 'The mail server rejected the connection and we could not recognise the exact reason — see the raw server response below.',
             default => 'Could not connect to the mail server.',
         };
+    }
+
+    /**
+     * 2026-09-09 (Johan, real-attempt-honesty incident) — "we had no honest
+     * answer for what Johan is seeing right now." A connect-class timeout
+     * with literally no banner is the exact shape a mail host's IP-based
+     * block produces (confirmed the same day: a genuine 535 auth failure one
+     * hour, a total connection timeout to the same host the next — most
+     * consistent with the host blocking our IP after the failed logins).
+     * Names the actual outbound IP from config, set per environment (never
+     * looked up live — see config/communications.php), so whoever is setting
+     * the mailbox up can hand that exact value to their mail provider instead
+     * of guessing which server IP needs whitelisting.
+     */
+    private function friendlyForConnectTimeout(): string
+    {
+        $ip = config('communications.outbound_public_ip');
+
+        $ipClause = $ip
+            ? "This server's outbound address is {$ip} — give that to your mail host and ask them to confirm it is allowed to connect."
+            : "Ask whoever hosts this server what its outbound IP is, and give that to your mail host to confirm it is allowed to connect.";
+
+        return "The mail server did not respond at all — not even a rejection, just silence. This usually means the sending server's IP is blocked or was never whitelisted with the mail provider, not a credentials problem. {$ipClause}";
     }
 
     public function classifySmtpSend(string $rawMessage): string

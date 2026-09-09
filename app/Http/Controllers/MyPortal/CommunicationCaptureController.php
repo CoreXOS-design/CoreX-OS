@@ -230,7 +230,13 @@ class CommunicationCaptureController extends Controller
         $mailbox->active                = (bool) ($data['active'] ?? false);
 
         // Write-only: only overwrite the stored password when a new one is given.
-        if (! empty($data['password'])) {
+        // 2026-09-09 (Johan, real-attempt-honesty incident) — was `! empty($data['password'])`,
+        // which silently discards a password of exactly "0" (PHP's empty() treats the
+        // string "0" as falsy). $data has already passed through Laravel's
+        // ConvertEmptyStringsToNull middleware, so a genuinely-blank field arrives as
+        // null here — checking for null (not falsiness) is the correct "was a new
+        // value actually given" test. Same fix, same reason, as EmailSetupController::fill().
+        if (($data['password'] ?? null) !== null) {
             $mailbox->encrypted_password = $data['password'];
         }
 
@@ -261,7 +267,8 @@ class CommunicationCaptureController extends Controller
         if (isset($data['smtp_from_name'])) {
             $mailbox->smtp_from_name = $data['smtp_from_name'];
         }
-        if (! empty($data['smtp_password'])) {
+        // Same empty()-on-"0" gap as the IMAP password above — fixed the same way.
+        if (($data['smtp_password'] ?? null) !== null) {
             $mailbox->smtp_encrypted_password = $data['smtp_password'];
         }
     }

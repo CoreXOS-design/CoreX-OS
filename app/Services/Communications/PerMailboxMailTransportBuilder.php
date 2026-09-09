@@ -41,7 +41,12 @@ class PerMailboxMailTransportBuilder
         $username = $mailbox->resolvedSmtpUsername();
         $password = $mailbox->resolvedSmtpPassword();
 
-        if (empty($mailbox->smtp_host) || empty($username) || empty($password)) {
+        // 2026-09-09 (Johan, real-attempt-honesty incident) — was empty($x) for all
+        // three, which treats a literal "0" host/username/password as absent. Same
+        // bug class as the controller-side password write gate: a string check
+        // against null/'' is the correct "is this actually unset" test, not PHP
+        // falsiness.
+        if (blank($mailbox->smtp_host) || blank($username) || blank($password)) {
             throw new OutgoingMailboxSendFailedException(
                 'incomplete_credentials',
                 'Mailbox is missing an outgoing host, username or password.'

@@ -60,7 +60,17 @@ class ImapSentFolderAppender
             return ['ok' => false, 'reason' => 'intercepted', 'detail' => null];
         }
 
-        if (empty($mailbox->imap_host) || empty($mailbox->username) || empty($mailbox->resolvedSmtpPassword() ?: $mailbox->encrypted_password)) {
+        // 2026-09-09 (Johan, real-attempt-honesty incident) — was
+        // empty($x) / ($x ?: $y), both of which treat a literal "0" as
+        // absent — the `?:` fallback would even silently swap in the WRONG
+        // password for a resolvedSmtpPassword() of "0". blank() is the
+        // correct "is this actually unset" test (null or whitespace-only),
+        // not PHP falsiness.
+        $imapPassword = $mailbox->resolvedSmtpPassword();
+        if (blank($imapPassword)) {
+            $imapPassword = $mailbox->encrypted_password;
+        }
+        if (blank($mailbox->imap_host) || blank($mailbox->username) || blank($imapPassword)) {
             return ['ok' => false, 'reason' => 'incomplete_credentials', 'detail' => null];
         }
 
