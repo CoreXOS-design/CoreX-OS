@@ -283,7 +283,20 @@ class RentalApplicationDocumentHighlightService
                 $images[$i] = $img;
             }
 
-            $pdfBytes = $this->assemblePdf($images);
+            // cc5, 2026-09-09 — the downloaded copy had no legend at all: a
+            // custom highlighter's coloured stroke, printed or emailed,
+            // explained nothing. Appended as its OWN final page (never a
+            // per-page footer) — Johan: "never covers document content."
+            // A per-page footer would also have to either shrink every
+            // page's own content to make room, or risk overlaying real
+            // document text at the bottom edge; a final page has zero
+            // chance of doing either, and "only the highlighters actually
+            // USED on that document" (Johan's own scope) is a document-wide
+            // fact, not a per-page one, so one page listing it once is the
+            // right shape, not eleven repeats of the same list.
+            $legendHtml = $this->buildLegendHtml($normalized, $agencyHighlighters);
+
+            $pdfBytes = $this->assemblePdf($images, $legendHtml);
         } finally {
             foreach ($images as $img) {
                 @imagedestroy($img);
@@ -472,6 +485,52 @@ class RentalApplicationDocumentHighlightService
     }
 
     /**
+     * cc5, 2026-09-09 — a note's text-box background was burned with GD's
+     * ordinary alpha-over compositing (imagefilledrectangle + an alpha
+     * colour), never multiplyBlendStroke()'s genuine multiply blend —
+     * "note-type marks burn noticeably more opaque than highlight-type
+     * marks and largely obscure the content underneath." Alpha-over washes
+     * everything underneath uniformly toward the fill colour regardless of
+     * what's there; multiply naturally preserves DARK content (printed
+     * text) the same way a real translucent marker does, which is exactly
+     * why the highlight strokes never had this problem. Same per-pixel math
+     * as multiplyBlendStroke(), simpler here — a plain rectangle needs no
+     * mask at all, every pixel in it is covered by construction.
+     */
+    private function multiplyBlendRect($img, int $x1, int $y1, int $x2, int $y2, array $rgb): void
+    {
+        $imgW = imagesx($img);
+        $imgH = imagesy($img);
+        $minX = max(0, min($x1, $x2));
+        $maxX = min($imgW - 1, max($x1, $x2));
+        $minY = max(0, min($y1, $y2));
+        $maxY = min($imgH - 1, max($y1, $y2));
+        if ($maxX < $minX || $maxY < $minY) {
+            return;
+        }
+
+        $alpha = (127 - self::ALPHA) / 127;
+
+        for ($y = $minY; $y <= $maxY; $y++) {
+            for ($x = $minX; $x <= $maxX; $x++) {
+                $backdrop = imagecolorat($img, $x, $y);
+                $br = ($backdrop >> 16) & 0xFF;
+                $bg = ($backdrop >> 8) & 0xFF;
+                $bb = $backdrop & 0xFF;
+
+                $nr = (int) round($br * (1 - $alpha) + $alpha * ($br * $rgb[0] / 255));
+                $ng = (int) round($bg * (1 - $alpha) + $alpha * ($bg * $rgb[1] / 255));
+                $nb = (int) round($bb * (1 - $alpha) + $alpha * ($bb * $rgb[2] / 255));
+
+                imagesetpixel(
+                    $img, $x, $y,
+                    (max(0, min(255, $nr)) << 16) | (max(0, min(255, $ng)) << 8) | max(0, min(255, $nb)),
+                );
+            }
+        }
+    }
+
+    /**
      * A pinned note: small marker + the note's own text burned in, so a
      * flattened/downloaded copy still shows it, not just the live in-app view.
      *
@@ -501,7 +560,6 @@ class RentalApplicationDocumentHighlightService
         $boxW = 420;
         $boxH = 36 + (count($lines) * $lineHeight);
 
-        $fill = imagecolorallocatealpha($img, $rgb[0], $rgb[1], $rgb[2], self::ALPHA);
         $opaque = imagecolorallocate($img, $rgb[0], $rgb[1], $rgb[2]);
         // Highlighter collection expansion, 2026-09-09 — a note pin isn't a
         // stroke crossing text, so a border here isn't the "line as it
@@ -512,12 +570,20 @@ class RentalApplicationDocumentHighlightService
         $border = imagecolorallocate($img, max(0, $rgb[0] - 60), max(0, $rgb[1] - 60), max(0, $rgb[2] - 60));
         $textColor = imagecolorallocate($img, 40, 40, 40);
 
+        // The pin dot itself stays fully opaque, deliberately — a small
+        // (18px) solid marker, same as the live screen's own note pin; not
+        // what obscures anything.
         imagefilledellipse($img, $x, $y, 18, 18, $opaque);
         imageellipse($img, $x, $y, 18, 18, $border);
 
         $boxX = $x + 14;
         $boxY = $y - (int) ($boxH / 2);
-        imagefilledrectangle($img, $boxX, $boxY, $boxX + $boxW, $boxY + $boxH, $fill);
+        // cc5, 2026-09-09 — was imagefilledrectangle() with an alpha
+        // colour (ordinary GD alpha-over compositing); switched to the same
+        // genuine multiply blend the highlight strokes use, so document
+        // content under a note's text box stays exactly as readable as it
+        // does under a highlight. See multiplyBlendRect()'s own docblock.
+        $this->multiplyBlendRect($img, $boxX, $boxY, $boxX + $boxW, $boxY + $boxH, $rgb);
         imagerectangle($img, $boxX, $boxY, $boxX + $boxW, $boxY + $boxH, $border);
 
         $ty = $boxY + 14 + (int) round($fontSize);
@@ -947,8 +1013,96 @@ class RentalApplicationDocumentHighlightService
         }
     }
 
+    /**
+     * cc5, 2026-09-09 — every colour actually burned into this document,
+     * explained: swatch, label, owner. Built from $normalized (the marks
+     * actually being burned this pass, not just whatever's currently in
+     * the picker) so an archived highlighter still gets explained here
+     * exactly as it still renders — "used" is the only test, not "still
+     * choosable." Ordered the same way $agencyHighlighters already is
+     * (allFor(), by sort_order) so the legend's own order matches the live
+     * screen's; legacy pre-highlighter marks (category-only, or the
+     * original 4-colour scheme, both predating this table entirely) get a
+     * synthetic row built from the same fallback colours
+     * resolveMarkColors() itself falls back to, so nothing burned onto the
+     * page is ever left unexplained.
+     *
+     * @param  array<int, array<int, array>>  $normalized  page-index => marks, post-normalizeForStorage()
+     * @param  \Illuminate\Support\Collection<int, RentalApplicationHighlighter>  $agencyHighlighters
+     */
+    private function buildLegendHtml(array $normalized, \Illuminate\Support\Collection $agencyHighlighters): string
+    {
+        $usedHighlighterIds = [];
+        $usedLegacyCategories = []; // "category:role" => true
+        $usedLegacyColors = []; // "colorName" => true
+
+        foreach ($normalized as $marksOnPage) {
+            foreach ($marksOnPage as $m) {
+                $highlighterId = $m['highlighter_id'] ?? null;
+                if ($highlighterId !== null) {
+                    $usedHighlighterIds[$highlighterId] = true;
+
+                    continue;
+                }
+
+                $category = $m['category'] ?? null;
+                if ($category !== null && isset(self::CATEGORY_COLORS[$category])) {
+                    $role = ($m['author_role'] ?? null) === 'authoriser' ? 'authoriser' : 'agent';
+                    $usedLegacyCategories[$category . ':' . $role] = true;
+
+                    continue;
+                }
+
+                $usedLegacyColors[$m['color'] ?? self::DEFAULT_COLOR] = true;
+            }
+        }
+
+        $rows = '';
+        foreach ($agencyHighlighters as $highlighter) {
+            if (! isset($usedHighlighterIds[$highlighter->id])) {
+                continue;
+            }
+            $owner = $highlighter->role_scope === 'both' ? 'agent + authoriser' : $highlighter->role_scope;
+            $rows .= $this->legendRowHtml($highlighter->color, e($highlighter->label), $owner);
+        }
+
+        foreach (array_keys($usedLegacyCategories) as $key) {
+            [$category, $role] = explode(':', $key, 2);
+            $rgb = self::CATEGORY_COLORS[$category][$role];
+            $rows .= $this->legendRowHtml($this->rgbToHex($rgb), e(ucfirst($category)), $role);
+        }
+
+        foreach (array_keys($usedLegacyColors) as $colorName) {
+            $rgb = self::COLORS[$colorName] ?? self::COLORS[self::DEFAULT_COLOR];
+            $rows .= $this->legendRowHtml($this->rgbToHex($rgb), e(ucfirst($colorName)) . ' (legacy)', null);
+        }
+
+        if ($rows === '') {
+            return '';
+        }
+
+        return '<h1 style="font-size:16px; margin:0 0 12px 0;">Legend</h1>'
+            . '<table style="border-collapse:collapse; font-size:12px;">' . $rows . '</table>';
+    }
+
+    private function legendRowHtml(string $hexColor, string $label, ?string $owner): string
+    {
+        $ownerText = $owner !== null ? ' (' . e($owner) . ')' : '';
+
+        return '<tr>'
+            . '<td style="width:20px; height:14px; background:' . e($hexColor) . '; border:1px solid #999; padding:0;"></td>'
+            . '<td style="padding:4px 0 4px 8px;">' . $label . $ownerText . '</td>'
+            . '</tr>';
+    }
+
+    /** @param array{int,int,int} $rgb */
+    private function rgbToHex(array $rgb): string
+    {
+        return sprintf('#%02x%02x%02x', $rgb[0], $rgb[1], $rgb[2]);
+    }
+
     /** @param array<int, \GdImage> $pages */
-    private function assemblePdf(array $pages): string
+    private function assemblePdf(array $pages, string $legendHtml = ''): string
     {
         $first = reset($pages);
         $wPt = imagesx($first) * 72 / self::DPI;
@@ -962,8 +1116,18 @@ class RentalApplicationDocumentHighlightService
             imagejpeg($img, null, 90);
             $bytes = (string) ob_get_clean();
             $uri   = 'data:image/jpeg;base64,' . base64_encode($bytes);
-            $break = $idx < $last ? 'page-break-after:always;' : '';
+            // Always break after — including the LAST document page — when
+            // a legend page follows it, so the legend never shares a page
+            // with document content.
+            $break = ($idx < $last || $legendHtml !== '') ? 'page-break-after:always;' : '';
             $body .= '<div style="' . $break . '"><img src="' . $uri . '" style="width:100%;display:block;"></div>';
+        }
+
+        if ($legendHtml !== '') {
+            // Its own page, own margin — the document pages themselves stay
+            // edge-to-edge (matching the source exactly), this is the one
+            // page in the assembled PDF that isn't a page image at all.
+            $body .= '<div style="padding:36pt;">' . $legendHtml . '</div>';
         }
 
         $html = '<!doctype html><html><head><style>'
