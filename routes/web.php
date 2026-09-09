@@ -2505,6 +2505,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->withTrashed()->name('restore');
         // AT-395 §6 — Test Connection, both legs.
         Route::post('/{mailbox}/test-connection', [\App\Http\Controllers\Compliance\CommunicationMailboxController::class, 'testConnection'])->name('test-connection');
+        // 2026-09-09 (Johan, auth-lock safeguard) — human-only, host-scoped clear. Never automatic.
+        Route::post('/reset-host-auth-lock', [\App\Http\Controllers\Compliance\CommunicationMailboxController::class, 'resetHostAuthLock'])->name('reset-host-auth-lock');
     });
 
     // ── WhatsApp capture device registration (AT-34) — agent self-service. ──

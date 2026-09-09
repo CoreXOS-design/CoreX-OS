@@ -16,6 +16,22 @@
         </div>
     </div>
 
+    {{-- 2026-09-09 (Johan, auth-lock safeguard) — visible BEFORE a Test
+         Connection click, not discovered after. Reset is admin-only, on the
+         Compliance → Archive Mailboxes screen. --}}
+    @foreach(($hostAuthStatus ?? []) as $host => $status)
+        @if($status['locked'] || $status['count'] > 0)
+        <div class="rounded-md px-4 py-3 text-sm" style="background: {{ $status['locked'] ? 'color-mix(in srgb, var(--ds-crimson) 10%, transparent)' : 'color-mix(in srgb, var(--ds-amber) 10%, transparent)' }}; border:1px solid {{ $status['locked'] ? 'color-mix(in srgb, var(--ds-crimson) 30%, transparent)' : 'color-mix(in srgb, var(--ds-amber) 30%, transparent)' }}; color: var(--text-primary);">
+            <strong>{{ $host }}</strong> — {{ $status['label'] }}.
+            @if($status['locked'])
+                All further real connection attempts (polling and Test Connection) to this server are blocked until an admin clears the login lock on Compliance → Archive Mailboxes.
+            @else
+                Test Connection clicks and polling both count against this — a mail server login limit set by the mail host, not by CoreX.
+            @endif
+        </div>
+        @endif
+    @endforeach
+
     @if(session('success'))
     <div class="rounded-md px-4 py-3 text-sm flex items-start gap-3"
          style="background: color-mix(in srgb, var(--ds-green, #059669) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-green, #059669) 30%, transparent); color: var(--text-primary, #1f2937);">
