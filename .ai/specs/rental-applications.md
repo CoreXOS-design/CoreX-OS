@@ -4950,3 +4950,122 @@ standing "shared checkout belongs to cc1 alone" rule — not landed by me;
 cc1 lands via the shared checkout. All four migrations already run
 against QA1's live database directly from this worktree, same pattern as
 every other feature this session.
+
+## Regression walk, and the PDF cache it found (2026-09-09, cc6)
+
+### The walk
+
+A full end-to-end regression walk of the whole module — list, create,
+send, applicant complete/sign, returned/read-only view, agent review and
+assessment, authoriser decisions, reopen and re-sign — acting as one
+agent doing a day's work, on fresh records created for the walk (never
+applications 4, 9, or 12). Full findings delivered to the coordinator
+directly; two small display bugs found in `generation-show.blade.php`
+(a dark-mode contrast bug on the "previous submission" banner, and a
+raw unformatted `occupation_date`) were fixed in the same session — see
+that file's own inline comments.
+
+One structural finding — `RentalApplicationController::index()`/
+`returned()`'s status-visibility filters predated the `reopened` status
+and needed the same value added both sides (see the "reopened
+application vanished from every list" fix, already in the commit
+history above) — was actually caught during the walk, not a separate
+build; recorded here for completeness of the walk's own trail.
+
+One infra finding was NOT fixed as part of the walk itself — it needed
+its own design decision — and is the subject of the section below.
+
+### The PDF cache
+
+**The problem, measured live:** `RentalApplicationPdfService::generate()`
+had no caching at all. Every visit to the read-only view, and every
+"Download PDF" click, re-rendered a byte-identical PDF through headless
+Chromium — roughly 9 seconds — even though a submitted, signed
+generation's content can never change again.
+
+**The design (Johan → senior engineer → cc6, 2026-09-09):**
+
+- **Cache location:** a new named Laravel disk, `data_volume`
+  (`config/filesystems.php`), rooted at `env('DATA_VOLUME_ROOT',
+  '/mnt/HC_Volume_103099143') . '/corex-data-volume'` — the mounted
+  volume, never root. No existing disk was reused: `Storage::disk('local')`
+  happens to sit on the same physical device as the mounted volume on
+  THIS box (confirmed via `findmnt` — both are bind-mounts of
+  `/dev/sda`), but that's a QA1-specific coincidence, not a portable
+  guarantee for Staging or Live. An explicit, self-documenting disk
+  costs nothing and doesn't silently break if that coincidence doesn't
+  hold elsewhere.
+- **Cached per SEALED GENERATION, not per application** — key shape
+  `rental-applications/{application_id}/generations/{generation}.pdf`.
+  A resubmit bumps `current_generation`, which naturally produces a
+  brand-new, never-colliding key — no cache invalidation logic exists
+  or is needed, because nothing sealed is ever mutated.
+- **Cacheable if and only if** `$rentalApplication->isSubmitted()`
+  (the module's own established "has this genuinely been signed" flag)
+  **and** a `RentalApplicationGeneration` row exists for the
+  application's current generation. Those two together guarantee the
+  live row's field values are byte-identical to what that generation
+  sealed — `submit()` writes the new fields, the new signatures, and
+  the seal in one DB transaction, so there is no window where they can
+  disagree. This holds true even while status is `reopened`: reopen()
+  never touches the applicant-answer fields, so the live row still
+  matches the last sealed generation right up until the applicant
+  actually resubmits — the exact moment `current_generation` bumps and
+  a new generation is sealed. A draft/sent/in_progress application, or
+  the public pre-submission "download, complete, return" link, is never
+  submitted yet, so this is always false there — always fresh, never a
+  moving target cached as if it were fixed.
+- **Invalidation:** none by design, except archiving. Archiving an
+  application (`RentalApplicationController::destroy()`) now also calls
+  `RentalApplicationPdfService::forgetCacheFor()`, deleting that
+  application's whole `generations/` cache directory. This is reclaiming
+  a derived artefact, not deleting evidence — the sealed
+  `snapshot_json` rows (the actual record of truth) are completely
+  untouched; if the application is later restored, the PDF simply
+  re-renders once, on demand, from the still-intact snapshot.
+- **Failure-safety, both directions:** a cache WRITE failure (full disk,
+  permissions) is caught, logged as a warning, and the freshly-rendered
+  file is still returned — never surfaced as an error. A cache READ
+  failure falls through to a fresh render exactly like a genuine miss.
+  Verified live, not just by code reading: the cache root was replaced
+  with a blocking regular file (a permission-bits `chmod` doesn't work
+  for this proof running as root, which bypasses those checks) and the
+  PDF still generated and served correctly, with the failure logged.
+
+**Real numbers, measured against rental application 15** (a real
+record, not created by this build, already carrying two real sealed
+generations from an earlier reopen): **8.96s cold → 0.002s cached** —
+roughly a 4,000× improvement. Verified that each generation caches
+independently and the correct one is served: a second render forced
+against generation 1's own sealed snapshot produced a distinct
+116,215-byte PDF (generation 2's is 119,210 bytes) containing
+generation 1's own ID number and *not* generation 2's — no
+cross-contamination between generations of the same application.
+
+**Not done, deliberately:** background cache-warming immediately after
+a submit/resubmit, and extending this same caching to the
+`generation-show.blade.php` historical-generation view (which today has
+no PDF render path of its own at all — it renders the sealed snapshot
+fields directly, not a PDF). Both were suggested mid-build via a
+relayed message; neither was in the actual design brief, so neither was
+built — flagged back to the coordinator directly rather than silently
+expanding scope two hops from the source.
+
+**Investigated, not changed:** the `note` vs `reason` field-name
+difference between the agent's own "request more information" and the
+authoriser's version. Turned out NOT to be an isolated inconsistency —
+`reason` is the authoriser controller's own consistent convention across
+all three of its actions (approve, decline, request-more-info), not a
+one-off. Renaming only the request-more-info instance would make it the
+odd one out against its own siblings in the same controller; renaming
+all three is real behaviour-adjacent surface (validation, views, JS)
+well beyond a "genuinely a rename" scope. Left alone, reported back per
+the explicit instruction to do so rather than guess.
+
+### Files touched
+
+- `config/filesystems.php` — new `data_volume` disk
+- `app/Services/RentalApplications/RentalApplicationPdfService.php` — per-generation cache read/write/forget, all failure-safe
+- `app/Http/Controllers/CoreX/RentalApplicationController.php` — `destroy()` calls `forgetCacheFor()` before archiving
+- `resources/views/corex/rental-applications/generation-show.blade.php` — the two display fixes from the walk
+- `tests/Feature/RentalApplications/RentalApplicationPdfCacheTest.php` — new, 6 tests covering hit/miss, the reopened-but-not-resubmitted edge case, per-generation isolation, write-failure safety, and archive cleanup
