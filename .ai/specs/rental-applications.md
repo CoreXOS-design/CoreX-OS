@@ -5685,3 +5685,322 @@ was explicit that question is still his to answer, not built in.
 - `tests/Feature/RentalApplications/RentalApplicationHighlighterTest.php` — new, 10 tests
 - `tests/Feature/RentalApplications/RentalApplicationDocumentMarkSaveTest.php` — updated to the `highlighter_id` contract
 - `tests/Feature/RentalApplications/RentalApplicationMarkColorSettingTest.php` — deleted, superseded
+
+## Contact status, approval-email matching, and the auto-send toggle (AT-392, 2026-09-09, cc4) — SPEC, PENDING JOHAN'S APPROVAL, NO CODE WRITTEN YET
+
+### The ask, in Johan's own words
+
+1. "the application is linked to a contact, so the contact needs to be
+   marked approved / declined / and maybe even application in progress
+   once the forms have been sent out"
+2. "now we have the declined template, but on approval I want an email
+   to the applicant confirming that they are approved and we give them
+   the amount they qualify for, and then the email should contain
+   properties that matches their wishlist, and matches their approved
+   amount"
+
+Investigation (reported to the coordinator as its own message before
+this spec, per Johan's explicit instruction) found that ask #2 is
+mostly already built. This spec is scoped to exactly what investigation
+proved is actually missing — not a rebuild.
+
+### What already exists — no rebuild, cited so nobody re-does this work
+
+- **Typed approved amount, required.** `RentalApplicationAuthorisationController::approve()`
+  (`app/Http/Controllers/CoreX/RentalApplicationAuthorisationController.php:249-301`)
+  already validates `approved_rental_amount` as `required|numeric` (line 272),
+  authoriser-typed, never computed. Already matches Johan's decision #1 exactly.
+- **The approval email already exists and already auto-sends.** `approve()` line 301
+  calls `RentalApplicationMailer::sendApproved()` unconditionally →
+  `RentalApplicationApprovedMail` (`app/Mail/RentalApplicationApprovedMail.php`),
+  "Congratulations — you're approved to rent!", states the amount. This is
+  already today's behaviour — auto-send is not new, it needs an OFF switch, not
+  an ON switch.
+- **The mail guard already covers it.** `OutboundMailGuardServiceProvider`
+  intercepts every `Mail::send()` call regardless of Mailable class, gated on
+  `APP_ENV==='production'` + an `APP_URL` allowlist
+  (`app/Support/OutboundMailGuard.php:52-53`). `RentalApplicationApprovedMail`
+  already goes through this today. No new integration required — proof method
+  for this build is the same one already used for invite/reopen mail this
+  session: trigger a real `approve()` on QA1, confirm the capture lands in
+  `outbound_mail_guard_captures` with the `[GUARDED]` subject prefix.
+- **The matching engine already exists and is already agency-scoped to own
+  stock.** `App\Services\Matching\MatchingService::propertiesForMatch()`
+  (`app/Services/Matching/MatchingService.php:254`) queries `Property::query()`
+  (line 263) filtered `->where('agency_id', $match->agency_id)` (line 274-275) —
+  the live Agency Stock table, never `tracked_properties`, never another
+  agency's stock. `App\Models\ContactMatch` (table `contact_matches`) is the
+  wishlist this engine already scores against, with `listing_type` already
+  supporting `'rental'` in production data (210 rows exist today). No new
+  matching logic is written by this feature — it calls this engine.
+
+### What's actually missing — three additions
+
+1. A rental-application status on Contact, plus full history.
+2. The matching-properties section in the approval email (deliberately left
+   out of `RentalApplicationApprovedMail` last time, pending exactly this
+   decision — see that file's own docblock).
+3. The agency auto-send / agent-review toggle.
+
+Each is specced below.
+
+---
+
+### 1. Contact status + history
+
+**Investigation finding (point 5):** `contacts` has no generic `status`
+column. Two existing concepts must NOT be confused with this new one:
+`contact_type_id` (role-in-transaction — Seller/Buyer/Tenant/etc., via
+`ContactType`) and `buyer_state` (buyer-pipeline journey stage — new/warm/
+won/lost, via `BuyerStateService`, terminal on `won`). Both are different
+axes with different lifecycles. Per that finding, the new field is named
+**`rental_application_status`** — it cannot be mistaken for either.
+
+**It is a derived/cached field, not an independently-editable one.** Johan's
+"full history" requirement is best satisfied by the data CoreX already
+keeps: every `RentalApplication` row is a permanent record (one row per
+application, never overwritten — confirmed via the `contact_id` FK's
+one-to-many shape, investigation point 1), each carrying its own final
+`status` and dates. "Full history" is simply that contact's
+`rentalApplications()` collection, newest first. Building a second,
+separately-maintained status/history table risks the two sources of truth
+drifting — the Contact's cached field is a read-optimisation over the real
+record, kept in sync automatically, never hand-edited.
+
+**Values** (contact-facing, coarser than `RentalApplication.status`'s
+internal granularity):
+
+| `rental_application_status` | Meaning | Driven by |
+|---|---|---|
+| `none` | Never had a rental application | default |
+| `invited` | Application sent, not yet returned by applicant | application created / invite sent |
+| `in_progress` | Applicant has started or returned it; agent/authoriser working it | application `returned` / `under_assessment` |
+| `declined` | Most recent application was declined | `approve()`/`decline()` outcome |
+| `approved` | Most recent application was approved | `approve()` outcome |
+
+**Reopen-after-decline:** reopening moves the underlying `RentalApplication`
+back to `returned` or `under_assessment` (per `REOPENABLE_STATUSES`,
+already built). The Contact's cached status follows the same rule it
+always follows — it mirrors whatever the most recent application's status
+currently is — so a reopened, previously-declined application makes the
+contact's status read `in_progress` again automatically. The original
+decline is never erased from history; it stays as a fully-dated past
+application row, exactly as StatusHistory already treats it.
+
+**Mechanism — domain events, per non-negotiable #9, not an ad-hoc write in
+the controller.** New event namespace `app/Events/RentalApplication/`,
+following the existing pattern (`app/Events/Contact/`,
+`app/Events/Mandate/`) and extending `AbstractDomainEvent`:
+
+- `RentalApplicationSubmitted` (fired from `RentalApplicationSigningController::submit()`)
+- `RentalApplicationApproved` (fired from `RentalApplicationAuthorisationController::approve()`)
+- `RentalApplicationDeclined` (fired from `RentalApplicationAuthorisationController::decline()`)
+- `RentalApplicationReopened` (fired from the existing `reopen()` action)
+
+A new listener, `app/Listeners/Contact/RecomputeRentalApplicationStatus.php`,
+subscribes to all four and recomputes `Contact::rental_application_status`
+from that contact's current `RentalApplication` set — idempotent (E5),
+safe to run twice, no destructive write.
+
+**Migration:** add `rental_application_status` (`varchar`, default `'none'`)
+and `rental_application_status_updated_at` to `contacts`. Add
+`Contact::rentalApplications(): HasMany` (the missing inverse relation,
+investigation point 1).
+
+**Where it's shown:** a new "Rental History" section on the Contact detail
+page — current status badge, plus the full list of past applications
+(date, property, outcome), newest first. This is a list surface, so the
+design standard below applies to it (search/sort/filter by outcome and
+date, pagination if a contact has many). Per non-negotiable #2, this is a
+new page-equivalent surface and gets a nav entry the same day: a tab/section
+link on the existing Contact detail page's own sub-navigation — no new
+top-level sidebar item, since it lives inside a page that already exists.
+
+---
+
+### 2. The matching-properties section — and the wishlist problem, the centre of this spec
+
+**The gap, restated precisely:** the matching *engine* is production-ready
+and already agency-stock-scoped. The matching *engine has nothing to match
+against* — investigation found **zero** of today's rental applicants have
+an active `ContactMatch` (rental wishlist) on record. Shipping "properties
+that match their wishlist" as asked, unchanged, would show an empty list to
+essentially every real approval. Per Johan's framing: a feature that
+silently produces an empty list is worse than not shipping it. This section
+does not decide the wishlist question — it proposes answers and flags all
+three for Johan's confirmation, as instructed.
+
+**Open question A — where does a tenant wishlist get captured?**
+
+Proposed: **on the application form itself**, applicant-facing, while
+they're already filling it in. Checked against the existing `ContactMatch`
+model for feasibility:
+
+- Fields with a clean, plain-language equivalent an applicant can just
+  answer: desired bedrooms (`beds_min`/`bedrooms_max`), desired property
+  type (`property_type`/`property_types`), pets (maps to
+  `must_have_features`/`deal_breakers` as plain text), a maximum they'd
+  like to pay (`price_max`). These map onto `ContactMatch` with no changes
+  to that model.
+- One genuine mismatch: `ContactMatch.suburbs`/`p24_suburb_ids` are
+  structured records normally chosen through an internal agent-facing
+  suburb picker component — the public, unauthenticated applicant page has
+  no such component today, and building one is a bigger lift than this
+  feature needs. Proposed first cut: a plain free-text "preferred area"
+  field on the application, stored as-is; an agent can later refine it into
+  structured suburbs via the existing wishlist screen if match quality
+  needs it. Matching runs on whatever's structured at the time; free text
+  alone simply narrows nothing on the suburb axis until refined.
+- Concretely: new plain columns on `rental_applications` (preferred area
+  text, desired bedrooms, desired property type, pets, desired max rent) —
+  optional, same "every field optional" posture as the rest of this public
+  form (BUILD_STANDARD §2). On `submit()`, these values create or update a
+  real `ContactMatch(listing_type: 'rental', status: 'active')` for that
+  contact. No new fields are added to `ContactMatch` itself, and no new
+  matching logic is written — the translation step is the only new code;
+  `MatchingService::propertiesForMatch()` runs completely unchanged.
+
+This is feasible without inventing a second wishlist concept. **Flagged for
+Johan's confirmation** — the alternative (an agent manually creates the
+wishlist separately, on the existing Buyer Pipeline screen, for any
+applicant they want matched) is simpler to build but reintroduces the
+exact gap just found: it depends on an agent remembering to do a second,
+disconnected step for every applicant, for a screen most agents don't
+routinely open for tenants today.
+
+**Open question B — what does the email do when there is genuinely no
+match?**
+
+Proposed: **still send, with no property section** (a plain "we don't
+currently have a matching property in our own stock, but here's your
+approved amount" line replacing it) — never hold the email. The approval
+notification (you're approved, for this amount) is the time-critical part;
+gating it on a merchandising nice-to-have would make a real approval
+invisible to the applicant over something that was never the primary
+purpose of the email. **Flagged for Johan's confirmation.**
+
+**Open question C — can the approved amount alone drive a fallback match
+with no wishlist at all?**
+
+Proposed: **yes.** When the contact has no active rental `ContactMatch` at
+all (today's default state for nearly every applicant), fall back to "own
+agency stock, on-market, at or under the approved amount," ranked by price
+descending (closest to their budget), capped at the same configurable
+maximum used for a genuine wishlist match. This turns "no wishlist yet"
+from a hard empty result into a still-useful email for the population this
+feature will actually serve on day one. **Flagged for Johan's
+confirmation** — this is the answer that makes questions A and B tractable
+even before wishlist capture (question A) has any adoption.
+
+**Maximum properties per email:** agency-configurable, default **5**
+(matches the existing pattern of small, sensible defaults elsewhere on this
+feature — e.g. `RentalApplicationQualifyingSetting`'s never-writes-on-read
+approach). Lives on the existing `corex/settings/rental-applications.blade.php`
+screen, no new page.
+
+---
+
+### 3. The auto-send / agent-review agency setting
+
+New agency-level setting, boolean, **default `true` (auto-send)** — matches
+today's actual behaviour exactly (`approve()` already always sends), so no
+agency sees a behaviour change unless they deliberately opt out.
+
+- Column: `agencies.rental_application_approval_auto_send` (boolean,
+  default `true`).
+- When `false`: `approve()` still runs exactly as today (status, amount,
+  audit, status history, agent notification) but the applicant-facing
+  `RentalApplicationApprovedMail` is composed and held for agent review
+  rather than sent immediately — surfaced on the agent's existing
+  application view as a "Send approval email" action, not a new screen.
+- Per non-negotiable #10a: this setting is added to
+  `config/agency-onboarding-copy.php` in the same build, with its `explain`
+  and `affects` copy. It is not a rarely-touched expert knob — it directly
+  changes what an agency's applicants receive — so it belongs in the
+  wizard, not deliberately excluded.
+
+---
+
+### Two defects carried into this build (found by cc5 walking the journey, confirmed here with exact citations)
+
+**Defect 1 — a reopened applicant isn't told why, on their own page.**
+`resources/views/rental-applications/public/show.blade.php` renders no
+`reopened_note`/`reopened_at`/reason content anywhere (grepped — zero
+occurrences); the reason only ever reaches the applicant via the reopen
+email. Same failure class as the already-fixed decline-reason gap. Fix: a
+status/reason banner on the public show page when the application is in a
+post-reopen, pre-resubmit state, surfacing `reopened_note` in plain text —
+same treatment the decline reason already gets elsewhere on this feature.
+
+**Defect 2 — neither submission nor resubmission is audited.**
+`RentalApplicationSigningController::submit()`
+(`app/Http/Controllers/RentalApplicationSigningController.php:68-149`) sets
+status, fields, and seals a generation inside its `DB::transaction`, but
+calls neither `RentalApplicationAuditService::log()` nor
+`RentalApplicationStatusHistory::record()` — confirmed by reading the full
+method body, no such call exists anywhere in it, for either the first
+submission (`submitted_at` was null) or a resubmission after reopen
+(`submitted_at` already set, `current_generation` bumped). The evidentiary
+trail currently cannot show an applicant ever responded. Fix: add both
+calls inside the same transaction, distinguishing first-submit from
+resubmit in the audit event type/human summary (mirroring the
+`is_override` distinction pattern `decline()`/`approve()` already use for
+their own two-shape actions).
+
+---
+
+### Design standard — applied to what's actually new here
+
+- **Full CRUD:** the agency setting (auto-send toggle + max-properties
+  count) is a single settings block, edited in place — no separate
+  create/delete semantics apply, consistent with how the neighbouring
+  `RentalApplicationQualifyingSetting`-style settings on the same screen
+  already work.
+- **List screen with search/sort/filter/pagination + real empty state:**
+  the new Contact "Rental History" section — sortable by date/outcome,
+  filterable by outcome, paginated once a contact has more than a page's
+  worth, empty state reading "No rental applications yet" (not a blank
+  table) for `rental_application_status = 'none'`.
+- **OWN/BRANCH/AGENCY scoping at the query layer:** the Rental History
+  list queries `Contact::rentalApplications()`, already agency/branch
+  scoped the same way every other `RentalApplication` query is today; the
+  matching fallback (`Property::query()->where('agency_id', ...)`) is
+  agency-scoped by construction, per investigation point 4.
+- **Soft delete only:** no hard deletes introduced by this feature. The
+  new `contacts` columns are additive; `ContactMatch` created from
+  application answers uses the model's existing `SoftDeletes`.
+
+### Navigation
+
+- Contact detail page gains a "Rental History" tab/section (new
+  sub-navigation entry on an existing page, per non-negotiable #2 — no new
+  top-level sidebar item required).
+- The auto-send toggle and max-properties setting are added to the existing
+  `corex/settings/rental-applications.blade.php` screen — already
+  reachable from Settings, no new nav entry needed there.
+- The same setting is added to the Setup Wizard per non-negotiable #10a
+  (see §3 above) — a new step/field in `config/agency-onboarding-copy.php`,
+  not a new page.
+
+### Open questions for Johan — every one flagged, none decided here
+
+1. Does a decline stop a contact from having a future application?
+   Proposed: **no** — nothing in the data model prevents it today (the FK
+   is one-to-many with no such constraint), and blocking it would need a
+   deliberate new guard this ask never asked for.
+2. If nothing in stock matches, does the approval email still go, without
+   properties? Proposed: **yes** (folds into Open Question B above, now
+   answered in the fuller context the wishlist gap revealed).
+3. Is the approved amount monthly rent affordability, in rand per month?
+   Proposed: **yes** — matches every other money field on this feature
+   (`current_rental_amount`, etc.), all plain monthly rand figures.
+4. Where does a tenant wishlist get captured — on the application form
+   itself, translated into a real `ContactMatch` on submit? (Open Question A)
+5. What happens when there is genuinely no match — send without a property
+   section, or hold the whole email? (Open Question B)
+6. Can the approved amount alone, with no wishlist at all, drive a
+   fallback match against own stock at or under that amount? (Open
+   Question C)
+
+No code, migration, or UI for this feature is written until Johan responds
+to these six.
