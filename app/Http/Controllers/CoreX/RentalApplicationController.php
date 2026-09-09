@@ -624,9 +624,17 @@ class RentalApplicationController extends Controller
      * CoreX (STANDARDS.md) — RentalApplication already has SoftDeletes, this
      * is the archive action the index/show screens were missing.
      */
-    public function destroy(RentalApplication $rentalApplication)
+    public function destroy(RentalApplication $rentalApplication, \App\Services\RentalApplications\RentalApplicationPdfService $pdfService)
     {
         $this->guardRentalApplication($rentalApplication);
+
+        // Reopen/resubmit follow-up, 2026-09-09 — a cached generation PDF is
+        // a derived artefact (the record of truth, snapshot_json, is
+        // untouched by this), so it's reclaimed here rather than left
+        // orphaned on the data volume for an application nobody can reach
+        // again except through restore(). Never blocks the archive itself —
+        // forgetCacheFor() swallows its own failures.
+        $pdfService->forgetCacheFor($rentalApplication);
 
         $rentalApplication->delete();
 
