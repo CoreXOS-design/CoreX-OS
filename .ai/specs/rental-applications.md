@@ -6223,3 +6223,93 @@ withdrawn along with §3, so it does **not** go in the wizard).
 
 No code, migration, or UI for this feature is written until Johan responds
 to these.
+
+## Design-standard audit — the four remaining CRUD gaps closed (2026-09-09, cc3)
+
+Johan, restated: "we always need proper crud? search / sort / own /
+branch / agency levels. that should be the design standard. not me asking
+for it once we get to that stage." A full audit of every screen in this
+module (application list, Returned, authoriser queue, review/authorisation
+screen, highlighter settings, applicant-facing token screens) found the
+core CRUD/search/sort/scoping standard above already applied almost
+everywhere — four gaps remained, closed here in Johan's stated priority
+order. **The scoping half of the audit found zero cross-agency or
+cross-branch leaks anywhere in the module**, including the applicant-
+facing token path and every document download — every list, detail view,
+and download enforces scope at the query/guard layer, confirmed by
+tracing the code, not by reading the view.
+
+**1. Authoriser queue — search and sort** (`RentalApplicationAuthorisationController::index()`).
+Had neither. `applySearchSortAndDateRange()` (previously a private method
+on `RentalApplicationController`) is extracted into a shared trait,
+`App\Http\Controllers\Concerns\FiltersRentalApplicationList`, reused by
+both controllers rather than a third hand-rolled copy. Search now also
+matches the creating agent's name (`orWhereHas('createdBy', ...)` — a
+subquery, not a join, so it can't reintroduce the ambiguous-column problem
+the sort logic already guards against) — added to the shared trait, so
+`index()`/`returned()` gained agent-name search too as a side effect,
+not scope creep: same search box, same fields, one shared implementation.
+Sortable: contact, property, agent, submitted. **Default stays oldest-
+submitted-first** (unchanged from before this task) — the trait's own
+default direction is 'desc' (matching `index()`/`returned()`'s newest-
+first convention), but the queue passes `'asc'` explicitly via a new
+optional `$defaultDirection` parameter, because the entire point of a
+decision queue is working the longest-waiting application first. No
+own/branch/agency scope toggle on this screen: RO/CO is an agency-wide,
+named-individual grant (Johan's own tier definition — "selected agents
+act as RO"), not branch-scoped, so there is no narrower level to toggle
+to.
+
+**2. Highlighter settings — real empty state on the Archived section**
+(`resources/views/corex/settings/rental-applications.blade.php`). Exact
+same class of bug already fixed on the rental application audit trail
+tonight: the whole "Archived" block was wrapped in
+`@if($archivedHighlighters->isNotEmpty())`, so an agency with nothing
+archived rendered nothing at all — no heading, no message, indistinguishable
+from the section being missing. The heading now always renders; the body
+switches between the real list and "Nothing archived." (same wording
+already used for archived rental applications on this module's own index
+screen).
+
+**3. Returned screen — per-page control** (`RentalApplicationController::returned()`).
+Fixed at 25/page with no way to change it, while `index()` right next to
+it has had a 10–100 range since 2026-09-08. Now identical: same clamp
+(`min(100, max(10, $request->integer('per_page', 25)))`), same selector
+markup, same default.
+
+**4. Highlighter settings — search, sort, pagination** (lowest priority,
+built last, per Johan's own ordering). The active-highlighter list and its
+Restore-free-forever archived list are different shapes, so they got
+different treatment:
+
+- **Active rows**: search is **client-side only** (Alpine `x-show`,
+  driven by the same search box as archived). The reorder up/down buttons
+  depend on `$activeIds` being the full, gapless, correctly-ordered set —
+  the swap-order arrays the hidden reorder forms post are built from it.
+  Filtering or paginating that array before it reaches the view would
+  silently make the up/down buttons swap the wrong neighbours the moment
+  a filter or page boundary hid a row. Client-side filtering never touches
+  that array — every row still reaches the page and reorder stays correct
+  regardless of what's visually hidden. No pagination on active rows for
+  the same reason, and because realistic list sizes (a handful to a few
+  dozen per agency) don't need it.
+- **Archived rows**: search, sort (`label` A–Z or `most recently
+  archived`), and pagination (10/page) are **real, server-side**,
+  query-string-driven (`?highlighter_q=&highlighter_archived_sort=&highlighter_archived_page=`)
+  — archived rows have no reorder dependency to protect, so there is no
+  reason not to do this properly.
+
+Tests: `RentalApplicationAuthorisationQueueSearchSortTest`,
+`RentalApplicationReturnedPerPageTest`,
+`RentalApplicationHighlighterSettingsScreenTest` (new); the pre-existing
+`RentalApplicationCrudStandardTest` and `RentalApplicationHighlighterTest`
+re-run unchanged and green.
+
+**Export — explicitly NOT built, open question for Johan.** The audit
+flagged that no export/CSV capability exists anywhere in this module.
+Johan's ruling: this is a new capability, not a gap in an existing one,
+and it would put applicant financials (real client emails, phone numbers,
+income data) into a file that leaves the system — his decision to make,
+not a lane's. **Nothing built.** If Johan wants an export, treat it as a
+new feature spec of its own — this section exists only to record that the
+question was raised and deliberately not answered here.
