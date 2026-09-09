@@ -29,6 +29,7 @@ class ImapMailboxPoller
     public function __construct(
         private EmailArchiveIngestor $ingestor,
         private MailboxHealthRecorder $health = new MailboxHealthRecorder(),
+        private MailFailureClassifier $failureClassifier = new MailFailureClassifier(),
         ?ContactIdentifierResolver $contactResolver = null,
         ?CommunicationIngestFilter $ingestFilter = null,
     ) {
@@ -77,8 +78,13 @@ class ImapMailboxPoller
             // wrapper, so it can actually recognise "timed out" wording that was previously
             // invisible to it; and the returned reason was hardcoded to 'connect_failed'
             // regardless of what got classified — fixed to match what was actually recorded.
-            $classified = $this->classifyConnectError($real);
-            $this->health->recordFailure($mailbox, $classified);
+            //
+            // 2026-09-09 (Johan) — classification now delegates to the shared
+            // MailFailureClassifier (same taxonomy as Test Connection's SMTP/
+            // IMAP legs), and $real — the actual server/socket text — is
+            // stored verbatim as last_error_detail, never discarded.
+            $classified = $this->failureClassifier->classifyConnect($real);
+            $this->health->recordFailure($mailbox, $classified, $real);
             return ['status' => 'error', 'reason' => $classified, 'stats' => $stats];
         }
 
@@ -413,36 +419,6 @@ class ImapMailboxPoller
     }
 
     /**
-     * Classify a connect failure into an actionable reason (auth rejection vs a genuine
-     * timeout vs an outright connect failure). Takes the already-UNWRAPPED real message
-     * (see unwrapRealMessage()) — classifying webklex's generic outer wrapper text
-     * ("connection failed") could never distinguish anything, since that literal string
-     * carries no information about what actually happened underneath.
-     *
-     * 2026-09-08 fix — 'connect_timeout' added. Before this, a genuine timeout (the
-     * server not answering within communications.imap_timeout_seconds) fell into the
-     * same 'connect_failed' bucket as "the host is wrong"/"the server is down", which is
-     * exactly how a mailbox with a large, slow-to-read backlog stayed permanently
-     * mislabelled as broken even though nothing was actually wrong with its credentials.
-     */
-    private function classifyConnectError(string $realMessage): string
-    {
-        $msg = strtolower($realMessage);
-        foreach (['authenticat', 'login', 'credential', 'password', 'invalid user', 'auth failed'] as $needle) {
-            if (str_contains($msg, $needle)) {
-                return 'auth_failed';
-            }
-        }
-        foreach (['timed out', 'timeout', 'operation now in progress', 'etimedout'] as $needle) {
-            if (str_contains($msg, $needle)) {
-                return 'connect_timeout';
-            }
-        }
-
-        return 'connect_failed';
-    }
-
-    /**
      * webklex wraps the real underlying exception (the actual $errno/$errstr from
      * stream_socket_client — e.g. "Connection timed out", "Connection refused") inside
      * an outer exception whose OWN message is a hardcoded generic string ("connection
@@ -451,7 +427,8 @@ class ImapMailboxPoller
      * wrapper — so both the log and the failure classification see what actually
      * happened, not a label that means nothing on its own.
      */
-    private function unwrapRealMessage(\Throwable $e): string
+    /** Public (2026-09-09, diagnostics) — reused by ImapSentFolderAppender for the same reason connect()/resolveSentFolder() already are. */
+    public function unwrapRealMessage(\Throwable $e): string
     {
         $current = $e;
         while ($current->getPrevious() !== null) {

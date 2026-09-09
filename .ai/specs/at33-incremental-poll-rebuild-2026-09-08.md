@@ -528,6 +528,160 @@ against fake hosts and fake IMAP doubles only. The poller itself (§10/§11) was
 against a real QA1 mailbox on 2026-09-08, before the ban — that proof stands on its own and is
 unrelated to tonight's three additions, which have real-server verification still outstanding.
 
+## 14. 2026-09-09 — the auth-lock safeguard, superseding §13's approach for `auth_failed` specifically
+
+Afrihost's unblock (2026-09-09) came with an absolute, non-negotiable condition, quoted verbatim:
+"Please ensure that no more than 3 failed login attempts are made... the existing connection and
+security thresholds cannot be changed." Johan's own diagnosis, also confirmed correct by the
+evidence (live ran 7 quiet hours on the OLD code before this): the ban was never about polling
+volume — it was Test Connection, clicked across many mailboxes while diagnosing, each click a
+real SMTP login AND a real IMAP Sent-folder-append login. §13's rate-limit/back-off/circuit-breaker
+trio is the right shape for a host that is slow or flaky (a percentage of mailboxes failing over a
+time window); it is the WRONG shape for a hard, tiny, absolute count — by the time a percentage-based
+breaker would trip, the 3-attempt budget is already spent.
+
+**This section does not replace §13's general circuit breaker (percentage/lookback/probe) — that
+stays, unchanged, for connect/timeout/TLS failures.** It adds a SEPARATE, narrower mechanism for
+`auth_failed` specifically, because Afrihost's condition is about failed LOGINS, not failures
+generally.
+
+1. **Mailbox-level: terminal on the first occurrence.** `MailboxHealthRecorder::recordFailure()`
+   disables a mailbox on `failures === 1` when `$reason === 'auth_failed'`, bypassing
+   `$disableThreshold` entirely. Same `poll_disabled_at`/`next_poll_earliest_at` columns and the
+   same "a human or a successful Test Connection clears it" semantics as the generic disable
+   (§13b) — this is a different, immediate TRIGGER for the state that already existed, not a new
+   state.
+2. **Host-level: counted across every mailbox sharing that host, trips at 2.** New
+   `communication_host_circuit_breakers.auth_failure_count` (atomic `->increment()`, to avoid a
+   lost-update race under concurrent workers) / `.auth_locked_at`, deliberately SEPARATE columns
+   from the existing `state`/`opened_at` general-breaker fields. `HostCircuitBreaker::
+   AUTH_FAILURE_LOCK_THRESHOLD = 2` (hard-coded, never agency-configurable — the one number in
+   this entire subsystem that must never become a setting, since raising it trades away the
+   margin Johan explicitly asked for below Afrihost's real limit of 3).
+   `KNOWN_PROVIDER_LOGIN_LIMIT = 3` is tracked for on-screen display only, never as a trip point.
+3. **Never self-heals.** No probe, unlike the general breaker's open state. `resetAuthLock()` is
+   the ONLY place `auth_locked_at` is ever cleared, and it is called from nowhere automatically —
+   only the human-triggered `POST compliance/communication-mailboxes/reset-host-auth-lock` action
+   (Compliance → Archive Mailboxes, admin-only, host-scoped).
+4. **Test Connection is inside the same budget.** All three Test Connection controllers
+   (Compliance, Settings → Email Setup, My Portal → Communication Capture) check
+   `HostCircuitBreaker::isAuthLocked()` across `hostsFor($mailbox)` BEFORE either leg, refuse both
+   legs with a plain-English message naming the host and the used/limit count if locked, and call
+   `recordAuthFailureIfApplicable()` after each leg's real outcome (SMTP leg against `smtp_host`,
+   IMAP leg against `imap_host`) — win or lose, every real login this click made counts.
+   `HostCircuitBreaker::hostsFor()` deliberately does NOT condition the SMTP host on
+   `outgoing_enabled` (unlike `MailboxConnectionRateLimiter::hostsFor()`, which does) — Test
+   Connection's SMTP leg fires whenever `smtp_host`/credentials are populated regardless of that
+   flag, so gating the auth-lock pre-check on it would have left a real hole.
+5. **Every real-connection call site is gated, not just the obvious one.** `PollMailboxJob::
+   handle()` re-checks `isAuthLocked()` at EXECUTION time (not just `PollMailboxes`' dispatch-time
+   skip) — this is the actual race-condition backstop: `PollMailboxes` dispatches every due
+   mailbox on a host in one synchronous loop before any job runs, so only an execution-time
+   re-check inside the job itself can catch a lock that tripped from a sibling job's failure
+   between dispatch and execution.
+6. **The remaining budget is visible before anyone clicks anything.** All three mailbox screens
+   show a per-host banner ("N of 3 login failures used") whenever a host has used any of its
+   budget or is locked, with a "Reset login lock" action on the Compliance screen only.
+
+**Worst-case attempts, with this in place** (reasoned from the execution-time re-check + atomic
+increment, not from mailbox count): **one poll cycle, several mailboxes with bad credentials on
+one host → 2 real login attempts**, bounded by concurrent queue-worker capacity (2 on QA1 today:
+`mail` + `mail-slow`), not by how many mailboxes are broken. **Clicking Test Connection repeatedly,
+one at a time → 2 real login attempts total, ever** — whichever click supplies the 2nd failure
+trips the lock immediately; every later click is refused before touching the network. Concurrent
+clicks from multiple sessions would race the same way the poll cycle does, bounded by server
+request concurrency, not click count — not the scenario that caused the actual incident.
+
+**Not in scope for this section (deliberately split into §15):** wording/diagnostics work — what
+the mailbox screen SAYS about why a connection failed beyond "auth_failed disables immediately".
+Johan's explicit instruction: "no diagnostics rewrite, no message wording work" in the safeguard
+branch — small enough to read every line before it goes near live.
+
+**Files (branch `at33-auth-lock-safeguard-2026-09-09`):**
+`database/migrations/2026_09_09_040000_add_auth_lock_to_communication_host_circuit_breakers.php`,
+`app/Models/Communications/CommunicationHostCircuitBreaker.php` (+`isAuthLocked()`),
+`app/Services/Communications/HostCircuitBreaker.php` (+`isAuthLocked()`/
+`recordAuthFailureIfApplicable()`/`resetAuthLock()`/`authBudgetLabel()`/`authFailureCount()`/
+`hostsFor()`), `app/Services/Communications/MailboxHealthRecorder.php` (`recordFailure()` immediate
+disable for `auth_failed`), `app/Jobs/Communications/PollMailboxJob.php` (execution-time check),
+`app/Console/Commands/Communications/PollMailboxes.php` (dispatch-time hygiene skip), the three
+Test Connection controllers, the three mailbox-screen Blade views (budget banner + reset action),
+`routes/web.php` (`reset-host-auth-lock`), `tests/Feature/Communications/HostAuthLockTest.php`
+(16 tests) plus a one-line fix to the pre-existing `TestConnectionBlockedAppendTest.php` for the
+new constructor argument.
+
+**Honest status:** proved entirely against fake hosts and in-process doubles that throw if a real
+connect/send method is ever reached — 69 tests green, 0 regressions, on a dedicated schema. Zero
+connections to `mail.hfcoastal.co.za` at any point during this build.
+
+## 15. 2026-09-09 — diagnostics: telling the person setting up a mailbox WHY it failed
+
+Johan's words, verbatim: "fails should tell whoever is setting it up why its failing. not failed.
+same way outlook would do it... tell us why the server is rejecting the connection." A bare
+`connect_failed` catch-all cost two days chasing wrong theories this week while the server had
+said `AUTHENTICATIONFAILED` in plain text the entire time. This section is the fix, and it is
+deliberately downstream of §14 (branch `at33-diagnostics-2026-09-09`, based on the safeguard
+branch) — it changes wording/classification, never the safeguard's trip logic.
+
+**New shared classifier** (`app/Services/Communications/MailFailureClassifier.php`) is the ONE
+place a raw server/socket message becomes both a stable reason code and a plain-English sentence.
+Reasons: `auth_failed`, `mailbox_not_found` (the account itself doesn't exist — distinct from a
+folder not existing), `connection_refused` (refused/blocked — explicitly worded to never read as
+a credentials problem), `connect_timeout`, `connect_failed` (genuinely unreachable — DNS/route
+failures), `tls_failed`, `send_rejected` (SMTP-send-phase only), and `unknown` — text matching no
+known pattern classifies honestly as unknown rather than a guessed cause; "a confident wrong
+diagnosis is worse than an honest unknown" is the standing principle for this class going forward.
+
+**The raw text is never discarded.** Three new nullable `TEXT` columns on `communication_mailboxes`
+— `last_error_detail` (poll/connect), `last_send_error_detail` (SMTP send), and
+`last_sent_folder_append_error_detail` (IMAP Sent-folder append) — carry the server's actual
+response verbatim, cleared on the next success/behind exactly like their paired reason columns.
+Surfaced on the Compliance → Archive Mailboxes screen as a collapsed `<details>` disclosure under
+each failing badge — "Raw server response" — never the first thing shown, always one click away.
+`OutgoingMailboxSendFailedException` gained an optional `$rawDetail` property alongside the existing
+`$sanitisedReason`; the friendly message shown to the person setting up the mailbox is still built
+from `$sanitisedReason` alone, never from `$rawDetail` directly.
+
+**Every real-connection call site now classifies through the shared taxonomy**, not its own ad-hoc
+keyword list: `ImapMailboxPoller::poll()` (connect phase), `ImapSentFolderAppender::append()`
+(IMAP leg), `PerMailboxMailTransportBuilder::send()` (SMTP leg) — the old per-file `classify()`
+methods are gone. `ImapMailboxPoller::unwrapRealMessage()` is now public specifically so
+`ImapSentFolderAppender` can reuse it (both need the real socket/TLS message underneath webklex's
+generic outer wrapper, exactly as documented at that method's original 2026-09-08 fix).
+
+**A real classifier improvement found by its own test suite, worth recording:** "Connection
+refused" now classifies as `connection_refused`, not `connect_failed` — this changed one existing
+test's expectation (`MailboxHealthTest::test_connect_failure_records_without_advancing_last_polled_at`,
+renamed in spirit though not in name) and is a genuine refinement, not a regression: it is exactly
+the "never described as a credentials problem" distinction Johan asked for. Similarly, an SMTP
+enhanced-status code (`5.1.1`) that could plausibly describe either "this account doesn't exist"
+or "this recipient was rejected" was deliberately assigned to `send_rejected` only (SMTP-phase),
+never to the general `mailbox_not_found` bucket, since IMAP has no equivalent code and conflating
+the two produced a wrong classification for the exact "Test Connection sends to its own address"
+shape this codebase actually uses.
+
+**Files (branch `at33-diagnostics-2026-09-09`, on top of `at33-auth-lock-safeguard-2026-09-09`):**
+`app/Services/Communications/MailFailureClassifier.php` (new),
+`database/migrations/2026_09_09_050000_add_error_detail_to_communication_mailboxes.php`,
+`app/Models/Communications/CommunicationMailbox.php` (`lastErrorLabel()`/`lastSendErrorLabel()`
+rewired to the classifier; `lastErrorDetail()`/`lastSendErrorDetail()`/
+`lastSentFolderAppendErrorDetail()`; `disabledLabel()` worded distinctly for an auth-lock disable),
+`app/Services/Communications/ImapMailboxPoller.php`, `ImapSentFolderAppender.php`,
+`PerMailboxMailTransportBuilder.php`, `app/Exceptions/Communications/
+OutgoingMailboxSendFailedException.php` (+`$rawDetail`), the three Test Connection controllers
+(persist `*_detail` columns, classifier-driven `imap_append` wording),
+`resources/views/compliance/communication-archive/mailboxes/index.blade.php` (raw-response
+disclosures), `tests/Unit/Communications/MailFailureClassifierTest.php` (10 tests),
+`tests/Feature/Communications/MailFailureDiagnosticsTest.php` (5 tests), plus updates to two
+pre-existing tests whose expectations the new, more honest classification legitimately changed.
+
+**Honest status:** 92 tests green (0 regressions) against fake hosts/in-process doubles only —
+zero connections to `mail.hfcoastal.co.za`. One unrelated pre-existing test
+(`OutgoingMailPerMailboxTest::test_resend_failure_is_visible_on_my_documents_page`) fails in this
+specific worktree only because `npm run build` was never run there (no `node_modules`/
+`public/build` — confirmed present in the main `/corex-qa1` checkout) — an environment gap, not a
+code regression, left unfixed as out of scope for this task.
+
 ## 9. Files changed (current, post-§2A UID rebuild, and §10/§11 checkpointing + health-state work)
 
 - `database/migrations/2026_09_08_170000_add_incremental_poll_watermarks_to_communication_mailboxes.php`

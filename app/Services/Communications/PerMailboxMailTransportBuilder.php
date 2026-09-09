@@ -20,11 +20,16 @@ use Symfony\Component\Mailer\Transport\Smtp\EsmtpTransport;
  * see spec §3.2 for the precedent this extends).
  *
  * send() returns the raw sent MIME (for the Sent-folder append, §4) or throws
- * OutgoingMailboxSendFailedException with a SANITISED reason — never the raw
- * SMTP response, per §8 (credentials/raw server text never surface in logs).
+ * OutgoingMailboxSendFailedException with a SANITISED reason for the friendly
+ * message (§8 — credentials never surface there) plus the raw server response
+ * as $rawDetail (2026-09-09, diagnostics) for an engineer to see verbatim.
  */
 class PerMailboxMailTransportBuilder
 {
+    public function __construct(private MailFailureClassifier $failureClassifier = new MailFailureClassifier())
+    {
+    }
+
     /**
      * Send $mailable through $mailbox's own SMTP credentials.
      *
@@ -82,9 +87,12 @@ class PerMailboxMailTransportBuilder
         try {
             $mailer->send($mailable);
         } catch (\Throwable $e) {
+            $real = $e->getMessage();
+            $reason = $this->failureClassifier->classifySmtpSend($real);
             throw new OutgoingMailboxSendFailedException(
-                $this->classify($e),
-                $this->plainReason($this->classify($e))
+                $reason,
+                $this->failureClassifier->friendlyForSmtpSend($reason),
+                $real,
             );
         } finally {
             Event::forget(MessageSent::class);
@@ -97,31 +105,5 @@ class PerMailboxMailTransportBuilder
         }
 
         return $rawMime;
-    }
-
-    private function classify(\Throwable $e): string
-    {
-        $msg = strtolower($e->getMessage());
-        foreach (['authenticat', 'login', 'credential', 'password', 'invalid user', 'auth failed'] as $needle) {
-            if (str_contains($msg, $needle)) {
-                return 'auth_failed';
-            }
-        }
-        foreach (['reject', '550', '553', '554', '5.7.'] as $needle) {
-            if (str_contains($msg, $needle)) {
-                return 'send_rejected';
-            }
-        }
-
-        return 'connect_failed';
-    }
-
-    private function plainReason(string $reason): string
-    {
-        return match ($reason) {
-            'auth_failed' => 'Login failed — check the username and password.',
-            'send_rejected' => 'Connected, but the mail server refused to send the message.',
-            default => 'Could not connect to the mail server.',
-        };
     }
 }

@@ -39,6 +39,7 @@ class MailboxHealthRecorder
         $mailbox->forceFill([
             'last_error' => null,
             'last_error_at' => null,
+            'last_error_detail' => null,
             'consecutive_failures' => 0,
             'failure_notified_at' => null, // recovery ends the episode → the next failure alerts again
             // 2026-09-08 (Johan, part B) — a fully successful poll means nothing
@@ -79,8 +80,14 @@ class MailboxHealthRecorder
      * (and the same "a human or a successful Test Connection clears it"
      * semantics) as the generic disable below — this is not a new state,
      * just a different, immediate trigger for the one that already existed.
+     *
+     * 2026-09-09 (Johan, diagnostics) — $detail is the RAW server/socket
+     * text behind $reason ("tell us why the server is rejecting the
+     * connection") — stored verbatim alongside the classified reason so an
+     * engineer can always see exactly what the server said, never just a
+     * category label.
      */
-    public function recordFailure(CommunicationMailbox $mailbox, string $reason): void
+    public function recordFailure(CommunicationMailbox $mailbox, string $reason, ?string $detail = null): void
     {
         $failures = ((int) $mailbox->consecutive_failures) + 1;
         $disableThreshold = $reason === 'auth_failed' ? 1 : $this->disableThreshold($mailbox);
@@ -89,6 +96,7 @@ class MailboxHealthRecorder
         $mailbox->forceFill(array_merge([
             'last_error' => $reason,
             'last_error_at' => now(),
+            'last_error_detail' => $detail,
             'consecutive_failures' => $failures,
             // 2026-09-08 (Johan, part B) — a genuine connect/auth/poll failure
             // supersedes "behind": a broken mailbox isn't behind, it's broken.
@@ -127,6 +135,7 @@ class MailboxHealthRecorder
         $mailbox->forceFill([
             'last_error' => null,
             'last_error_at' => null,
+            'last_error_detail' => null,
             'consecutive_failures' => 0,
             'failure_notified_at' => null,
             'messages_behind_estimate' => $messagesBehind !== null ? max(0, $messagesBehind) : null,
