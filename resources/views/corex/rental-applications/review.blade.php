@@ -485,17 +485,27 @@
                  the agent is still Johan's open question, separately — this
                  renders it visible for now, same as every other entry, and nothing
                  here needs to change if that answer comes back "no": the reason
-                 line below is its own small, cleanly separable @if. --}}
-            @if($auditLog->isNotEmpty())
-                <div class="rounded-md p-4" x-data="{ showAllAudit: false }" style="background: var(--surface); border: 1px solid var(--border);">
-                    <div class="flex items-center justify-between mb-3">
-                        <h2 class="text-sm font-semibold" style="color: var(--text-primary);">Audit Trail ({{ $auditLogTotal }})</h2>
-                        @if($auditLog->count() > 10)
-                            <button type="button" class="text-xs underline" style="color: var(--text-muted);"
-                                    @click="showAllAudit = !showAllAudit"
-                                    x-text="showAllAudit ? 'Show fewer' : 'Show all {{ $auditLog->count() }} entries'"></button>
-                        @endif
-                    </div>
+                 line below is its own small, cleanly separable @if.
+
+                 2026-09-09 — this whole card used to be wrapped in
+                 @if($auditLog->isNotEmpty()), so a genuinely empty audit trail
+                 (a clean application nobody has acted on yet, e.g. #12) rendered
+                 NOTHING — indistinguishable from the section being missing
+                 entirely. Johan: "An empty state that says so is the fix." The
+                 card and its heading now always render; only the body inside
+                 switches between the list and a plain-language empty state. --}}
+            <div class="rounded-md p-4" x-data="{ showAllAudit: false }" style="background: var(--surface); border: 1px solid var(--border);">
+                <div class="flex items-center justify-between mb-3">
+                    <h2 class="text-sm font-semibold" style="color: var(--text-primary);">Audit Trail ({{ $auditLogTotal }})</h2>
+                    @if($auditLog->count() > 10)
+                        <button type="button" class="text-xs underline" style="color: var(--text-muted);"
+                                @click="showAllAudit = !showAllAudit"
+                                x-text="showAllAudit ? 'Show fewer' : 'Show all {{ $auditLog->count() }} entries'"></button>
+                    @endif
+                </div>
+                @if($auditLog->isEmpty())
+                    <p class="text-xs" style="color: var(--text-muted);">Nothing has happened on this application yet — no strikes, additions, links, or decisions have been recorded.</p>
+                @else
                     <div class="space-y-2 text-xs">
                         @foreach($auditLog as $index => $entry)
                             <div class="pb-2" style="border-bottom: 1px solid var(--border);"
@@ -519,8 +529,8 @@
                     @if($auditLogTotal > $auditLog->count())
                         <p class="mt-2 text-xs" style="color: var(--text-muted);">Showing the {{ $auditLog->count() }} most recent of {{ $auditLogTotal }} total entries.</p>
                     @endif
-                </div>
-            @endif
+                @endif
+            </div>
         </div>
 
         {{-- ASIDE — the assessment panel (role-gated: agent captures inline;
