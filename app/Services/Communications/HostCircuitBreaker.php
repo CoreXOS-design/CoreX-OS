@@ -30,9 +30,129 @@ class HostCircuitBreaker
     /** Reasons that mean "could not even connect/authenticate" — the shape a provider-side IP block produces. */
     private const CONNECT_CLASS_FAILURES = ['connect_failed', 'auth_failed', 'connect_timeout'];
 
+    /**
+     * 2026-09-09 (Johan, auth-lock safeguard) — Afrihost's absolute condition
+     * is "no more than 3 failed login attempts", full stop, and "the
+     * existing ... thresholds cannot be changed." Trip our OWN internal
+     * budget at 2, not 3 — "leave ourselves margin; do not sit on the line."
+     * Deliberately a hard-coded constant, NOT agency-configurable: unlike
+     * the general breaker's percentage/lookback settings (safe to loosen for
+     * a merely slow-or-flaky host), raising this number trades away the one
+     * thing standing between us and a second ban. No setting exists that
+     * could accidentally raise it.
+     */
+    public const AUTH_FAILURE_LOCK_THRESHOLD = 2;
+
+    /** The REAL provider-stated ceiling, shown on screen for context only — never used as our own trip point. */
+    public const KNOWN_PROVIDER_LOGIN_LIMIT = 3;
+
     public function isOpen(string $host): bool
     {
         return $this->breaker($host)->isOpen();
+    }
+
+    /**
+     * 2026-09-09 (Johan, auth-lock safeguard) — true once this host's
+     * authentication-failure budget has tripped. Distinct from isOpen(): the
+     * general breaker still allows a single paced probe while open; an auth
+     * lock allows NOTHING through — no probe, no Test Connection — until a
+     * human explicitly clears it (see resetAuthLock()). Checked by every
+     * real-connection call site (the poll job, all three Test Connection
+     * controllers) BEFORE making any attempt.
+     */
+    public function isAuthLocked(string $host): bool
+    {
+        return $this->breaker($host)->isAuthLocked();
+    }
+
+    /**
+     * Call once, immediately after any REAL connect/login attempt that
+     * failed, for whichever host that attempt actually targeted (see
+     * hostsFor()). A no-op for any reason other than an actual
+     * authentication rejection — connect timeouts, refused connections, TLS
+     * failures etc. are the GENERAL breaker's concern (evaluate() /
+     * recordPollOutcome() above); this budget exists specifically because
+     * Afrihost's condition is about failed LOGINS, not failures generally.
+     *
+     * Uses an atomic ->increment() rather than read-modify-write: two queue
+     * workers (or a worker racing a human's Test Connection click) each
+     * reading count=1 and separately writing count=2 would silently drop one
+     * real attempt from the count — exactly the one thing this budget cannot
+     * tolerate, since the external limit it protects is absolute.
+     */
+    public function recordAuthFailureIfApplicable(string $host, ?string $reason): void
+    {
+        if ($reason !== 'auth_failed') {
+            return;
+        }
+
+        $breaker = $this->breaker($host);
+        if ($breaker->isAuthLocked()) {
+            return; // already locked -- nothing further to count or re-trip
+        }
+
+        $breaker->increment('auth_failure_count');
+        $breaker->refresh();
+
+        if ($breaker->auth_failure_count >= self::AUTH_FAILURE_LOCK_THRESHOLD) {
+            Log::error("Communication archive: AUTH LOCK tripped for host {$host} — {$breaker->auth_failure_count} authentication failure(s) recorded, at or above our internal limit of " . self::AUTH_FAILURE_LOCK_THRESHOLD . ' out of the provider\'s stated ' . self::KNOWN_PROVIDER_LOGIN_LIMIT . '. ALL further real connection attempts to this host (polling and Test Connection) are refused until a human clears this.');
+            $breaker->forceFill(['auth_locked_at' => now()])->save();
+        }
+    }
+
+    /**
+     * 2026-09-09 (Johan, auth-lock safeguard) — "an auth-tripped breaker
+     * requires a human to clear it." The ONLY place auth_locked_at is ever
+     * cleared. Deliberately NOT called by any automatic success path (a
+     * successful poll or Test Connection on one mailbox does not prove every
+     * OTHER mailbox on this shared host has good credentials) — a human must
+     * make this call deliberately, typically after confirming credentials
+     * were fixed at the host.
+     */
+    public function resetAuthLock(string $host): void
+    {
+        $this->breaker($host)->forceFill(['auth_locked_at' => null, 'auth_failure_count' => 0])->save();
+    }
+
+    /** Plain-English "N of 3 used" label for the mailbox screen — Johan: "Johan must be able to see it before he clicks anything." */
+    public function authBudgetLabel(string $host): string
+    {
+        $breaker = $this->breaker($host);
+
+        return "{$breaker->auth_failure_count} of " . self::KNOWN_PROVIDER_LOGIN_LIMIT . ' login failures used';
+    }
+
+    /** Raw count, for callers that need the number itself (e.g. deciding whether to show a budget row at all). */
+    public function authFailureCount(string $host): int
+    {
+        return (int) $this->breaker($host)->auth_failure_count;
+    }
+
+    /**
+     * Every distinct host a Test Connection click will actually contact.
+     *
+     * 2026-09-09 — deliberately NOT conditioned on outgoing_enabled, unlike
+     * MailboxConnectionRateLimiter::hostsFor() (which this otherwise
+     * mirrors): PerMailboxMailTransportBuilder::send() attempts a real SMTP
+     * login whenever smtp_host/username/password are populated, regardless
+     * of that flag — Test Connection's leg 1 is unconditional (see
+     * CommunicationMailboxController::testConnection()). Gating this on
+     * outgoing_enabled would let a real login through to an auth-locked
+     * smtp_host on any mailbox that has outgoing configured but not yet
+     * flagged "enabled" — exactly the gap this absolute budget cannot afford.
+     */
+    public function hostsFor(CommunicationMailbox $mailbox): array
+    {
+        $hosts = [strtolower(trim((string) $mailbox->imap_host))];
+
+        if ($mailbox->smtp_host) {
+            $smtpHost = strtolower(trim((string) $mailbox->smtp_host));
+            if ($smtpHost !== '' && $smtpHost !== $hosts[0]) {
+                $hosts[] = $smtpHost;
+            }
+        }
+
+        return array_values(array_filter($hosts, fn ($h) => $h !== ''));
     }
 
     /**

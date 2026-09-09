@@ -30,7 +30,24 @@ class CommunicationCaptureController extends Controller
     {
         $user = Auth::user()->loadMissing(['commMailboxes' => fn ($q) => $q->orderBy('email_address')]);
 
-        return view('my-portal.communication-capture.index', compact('user'));
+        // 2026-09-09 (Johan, auth-lock safeguard) — "Johan must be able to
+        // see it before he clicks anything." Same budget visibility as the
+        // compliance/settings mailbox screens.
+        $hostBreaker = app(\App\Services\Communications\HostCircuitBreaker::class);
+        $hostAuthStatus = [];
+        foreach ($user->commMailboxes as $m) {
+            foreach ($hostBreaker->hostsFor($m) as $host) {
+                if (! isset($hostAuthStatus[$host])) {
+                    $hostAuthStatus[$host] = [
+                        'locked' => $hostBreaker->isAuthLocked($host),
+                        'label' => $hostBreaker->authBudgetLabel($host),
+                        'count' => $hostBreaker->authFailureCount($host),
+                    ];
+                }
+            }
+        }
+
+        return view('my-portal.communication-capture.index', compact('user', 'hostAuthStatus'));
     }
 
     public function store(Request $request)
@@ -79,7 +96,8 @@ class CommunicationCaptureController extends Controller
         CommunicationMailbox $mailbox,
         PerMailboxMailTransportBuilder $transportBuilder,
         ImapSentFolderAppender $appender,
-        \App\Services\Communications\MailboxConnectionRateLimiter $rateLimiter
+        \App\Services\Communications\MailboxConnectionRateLimiter $rateLimiter,
+        \App\Services\Communications\HostCircuitBreaker $hostBreaker
     ) {
         $this->assertOwn($mailbox);
 
@@ -90,6 +108,16 @@ class CommunicationCaptureController extends Controller
             return back()
                 ->with('test_connection_result', ['smtp' => ['ok' => false, 'message' => $message], 'imap_append' => ['ok' => false, 'message' => $message]])
                 ->with('test_connection_mailbox_id', $mailbox->id);
+        }
+
+        // 2026-09-09 (Johan, auth-lock safeguard) — see CommunicationMailboxController::testConnection() for the full rationale.
+        foreach ($hostBreaker->hostsFor($mailbox) as $lockedHost) {
+            if ($hostBreaker->isAuthLocked($lockedHost)) {
+                $message = "Blocked — {$lockedHost} has hit our internal login-failure limit ({$hostBreaker->authBudgetLabel($lockedHost)}) and Test Connection is refused to protect the mailbox from being locked out by the mail provider. Confirm the correct credentials, then ask an admin to reset the login lock.";
+                return back()
+                    ->with('test_connection_result', ['smtp' => ['ok' => false, 'message' => $message], 'imap_append' => ['ok' => false, 'message' => $message]])
+                    ->with('test_connection_mailbox_id', $mailbox->id);
+            }
         }
         $rateLimiter->hit($mailbox);
 
@@ -115,10 +143,12 @@ class CommunicationCaptureController extends Controller
                 'last_send_error_at' => now(),
                 'consecutive_send_failures' => (int) $mailbox->consecutive_send_failures + 1,
             ])->save();
+            $hostBreaker->recordAuthFailureIfApplicable(strtolower(trim((string) $mailbox->smtp_host)), $e->sanitisedReason);
         }
 
         $testMime = "Subject: CoreX Sent-folder test\r\nFrom: {$mailbox->email_address}\r\nTo: {$mailbox->email_address}\r\nDate: " . now()->toRfc2822String() . "\r\n\r\nThis is a Sent-folder write test from CoreX.";
         $append = $appender->append($mailbox, $rawMime ?? $testMime);
+        $hostBreaker->recordAuthFailureIfApplicable(strtolower(trim((string) $mailbox->imap_host)), $append['reason'] ?? null);
         if ($append['reason'] === 'intercepted') {
             // AT-URGENT-2026-09-08/09 — a deliberate safety skip, not a
             // failure: nothing was attempted, so the mailbox's real

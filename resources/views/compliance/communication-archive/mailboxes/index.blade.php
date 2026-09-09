@@ -16,6 +16,33 @@
         </div>
     </div>
 
+    {{-- 2026-09-09 (Johan, auth-lock safeguard) — "Johan must be able to see
+         it before he clicks anything." One row per host that has ever used
+         any of its login-failure budget, so the remaining margin is visible
+         BEFORE a Test Connection click, not discovered after. --}}
+    @foreach(($hostAuthStatus ?? []) as $host => $status)
+        @if($status['locked'] || $status['count'] > 0)
+        <div class="rounded-md px-4 py-3 text-sm flex flex-col md:flex-row md:items-center md:justify-between gap-2"
+             style="background: {{ $status['locked'] ? 'color-mix(in srgb, var(--ds-crimson) 10%, transparent)' : 'color-mix(in srgb, var(--ds-amber) 10%, transparent)' }}; border:1px solid {{ $status['locked'] ? 'color-mix(in srgb, var(--ds-crimson) 30%, transparent)' : 'color-mix(in srgb, var(--ds-amber) 30%, transparent)' }}; color: var(--text-primary);">
+            <div>
+                <strong>{{ $host }}</strong> — {{ $status['label'] }}.
+                @if($status['locked'])
+                    All further real connection attempts (polling and Test Connection) to this server are blocked until a human clears this. Confirm the correct credentials are in place first.
+                @else
+                    Test Connection clicks and polling both count against this — a mail server login limit set by the mail host, not by CoreX.
+                @endif
+            </div>
+            @if($status['locked'])
+                <form method="POST" action="{{ route('compliance.comm-mailboxes.reset-host-auth-lock') }}" class="inline" onsubmit="return confirm('Only clear this once you have confirmed the correct username and password are saved for every mailbox on {{ $host }}. Reset the login lock for {{ $host }}?');">
+                    @csrf
+                    <input type="hidden" name="host" value="{{ $host }}">
+                    <button type="submit" class="corex-btn-outline text-xs whitespace-nowrap">Reset login lock</button>
+                </form>
+            @endif
+        </div>
+        @endif
+    @endforeach
+
     @if(session('success'))
     <div class="rounded-md px-4 py-3 text-sm flex items-start gap-3" style="background: color-mix(in srgb, var(--ds-green) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-green) 30%, transparent); color: var(--text-primary);">
         <svg class="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="color: var(--ds-green);">

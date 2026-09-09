@@ -63,10 +63,58 @@ class CommunicationMailboxController extends Controller
             $mailboxes->setCollection($mailboxes->getCollection()->filter(fn ($m) => $m->sendHealth() === $sendHealthFilter)->values());
         }
 
+        // 2026-09-09 (Johan, auth-lock safeguard) — "Johan must be able to
+        // see it before he clicks anything." One budget label + lock state
+        // per distinct host on the current page, so a Test Connection click
+        // is an informed decision, not a gamble against a limit nobody can see.
+        $hostBreaker = app(\App\Services\Communications\HostCircuitBreaker::class);
+        $hostAuthStatus = [];
+        foreach ($mailboxes->getCollection() as $m) {
+            foreach ($hostBreaker->hostsFor($m) as $host) {
+                if (! isset($hostAuthStatus[$host])) {
+                    $hostAuthStatus[$host] = [
+                        'locked' => $hostBreaker->isAuthLocked($host),
+                        'label' => $hostBreaker->authBudgetLabel($host),
+                        'count' => $hostBreaker->authFailureCount($host),
+                    ];
+                }
+            }
+        }
+
         return view('compliance.communication-archive.mailboxes.index', [
             'mailboxes' => $mailboxes,
             'filters' => $request->only(['q', 'status', 'outgoing', 'poll_health', 'send_health', 'sort', 'direction']),
+            'hostAuthStatus' => $hostAuthStatus,
         ]);
+    }
+
+    /**
+     * 2026-09-09 (Johan, auth-lock safeguard) — "an auth-tripped breaker
+     * requires a human to clear it." The only place this ever happens.
+     * Deliberately host-scoped (not mailbox-scoped): the lock protects every
+     * mailbox sharing that host, so clearing it is a decision about the
+     * host, made after confirming credentials were fixed at the mail
+     * provider — not a per-mailbox toggle.
+     */
+    public function resetHostAuthLock(Request $request, \App\Services\Communications\HostCircuitBreaker $hostBreaker)
+    {
+        $host = strtolower(trim((string) $request->input('host', '')));
+        abort_if($host === '', 422, 'A host is required.');
+
+        // Scope check: only reset a host this user can actually see a mailbox for —
+        // never an arbitrary string an attacker could probe with.
+        abort_unless(
+            CommunicationMailbox::query()->visibleTo(Auth::user())
+                ->where(function ($q) use ($host) {
+                    $q->whereRaw('LOWER(TRIM(imap_host)) = ?', [$host])
+                        ->orWhereRaw('LOWER(TRIM(smtp_host)) = ?', [$host]);
+                })->exists(),
+            404
+        );
+
+        $hostBreaker->resetAuthLock($host);
+
+        return back()->with('success', "Login lock cleared for {$host}. Confirm credentials are correct before testing again.");
     }
 
     public function create()
@@ -147,7 +195,8 @@ class CommunicationMailboxController extends Controller
         CommunicationMailbox $mailbox,
         PerMailboxMailTransportBuilder $transportBuilder,
         ImapSentFolderAppender $appender,
-        \App\Services\Communications\MailboxConnectionRateLimiter $rateLimiter
+        \App\Services\Communications\MailboxConnectionRateLimiter $rateLimiter,
+        \App\Services\Communications\HostCircuitBreaker $hostBreaker
     ) {
         abort_unless(
             CommunicationMailbox::query()->visibleTo(Auth::user())->whereKey($mailbox->id)->exists(),
@@ -163,6 +212,23 @@ class CommunicationMailboxController extends Controller
                 'smtp' => ['ok' => false, 'message' => $message],
                 'imap_append' => ['ok' => false, 'message' => $message],
             ]);
+        }
+
+        // 2026-09-09 (Johan, auth-lock safeguard) — Afrihost's absolute
+        // condition: "no more than 3 failed login attempts." Test Connection
+        // is TWO real logins per click (SMTP send + IMAP Sent-folder
+        // append) — the confirmed cause of the ban. Checked BEFORE the rate
+        // limiter's hit() and BEFORE any real connection; a refused click
+        // never touches the network and never counts against either budget.
+        // Never self-heals from here — only an explicit human reset clears it.
+        foreach ($hostBreaker->hostsFor($mailbox) as $lockedHost) {
+            if ($hostBreaker->isAuthLocked($lockedHost)) {
+                $message = "Blocked — {$lockedHost} has hit our internal login-failure limit ({$hostBreaker->authBudgetLabel($lockedHost)}) and Test Connection is refused to protect the mailbox from being locked out by the mail provider. Confirm the correct credentials, then use \"Reset login lock\" on this screen.";
+                return back()->with('test_connection_result', [
+                    'smtp' => ['ok' => false, 'message' => $message],
+                    'imap_append' => ['ok' => false, 'message' => $message],
+                ]);
+            }
         }
         $rateLimiter->hit($mailbox);
 
@@ -195,12 +261,17 @@ class CommunicationMailboxController extends Controller
                 'last_send_error_at' => now(),
                 'consecutive_send_failures' => (int) $mailbox->consecutive_send_failures + 1,
             ])->save();
+            // 2026-09-09 (Johan, auth-lock safeguard) — every real login this
+            // click made counts against the host budget, win or lose.
+            $hostBreaker->recordAuthFailureIfApplicable(strtolower(trim((string) $mailbox->smtp_host)), $e->sanitisedReason);
         }
 
         // Leg 2 — IMAP Sent-folder append, a distinct synthetic test message
         // (independent of whether leg 1 succeeded, per spec §6).
         $testMime = "Subject: CoreX Sent-folder test\r\nFrom: {$mailbox->email_address}\r\nTo: {$mailbox->email_address}\r\nDate: " . now()->toRfc2822String() . "\r\n\r\nThis is a Sent-folder write test from CoreX.";
         $append = $appender->append($mailbox, $rawMime ?? $testMime);
+        // 2026-09-09 (Johan, auth-lock safeguard) — the IMAP leg's own real login.
+        $hostBreaker->recordAuthFailureIfApplicable(strtolower(trim((string) $mailbox->imap_host)), $append['reason'] ?? null);
         if ($append['reason'] === 'intercepted') {
             // AT-URGENT-2026-09-08/09 — a deliberate safety skip, not a
             // failure: nothing was attempted, so the mailbox's real

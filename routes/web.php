@@ -2500,6 +2500,13 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::get('/{mailbox}/edit', [\App\Http\Controllers\Compliance\CommunicationMailboxController::class, 'edit'])->name('edit');
         Route::put('/{mailbox}', [\App\Http\Controllers\Compliance\CommunicationMailboxController::class, 'update'])->name('update');
         Route::delete('/{mailbox}', [\App\Http\Controllers\Compliance\CommunicationMailboxController::class, 'destroy'])->name('destroy');
+        // AT-395 §7.1 — restore from archive (full CRUD floor, CLAUDE.md non-negotiable #8).
+        Route::post('/{mailbox}/restore', [\App\Http\Controllers\Compliance\CommunicationMailboxController::class, 'restore'])
+            ->withTrashed()->name('restore');
+        // AT-395 §6 — Test Connection, both legs.
+        Route::post('/{mailbox}/test-connection', [\App\Http\Controllers\Compliance\CommunicationMailboxController::class, 'testConnection'])->name('test-connection');
+        // 2026-09-09 (Johan, auth-lock safeguard) — human-only, host-scoped clear. Never automatic.
+        Route::post('/reset-host-auth-lock', [\App\Http\Controllers\Compliance\CommunicationMailboxController::class, 'resetHostAuthLock'])->name('reset-host-auth-lock');
     });
 
     // ── WhatsApp capture device registration (AT-34) — agent self-service. ──

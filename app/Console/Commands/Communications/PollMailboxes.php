@@ -44,6 +44,7 @@ class PollMailboxes extends Command
 
         $dispatched = 0;
         $skippedForOpenHost = 0;
+        $skippedForAuthLock = 0;
 
         // 2026-09-08/09 (Johan, circuit breaker) — "why today ran six hours
         // instead of ten minutes." Loaded whole (not chunked) because the
@@ -62,6 +63,21 @@ class PollMailboxes extends Command
         foreach ($byHost as $host => $mailboxesOnHost) {
             if ($host === '') {
                 continue; // incomplete_credentials mailboxes with no host at all -- isDue()/poll() handle that message
+            }
+
+            // 2026-09-09 (Johan, auth-lock safeguard) — checked FIRST, before
+            // the general breaker below: an auth lock allows NOTHING through,
+            // not even the single paced probe a merely-open general breaker
+            // would allow. "An auth-tripped breaker never self-heals. No
+            // probe." This is dispatch-time hygiene (skip queuing work that
+            // would just no-op) — PollMailboxJob re-checks at execution time,
+            // which is the actual safety backstop against the race between
+            // this loop dispatching several mailboxes on one host and a
+            // worker only picking one up after another has already tripped
+            // the lock.
+            if ($breaker->isAuthLocked($host)) {
+                $skippedForAuthLock += $mailboxesOnHost->count();
+                continue;
             }
 
             // Decide, from what the LAST cycle's completed polls already
@@ -119,7 +135,10 @@ class PollMailboxes extends Command
         $breakerSuffix = $skippedForOpenHost > 0
             ? " {$skippedForOpenHost} mailbox(es) held back — host circuit breaker open."
             : '';
-        $this->info("Dispatched {$dispatched} mailbox poll job(s){$suffix}{$breakerSuffix}");
+        $authLockSuffix = $skippedForAuthLock > 0
+            ? " {$skippedForAuthLock} mailbox(es) held back — host authentication lock active."
+            : '';
+        $this->info("Dispatched {$dispatched} mailbox poll job(s){$suffix}{$breakerSuffix}{$authLockSuffix}");
 
         return self::SUCCESS;
     }

@@ -77,8 +77,28 @@ class PollMailboxJob implements ShouldQueue, ShouldBeUnique
             return;
         }
 
+        // 2026-09-09 (Johan, auth-lock safeguard) — the EXECUTION-time
+        // re-check, not just the dispatch-time skip in PollMailboxes. Between
+        // a scheduler tick dispatching this job and a worker actually
+        // picking it up, another mailbox on the SAME host (dispatched in the
+        // same tick, running on a different worker) may have just tripped
+        // the auth lock — dispatch-time alone cannot see that. This is the
+        // actual backstop: no real IMAP connection happens from this job
+        // once the host is locked, no matter how the race lands.
+        $host = strtolower(trim((string) $mailbox->imap_host));
+        if ($breaker->isAuthLocked($host)) {
+            Log::info("Communication archive: poll skipped for mailbox {$this->mailboxId} — host {$host} authentication lock is active.");
+            return;
+        }
+
         $result = $poller->poll($mailbox);
         Log::info('Communication archive mailbox polled', ['mailbox_id' => $this->mailboxId] + $result);
+
+        // 2026-09-09 (Johan, auth-lock safeguard) — feed the host-level
+        // authentication budget from every real poll attempt, not just Test
+        // Connection. A poll's own auth_failed is exactly as real a login
+        // attempt as a Test Connection click.
+        $breaker->recordAuthFailureIfApplicable($host, $result['reason'] ?? null);
 
         // 2026-09-08/09 (Johan, circuit breaker) — a no-op unless this
         // mailbox's host currently has an OPEN breaker (i.e. this poll WAS

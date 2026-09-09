@@ -65,11 +65,25 @@ class MailboxHealthRecorder
      * incident: consecutive_failures existed before today but was only ever
      * recorded, never used to slow anything down, so a mailbox that failed
      * every cycle was retried at the SAME fixed cadence forever.
+     *
+     * 2026-09-09 (Johan, auth-lock safeguard) — 'auth_failed' is TERMINAL,
+     * not a retry candidate: "on the FIRST authentication failure for a
+     * mailbox, stop polling that mailbox immediately. Not after three. After
+     * one." The exponential back-off ladder above is the right shape for a
+     * host that is slow or flaky; it is the WRONG shape for a hard, tiny,
+     * external login budget — by the time back-off would have escalated to
+     * disabling, several more real logins have already been attempted
+     * against a limit that cannot absorb them. An auth failure therefore
+     * disables on failures===1, bypassing $disableThreshold entirely, but
+     * still using the SAME poll_disabled_at/next_poll_earliest_at columns
+     * (and the same "a human or a successful Test Connection clears it"
+     * semantics) as the generic disable below — this is not a new state,
+     * just a different, immediate trigger for the one that already existed.
      */
     public function recordFailure(CommunicationMailbox $mailbox, string $reason): void
     {
         $failures = ((int) $mailbox->consecutive_failures) + 1;
-        $disableThreshold = $this->disableThreshold($mailbox);
+        $disableThreshold = $reason === 'auth_failed' ? 1 : $this->disableThreshold($mailbox);
         $alreadyDisabled = $mailbox->poll_disabled_at !== null;
 
         $mailbox->forceFill(array_merge([
