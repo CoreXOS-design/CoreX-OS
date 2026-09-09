@@ -65,4 +65,15 @@ class DevSetting extends Model
 
         return is_array($decoded) ? array_values(array_filter($decoded, 'is_string')) : [];
     }
+
+    /**
+     * Recipients for the daily "outbound mail interception is still on" nag
+     * (corex:mail-intercept-stale-alert). AT-URGENT-2026-09-09.
+     */
+    public static function mailInterceptAlertEmails(): array
+    {
+        $decoded = json_decode((string) self::get('mail_intercept_alert_emails', '[]'), true);
+
+        return is_array($decoded) ? array_values(array_filter($decoded, 'is_string')) : [];
+    }
 }

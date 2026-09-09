@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Models\OutboundMailGuardCapture;
 use App\Support\OutboundMailGuard;
 use Illuminate\Mail\Events\MessageSending;
 use Illuminate\Support\Facades\Log;
@@ -10,25 +11,31 @@ use Symfony\Component\Mailer\Transport\Smtp\EsmtpTransport;
 use Symfony\Component\Mime\Email;
 
 /**
- * AT-URGENT-2026-09-08 — the hard outbound-mail safety guard.
+ * AT-URGENT-2026-09-08/09 — the outbound-mail safety guard, now a genuine
+ * kill switch (see OutboundMailGuard's own docblock for the full design).
  *
  * Registers ONE listener on Illuminate\Mail\Events\MessageSending. Every
  * outbound message in this application funnels through
  * Illuminate\Mail\Mailer::send() -> shouldSendMessage() -> this event,
  * regardless of which mailer sent it: the default mailer, the 'otp' and
- * 'corex' named mailers (which are wired to bypass the default mailer on
- * purpose), Notifications' mail channel, queued mail (re-fires identically
- * on a worker, since service providers boot the same way there), and the
- * per-mailbox direct-SMTP feature (App\Services\Communications\
- * PerMailboxMailTransportBuilder) — confirmed by reading that class
- * directly: it builds its Mailer with `app('events')` as the 4th
- * constructor argument, so it fires this exact same event. Nothing in
- * that file or its three "Test Connection" callers needed to change.
+ * 'corex' named mailers, Notifications' mail channel, queued mail, and the
+ * per-mailbox direct-SMTP feature (PerMailboxMailTransportBuilder, which
+ * builds its Mailer with app('events') as the 4th constructor argument, so
+ * it fires this exact same event).
  *
  * Laravel's own Mailer::shouldSendMessage() treats a listener returning
  * false as a veto — the transport's send() is never called, so no TCP
  * connection to any real mail server is attempted. That is the actual
  * safety boundary, not a recipient rewrite on a transport we don't trust.
+ *
+ * 2026-09-09 — an intercepted message is now ALWAYS captured durably
+ * (OutboundMailGuardCapture) before anything else. That is the source of
+ * truth Johan asked for ("142 messages were held, here they are") — it
+ * works identically whether or not a local sink exists, which matters
+ * because live has none. The redirected-copy-to-Mailpit send below is kept
+ * ONLY as a developer convenience on environments that actually have one
+ * (OutboundMailGuard::hasLocalSink()) — its failure never affects the
+ * capture record and never re-opens the gate.
  */
 class OutboundMailGuardServiceProvider extends ServiceProvider
 {
@@ -41,7 +48,7 @@ class OutboundMailGuardServiceProvider extends ServiceProvider
 
     private function guard(MessageSending $event): bool
     {
-        if (OutboundMailGuard::isProductionConfirmed()) {
+        if (! OutboundMailGuard::isActive()) {
             return true;
         }
 
@@ -58,7 +65,7 @@ class OutboundMailGuardServiceProvider extends ServiceProvider
         $originalCc = $this->formatAddresses($original->getCc());
         $originalBcc = $this->formatAddresses($original->getBcc());
 
-        Log::warning('OUTBOUND MAIL BLOCKED — non-production environment', [
+        Log::warning('OUTBOUND MAIL INTERCEPTED', [
             'app_env' => config('app.env'),
             'app_url' => config('app.url'),
             'subject' => $original->getSubject(),
@@ -67,18 +74,49 @@ class OutboundMailGuardServiceProvider extends ServiceProvider
             'bcc' => $originalBcc,
         ]);
 
+        $forwarded = false;
+        if (OutboundMailGuard::hasLocalSink()) {
+            try {
+                $this->sendRedirectedCopy($original, $originalTo, $originalCc, $originalBcc);
+                $forwarded = true;
+            } catch (\Throwable $e) {
+                // The redirect landing in Mailpit is a convenience for testing,
+                // not the safety boundary. Its failure must never re-open the
+                // gate — the original send stays cancelled either way.
+                Log::error('OUTBOUND MAIL GUARD — redirected copy failed to send, original send stays blocked', [
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        $this->capture($original, $originalTo, $originalCc, $originalBcc, $forwarded);
+
+        return false;
+    }
+
+    /**
+     * The actual safety-net record. Never allowed to re-open the gate on
+     * failure, same principle as the sink-forward above — a DB error here
+     * must not turn an intercepted send into a real one.
+     */
+    private function capture(Email $original, string $to, string $cc, string $bcc, bool $forwarded): void
+    {
         try {
-            $this->sendRedirectedCopy($original, $originalTo, $originalCc, $originalBcc);
+            OutboundMailGuardCapture::create([
+                'to_addresses' => $to,
+                'cc_addresses' => $cc !== '' ? $cc : null,
+                'bcc_addresses' => $bcc !== '' ? $bcc : null,
+                'subject' => (string) $original->getSubject(),
+                'raw_mime' => $original->toString(),
+                'environment' => (string) config('app.env'),
+                'forwarded_to_sink' => $forwarded,
+                'captured_at' => now(),
+            ]);
         } catch (\Throwable $e) {
-            // The redirect landing in Mailpit is a convenience for testing,
-            // not the safety boundary. Its failure must never re-open the
-            // gate — the original send stays cancelled either way.
-            Log::error('OUTBOUND MAIL GUARD — redirected copy failed to send, original send stays blocked', [
+            Log::error('OUTBOUND MAIL GUARD — failed to persist capture record', [
                 'error' => $e->getMessage(),
             ]);
         }
-
-        return false;
     }
 
     private function sendRedirectedCopy(Email $original, string $to, string $cc, string $bcc): void

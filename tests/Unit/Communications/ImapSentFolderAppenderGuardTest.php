@@ -50,13 +50,13 @@ final class ImapSentFolderAppenderGuardTest extends TestCase
 
         Log::shouldReceive('warning')
             ->once()
-            ->with('OUTBOUND MAIL BLOCKED — non-production environment', \Mockery::on(
+            ->with('OUTBOUND MAIL INTERCEPTED', \Mockery::on(
                 fn ($context) => $context['action'] === 'imap_sent_folder_append'
             ));
 
         $result = $appender->append($this->mailbox(), 'Subject: test\r\n\r\nbody');
 
-        $this->assertSame(['ok' => false, 'reason' => 'blocked_non_production'], $result);
+        $this->assertSame(['ok' => false, 'reason' => 'intercepted'], $result);
         $this->assertSame(0, $poller->connectCalls, 'The IMAP connection must never be opened when the guard is active — that is the entire point of the fix.');
     }
 
@@ -80,7 +80,7 @@ final class ImapSentFolderAppenderGuardTest extends TestCase
 
         $result = $appender->append($this->mailbox(), 'Subject: test\r\n\r\nbody');
 
-        $this->assertSame('blocked_non_production', $result['reason']);
+        $this->assertSame('intercepted', $result['reason']);
         $this->assertSame(0, $poller->connectCalls);
     }
 
@@ -105,7 +105,7 @@ final class ImapSentFolderAppenderGuardTest extends TestCase
         $result = $appender->append($this->mailbox(), 'Subject: test\r\n\r\nbody');
 
         $this->assertSame(1, $poller->connectCalls, 'On the confirmed live host, append() must behave exactly as before — a real connection attempt is made.');
-        $this->assertNotSame('blocked_non_production', $result['reason']);
+        $this->assertNotSame('intercepted', $result['reason']);
         $this->assertSame('connect_failed', $result['reason']);
     }
 }

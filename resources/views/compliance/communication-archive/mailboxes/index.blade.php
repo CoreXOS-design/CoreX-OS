@@ -16,8 +16,6 @@
         </div>
     </div>
 
-    <x-mail-guard-banner />
-
     @if(session('success'))
     <div class="rounded-md px-4 py-3 text-sm flex items-start gap-3" style="background: color-mix(in srgb, var(--ds-green) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-green) 30%, transparent); color: var(--text-primary);">
         <svg class="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="color: var(--ds-green);">

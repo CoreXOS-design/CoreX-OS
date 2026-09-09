@@ -226,6 +226,16 @@ if (app()->environment('production')) {
         ->name('queue-worker-liveness-alert');
 }
 
+// AT-URGENT-2026-09-09 — the outbound-mail kill switch's daily nag. Runs on
+// every environment (each has its own DevSetting row and its own toggle
+// state, unlike the shared-host check above, so there is no cross-
+// environment duplication to guard against here). Fires only while
+// interception has been force-enabled — see MailInterceptStaleAlert.
+Schedule::command('corex:mail-intercept-stale-alert')
+    ->dailyAt('08:00')
+    ->withoutOverlapping()
+    ->name('mail-intercept-stale-alert');
+
 // Property24 ExDev activation polling — runs every 15 minutes
 Schedule::job(new \App\Jobs\SyncProperty24Activations())->everyFifteenMinutes()->withoutOverlapping();
 

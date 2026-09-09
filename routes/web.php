@@ -2568,6 +2568,15 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->post('settings/email-setup/mailbox/{mailbox}/reveal', [\App\Http\Controllers\Settings\EmailSetupController::class, 'reveal'])
         ->name('settings.email-setup.reveal');
 
+    // AT-URGENT-2026-09-09 — the outbound mail kill switch. owner_only is the
+    // ENTIRE safety boundary here, deliberately separate from
+    // manage_communication_mailboxes (which any agency admin can hold) —
+    // Johan: "for corex uses only". No agency.required either: a super admin
+    // with no agency context selected must still be able to reach this.
+    Route::middleware('owner_only')
+        ->put('settings/email-setup/mail-intercept', [\App\Http\Controllers\Settings\MailInterceptToggleController::class, 'update'])
+        ->name('settings.email-setup.mail-intercept');
+
     // ── Document Verification Queue ──
     Route::middleware(['permission:verify_user_documents', 'agency.required', 'feature:compliance'])->prefix('compliance/verification-queue')->name('compliance.verification.')->group(function () {
         Route::get('/', [\App\Http\Controllers\Compliance\DocumentVerificationController::class, 'index'])->name('index');
@@ -3192,6 +3201,14 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // demo-agency members see.
         Route::get('/demo-sidebar', [\App\Http\Controllers\Admin\DevSettingsController::class, 'demoSidebar'])->name('demo-sidebar');
         Route::put('/demo-sidebar', [\App\Http\Controllers\Admin\DevSettingsController::class, 'updateDemoSidebar'])->name('demo-sidebar.update');
+    });
+
+    // AT-URGENT-2026-09-09 — the outbound-mail kill switch's capture log.
+    // View + count + per-message .eml export only, owner_only (same
+    // boundary as the toggle itself on settings.email-setup.mail-intercept).
+    Route::middleware('owner_only')->prefix('admin/outbound-mail-captures')->name('admin.outbound-mail-captures.')->group(function () {
+        Route::get('/', [\App\Http\Controllers\Admin\OutboundMailGuardCaptureController::class, 'index'])->name('index');
+        Route::get('/{capture}/download', [\App\Http\Controllers\Admin\OutboundMailGuardCaptureController::class, 'download'])->name('download');
     });
 
     // ── System Updates (AT-338) — the CoreX release-note pop-up. ──

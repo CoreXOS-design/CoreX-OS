@@ -5,7 +5,9 @@ namespace App\Http\Controllers\Settings;
 use App\Http\Controllers\Controller;
 use App\Models\Communications\CommunicationMailbox;
 use App\Models\Communications\MailboxCredentialReveal;
+use App\Models\OutboundMailGuardToggleAudit;
 use App\Models\User;
+use App\Support\OutboundMailGuard;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 
@@ -39,7 +41,23 @@ class EmailSetupController extends Controller
             ->orderBy('name')
             ->get();
 
-        return view('settings.email-setup.index', compact('users'));
+        // AT-URGENT-2026-09-09 — CoreX-super-admin-only data. Computed only
+        // for an owner so a regular agency admin's page load never even
+        // queries this — the control is absent for them, not disabled.
+        $mailIntercept = null;
+        if (Auth::user()->isOwnerRole()) {
+            $mailIntercept = [
+                'active' => OutboundMailGuard::isActive(),
+                'overridden' => OutboundMailGuard::isOverridden(),
+                'sendsByDefault' => OutboundMailGuard::isSendingConfirmed(),
+                'forcedDirection' => OutboundMailGuard::forcedDirection(),
+                'forcedSince' => OutboundMailGuard::forcedSince(),
+                'heldCount' => OutboundMailGuard::heldCount(),
+                'recentAudit' => OutboundMailGuardToggleAudit::with('user')->latest()->limit(10)->get(),
+            ];
+        }
+
+        return view('settings.email-setup.index', compact('users', 'mailIntercept'));
     }
 
     /** Create a capture mailbox for a specific user (set_by = agency). */
@@ -190,11 +208,13 @@ class EmailSetupController extends Controller
 
         $testMime = "Subject: CoreX Sent-folder test\r\nFrom: {$mailbox->email_address}\r\nTo: {$mailbox->email_address}\r\nDate: " . now()->toRfc2822String() . "\r\n\r\nThis is a Sent-folder write test from CoreX.";
         $append = $appender->append($mailbox, $rawMime ?? $testMime);
-        if ($append['reason'] === 'blocked_non_production') {
-            // AT-URGENT-2026-09-08 — a deliberate safety skip, not a failure:
-            // nothing was attempted, so the mailbox's real append-health
-            // fields are left exactly as they were.
-            $imapAppend = ['ok' => true, 'message' => 'Skipped — this is a non-production environment, so CoreX does not write a test message into the real Sent folder here.'];
+        if ($append['reason'] === 'intercepted') {
+            // AT-URGENT-2026-09-08/09 — a deliberate safety skip, not a
+            // failure: nothing was attempted, so the mailbox's real
+            // append-health fields are left exactly as they were. Wording
+            // deliberately doesn't say "non-production" — outbound mail
+            // interception can now also be forced on production.
+            $imapAppend = ['ok' => true, 'message' => 'Skipped — outbound mail interception is currently on, so CoreX does not write a test message into the real Sent folder here.'];
         } else {
             $imapAppend = $append['ok']
                 ? ['ok' => true, 'message' => 'Sent folder found and writable.']
