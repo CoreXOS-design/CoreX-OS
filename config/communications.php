@@ -123,6 +123,24 @@ return [
     'first_poll_backfill_days' => (int) env('COMMUNICATIONS_FIRST_POLL_DAYS', 7),
 
     /*
+    | 2026-09-09 (Johan, poller-reliability incident) — chunk size for IMAP
+    | header/flag fetches, in messages. Measured against a real mailbox: the
+    | SEARCH itself is fast (0.37s) regardless of window size; fetching
+    | headers+flags for the matched messages is what scales with count
+    | (~0.7-1.2s/message observed). Bounding each fetch to this many messages,
+    | checkpointing after every chunk, means a first poll on ANY size mailbox
+    | makes real, durable progress every cycle instead of one all-or-nothing
+    | fetch that can outrun imap_poll_budget_seconds and complete nothing.
+    | Not a number to tune per agency for correctness (the watchdog between
+    | chunks already self-limits how many chunks fit in one cycle regardless
+    | of size) -- it's agency-overridable per Johan's standing rule anyway, via
+    | agencies.communication_poll_chunk_size, for a server capable of more per
+    | round trip. 25 messages/chunk is comfortably inside the default 50s
+    | budget even at the slowest observed real-world rate.
+    */
+    'imap_poll_chunk_size' => (int) env('COMMUNICATIONS_IMAP_POLL_CHUNK_SIZE', 25),
+
+    /*
     |--------------------------------------------------------------------------
     | Mailbox failure-alert threshold (AT-181)
     |--------------------------------------------------------------------------

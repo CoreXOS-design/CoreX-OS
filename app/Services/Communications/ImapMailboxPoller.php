@@ -179,41 +179,26 @@ class ImapMailboxPoller
 
                 $usingUidCursor = $storedUid !== null && $currentUidValidity !== 0;
 
-                try {
-                    if ($usingUidCursor) {
-                        // The exact resume point every serious IMAP client uses.
-                        // whereUid() is NOT used here deliberately: it routes a
-                        // non-numeric value (a "n:*" range) through code that wraps
-                        // it in quotes, which is invalid IMAP syntax for a UID range
-                        // and would break the search — confirmed by reading webklex's
-                        // query-generation code directly. The "CUSTOM " prefix is the
-                        // library's own escape hatch for an unquoted raw criterion.
-                        $nextUid = ((int) $storedUid) + 1;
-                        $messages = $folder->query()->where('CUSTOM UID ' . $nextUid . ':*')->setFetchBody(false)->get();
-                    } else {
-                        // No usable UID cursor (first-ever poll for this folder, or a
-                        // just-detected UIDVALIDITY change) — the same bounded,
-                        // agency-configurable backfill window as before (default 7
-                        // days), so a first catch-up can never try to swallow a
-                        // mailbox's entire history at once.
-                        $since = now()->subDays($this->firstPollBackfillDays($mailbox));
-                        $messages = $folder->query()->since($since)->setFetchBody(false)->get();
-                    }
-                } catch (ImapPollTimeoutException $e) {
-                    // The budget fired before the search even returned — nothing in
-                    // this folder was processed this run, so there is nothing to
-                    // checkpoint (the cursor is correctly left untouched). Still
-                    // worth an honest "how far behind" estimate off the folder's
-                    // UIDNEXT we already have, same math as the mid-loop checkpoint.
-                    $behindEstimate = max(0, ((int) ($status_['uidnext'] ?? 1) - 1) - ($storedUid ?? 0));
-                    throw $e;
-                } catch (\Webklex\PHPIMAP\Exceptions\GetMessagesFailedException $e) {
-                    Log::info("Communication archive IMAP search empty (mailbox {$mailbox->id}, {$folderName}): {$e->getMessage()}");
-                    // An empty search still completed cleanly — advance this folder's
-                    // cursor. CRITICAL: only reached because nothing threw above.
-                    $this->advanceUidCursor($mailbox, $isInbound, $storedUid, $currentUidValidity, (int) ($status_['uidnext'] ?? 1));
-                    continue;
-                }
+                // 2026-09-09 (Johan, poller-reliability incident — first-poll-
+                // never-completes fix) — CHUNKED FETCH. Measured against a real
+                // mailbox: SEARCH alone is fast (0.37s) regardless of window
+                // size; fetching headers+flags for every matched message in ONE
+                // unbounded call is what scales with count (95 messages -> 115s,
+                // comfortably over budget, so the whole cycle timed out having
+                // committed nothing). A fresh query object is rebuilt each chunk
+                // (limit()/page() mutate query state) using the SAME fixed
+                // criterion captured once here — $nextUid / $since never move
+                // mid-run, only which page of the same result set is fetched.
+                $nextUid = $usingUidCursor ? ((int) $storedUid) + 1 : null;
+                $since = $usingUidCursor ? null : now()->subDays($this->firstPollBackfillDays($mailbox));
+                $chunkSize = $this->pollChunkSize($mailbox);
+                $buildChunkQuery = function (int $page) use ($folder, $usingUidCursor, $nextUid, $since, $chunkSize) {
+                    $query = $usingUidCursor
+                        ? $folder->query()->where('CUSTOM UID ' . $nextUid . ':*')->setFetchBody(false)
+                        : $folder->query()->since($since)->setFetchBody(false);
+
+                    return $query->limit($chunkSize, $page);
+                };
 
                 // Highest UID PROVEN handled so far, tracked regardless of what
                 // happened to each message (kept, dropped, duplicate, a
@@ -230,8 +215,37 @@ class ImapMailboxPoller
                 // only ever contain PROVEN work, never a message that was mid-flight
                 // when the alarm fired.
                 $maxUidThisRun = $storedUid !== null ? (int) $storedUid : 0;
+                $page = 1;
+                $anyChunkFetched = false;
 
                 try {
+                    while (true) {
+                        // Safe point: the previous chunk (if any) is FULLY done —
+                        // every message in it proven and checkpointed below — and
+                        // the next chunk's fetch hasn't started. See
+                        // startWatchdog()'s docblock: this is exactly the kind of
+                        // boundary that's safe to interrupt, unlike mid-fetch.
+                        $this->checkWatchdog($started);
+
+                        try {
+                            $messages = $buildChunkQuery($page)->get();
+                        } catch (\Webklex\PHPIMAP\Exceptions\GetMessagesFailedException $e) {
+                            if (! $anyChunkFetched) {
+                                Log::info("Communication archive IMAP search empty (mailbox {$mailbox->id}, {$folderName}): {$e->getMessage()}");
+                                $this->advanceUidCursor($mailbox, $isInbound, $storedUid, $currentUidValidity, (int) ($status_['uidnext'] ?? 1));
+                            }
+                            // Empty chunk (or the library's own "nothing matched" shape
+                            // for a page past the end) — this folder is genuinely done
+                            // for this run, whatever prior chunks already proved is
+                            // already checkpointed below. Not a failure.
+                            continue 2; // to the next folder in the outer foreach
+                        }
+
+                        if ($messages->isEmpty()) {
+                            continue 2; // no more pages — same as above, already checkpointed
+                        }
+                        $anyChunkFetched = true;
+
                     foreach ($messages as $liteMessage) {
                         // Safe point: nothing webklex-internal is mid-flight between
                         // one message's fully-finished outcome and the next message's
@@ -337,9 +351,16 @@ class ImapMailboxPoller
                         }
                     }
 
-                    // This folder's ENTIRE message loop ran to completion with nothing
-                    // throwing — genuinely done, safe to advance ITS UID cursor now.
-                    $this->advanceUidCursor($mailbox, $isInbound, $maxUidThisRun > 0 ? $maxUidThisRun : null, $currentUidValidity, (int) ($status_['uidnext'] ?? 1));
+                        // 2026-09-09 (Johan, poller-reliability incident) — checkpoint
+                        // after EVERY chunk, not just once at the very end. This is
+                        // the actual fix for "first poll never completes": a
+                        // killed/timed-out cycle after chunk N keeps chunks 1..N's
+                        // progress and resumes exactly there next cycle, instead of
+                        // one all-or-nothing fetch that makes zero durable progress
+                        // whenever it can't finish inside a single budget window.
+                        $this->advanceUidCursor($mailbox, $isInbound, $maxUidThisRun > 0 ? $maxUidThisRun : null, $currentUidValidity, (int) ($status_['uidnext'] ?? 1));
+                        $page++;
+                    }
                 } catch (ImapPollTimeoutException $e) {
                     // 2026-09-08 (Johan, part A) — CHECKPOINT. The budget fired
                     // partway through this folder. Whatever was PROVEN above (see
@@ -464,6 +485,18 @@ class ImapMailboxPoller
         $days = (int) ($override ?? config('communications.first_poll_backfill_days', 7));
 
         return max(1, min(90, $days ?: 7));
+    }
+
+    /**
+     * 2026-09-09 (Johan, poller-reliability incident) — see config('communications.
+     * imap_poll_chunk_size')'s docblock for the measurement behind this default.
+     */
+    private function pollChunkSize(CommunicationMailbox $mailbox): int
+    {
+        $override = \App\Models\Agency::where('id', $mailbox->agency_id)->value('communication_poll_chunk_size');
+        $size = (int) ($override ?? config('communications.imap_poll_chunk_size', 25));
+
+        return max(1, min(500, $size ?: 25));
     }
 
     /**
