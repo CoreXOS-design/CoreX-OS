@@ -153,4 +153,28 @@ final class RentalApplicationAuthorisationQueueSearchSortTest extends TestCase
         // Above the ceiling clamps to 100, not an unbounded query.
         $this->actingAs($reviewer)->get(route('corex.rental-applications.authorisation.index', ['per_page' => 99999]))->assertOk();
     }
+
+    /**
+     * cc5 regression pass, 2026-09-10 — Johan, verifying #2 himself: "the
+     * per-page dropdown LIES on an out-of-range value... the list and the
+     * control disagree." See RentalApplicationReturnedPerPageTest's
+     * identical test for the full root-cause writeup — same shared trait,
+     * same fix (FiltersRentalApplicationList::resolvePerPage()).
+     */
+    public function test_a_value_between_presets_snaps_up_and_the_selector_shows_the_truth(): void
+    {
+        $reviewer = $this->ro();
+        foreach (range(1, 60) as $i) {
+            $this->pending($reviewer, "SnapRow{$i}", "Snap Property {$i}", now()->subMinutes($i));
+        }
+
+        $response = $this->actingAs($reviewer)->get(route('corex.rental-applications.authorisation.index', ['per_page' => 37]));
+        $response->assertOk();
+
+        $this->assertSame(50, substr_count($response->getContent(), 'Snap Property'), 'effective page size must be exactly 50, not 25 (down) or 100 (further than necessary)');
+        $response->assertSee('value="50" selected', false);
+        $response->assertDontSee('value="10" selected', false);
+        $response->assertDontSee('value="25" selected', false);
+        $response->assertDontSee('value="100" selected', false);
+    }
 }

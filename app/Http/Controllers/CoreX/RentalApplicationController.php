@@ -47,7 +47,7 @@ class RentalApplicationController extends Controller
         $canSeeBranch = in_array($maxScope, ['branch', 'all'], true);
         $canSeeAgency = $maxScope === 'all';
 
-        $perPage = min(100, max(10, $request->integer('per_page', 25)));
+        $perPage = $this->resolvePerPage($request);
 
         $query = RentalApplication::visibleTo($request->user(), $requestedScope)
             ->with(['contact', 'property', 'createdBy'])
@@ -143,8 +143,8 @@ class RentalApplicationController extends Controller
 
         // 2026-09-09 (design-standard audit) — Johan: "per-page control,
         // matching the index screen's 10-100 range sitting right next to
-        // it." Same clamp, same default (25), as index()'s own $perPage.
-        $perPage = min(100, max(10, $request->integer('per_page', 25)));
+        // it." Same options, same default (25), as index()'s own $perPage.
+        $perPage = $this->resolvePerPage($request);
 
         $query = RentalApplication::visibleTo($request->user(), $requestedScope)
             ->with(['contact', 'property', 'signatures'])

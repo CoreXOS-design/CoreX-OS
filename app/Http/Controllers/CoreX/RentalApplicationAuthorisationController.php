@@ -156,9 +156,9 @@ class RentalApplicationAuthorisationController extends Controller
         // 2026-09-09 (cc5 regression pass) — this was the one place the
         // "one trait, three screens" symmetry broke: hardcoded paginate(20),
         // ?per_page= silently ignored, no selector in the blade. Now
-        // identical to index()/returned() — same clamp, same options, same
-        // default — not just the search/sort logic.
-        $perPage = min(100, max(10, $request->integer('per_page', 25)));
+        // identical to index()/returned() — same options, same default —
+        // not just the search/sort logic.
+        $perPage = $this->resolvePerPage($request);
 
         $query = RentalApplication::whereNotNull('submitted_for_approval_at')
             ->where('rental_applications.status', 'under_assessment')

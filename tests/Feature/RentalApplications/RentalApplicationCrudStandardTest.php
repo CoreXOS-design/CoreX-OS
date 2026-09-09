@@ -225,4 +225,29 @@ final class RentalApplicationCrudStandardTest extends TestCase
         $this->actingAs($otherAdmin)->get(route('corex.rental-applications.show', $app))->assertStatus(404);
         $this->actingAs($otherAdmin)->get(route('corex.rental-applications.pdf', $app))->assertStatus(404);
     }
+
+    /**
+     * cc5 regression pass, 2026-09-10 — Johan, verifying #2 himself: "the
+     * per-page dropdown LIES on an out-of-range value... the list and the
+     * control disagree." See RentalApplicationReturnedPerPageTest's
+     * identical test for the full root-cause writeup — same shared trait,
+     * same fix (FiltersRentalApplicationList::resolvePerPage()), same
+     * screen-independent proof needed on index() too.
+     */
+    public function test_a_value_between_presets_snaps_up_and_the_selector_shows_the_truth(): void
+    {
+        $admin = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branchA->id, 'role' => 'admin']);
+        foreach (range(1, 60) as $n) {
+            $this->application($admin, $this->branchA, ['property_address_override' => "Snap Row {$n}"]);
+        }
+
+        $response = $this->actingAs($admin)->get(route('corex.rental-applications.index', ['per_page' => 37]));
+        $response->assertOk();
+
+        $this->assertSame(50, substr_count($response->getContent(), 'Snap Row'), 'effective page size must be exactly 50, not 25 (down) or 100 (further than necessary)');
+        $response->assertSee('value="50" selected', false);
+        $response->assertDontSee('value="10" selected', false);
+        $response->assertDontSee('value="25" selected', false);
+        $response->assertDontSee('value="100" selected', false);
+    }
 }

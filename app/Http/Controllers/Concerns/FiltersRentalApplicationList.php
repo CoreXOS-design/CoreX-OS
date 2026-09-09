@@ -24,6 +24,9 @@ use Illuminate\Http\Request;
  */
 trait FiltersRentalApplicationList
 {
+    /** The only per-page values selectable through the UI on any of the three screens. */
+    private const PER_PAGE_OPTIONS = [10, 25, 50, 100];
+
     /**
      * @param string $dateColumn column date_from/date_to filter against
      * @param string $defaultSort column (unqualified) used when no ?sort= is given
@@ -115,5 +118,35 @@ trait FiltersRentalApplicationList
         $query->orderBy('rental_applications.id', $direction);
 
         return $query;
+    }
+
+    /**
+     * The per-page selector on all three screens offers exactly four
+     * choices (10/25/50/100) — the ONLY values a user can ever pick through
+     * the UI. The old clamp, `min(100, max(10, $raw))`, let a hand-edited
+     * URL land on any integer in that range (e.g. ?per_page=37): the query
+     * genuinely used 37, but the <select> has no option equal to 37, so
+     * @selected() matched nothing and the browser fell back to displaying
+     * its FIRST option (10) — the control showing 10 while 37 was actually
+     * in effect. Johan: "the control must show what is actually in effect
+     * — or the value must be clamped to a real option." Snapping to the
+     * nearest PRESET (rounding up, so a crafted value is never honoured
+     * with FEWER rows than a plain reading of it would suggest) makes the
+     * effective value always exactly one of the four options — the
+     * selector can never disagree with reality again, because there is no
+     * value left for it to disagree about.
+     *
+     * @return int one of self::PER_PAGE_OPTIONS
+     */
+    private function resolvePerPage(Request $request, int $default = 25): int
+    {
+        $raw = $request->integer('per_page', $default);
+        foreach (self::PER_PAGE_OPTIONS as $option) {
+            if ($raw <= $option) {
+                return $option;
+            }
+        }
+
+        return self::PER_PAGE_OPTIONS[array_key_last(self::PER_PAGE_OPTIONS)];
     }
 }
