@@ -134,6 +134,13 @@ class ImapMailboxPoller
 
         try {
             foreach ($folders as $entry) {
+                // Safe point: nothing webklex-internal is mid-construction here —
+                // the previous folder (if any) is fully done, the next one hasn't
+                // started. See startWatchdog()'s docblock for why this replaced
+                // pcntl_async_signals(true) — a signal landing here can only ever
+                // interrupt OUR OWN loop bookkeeping, never a third-party object.
+                $this->checkWatchdog($started);
+
                 $folder    = $entry['folder'];
                 $direction = $entry['direction'];
                 $folderName = $entry['label'];
@@ -226,6 +233,11 @@ class ImapMailboxPoller
 
                 try {
                     foreach ($messages as $liteMessage) {
+                        // Safe point: nothing webklex-internal is mid-flight between
+                        // one message's fully-finished outcome and the next message's
+                        // first touch. See startWatchdog()'s docblock.
+                        $this->checkWatchdog($started);
+
                         $uid = null;
                         try {
                             $uid = (int) $liteMessage->getUid();
@@ -645,12 +657,36 @@ class ImapMailboxPoller
      * Returns whether the alarm was armed (pcntl present) so stopWatchdog can
      * restore the previous handler. No-op (returns false) when pcntl is absent.
      */
+    /**
+     * 2026-09-09 (Johan, poller-reliability incident — gating item, live promotion
+     * blocked on this) — root cause of the intermittent
+     * "Cannot assign null to property Webklex\PHPIMAP\Message::$folder_path"
+     * TypeError, confirmed live: this was `pcntl_async_signals(true)`, which
+     * delivers the alarm the INSTANT PHP's VM next has a safe point after the
+     * blocking socket read returns — which can be mid-way through webklex's own
+     * internal object construction (Message::make(), typed-property assignment,
+     * partially-built arrays), not just "between our own statements". Confirmed
+     * by direct experiment: raising the budget from 50s to 300s did not stop the
+     * server response from taking that long — it stopped the CRASH, producing a
+     * clean, correctly-checkpointed ImapPollTimeoutException instead, because the
+     * alarm essentially never needed to fire mid-flight on a still-running read
+     * for a well-behaved case. The crash was never about how LONG the read took;
+     * it was about the exception being thrown at an unsafe, arbitrary point
+     * inside a THIRD-PARTY library's own internals.
+     *
+     * Fixed by giving up on truly-async delivery. `pcntl_async_signals(false)` +
+     * explicit `pcntl_signal_dispatch()` calls, placed ONLY at points this
+     * poller itself controls and knows are safe (see the per-message and
+     * per-folder loop in poll()), mean the ImapPollTimeoutException can now
+     * ONLY ever be thrown from code WE wrote, at a point WE verified nothing is
+     * mid-construction — never from inside webklex.
+     */
     private function startWatchdog(int $seconds, int $mailboxId): bool
     {
         if (! function_exists('pcntl_async_signals') || ! function_exists('pcntl_alarm')) {
             return false;
         }
-        pcntl_async_signals(true);
+        pcntl_async_signals(false);
         pcntl_signal(SIGALRM, function () use ($seconds, $mailboxId) {
             throw new ImapPollTimeoutException("mailbox {$mailboxId} read exceeded {$seconds}s budget");
         });
@@ -666,6 +702,19 @@ class ImapMailboxPoller
         }
         pcntl_alarm(0);
         pcntl_signal(SIGALRM, SIG_DFL);
+    }
+
+    /**
+     * Check the watchdog's alarm ONLY at a point this class has verified is
+     * safe to interrupt — never inside a third-party call. A no-op (and
+     * genuinely free — no syscall) when the watchdog isn't armed, so every
+     * call site can call this unconditionally.
+     */
+    private function checkWatchdog(bool $armed): void
+    {
+        if ($armed) {
+            pcntl_signal_dispatch();
+        }
     }
 
     /**
