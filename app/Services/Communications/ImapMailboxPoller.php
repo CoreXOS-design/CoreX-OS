@@ -54,7 +54,10 @@ class ImapMailboxPoller
         if (! $mailbox->active) {
             return ['status' => 'skipped', 'reason' => 'inactive', 'stats' => $stats];
         }
-        if (empty($mailbox->imap_host) || empty($mailbox->username) || empty($mailbox->encrypted_password)) {
+        // 2026-09-09 (Johan, real-attempt-honesty incident) — was empty($x),
+        // which treats a literal "0" host/username/password as absent.
+        // blank() is the correct "is this actually unset" test.
+        if (blank($mailbox->imap_host) || blank($mailbox->username) || blank($mailbox->encrypted_password)) {
             // Health (AT-181): a config-incomplete mailbox is failing — record it (no last_polled_at
             // stamp; it never connected, so that ground-truth signal stays honest).
             $this->health->recordFailure($mailbox, 'incomplete_credentials');

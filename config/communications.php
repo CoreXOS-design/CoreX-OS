@@ -218,6 +218,24 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Outbound public IP (2026-09-09, real-attempt-honesty incident)
+    |--------------------------------------------------------------------------
+    | THIS environment's own outbound IP, for the friendly HOST_UNREACHABLE
+    | message (MailFailureClassifier) to name when a connection times out with
+    | no banner at all — exactly the shape a mail host's IP-based block
+    | produces, and exactly what cost hours today: a genuine 535 auth failure
+    | one hour, then a total timeout the next, on the same mailbox, same
+    | credentials. Deliberately a static per-environment setting, not a live
+    | lookup — the classifier must never make its own network call to answer
+    | "what IP are we", and the value differs by box on purpose (Staging/QA1
+    | share 91.99.130.85 on this box; live is a different machine entirely).
+    | Null (unset) is honoured honestly — the message says so rather than
+    | naming a guessed or stale IP.
+    */
+    'outbound_public_ip' => env('COMMUNICATIONS_OUTBOUND_PUBLIC_IP'),
+
+    /*
+    |--------------------------------------------------------------------------
     | Test Connection rate limit (2026-09-08/09) — the actual cause of today's
     | Afrihost ban, fixed here, not in the poller
     |--------------------------------------------------------------------------

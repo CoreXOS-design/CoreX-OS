@@ -159,4 +159,21 @@ final class ProfileCommunicationCaptureTest extends TestCase
 
         $this->assertSame(0, CommunicationMailbox::where('user_id', $this->user->id)->count());
     }
+
+    /**
+     * 2026-09-09 (Johan, real-attempt-honesty incident) — same empty()-on-"0"
+     * bug as Settings → Email Setup's controller, same fix, same file's own
+     * fill() method. A password of literally "0" must not be silently
+     * discarded while the form looks like it saved.
+     */
+    public function test_update_with_a_password_of_literally_zero_actually_saves_it(): void
+    {
+        $mbx = $this->seedMailbox($this->user, 'user', 'Original-Pw');
+
+        $this->actingAs($this->user)
+            ->put(route('my-portal.comm-capture.update', $mbx), $this->validPayload(['password' => '0']))
+            ->assertRedirect();
+
+        $this->assertSame('0', $mbx->fresh()->encrypted_password);
+    }
 }

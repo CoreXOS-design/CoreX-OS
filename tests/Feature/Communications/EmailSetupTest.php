@@ -178,6 +178,39 @@ final class EmailSetupTest extends TestCase
         $this->assertSame('Original-Pw', $mbx->encrypted_password, 'blank password leaves the stored one intact');
     }
 
+    /**
+     * 2026-09-09 (Johan, real-attempt-honesty incident) — fill() used to gate
+     * the password write on `! empty($data['password'])`, which treats the
+     * literal string "0" as falsy and silently discards it, leaving the OLD
+     * password stored while the form looked like it saved successfully. This
+     * is exactly the class of silent data loss that cost hours today.
+     */
+    public function test_update_with_a_password_of_literally_zero_actually_saves_it(): void
+    {
+        $mbx = $this->seedMailbox('Original-Pw');
+
+        $this->actingAs($this->admin)
+            ->put(route('settings.email-setup.update', $mbx), $this->validPayload(['password' => '0']))
+            ->assertRedirect();
+
+        $this->assertSame('0', $mbx->fresh()->encrypted_password, 'a password of "0" must overwrite the old one, not be silently discarded');
+    }
+
+    /** Same bug class, the outgoing SMTP password field. */
+    public function test_update_with_an_smtp_password_of_literally_zero_actually_saves_it(): void
+    {
+        $mbx = $this->seedMailbox('Original-Pw');
+        $mbx->update(['smtp_encrypted_password' => 'Original-Smtp-Pw', 'outgoing_enabled' => true, 'use_imap_credentials_for_smtp' => false]);
+
+        $this->actingAs($this->admin)
+            ->put(route('settings.email-setup.update', $mbx), $this->validPayload([
+                'smtp_password' => '0', 'outgoing_enabled' => 1, 'use_imap_credentials_for_smtp' => 0, 'smtp_host' => 'mail.hfcoastal.co.za',
+            ]))
+            ->assertRedirect();
+
+        $this->assertSame('0', $mbx->fresh()->smtp_encrypted_password);
+    }
+
     public function test_malformed_email_is_rejected_and_required_fields_enforced(): void
     {
         // Malformed email → rejected, no row created.

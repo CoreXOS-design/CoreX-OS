@@ -74,6 +74,36 @@ final class MailFailureClassifierTest extends TestCase
         $this->assertSame(MailFailureClassifier::CONNECT_FAILED, $c->classifyConnect('php_network_getaddresses: getaddrinfo failed: Name or service not known'));
     }
 
+    /**
+     * 2026-09-09 (Johan, real-attempt-honesty incident) — "we had no honest
+     * answer for what Johan is seeing right now." A connect-class timeout
+     * with no banner at all is exactly the shape an IP-based block produces
+     * (confirmed the same day: real 535 one hour, total timeout the next,
+     * same host, same credentials). The message must say so plainly and name
+     * the actual outbound IP, not just "may be slow".
+     */
+    public function test_connect_timeout_names_the_configured_outbound_ip(): void
+    {
+        config(['communications.outbound_public_ip' => '91.99.130.85']);
+        $c = $this->classifier();
+        $message = $c->friendlyForConnect(MailFailureClassifier::CONNECT_TIMEOUT);
+
+        $this->assertStringContainsString('did not respond at all', $message);
+        $this->assertStringContainsString('blocked or was never whitelisted', $message);
+        $this->assertStringContainsString('91.99.130.85', $message);
+    }
+
+    /** No configured IP must never be guessed at — an honest "ask your host" instead. */
+    public function test_connect_timeout_without_a_configured_ip_does_not_guess(): void
+    {
+        config(['communications.outbound_public_ip' => null]);
+        $c = $this->classifier();
+        $message = $c->friendlyForConnect(MailFailureClassifier::CONNECT_TIMEOUT);
+
+        $this->assertStringContainsString('did not respond at all', $message);
+        $this->assertStringContainsString('Ask whoever hosts this server', $message);
+    }
+
     public function test_tls_failures_classify_distinctly(): void
     {
         $c = $this->classifier();
