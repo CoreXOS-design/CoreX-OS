@@ -50,8 +50,20 @@
             <input type="text" name="q" value="{{ request('q') }}" placeholder="Applicant name, email, property, or agent"
                    class="rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border); min-width: 260px;">
         </div>
+        {{-- 2026-09-09 (cc5 regression pass) — this screen's per-page control
+             was missing entirely (paginate(20) was hardcoded, ?per_page= did
+             nothing). Same options, same onchange-submit pattern, as
+             index.blade.php/returned.blade.php's own selectors. --}}
+        <div>
+            <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Per page</label>
+            <select name="per_page" class="rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);" onchange="this.form.submit()">
+                @foreach([10, 25, 50, 100] as $option)
+                    <option value="{{ $option }}" @selected($perPage === $option)>{{ $option }}</option>
+                @endforeach
+            </select>
+        </div>
         <button type="submit" class="corex-btn-outline text-xs">Filter</button>
-        @if(request()->hasAny(['q']))
+        @if(request()->hasAny(['q', 'per_page']))
             <a href="{{ route('corex.rental-applications.authorisation.index') }}" class="corex-btn-outline text-xs">Clear</a>
         @endif
     </form>

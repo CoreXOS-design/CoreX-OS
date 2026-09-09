@@ -120,4 +120,37 @@ final class RentalApplicationAuthorisationQueueSearchSortTest extends TestCase
         $ascending = $this->actingAs($reviewer)->get(route('corex.rental-applications.authorisation.index', ['sort' => 'agent', 'direction' => 'asc']))->getContent();
         $this->assertLessThan(strpos($ascending, 'Property Z'), strpos($ascending, 'Property A'));
     }
+
+    /**
+     * cc5 regression pass, 2026-09-10 — Johan: "hardcodes paginate(20) and
+     * ignores the per_page parameter the other two screens on your shared
+     * trait both honour — confirmed live, ?per_page=5 still returned 20
+     * rows." Pins the fix: same clamp, same options, as index()/returned().
+     */
+    public function test_per_page_can_be_set_and_is_honoured(): void
+    {
+        $reviewer = $this->ro();
+        foreach (range(1, 12) as $i) {
+            $this->pending($reviewer, "Row{$i}", "PP Property {$i}", now()->subMinutes($i));
+        }
+
+        $ten = $this->actingAs($reviewer)->get(route('corex.rental-applications.authorisation.index', ['per_page' => 10]));
+        $ten->assertOk();
+        $this->assertSame(10, substr_count($ten->getContent(), 'PP Property'));
+
+        $twentyFiveDefault = $this->actingAs($reviewer)->get(route('corex.rental-applications.authorisation.index'));
+        $twentyFiveDefault->assertOk();
+        $this->assertSame(12, substr_count($twentyFiveDefault->getContent(), 'PP Property'), 'default per_page (25) must show all 12 on one page');
+    }
+
+    public function test_per_page_is_clamped_to_the_ten_to_one_hundred_range(): void
+    {
+        $reviewer = $this->ro();
+        $this->pending($reviewer, 'Clamped', 'Clamp Property', now());
+
+        // Below the floor clamps to 10, not an error and not "0 per page".
+        $this->actingAs($reviewer)->get(route('corex.rental-applications.authorisation.index', ['per_page' => 1]))->assertOk();
+        // Above the ceiling clamps to 100, not an unbounded query.
+        $this->actingAs($reviewer)->get(route('corex.rental-applications.authorisation.index', ['per_page' => 99999]))->assertOk();
+    }
 }

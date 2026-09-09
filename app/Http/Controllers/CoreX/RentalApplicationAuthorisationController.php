@@ -153,15 +153,22 @@ class RentalApplicationAuthorisationController extends Controller
         abort_unless($user->isRentalApplicationRO() || $user->isRentalApplicationCO(), 403,
             'You are not configured as a rental application Reviewer or Override user. Ask an admin to add you in Settings.');
 
+        // 2026-09-09 (cc5 regression pass) — this was the one place the
+        // "one trait, three screens" symmetry broke: hardcoded paginate(20),
+        // ?per_page= silently ignored, no selector in the blade. Now
+        // identical to index()/returned() — same clamp, same options, same
+        // default — not just the search/sort logic.
+        $perPage = min(100, max(10, $request->integer('per_page', 25)));
+
         $query = RentalApplication::whereNotNull('submitted_for_approval_at')
             ->where('rental_applications.status', 'under_assessment')
             ->with(['contact', 'property', 'createdBy']);
 
         $this->applySearchSortAndDateRange($query, $request, 'submitted_for_approval_at', 'submitted_for_approval_at', 'asc');
 
-        $applications = $query->paginate(20)->withQueryString();
+        $applications = $query->paginate($perPage)->withQueryString();
 
-        return view('corex.rental-applications.authorisation.index', compact('applications'));
+        return view('corex.rental-applications.authorisation.index', compact('applications', 'perPage'));
     }
 
     /**
