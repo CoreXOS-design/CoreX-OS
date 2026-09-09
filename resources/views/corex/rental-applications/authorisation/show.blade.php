@@ -27,6 +27,7 @@
          currentUserId: {{ Js::from(auth()->id()) }},
          currentUserName: {{ Js::from(auth()->user()->name) }},
          currentUserRole: 'authoriser',
+         markColors: {{ Js::from($markColors) }},
      })">
 
     <div class="rounded-md px-6 py-4 corex-page-banner flex items-center justify-between">
@@ -308,16 +309,15 @@
                                             <button type="button" class="text-xs px-2 py-1 rounded-md" @click="activeTool = 'note'"
                                                     :style="{ border:'1px solid var(--border)', background: activeTool === 'note' ? 'var(--ds-blue-soft, #eff6ff)' : 'transparent', fontWeight: activeTool === 'note' ? '700' : '400' }">Note</button>
                                         </div>
-                                        {{-- Category picker, 2026-09-08 — Johan-approved six-colour
-                                             scheme: the authoriser picks WHAT this mark is (Income,
-                                             Expense, Unpaid), not a raw colour. The authoriser's own
-                                             marks render in the DARKER shade of that category (role
-                                             = treatment) — the same category the agent picked reads
-                                             as a lighter shade of the same hue on their own marks. --}}
+                                        {{-- Category picker, freehand redesign 2026-09-09 — the
+                                             authoriser picks WHAT this mark is (Income, Expense,
+                                             Unpaid); the colour is whichever of THEIR OWN three
+                                             admin-configured colours that category maps to
+                                             (myColorFor()) — never the agent's three, never all six. --}}
                                         <div class="flex items-center gap-1">
                                             <template x-for="c in categories" :key="c.key">
                                                 <button type="button" class="text-xs px-2 py-1 rounded-md" @click="activeCategory = c.key"
-                                                        :style="{ border: '1px solid var(--border)', background: activeCategory === c.key ? fillFor({category: c.key, authorRole: currentUserRole}) : 'transparent', fontWeight: activeCategory === c.key ? '700' : '400', borderBottom: activeCategory === c.key ? ('3px solid ' + markPalette[c.key].underline) : '1px solid var(--border)' }"
+                                                        :style="{ border: (activeCategory === c.key ? '2px solid ' + myColorFor(c.key) : '1px solid var(--border)'), background: myColorFor(c.key), opacity: activeCategory === c.key ? '1' : '0.55', fontWeight: activeCategory === c.key ? '700' : '400' }"
                                                         x-text="c.label"></button>
                                             </template>
                                         </div>
@@ -468,10 +468,10 @@
 @include('corex.rental-applications.partials.document-highlighter-script')
 
 <script>
-function rentalAuthorisationViewer({ initialMarkedUpDocIds, currentUserId, currentUserName, currentUserRole }) {
+function rentalAuthorisationViewer({ initialMarkedUpDocIds, currentUserId, currentUserName, currentUserRole, markColors }) {
     return {
         // Shared highlight/note viewer — see partials/document-highlighter-script.blade.php.
-        ...rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, currentUserName, currentUserRole }),
+        ...rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, currentUserName, currentUserRole, markColors }),
 
         // Decision panel fields — unchanged from before this screen grew a document viewer.
         approveAmount: '',
