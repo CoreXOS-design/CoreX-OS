@@ -38,7 +38,13 @@ return new class extends Migration
 {
     public function up(): void
     {
-        $agencyIds = DB::table('agencies')->pluck('id');
+        // Real QA1 data check (2026-09-09) surfaced why this can't be a
+        // bare pluck('id'): the agencies table also carries soft-deleted
+        // isolated-test-agency fixtures from other lanes' own verification
+        // work (deleted_at IS NOT NULL) — an archived agency needs no live
+        // highlighter settings. "Every existing agency" means every
+        // existing, non-archived one.
+        $agencyIds = DB::table('agencies')->whereNull('deleted_at')->pluck('id');
 
         foreach ($agencyIds as $agencyId) {
             $existingColors = DB::table('rental_application_mark_color_settings')
