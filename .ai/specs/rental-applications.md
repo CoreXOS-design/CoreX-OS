@@ -5279,3 +5279,172 @@ shows a handle at all, hovered or not.
 - `resources/views/corex/settings/rental-applications.blade.php` — Highlighter Colours settings block
 - `routes/web.php` — `corex.settings.rental-applications.mark-colors`
 - `tests/Feature/RentalApplications/RentalApplicationMarkColorSettingTest.php` — new, 5 tests
+
+**Superseded the same evening** — see "Highlighter collection expansion" below. The fixed six colours above became the SEED DATA for an agency-defined collection; `RentalApplicationMarkColorSetting` and its settings block are retired, folded forward.
+
+## Highlighter collection expansion (2026-09-09, cc6)
+
+### The ask
+
+Johan, after the six-colour build above shipped: "we expand highlighter
+to settings where the colours live and we allow an agency to set up
+which highlighters they want — so agency can have 10 highlighters set
+up, each with their own label? Like it, build it." Not three-for-agent
+and three-for-authoriser hardcoded — an agency-owned collection, any
+size, each with its own label, colour, and which role(s) may use it.
+
+### The shape (Johan's decisions, built to exactly)
+
+- A highlighter is a record: label, colour, role_scope
+  (agent/authoriser/both), sort_order, archived. Full CRUD.
+- A saved mark **references** its highlighter (`highlighter_id`) rather
+  than copying the colour — recolouring a highlighter changes every
+  existing mark drawn with it, live, everywhere it renders. "It is the
+  same pen, refilled with different ink."
+- An **archived** highlighter (not deleted — `deleted_at`, the same
+  convention `PropertyTypeOption`/`PropertyTypesController::archive()`
+  already uses for this exact shape of agency-owned list item) still
+  renders every mark drawn with it perfectly; it just can't be chosen
+  for new marks. `RentalApplicationHighlighter::allFor()` (withTrashed)
+  resolves colour for rendering regardless of archived state;
+  `pickerFor()` (the default, scoped query) is what the drawing toolbar
+  uses, and never includes archived rows.
+- Sensible defaults: the six starting highlighters are seeded
+  automatically — for every existing agency via a one-time migration,
+  and for every new agency via a second listener on the existing
+  `AgencyCreated` domain event (alongside `CreateAgencySetupPortal`,
+  not a new mechanism).
+- Category LABELS became agency-configurable text ("each with their
+  own label") — this settles the open question the freehand-redesign
+  section above flagged rather than decided.
+
+### Migration — proven against real QA1 data, not just reasoned about
+
+Today's marks store `category` + `author_role` as plain fields inside
+each mark's own JSON, never a foreign key — which is what makes this
+migration purely ADDITIVE: for every existing agency (excluding
+soft-deleted test-fixture agencies — a real distinction the raw
+`agencies` table surfaced during this build, see "Caught during
+verification" below), seed the six starting highlighters (reading that
+agency's already-customised `RentalApplicationMarkColorSetting` row
+when one exists, never resetting a real customisation), then for every
+existing mark with a `category`, add a new `highlighter_id` key
+pointing at the matching seeded row — `category`/`author_role` are
+never touched or removed, so a resolution gap degrades to the untouched
+legacy fallback instead of breaking. A mark with a null/missing
+`author_role` maps the same way `resolveMarkColors()` already treated
+it (anything not exactly `'authoriser'` → the agent-side highlighter),
+so its rendered colour is provably unchanged, not just probably
+unchanged.
+
+Proven on QA1's real data before shipping: application 4 / document
+2888 (46 real marks, 11 pages, drawn across earlier sessions) — every
+mark rendered identically after the migration, screenshotted before
+committing to this being done. `marks_version` on that row was
+confirmed unchanged by the migration (4 before, 4 after) — this is a
+data backfill, not an edit a client should ever see as a "someone else
+saved" conflict.
+
+**Caught during my own verification, fixed before reporting done:** the
+first migration run seeded highlighters for 8 agency rows, not 4 —
+the `agencies` table also carries several soft-deleted isolated-test-
+agency fixtures from other lanes' own verification work (deleted_at
+IS NOT NULL). Rolled back, scoped the seed to `whereNull('deleted_at')`,
+restored the one real row of custom-colour data the rollback's `down()`
+didn't restore (recreates the superseded table's structure, not its
+data — the exact values were still in this session's own conversation
+history from investigating it minutes earlier), re-ran, re-verified.
+
+### The toolbar — one dropdown, not one button per highlighter
+
+Johan's own concern, and correct: "a row of ten swatches across the
+top of a document viewer will be unusable." Replaced the three-button
+category picker with a single button (current highlighter's swatch +
+label) that opens a dropdown listing every highlighter available to
+the viewer's role (`pickerHighlighters()`), in the agency's own
+configured order. The toolbar's own footprint never changes regardless
+of count — verified at both ends: a 2-highlighter case (nothing
+special needed — it's the same generic list, just shorter) and a
+15-highlighter case (3 seeded + 12 added to a demo agency,
+screenshotted with the dropdown open, scrollable, Highlight/Note/
+thickness/Undo untouched).
+
+### The affordability panel — checked, genuinely not coupled
+
+Traced in the actual code, not assumed: the panel's income/expense
+figures live in their own tables (`RentalApplicationIncomeItem`,
+`RentalApplicationExpenseItem`, hasMany off `RentalApplicationAssessment`)
+with their own description/amount fields; `has_unpaid_transactions` is
+an independent boolean column. Nothing links a highlighter mark's
+`category`/`highlighter_id` to any of these — the words overlap
+because a human marking up a document is matching what they're
+circling to what they're capturing on the panel, not because of any
+shared code path. Nothing to cut; this was never coupled.
+
+### The flattened "download a marked-up copy" PDF — the most valuable finding
+
+Flagged in the investigation report, confirmed by the coordinator as
+"the most valuable thing in that report": the live interactive screen
+and the server-side flattened-PDF download are TWO SEPARATE renderers
+of the same marks. The freehand redesign earlier this session only
+updated the browser SVG rendering — the GD-based burn path
+(`RentalApplicationDocumentHighlightService::burnMark()`) still drew
+the OLD rectangle-plus-underline design and was hardcoded to only
+understand `income`/`expense`/`unpaid`. Left alone, a custom
+highlighter would render wrong (or not at all) on the downloaded copy
+— and the downloaded copy is the one that leaves CoreX and becomes
+someone's record.
+
+Rebuilt to match:
+- Colour resolves via the same highlighter table (`resolveMarkColors()`
+  now takes the agency's highlighter-id → colour map, falling back to
+  the old category scheme only for a mark that somehow has no
+  resolvable `highlighter_id`).
+- The underline is gone entirely — no burnMark() code path draws one
+  any more, for any mark, old or new.
+- Overlapping strokes genuinely MULTIPLY-blend, matching the browser's
+  `mix-blend-mode:multiply`. GD has no native blend-mode support (no
+  Imagick on this box — checked `php -m` before deciding this was
+  necessary) — hand-rolled per-pixel in `multiplyBlendStroke()`,
+  confined to each stroke's own bounding box (never the full page) so
+  it stays fast even on a dense document.
+
+Proven side by side: a custom highlighter ("Deposit Proof", `#2d6cdf`,
+never one of the seeded six) drawn live on a real document — two
+overlapping loops and a zigzag crossing several rows — then the same
+document's flattened download fetched and rasterized. Same colour,
+same shapes, same overlap-darkening, no lines, text legible underneath,
+on both surfaces.
+
+### Settings screen
+
+Same screen, same block (the six-swatch grid it replaces). Full CRUD:
+add (label/colour/role), inline edit-and-save per row, up/down reorder
+(swaps two adjacent sort_order values, submitted via a hidden sibling
+form — no drag-and-drop library), archive (with a confirm prompt
+explaining existing marks are unaffected), and an "Archived" section
+listing archived highlighters with Restore. No wizard entry — Johan
+was explicit that question is still his to answer, not built in.
+
+### Files touched
+
+- `database/migrations/2026_09_09_060000_create_rental_application_highlighters_table.php` — new
+- `database/migrations/2026_09_09_060100_seed_and_backfill_rental_application_highlighters.php` — new, data migration
+- `database/migrations/2026_09_09_060200_drop_rental_application_mark_color_settings_table.php` — new, retires the superseded table
+- `database/schema/mysql-schema.sql` — regenerated (DEFINER-stripped) for the new/dropped tables
+- `app/Models/RentalApplicationHighlighter.php` — new
+- `app/Models/RentalApplicationMarkColorSetting.php` — deleted, superseded
+- `app/Http/Controllers/CoreX/RentalApplicationHighlighterController.php` — new, full CRUD
+- `app/Http/Controllers/CoreX/RentalApplicationSettingsController.php` — `$highlighters` in `edit()`, `updateMarkColors()` removed
+- `app/Http/Controllers/CoreX/RentalApplicationReviewController.php` / `RentalApplicationAuthorisationController.php` — pass `highlighters` (all, including archived) instead of `markColors`
+- `app/Listeners/Onboarding/SeedDefaultRentalApplicationHighlighters.php` — new, on the existing `AgencyCreated` event
+- `app/Providers/AppServiceProvider.php` — registers the new listener
+- `app/Services/RentalApplications/RentalApplicationDocumentHighlightService.php` — `highlighter_id` resolution, `multiplyBlendStroke()`, underline removed from the burn path entirely
+- `resources/views/corex/rental-applications/partials/document-highlighter-script.blade.php` — `highlighters`/`pickerHighlighters()`/`activeHighlighter()`/`legendHighlighters()` replace `categories`/`markColors`/`myColorFor()`
+- `resources/views/corex/rental-applications/partials/document-highlighter-pages.blade.php` — legend, note-popover label
+- `resources/views/corex/rental-applications/review.blade.php` / `authorisation/show.blade.php` — dropdown picker replaces the 3-button category picker
+- `resources/views/corex/settings/rental-applications.blade.php` — full CRUD block replaces the 6-swatch grid
+- `routes/web.php` — `corex.settings.rental-applications.highlighters.{store,update,archive,restore,reorder}`, `mark-colors` route removed
+- `tests/Feature/RentalApplications/RentalApplicationHighlighterTest.php` — new, 10 tests
+- `tests/Feature/RentalApplications/RentalApplicationDocumentMarkSaveTest.php` — updated to the `highlighter_id` contract
+- `tests/Feature/RentalApplications/RentalApplicationMarkColorSettingTest.php` — deleted, superseded
