@@ -20,13 +20,13 @@ class CommunicationMailbox extends Model
         'agency_id', 'user_id', 'email_address', 'imap_host', 'imap_port', 'username',
         'encrypted_password', 'auth_type', 'set_by', 'poll_inbox', 'poll_sent',
         'poll_interval_minutes', 'last_polled_at', 'last_uid_seen', 'active',
-        'last_error', 'last_error_at', 'consecutive_failures', 'failure_notified_at',
+        'last_error', 'last_error_at', 'last_error_detail', 'consecutive_failures', 'failure_notified_at',
         // AT-395 Phase A — outgoing (SMTP) mail fields, spec §2.
         'outgoing_enabled', 'use_imap_credentials_for_smtp', 'smtp_host', 'smtp_port',
         'smtp_encryption', 'smtp_username', 'smtp_encrypted_password', 'smtp_from_name',
-        'outgoing_active', 'last_send_error', 'last_send_error_at', 'consecutive_send_failures',
+        'outgoing_active', 'last_send_error', 'last_send_error_at', 'last_send_error_detail', 'consecutive_send_failures',
         'send_failure_notified_at', 'last_sent_at', 'last_sent_folder_append_error',
-        'last_sent_folder_append_at',
+        'last_sent_folder_append_error_detail', 'last_sent_folder_append_at',
         // 2026-09-08 incremental-poll fix — per-folder watermark/UID cursor,
         // fairness duration tracking, one-time backfill marker.
         'inbox_watermark_at', 'inbox_uid_validity', 'sent_watermark_at',
@@ -200,17 +200,31 @@ class CommunicationMailbox extends Model
         return self::HEALTH_PENDING;
     }
 
-    /** Plain-English label for the recorded send-failure reason (null when healthy). */
+    /** Plain-English label for the recorded send-failure reason (null when healthy). 2026-09-09: same taxonomy as lastErrorLabel(). */
     public function lastSendErrorLabel(): ?string
     {
+        if ($this->last_send_error === null) {
+            return null;
+        }
+
         return match ($this->last_send_error) {
-            null => null,
-            'connect_failed' => 'Could not connect to the mail server',
-            'auth_failed' => 'Login failed — check the username and password',
             'incomplete_credentials' => 'Mailbox is missing an outgoing host, username or password',
-            'send_rejected' => 'Connected, but the mail server refused to send the message',
-            default => ucfirst(str_replace('_', ' ', (string) $this->last_send_error)),
+            'send_rejected' => 'Connected and logged in, but the mail server refused to send this message (it may be blocking the content or the sender address)',
+            'host_auth_locked' => 'Skipped — this mail server has hit our internal login-failure limit; see the banner above.',
+            default => (new \App\Services\Communications\MailFailureClassifier())->friendlyForConnect((string) $this->last_send_error),
         };
+    }
+
+    /** Raw server/socket text behind lastSendErrorLabel() (2026-09-09) — for an engineer, never the primary message. */
+    public function lastSendErrorDetail(): ?string
+    {
+        return $this->last_send_error_detail;
+    }
+
+    /** Raw server/socket text behind the Sent-folder append failure reason (2026-09-09) — for an engineer. */
+    public function lastSentFolderAppendErrorDetail(): ?string
+    {
+        return $this->last_sent_folder_append_error_detail;
     }
 
     // ── Health derivation (AT-181) ────────────────────────────────────────────
@@ -286,18 +300,48 @@ class CommunicationMailbox extends Model
         return $overdue ? self::HEALTH_FAILING : self::HEALTH_PENDING;
     }
 
-    /** Plain-English label for the recorded failure reason (null when healthy). */
+    /**
+     * Plain-English label for the recorded failure reason (null when healthy).
+     * 2026-09-09 (Johan) — "tell us why the server is rejecting the
+     * connection", using the same taxonomy as MailFailureClassifier so the
+     * screen and the classifier never drift apart. 'unknown' deliberately
+     * never invents a specific cause — it says so honestly and points at
+     * lastErrorDetail() for the raw text.
+     */
     public function lastErrorLabel(): ?string
     {
+        if ($this->last_error === null) {
+            return null;
+        }
+
+        $classifierReasons = [
+            \App\Services\Communications\MailFailureClassifier::AUTH_FAILED,
+            \App\Services\Communications\MailFailureClassifier::MAILBOX_NOT_FOUND,
+            \App\Services\Communications\MailFailureClassifier::CONNECTION_REFUSED,
+            \App\Services\Communications\MailFailureClassifier::CONNECT_TIMEOUT,
+            \App\Services\Communications\MailFailureClassifier::CONNECT_FAILED,
+            \App\Services\Communications\MailFailureClassifier::TLS_FAILED,
+            \App\Services\Communications\MailFailureClassifier::UNKNOWN,
+        ];
+
+        if (in_array($this->last_error, $classifierReasons, true)) {
+            return (new \App\Services\Communications\MailFailureClassifier())->friendlyForConnect((string) $this->last_error);
+        }
+
         return match ($this->last_error) {
-            null => null,
-            'connect_failed' => 'Could not connect to the mail server',
-            'connect_timeout' => 'The mail server did not respond in time (timed out connecting)',
-            'auth_failed' => 'Login failed — check the username and password',
             'incomplete_credentials' => 'Mailbox is missing host, username or password',
             'read_timeout' => 'Connected, but reading the mailbox timed out — likely a large backlog',
+            'no_sent_folder' => (new \App\Services\Communications\MailFailureClassifier())->friendlyForMissingFolder(),
+            'host_auth_locked' => 'Skipped — this mail server has hit our internal login-failure limit; see the banner above.',
+            'poll_failed' => 'Connected fine, but something unexpected went wrong while reading this mailbox — see the raw detail below.',
             default => ucfirst(str_replace('_', ' ', (string) $this->last_error)),
         };
+    }
+
+    /** Raw server/socket text behind lastErrorLabel() (2026-09-09) — for an engineer, never shown as the primary message. */
+    public function lastErrorDetail(): ?string
+    {
+        return $this->last_error_detail;
     }
 
     /**
@@ -335,11 +379,22 @@ class CommunicationMailbox extends Model
     /**
      * 2026-09-08/09 (Johan, back-off on failure) — plain-English explanation for
      * HEALTH_DISABLED. Null when not disabled (caller checks pollHealth() first).
+     *
+     * 2026-09-09 (Johan, diagnostics) — an auth_failed disable is worded
+     * distinctly from a generic repeated-failure disable: it happened
+     * immediately (not after a threshold of retries), and the reason is a
+     * rejected login, not slowness or an unreachable server. "Separate auth
+     * failures from every other failure class ... on the screen."
      */
     public function disabledLabel(): ?string
     {
         if ($this->poll_disabled_at === null) {
             return null;
+        }
+
+        if ($this->last_error === 'auth_failed') {
+            return "Login rejected — stopped immediately ({$this->poll_disabled_at->diffForHumans()}) to protect this mail server's login limits. "
+                . 'Check the username and password, then use Test Connection to bring it back online.';
         }
 
         return "Stopped polling after {$this->consecutive_failures} failed attempts in a row ({$this->poll_disabled_at->diffForHumans()}). "

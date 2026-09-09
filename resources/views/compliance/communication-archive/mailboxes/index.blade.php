@@ -183,6 +183,16 @@
                                      as the badge itself — it is not an alarm. --}}
                                 <div class="mt-1 text-xs" style="color: {{ match ($health) { 'behind' => 'var(--ds-amber)', 'stale' => 'var(--text-muted)', default => 'var(--ds-crimson)' } }};">{{ $reason }}</div>
                             @endif
+                            {{-- 2026-09-09 (Johan, diagnostics) — "keep the raw server response
+                                 too, stored and viewable. The friendly message is for the person
+                                 setting it up; the raw text is what saves an engineer two days."
+                                 Collapsed by default — never the first thing shown. --}}
+                            @if($m->lastErrorDetail())
+                                <details class="mt-1">
+                                    <summary class="text-xs cursor-pointer" style="color: var(--text-muted);">Raw server response</summary>
+                                    <pre class="mt-1 text-xs whitespace-pre-wrap break-all rounded px-2 py-1" style="background: var(--surface-2); color: var(--text-secondary); border: 1px solid var(--border);">{{ $m->lastErrorDetail() }}</pre>
+                                </details>
+                            @endif
                         </td>
                         <td class="px-4 py-3">
                             @if(!$m->outgoing_enabled)
@@ -201,6 +211,12 @@
                                 <span class="ds-badge {{ $sendBadge['class'] }}" title="{{ $sendReason ?? 'Sending normally through this mailbox.' }}">{{ $sendBadge['label'] }}</span>
                                 @if($sendHealth === 'failing')
                                     <div class="mt-1 text-xs" style="color: var(--ds-crimson);">{{ $sendReason }}</div>
+                                @endif
+                                @if($m->lastSendErrorDetail())
+                                    <details class="mt-1">
+                                        <summary class="text-xs cursor-pointer" style="color: var(--text-muted);">Raw server response</summary>
+                                        <pre class="mt-1 text-xs whitespace-pre-wrap break-all rounded px-2 py-1" style="background: var(--surface-2); color: var(--text-secondary); border: 1px solid var(--border);">{{ $m->lastSendErrorDetail() }}</pre>
+                                    </details>
                                 @endif
                             @endif
                         </td>

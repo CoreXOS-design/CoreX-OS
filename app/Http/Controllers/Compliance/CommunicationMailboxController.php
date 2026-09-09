@@ -259,6 +259,7 @@ class CommunicationMailboxController extends Controller
             $mailbox->forceFill([
                 'last_send_error' => $e->sanitisedReason,
                 'last_send_error_at' => now(),
+                'last_send_error_detail' => $e->rawDetail,
                 'consecutive_send_failures' => (int) $mailbox->consecutive_send_failures + 1,
             ])->save();
             // 2026-09-09 (Johan, auth-lock safeguard) — every real login this
@@ -280,22 +281,25 @@ class CommunicationMailboxController extends Controller
             // interception can now also be forced on production.
             $result['imap_append'] = ['ok' => true, 'message' => 'Skipped — outbound mail interception is currently on, so CoreX does not write a test message into the real Sent folder here.'];
         } else {
+            $imapFailureClassifier = new \App\Services\Communications\MailFailureClassifier();
             $result['imap_append'] = $append['ok']
                 ? ['ok' => true, 'message' => 'Sent folder found and writable.']
                 : ['ok' => false, 'message' => match ($append['reason']) {
-                    'no_sent_folder' => 'Connected, but no Sent folder could be found.',
+                    'no_sent_folder' => $imapFailureClassifier->friendlyForMissingFolder(),
                     'append_failed' => 'Connected to the Sent folder, but writing to it was refused.',
-                    'auth_failed' => 'Login failed — check the username and password.',
                     'incomplete_credentials' => 'Mailbox is missing an outgoing host, username or password.',
-                    // AT-395 fix — 'connect_failed' previously fell through to the
-                    // same wording as "nothing worked at all", masking a working
-                    // SMTP send behind a confusing IMAP-leg-specific connect issue.
-                    'connect_failed' => 'Could not connect to the mail server to check the Sent folder (the email itself may still have sent — see the SMTP result above).',
-                    default => 'Could not connect to the mail server.',
+                    // AT-395 fix — a connect-class failure previously fell
+                    // through to the same wording as "nothing worked at
+                    // all", masking a working SMTP send behind a confusing
+                    // IMAP-leg-specific connect issue. 2026-09-09: now uses
+                    // the same taxonomy/wording as the SMTP leg and the poll
+                    // path, plus this leg's own caveat about the SMTP result.
+                    default => $imapFailureClassifier->friendlyForConnect((string) $append['reason'])
+                        . ' (the email itself may still have sent — see the SMTP result above).',
                 }];
             $mailbox->forceFill($append['ok']
-                ? ['last_sent_folder_append_at' => now(), 'last_sent_folder_append_error' => null]
-                : ['last_sent_folder_append_error' => $append['reason']]
+                ? ['last_sent_folder_append_at' => now(), 'last_sent_folder_append_error' => null, 'last_sent_folder_append_error_detail' => null]
+                : ['last_sent_folder_append_error' => $append['reason'], 'last_sent_folder_append_error_detail' => $append['detail'] ?? null]
             )->save();
         }
 

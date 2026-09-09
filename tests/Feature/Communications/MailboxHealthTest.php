@@ -170,8 +170,13 @@ final class MailboxHealthTest extends TestCase
         $result = $poller->poll($mailbox);
         $mailbox->refresh();
 
-        $this->assertSame('connect_failed', $result['reason']);
-        $this->assertSame('connect_failed', $mailbox->last_error);
+        // 2026-09-09 (diagnostics) — "Connection refused" now classifies as
+        // its own distinct reason (MailFailureClassifier::CONNECTION_REFUSED),
+        // never described as a credential problem, per Johan's taxonomy —
+        // a real refinement over the old single 'connect_failed' catch-all.
+        $this->assertSame('connection_refused', $result['reason']);
+        $this->assertSame('connection_refused', $mailbox->last_error);
+        $this->assertSame('Connection refused', $mailbox->last_error_detail, 'the raw server/socket text is kept verbatim alongside the classified reason');
         $this->assertSame(1, $mailbox->consecutive_failures);
         $this->assertNotNull($mailbox->last_error_at);
         $this->assertNull($mailbox->last_polled_at, 'a connect failure must never advance last_polled_at (the truth signal)');
