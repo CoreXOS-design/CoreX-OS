@@ -5140,3 +5140,142 @@ the explicit instruction to do so rather than guess.
 - `app/Http/Controllers/CoreX/RentalApplicationController.php` — `destroy()` calls `forgetCacheFor()` before archiving
 - `resources/views/corex/rental-applications/generation-show.blade.php` — the two display fixes from the walk
 - `tests/Feature/RentalApplications/RentalApplicationPdfCacheTest.php` — new, 6 tests covering hit/miss, the reopened-but-not-resubmitted edge case, per-generation isolation, write-failure safety, and archive cleanup
+
+## Highlighter freehand redesign (2026-09-09, cc6)
+
+### Why the original design was wrong
+
+Johan, from real marked-up bank statements: "no lines as it strikes
+out." The original highlighter drew a horizontal band plus a solid
+underline beneath it — a design that assumed a clean swipe along one
+line of text, like a ruler. Nobody marks up that way: real strokes
+wander across several rows, loop around a figure, cross each other.
+Two things broke: the underline drew a hard horizontal line through
+everything it crossed, and this module has a genuine strike-out
+feature on the assessment panel — a line through text reads as
+struck-out, not highlighted. The fix removes the underline concept
+entirely rather than adjusting its geometry.
+
+### The new rendering
+
+One polyline per stroke, following the actual pointer path the user
+drew (round caps/joins — a real marker-pen gesture, never a
+rectangle), translucent ink only. `mix-blend-mode:multiply` is set on
+**each polyline individually** in `strokesSvgFor()`
+(document-highlighter-script.blade.php), not once on the containing
+`<svg>` — a blend mode set on the container would flatten every stroke
+into one composited layer first (plain alpha-blending them together),
+then multiply that single flattened result against the page once.
+Per-polyline blending makes two overlapping strokes genuinely compound
+and darken against **each other**, not just against the page beneath
+both — which is what makes loops and crossing strokes read correctly
+on a dense document. Opacity raised from the original 0.5 to 0.55 now
+that there's no underline to lean on for legibility.
+
+### Storage — answered before building, per the coordinator's gate
+
+The storage model was never the rectangle the redesign brief assumed —
+that assumption was about the old RENDERING only. A mark has always
+stored `points: [{x, y}, ...]`, a genuine path, going back to the
+original build. No migration was needed and none was run; every mark
+already on QA1 renders under the new logic unchanged.
+
+What genuinely needed addressing was **how many** points a dense,
+loopy, slow freehand stroke could accumulate:
+- The existing 2px-minimum-spacing throttle in `moveDraw()` already
+  bounds live drawing.
+- **RDP (Ramer–Douglas–Peucker) path simplification**, applied once at
+  SAVE time only (never during the live gesture, so drawing never
+  feels different from what gets stored) — `simplifyPath()` in
+  document-highlighter-script.blade.php, epsilon 1.5px in RASTER
+  (document-resolution) pixels so it scales with the document's own
+  resolution, not the viewer's zoom.
+- `MAX_STROKE_POINTS: 800` — a defensive hard cap in `moveDraw()`
+  itself, not something a normal hand-drawn stroke gets anywhere near;
+  it exists only to bound a pathological case (a very long, very slow
+  drag, or a crafted request), not to shape everyday storage.
+
+### Six colours, agency-configurable
+
+Johan: "admin can pick 6 colours - agent 3 and auth 3." The three
+category KEYS and LABELS (Income/Expense/Unpaid) stay fixed; only
+their COLOUR becomes agency-configurable, via
+`RentalApplicationMarkColorSetting::colorsFor()` — same
+never-writes-on-read pattern as `RentalApplicationQualifyingSetting`,
+sensible defaults matching the palette this feature already shipped
+with, so an agency that never opens the settings screen sees no visual
+change.
+
+Both roles' full colour sets are always sent to the frontend — an
+existing mark needs its AUTHOR's colour regardless of who's currently
+viewing, so rendering can never be trimmed to "just mine." The DRAWING
+TOOLBAR is the one place restricted to the current viewer's own three,
+via `myColorFor()` — Johan: "an agent sees their three; an authoriser
+sees theirs... do not show anyone six." The legend shows both roles'
+swatches side by side, labelled "agent"/"authoriser" in plain text —
+the old "lighter = agent, darker = authoriser" caption is gone, since
+that relationship is no longer guaranteed once colours are
+admin-chosen.
+
+Settings UI: a new "Highlighter Colours" block on
+`corex/settings/rental-applications.blade.php`, six `<input
+type="color">` pickers (one row per role), saved via
+`RentalApplicationSettingsController::updateMarkColors()` →
+`POST corex.settings.rental-applications.mark-colors`, validated as a
+genuine 6-hex colour per field before it can reach storage or a mark's
+rendered style.
+
+**Open question, not decided here — flagged to the coordinator:**
+whether the category LABELS themselves (not just their colour) should
+also become agency-configurable text. Recommended default (labels stay
+fixed) is what's built; category meaning does not change per agency.
+
+**Also flagged, not resolved here — non-negotiable #10a:** whether
+this setting belongs in the Agency Onboarding Setup Wizard is
+explicitly Johan's call, not the lane's, per that rule's own text. Not
+yet added to `config/agency-onboarding-copy.php` pending that answer —
+this is a genuinely open item, not a "deliberately NOT in the wizard"
+decision on the record.
+
+### Delete handles — hover-only, not permanently visible
+
+Johan: "every stroke currently carries a black circled x... eight of
+them scattered down the page... competes with the marks themselves."
+Each polyline carries `pointer-events="stroke"` + `data-mark-id`, so
+the browser's own hit-testing against the actual drawn ink (not a
+bounding box) decides "hovering" — delegated `@mouseover`/`@mouseout`
+on the `<svg>` itself track `hoveredMarkId`, and the remove-handle
+button for a stroke only renders while its own id matches. Ownership
+rules (`canEditMark()`) are unchanged — someone else's mark never
+shows a handle at all, hovered or not.
+
+### Verified
+
+- `php -l` on every changed PHP file; `node --check` on the extracted
+  inline JS from document-highlighter-script.blade.php — both clean.
+- Model tests (`RentalApplicationMarkColorSettingTest`): default
+  colours with zero rows written, `colorsForRole()` isolation, a full
+  six-colour save round-trips through `colorsFor()`, an invalid hex is
+  rejected and never persisted, a second save updates the same row
+  rather than duplicating it.
+- Dense-document freehand pass (loops, overlaps, strokes across
+  several rows, not a straight test swipe) against a real document —
+  see the coordinator report for the specific record and screenshots.
+- Existing marks already on QA1 confirmed still rendering correctly
+  under the new per-polyline rendering — no migration, nothing
+  orphaned.
+
+### Files touched
+
+- `database/migrations/2026_09_09_040000_create_rental_application_mark_color_settings_table.php` — new
+- `app/Models/RentalApplicationMarkColorSetting.php` — new
+- `app/Http/Controllers/CoreX/RentalApplicationReviewController.php` — passes `markColors` to the view
+- `app/Http/Controllers/CoreX/RentalApplicationAuthorisationController.php` — same
+- `app/Http/Controllers/CoreX/RentalApplicationSettingsController.php` — `updateMarkColors()`, `$markColors` in `edit()`
+- `resources/views/corex/rental-applications/review.blade.php` — `markColors` threaded into `rentalReview()`
+- `resources/views/corex/rental-applications/authorisation/show.blade.php` — same, into `rentalAuthorisationViewer()`
+- `resources/views/corex/rental-applications/partials/document-highlighter-script.blade.php` — freehand rendering, `myColorFor()`, `hoveredMarkId`, `simplifyPath()`, `MAX_STROKE_POINTS`
+- `resources/views/corex/rental-applications/partials/document-highlighter-pages.blade.php` — legend, per-polyline blend, hover-only delete handles, note-marker border fix
+- `resources/views/corex/settings/rental-applications.blade.php` — Highlighter Colours settings block
+- `routes/web.php` — `corex.settings.rental-applications.mark-colors`
+- `tests/Feature/RentalApplications/RentalApplicationMarkColorSettingTest.php` — new, 5 tests
