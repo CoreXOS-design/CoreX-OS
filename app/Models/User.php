@@ -829,6 +829,23 @@ class User extends Authenticatable
         return $this->isRentalApplicationRO($agencyId) || $this->isRentalApplicationCO($agencyId);
     }
 
+    /**
+     * AT-392, 2026-09-09 — the "override" tier for rental applications: a
+     * configured CO, or a platform admin/super_admin. Extracted after the
+     * affordability-badge overflow bug (two independent copies of one
+     * concept, only one ever fixed) turned up the exact same pattern
+     * already forming here: guardNotSelfApproving() and the read-only UI
+     * mirror in RentalApplicationAuthorisationController@show both had
+     * their own copy of `isAdminTier || isCO`. This is now the ONLY
+     * place that test is written — self-approval, re-deciding an
+     * already-decided application, and reopening a declined application
+     * all call this one method rather than each carrying their own copy.
+     */
+    public function isRentalApplicationOverrideTier(?int $agencyId = null): bool
+    {
+        return $this->isRentalApplicationCO($agencyId) || in_array($this->role, ['admin', 'super_admin'], true);
+    }
+
     private function inRentalApplicationTier(string $column, ?int $agencyId): bool
     {
         $agencyId = $agencyId ?? $this->effectiveAgencyId();

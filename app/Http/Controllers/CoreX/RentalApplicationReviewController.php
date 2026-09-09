@@ -13,6 +13,7 @@ use App\Models\RentalApplicationExpenseItem;
 use App\Models\RentalApplicationIncomeItem;
 use App\Models\RentalApplicationQualifyingSetting;
 use App\Models\RentalApplicationStatusHistory;
+use App\Services\RentalApplications\RentalApplicationAuditService;
 use App\Services\RentalApplications\RentalApplicationDocumentHighlightService;
 use App\Services\RentalApplications\RentalApplicationMailer;
 use Illuminate\Http\Request;
@@ -238,14 +239,41 @@ class RentalApplicationReviewController extends Controller
      * Reopen/resubmit, 2026-09-08 — Johan: "after a rental application comes
      * back to the agent, the agent must be able to send it BACK to the
      * applicant so the applicant can reopen it, edit what they entered, and
-     * re-sign it." Only reachable from RentalApplication::REOPENABLE_STATUSES
-     * (returned or under_assessment — never past an authoriser's own
-     * approved/declined decision, which this action deliberately does not
-     * reopen). A required note (mirrors requestMoreInfoFromApplicant()'s own
-     * shape) — both because the applicant-facing email needs something to
-     * say and because a status change of this weight belongs in the audit
-     * trail with a reason, same as every other agent judgement call on this
+     * re-sign it." Only reachable from RentalApplication::REOPENABLE_STATUSES.
+     * A required note (mirrors requestMoreInfoFromApplicant()'s own shape) —
+     * both because the applicant-facing email needs something to say and
+     * because a status change of this weight belongs in the audit trail
+     * with a reason, same as every other agent judgement call on this
      * screen.
+     *
+     * 2026-09-09 — Johan: "co should be able to reopen [a declined
+     * application]. maybe declined and more evidence given so can work
+     * with it again?" Reopening from 'declined' is now allowed, but ONLY
+     * for the rental-application override tier (a configured CO, or
+     * admin/super_admin — see User::isRentalApplicationOverrideTier(),
+     * the SAME check guardNotSelfApproving() already enforces elsewhere,
+     * extracted rather than copied a third time). An ordinary agent
+     * reopening from 'returned'/'under_assessment' is unchanged — the
+     * existing guardRentalApplication() ownership check alone still
+     * governs that, no new restriction there. This is a real 403 on the
+     * action itself, not a hidden button — a button hidden from a
+     * crafted request is not a gate.
+     *
+     * Nothing about the prior decision is touched: the decline reason and
+     * its status-history row stay exactly as they were (this method only
+     * ever appends a new row, never edits or deletes one — same for every
+     * status transition it's always recorded), the authoriser's document
+     * marks and the agent's captured income/expense items are untouched
+     * (this method writes only to the application row itself), and
+     * signatures continue to version rather than overwrite on the
+     * applicant's next real resubmission (RentalApplicationSigningController
+     * ::submit() creates a new numbered generation unconditionally — reopen
+     * doesn't touch signatures at all, so there is nothing new to prove
+     * there). Also now writes its own audit-log entry (see
+     * RentalApplicationAuditService), naming who reopened it and, when
+     * reopening from 'declined', that it required the override tier —
+     * mirroring exactly how decline() already records itself, so "who did
+     * what and when" reads the same way for both actions.
      *
      * Reuses the SAME token the applicant already has (never regenerates
      * it) — refreshing only its expiry, via the agency-configurable
@@ -255,7 +283,7 @@ class RentalApplicationReviewController extends Controller
      * public form pre-fill automatically (Johan: "prefilled - its a
      * reopen, not new") — see RentalApplicationSigningController::show().
      */
-    public function reopen(Request $request, RentalApplication $rentalApplication, RentalApplicationMailer $mailer)
+    public function reopen(Request $request, RentalApplication $rentalApplication, RentalApplicationMailer $mailer, RentalApplicationAuditService $audit)
     {
         $this->guardRentalApplication($rentalApplication);
 
@@ -267,11 +295,21 @@ class RentalApplicationReviewController extends Controller
             return response()->json(['error' => 'This application can\'t be reopened from its current status.'], 422);
         }
 
+        $fromStatus = $rentalApplication->status;
+        $isOverrideReopen = $fromStatus === 'declined';
+
+        if ($isOverrideReopen) {
+            abort_unless(
+                $request->user()->isRentalApplicationOverrideTier((int) $rentalApplication->agency_id),
+                403,
+                'Only the head of rentals (or an admin) may reopen a declined application.',
+            );
+        }
+
         if (! $rentalApplication->token) {
             return response()->json(['error' => 'This application has no applicant link yet — send it first.'], 422);
         }
 
-        $fromStatus = $rentalApplication->status;
         $expiryDays = RentalApplicationQualifyingSetting::reopenLinkExpiryDaysFor((int) $rentalApplication->agency_id);
 
         $rentalApplication->status = 'reopened';
@@ -287,6 +325,20 @@ class RentalApplicationReviewController extends Controller
             'reopened',
             $request->user(),
             'Reopened for the applicant: ' . $validated['note'],
+        );
+
+        $audit->log(
+            $rentalApplication,
+            eventCategory: 'reopen',
+            eventType: 'reopened',
+            user: $request->user(),
+            isOverride: $isOverrideReopen,
+            reason: $validated['note'],
+            oldValues: ['status' => $fromStatus],
+            newValues: ['status' => 'reopened'],
+            humanSummary: $isOverrideReopen
+                ? 'Reopened a declined application (override)'
+                : 'Reopened for the applicant',
         );
 
         $sent = $mailer->sendReopened($rentalApplication, $validated['note']);

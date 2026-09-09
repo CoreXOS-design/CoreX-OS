@@ -36,13 +36,24 @@ class RentalApplication extends Model
      * alone.
      *
      * Only a RETURNED or ALREADY-UNDER-ASSESSMENT application can be
-     * reopened — an agent's own judgement call before the authoriser has
-     * decided anything. Deliberately excludes approved/declined/withdrawn:
-     * reopening past an authoriser's decision would mean overturning it,
-     * which is a different feature this build does not attempt.
+     * reopened by anyone with ordinary write access to it (an agent's own
+     * judgement call before the authoriser has decided anything) — the
+     * existing guardRentalApplication() ownership check alone is enough
+     * there, unchanged.
+     *
+     * 2026-09-09 — Johan added DECLINED: "co should be able to reopen.
+     * maybe declined and more evidence given so can work with it again?"
+     * A declined application can now also be reopened, but ONLY by the
+     * rental-application override tier (User::isRentalApplicationOverrideTier()
+     * — a configured CO, or admin/super_admin), enforced in reopen()
+     * itself, never by hiding the button alone. Deliberately still
+     * excludes approved/withdrawn: approved is the other side of the
+     * same "an authoriser already decided" line and reopening it isn't
+     * part of this ask; withdrawn is the applicant's own choice to walk
+     * away, not something the agency reopens on their behalf.
      */
     public const REOPENABLE_STATUSES = [
-        'returned', 'under_assessment',
+        'returned', 'under_assessment', 'declined',
     ];
 
     /**

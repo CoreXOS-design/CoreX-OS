@@ -641,13 +641,9 @@
                                 <p class="text-xs mt-2 font-medium" style="color: var(--ds-amber, #b45309);">Link a property to check against its rent.</p>
                             </template>
                             <template x-if="result.label === 'sufficient' || result.label === 'insufficient'">
-                                <div class="mt-2">
-                                    <span class="ds-badge" :class="result.label === 'sufficient' ? 'ds-badge-success' : 'ds-badge-warning'"
-                                          x-text="result.label === 'sufficient' ? 'Within guideline' : 'Exceeds guideline'"></span>
-                                    <p class="text-xs mt-1" style="color: var(--text-muted);">
-                                        Property rent: <strong x-text="formatR(result.rent)"></strong>
-                                    </p>
-                                </div>
+                                <x-rental-application-affordability-verdict
+                                    met-expr="result.label === 'sufficient'"
+                                    detail-expr="'Property rent: <strong>' + formatR(result.rent) + '</strong>'" />
                             </template>
                         </div>
                     </template>
@@ -780,11 +776,12 @@
                                 <template x-if="!propertyLinked">
                                     <span class="font-medium" style="color: var(--ds-amber, #b45309);"> Link a property to check against its rent.</span>
                                 </template>
-                                <template x-if="propertyLinked && rent !== null">
-                                    <span>Actual rent (<span x-text="'R' + formatAmount(rent)"></span>) is <span x-text="rentAsPercent()"></span>% of gross income.
-                                    <span class="ds-badge" :class="meetsThreshold() ? 'ds-badge-success' : 'ds-badge-warning'" x-text="meetsThreshold() ? 'Within the affordability guideline' : 'Exceeds the affordability guideline'"></span></span>
-                                </template>
                             </p>
+                            <template x-if="propertyLinked && rent !== null">
+                                <x-rental-application-affordability-verdict
+                                    met-expr="meetsThreshold()"
+                                    detail-expr="'Actual rent (' + 'R' + formatAmount(rent) + ') is ' + rentAsPercent() + '% of gross income.'" />
+                            </template>
                         </div>
                     </template>
                     <template x-if="!(statementMonths && incomeTotal() > 0)">
@@ -825,7 +822,21 @@
                         </div>
                     @endif
 
-                    @if(in_array($rentalApplication->status, \App\Models\RentalApplication::REOPENABLE_STATUSES, true))
+                    {{-- 2026-09-09 — Johan approved reopening a DECLINED
+                         application too, but only for the rental-application
+                         override tier (a configured CO, or admin/super_admin
+                         — User::isRentalApplicationOverrideTier(), the real
+                         gate enforced server-side in reopen() itself). This
+                         is a courtesy hide only: an ordinary agent viewing a
+                         declined application simply doesn't see the control,
+                         rather than seeing it and hitting a 403 — the button
+                         being absent here changes nothing about what the
+                         server will accept from a crafted request. --}}
+                    @php
+                        $canReopenNow = in_array($rentalApplication->status, \App\Models\RentalApplication::REOPENABLE_STATUSES, true)
+                            && ($rentalApplication->status !== 'declined' || auth()->user()->isRentalApplicationOverrideTier((int) $rentalApplication->agency_id));
+                    @endphp
+                    @if($canReopenNow)
                         <p class="text-xs font-semibold uppercase tracking-wide mb-2 mt-4" style="color: var(--text-muted);">Reopen for the applicant</p>
                         <p class="text-xs mb-2" style="color: var(--text-muted);">
                             Sends the applicant a link to fix an answer and re-sign. Their previous answers stay pre-filled — they only edit what's wrong. The signed submission on file now is kept, unchanged, as a separate record.

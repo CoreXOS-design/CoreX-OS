@@ -85,10 +85,11 @@ class RentalApplicationAuthorisationController extends Controller
             return;
         }
 
-        $isAdminTier = in_array($user->role, ['admin', 'super_admin'], true);
-        $isCO = $user->isRentalApplicationCO((int) $rentalApplication->agency_id);
-
-        abort_unless($isAdminTier || $isCO, 403, 'You created this application, so it needs another authoriser.');
+        abort_unless(
+            $user->isRentalApplicationOverrideTier((int) $rentalApplication->agency_id),
+            403,
+            'You created this application, so it needs another authoriser.',
+        );
     }
 
     /**
@@ -205,8 +206,7 @@ class RentalApplicationAuthorisationController extends Controller
         // — never the actual gate; guardNotSelfApproving() alone decides
         // what the server will accept.
         $selfCreated = (int) $rentalApplication->created_by_user_id === (int) $user->id;
-        $isAdminTier = in_array($user->role, ['admin', 'super_admin'], true);
-        $blockedBySelfApproval = $selfCreated && ! $isAdminTier && ! $canOverride;
+        $blockedBySelfApproval = $selfCreated && ! $user->isRentalApplicationOverrideTier((int) $rentalApplication->agency_id);
 
         // Same shape the add/strike AJAX endpoints return (serializeItem()),
         // built once here so the initial page load and every subsequent
