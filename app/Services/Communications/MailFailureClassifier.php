@@ -120,14 +120,17 @@ class MailFailureClassifier
      * block produces (confirmed the same day: a genuine 535 auth failure one
      * hour, a total connection timeout to the same host the next — most
      * consistent with the host blocking our IP after the failed logins).
-     * Names the actual outbound IP from config, set per environment (never
-     * looked up live — see config/communications.php), so whoever is setting
-     * the mailbox up can hand that exact value to their mail provider instead
-     * of guessing which server IP needs whitelisting.
+     *
+     * 2026-09-09 (cc5 review) — this used to name the IP from a hand-set
+     * config value. Correct on this box today by coincidence; wrong on any
+     * other CoreX install and no way to tell the difference from here. Now
+     * genuinely DETECTED (OutboundIpDetector, cached — see its docblock) and
+     * honestly omitted when detection fails, rather than ever printing a
+     * value nobody verified.
      */
     private function friendlyForConnectTimeout(): string
     {
-        $ip = config('communications.outbound_public_ip');
+        $ip = app(OutboundIpDetector::class)->detect();
 
         $ipClause = $ip
             ? "This server's outbound address is {$ip} — give that to your mail host and ask them to confirm it is allowed to connect."

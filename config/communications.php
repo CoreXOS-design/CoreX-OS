@@ -216,23 +216,16 @@ return [
     'imap_append_timeout_seconds' => (int) env('COMMUNICATIONS_IMAP_APPEND_TIMEOUT_SECONDS', 15),
     'test_connection_timeout_seconds' => (int) env('COMMUNICATIONS_TEST_CONNECTION_TIMEOUT_SECONDS', 20),
 
-    /*
-    |--------------------------------------------------------------------------
-    | Outbound public IP (2026-09-09, real-attempt-honesty incident)
-    |--------------------------------------------------------------------------
-    | THIS environment's own outbound IP, for the friendly HOST_UNREACHABLE
-    | message (MailFailureClassifier) to name when a connection times out with
-    | no banner at all — exactly the shape a mail host's IP-based block
-    | produces, and exactly what cost hours today: a genuine 535 auth failure
-    | one hour, then a total timeout the next, on the same mailbox, same
-    | credentials. Deliberately a static per-environment setting, not a live
-    | lookup — the classifier must never make its own network call to answer
-    | "what IP are we", and the value differs by box on purpose (Staging/QA1
-    | share 91.99.130.85 on this box; live is a different machine entirely).
-    | Null (unset) is honoured honestly — the message says so rather than
-    | naming a guessed or stale IP.
-    */
-    'outbound_public_ip' => env('COMMUNICATIONS_OUTBOUND_PUBLIC_IP'),
+    // 2026-09-09 — the outbound-IP-in-the-timeout-message setting that WAS
+    // here (a hand-set config value) is gone. cc5 correctly flagged it as
+    // dishonest on any install other than this one box: a message stating a
+    // confident wrong IP is worse than saying nothing. MailFailureClassifier
+    // now calls App\Services\Communications\OutboundIpDetector, which
+    // genuinely detects this server's own outbound address (cached) instead
+    // of trusting whatever someone once typed into .env. See that class's
+    // docblock. A manual override alongside detection was considered and
+    // deliberately NOT added here — proposed to Johan/coordinator instead,
+    // not built unasked.
 
     /*
     |--------------------------------------------------------------------------
