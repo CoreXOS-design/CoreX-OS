@@ -115,6 +115,40 @@
         </form>
     </div>
 
+    {{-- Highlighter freehand redesign, 2026-09-09 — Johan: "admin can pick 6
+         colours - agent 3 and auth 3." Category KEYS/LABELS (Income/Expense/
+         Unpaid) stay fixed — only their colour is configurable here, split
+         one row per role so it's visually obvious which three belong to
+         which. Never writes a row until saved — colorsFor() returns these
+         same defaults on every screen that renders a mark until then. --}}
+    <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+        <h2 class="text-sm font-semibold mb-1" style="color: var(--text-primary);">Highlighter Colours</h2>
+        <p class="text-xs mb-3" style="color: var(--text-muted);">
+            The colours agents and authorisers use to mark up application documents (Income,
+            Expense, Unpaid). Each role sees only its own three colours while drawing — both
+            sets are shown together here, and in the legend, so either role can read the
+            other's marks.
+        </p>
+
+        <form method="POST" action="{{ route('corex.settings.rental-applications.mark-colors') }}" class="space-y-3">
+            @csrf
+            @foreach(['agent' => 'Agent', 'authoriser' => 'Authoriser'] as $roleKey => $roleLabel)
+                <div class="flex items-end gap-4">
+                    <span class="text-xs font-medium w-20" style="color: var(--text-secondary);">{{ $roleLabel }}</span>
+                    @foreach(['income' => 'Income', 'expense' => 'Expense', 'unpaid' => 'Unpaid'] as $catKey => $catLabel)
+                        <div>
+                            <label class="block text-[11px] mb-1" style="color: var(--text-muted);">{{ $catLabel }}</label>
+                            <input type="color" name="{{ $roleKey }}_{{ $catKey }}_color"
+                                   value="{{ old($roleKey.'_'.$catKey.'_color', $markColors[$roleKey][$catKey]) }}"
+                                   class="corex-input" style="width: 48px; height: 32px; padding: 2px;">
+                        </div>
+                    @endforeach
+                </div>
+            @endforeach
+            <button type="submit" class="corex-btn-primary text-xs">Save Colours</button>
+        </form>
+    </div>
+
     {{-- AT-392 authoriser flow, 2026-09-08 — Johan: "each agency will want
          their own wording on declined." A suggested default ships until the
          agency saves their own — same forAgency()-never-writes-on-read

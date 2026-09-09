@@ -2821,6 +2821,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.ro');
     Route::post('/settings/rental-applications/co', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateCO'])
         ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.co');
+    // Highlighter freehand redesign, 2026-09-09 — six mark colours (agent 3, authoriser 3).
+    Route::post('/settings/rental-applications/mark-colors', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateMarkColors'])
+        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.mark-colors');
 
     Route::post('/settings/generate-token', [CoreXSettingsController::class, 'generateApiToken'])->name('corex.settings.generate-token');
     Route::post('/settings/notifications', [CoreXSettingsController::class, 'updateNotificationPreferences'])->middleware('permission:access_settings')->name('corex.settings.notifications.update');
