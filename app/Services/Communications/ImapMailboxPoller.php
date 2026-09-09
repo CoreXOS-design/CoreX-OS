@@ -192,13 +192,38 @@ class ImapMailboxPoller
                 $nextUid = $usingUidCursor ? ((int) $storedUid) + 1 : null;
                 $since = $usingUidCursor ? null : now()->subDays($this->firstPollBackfillDays($mailbox));
                 $chunkSize = $this->pollChunkSize($mailbox);
-                $buildChunkQuery = function (int $page) use ($folder, $usingUidCursor, $nextUid, $since, $chunkSize) {
-                    $query = $usingUidCursor
+                $buildBaseQuery = function () use ($folder, $usingUidCursor, $nextUid, $since) {
+                    return $usingUidCursor
                         ? $folder->query()->where('CUSTOM UID ' . $nextUid . ':*')->setFetchBody(false)
                         : $folder->query()->since($since)->setFetchBody(false);
-
-                    return $query->limit($chunkSize, $page);
                 };
+
+                // 2026-09-09 (Johan, warning-is-noise-we-introduced fix) — was
+                // "fetch a page, see if it's empty" (a while(true) probing the
+                // page past the end every time). webklex's fetch() doesn't
+                // handle a genuinely empty UID list (its is_array($from) branches
+                // only cover count>1 and count===1; count===0 falls through to
+                // code that concatenates the array as if it were a scalar —
+                // "Array to string conversion", every terminal page, every
+                // catch-up, forever). Fixed the right way: know the total match
+                // count BEFORE paging, so we never ask for a page we already
+                // know is empty. One extra fast search() (0.37s measured) buys
+                // this — search() is idempotent and re-run per-chunk by get()
+                // internally anyway, so this adds one call, not a new cost
+                // class. (If new mail arrives between this count and a later
+                // chunk's own re-search, this run simply stops one page short
+                // of that fresh mail — safe, not lossy: the UID cursor this run
+                // commits is exactly what was counted here, and the new mail is
+                // picked up by the very next poll's normal incremental pass.)
+                $this->checkWatchdog($started); // safe point immediately before this folder's own first real network call
+                $totalAvailable = $buildBaseQuery()->search()->count();
+                $totalPages = $totalAvailable > 0 ? (int) ceil($totalAvailable / $chunkSize) : 0;
+
+                if ($totalPages === 0) {
+                    Log::info("Communication archive IMAP search empty (mailbox {$mailbox->id}, {$folderName}): nothing matched.");
+                    $this->advanceUidCursor($mailbox, $isInbound, $storedUid, $currentUidValidity, (int) ($status_['uidnext'] ?? 1));
+                    continue;
+                }
 
                 // Highest UID PROVEN handled so far, tracked regardless of what
                 // happened to each message (kept, dropped, duplicate, a
@@ -215,11 +240,9 @@ class ImapMailboxPoller
                 // only ever contain PROVEN work, never a message that was mid-flight
                 // when the alarm fired.
                 $maxUidThisRun = $storedUid !== null ? (int) $storedUid : 0;
-                $page = 1;
-                $anyChunkFetched = false;
 
                 try {
-                    while (true) {
+                    for ($page = 1; $page <= $totalPages; $page++) {
                         // Safe point: the previous chunk (if any) is FULLY done —
                         // every message in it proven and checkpointed below — and
                         // the next chunk's fetch hasn't started. See
@@ -228,23 +251,27 @@ class ImapMailboxPoller
                         $this->checkWatchdog($started);
 
                         try {
-                            $messages = $buildChunkQuery($page)->get();
+                            $messages = $buildBaseQuery()->limit($chunkSize, $page)->get();
                         } catch (\Webklex\PHPIMAP\Exceptions\GetMessagesFailedException $e) {
-                            if (! $anyChunkFetched) {
-                                Log::info("Communication archive IMAP search empty (mailbox {$mailbox->id}, {$folderName}): {$e->getMessage()}");
-                                $this->advanceUidCursor($mailbox, $isInbound, $storedUid, $currentUidValidity, (int) ($status_['uidnext'] ?? 1));
-                            }
-                            // Empty chunk (or the library's own "nothing matched" shape
-                            // for a page past the end) — this folder is genuinely done
-                            // for this run, whatever prior chunks already proved is
-                            // already checkpointed below. Not a failure.
-                            continue 2; // to the next folder in the outer foreach
+                            // $totalPages was computed from a real count moments ago, so
+                            // every page here is expected to be non-empty — this is now
+                            // a genuine anomaly (e.g. messages deleted from the server
+                            // between the count and this fetch), not the normal
+                            // termination signal it used to be. Whatever prior chunks
+                            // this run already proved is already checkpointed below;
+                            // stop this folder for this run rather than risk retrying
+                            // against numbers that may no longer be accurate.
+                            Log::warning("Communication archive: chunk fetch failed unexpectedly (mailbox {$mailbox->id}, {$folderName}, page {$page}/{$totalPages}): {$e->getMessage()}");
+                            break;
                         }
 
                         if ($messages->isEmpty()) {
-                            continue 2; // no more pages — same as above, already checkpointed
+                            // Same anomaly class as above (server-side count changed
+                            // since $totalPages was computed) — not the expected shape
+                            // any more, but still safe: stop, keep what's proven.
+                            Log::warning("Communication archive: chunk fetch returned unexpectedly empty (mailbox {$mailbox->id}, {$folderName}, page {$page}/{$totalPages}).");
+                            break;
                         }
-                        $anyChunkFetched = true;
 
                     foreach ($messages as $liteMessage) {
                         // Safe point: nothing webklex-internal is mid-flight between
@@ -359,7 +386,6 @@ class ImapMailboxPoller
                         // one all-or-nothing fetch that makes zero durable progress
                         // whenever it can't finish inside a single budget window.
                         $this->advanceUidCursor($mailbox, $isInbound, $maxUidThisRun > 0 ? $maxUidThisRun : null, $currentUidValidity, (int) ($status_['uidnext'] ?? 1));
-                        $page++;
                     }
                 } catch (ImapPollTimeoutException $e) {
                     // 2026-09-08 (Johan, part A) — CHECKPOINT. The budget fired
