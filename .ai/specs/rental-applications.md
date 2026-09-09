@@ -6274,3 +6274,225 @@ mid-build:**
 
 No other change to the shared form, its validation, or its model is
 required to serve this feature.
+
+## Johan's answers to all six questions, plus a seventh (AT-392, 2026-09-09, cc4) — SPEC UPDATE, PENDING JOHAN'S APPROVAL, NO CODE WRITTEN YET
+
+All six prior open questions are answered. A seventh (export) was raised in
+response and answered too. This section updates the spec against all
+seven; nothing here is built yet.
+
+### 7. Decline does not block a future application
+
+Confirmed as proposed: **no** — nothing changes, no new guard is added.
+
+### 8. Approved amount is monthly rent, in rand
+
+Confirmed as proposed: **yes** — no change.
+
+### 9. Wishlist pre-fill — follow the sales-side pattern exactly, don't invent a rental variant
+
+Johan: *"prefilled like any portal lead on sales side. and agent updates.
+and on calls enquires etc that did not come in from a portal agent has to
+load contact, so logic will say that at that stage they will already load
+the wishlist on the contact."*
+
+This confirms the design already in the prior spec section (agent-side
+modal reusing the Core Matches drawer, pre-filled from whatever
+`ContactMatch` the contact already has) as final — **no new capture path
+is built.** Johan's point about phone/walk-in enquiries closes the
+remaining gap cleanly: by the time an agent is working a rental
+application for a contact who came in some other way, that agent has
+already loaded the contact and, in the normal course of working any lead
+(sale or rental), already captured or would capture the wishlist through
+the exact same Core Matches screen — this feature doesn't need to solve
+"how does a non-portal wishlist get created," because that's already how
+every wishlist gets created today, portal or not. The modal's only job is
+review/refine-and-confirm at the point of sending, using whatever exists
+at that moment — created fresh in the modal if genuinely nothing exists
+yet, exactly as `_match-form` already supports.
+
+### 10. Matching rule — the approved amount is a HARD CEILING, never a preference
+
+Johan: *"agent selected houses and they are approved for 10k - we share
+houses to them thats below 10k - same as a sales wishlist. but never
+higher than the approved amount. if no wishlist we share all properties
+below 10k thats available for rental."*
+
+**Absolute rule, stated plainly:** a property priced above the applicant's
+approved amount must never appear in this email, under any circumstance —
+not from a real wishlist match, not from the fallback, regardless of what
+the wishlist itself says. If an agent's wishlist has a higher price
+ceiling than the authoriser actually approved, the approved amount wins,
+full stop — the wishlist's own upper bound is never authoritative over the
+credit decision.
+
+**A dependency bug found while checking this, reported, not fixed
+(out of scope for this build):** `MatchingService`'s price scoring
+(`app/Services/Matching/MatchingService.php` — e.g. lines 373-374,
+555-556, 624, 767-771, 955-959) compares every wishlist's `price_min`/
+`price_max` against `Property.price`. For rentals, that column is the
+wrong one: `Property::effectivePrice()`
+(`app/Models/Property.php:1774-1780`) documents that rentals carry their
+real figure in `rental_amount`, "the sale `price` column is 0/null on a
+rental." Checked directly: of 950 rental listings on QA1, 949 have
+`rental_amount` set and only 59 have `price` set at all (likely stale
+sale-conversion leftovers). This means the existing wishlist-matching
+engine's own price filtering is effectively blind for rental wishlists
+today — a real rental wishlist's `price_min`/`price_max` is being checked
+against a column that's empty for practically every rental listing. This
+is a pre-existing defect in shared matching code used well beyond this
+feature (every rental wishlist on the Buyer Pipeline is affected, not
+just rental applications) — reported here per standing scope rules, not
+touched.
+
+**Why this build is safe regardless:** the ceiling in this spec is not
+implemented by trusting `MatchingService`'s internal price filter. It is
+enforced as an explicit, separate, final step — a single shared filter
+function both the wishlist-match branch and the no-wishlist fallback
+branch pass through before anything reaches the email — comparing against
+`Property::effectivePrice()` (which resolves correctly to `rental_amount`
+for a rental listing), never `Property.price`. Concretely:
+
+1. **Wishlist branch** (countable rental `ContactMatch` exists): call
+   `MatchingService::propertiesForMatch()` as already scoped (own agency
+   stock only), then filter the result through the shared ceiling filter —
+   `effectivePrice() <= approved_rental_amount` — before anything is
+   used. This also means: even though the engine's own price band is
+   presently unreliable for rentals (per the bug above), the ceiling still
+   holds absolutely, because it is checked independently, not derived from
+   the engine's own (buggy) price comparison.
+2. **Fallback branch** (no wishlist, or one that isn't countable): a
+   direct query — own agency, `listing_type = 'rental'`, on-market
+   (`Property::isOnMarket()`), `rental_amount <= approved_rental_amount`
+   — ordered by `rental_amount` descending (closest to the budget),
+   capped at the same agency-configurable maximum used for a real match.
+   This branch never touches `MatchingService` at all, since there is
+   nothing to score against.
+3. Both branches are implemented as calls into one new service method
+   (proposed: `RentalApplicationPropertyMatcher::forApproval()`) so the
+   ceiling is written and enforced in exactly one place — never
+   duplicated, never left to the Blade view to hide an over-ceiling
+   property after the fact. The view renders whatever the query already
+   guaranteed is within bounds; it does not filter.
+
+### 11. Dashboard + application list is enough
+
+Confirmed as proposed: **no other surface** — unchanged from the prior
+spec section.
+
+### 12. Filed on the Contact — architecture, not a flag
+
+Johan: *"yes track on contact - typically we have to mark the tenant as
+approved. so the docs / application / approval gets filed on the contact,
+well thats what it should do. the rental application is not a pillar of
+corex but the contact is, so we need to save the information on the
+contact thats its available at any point if anyone needs to look at it."*
+And explicitly: design it as filed-on-the-contact, **not** a flag on the
+contact pointing back at an application.
+
+**Checked against the existing data model — no conflict, and the
+mechanism Johan is describing already exists and is already used by
+another pillar. This is not a new pattern.**
+
+- `Contact::documents(): BelongsToMany` already exists
+  (`app/Models/Contact.php:283`), through the `document_contacts` pivot
+  (`document_id`, `contact_id`, `party_role`) — a document is filed
+  directly onto one or more contacts, independent of whatever created it.
+- The Contact detail page already has a **"Drive" tab** rendering
+  `$contact->documents->count()` (`resources/views/corex/contacts/show.blade.php:89`)
+  — a real, already-shipped surface where anything filed this way is
+  already retrievable by anyone looking at the contact, exactly as Johan
+  described.
+- E-sign already does exactly this today: `SignatureService::linkFiledDocumentToContactsAndProperty()`
+  (`app/Services/Docuperfect/SignatureService.php:4759-4769`) attaches a
+  freshly-filed signed `Document` to every party's Contact via this same
+  pivot, tagged with a `party_role`. This is the precedent CoreX's own
+  operating principle refers to ("an e-signed document doesn't just
+  collect signatures — it auto-files"). Rental applications adopt the
+  identical mechanism; nothing new is invented.
+
+**The real gap — named precisely, not softened:** rental applications do
+NOT do this today.
+- `RentalApplicationSigningController::uploadDocuments()`
+  (lines ~211 and ~396) creates `Document` rows for applicant-uploaded
+  supporting documents, but tags them only `source_type =
+  'rental_application'` / `source_id` — **`document_contacts` is never
+  attached.** Today these documents are only reachable by first knowing
+  which application they belong to; they do not appear on the Contact at
+  all.
+- `RentalApplicationPdfService::generate()` — the application PDF itself —
+  is **not persisted as a `Document` row at all.** It returns a cached
+  file path, rendered on demand each time it's requested
+  (`app/Services/RentalApplications/RentalApplicationPdfService.php:60`).
+  There is currently nothing to file, because nothing durable is created.
+
+**Proposed fix, built on the existing mechanism, no schema conflict:**
+1. When an applicant uploads a supporting document, attach it to their
+   Contact via `document_contacts` at creation time (`party_role =>
+   'applicant'`), same call shape as `SignatureService`'s existing method.
+2. At the two lifecycle points that matter — the applicant's submission,
+   and the authoriser's final decision (approved or declined) — persist a
+   real `Document` row for the generated application PDF (not just a
+   cache path) and attach it to the Contact the same way. This turns "the
+   application and the approval" into literal, filed, retrievable
+   documents on the Contact's existing Drive tab, satisfying Johan's
+   instruction directly: retrievable from the contact by anyone who needs
+   them, not a pointer that only works if you already know to look at the
+   application.
+3. `rental_application_status` (specced earlier) remains as the fast,
+   glanceable current-state field; the actual evidentiary record now
+   lives as filed documents on the same Contact, not solely inside the
+   `RentalApplication` row.
+
+No conflict with the existing Contact/document model was found. This is
+additive — a missing linking step onto infrastructure that already exists
+and is already proven by e-sign, not a redesign.
+
+### 13. Export — view and download/print the full pack — SCOPED, NOT BUILT
+
+Johan: *"we going to need a way to view the whole application, agent side
+and auth side - which i think is under the contact. but we also need to
+allow the agent to download and print it if they want to physically file
+the whole pack."* Explicitly the full pack, not a financials export.
+
+Two things, scoped for a future build once §1–§12 land, per Johan's
+"scope it, do not build it yet":
+
+1. **View, from the Contact.** A link/entry from the Contact's Rental
+   History section (specced earlier) or its Drive-filed document (once
+   §12 lands) opens the **same unified review screen the agent and
+   authoriser already use internally** (`resources/views/corex/rental-applications/review.blade.php`
+   — the single screen both roles already share, per the September 9
+   unification), in read-only mode when the viewer isn't the record's
+   own agent/authoriser. No new viewer is built — this is the existing
+   screen, reached from a new place.
+2. **Download/print the whole pack.** The existing
+   `RentalApplicationPdfService` / `pdfInline()` mechanism
+   (`app/Http/Controllers/CoreX/RentalApplicationController.php:261-296`)
+   already produces the full application as a PDF. Once §12's filing
+   lands, this becomes literally downloading the filed `Document` from
+   the Contact; until then, it can be exposed as the same existing
+   generate-on-demand download, just reachable from the Contact page.
+
+No new PDF generation, no new viewer, no new export format — both pieces
+are existing capability, newly reachable from the Contact. Scoped here;
+sequenced after the six-plus-one decisions above are built and verified.
+
+### What this changes in the earlier spec sections
+
+- The prior spec's Open Question A ("where does the wishlist get
+  captured") is resolved by §9 above — the agent-modal design already
+  specced stands as final; no applicant-facing capture fields are added
+  to the public application form.
+- The prior fallback-rule wording ("own rental stock at or under the
+  approved amount, ranked by price descending") is superseded by §10
+  above only in that the ceiling is now stated as an absolute, explicitly
+  double-enforced rule rather than a preference — the ranking direction
+  (closest to budget) is unchanged.
+- Contact status (`rental_application_status`, derived via domain events)
+  stands as specced, now explicitly paired with the filed-document
+  mechanism in §12 — the two are complementary: one is the fast status
+  read, the other is the durable evidentiary record.
+
+No code, migration, or UI for this feature is written until Johan
+approves this revision.
