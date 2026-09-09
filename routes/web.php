@@ -2559,6 +2559,16 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/users/{user}/mailbox', [\App\Http\Controllers\Settings\EmailSetupController::class, 'store'])->name('store');
         Route::put('/mailbox/{mailbox}', [\App\Http\Controllers\Settings\EmailSetupController::class, 'update'])->name('update');
         Route::delete('/mailbox/{mailbox}', [\App\Http\Controllers\Settings\EmailSetupController::class, 'destroy'])->name('destroy');
+        // AT-395 §7.1 — restore from archive.
+        Route::post('/mailbox/{mailbox}/restore', [\App\Http\Controllers\Settings\EmailSetupController::class, 'restore'])
+            ->withTrashed()->name('restore');
+        // AT-395 §6 — Test Connection, both legs. Method shipped without this
+        // route ever being registered (2026-09-09) — same failure class Johan
+        // fixed for the compliance mailboxes screen on 2026-09-08
+        // (affdcca4b): a testConnection() controller method with no matching
+        // Route:: line, so the "Test Connection" button 500s the entire page
+        // the instant any listed user has a configured mailbox.
+        Route::post('/mailbox/{mailbox}/test-connection', [\App\Http\Controllers\Settings\EmailSetupController::class, 'testConnection'])->name('test-connection');
     });
     // The audited reveal — principal-only, separate permission from management.
     Route::middleware(['permission:reveal_mailbox_credential', 'agency.required'])
