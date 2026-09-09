@@ -81,10 +81,18 @@ final class MailFailureClassifierTest extends TestCase
      * (confirmed the same day: real 535 one hour, total timeout the next,
      * same host, same credentials). The message must say so plainly and name
      * the actual outbound IP, not just "may be slow".
+     *
+     * 2026-09-09 (cc5 review) — the IP is now genuinely DETECTED
+     * (OutboundIpDetector), not a hand-set config value: a wrong confident
+     * number is worse than none on any CoreX install other than this one
+     * box. Seeding the detector's cache key directly here is the correct,
+     * deterministic way to control its output in a test — it is exactly the
+     * same value the real class would use once a probe has succeeded, with
+     * no real HTTP call made.
      */
-    public function test_connect_timeout_names_the_configured_outbound_ip(): void
+    public function test_connect_timeout_names_the_detected_outbound_ip(): void
     {
-        config(['communications.outbound_public_ip' => '91.99.130.85']);
+        \Illuminate\Support\Facades\Cache::put('communications:outbound_public_ip', '91.99.130.85', 3600);
         $c = $this->classifier();
         $message = $c->friendlyForConnect(MailFailureClassifier::CONNECT_TIMEOUT);
 
@@ -93,10 +101,10 @@ final class MailFailureClassifierTest extends TestCase
         $this->assertStringContainsString('91.99.130.85', $message);
     }
 
-    /** No configured IP must never be guessed at — an honest "ask your host" instead. */
-    public function test_connect_timeout_without_a_configured_ip_does_not_guess(): void
+    /** Detection failure (negative-cache sentinel) must never be guessed at — an honest "ask your host" instead. */
+    public function test_connect_timeout_when_detection_failed_does_not_guess(): void
     {
-        config(['communications.outbound_public_ip' => null]);
+        \Illuminate\Support\Facades\Cache::put('communications:outbound_public_ip', '', 300);
         $c = $this->classifier();
         $message = $c->friendlyForConnect(MailFailureClassifier::CONNECT_TIMEOUT);
 
