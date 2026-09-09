@@ -16,8 +16,6 @@
         </div>
     </div>
 
-    <x-mail-guard-banner />
-
     <div>
         <div class="max-w-2xl">
             <form method="POST" action="{{ $isEdit ? route('compliance.comm-mailboxes.update', $mailbox) : route('compliance.comm-mailboxes.store') }}" class="rounded-md p-5 lg:p-6 space-y-5" style="background: var(--surface); border: 1px solid var(--border);">

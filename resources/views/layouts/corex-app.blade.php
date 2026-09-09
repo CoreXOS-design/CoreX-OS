@@ -87,6 +87,7 @@
              = exactly 100vh = identical to before (zero layout shift on live). --}}
         <div class="h-screen flex flex-col overflow-hidden">
         @include('partials._env-banner')
+        <x-outbound-mail-banner />
         {{-- Mobile sidebar toggle --}}
         <div x-data="{ sidebarOpen: false }" class="flex flex-1 min-h-0 overflow-hidden" style="background:var(--bg, #f4f6fb)">
 

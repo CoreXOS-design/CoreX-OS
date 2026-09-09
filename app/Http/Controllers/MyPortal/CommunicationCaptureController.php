@@ -119,11 +119,13 @@ class CommunicationCaptureController extends Controller
 
         $testMime = "Subject: CoreX Sent-folder test\r\nFrom: {$mailbox->email_address}\r\nTo: {$mailbox->email_address}\r\nDate: " . now()->toRfc2822String() . "\r\n\r\nThis is a Sent-folder write test from CoreX.";
         $append = $appender->append($mailbox, $rawMime ?? $testMime);
-        if ($append['reason'] === 'blocked_non_production') {
-            // AT-URGENT-2026-09-08 — a deliberate safety skip, not a failure:
-            // nothing was attempted, so the mailbox's real append-health
-            // fields are left exactly as they were.
-            $imapAppend = ['ok' => true, 'message' => 'Skipped — this is a non-production environment, so CoreX does not write a test message into the real Sent folder here.'];
+        if ($append['reason'] === 'intercepted') {
+            // AT-URGENT-2026-09-08/09 — a deliberate safety skip, not a
+            // failure: nothing was attempted, so the mailbox's real
+            // append-health fields are left exactly as they were. Wording
+            // deliberately doesn't say "non-production" — outbound mail
+            // interception can now also be forced on production.
+            $imapAppend = ['ok' => true, 'message' => 'Skipped — outbound mail interception is currently on, so CoreX does not write a test message into the real Sent folder here.'];
         } else {
             $imapAppend = $append['ok']
                 ? ['ok' => true, 'message' => 'Sent folder found and writable.']
