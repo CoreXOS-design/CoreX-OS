@@ -102,7 +102,26 @@
                     @php $tc = session('test_connection_result'); @endphp
                     <div class="mt-2 rounded-md px-3 py-2 text-xs space-y-1" style="background: var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); color: var(--text-primary, #1f2937);">
                         <div><strong>SMTP send:</strong> <span style="color: {{ $tc['smtp']['ok'] ? 'var(--ds-green, #16a34a)' : 'var(--ds-crimson, #dc2626)' }};">{{ $tc['smtp']['ok'] ? 'Pass' : 'Fail' }}</span> — {{ $tc['smtp']['message'] }}</div>
+                        {{-- 2026-09-09 (Johan, diagnostics) — "the raw text is what saves an
+                             engineer two days." Same disclosure already built on the Compliance
+                             → Archive Mailboxes screen (index.blade.php); this screen never had
+                             it, so the friendly message's own "see the raw server response
+                             below" text (MailFailureClassifier::friendlyForConnect UNKNOWN case)
+                             pointed at nothing here. Reads the same persisted column, collapsed
+                             by default — never the first thing shown. --}}
+                        @if(!$tc['smtp']['ok'] && $mbx->lastSendErrorDetail())
+                            <details class="mt-1">
+                                <summary class="text-xs cursor-pointer" style="color: var(--text-muted, #6b7280);">Raw server response</summary>
+                                <pre class="mt-1 text-xs whitespace-pre-wrap break-all rounded px-2 py-1" style="background: var(--surface, #fff); color: var(--text-secondary, #374151); border: 1px solid var(--border, #e5e7eb);">{{ $mbx->lastSendErrorDetail() }}</pre>
+                            </details>
+                        @endif
                         <div><strong>Sent-folder write:</strong> <span style="color: {{ $tc['imap_append']['ok'] ? 'var(--ds-green, #16a34a)' : 'var(--ds-crimson, #dc2626)' }};">{{ $tc['imap_append']['ok'] ? 'Pass' : 'Fail' }}</span> — {{ $tc['imap_append']['message'] }}</div>
+                        @if(!$tc['imap_append']['ok'] && $mbx->lastSentFolderAppendErrorDetail())
+                            <details class="mt-1">
+                                <summary class="text-xs cursor-pointer" style="color: var(--text-muted, #6b7280);">Raw server response</summary>
+                                <pre class="mt-1 text-xs whitespace-pre-wrap break-all rounded px-2 py-1" style="background: var(--surface, #fff); color: var(--text-secondary, #374151); border: 1px solid var(--border, #e5e7eb);">{{ $mbx->lastSentFolderAppendErrorDetail() }}</pre>
+                            </details>
+                        @endif
                     </div>
                 @endif
             </div>

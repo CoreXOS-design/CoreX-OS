@@ -295,6 +295,88 @@ final class HostCircuitBreakerTest extends TestCase
         $this->assertTrue($breaker->isOpen('host-b.test'), 'a connect-class failure on the probe must keep the breaker open');
     }
 
+    /**
+     * 2026-09-09 (Johan, real-attempt-honesty incident) — a real Afrihost 535
+     * was classified 'unknown' by MailFailureClassifier (fixed separately)
+     * and this method's old `$reason !== 'auth_failed'` check silently
+     * discarded it — one genuine failed login against a host with a hard
+     * external cap of 3 was never counted. These tests prove the rewritten
+     * blocklist counts everything except the two provably-safe cases:
+     * no real connection was ever opened, or the login is proven to have
+     * succeeded — never "we didn't recognise the reason, so let it slide."
+     */
+    public function test_an_unrecognised_unknown_reason_still_counts_as_a_spent_attempt(): void
+    {
+        $breaker = app(HostCircuitBreaker::class);
+        $breaker->recordAuthFailureIfApplicable('mail-honesty.test', 'unknown');
+
+        $this->assertSame(1, CommunicationHostCircuitBreaker::where('host', 'mail-honesty.test')->value('auth_failure_count'));
+    }
+
+    public function test_classified_auth_failed_still_counts(): void
+    {
+        $breaker = app(HostCircuitBreaker::class);
+        $breaker->recordAuthFailureIfApplicable('mail-honesty.test', 'auth_failed');
+
+        $this->assertSame(1, CommunicationHostCircuitBreaker::where('host', 'mail-honesty.test')->value('auth_failure_count'));
+    }
+
+    public function test_other_connect_class_failures_count_too_since_a_real_connection_was_attempted(): void
+    {
+        $breaker = app(HostCircuitBreaker::class);
+        $breaker->recordAuthFailureIfApplicable('mail-honesty.test', 'connect_failed');
+        $breaker->recordAuthFailureIfApplicable('mail-honesty.test', 'tls_failed');
+
+        $this->assertSame(2, CommunicationHostCircuitBreaker::where('host', 'mail-honesty.test')->value('auth_failure_count'));
+    }
+
+    public function test_incomplete_credentials_never_counts_because_no_connection_was_ever_opened(): void
+    {
+        $breaker = app(HostCircuitBreaker::class);
+        $breaker->recordAuthFailureIfApplicable('mail-honesty.test', 'incomplete_credentials');
+
+        $this->assertNull(CommunicationHostCircuitBreaker::where('host', 'mail-honesty.test')->first());
+    }
+
+    public function test_intercepted_never_counts_because_it_was_a_deliberate_skip(): void
+    {
+        $breaker = app(HostCircuitBreaker::class);
+        $breaker->recordAuthFailureIfApplicable('mail-honesty.test', 'intercepted');
+
+        $this->assertNull(CommunicationHostCircuitBreaker::where('host', 'mail-honesty.test')->first());
+    }
+
+    public function test_reasons_that_prove_login_succeeded_never_count(): void
+    {
+        $breaker = app(HostCircuitBreaker::class);
+        foreach (['send_rejected', 'no_sent_folder', 'append_failed'] as $reason) {
+            $breaker->recordAuthFailureIfApplicable('mail-honesty.test', $reason);
+        }
+
+        $this->assertNull(CommunicationHostCircuitBreaker::where('host', 'mail-honesty.test')->first(), 'a reason that proves the login succeeded must never be counted as a login failure');
+    }
+
+    public function test_null_reason_never_counts(): void
+    {
+        $breaker = app(HostCircuitBreaker::class);
+        $breaker->recordAuthFailureIfApplicable('mail-honesty.test', null);
+
+        $this->assertNull(CommunicationHostCircuitBreaker::where('host', 'mail-honesty.test')->first());
+    }
+
+    /** The exact incident: one Test Connection click, two real legs, both must count when both fail. */
+    public function test_one_test_connection_click_with_smtp_unknown_and_imap_auth_failed_counts_both_legs(): void
+    {
+        $breaker = app(HostCircuitBreaker::class);
+        // SMTP leg: misclassified/unrecognised in the field -- must still count.
+        $breaker->recordAuthFailureIfApplicable('mail.example-host.test', 'unknown');
+        // IMAP leg: correctly classified.
+        $breaker->recordAuthFailureIfApplicable('mail.example-host.test', 'auth_failed');
+
+        $this->assertSame(2, CommunicationHostCircuitBreaker::where('host', 'mail.example-host.test')->value('auth_failure_count'), 'two real failed legs against the same host must both count, reaching our threshold of 2');
+        $this->assertTrue($breaker->isAuthLocked('mail.example-host.test'), 'reaching the threshold must lock immediately -- this is exactly the scenario that must not silently under-count again');
+    }
+
     private function seedCircuitBreakerEventType(): void
     {
         DB::table('notification_event_types')->insertOrIgnore([

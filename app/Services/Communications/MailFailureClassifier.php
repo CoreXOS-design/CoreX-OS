@@ -33,6 +33,23 @@ class MailFailureClassifier
     public const SEND_REJECTED = 'send_rejected';
     public const UNKNOWN = 'unknown';
 
+    /**
+     * 2026-09-09 (Johan, real-attempt-honesty incident) — a real Afrihost 535
+     * ("535 Incorrect authentication data") classified as UNKNOWN because
+     * this list's numeric check was ' 535 ' (space-delimited) while Symfony's
+     * own exception text wraps the code in quotes — `returned "535 Incorrect
+     * authentication data"` — so no bare space ever precedes the digits.
+     * containsResponseCode() below uses a real word-boundary match instead,
+     * which quotes/brackets/punctuation satisfy exactly as a space would
+     * (they are equally non-word characters) — this is a bug CLASS fix, not
+     * a one-off: every bare numeric SMTP/IMAP code in this file now goes
+     * through the same helper, not just 535.
+     */
+    private function containsResponseCode(string $msg, string $code): bool
+    {
+        return (bool) preg_match('/\b' . preg_quote($code, '/') . '\b/', $msg);
+    }
+
     /** Classify a connect/login-phase failure — the shapes overlap between IMAP and SMTP. */
     public function classifyConnect(string $rawMessage): string
     {
@@ -41,10 +58,13 @@ class MailFailureClassifier
         // Order matters: check the server's own explicit rejection wording
         // before generic socket-level wording, since a credential rejection
         // can still mention "connection" in the same sentence.
-        foreach (['authenticationfailed', 'authentication failed', 'invalid credentials', 'invalid login', 'bad login', 'login failed', 'login failure', 'incorrect password', 'auth failed', 'not authenticated', ' 535 '] as $needle) {
+        foreach (['authenticationfailed', 'authentication failed', 'invalid credentials', 'invalid login', 'bad login', 'login failed', 'login failure', 'incorrect password', 'incorrect authentication data', 'auth failed', 'not authenticated'] as $needle) {
             if (str_contains($msg, $needle)) {
                 return self::AUTH_FAILED;
             }
+        }
+        if ($this->containsResponseCode($msg, '535')) {
+            return self::AUTH_FAILED;
         }
         // Deliberately no SMTP enhanced-status codes here (e.g. 5.1.1) — those
         // describe a REJECTED RECIPIENT during a send, not "this login account
@@ -101,8 +121,18 @@ class MailFailureClassifier
         }
 
         $msg = strtolower($rawMessage);
-        foreach (['reject', '550', '553', '554', '5.7.', '5.1.1', '5.1.'] as $needle) {
+        // Enhanced-status-code prefixes ('5.7.', '5.1.1', '5.1.') are
+        // deliberately a plain substring match, not a whole-token one — they
+        // are prefixes of a longer dotted code (e.g. '5.7.' matches '5.7.26'),
+        // and RFC 3463 codes are never wrapped in quotes the way a bare
+        // 3-digit code is, so they were never exposed to the ' 535 '-class bug.
+        foreach (['reject', '5.7.', '5.1.1', '5.1.'] as $needle) {
             if (str_contains($msg, $needle)) {
+                return self::SEND_REJECTED;
+            }
+        }
+        foreach (['550', '553', '554'] as $code) {
+            if ($this->containsResponseCode($msg, $code)) {
                 return self::SEND_REJECTED;
             }
         }
