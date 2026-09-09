@@ -29,6 +29,32 @@
         </div>
     </div>
 
+    {{-- 2026-09-09 (conductor, cc6's regression walk) — Johan's standing
+         CRUD standard: own / branch / agency on every list, enforced at
+         the query layer, same segmented-link pattern as index.blade.php's
+         own toggle right next to this screen. Options above the user's
+         permission ceiling are not shown at all (scopeVisibleTo()'s own
+         clampScope() also enforces this server-side regardless, so hiding
+         here is UX, not the security boundary). --}}
+    <div class="flex items-center gap-2">
+        <span class="text-xs font-medium" style="color: var(--text-secondary);">Showing:</span>
+        <div class="inline-flex rounded-md overflow-hidden" style="border: 1px solid var(--border);">
+            <a href="{{ route('corex.rental-applications.returned', array_merge(request()->except('page'), ['scope' => 'own'])) }}"
+               class="px-3 py-1.5 text-xs font-semibold"
+               style="{{ request('scope', 'own') === 'own' ? 'background: var(--brand-icon, #0ea5e9); color: #fff;' : 'background: var(--surface); color: var(--text-muted);' }}">Own</a>
+            @if($canSeeBranch)
+            <a href="{{ route('corex.rental-applications.returned', array_merge(request()->except('page'), ['scope' => 'branch'])) }}"
+               class="px-3 py-1.5 text-xs font-semibold"
+               style="border-left: 1px solid var(--border); {{ request('scope', 'own') === 'branch' ? 'background: var(--brand-icon, #0ea5e9); color: #fff;' : 'background: var(--surface); color: var(--text-muted);' }}">Branch</a>
+            @endif
+            @if($canSeeAgency)
+            <a href="{{ route('corex.rental-applications.returned', array_merge(request()->except('page'), ['scope' => 'agency'])) }}"
+               class="px-3 py-1.5 text-xs font-semibold"
+               style="border-left: 1px solid var(--border); {{ request('scope', 'own') === 'agency' ? 'background: var(--brand-icon, #0ea5e9); color: #fff;' : 'background: var(--surface); color: var(--text-muted);' }}">Agency</a>
+            @endif
+        </div>
+    </div>
+
     <div class="flex gap-2">
         <a href="{{ route('corex.rental-applications.returned', request()->except(['status', 'page'])) }}" class="corex-btn-outline text-xs {{ !request('status') ? 'corex-tab-active' : '' }}">All</a>
         @foreach(['in_progress', 'returned', 'reopened', 'under_assessment', 'approved', 'declined', 'withdrawn'] as $status)
@@ -40,6 +66,7 @@
     </div>
 
     <form method="GET" action="{{ route('corex.rental-applications.returned') }}" class="rounded-md p-4 flex flex-wrap items-end gap-3" style="background: var(--surface); border: 1px solid var(--border);">
+        <input type="hidden" name="scope" value="{{ request('scope', 'own') }}">
         @if(request('status'))
             <input type="hidden" name="status" value="{{ request('status') }}">
         @endif
@@ -109,9 +136,9 @@
                 @empty
                 <tr><td colspan="6" class="px-4 py-8 text-center text-sm" style="color: var(--text-muted);">
                     @if(request()->hasAny(['q', 'date_from', 'date_to', 'status']))
-                        No returned applications match this filter.
+                        No returned applications match this filter{{ ($canSeeBranch || $canSeeAgency) && request('scope', 'own') === 'own' ? ', or widen the scope above' : '' }}.
                     @else
-                        No returned applications.
+                        No returned applications of your own yet{{ ($canSeeBranch || $canSeeAgency) && request('scope', 'own') === 'own' ? ' — try ' . ($canSeeAgency ? 'Agency' : 'Branch') . ' above if you\'re expecting to see a colleague\'s' : '' }}.
                     @endif
                 </td></tr>
                 @endforelse

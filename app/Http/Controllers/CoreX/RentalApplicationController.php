@@ -209,7 +209,24 @@ class RentalApplicationController extends Controller
      */
     public function returned(Request $request): View
     {
-        $query = RentalApplication::visibleTo($request->user())
+        // 2026-09-09 (conductor, cc6's regression walk) — Johan's standing
+        // CRUD standard applies to every list, no exceptions: "search /
+        // sort / own / branch / agency levels... that should be the design
+        // standard, not me asking for it once we get to that stage." This
+        // screen had none of it — not even reading ?scope= — while index()
+        // right next to it has had the full toggle since 2026-09-08. Wired
+        // identically: same $requestedScope resolution, same
+        // canSeeBranch/canSeeAgency ceiling, same visibleTo($user,
+        // $requestedScope) call. Enforced at the query layer via
+        // scopeVisibleTo() itself (clampScope() cannot be bypassed by
+        // editing the URL), not just by hiding the toggle for a user who
+        // doesn't have the higher tier.
+        $requestedScope = $request->get('scope', 'own');
+        $maxScope = \App\Services\PermissionService::getDataScope($request->user(), 'rental_applications');
+        $canSeeBranch = in_array($maxScope, ['branch', 'all'], true);
+        $canSeeAgency = $maxScope === 'all';
+
+        $query = RentalApplication::visibleTo($request->user(), $requestedScope)
             ->with(['contact', 'property', 'signatures'])
             // Table-qualified — see applySearchSortAndDateRange()'s own
             // 2026-09-08 comment: this screen's sort=contact/property links
@@ -227,7 +244,7 @@ class RentalApplicationController extends Controller
 
         $applications = $query->paginate(25)->withQueryString();
 
-        return view('corex.rental-applications.returned', compact('applications'));
+        return view('corex.rental-applications.returned', compact('applications', 'canSeeBranch', 'canSeeAgency'));
     }
 
     /**
