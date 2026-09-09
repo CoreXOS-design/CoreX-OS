@@ -4950,3 +4950,75 @@ standing "shared checkout belongs to cc1 alone" rule — not landed by me;
 cc1 lands via the shared checkout. All four migrations already run
 against QA1's live database directly from this worktree, same pattern as
 every other feature this session.
+
+## Self-approval block (AT-392, 2026-09-09, cc5)
+
+### The rule — Johan's, verbatim
+
+"Self approve should only work for the co of rentals or admin - rest
+agents and ro can not approve their own."
+
+Two groups may authorise an application they created themselves: a CO
+(Override) user for the agency, or an administrator (`users.role` of
+`admin` or `super_admin` — the same tier `SettingsController.php`
+already treats as one group, no new concept invented). Everyone else —
+plain agents and RO-tier users who are neither CO nor admin — may not
+act on their own application at all. Someone else has to.
+
+### Why it applies to all three decisions, not just Approve/Decline
+
+Request More Information was the one place I considered an exemption —
+it doesn't commit any money, it just sends the application back to the
+agent. But it's still a recorded authorisation-workflow decision, and
+the whole point of the rule is an independent set of eyes on the file.
+A self-reviewer sending an information request to themselves isn't
+independent review either. Built uniform across Approve, Decline, and
+Request More Information; no exemption.
+
+### Enforcement — server first, screen explains why
+
+`RentalApplicationAuthorisationController::guardNotSelfApproving()` is
+the actual gate: a no-op unless `created_by_user_id === auth user`, in
+which case it requires `role in [admin, super_admin]` OR
+`isRentalApplicationCO()`, 403 otherwise
+("You created this application, so it needs another authoriser.").
+Called from `guardCanDecide()` (approve/decline) and inline in
+`requestMoreInfo()`, which doesn't use `guardCanDecide()`. A crafted
+request straight at the endpoint gets refused exactly the same as a
+click would have.
+
+`show()` separately computes `$blockedBySelfApproval` — same logic,
+read-only, never the actual gate — purely so the Decision panel can
+say why the three actions are gone instead of leaving a missing button
+with no explanation. View access itself is unaffected: an RO/CO who
+created the application can still see it, mark up documents, and read
+the audit trail; they just can't decide it themselves.
+
+### Verified
+
+Real dispatch, not assumed. Every application that existed naturally on
+QA1 was created by an admin (Johan or the HFC Demo Agent fixture), so
+there was no natural record to prove the block against — two scratch
+applications were created for this specifically and soft-deleted after:
+
+- App owned by a plain agent temporarily granted RO tier (not CO, not
+  admin): all three decision endpoints returned 403 with the exact
+  message above; the show page rendered 200 with the explanation and no
+  decision forms; DB confirmed untouched.
+- App owned by an admin-role user who holds RO tier but NOT CO: approve
+  succeeded — proves the admin exception works independent of CO
+  membership, exactly as Johan specified ("co of rentals **or** admin").
+
+Queue-impact check (read-only, before building): every application
+actually in the authorisation queue at build time (4, 9, and cc4's
+clean record 12) was created by an admin-role user, so the rule doesn't
+lock Johan out of anything already sitting there — confirmed, not
+assumed.
+
+### Files touched
+
+- `app/Http/Controllers/CoreX/RentalApplicationAuthorisationController.php` — `guardNotSelfApproving()`, called from `guardCanDecide()` and `requestMoreInfo()`; `show()` computes `$blockedBySelfApproval`
+- `resources/views/corex/rental-applications/authorisation/show.blade.php` — Decision panel shows the explanation in place of the three forms when blocked
+
+No migration — the rule reads existing columns (`created_by_user_id`,
+`users.role`, the existing RO/CO tier check) only.
