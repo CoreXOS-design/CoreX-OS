@@ -83,8 +83,20 @@
             <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Submitted to</label>
             <input type="date" name="date_to" value="{{ request('date_to') }}" class="rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
         </div>
+        {{-- 2026-09-09 (design-standard audit) — Johan: "per-page control,
+             matching the index screen's 10-100 range sitting right next to
+             it." Same options, same onchange-submit pattern, as
+             index.blade.php's own selector. --}}
+        <div>
+            <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Per page</label>
+            <select name="per_page" class="rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);" onchange="this.form.submit()">
+                @foreach([10, 25, 50, 100] as $option)
+                    <option value="{{ $option }}" @selected($perPage === $option)>{{ $option }}</option>
+                @endforeach
+            </select>
+        </div>
         <button type="submit" class="corex-btn-outline text-xs">Filter</button>
-        @if(request()->hasAny(['q', 'date_from', 'date_to']))
+        @if(request()->hasAny(['q', 'date_from', 'date_to', 'per_page']))
             <a href="{{ route('corex.rental-applications.returned', request()->only('status')) }}" class="corex-btn-outline text-xs">Clear</a>
         @endif
     </form>
