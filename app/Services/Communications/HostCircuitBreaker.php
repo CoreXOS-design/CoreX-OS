@@ -31,6 +31,25 @@ class HostCircuitBreaker
     private const CONNECT_CLASS_FAILURES = ['connect_failed', 'auth_failed', 'connect_timeout'];
 
     /**
+     * 2026-09-09 (Johan, real-attempt-honesty incident) — reasons that PROVE
+     * no real authenticating connection was ever opened to the host. Thrown
+     * before any socket is touched (empty credentials, or a local Transport
+     * object failing to construct) or a deliberate skip (outbound guard on).
+     * The ONLY reasons that never count, because there is no attempt to count.
+     */
+    private const NO_REAL_ATTEMPT_REASONS = ['incomplete_credentials', 'intercepted'];
+
+    /**
+     * Reasons that PROVE the login itself succeeded — the failure happened
+     * strictly AFTER authentication. Counting these as a login failure would
+     * be wrong in the other direction: it would fail-closed a mailbox whose
+     * credentials are actually fine. 'send_rejected' = SMTP accepted AUTH and
+     * only refused the message/recipient; 'no_sent_folder'/'append_failed' =
+     * IMAP LOGIN succeeded and only the folder step failed.
+     */
+    private const LOGIN_PROVEN_SUCCESSFUL_REASONS = ['send_rejected', 'no_sent_folder', 'append_failed'];
+
+    /**
      * 2026-09-09 (Johan, auth-lock safeguard) — Afrihost's absolute condition
      * is "no more than 3 failed login attempts", full stop, and "the
      * existing ... thresholds cannot be changed." Trip our OWN internal
@@ -68,11 +87,27 @@ class HostCircuitBreaker
     /**
      * Call once, immediately after any REAL connect/login attempt that
      * failed, for whichever host that attempt actually targeted (see
-     * hostsFor()). A no-op for any reason other than an actual
-     * authentication rejection — connect timeouts, refused connections, TLS
-     * failures etc. are the GENERAL breaker's concern (evaluate() /
-     * recordPollOutcome() above); this budget exists specifically because
-     * Afrihost's condition is about failed LOGINS, not failures generally.
+     * hostsFor()).
+     *
+     * 2026-09-09 (Johan, real-attempt-honesty incident) — REWRITTEN after a
+     * real Afrihost 535 ("535 Incorrect authentication data") was classified
+     * as 'unknown' by MailFailureClassifier (its phrase list didn't recognise
+     * Afrihost's exact wording) and this method's old `$reason !== 'auth_failed'`
+     * check silently discarded it — one genuine failed login against a host
+     * with a hard external cap of 3 was never counted at all. Afrihost does
+     * not care whether OUR classifier recognised its rejection; it counted
+     * the login failure regardless. This method must be equally unforgiving.
+     *
+     * The rule is now a BLOCKLIST, not an allowlist: every reason counts
+     * UNLESS it is in one of the two sets that PROVE no real attempt is being
+     * under-counted — NO_REAL_ATTEMPT_REASONS (no socket was ever opened, so
+     * there is nothing to count) or LOGIN_PROVEN_SUCCESSFUL_REASONS (the
+     * login itself is proven to have succeeded, so counting it would
+     * fail-closed a mailbox with perfectly good credentials). Anything else —
+     * 'auth_failed', 'connect_failed', 'tls_failed', 'unknown', or any reason
+     * string not yet invented — counts. Assume the worst, never the best: an
+     * unrecognised failure against a host with a hard external ban threshold
+     * is treated as a spent login attempt, not given the benefit of the doubt.
      *
      * Uses an atomic ->increment() rather than read-modify-write: two queue
      * workers (or a worker racing a human's Test Connection click) each
@@ -82,7 +117,7 @@ class HostCircuitBreaker
      */
     public function recordAuthFailureIfApplicable(string $host, ?string $reason): void
     {
-        if ($reason !== 'auth_failed') {
+        if ($reason === null || in_array($reason, self::NO_REAL_ATTEMPT_REASONS, true) || in_array($reason, self::LOGIN_PROVEN_SUCCESSFUL_REASONS, true)) {
             return;
         }
 

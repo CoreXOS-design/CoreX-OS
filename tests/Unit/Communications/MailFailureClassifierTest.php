@@ -105,6 +105,48 @@ final class MailFailureClassifierTest extends TestCase
         $this->assertSame(MailFailureClassifier::AUTH_FAILED, $c->classifySmtpSend('535 5.7.8 authentication failed'));
     }
 
+    /**
+     * 2026-09-09 (Johan, real-attempt-honesty incident) — the exact text
+     * Johan saw on screen against the real Afrihost server. This message
+     * previously classified UNKNOWN: the old ' 535 ' needle required bare
+     * spaces around the digits, but Symfony wraps the code in quotes
+     * (`"535"`), so no bare space ever preceded it, and "incorrect
+     * authentication data" matched none of the named phrases either.
+     */
+    public function test_the_real_afrihost_535_message_classifies_as_auth_failed(): void
+    {
+        $c = $this->classifier();
+        $raw = 'Failed to authenticate on SMTP server with username "johan@hfcoastal.co.za" using the following '
+            . 'authenticators: "LOGIN", "PLAIN". Authenticator "LOGIN" returned "Expected response code "235" but '
+            . 'got code "535", with message "535 Incorrect authentication data".". Authenticator "PLAIN" returned '
+            . '"Expected response code "235" but got code "535", with message "535 Incorrect authentication data".".';
+
+        $this->assertSame(MailFailureClassifier::AUTH_FAILED, $c->classifySmtpSend($raw));
+        $this->assertSame(MailFailureClassifier::AUTH_FAILED, $c->classifyConnect($raw));
+    }
+
+    /** A bare quoted code with none of the named auth phrases must still match — this is the bug class, not one phrase. */
+    public function test_a_quoted_535_with_no_recognised_phrase_still_classifies_as_auth_failed(): void
+    {
+        $c = $this->classifier();
+        $this->assertSame(MailFailureClassifier::AUTH_FAILED, $c->classifyConnect('server said: "535" and nothing else recognisable'));
+    }
+
+    /** A 535 embedded in an unrelated longer number must NOT false-positive — proves this is a whole-token match, not a bare substring search. */
+    public function test_535_inside_a_longer_number_does_not_false_positive_as_auth_failed(): void
+    {
+        $c = $this->classifier();
+        $this->assertSame(MailFailureClassifier::UNKNOWN, $c->classifyConnect('connection id 5350 rejected for an unrelated reason'));
+    }
+
+    /** Same quoted-code bug class applies to the SMTP send-rejection codes (550/553/554), not just 535. */
+    public function test_a_quoted_550_send_rejection_classifies_correctly(): void
+    {
+        $c = $this->classifier();
+        $reason = $c->classifySmtpSend('Expected response code "250" but got code "550", with message "550 Recipient address rejected".');
+        $this->assertSame(MailFailureClassifier::SEND_REJECTED, $reason);
+    }
+
     public function test_missing_folder_friendly_message_never_mentions_credentials(): void
     {
         $c = $this->classifier();
