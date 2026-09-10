@@ -58,10 +58,18 @@ trait FiltersRentalApplicationList
                     ->orWhere('rental_applications.full_name', 'like', "%{$q}%")
                     ->orWhere('rental_applications.email', 'like', "%{$q}%")
                     ->orWhere('rental_applications.id_number', 'like', "%{$q}%")
+                    // 2026-09-10 (design-standard audit, cc3) — Johan: "contact
+                    // details" is part of the search floor. The application's
+                    // own captured phone (Fill & Review data can exist without
+                    // a linked Contact) and the linked Contact's own phone were
+                    // both missing — an agent searching a number they were
+                    // just given on the phone found nothing.
+                    ->orWhere('rental_applications.cell', 'like', "%{$q}%")
                     ->orWhere('rental_applications.property_address_override', 'like', "%{$q}%")
                     ->orWhereHas('contact', fn ($c) => $c->where('first_name', 'like', "%{$q}%")
                         ->orWhere('last_name', 'like', "%{$q}%")
-                        ->orWhere('email', 'like', "%{$q}%"))
+                        ->orWhere('email', 'like', "%{$q}%")
+                        ->orWhere('phone', 'like', "%{$q}%"))
                     ->orWhereHas('property', fn ($p) => $p->where('address', 'like', "%{$q}%")
                         ->orWhere('title', 'like', "%{$q}%"))
                     ->orWhereHas('createdBy', fn ($u) => $u->where('name', 'like', "%{$q}%"));

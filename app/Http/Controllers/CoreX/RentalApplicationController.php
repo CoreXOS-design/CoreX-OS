@@ -164,7 +164,28 @@ class RentalApplicationController extends Controller
 
         $applications = $query->paginate($perPage)->withQueryString();
 
-        return view('corex.rental-applications.returned', compact('applications', 'canSeeBranch', 'canSeeAgency', 'perPage'));
+        // 2026-09-10 (design-standard audit, cc3) — BUILD_STANDARD §1, full
+        // CRUD is the floor: archive/restore existed on index() but were
+        // entirely unreachable from this screen — a withdrawn or declined
+        // application (both live only here, never on index()) had no way to
+        // be archived at all, and nothing archived from here could ever be
+        // seen again. Mirrors index()'s own archived sub-list exactly (same
+        // $requestedScope, same onlyTrashed(), same destroy()/restore()
+        // routes — both are already screen-agnostic). Filtered to this
+        // screen's OWN status set so an archived draft/sent/in_progress
+        // application (index()'s territory) never leaks in here.
+        $archived = null;
+        if ($request->boolean('archived')) {
+            $archived = RentalApplication::visibleTo($request->user(), $requestedScope)
+                ->onlyTrashed()
+                ->whereIn('rental_applications.status', ['in_progress', 'returned', 'reopened', 'under_assessment', 'approved', 'declined', 'withdrawn'])
+                ->with(['contact', 'property'])
+                ->orderByDesc('deleted_at')
+                ->paginate($perPage, ['*'], 'archived_page')
+                ->withQueryString();
+        }
+
+        return view('corex.rental-applications.returned', compact('applications', 'archived', 'canSeeBranch', 'canSeeAgency', 'perPage'));
     }
 
     /**
@@ -544,7 +565,7 @@ class RentalApplicationController extends Controller
      * CoreX (STANDARDS.md) — RentalApplication already has SoftDeletes, this
      * is the archive action the index/show screens were missing.
      */
-    public function destroy(RentalApplication $rentalApplication, \App\Services\RentalApplications\RentalApplicationPdfService $pdfService)
+    public function destroy(Request $request, RentalApplication $rentalApplication, \App\Services\RentalApplications\RentalApplicationPdfService $pdfService)
     {
         $this->guardRentalApplication($rentalApplication);
 
@@ -558,8 +579,21 @@ class RentalApplicationController extends Controller
 
         $rentalApplication->delete();
 
+        // 2026-09-10 (design-standard audit, cc3) — Archive is now also
+        // reachable from Returned Applications, whose own status set
+        // (returned/under_assessment/approved/declined/reopened) never
+        // shows on index(). Redirecting there unconditionally would bounce
+        // the agent to a screen where the record they just acted on was
+        // never visible. The originating screen names itself explicitly
+        // (a hidden field on its own form) rather than this method
+        // re-deriving it from status — one source of truth, no risk of
+        // drifting out of sync with either screen's own status filter.
+        $returnTo = $request->input('return_to') === 'returned'
+            ? 'corex.rental-applications.returned'
+            : 'corex.rental-applications.index';
+
         return redirect()
-            ->route('corex.rental-applications.index')
+            ->route($returnTo)
             ->with('success', 'Rental application archived.');
     }
 
@@ -576,8 +610,18 @@ class RentalApplicationController extends Controller
 
         $application->restore();
 
+        // 2026-09-10 (design-standard audit, cc3) — same reasoning as
+        // destroy()'s own $returnTo above: a restored 'returned'/
+        // 'under_assessment'/etc. application never shows on index(), so
+        // always landing there after restoring one from the Returned
+        // Applications' own archived view would look like restore did
+        // nothing.
+        $returnTo = $request->input('return_to') === 'returned'
+            ? 'corex.rental-applications.returned'
+            : 'corex.rental-applications.index';
+
         return redirect()
-            ->route('corex.rental-applications.index', ['archived' => 1])
+            ->route($returnTo, ['archived' => 1])
             ->with('success', 'Rental application restored.');
     }
 

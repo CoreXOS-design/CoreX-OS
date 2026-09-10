@@ -80,7 +80,7 @@
         <input type="hidden" name="scope" value="{{ request('scope', 'own') }}">
         <div>
             <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Search</label>
-            <input type="text" name="q" value="{{ request('q') }}" placeholder="Applicant name, email, ID number, property, or #id"
+            <input type="text" name="q" value="{{ request('q') }}" placeholder="Applicant name, phone, email, ID number, property, or #id"
                    class="rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border); min-width: 260px;">
         </div>
         <div>
@@ -92,12 +92,19 @@
                 @endforeach
             </select>
         </div>
+        {{-- 2026-09-10 (design-standard audit, cc3) — was labelled "Sent
+             from"/"Sent to" but has always filtered created_at (see
+             index()'s applySearchSortAndDateRange call) — there is no
+             sent_at column at all, so a draft never sent could still match
+             a "sent" date range. Relabelled to match what the field
+             actually does, and the "Created" column header already used
+             in the table below, rather than inventing a new column. --}}
         <div>
-            <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Sent from</label>
+            <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Created from</label>
             <input type="date" name="date_from" value="{{ request('date_from') }}" class="rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
         </div>
         <div>
-            <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Sent to</label>
+            <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Created to</label>
             <input type="date" name="date_to" value="{{ request('date_to') }}" class="rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
         </div>
         <div>

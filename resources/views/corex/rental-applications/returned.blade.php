@@ -72,7 +72,7 @@
         @endif
         <div>
             <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Search</label>
-            <input type="text" name="q" value="{{ request('q') }}" placeholder="Applicant name, email, property, or #id"
+            <input type="text" name="q" value="{{ request('q') }}" placeholder="Applicant name, phone, email, property, or #id"
                    class="rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border); min-width: 260px;">
         </div>
         <div>
@@ -99,6 +99,14 @@
         @if(request()->hasAny(['q', 'date_from', 'date_to', 'per_page']))
             <a href="{{ route('corex.rental-applications.returned', request()->only('status')) }}" class="corex-btn-outline text-xs">Clear</a>
         @endif
+        {{-- 2026-09-10 (design-standard audit, cc3) — same "Show archived"
+             toggle as index.blade.php; nothing archived from this screen
+             (see the new Archive button per row above) was reachable again
+             without it. --}}
+        <a href="{{ route('corex.rental-applications.returned', array_merge(request()->except('page'), ['archived' => request()->boolean('archived') ? null : 1])) }}"
+           class="corex-btn-outline text-xs {{ request()->boolean('archived') ? 'corex-tab-active' : '' }}">
+            {{ request()->boolean('archived') ? 'Hide archived' : 'Show archived' }}
+        </a>
     </form>
 
     <div class="rounded-md" style="background: var(--surface); border: 1px solid var(--border);">
@@ -165,10 +173,28 @@
                     </td>
                     <td class="px-4 py-2">{{ $application->isFullySigned() ? '✓ Both signed' : 'Incomplete' }}</td>
                     <td class="px-4 py-2">{{ optional($application->submitted_at)->format('d M Y') ?? '—' }}</td>
-                    <td class="px-4 py-2 text-right">
+                    <td class="px-4 py-2 text-right whitespace-nowrap">
                         <a href="{{ route('corex.rental-applications.show', $application) }}" class="corex-btn-outline text-xs">Open</a>
                         {{-- AT-392 Phase 2 — new file (RentalApplicationReviewController), agreed with cc4 --}}
                         <a href="{{ route('corex.rental-applications.review', $application) }}" class="corex-btn-outline text-xs">Review</a>
+                        {{-- 2026-09-10 (design-standard audit, cc3) — BUILD_STANDARD
+                             §1, full CRUD is the floor: archive existed on the
+                             Rental Applications list but was entirely unreachable
+                             here, so a withdrawn/declined application (both live
+                             ONLY on this screen) had no way to be archived at all.
+                             Same route, same confirm copy, as index.blade.php's own
+                             Archive button — return_to tells destroy() to bring the
+                             agent back HERE, not to index() (which never shows this
+                             screen's own statuses). --}}
+                        @permission('rental_applications.create')
+                            <form method="POST" action="{{ route('corex.rental-applications.destroy', $application) }}"
+                                  onsubmit="return confirm('Archive this rental application? It can be restored later.');" class="inline">
+                                @csrf
+                                @method('DELETE')
+                                <input type="hidden" name="return_to" value="returned">
+                                <button type="submit" class="corex-btn-outline text-xs" style="color: var(--ds-red, #dc2626);">Archive</button>
+                            </form>
+                        @endpermission
                     </td>
                 </tr>
                 @empty
@@ -185,5 +211,42 @@
     </div>
 
     {{ $applications->links() }}
+
+    @if($archived !== null)
+    <div class="rounded-md" style="background: var(--surface); border: 1px solid var(--border);">
+        <div class="px-4 py-3 text-sm font-semibold" style="color: var(--text-primary); border-bottom: 1px solid var(--border);">Archived</div>
+        <table class="w-full text-sm">
+            <thead>
+                <tr style="border-bottom: 1px solid var(--border);">
+                    <th class="text-left px-4 py-2" style="color: var(--text-muted);">Contact</th>
+                    <th class="text-left px-4 py-2" style="color: var(--text-muted);">Property</th>
+                    <th class="text-left px-4 py-2" style="color: var(--text-muted);">Archived</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @forelse($archived as $application)
+                <tr style="border-bottom: 1px solid var(--border);">
+                    <td class="px-4 py-2">{{ $application->contact->full_name ?? '—' }}</td>
+                    <td class="px-4 py-2">{{ $application->property?->buildDisplayAddress() ?? $application->property_address_override ?? '—' }}</td>
+                    <td class="px-4 py-2">{{ $application->deleted_at->format('d M Y') }}</td>
+                    <td class="px-4 py-2 text-right">
+                        @permission('rental_applications.create')
+                        <form method="POST" action="{{ route('corex.rental-applications.restore', $application->id) }}">
+                            @csrf
+                            <input type="hidden" name="return_to" value="returned">
+                            <button type="submit" class="corex-btn-outline text-xs">Restore</button>
+                        </form>
+                        @endpermission
+                    </td>
+                </tr>
+                @empty
+                <tr><td colspan="4" class="px-4 py-8 text-center text-sm" style="color: var(--text-muted);">Nothing archived.</td></tr>
+                @endforelse
+            </tbody>
+        </table>
+    </div>
+    {{ $archived->links() }}
+    @endif
 </div>
 @endsection

@@ -1059,7 +1059,16 @@
                 <div class="corex-nav-panel-title">Rentals</div>
 
                 @permission('rental_applications.view')
-                <a href="{{ route('corex.rental-applications.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rental-applications.index') || request()->routeIs('corex.rental-applications.create') || request()->routeIs('corex.rental-applications.show') ? 'active' : '' }}">Rental Applications</a>
+                {{-- 2026-09-10 (design-standard audit, cc3) — Johan's "navigation
+                     losing the Rentals context" pattern: this subitem only lit up
+                     for index/create/show, so an agent on the review screen, mid-
+                     send, or on any other single-application action saw the
+                     Rentals panel still open (that part was already fixed, AT-401)
+                     but NOTHING highlighted inside it — no "you are here" at all.
+                     Broadened to the full rental-applications.* family, explicitly
+                     excluding .returned and .authorisation.* — those have their
+                     own subitems just below and must keep winning over this one. --}}
+                <a href="{{ route('corex.rental-applications.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rental-applications.*') && !request()->routeIs('corex.rental-applications.returned') && !request()->routeIs('corex.rental-applications.authorisation.*') ? 'active' : '' }}">Rental Applications</a>
                 @endpermission
 
                 @permission('rental_applications.view_returned')
