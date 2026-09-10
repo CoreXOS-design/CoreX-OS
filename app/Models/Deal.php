@@ -94,6 +94,22 @@ class Deal extends Model
 
         // Exactly one non-trashed row is ever primary.
         DealProperty::where('deal_id', $deal->id)->where('property_id', '!=', $deal->property_id)->where('is_primary', true)->update(['is_primary' => false]);
+
+        // AT-398 split-pricing — see App\Services\Deal\DealPropertyPricingService
+        // docblock for the full direction-of-truth rule. While the deal has AT
+        // MOST one linked property, deals.property_value/total_commission (the
+        // pre-existing, manually-entered fields on the single-property capture
+        // form) are mirrored onto that property's own allocation automatically,
+        // so an agent editing a single-property deal sees no change at all. The
+        // moment a second property exists, this mirror stops — see
+        // DealRegisterController::addProperty()/updatePropertyPrice(), which
+        // switch to per-property entry and derive the deal totals as a sum.
+        if (DealProperty::where('deal_id', $deal->id)->whereNull('deleted_at')->count() <= 1) {
+            DealProperty::where('deal_id', $deal->id)->where('property_id', $deal->property_id)->update([
+                'allocated_price' => $deal->property_value,
+                'allocated_commission' => $deal->total_commission,
+            ]);
+        }
     }
 
     /**

@@ -208,59 +208,155 @@ new screen was built for this in AT-398 — the pre-existing
 predates this feature and is a separate, flagged item, not part of this
 spec's scope.
 
-## 7. Two-way balancing price entry
+## 7. Split-pricing entry (built)
 
-`deal_properties.allocated_price` (unsignedBigInteger, nullable) and
-`allocated_commission` (decimal 12,2, nullable) hold the per-property split.
-*(Validation/UI for balancing entry — either per-property→total or
-total→split — is tracked as a follow-up item on this same ticket; schema is
-in place, business logic is not yet built as of this revision.)*
+Both business calls below were put to Johan directly (via AskUserQuestion,
+not decided silently) and answered — both his Recommended options:
 
-## 8. UI
+> "An agent already captured a single-property deal with a price... and now
+> adds a second property... what should happen?" → **"Keep it, add the new
+> one on top."** The existing price is never redistributed; the new
+> property gets its own price entered separately; the deal total grows to
+> the sum.
+>
+> "How should an agent enter prices when a deal covers more than one
+> property?" → **"Price each property, total adds up automatically."** No
+> separate total field exists to disagree with the parts — a "doesn't
+> balance" state is structurally impossible, not merely blocked.
 
-Multi-property capture/edit screen and audit trail:
+**Direction of truth, precisely:**
 
-- `POST /deals-dr2/{deal}/properties` (`deals-dr2.properties.add`,
-  `permission:create_deals`, controller-checks `deals.create` OR
-  `deals.edit`) — validates `property_id`, runs the owner gate, runs the
-  Granted/Registered exclusivity check, attaches (or restores a
-  soft-deleted link), sets `is_primary` only if it's the first property,
-  fires the branch co-share, re-fires `DealCreated` to sync the new
-  property into the deal's current status (idempotent — reuses the tested
-  Wave 2 listeners rather than duplicating their logic), and audits via
-  `DealLog` event `property_added`.
-- `DELETE /deals-dr2/{deal}/properties/{property}`
-  (`deals-dr2.properties.remove`) — refuses to remove the primary property
-  (a plain-English redirect error, not a hidden disabled button), otherwise
-  soft-deletes the pivot row and audits `property_removed`.
-- Blade capture/edit screen wiring these routes into the existing
-  `resources/views/dr2/create.blade.php` picker is a follow-up item on this
-  same ticket (schema, service layer, controller actions, and full test
-  coverage are complete; the visual add/remove list is not yet built as of
-  this revision).
+- While a deal has **0 or 1** linked properties: `deals.property_value` /
+  `total_commission` are exactly what they always were — the manually
+  entered fields on the main capture form, completely unchanged UX.
+  `Deal::syncPrimaryPropertyPivot()` mirrors them onto that one property's
+  `allocated_price`/`allocated_commission` automatically, invisibly, on
+  every deal save (both create and update).
+- The moment a **second** property is linked, the direction reverses: each
+  property's own allocation becomes the source of truth (entered via
+  `addProperty()`, corrected via `updatePropertyPrice()`), and
+  `App\Services\Deal\DealPropertyPricingService::recalculateTotals()` keeps
+  `deals.property_value`/`total_commission` as their **sum** — recalculated
+  after every add, remove, restore, or price edit. `saveQuietly()` is used
+  deliberately so this derived write never re-triggers `Deal::booted()`'s
+  own mirror-back hook (which would otherwise try to write the aggregate
+  back onto one property and loop).
+- The main capture form's Selling Price / Commission fields become
+  `readonly`/`disabled` once a deal has 2+ properties, with an inline note
+  pointing at the per-property list — the value shown (the correct sum)
+  round-trips unchanged on an ordinary "Save", so there is no dual-write
+  path and no way to accidentally clobber the derived total.
+
+**Schema correction (this revision):** `deal_properties.allocated_price` was
+originally created as `unsignedBigInteger` — a real bug, since
+`deals.property_value` (the field it must sum to) is `decimal(12,2)` and an
+integer column would silently round or reject a price with cents. Fixed via
+a follow-up migration (`ALTER TABLE ... MODIFY allocated_price
+DECIMAL(12,2)`, raw SQL — no `doctrine/dbal` on this box) before any real
+data existed in the column (verified: all 16 rows were NULL at the time).
+
+## 8. UI (built)
+
+Full CRUD, on the deal edit screen (`resources/views/dr2/create.blade.php`,
+edit mode only — these actions all route-model-bind to a real, already-saved
+`Deal`):
+
+- **Create** — `POST /deals-dr2/{deal}/properties` (`.properties.add`):
+  validates `property_id` (+ `allocated_price`/`allocated_commission`,
+  required once the deal already has a property), runs the same-owner gate,
+  runs the Granted/Registered exclusivity check, attaches (or restores a
+  soft-deleted link), fires the branch co-share, re-fires `DealCreated` to
+  sync status, recalculates deal totals, audits `property_added`.
+- **Read** — the "Properties on this deal (N)" list: address, Primary
+  badge, price + commission per row. Real empty state ("No properties
+  linked yet — search below to add the first one") when a deal genuinely
+  has none. A client-side filter box and Address/Price/Date-added sort
+  toggle appear once there are 2+ rows (mirrors the existing
+  `dr2/pipeline-list.blade.php` sort-bar precedent on this same screen —
+  client-side, no pagination, because the count per deal is always small;
+  server-side search/pagination doesn't apply to a bounded per-parent list,
+  per Non-negotiable #8's own floor being about *screens*, and this is an
+  embedded sub-list on an already-scoped parent record, not an independent
+  screen).
+- **Update** — `PATCH /deals-dr2/{deal}/properties/{property}`
+  (`.properties.updatePrice`): edits one linked property's own price;
+  refuses with a plain message on a single-property deal ("edit its price
+  on the main deal form above" — there is deliberately only ever one place
+  to edit a given figure at a time); recalculates deal totals; audits
+  `property_price_updated`.
+- **Archive (soft delete)** — `DELETE /deals-dr2/{deal}/properties/{property}`
+  (`.properties.remove`): refuses to remove the primary property (plain
+  text explaining why, not a disabled button standing in for a hidden
+  action — see [[feedback_actionable-affordance]]), otherwise soft-deletes,
+  recalculates totals, audits `property_removed`.
+- **Restore** — `POST /deals-dr2/{deal}/properties/{property}/restore`
+  (`.properties.restore`, new this revision): a collapsible "Removed
+  properties (N)" section — renders nothing at all when empty, mirroring
+  `dr2/_removed-steps.blade.php`'s established archive/restore pattern on
+  this exact screen — with a direct one-click Restore button per row
+  (re-runs the owner gate too, in case ownership changed while it sat
+  removed), recalculates totals, audits `property_restored`.
+- **Same-owner refusal surfaces in plain language, at the point of use**:
+  errors from the gate flash via `withErrors(['property_id' => ...])` and
+  render inline in the multi-property section itself (`@error('property_id')`)
+  in addition to the page's existing generic top-of-page error banner — an
+  agent is never left with a control that silently did nothing.
+- Branch-sharing screen: **not built** — this remains the pre-existing,
+  separately-flagged gap (`Admin\DealBranchController` has live routes but
+  no Blade view), unchanged from the prior revision of this spec, and still
+  out of AT-398's scope.
 
 ## 9. Scoping
 
 Every mutation above operates through `Deal`/`Property` models that already
 carry `BelongsToAgency`/branch scoping; `deal_properties` inherits its
 parent rows' scope (no independent global scope needed — a pivot row is only
-ever reached through an already-scoped `Deal` or `Property`). No new list
-screen was introduced by this feature (properties are added/removed from
-the existing deal detail screen), so no new search/sort/filter screen is
-owed under Non-negotiable #8/CLAUDE.md's CRUD-floor rule beyond what already
-exists on the deal register.
+ever reached through an already-scoped `Deal` or `Property`, and every
+controller action here route-model-binds to the same `$deal`). No new
+top-level list screen was introduced by this feature — properties are
+added/removed/edited from the existing deal edit screen — so no new
+independent search/sort/filter/pagination screen is owed beyond what the
+embedded list itself now provides (§8).
 
 ## 10. Test coverage
 
+Reporting convention (per Johan, 2026-09-10): the branch's own coverage is
+the headline; a pre-existing file re-run as a regression check is named
+separately, never folded into one combined figure.
+
+**This branch's own tests: 51 across 5 files, 107 assertions, all passing**
+(verified via a dedicated run of exactly these 5 files, excluding the
+pre-existing regression file below).
+
 | File | Count | Covers |
 |---|---|---|
-| `tests/Feature/Dr2/Wave2DealPropertyStatusSyncTest.php` | 15 (pre-existing) | Zero regressions on single-property behavior |
 | `tests/Feature/Dr2/Wave2MultiPropertyStatusSyncTest.php` | 9 | Pivot mirroring, all six listeners multi-property, both mixed-status cases |
 | `tests/Feature/Dr2/DealPropertyOwnerGateTest.php` | 9 | Exact-set gate, Johan's Steve/Dave example both directions, no-owner-refusal, plain-English message |
 | `tests/Feature/Property/PropertyOwnershipGuardTest.php` | 18 | Lock/unlock by status, all four assert methods, self-exclusion behavior |
-| `tests/Feature/Dr2/DealAddRemovePropertyControllerTest.php` | 7 | HTTP-level: accept, refuse+message, branch co-share, primary-removal block, audit, permission gate |
+| `tests/Feature/Dr2/DealAddRemovePropertyControllerTest.php` | 11 | HTTP-level: accept, refuse+message, branch co-share, primary-removal block, audit, permission gate, price sum on add/remove/update/restore |
+| `tests/Feature/Dr2/DealMultiPropertyBladeTest.php` | 4 | Blade rendering: empty state, multi-property sum + read-only main fields, archive/restore section, plain-language refusal on the page |
 
-**58 tests, 112 assertions, all passing** — combined run, zero cross-file
-interference. Functional proof also run via Tinker against the live QA1
-database (post-migration): pivot mirroring, gate refusal, ownership lock,
-and self-exclusion all confirmed against real rows, then fully cleaned up.
+**Pre-existing regression check (not this branch's own coverage):**
+`tests/Feature/Dr2/Wave2DealPropertyStatusSyncTest.php` — 15 tests, 39
+assertions, all still passing — proves the six-listener rewrite introduced
+zero regressions on ordinary single-property deals.
+
+Combined run (both together, one process): 66 passed, 146 assertions, zero
+cross-file interference.
+
+**Functional proof against the live QA1 database** (real rows, created and
+fully cleaned up afterward via raw SQL — verified zero residue both times):
+pivot mirroring, gate refusal, ownership lock, self-exclusion (first pass);
+and, this revision — the additive price-on-top behavior, sum-recalculation
+on add/edit/remove/restore (including that an edited price survives a
+remove-then-restore round trip), and a full HTTP-stack Blade render of the
+real edit page for a genuine multi-property deal.
+
+**Not exercised by any of the above — stated plainly, not glossed over:**
+no interactive browser was available in this environment (no browser-
+automation tool, and Vite assets aren't built in this scratch worktree), so
+the client-side JS itself — the add-property search dropdown, the
+Address/Price/Date-added sort buttons, the filter box, and the inline
+edit-price box opening/closing — was traced by hand against the rendered
+markup and IDs, not exercised at runtime. Confirming those actually fire in
+a live browser is still owed once this lands somewhere with built assets.
