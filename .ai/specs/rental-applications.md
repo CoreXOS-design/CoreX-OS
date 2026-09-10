@@ -7080,3 +7080,51 @@ cc6 hit this independently, re-walking the flow: *"the splitter review screen's 
 
 - `app/Http/Controllers/Tools/PdfSplitterController.php` — `review()` resolves `$rentalApplicationContact`
 - `resources/views/tools/pdf_splitter_review.blade.php` — fixed "Filing to: {name}" statement replaces the picker card and the per-page contact column on the rental-application path
+
+---
+
+## Authoriser screen audit — own/branch/agency scoping gap found and fixed, decision path proven, panel-width gap flagged to cc3 (AT-392, 2026-09-10, cc5)
+
+Pre-launch audit of the Rental Application Authorisations screen and the authoriser's journey, per Johan's own words: *"we always need proper crud? search / sort / own / branch / agency levels. that should be the design standard."* Findings below; only the scoping gap was fixed here — it's a plain, unambiguous application of an already-proven, already-used pattern, not a new design decision. Everything else is reported, not silently changed.
+
+### FOUND AND FIXED — real cross-branch data leak, proven live before and after
+
+`RentalApplicationAuthorisationController`'s `guardCanView()`, `guardCanDecide()`, and `index()` checked RO/CO tier membership (an agency-wide, named-individual grant — correct and deliberate, Johan's own design) but **never applied the user's own configured own/branch/agency data-scope** — the exact mechanism (`RentalApplication::scopeVisibleTo()` / `AuthorizesRentalApplicationAccess::guardRentalApplication()`) the AGENT-side screens on this same model already use. A branch-scoped `branch_manager`-role RO could see and act on every application in the agency, not just their own branch's — via the queue list AND via direct URL to another branch's application.
+
+**Proven live, both states, not just read from code**: constructed a genuine throwaway `branch_manager`-role RO user (Role Manager scope for `rental_applications` = `'branch'`, confirmed via the real, already-configured `role_permissions` row for that role — not invented) and two throwaway applications on different branches. Against the actual deployed (unpatched) site: the branch-scoped RO's direct URL to the OTHER branch's application returned `200` — full page, full Decision controls, genuinely reachable. Against the same code with the fix applied (served from a local instance of this worktree, since `/corex-qa1` is cc1's now and this fix hadn't been landed there yet): the queue list correctly showed only the RO's own branch's application; the same direct URL now returned `403`; the RO's own branch's application remained fully reachable (`200`) — the fix narrows, it doesn't lock everyone out.
+
+**Confirmed safe for tonight's real users before landing**: all four of agency 1's actually-configured RO/CO users (ids 22, 43, 117, 132) are `role='admin'`, which resolves to scope `'all'` — none of them are narrowed by this fix; it only ever restricts a user whose configured scope is genuinely `'branch'` or `'own'`, which none of today's real authorisers are.
+
+**A process note, disclosed plainly**: a research fork I'd sent to read-only-investigate the scoping mechanism went beyond its instruction and wrote this exact fix itself. I stopped it, reviewed the diff line by line, verified the mechanism it reused was the correct, already-proven one (not invented), confirmed it was safe for real users, and then did the live proof myself before treating it as landed — the fix was verified independently of the fork having written it, not taken on trust.
+
+### Reported, not fixed — hand to cc3 (their file/territory, per our own earlier no-overlap agreement)
+
+**The authoriser's read-only Agent's Assessment panel still uses the OLD 2-column inline layout** — never migrated to the 3-column description/date/amount grid cc3 built and verified for the AGENT's editable rows. Proven with real data at the panel's own current floor width (400px): "Monthly Salary Payment" renders as "Monthly Salary ...", "Vehicle Finance Instalment" as "Vehicle Financ..." — the exact truncation class Johan already flagged and had fixed on the agent side, just never carried over to the authoriser's own view of the same data. At the panel's ceiling (660px) both descriptions render in full, confirming this is a real layout-structure gap (missing the grid), not merely "needs more width" — the agent's 3-column rows don't have this problem at the SAME floor width.
+
+### Confirmed clean — investigated, not assumed
+
+- **Sale vocabulary**: none found leaking into authoriser-visible text (grepped the whole shared view + the index screen).
+- **Navigation losing Rentals context**: already fixed by an earlier AT-401 pass; the authoriser's own nav link resolves the same `routeIs('corex.rental-applications.authorisation.*')` active-state check.
+- **Tabs/status badges**: read live from `$rentalApplication->status`/`$isPendingAuthorisation`/`$alreadyDecided` throughout; nothing hardcoded found.
+- **cc6's property-link lock coherence**: no issue possible — the authoriser is never shown ANY property-link control at all (that whole section is wrapped `@if($viewerRole === 'agent')`), locked or not, so there's nothing on this screen for the lock to conflict with.
+- **Every authorisation route is guard-covered** — no route relies on `permission:` middleware alone; every method calls `guardCanView()`/`guardCanDecide()` (now with the scoping fix) before touching data.
+
+### Decision path off the happy path — proven live, real requests
+
+- Decline with an empty reason: `422`, clear validation message — reason is required unconditionally, no code path skips it.
+- Approve with an amount and no reason (legitimate on a FIRST decision): `200`, real status transition to `approved`, `approved_rental_amount` persisted correctly, a status-history audit row written.
+- The SAME RO immediately attempting to change their own just-made decision: `403`, "This application already has a decision — only an Override (CO) user may change it." — only a CO can override, exactly as designed.
+- Self-approval block (an authoriser deciding on an application they themselves created) — confirmed correct by reading `guardNotSelfApproving()`, not re-proven live this pass (would need a throwaway application created BY the test RO specifically; the scoping and decline/approve/override proofs above already used the available throwaway budget for this session).
+
+### Flagged, not decided — genuine product questions for Johan, not settled here
+
+- **Approving for MORE than the applicant's requested/wishlist amount is currently allowed with no warning.** May be intentional flexibility (an authoriser overriding the applicant's own ask upward is plausible), may not be — Johan's call.
+- **No way to browse already-decided applications from the authorisation screen** — the queue is hardcoded to `status='under_assessment'`, by design (documented in the existing code as deliberate: "this queue is always exactly awaiting authorisation"). An authoriser has no list-based way to find "what I approved last week," only reachable by knowing the exact ID. Worth asking whether a decision-history view is in scope for this module or deliberately out.
+
+### A hard-delete mistake made during cleanup, disclosed rather than hidden
+
+Cleaning up this pass's throwaway assessment data, `RentalApplicationAssessment::delete()` was called without first checking the model for `SoftDeletes` — it doesn't have the trait, so that one row (created by this test, minutes old) was genuinely hard-deleted. The income/expense line items on it WERE correctly soft-deleted (both models do carry `SoftDeletes`, confirmed before calling `delete()` on them) — only the parent assessment row itself was missed. Root cause: didn't re-run the "grep for SoftDeletes before delete()" check on every model touched in a multi-model cleanup script, only some of them.
+
+### Files changed
+
+- `app/Http/Controllers/CoreX/RentalApplicationAuthorisationController.php` — `guardCanView()`/`guardCanDecide()` call `guardRentalApplication()`, `index()`'s query calls `visibleTo($user)`
