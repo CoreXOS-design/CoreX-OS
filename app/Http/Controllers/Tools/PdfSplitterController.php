@@ -111,6 +111,35 @@ class PdfSplitterController extends Controller
     }
 
     /**
+     * AT-392 — Johan: "the splitter works on a linked property. for a
+     * applicant we might not know the property yet, so the linked contact
+     * on the application should be used on the splitter." Extended past the
+     * rental-application case: the standalone splitter itself dead-ended an
+     * agent with no property at all — this is the "or pick a contact
+     * instead" typeahead, mirroring searchProperties() exactly.
+     *
+     * Deliberately NO ContactScope bypass (unlike propertyContacts() above,
+     * which bypasses it for an already-attached contact) — this is a fresh
+     * pick, so Role Manager's own/branch/agency visibility applies at the
+     * query layer, same as every other contact search in this codebase.
+     */
+    public function searchContacts(Request $request)
+    {
+        $q = trim((string) $request->input('q', ''));
+        if (strlen($q) < 2) {
+            return response()->json([]);
+        }
+
+        $rows = Contact::query()
+            ->search($q)
+            ->latest()
+            ->limit(12)
+            ->get();
+
+        return response()->json($rows->map(fn (Contact $c) => $c->toSearchResult($q)));
+    }
+
+    /**
      * AT-105 enh — the contacts attached to a property, with their pivot role
      * and own FICA state. Drives the per-page contact selector + sticky
      * auto-resolution on the review screen. Scoped to the user's visible
@@ -612,6 +641,186 @@ class PdfSplitterController extends Controller
         }
 
         return $redirect;
+    }
+
+    /**
+     * AT-392 — Johan, verbatim: "the splitter works on a linked property.
+     * for a applicant we might not know the property yet, so the linked
+     * contact on the application should be used on the splitter." His
+     * follow-up ruling widened this past the rental-application case: the
+     * STANDALONE splitter itself must not dead-end an agent with no
+     * property — when the batch has no property, filing to a CONTACT is a
+     * real alternative, not a fallback the agent has to go find. This is
+     * that path's own filing action, parallel to link() (property) — link()
+     * itself is completely untouched, so a batch that DOES have a property
+     * behaves exactly as before.
+     *
+     * Deliberately every document type files to the contact here, without
+     * AT-167's property/contact destination-config branching link() uses —
+     * there is no property to misfile TO in this path, so that distinction
+     * doesn't apply. A single anchor party for the whole batch (like
+     * linkForRentalApplication() above), not link()'s per-page multi-contact
+     * picker — the standalone review screen's contact picker is one
+     * search-and-pick, not several.
+     */
+    public function linkToContact(Request $request)
+    {
+        if ($stale = $this->rejectIfStaleBatch($request)) {
+            return $stale;
+        }
+
+        [$manifests, $fail] = $this->loadCompleteBatchOrFail();
+        if ($fail) {
+            return $fail;
+        }
+
+        // ContactScope (own/branch/agency, per Role Manager) applies here —
+        // no bypass. A contact outside the acting user's configured
+        // visibility simply won't resolve, same as any other fresh pick.
+        $contactId = (int) $request->input('contact_id');
+        $contact = $contactId > 0 ? Contact::query()->find($contactId) : null;
+
+        if (! $contact) {
+            return redirect()->route('tools.pdf_splitter.review')
+                ->withErrors(['pdf' => 'Select a contact above before linking — "Link to Contact" files the documents to that person. Use "Download ZIP" if you only want the files.']);
+        }
+
+        $agencyId = (int) ($request->user()?->effectiveAgencyId() ?? $contact->agency_id ?? 0);
+
+        $postedLabels = (array) $request->input('labels', []);
+        $allGroups    = [];
+        foreach ($manifests as $manifest) {
+            $manifestId  = $manifest['manifestId'];
+            $base        = $manifest['base'];
+            $origRel     = $manifest['origRel'];
+            $origAbsNorm = str_replace('\\', '/', Storage::disk('local')->path($origRel));
+            $outDirRel   = $manifest['outDirRel'];
+            $pCount      = (int) $manifest['pCount'];
+
+            [$finalLabels] = $this->resolveManifestLabels($postedLabels, $manifest, $pCount);
+
+            // Grouped by label only — one contact for the whole batch, same
+            // shape linkForRentalApplication() already uses.
+            $fileGroups = [];
+            for ($p = 1; $p <= $pCount; $p++) {
+                $label = $finalLabels[$p];
+                if (! isset($fileGroups[$label])) {
+                    $fileGroups[$label] = ['label' => $label, 'contact_ids' => [$contact->id], 'pages' => []];
+                }
+                $fileGroups[$label]['pages'][] = $p;
+            }
+            if (empty($fileGroups)) continue;
+
+            Storage::disk('local')->makeDirectory($outDirRel);
+            $outDirAbsNorm = str_replace('\\', '/', Storage::disk('local')->path($outDirRel));
+            $gi = 0;
+            foreach ($fileGroups as $g) {
+                $gi++;
+                $outAbs = $outDirAbsNorm . '/' . $base . '__' . $g['label'] . '__g' . $gi . '.pdf';
+                $this->extractPageSet($origAbsNorm, $g['pages'], $outAbs);
+                $g['file'] = $outAbs;
+                $allGroups[] = $g;
+            }
+        }
+
+        if (empty($allGroups)) {
+            return redirect()->route('tools.pdf_splitter.review')
+                ->withErrors(['pdf' => 'No pages were assigned to any document type.']);
+        }
+
+        $filed = $this->fileGroupsToContact($contact, $allGroups, $agencyId);
+
+        $ficaResults = [];
+        $ficaNote    = null;
+        if ($request->boolean('trigger_fica')) {
+            $destSvc  = app(AgencyComplianceDocTypeService::class);
+            $routing  = $destSvc->routingMapBySlugFor($agencyId);
+            $attached = collect([$contact->id => $contact]);
+            $ficaResults = $this->kickoffMultiFica($allGroups, $routing, $agencyId, $attached, $request->user(), $ficaNote);
+        }
+
+        session()->forget(['splitter_batch', 'splitter_skipped', 'splitter_context']);
+
+        $redirect = redirect()->route('tools.pdf_splitter.index')
+            ->with('splitter_linked', true)
+            ->with('splitter_contact_url', route('corex.contacts.show', $contact))
+            ->with('splitter_contact_label', $contact->full_name)
+            ->with('status', count($filed) . ' document' . (count($filed) === 1 ? '' : 's') . ' filed to ' . $contact->full_name . '.');
+
+        if (! empty($ficaResults)) {
+            $redirect->with('splitter_fica_results', $ficaResults);
+        } elseif ($ficaNote) {
+            $redirect->with('splitter_fica_note', $ficaNote);
+        }
+
+        return $redirect;
+    }
+
+    /**
+     * Files every group to a CONTACT with no property involved at all —
+     * shared filing shape for linkToContact() above. Mirrors
+     * fileGroupsToDestinations()'s own contact-naming branch (a contact-type
+     * document is named by the person, never an address) without any of
+     * that method's property-required plumbing (storage dir, address
+     * naming, deal linking) — this path genuinely has none of those.
+     */
+    private function fileGroupsToContact(Contact $contact, array $groups, int $agencyId): array
+    {
+        $dir = "contacts/{$contact->id}/files";
+        $publicDisk = Storage::disk('public');
+        if (! $publicDisk->exists($dir)) {
+            $publicDisk->makeDirectory($dir);
+        }
+
+        $slugs        = collect($groups)->pluck('label')->filter()->unique()->values();
+        $typeMap      = DocumentType::query()->whereIn('slug', $slugs)->pluck('id', 'slug')->toArray();
+        $typeLabelMap = DocumentType::query()->whereIn('slug', $slugs)->pluck('label', 'slug')->toArray();
+
+        $subjectLabel = trim((string) $contact->full_name) ?: ('Contact #' . $contact->id);
+        $fileDate     = now()->toDateString();
+        $usedNames    = [];
+        $filedIds     = [];
+
+        foreach ($groups as $g) {
+            $abs = $g['file'] ?? null;
+            if (! $abs || ! is_file($abs)) continue;
+
+            $labelSlug = $g['label'];
+            $docLabel  = $typeLabelMap[$labelSlug] ?? Str::headline((string) $labelSlug);
+
+            $baseName = \App\Models\Document::sanitizeOriginalName($subjectLabel . ' · ' . $docLabel . ' · ' . $fileDate);
+            $n = 1;
+            $filename = $baseName . '.pdf';
+            while (in_array($filename, $usedNames, true) || $this->contactDocNameExists($contact->id, $filename)) {
+                $n++;
+                $filename = $baseName . ' (' . $n . ').pdf';
+            }
+            $usedNames[] = $filename;
+            $fsBase  = Str::slug($baseName) . ($n > 1 ? '-' . $n : '');
+            $relPath = $dir . '/' . Str::random(8) . '_' . ($fsBase !== '' ? $fsBase : 'document') . '.pdf';
+
+            $stream = @fopen($abs, 'rb');
+            if (! $stream) continue;
+            $publicDisk->put($relPath, $stream);
+            if (is_resource($stream)) { @fclose($stream); }
+
+            $document = Document::create([
+                'original_name'    => $filename,
+                'storage_path'     => $relPath,
+                'disk'             => 'public',
+                'mime_type'        => 'application/pdf',
+                'size'             => (($__sz = @filesize($abs)) !== false ? $__sz : null),
+                'document_type_id' => $typeMap[$labelSlug] ?? null,
+                'source_type'      => 'contact',
+                'source_id'        => $contact->id,
+                'agency_id'        => $agencyId,
+                'uploaded_by'      => auth()->id(),
+            ]);
+            $document->contacts()->syncWithoutDetaching([$contact->id]);
+            $filedIds[] = $document->id;
+        }
+
+        return $filedIds;
     }
 
     /**

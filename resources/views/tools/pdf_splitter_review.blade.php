@@ -230,8 +230,50 @@
                 <span x-show="!loadingContacts" x-text="contacts.length + ' contact' + (contacts.length===1?'':'s') + ' linked'"></span>
             </span>
         </div>
-        <p x-show="!property" class="text-xs mt-2" style="color: var(--text-muted);">
-            Pick a property to enable per-page contact assignment and the “Link” action — it applies to every file below. You can still “Download ZIP” without one.
+
+        {{-- AT-392 — Johan: "the splitter works on a linked property... for
+             an applicant we might not know the property yet, so the linked
+             contact... should be used on the splitter." A property is
+             genuinely optional here — this is a real alternative, not a
+             consolation note under a property-only requirement. --}}
+        <template x-if="!property">
+            <div class="mt-3 pt-3" style="border-top: 1px solid var(--border);">
+                <template x-if="!anchorContact">
+                    <div>
+                        <label class="text-xs font-semibold uppercase tracking-wide" style="color: var(--text-secondary);">
+                            Don't know the property yet? Link to a contact instead
+                        </label>
+                        <div class="relative mt-1">
+                            <input type="text" x-model="contactQ" @input.debounce.250="searchAnchorContact()" @focus="searchAnchorContact()"
+                                   placeholder="Search contact by name, phone, email, ID…"
+                                   class="w-full px-3 py-2 rounded-md text-sm"
+                                   style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                            <div x-show="anchorContactResults.length > 0" class="absolute left-0 right-0 top-full mt-1 rounded-md z-20 max-h-72 overflow-y-auto"
+                                 style="background: var(--surface); border: 1px solid var(--border); box-shadow: var(--pv2-shadow);">
+                                <template x-for="r in anchorContactResults" :key="r.id">
+                                    <button type="button" @click="pickAnchorContact(r)" class="block w-full text-left px-3 py-2 text-sm" style="color: var(--text-primary);">
+                                        <span x-text="r.label"></span>
+                                        <div class="text-xs" style="color: var(--text-muted);" x-text="[r.identifier, r.type].filter(Boolean).join(' · ')"></div>
+                                    </button>
+                                </template>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+                <template x-if="anchorContact">
+                    <div class="flex items-center justify-between gap-3 px-3 py-2 rounded-md"
+                         style="background: var(--surface-2); border: 1px solid var(--border);">
+                        <div class="text-sm" style="color: var(--text-primary);">
+                            Linking to contact: <span class="font-medium" x-text="anchorContact.label"></span>
+                        </div>
+                        <button type="button" @click="clearAnchorContact()" class="text-xs underline" style="color: var(--text-secondary);">Clear</button>
+                    </div>
+                </template>
+            </div>
+        </template>
+
+        <p x-show="!property && !anchorContact" class="text-xs mt-2" style="color: var(--text-muted);">
+            Pick EITHER a property (enables per-page contact assignment) OR a contact above (files everything to that person) to enable linking. You can still “Download ZIP” without either.
         </p>
     </div>
 
@@ -324,6 +366,7 @@
             <input type="hidden" name="manifest_ids[]" :value="file.manifestId">
         </template>
         <input type="hidden" name="property_id" :value="property ? property.id : ''">
+        <input type="hidden" name="contact_id" :value="anchorContact ? anchorContact.id : ''">
         @if(!empty($canFica))
             <input type="hidden" name="trigger_fica" :value="ficaChecked ? '1' : '0'">
         @endif
@@ -458,8 +501,18 @@
             @else
             <button type="submit" class="btn-gen" formaction="{{ route('tools.pdf_splitter.link') }}" data-tour="spr-link"
                     :disabled="submitting || hasMissing || !property"
-                    :title="hasMissing ? 'A file in this batch could not be loaded — re-upload the whole batch' : (property ? 'File every page (across all files above) to its destination(s) and assigned contact(s)' : 'Pick a property first')">
+                    :title="hasMissing ? 'A file in this batch could not be loaded — re-upload the whole batch' : (property ? 'File every page (across all files above) to its destination(s) and assigned contact(s)' : 'Pick a property first, or use \'Link to Contact\' instead')">
                 <span x-text="submitting ? 'Working…' : 'Link'"></span>
+            </button>
+            {{-- AT-392 — Johan: "the splitter works on a linked property...
+                 the linked contact... should be used on the splitter."
+                 A genuine second door, not a fallback hidden behind the
+                 property-required one above — visible and usable the moment
+                 a contact is picked, with no property involved at all. --}}
+            <button type="submit" class="btn-gen" formaction="{{ route('tools.pdf_splitter.link_to_contact') }}" data-tour="spr-link-contact"
+                    :disabled="submitting || hasMissing || !anchorContact"
+                    :title="hasMissing ? 'A file in this batch could not be loaded — re-upload the whole batch' : (anchorContact ? 'File every page (across all files above) to this contact' : 'Pick a contact above first')">
+                <span x-text="submitting ? 'Working…' : 'Link to Contact'"></span>
             </button>
             @endif
             <button type="submit" class="btn-gen secondary" formaction="{{ route('tools.pdf_splitter.confirm') }}" data-tour="spr-zip"
@@ -485,6 +538,9 @@ document.addEventListener('alpine:init', () => {
         searchUrl:       '{{ route('tools.pdf_splitter.properties.search') }}',
         dealSearchUrl:   '{{ route('deals-v2.search.deals') }}',
         contactsTpl:     '{{ route('tools.pdf_splitter.properties.contacts', ['property' => '__ID__']) }}',
+        // AT-392 — the no-property fallback: search for and pick a contact
+        // directly, mirroring the property search exactly.
+        anchorContactSearchUrl: '{{ route('tools.pdf_splitter.contacts.search') }}',
         thumbTpl:        '{{ route('tools.pdf_splitter.thumb', ['page' => '__PAGE__', 'manifest' => '__MANIFEST__']) }}',
         contactSearchTpl:'{{ route('corex.properties.contacts.search', ['property' => '__PID__']) }}',
         contactLinkTpl:  '{{ route('corex.properties.contacts.link', ['property' => '__PID__']) }}',
@@ -506,6 +562,10 @@ document.addEventListener('alpine:init', () => {
         // identically to what searchProps()/pickProp() already produce, so
         // every other reference to `property` in this component just works.
         property: @json($prefillProperty ?? null),
+        // AT-392 — the "or pick a contact instead" anchor, only meaningful
+        // when there's no property. Independent state, not a repurposing of
+        // `property` — a batch can only ever anchor on ONE of the two.
+        contactQ: '', anchorContactResults: [], anchorContact: null,
         dealQ: '', dealResults: [], deal: null,
         contacts: [], contactsById: {}, loadingContacts: false,
         ficaOverride: null,
@@ -536,13 +596,35 @@ document.addEventListener('alpine:init', () => {
                 this.propResults = res.ok ? await res.json() : [];
             } catch (e) { this.propResults = []; }
         },
-        pickProp(r) { this.property = r; this.q = ''; this.propResults = []; this.loadContacts(r.id); },
+        pickProp(r) { this.property = r; this.q = ''; this.propResults = []; this.clearAnchorContact(); this.loadContacts(r.id); },
         clearProperty() {
             this.property = null; this.contacts = []; this.contactsById = {};
             this.deal = null; this.dealQ = ''; this.dealResults = [];
             // Back to a clean slate: no contacts, nothing touched, in every file.
             this.allPages().forEach(p => { p.contactIds = []; p.touched = false; });
         },
+
+        // ── AT-392 — no-property fallback: pick a contact instead ──────────
+        // Johan: "the splitter works on a linked property... the linked
+        // contact... should be used on the splitter." A batch anchors on
+        // EITHER a property OR a contact, never both — picking one clears
+        // the other so the two submit buttons (formaction) never both look
+        // "ready" at once.
+        async searchAnchorContact() {
+            const q = this.contactQ.trim();
+            if (q.length < 2) { this.anchorContactResults = []; return; }
+            try {
+                const res = await fetch(`${this.anchorContactSearchUrl}?q=${encodeURIComponent(q)}`, {
+                    headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }, credentials: 'same-origin',
+                });
+                this.anchorContactResults = res.ok ? await res.json() : [];
+            } catch (e) { this.anchorContactResults = []; }
+        },
+        pickAnchorContact(c) {
+            this.anchorContact = c; this.contactQ = ''; this.anchorContactResults = [];
+            if (this.property) { this.clearProperty(); }
+        },
+        clearAnchorContact() { this.anchorContact = null; this.contactQ = ''; this.anchorContactResults = []; },
 
         // ── deal search (WS3 · D4) ────────────────────────────────────────
         async searchDeals() {
