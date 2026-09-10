@@ -755,3 +755,41 @@ state lives in the DB, not per-checkout); confirmed the three new columns exist 
 2026-11-01 / water+levies-included-but-not-electricity on a real rental property,
 confirmed in the database directly; the sale property's raw HTML has zero occurrences
 of any of the three fields; a direct POST at the sale property's route still 403s.
+
+---
+
+## Rentals → Properties list — design-standard audit (AT-392, 2026-09-10, cc5)
+
+Pre-launch audit of the rental Properties list (`corex.rentals.properties.index`, `PropertyController::index()`, same action as the sale-side list, distinguished by route name and locked to `listing_type='rental'` after the query string is read). Same treatment as the authorisation-screen audit — findings listed, only the genuinely straightforward fix landed here.
+
+### Search/sort/pagination/empty state/CRUD floor — all PASS, checked not assumed
+
+- **Search**: `Property::searchAddress()` — real column, no ambiguous-JOIN risk. A search deliberately widens past the user's own scope (documented AT-394 behaviour) but flags out-of-scope rows and disables their links, backed by the same real per-record guard as everything else, not a UI-only hint.
+- **Sort**: whitelisted columns, default from a real agency setting (`properties_sort_mode`) falling back to newest-first — not arbitrary.
+- **Pagination**: real, agency-configurable per-page (`PerformanceSetting::get('properties_per_page', 20)`), clamped.
+- **Empty state**: two real messages — "No properties match these filters" vs. "No properties yet."
+- **CRUD floor**: Create/Read/Update/Archive(soft-delete via `destroy()`, confirmed genuine `SoftDeletes`, no `forceDelete()` anywhere)/Restore all present as real routes.
+
+### OWN/BRANCH/AGENCY scoping — correctly wired, but a load-bearing nuance to understand before judging "everyone sees everything" as a bug
+
+`applyRoleScope()` and the `show()`/mutation guards use the same `PermissionService::getDataScope()` mechanism already proven correct on the authorisation screens. But `properties`/`contacts` specifically layer a SECOND, agency-wide toggle on top: a role's stored scope is only 'own' or "wider," and when "wider," the *effective* breadth is `agencies.split_branches_enabled` — branch-only when true, agency-wide when false. **Every real agency in this database currently has `split_branches_enabled = false`**, including agency 1 — so today, for every role except a pure-'own' one, the properties list is legitimately agency-wide by an existing, deliberate setting, not a missing scoping wire like the authorisation screens had.
+
+Proved this precisely rather than assumed: constructed a throwaway `viewer`-role test user (a real, already-configured role with `scope='branch'` stored in `role_permissions` — not invented) and confirmed `PermissionService::getDataScope()` resolves to `'all'`, exactly as the code's own documented logic predicts given `split_branches_enabled=false`. **Deliberately did not flip that live, agency-wide setting to force a "blocked" result** — doing so would have changed real data visibility for any real concurrent user for the duration of the test, which is a worse risk than leaving one code path statically-verified rather than click-through-proved. The mechanism itself is the same one already live-proven on the authorisation screens tonight; what's untested is specifically "does `split_branches_enabled=true` behave correctly," which no real agency currently exercises.
+
+### FOUND AND FIXED — a real, currently-dormant scoping gap on property document actions
+
+`PropertySgController::saveDocument()`/`download()` (SG = Surveyor-General document integration) checked cross-agency access only (`guardAgency()` — a hardcoded agency-id comparison) and never consulted the same own/branch/agency scope the property record itself uses. Not exploitable *today* — same reason as above, `split_branches_enabled` is off everywhere, so 'branch' scope resolves to 'all' regardless — but wired to become a real gap the moment any agency turns branch-splitting on, since this route would keep ignoring it while the rest of the module correctly respected it. Fixed by wiring in the same `AuthorizesPropertyAccess` trait (`authorizeProperty()`) every other property-mutating/viewing action already uses — `saveDocument()` (a write) gets mutation scope, `download()` (a read) gets view scope, matching the show() page's own breadth exactly. Confirmed a no-op for every real user today (`getDataScope()`/`mutationScope()` both resolve to `'all'` for a real agent right now) — this only changes behaviour once an agency's Data Isolation setting is actually turned on.
+
+### FOUND — real, not invented: the "expired" status has no way to be isolated on this screen
+
+Real agency-1 rental status counts: `withdrawn` 357/359 (two counts taken minutes apart, live data), `expired` 104, `let_out` 70, `to_let` 18-20, `active` 6, `draft` 2-5, `archived` 1, `prospecting` 1. Cross-referenced independently by two separate research passes, same result both times: **`expired` — the SECOND-LARGEST bucket at 104 real properties — has no KPI tile and no filter-dropdown option.** It's excluded from "Available" (`Property::OFF_MARKET_STATUSES`) and only reachable by selecting "All Statuses" and scanning manually. `withdrawn` (the largest bucket) has a filter option but no KPI tile — findable, just not surfaced as prominently. `archived` (1 record) has neither, negligible volume. Every OTHER real status (`to_let`, `active`, `draft`, `prospecting`, `let_out`) is correctly represented — nothing was invented, this is specifically the one real gap.
+
+**Not fixed here, deliberately** — unlike the SG-document guard, this isn't a pure "wire in an existing mechanism" fix: it's a visible addition to a screen agents use daily (a new filter option, possibly a new KPI tile), which is a UI/information-architecture call, not a mechanical completeness fix. Flagging rather than building it unasked.
+
+### Sale vocabulary, navigation, dead controls — confirmed clean
+
+Grepped the full view for sale-only language (Buyer/Seller/Offer/Purchase/Mandate) — the KPI tiles, status set, and listing-type control all correctly relabel or drop for the rentals lens (e.g. "On Market"→"Available", "Sold"→"Rented Out", sale-only statuses dropped entirely rather than mislabelled). The listing-type dropdown becomes a static "Rentals only" label on this entry point — server-enforced, not decorative, initially misread as dead but the gating condition confirmed it's correct. Navigation correctly keeps the Rentals lens via the same route-name + session pattern used elsewhere. No half-wired controls found. The legacy "Hidden→Rentals panel" (`Rental\RentalPropertyController`) still exists in routes but isn't linked from anywhere current — a previously-recorded PARKED decision, not a fresh finding.
+
+### Files changed
+
+- `app/Http/Controllers/CoreX/PropertySgController.php` — `authorizeProperty()` wired into `saveDocument()`/`download()`, `AuthorizesPropertyAccess` trait added
