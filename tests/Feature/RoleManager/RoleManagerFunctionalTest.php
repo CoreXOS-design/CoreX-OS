@@ -383,6 +383,54 @@ final class RoleManagerFunctionalTest extends TestCase
         );
     }
 
+    /**
+     * AT-401 — savePermissions() rebuilds EVERY row for the role on every
+     * save (delete + reinsert), but the Role Manager UI only renders a scope
+     * selector for `type => 'action'` `.view` keys. A `.view` key classified
+     * `type => 'access'` (e.g. rental_applications.view) still has its scope
+     * read at runtime, but the browser never submits one for it — so an
+     * unrelated save of the role used to silently null that key's scope as
+     * collateral damage. This is exactly what happened to agency 1's real
+     * admin role on 2026-09-10 and 403'd every rental application, including
+     * ones the admin created themselves. Fails on the old code (scope comes
+     * back NULL), passes on the fix (existing scope is carried forward for
+     * any key absent from the submitted scopes[]).
+     */
+    public function test_saving_permissions_preserves_scope_for_a_key_absent_from_the_submission(): void
+    {
+        [$agency, $admin] = $this->provisionedAgency();
+
+        // Simulate a pre-existing scope on a `.view` key the UI never
+        // submits a scope for (a `type => 'access'` permission).
+        RolePermission::updateOrCreate(
+            ['agency_id' => $agency->id, 'role' => 'admin', 'permission_key' => 'rental_applications.view'],
+            ['scope' => 'all']
+        );
+
+        $adminPerms = RolePermission::where('agency_id', $agency->id)->where('role', 'admin')
+            ->pluck('permission_key')->all();
+        if (!in_array('rental_applications.view', $adminPerms, true)) {
+            $adminPerms[] = 'rental_applications.view';
+        }
+
+        Auth::login($admin);
+        // Save the role for an unrelated reason — the submitted scopes[]
+        // does NOT include rental_applications.view, exactly as the real UI
+        // never would (no selector renders for it).
+        $this->rm->savePermissions(Request::create('/x', 'POST', [
+            'role'        => 'admin',
+            'permissions' => array_fill_keys($adminPerms, '1'),
+            'scopes'      => ['properties.view' => 'all'],
+        ]));
+
+        $this->assertSame(
+            'all',
+            RolePermission::where('agency_id', $agency->id)->where('role', 'admin')
+                ->where('permission_key', 'rental_applications.view')->value('scope'),
+            'a permission key absent from the submitted scopes[] must keep its existing scope, not be nulled'
+        );
+    }
+
     public function test_a_live_roles_name_is_still_rejected(): void
     {
         [$agency, $admin] = $this->provisionedAgency();

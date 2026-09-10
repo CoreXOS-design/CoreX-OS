@@ -262,6 +262,23 @@ class RoleManagerController extends Controller
         $matrix = $request->input('permissions', []);
         $scopes  = $request->input('scopes', []);
 
+        // AT-401 — this method rebuilds EVERY row for the role on every save
+        // (see the delete+insert below), but the Role Manager UI only ever
+        // renders a scope selector for `type => 'action'` permissions ending
+        // in `.view` (role-manager.blade.php's $fActionMap). A `.view` key
+        // classified `type => 'access'` (e.g. rental_applications.view) still
+        // has its scope read at runtime by PermissionService::getDataScope(),
+        // but the browser never submits a value for it — so without this,
+        // ANY save of the role silently nulls that key's scope as collateral
+        // damage, even though nothing about it was intentionally changed.
+        // Snapshotted BEFORE the transaction's delete so a key absent from
+        // the submitted `scopes[]` keeps whatever it already had instead of
+        // being forced to NULL.
+        $existingScopes = RolePermission::where('role', $role)
+            ->when($agencyId, fn ($q) => $q->where('agency_id', $agencyId), fn ($q) => $q->whereNull('agency_id'))
+            ->whereNotNull('scope')
+            ->pluck('scope', 'permission_key');
+
         // Branch isolation: `branches.edit_all` implies `branches.view_all`.
         // Enforced server-side so no request (even a crafted one) can land
         // edit-without-view and silently leak a cross-branch edit path.
@@ -275,10 +292,17 @@ class RoleManagerController extends Controller
         foreach ($matrix as $permKey => $on) {
             if ($on && $on !== '0' && $validKeys->has($permKey)) {
                 $scope = null;
-                if (str_ends_with($permKey, '.view') && isset($scopes[$permKey])) {
-                    $scopeVal = $scopes[$permKey];
-                    if (in_array($scopeVal, ['own', 'branch', 'all'])) {
-                        $scope = $scopeVal;
+                if (str_ends_with($permKey, '.view')) {
+                    if (isset($scopes[$permKey])) {
+                        $scopeVal = $scopes[$permKey];
+                        if (in_array($scopeVal, ['own', 'branch', 'all'])) {
+                            $scope = $scopeVal;
+                        }
+                    } else {
+                        // Not part of this submission (no selector rendered
+                        // for it) — carry the existing value forward rather
+                        // than wiping it.
+                        $scope = $existingScopes[$permKey] ?? null;
                     }
                 }
 
