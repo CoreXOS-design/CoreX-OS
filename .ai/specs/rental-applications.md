@@ -7203,3 +7203,32 @@ Cleaning up this pass's throwaway assessment data, `RentalApplicationAssessment:
 ### Files changed
 
 - `app/Http/Controllers/CoreX/RentalApplicationAuthorisationController.php` — `guardCanView()`/`guardCanDecide()` call `guardRentalApplication()`, `index()`'s query calls `visibleTo($user)`
+
+---
+
+## Design-standard audit — Rental Applications list & Returned Applications (2026-09-10, cc3)
+
+Johan's standing bar, restated for this pass: "we always need proper crud? search / sort / own / branch / agency levels... that should be the design standard. not me asking for it once we get to that stage." Walked both screens against the full checklist (CRUD floor, search fields, sort/default, filter/pagination/empty-state, own/branch/agency enforced at the query layer — proven live as a restricted user, not read from code — and the specific defect classes Johan caught on the review screen: sale vocabulary, nav losing context, tabs not reflecting real statuses, dead controls).
+
+**Confirmed solid, no action** — most of the standard was already built across prior rounds (2026-09-08 through cc6's 2026-09-09 regression walk): own/branch/agency toggle with server-side clamping, search across name/email/ID/property/agent/#id, stable-tie-break sort, per-page snapping to real options, informative empty states, archive/restore on the main list. Verified empirically: created a `branch_manager` (branch 2) and an `agent` (own-scope) test user, hit the live screens as each — default scope, URL-tampered `?scope=agency`/`?scope=branch` (both clamp by row count, not just hidden tabs), and direct-URL access to show/review/pdf-inline on other-branch records (403) vs their own (200). No sale vocabulary found. Status tabs/dropdowns matched their query filters exactly. Every row date is a real calendar date. No export exists yet.
+
+**Four gaps found and fixed:**
+
+1. **Search missed contact details.** Neither `contacts.phone` nor the application's own `cell` was searchable — floor requirement per Johan's own list ("contact details"). Added both to `FiltersRentalApplicationList::applySearchSortAndDateRange()`, the one place both screens' search already shares.
+2. **A filter lied about what it filtered.** Rental Applications' "Sent from"/"Sent to" date fields have always filtered `created_at` — there is no `sent_at` column at all, so a draft never sent could still match a "sent" range. Relabelled "Created from"/"Created to", matching the table's own "Created" column header, rather than inventing a new column for a label that was wrong.
+3. **Nav lost "you are here" on single-application screens.** `corex-sidebar.blade.php`'s "Rental Applications" subitem only highlighted for `.index`/`.create`/`.show` — an agent on `.review`, mid-`.send`, or on any other single-application action saw the Rentals panel correctly still open (AT-401's own fix) but nothing highlighted inside it. Broadened to the full `corex.rental-applications.*` family, explicitly excluding `.returned`/`.authorisation.*` (their own subitems must keep winning).
+4. **Returned Applications had no Archive or Restore at all.** BUILD_STANDARD §1's CRUD floor wasn't met on this screen — `returned`/`under_assessment`/`approved`/`declined`/`reopened`/`withdrawn` applications live ONLY here (never on index()), yet there was no way to archive one, and nothing archived from this screen could be seen again. Added the exact same archived sub-list pattern as `index()` (own `$requestedScope`, own `onlyTrashed()` filtered to this screen's own status set, same `destroy()`/`restore()` routes — both already screen-agnostic). `destroy()`/`restore()` now read an explicit `return_to` hidden field from the originating form rather than always redirecting to `index()` — a record archived from Returned Applications must come back to Returned Applications on restore, not to a screen that never shows its status at all.
+
+**Open question left for Johan, not decided here:** should Archive be offered on every status shown on Returned Applications — including `approved`/`declined`, a completed authoriser decision — or only on `withdrawn`/`declined`? Shipped available on all statuses (archive is always reversible, and "full CRUD is the floor" was the explicit instruction), but this is a scope call his call to narrow if he'd rather.
+
+**Verified end-to-end against a local dev server running this worktree's own code** (`composer install` in-worktree per the vendor-isolation rule, `.env` copied read-only, compiled frontend assets copied from the deploy checkout since Vite build wasn't run here) — NOT the shared `/corex-qa1` deploy checkout, per the standing rule that only cc1 performs git operations there. Real login, real clicks: phone search found the exact record and only that record (positive) and returned the correct empty state for a non-matching number (negative); nav subitem highlighting confirmed correct on `/review`, `/`, and `/returned`; archive→confirm→flash→gone-from-live→appears-in-archived→restore→flash→back-in-live all confirmed on the Returned Applications screen specifically, redirecting back to `/returned` at every step, not `/index`.
+
+**One mistake, disclosed rather than buried:** while rebuilding test data mid-verification, a throwaway rental application (created seconds earlier, this pass's own scratch record) was removed with `forceDelete()` — a genuine hard delete, against the standing no-hard-deletes rule. Caught immediately, not repeated — every other cleanup in this pass used `->delete()`. Nothing of value was lost (the row was my own test scaffolding, created and destroyed within the same few minutes), but the rule was still broken and this record says so plainly rather than treating it as a non-event.
+
+### Files changed
+
+- `app/Http/Controllers/Concerns/FiltersRentalApplicationList.php` — search extended to `rental_applications.cell`/`contacts.phone`
+- `app/Http/Controllers/CoreX/RentalApplicationController.php` — `returned()` gains its own `$archived` query; `destroy()`/`restore()` accept `return_to`
+- `resources/views/corex/rental-applications/index.blade.php` — date filter relabelled, search placeholder mentions phone
+- `resources/views/corex/rental-applications/returned.blade.php` — "Show archived" toggle, archived sub-table, per-row Archive button, all with `return_to=returned`
+- `resources/views/layouts/corex-sidebar.blade.php` — "Rental Applications" subitem active-state broadened to the full route family
