@@ -102,7 +102,19 @@
         — only the agent's own judgement calls are settable here.
     --}}
     @permission('rental_applications.create')
-    @if(in_array($rentalApplication->status, \App\Models\RentalApplication::POST_RETURN_STATUSES, true))
+    {{-- AT-401 — this dropdown's own <option> list is AGENT_SETTABLE_STATUSES
+         (+ the disabled 'returned' placeholder), not the broader
+         POST_RETURN_STATUSES this gate used to check — same bug class as
+         returned.blade.php: approved/declined match no <option>, so the
+         browser silently defaulted to showing the first enabled one
+         regardless of the real status. In practice this view is only ever
+         reached for statuses NOT in AGENT_EDIT_LOCKED_STATUSES (see
+         RentalApplicationController::show()), so approved/declined never
+         actually landed here — but 'reopened' isn't in POST_RETURN_STATUSES
+         either and was already correctly excluded, and closing this
+         defensively (rather than leaving a second known-broken copy of the
+         same gate) is the point of fixing the class, not the instance. --}}
+    @if(in_array($rentalApplication->status, array_merge(['returned'], \App\Models\RentalApplication::AGENT_SETTABLE_STATUSES), true))
     <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
         <h2 class="text-sm font-semibold mb-3" style="color: var(--text-primary);">Application Status</h2>
         <form method="POST" action="{{ route('corex.rental-applications.update-status', $rentalApplication) }}" class="flex flex-wrap items-end gap-3">

@@ -68,6 +68,21 @@
     @permission('rental_applications.create')
     <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
         <h2 class="text-sm font-semibold mb-3" style="color: var(--text-primary);">Application Status</h2>
+        {{-- AT-401 — this view has NO status gate at all: every status that
+             reaches it (returned, under_assessment, approved, declined,
+             withdrawn, reopened — see AGENT_EDIT_LOCKED_STATUSES) rendered
+             this SAME editable dropdown, whose own <option> list is only
+             AGENT_SETTABLE_STATUSES (under_assessment/withdrawn) plus the
+             disabled 'returned' placeholder. approved, declined, and
+             reopened all matched no <option>, so the browser silently
+             defaulted to showing the first enabled one — the worse version
+             of the same bug fixed on returned.blade.php and show.blade.php,
+             since here it had no gate to narrow, only to add. Agent-settable
+             statuses keep the real control; anything else gets a plain,
+             correctly-labelled status line instead — the page's own sticky
+             header badge above already shows the true status regardless,
+             this just stops the card underneath it contradicting it. --}}
+        @if(in_array($rentalApplication->status, array_merge(['returned'], \App\Models\RentalApplication::AGENT_SETTABLE_STATUSES), true))
         <form method="POST" action="{{ route('corex.rental-applications.update-status', $rentalApplication) }}" class="flex flex-wrap items-end gap-3">
             @csrf
             <div>
@@ -91,6 +106,9 @@
             </div>
             <button type="submit" class="corex-btn-primary text-xs">Update Status</button>
         </form>
+        @else
+            <span class="ds-badge ds-badge-info">{{ str_replace('_', ' ', ucfirst($rentalApplication->status)) }}</span>
+        @endif
 
         @if($rentalApplication->statusHistory->isNotEmpty())
         <div class="mt-4 pt-3 text-xs space-y-1" style="border-top: 1px solid var(--border); color: var(--text-muted);">
