@@ -1295,6 +1295,13 @@ Route::middleware(['auth'])->group(function () {
     // from the ZIP download. Both submit the per-page assignments for every
     // file in the batch.
     Route::post('/tools/pdf-splitter/link', [PdfSplitterController::class, 'link'])->middleware('permission:access_pdf_splitter')->name('tools.pdf_splitter.link');
+    // AT-392 — split once, at intake, before review (Johan). A rental
+    // application's own document, split through the SAME engine, filed to
+    // its contact instead of a property. intakeRentalApplicationDocument()
+    // itself also enforces guardRentalApplication() (own/branch/agency), on
+    // top of this route's own permission gate.
+    Route::post('/tools/pdf-splitter/rental-applications/{rentalApplication}/documents/{document}/split', [PdfSplitterController::class, 'intakeRentalApplicationDocument'])->middleware('permission:access_pdf_splitter')->name('tools.pdf_splitter.intake_rental_application');
+    Route::post('/tools/pdf-splitter/rental-applications/{rentalApplication}/link', [PdfSplitterController::class, 'linkForRentalApplication'])->middleware('permission:access_pdf_splitter')->name('tools.pdf_splitter.link_rental_application');
 
     // PDF Suite — hub + 7 sibling tools (Splitter is reachable from the hub)
     Route::middleware(['permission:access_pdf_suite', 'feature:pdf-suite'])->prefix('tools/pdf-suite')->name('tools.pdf_suite.')->group(function () {
