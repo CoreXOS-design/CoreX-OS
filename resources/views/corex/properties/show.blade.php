@@ -4133,6 +4133,20 @@
                         <input type="checkbox" id="rental_has_deposit_new" name="has_deposit" form="prop-update-form" value="1" {{ old('has_deposit', $property->has_deposit) ? 'checked' : '' }} class="rounded">
                         <label for="rental_has_deposit_new" class="prop-label !mb-0">Has Deposit</label>
                     </div>
+                    {{-- AT-402 Part 3 — first-ever desktop inputs; the mobile
+                         app has always been able to set these three. --}}
+                    <div>
+                        <label class="prop-label">Commission (%)</label>
+                        <input type="number" name="commission_percent" form="prop-update-form" value="{{ old('commission_percent', $property->commission_percent) }}" placeholder="optional" min="0" max="100" step="0.01" class="prop-input">
+                    </div>
+                    <div>
+                        <label class="prop-label">Admin Fee (R)</label>
+                        <input type="number" name="admin_fee" form="prop-update-form" value="{{ old('admin_fee', $property->admin_fee) }}" placeholder="optional" min="0" step="0.01" class="prop-input prop-field-money">
+                    </div>
+                    <div>
+                        <label class="prop-label">Marketing Fee (R)</label>
+                        <input type="number" name="marketing_fee" form="prop-update-form" value="{{ old('marketing_fee', $property->marketing_fee) }}" placeholder="optional" min="0" step="0.01" class="prop-input prop-field-money">
+                    </div>
                 </div>
             @else
                 {{-- Settled rental property — dedicated save action
@@ -4199,6 +4213,23 @@
                         <div class="flex items-center gap-2">
                             <input type="checkbox" id="rental_has_deposit_settled" name="has_deposit" value="1" {{ old('has_deposit', $property->has_deposit) ? 'checked' : '' }} class="rounded">
                             <label for="rental_has_deposit_settled" class="prop-label !mb-0">Has Deposit</label>
+                        </div>
+                        {{-- AT-402 Part 3 — first-ever desktop inputs; the mobile
+                             app has always been able to set these three. Same
+                             0-100 bound on Commission as the mobile app; Admin
+                             Fee / Marketing Fee carry an agency-configurable
+                             ceiling (Settings → Properties & Listings). --}}
+                        <div>
+                            <label class="prop-label">Commission (%)</label>
+                            <input type="number" name="commission_percent" value="{{ old('commission_percent', $property->commission_percent) }}" placeholder="optional" min="0" max="100" step="0.01" class="prop-input">
+                        </div>
+                        <div>
+                            <label class="prop-label">Admin Fee (R)</label>
+                            <input type="number" name="admin_fee" value="{{ old('admin_fee', $property->admin_fee) }}" placeholder="optional" min="0" step="0.01" class="prop-input prop-field-money">
+                        </div>
+                        <div>
+                            <label class="prop-label">Marketing Fee (R)</label>
+                            <input type="number" name="marketing_fee" value="{{ old('marketing_fee', $property->marketing_fee) }}" placeholder="optional" min="0" step="0.01" class="prop-input prop-field-money">
                         </div>
                     </div>
                     <div class="flex justify-end">

@@ -337,6 +337,8 @@ return [
         ],
         'savers' => [
             ['controller' => SettingsController::class, 'method' => 'updatePropertiesPerPage'],
+            // AT-402 — Rental tab's Admin Fee / Marketing Fee sanity ceiling.
+            ['controller' => SettingsController::class, 'method' => 'updateRentalFeeCeiling'],
             // DR2 Wave 2 — Deal → Property → Portal status sync. All three fields
             // render together on this step, so every save posts all three (the
             // controller's boolean fields default an ABSENT field to false —
@@ -350,6 +352,11 @@ return [
              'label' => 'Properties per page',
              'explain' => 'How many listings load at a time on the Properties page. A smaller number loads faster on a phone in the field; a larger number means less clicking at a desk.',
              'affects' => 'How many properties an agent scrolls through before paging to the next set.'],
+
+            ['key' => 'rental_fee_max_amount', 'source' => 'perf', 'type' => 'number', 'default' => 50000, 'min' => 1, 'max' => 10000000,
+             'label' => 'Maximum rental Admin Fee / Marketing Fee (R)',
+             'explain' => 'A rental listing\'s Admin Fee and Marketing Fee (on the property\'s Rental tab) can\'t be saved above this amount — a safety net against a typo like an extra zero turning a fee into a much larger number.',
+             'affects' => 'The highest Rand amount an agent can enter for a rental\'s Admin Fee or Marketing Fee before the save is rejected.'],
 
             ['key' => 'flag_property_under_offer_on_deal', 'source' => 'deal_sync', 'type' => 'toggle', 'default' => 0,
              'heading' => 'Deal → property status sync',

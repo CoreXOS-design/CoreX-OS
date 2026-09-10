@@ -103,6 +103,12 @@ class SettingsController extends Controller
         $data['contactsPerPage']   = (int) PerformanceSetting::get('contacts_per_page', 25);
         $data['propertiesPerPage'] = (int) PerformanceSetting::get('properties_per_page', 20);
         $data['filingRegisterPerPage'] = (int) PerformanceSetting::get('filing_register_page_size', 50);
+        // AT-402 — sanity ceiling for a rental listing's Admin Fee / Marketing
+        // Fee (Rental tab). Neither field has ever had an upper bound anywhere
+        // in the codebase (mobile or web) — only min:0 — so a typo (an extra
+        // zero) could otherwise save an absurd fee. Agency-configurable, not
+        // hardcoded, since a sane ceiling varies by agency fee structure.
+        $data['rentalFeeMaxAmount'] = (int) PerformanceSetting::get('rental_fee_max_amount', 50000);
 
         // Feature Settings tab: Properties
         $data['propCategories']     = PropertySettingItem::group('category')->get();
@@ -682,6 +688,22 @@ class SettingsController extends Controller
         ])['properties_per_page'];
         PerformanceSetting::set('properties_per_page', (int) $perPage);
         return redirect()->route('corex.settings', ['s' => 'feature-properties'])->with('success', 'Properties per page updated.');
+    }
+
+    /**
+     * AT-402 — the sanity ceiling PropertyController::updateRentalDetails()
+     * enforces on a rental's Admin Fee / Marketing Fee. Agency-configurable
+     * rather than hardcoded (fee structures vary by agency); read with a
+     * sensible default so an agency that never visits this setting still
+     * gets real protection against a typo'd fee.
+     */
+    public function updateRentalFeeCeiling(Request $request)
+    {
+        $max = $request->validate([
+            'rental_fee_max_amount' => 'required|integer|min:1|max:10000000',
+        ])['rental_fee_max_amount'];
+        PerformanceSetting::set('rental_fee_max_amount', (int) $max);
+        return redirect()->route('corex.settings', ['s' => 'feature-properties'])->with('success', 'Rental fee ceiling updated.');
     }
 
     public function updateFilingRegisterPerPage(Request $request)

@@ -3000,6 +3000,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::post('/settings/matches-visibility-scope', [CoreXSettingsController::class, 'updateMatchesVisibilityScope'])->middleware('permission:access_settings')->name('corex.settings.matches-visibility-scope');
     Route::post('/settings/contacts-per-page', [CoreXSettingsController::class, 'updateContactsPerPage'])->middleware('permission:access_settings')->name('corex.settings.contacts-per-page');
     Route::post('/settings/properties-per-page', [CoreXSettingsController::class, 'updatePropertiesPerPage'])->middleware('permission:access_settings')->name('corex.settings.properties-per-page');
+    // AT-402 — sanity ceiling for a rental's Admin Fee / Marketing Fee (Rental tab).
+    Route::post('/settings/rental-fee-ceiling', [CoreXSettingsController::class, 'updateRentalFeeCeiling'])->middleware('permission:access_settings')->name('corex.settings.rental-fee-ceiling');
     Route::post('/settings/filing-register-per-page', [CoreXSettingsController::class, 'updateFilingRegisterPerPage'])->middleware('permission:access_settings')->name('corex.settings.filing-register-per-page');
     Route::post('/settings/properties-sort', [CoreXSettingsController::class, 'updatePropertiesSort'])->middleware('permission:access_settings')->name('corex.settings.properties-sort');
     Route::post('/settings/remote-access', [CoreXSettingsController::class, 'updateRemoteAccess'])->middleware('permission:agency.manage_access_authorization')->name('corex.settings.remote-access');

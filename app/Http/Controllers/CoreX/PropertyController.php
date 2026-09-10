@@ -2371,6 +2371,14 @@ class PropertyController extends Controller
             'This property is not a settled rental listing.'
         );
 
+        // AT-402 Part 3 — sanity ceiling for Admin Fee / Marketing Fee. Neither
+        // field has ever had an upper bound anywhere in the codebase (mobile
+        // or web) — only min:0. Agency-configurable, not hardcoded (see
+        // SettingsController::updateRentalFeeCeiling()), with a sensible
+        // default so an agency that never visits the setting still has real
+        // protection against a typo'd fee.
+        $feeCeiling = (int) PerformanceSetting::get('rental_fee_max_amount', 50000);
+
         $data = $request->validate([
             'rental_amount'     => 'nullable|numeric|min:0',
             'deposit_amount'    => 'nullable|numeric|min:0',
@@ -2384,6 +2392,18 @@ class PropertyController extends Controller
             'price_per_day'     => 'nullable|numeric|min:0',
             'price_per_week'    => 'nullable|numeric|min:0',
             'price_per_year'    => 'nullable|numeric|min:0',
+            // AT-402 Part 3 — first-ever desktop inputs for these three; the
+            // mobile app has always been able to set them. Same bound on
+            // commission_percent (0-100) as the mobile app and the general
+            // update()/store() validation already use — never divide/multiply
+            // by 100 anywhere in this path, matching how every consumer of
+            // this column (WebTemplateDataService, the eSign wizard, mobile)
+            // already treats it as a plain percent number, not a fraction.
+            // No coercion on a bad value — a value outside these bounds fails
+            // validation and is never saved, not silently clamped.
+            'commission_percent' => 'nullable|numeric|min:0|max:100',
+            'admin_fee'          => "nullable|numeric|min:0|max:{$feeCeiling}",
+            'marketing_fee'      => "nullable|numeric|min:0|max:{$feeCeiling}",
         ]);
 
         // has_deposit is a checkbox: an unchecked box submits nothing at all,
