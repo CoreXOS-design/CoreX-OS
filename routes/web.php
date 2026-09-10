@@ -3881,6 +3881,25 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->middleware('permission:core_matches.all_view')
         ->name('corex.core-matches.all');
 
+    // AT-401 — Rentals → Core Matches. Same ContactMatchController::index()/
+    // allView() as above, detected by route NAME, forcing listing_type='rental'
+    // after the query string is read — same lock mechanism as Rentals →
+    // Properties / Rental Pipeline. No new permission: reuses core_matches.view
+    // per .ai/specs/rentals-shared-screens.md §6.1 (the shared screen already
+    // gates access; the rentals lens is a lock, not a new capability).
+    Route::get('/rentals/core-matches', [\App\Http\Controllers\CoreX\ContactMatchController::class, 'index'])
+        ->middleware('permission:core_matches.view')
+        ->name('corex.rentals.core-matches.index');
+
+    // .all is the oversight/agency-wide variant — gated by core_matches.all_view,
+    // matching corex.core-matches.all's own gate exactly. Gating it on
+    // core_matches.view alone would let anyone with base view access see
+    // every agent's rental matches through this entry point, an escalation
+    // the sales-side .all route does not allow.
+    Route::get('/rentals/core-matches/all', [\App\Http\Controllers\CoreX\ContactMatchController::class, 'allView'])
+        ->middleware('permission:core_matches.all_view')
+        ->name('corex.rentals.core-matches.all');
+
     // Portal Leads (P24 + PP unified). Spec: .ai/specs/portal-leads.md
     Route::prefix('real-estate/portal-leads')
         ->middleware(['permission:access_portal_leads', 'agency.required', 'feature:portal-leads'])

@@ -179,6 +179,21 @@ change needed. Archive/delete on Core Matches already exists behind
 
 ## 4. Screen C — Rentals → Rental Pipeline
 
+**BUILT AND LANDED ON QA1, 2026-09-10 — before Core Matches, per Johan's re-priority
+(cheapest-first: Properties, then Pipeline, then Core Matches).** Same route-name lock
+mechanism as Screen A: `corex.rentals.pipeline.index` detected by
+`$request->route()->getName()`, forcing `lead_type = 'rental'` after the query string
+is read. All 9 self-referencing `route('command-center.buyers.pipeline', ...)` calls in
+`pipeline.blade.php` now resolve via `$indexRouteName`. New permission
+`buyer_pipeline.view` (§6.2 below) gates only this entry point — the sales-side board
+keeps its current no-permission-key access, unchanged, per Johan's explicit "do not
+build the sales-side standardisation right now."
+
+Verified in a real browser: the entry shows a genuine subset (174 rental leads vs 469
+total on the unfiltered board — confirmed the filter actually narrows, not a no-op),
+`?lead_type=sale` on the URL does not escape the lock, and the sales-side board is
+unchanged.
+
 **Entry point, not a screen.** Same controller
 (`App\Http\Controllers\CommandCenter\BuyerPipelineController`), same view
 (`resources/views/command-center/buyers/pipeline.blade.php`), same
