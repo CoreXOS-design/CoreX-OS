@@ -182,6 +182,34 @@
                 // Referer didn't match a route — leave $activeGroup null
             }
         }
+    } elseif (
+        // AT-401 — the Rentals panel (Alpine group key 'rental-applications',
+        // see the "Rentals" panel below) never had a routeIs()-driven
+        // $activeGroup assignment at all — not even for the pre-existing
+        // Rental Applications / Returned Applications / Authorisation pages —
+        // so it never auto-expanded on a fresh page load; only a client-side
+        // click (push()) opened it, which a full-page <a href> navigation
+        // (e.g. into a match's Edit screen, or a property's show page)
+        // throws away on the very next request. That is the deeper half of
+        // "the menu jumps away from Rentals": fixing the individual link's
+        // active/inactive class (below) means nothing if the panel itself
+        // isn't the one auto-opening. Three cases open this panel:
+        // (1) the pre-existing rental-applications.* pages themselves;
+        // (2) landing directly on any of the three Rentals entry points
+        //     (their own route names, e.g. corex.rentals.properties.index,
+        //     never match corex.properties.* etc. below — different prefix);
+        // (3) a SHARED secondary screen (a property's show/edit, a match's
+        //     Edit/Results, a buyer/tenant's detail page) reached FROM one of
+        //     those entry points, detected the same way the nav links below
+        //     detect it — session('corex.lens.*'), set by the owning
+        //     controller's index()/allView() action on the way in.
+        request()->routeIs('corex.rental-applications.*')
+        || request()->routeIs('corex.rentals.properties.index', 'corex.rentals.pipeline.index', 'corex.rentals.core-matches.*')
+        || (request()->routeIs('corex.properties.*') && session('corex.lens.properties', false))
+        || ((request()->routeIs('corex.core-matches.*') || request()->routeIs('corex.contacts.matches.*')) && session('corex.lens.core_matches', false))
+        || (request()->routeIs('command-center.buyers.*') && session('corex.lens.pipeline', false))
+    ) {
+        $activeGroup = 'rental-applications';
     } elseif (request()->routeIs(
         'prospecting.*',
         'market-intelligence.*',
@@ -801,7 +829,13 @@
 
                 @permission('access_properties')
                 @if(config('features.properties') && \Illuminate\Support\Facades\Route::has('corex.properties.index'))
-                <a href="{{ route('corex.properties.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.properties.*') ? 'active' : '' }}">Properties</a>
+                {{-- AT-401 — corex.properties.* also covers a property's show/edit/wizard
+                     screens, reached identically from the Rentals entry point (no
+                     rentals-prefixed variant exists for those). session('corex.lens.properties')
+                     remembers which list the user most recently entered through
+                     (set by PropertyController::index()) so this item doesn't light up
+                     for a property opened from the Rentals list. --}}
+                <a href="{{ route('corex.properties.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.properties.*') && !session('corex.lens.properties', false) ? 'active' : '' }}">Properties</a>
                 @endif
                 {{-- Phase 3g — Map module. Same permission as Properties; agency-scoped. --}}
                 @if(\Illuminate\Support\Facades\Route::has('corex.map.index'))
@@ -840,13 +874,27 @@
                 @feature('core-matches')
                 @permission('access_core_matches')
                 @if(\Illuminate\Support\Facades\Route::has('corex.core-matches.index') && \App\Models\PerformanceSetting::get('matches_enabled', 1))
-                <a href="{{ route('corex.core-matches.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.core-matches.*') || request()->routeIs('corex.contacts.matches.*') ? 'active' : '' }}">Core Matches</a>
+                {{-- AT-401 — corex.contacts.matches.* (Edit/Results/etc.) is shared
+                     with the Rentals → Core Matches entry point, no rentals-prefixed
+                     variant exists for those. session('corex.lens.core_matches')
+                     remembers which list the user most recently entered through (set
+                     by ContactMatchController::index()/allView()) so this item
+                     doesn't light up for a match opened from the Rentals list. --}}
+                <a href="{{ route('corex.core-matches.index') }}" class="corex-nav-subitem {{ (request()->routeIs('corex.core-matches.*') || request()->routeIs('corex.contacts.matches.*')) && !session('corex.lens.core_matches', false) ? 'active' : '' }}">Core Matches</a>
                 @endif
                 @endpermission
                 @endfeature
 
                 {{-- AT-76 — Buyer Pipeline lives in Real Estate (was under Dashboard/Command Center). Route unchanged. --}}
-                <a href="{{ route('command-center.buyers.pipeline') }}" class="corex-nav-subitem {{ request()->routeIs('command-center.buyers*') ? 'active' : '' }}">Buyer Pipeline</a>
+                {{-- AT-401 — command-center.buyers* also covers a buyer's own detail
+                     page (command-center.buyers.show), the MAIN path out of the
+                     Pipeline board (buyer cards are not opened in a new tab) and
+                     shared with the Rentals → Rental Pipeline entry point, which has
+                     no rentals-prefixed variant of it. session('corex.lens.pipeline')
+                     remembers which board the user most recently entered through
+                     (set by BuyerPipelineController::index()) so this item doesn't
+                     light up for a buyer opened from the Rentals board. --}}
+                <a href="{{ route('command-center.buyers.pipeline') }}" class="corex-nav-subitem {{ request()->routeIs('command-center.buyers*') && !session('corex.lens.pipeline', false) ? 'active' : '' }}">Buyer Pipeline</a>
 
                 {{-- AT-XX — Viewing Packs (buyer-facing property packs).
                      Gated on access_viewing_packs to match the route group
@@ -1025,9 +1073,12 @@
                 {{-- AT-401 — entry point into the SAME Properties screen as
                      Real Estate → Properties, listing_type locked to rental
                      server-side (PropertyController::index(), by route name).
-                     Reuses properties.view — no new permission, same screen. --}}
+                     Reuses properties.view — no new permission, same screen.
+                     Stays highlighted on a property's show/edit/wizard screen
+                     opened from this list (session('corex.lens.properties') —
+                     see the Real Estate → Properties item above). --}}
                 @permission('properties.view')
-                <a href="{{ route('corex.rentals.properties.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rentals.properties.index') ? 'active' : '' }}">Properties</a>
+                <a href="{{ route('corex.rentals.properties.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rentals.properties.index') || (request()->routeIs('corex.properties.*') && session('corex.lens.properties', false)) ? 'active' : '' }}">Properties</a>
                 @endpermission
 
                 {{-- AT-401 — entry point into the SAME Buyer Pipeline board as
@@ -1036,8 +1087,11 @@
                      route name). New permission buyer_pipeline.view gates
                      ONLY this entry point — the sales-side board keeps its
                      current (no permission key) access, unchanged. --}}
+                {{-- Stays highlighted on a buyer card opened from this board
+                     (session('corex.lens.pipeline') — see the Buyer Pipeline
+                     item above). --}}
                 @permission('buyer_pipeline.view')
-                <a href="{{ route('corex.rentals.pipeline.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rentals.pipeline.index') ? 'active' : '' }}">Rental Pipeline</a>
+                <a href="{{ route('corex.rentals.pipeline.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rentals.pipeline.index') || (request()->routeIs('command-center.buyers*') && session('corex.lens.pipeline', false)) ? 'active' : '' }}">Rental Pipeline</a>
                 @endpermission
 
                 {{-- AT-401 — entry point into the SAME Core Matches screen as
@@ -1050,7 +1104,10 @@
                 @feature('core-matches')
                 @permission('core_matches.view')
                 @if(\Illuminate\Support\Facades\Route::has('corex.rentals.core-matches.index') && \App\Models\PerformanceSetting::get('matches_enabled', 1))
-                <a href="{{ route('corex.rentals.core-matches.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rentals.core-matches.*') ? 'active' : '' }}">Core Matches</a>
+                {{-- Stays highlighted on a match's Edit/Results screen opened from
+                     this list (session('corex.lens.core_matches') — see the Real
+                     Estate → Core Matches item above). --}}
+                <a href="{{ route('corex.rentals.core-matches.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rentals.core-matches.*') || ((request()->routeIs('corex.core-matches.*') || request()->routeIs('corex.contacts.matches.*')) && session('corex.lens.core_matches', false)) ? 'active' : '' }}">Core Matches</a>
                 @endif
                 @endpermission
                 @endfeature

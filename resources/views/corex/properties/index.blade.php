@@ -190,6 +190,11 @@
             // from Draft's pencil so the two pools read as visibly different
             // at a glance, matching the whole point of separating them.
             'Prospecting' => '<circle cx="10.5" cy="10.5" r="6.75" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 15.75L21 21"/>',
+            // AT-401 — Rentals-lens tile labels reuse the sale tile's own
+            // icon/color (Available = On Market's live-dot check, Rented Out
+            // = Sold's checkmark-circle) — same concept, rental vocabulary.
+            'Available'   => '<path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="9" fill="none"/>',
+            'Rented Out'  => '<path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>',
         ];
         $kpiColors = [
             'Total'       => ['bg' => 'color-mix(in srgb, var(--brand-icon, #0ea5e9) 12%, transparent)',  'fg' => 'var(--brand-icon, #0ea5e9)'],
@@ -197,10 +202,23 @@
             'Draft'       => ['bg' => 'color-mix(in srgb, var(--ds-amber, #f59e0b) 12%, transparent)',   'fg' => 'var(--ds-amber, #f59e0b)'],
             'Sold'        => ['bg' => 'color-mix(in srgb, var(--ds-navy, #0b2a4a) 12%, transparent)',    'fg' => 'var(--ds-navy, #0b2a4a)'],
             'Prospecting' => ['bg' => 'color-mix(in srgb, var(--ds-purple, #7c3aed) 12%, transparent)',  'fg' => 'var(--ds-purple, #7c3aed)'],
+            'Available'   => ['bg' => 'color-mix(in srgb, var(--ds-green, #059669) 12%, transparent)',   'fg' => 'var(--ds-green, #059669)'],
+            'Rented Out'  => ['bg' => 'color-mix(in srgb, var(--ds-navy, #0b2a4a) 12%, transparent)',    'fg' => 'var(--ds-navy, #0b2a4a)'],
         ];
     @endphp
     @php
-        $kpiTiles = [
+        // AT-401 — Rentals lens: the sale vocabulary ("On Market" / "Sold")
+        // doesn't fit a rented property, so the Rentals entry point swaps in
+        // the rental-equivalent tiles. Same underlying filters (on_market is
+        // already listing-type-agnostic; rented_out is the new let_out/rented
+        // filter keyword added to index() above) — only the label changes.
+        $kpiTiles = ($isRentalEntry ?? false) ? [
+            ['label' => 'Total',       'value' => $stats['total'],       'filter' => ''],
+            ['label' => 'Available',   'value' => $stats['active'],      'filter' => 'on_market'],
+            ['label' => 'Prospecting', 'value' => $stats['prospecting'], 'filter' => \App\Models\Property::STATUS_PROSPECTING],
+            ['label' => 'Draft',       'value' => $stats['draft'],       'filter' => 'draft'],
+            ['label' => 'Rented Out',  'value' => $stats['rentedOut'],   'filter' => 'rented_out'],
+        ] : [
             ['label' => 'Total',       'value' => $stats['total'],       'filter' => ''],
             ['label' => 'On Market',   'value' => $stats['active'],      'filter' => 'on_market'],
             ['label' => 'Prospecting', 'value' => $stats['prospecting'], 'filter' => \App\Models\Property::STATUS_PROSPECTING],
@@ -215,7 +233,7 @@
         @foreach($kpiTiles as $kpi)
         @php
             $isActive = ($kpi['filter'] === '' && $currentStatus === '') || $kpi['filter'] === $currentStatus;
-            $isLive   = $kpi['label'] === 'On Market';
+            $isLive   = in_array($kpi['label'], ['On Market', 'Available'], true);
             $tileUrl = $kpi['filter'] === ''
                 ? $baseUrl . '?' . http_build_query($preserveParams)
                 : $baseUrl . '?' . http_build_query(array_merge($preserveParams, ['status' => $kpi['filter']]));
@@ -337,8 +355,18 @@
             @endif
 
             {{-- Status --}}
+            {{-- AT-401 — Rentals lens: same swap as the KPI tiles above. Sale-only
+                 concepts (Not selling, Sold by 3rd Party) are dropped rather than
+                 mislabelled — no rental-equivalent status exists for either today. --}}
             <select name="status" onchange="this.form.submit()" class="list-header-filter" data-tour="re-properties-status">
                 <option value="" {{ $status === '' ? 'selected' : '' }}>All Statuses</option>
+                @if($isRentalEntry ?? false)
+                <option value="on_market" {{ $status === 'on_market' ? 'selected' : '' }}>Available</option>
+                <option value="{{ \App\Models\Property::STATUS_PROSPECTING }}" {{ $status === \App\Models\Property::STATUS_PROSPECTING ? 'selected' : '' }}>Prospecting</option>
+                <option value="draft" {{ $status === 'draft' ? 'selected' : '' }}>Draft</option>
+                <option value="rented_out" {{ $status === 'rented_out' ? 'selected' : '' }}>Rented Out</option>
+                <option value="withdrawn" {{ $status === 'withdrawn' ? 'selected' : '' }}>Withdrawn</option>
+                @else
                 <option value="on_market" {{ $status === 'on_market' ? 'selected' : '' }}>On Market</option>
                 <option value="{{ \App\Models\Property::STATUS_PROSPECTING }}" {{ $status === \App\Models\Property::STATUS_PROSPECTING ? 'selected' : '' }}>Prospecting</option>
                 <option value="draft" {{ $status === 'draft' ? 'selected' : '' }}>Draft</option>
@@ -349,6 +377,7 @@
                      questions and an agent must be able to filter for either. --}}
                 <option value="sold_by_3rd_party" {{ $status === 'sold_by_3rd_party' ? 'selected' : '' }}>Sold by 3rd Party</option>
                 <option value="withdrawn" {{ $status === 'withdrawn' ? 'selected' : '' }}>Withdrawn</option>
+                @endif
             </select>
 
             {{-- Listing Type — AT-401: locked on the Rentals entry point, not

@@ -20,8 +20,13 @@
      x-effect="localStorage.setItem('hfc.propSidebar.collapsed', sbCollapsed ? '1' : '0')">
 
     {{-- Top bar: back + flash --}}
+    {{-- AT-401 — honours whichever Properties list (sales or Rentals) the
+         agent most recently entered through (session('corex.lens.properties'),
+         set by PropertyController::index() on the way in), so "Back" from a
+         property opened via Rentals → Properties returns there, not to the
+         sales list. --}}
     <div class="flex items-center gap-4 flex-wrap">
-        <a href="{{ route('corex.properties.index') }}"
+        <a href="{{ route(session('corex.lens.properties', false) ? 'corex.rentals.properties.index' : 'corex.properties.index') }}"
            class="inline-flex items-center gap-1.5 text-sm no-underline flex-shrink-0"
            style="color:var(--text-secondary);">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4"><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" /></svg>
