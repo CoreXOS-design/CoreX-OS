@@ -721,11 +721,26 @@ function rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, curre
             // note never needs one at all, regardless of what's archived.
             if (text !== '') {
                 this.pushHistory();
+                const notePage = this.pendingNote.page;
                 this.marks.push({
-                    id: this.generateMarkId(), type: 'note', page: this.pendingNote.page, x: this.pendingNote.x, y: this.pendingNote.y, text,
+                    id: this.generateMarkId(), type: 'note', page: notePage, x: this.pendingNote.x, y: this.pendingNote.y, text,
                     highlighterId: this.activeHighlighterId, authorUserId: this.currentUserId, authorName: this.currentUserName, authorRole: this.currentUserRole,
                 });
                 this.dirty = true;
+                // 2026-09-10 (cc5, Johan verbatim: "adding notes still just
+                // shows a dot, no entered text on screen") — the text was
+                // never lost (confirmed against real saved data earlier this
+                // session), but nothing ever opened the popover that shows
+                // it: openNote stays null after commit, and stays null on
+                // reload too, so a note collapses straight to an unlabelled
+                // dot the instant it's added, with no cue that clicking it
+                // reveals anything. notesFor() is a plain filter over
+                // this.marks in insertion order, so the note just pushed is
+                // always the LAST element for its page — opening it here
+                // gives the agent immediate, visible confirmation of exactly
+                // what they typed, the same page/index shape
+                // toggleNotePopover() already uses.
+                this.openNote = { page: notePage, index: this.notesFor(notePage).length - 1 };
             }
             this.pendingNote = null;
             this.pendingNoteText = '';

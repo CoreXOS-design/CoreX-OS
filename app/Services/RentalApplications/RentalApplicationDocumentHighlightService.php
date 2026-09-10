@@ -946,6 +946,25 @@ class RentalApplicationDocumentHighlightService
      * page-N.png naming. $fromPage/$toPage are 1-based (pdftoppm's own
      * convention) — pass toPage: null for "to the end of the document".
      * Handles the non-PDF single-image case too (fromPage must be 1 there).
+     *
+     * 2026-09-10 (cc5, Johan: "the pdf takes a long time to load... at
+     * what stage is it actually slow?") — investigated first, not just
+     * spinner'd over: a 17-page document's "remaining 16 pages" call was
+     * ONE pdftoppm process rendering all 16 pages sequentially, on a box
+     * with 16 CPU cores sitting unused (~8.5s of the ~9s total load was
+     * this one step). pdftoppm has no internal parallelism — the fix is
+     * splitting a multi-page range into several CONCURRENT pdftoppm
+     * processes (Symfony Process ::start(), not ::run() — start every
+     * chunk first, then wait on each, so they genuinely overlap) rather
+     * than one process working through the whole range alone. A 1-2 page
+     * range isn't worth the overhead of spawning multiple processes, so
+     * only a genuinely multi-page range chunks; everything else keeps the
+     * original single-process path unchanged. Worker count deliberately
+     * NOT an agency setting (this is a server tuning knob, not a business
+     * rule Johan should have to decide) — config('rental_applications.
+     * pdf_render_workers', 4), conservative on purpose: this box runs six
+     * concurrent lanes sharing the same CPU/DB, so this does not reach for
+     * all 16 cores.
      */
     private function rasterizeIntoCache(Document $doc, string $cacheDir, int $fromPage, ?int $toPage): void
     {
@@ -975,42 +994,88 @@ class RentalApplicationDocumentHighlightService
         file_put_contents($tmpFile, $bytes);
 
         try {
-            $pdftoppm = config('splitter.pdftoppm_path', 'pdftoppm');
-            $tmpPrefix = $cacheDir . '/.raw-' . uniqid('', true);
+            $resolvedToPage = $toPage ?? $this->pageCountFor($doc, $cacheDir);
+            $pageCountInRange = $resolvedToPage - $fromPage + 1;
+            $workers = max(1, (int) config('rental_applications.pdf_render_workers', 4));
 
-            $args = [$pdftoppm, '-png', '-r', (string) self::DPI, '-f', (string) $fromPage];
-            if ($toPage !== null) {
-                $args[] = '-l';
-                $args[] = (string) $toPage;
-            }
-            $args[] = $tmpFile;
-            $args[] = $tmpPrefix;
+            // Not worth chunking a tiny range — one process, same as before.
+            if ($pageCountInRange <= 2 || $workers <= 1) {
+                $this->runPdftoppmChunk($tmpFile, $cacheDir, $fromPage, $resolvedToPage);
 
-            $proc = new Process($args);
-            $proc->setTimeout(180);
-            $proc->run();
-
-            if (! $proc->isSuccessful()) {
-                throw new \RuntimeException('pdftoppm failed: ' . trim($proc->getErrorOutput()));
+                return;
             }
 
-            // pdftoppm names output by the ORIGINAL (1-based, zero-padded)
-            // page number regardless of -f — e.g. "-f 2" produces
-            // "prefix-02.png", not "prefix-01.png". Renumber to our 0-based
-            // page-N.png convention on the way in.
-            $files = glob($tmpPrefix . '-*.png');
-            if (empty($files)) {
-                throw new \RuntimeException('pdftoppm produced no output for the requested page range.');
+            $chunkCount = min($workers, $pageCountInRange);
+            $chunkSize = (int) ceil($pageCountInRange / $chunkCount);
+
+            $processes = [];
+            $cursor = $fromPage;
+            while ($cursor <= $resolvedToPage) {
+                $chunkTo = min($cursor + $chunkSize - 1, $resolvedToPage);
+                $processes[] = $this->startPdftoppmChunk($tmpFile, $cacheDir, $cursor, $chunkTo);
+                $cursor = $chunkTo + 1;
             }
-            foreach ($files as $f) {
-                if (! preg_match('/-(\d+)\.png$/', $f, $m)) {
-                    continue;
+
+            // Start every chunk before waiting on any — this IS the
+            // parallelism. Waiting inside the loop above would just
+            // reproduce the original sequential behaviour with extra steps.
+            foreach ($processes as [$proc]) {
+                $proc->wait();
+            }
+
+            foreach ($processes as [$proc, $tmpPrefix]) {
+                if (! $proc->isSuccessful()) {
+                    throw new \RuntimeException('pdftoppm failed: ' . trim($proc->getErrorOutput()));
                 }
-                $originalPageNum = (int) $m[1];
-                rename($f, $cacheDir . '/page-' . ($originalPageNum - 1) . '.png');
+                $this->collectPdftoppmOutput($tmpPrefix, $cacheDir);
             }
         } finally {
             @unlink($tmpFile);
+        }
+    }
+
+    /** Single-process rasterize — the pre-parallelisation path, unchanged, used for tiny ranges. */
+    private function runPdftoppmChunk(string $tmpFile, string $cacheDir, int $fromPage, int $toPage): void
+    {
+        [$proc, $tmpPrefix] = $this->startPdftoppmChunk($tmpFile, $cacheDir, $fromPage, $toPage);
+        $proc->wait();
+
+        if (! $proc->isSuccessful()) {
+            throw new \RuntimeException('pdftoppm failed: ' . trim($proc->getErrorOutput()));
+        }
+        $this->collectPdftoppmOutput($tmpPrefix, $cacheDir);
+    }
+
+    /** @return array{0: Process, 1: string} the started (not yet waited) process, and its output prefix. */
+    private function startPdftoppmChunk(string $tmpFile, string $cacheDir, int $fromPage, int $toPage): array
+    {
+        $pdftoppm = config('splitter.pdftoppm_path', 'pdftoppm');
+        $tmpPrefix = $cacheDir . '/.raw-' . uniqid('', true);
+
+        $proc = new Process([$pdftoppm, '-png', '-r', (string) self::DPI, '-f', (string) $fromPage, '-l', (string) $toPage, $tmpFile, $tmpPrefix]);
+        $proc->setTimeout(180);
+        $proc->start();
+
+        return [$proc, $tmpPrefix];
+    }
+
+    /**
+     * pdftoppm names output by the ORIGINAL (1-based, zero-padded) page
+     * number regardless of -f — e.g. "-f 2" produces "prefix-02.png", not
+     * "prefix-01.png". Renumber to our 0-based page-N.png convention.
+     */
+    private function collectPdftoppmOutput(string $tmpPrefix, string $cacheDir): void
+    {
+        $files = glob($tmpPrefix . '-*.png');
+        if (empty($files)) {
+            throw new \RuntimeException('pdftoppm produced no output for the requested page range.');
+        }
+        foreach ($files as $f) {
+            if (! preg_match('/-(\d+)\.png$/', $f, $m)) {
+                continue;
+            }
+            $originalPageNum = (int) $m[1];
+            rename($f, $cacheDir . '/page-' . ($originalPageNum - 1) . '.png');
         }
     }
 

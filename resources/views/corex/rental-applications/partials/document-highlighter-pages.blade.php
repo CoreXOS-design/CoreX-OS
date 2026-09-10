@@ -63,9 +63,19 @@
      page 1 that looks like the whole document is worse than a slow
      load." Sharpness kept at full quality per his decision — this is
      a one-time cost per document, made LESS painful by showing page 1
-     immediately, not made invisible. --}}
+     immediately, not made invisible.
+     2026-09-10 — Johan hit this again: "suggesting a loading modal that
+     the agent dont think the first page is it." The banner text was
+     already correct, it just wasn't visually loud enough for a
+     multi-second wait — a flat, static line of small text reads as
+     "done" at a glance. Added a genuinely animated spinner so the
+     in-progress state is unmistakable, not just stated. --}}
 <div class="flex items-center gap-2 text-xs py-2 px-3 rounded-md mb-2" x-show="pagesLoading" x-cloak
      style="background: var(--ds-blue-soft, #eff6ff); color: var(--ds-blue, #2563eb);">
+    <svg class="w-3.5 h-3.5 flex-shrink-0 animate-spin" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="3" opacity="0.25"/>
+        <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+    </svg>
     <span>Page 1 of <span x-text="totalPages"></span> shown — loading the remaining <span x-text="totalPages - pages.length"></span> pages. You can start marking up page 1 now.</span>
 </div>
 
