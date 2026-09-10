@@ -113,8 +113,8 @@ final class SellerOutreachLandingService
                     )->values();
                 }
 
-                $priceBand = isset($property->price) && (int) $property->price > 0
-                    ? $this->config->classifyPrice($agencyId, $listingType, (int) $property->price)
+                $priceBand = $property->effectivePrice() > 0
+                    ? $this->config->classifyPrice($agencyId, $listingType, (int) $property->effectivePrice())
                     : null;
                 if ($priceBand && $matchingIds->isNotEmpty()) {
                     $matchingIds = $matchingIds->intersect(
