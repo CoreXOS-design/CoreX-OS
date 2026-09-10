@@ -762,6 +762,21 @@
             // Live-on-a-portal signal drives the "Active" status badge accent.
             $isLiveStatus = in_array($statusKey, ['on_market', 'active', 'live'], true);
         @endphp
+        @if($property->owned_by_other ?? false)
+        {{-- AT-394 — this listing surfaced only because search was widened past the
+             agent's own/branch breadth. It renders as a plain, read-only summary — no
+             link into show() (still gated by authorizeProperty() and would 403) — so the
+             agent sees it already exists, and who to go to, instead of re-listing it. --}}
+        <div class="pcard-v2 relative overflow-hidden flex flex-col p-3.5" style="border:1px dashed color-mix(in srgb, var(--ds-amber) 45%, var(--border));">
+            <div class="text-[1.125rem] font-bold leading-none tabular-nums mb-1.5" style="color:var(--text-primary);">{{ $property->formattedPrice() }}</div>
+            <div class="text-sm font-semibold leading-snug line-clamp-1" style="color:var(--text-primary);">{{ $property->buildDisplayAddress() ?? ($property->title ?: '—') }}</div>
+            <div class="text-xs mt-2 px-2 py-1 rounded-md inline-block w-fit font-medium" style="background:color-mix(in srgb, var(--ds-amber) 12%, transparent); color:var(--ds-amber); border:1px solid color-mix(in srgb, var(--ds-amber) 30%, transparent);">
+                Agent: {{ $property->agent?->name ?? 'Unassigned' }}
+            </div>
+            <div class="text-[10px] italic mt-2" style="color:var(--text-muted);">Already listed — not in your listings</div>
+        </div>
+        @continue
+        @endif
         <div class="pcard-v2 relative overflow-hidden flex flex-col">
 
             {{-- Thumbnail — full-bleed, touches top & sides (spec §9) --}}
@@ -975,6 +990,26 @@
                             ? 'background:var(--ds-crimson, #c41e3a); color:#fff; border:none;'
                             : $rowBrandPillStyle);
                 @endphp
+                @if($property->owned_by_other ?? false)
+                {{-- AT-394 — surfaced only by the widened search, outside the agent's own/branch
+                     breadth. Read-only: no link into show() (still gated by authorizeProperty()
+                     and would 403). --}}
+                <tr style="border-bottom:1px solid var(--border); background:color-mix(in srgb, var(--ds-amber) 5%, transparent);">
+                    <td colspan="{{ 2 + count($sortCols) }}" class="px-4 py-3">
+                        <div class="flex items-center justify-between gap-3 flex-wrap">
+                            <div class="flex items-center gap-3 min-w-0">
+                                <span class="text-sm font-semibold" style="color:var(--text-primary);">{{ $property->buildDisplayAddress() ?? ($property->title ?: '—') }}</span>
+                                <span class="text-xs font-semibold tabular-nums" style="color:var(--text-secondary);">{{ $property->formattedPrice() }}</span>
+                                <span class="text-xs px-2 py-0.5 rounded-md font-medium whitespace-nowrap" style="background:color-mix(in srgb, var(--ds-amber) 12%, transparent); color:var(--ds-amber); border:1px solid color-mix(in srgb, var(--ds-amber) 30%, transparent);">
+                                    Agent: {{ $property->agent?->name ?? 'Unassigned' }}
+                                </span>
+                            </div>
+                            <span class="text-[10px] italic" style="color:var(--text-muted);">Already listed — not in your listings</span>
+                        </div>
+                    </td>
+                </tr>
+                @continue
+                @endif
                 <tr class="transition-all duration-300" style="border-bottom:1px solid var(--border);"
                     onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background=''">
                     <td class="px-3 py-2">

@@ -225,6 +225,7 @@ class DemoDataSeeder extends Seeder
         $this->call(SystemOwnerSeeder::class);
         $this->stage2_prospectingAndTracked();
         $this->stage2b_spatialMapData();
+        $this->stage2c_sellerOutreachTemplates();
         $this->stage3_claimsAndPitches();
         $this->stage4_contactsAndWishlists();
         $this->stage5_promoteToStock();
@@ -245,11 +246,36 @@ class DemoDataSeeder extends Seeder
         $this->stage12e_communicationMailboxes();
         $this->stage12f_whatsappConsent();
         $this->stage12g_attorneyCommsToFile();
+        $this->stage12h_documentTypesCatalogue();
+        $this->stage12i_portalSyndication();
+        $this->stage12j_agencyLogo();
+        $this->stage12k_propertyDescriptions();
+        $this->stage12l_buyerJourneyChain();
+        $this->stage12m_sellerOutreach();
+        $this->stage12n_buyerAgentAssignment();
+        $this->stage12o_commercialEvaluations();
+        $this->stage12p_agentDailyActivity();
+        $this->stage12q_whatsNew();
+        $this->stage12r_training();
+        $this->stage12s_knowledgeBase();
+        $this->stage12t_competitorStock();
         $this->stageViewingFeedback_demoShowcase();
         $this->stageSpine_threadFullLifecycle();
+        $this->stage12u_contactRealismCleanup();
         $this->stageZ_demoPresenterCoherence();
         $this->stage13_deedsMicIntelligence();
         $this->stage14_complianceHrPayroll();
+        $this->stage15_supplierDirectory();
+        $this->stage15b_dr2ShowcaseDeal();
+        $this->stage15c_complianceDocumentsOnFile();
+        $this->stage15d_calendarInvitations();
+        $this->stage15e_leave();
+        $this->stage16_agencyConfigurationSweep();
+        $this->stage17_documentCoverage();
+        $this->stage18_contactLivingRecordSweep();
+        $this->stage19_contactCommunicationHistory();
+        $this->stage20_presentationMarketData();
+        $this->stage21_ellieReferenceSources();
         $this->stageV_verifyDemoIntegrity();
 
         $this->command->info('Demo dataset complete. Login: ' . self::DEMO_LOGIN_EMAIL
@@ -650,6 +676,23 @@ class DemoDataSeeder extends Seeder
             (new \Database\Seeders\Demo\DemoFilingRegisterSeeder())->run(self::AGENCY_ID);
         });
 
+        // Config sweep (2026-09-02, webinar prep, cc3) — deal_stage_document_rules
+        // and the type-level distribution matrix were BOTH completely empty
+        // system-wide despite full DR2 pipeline/deal data existing: the settings
+        // screen at Admin > Deal Distribution Rules showed a bare empty state.
+        // Neither seeder implements SyncableReferenceSeeder (agency-scoped, not
+        // global reference data), so deploy:sync-reference-data never ran them —
+        // wiring them here is what makes them survive a demo:reset.
+        $this->safeSeed('DealStageDocumentRuleSeeder', fn () => $this->call([\Database\Seeders\DealStageDocumentRuleSeeder::class]));
+        $this->safeSeed('DocumentDistributionMatrixSeeder', fn () => $this->call([\Database\Seeders\DocumentDistributionMatrixSeeder::class]));
+
+        // Command Center > Document Expectations (Operations settings tab) had
+        // NO seeder at all, ever, for any agency — a prospective agency sees
+        // literally nothing configured there. Same config-sweep pass.
+        $this->safeSeed('DemoDocumentExpectationsSeeder', function () {
+            (new \Database\Seeders\DemoDocumentExpectationsSeeder())->run(self::AGENCY_ID);
+        });
+
         // MIC Phase J1 top-up (tracked properties, active claims, buyer
         // matches, P24 listings, market reports, AI cache) — was previously
         // an orphaned seeder only ever run by hand, so this data never
@@ -699,6 +742,204 @@ class DemoDataSeeder extends Seeder
             $seeder = new \Database\Seeders\Demo\DemoPayrollSeeder();
             $result = $seeder->run(self::AGENCY_ID);
             $this->command->info("  Stage 14 (payroll): {$result['created']} created, {$result['skipped']} already present");
+        });
+    }
+
+    // ───────────────────────────────────────────────────────────────────
+    //  STAGE 15 — Supplier directory (webinar 2026-09-03, late-night find):
+    //  Deals -> Supplier Directory showed zero rows for agency 1.
+    // ───────────────────────────────────────────────────────────────────
+
+    private function stage15_supplierDirectory(): void
+    {
+        $this->safeSeed('DemoSupplierDirectorySeeder', function () {
+            $seeder = new \Database\Seeders\Demo\DemoSupplierDirectorySeeder();
+            $result = $seeder->run(self::AGENCY_ID);
+            $this->command->info("  Stage 15 (suppliers): {$result['created']} created, {$result['skipped']} already present");
+        });
+    }
+
+    // ───────────────────────────────────────────────────────────────────
+    //  STAGE 15c — Compliance/HR/payroll as LIVING functions (Johan,
+    //  2026-09-02 22:00, expanded mandate ahead of the 07:00 webinar review):
+    //  configured-but-empty screens read as an agency that never started.
+    // ───────────────────────────────────────────────────────────────────
+
+    private function stage15c_complianceDocumentsOnFile(): void
+    {
+        $this->safeSeed('DemoAgencyComplianceDocumentsSeeder', function () {
+            $seeder = new \Database\Seeders\Demo\DemoAgencyComplianceDocumentsSeeder();
+            $result = $seeder->run(self::AGENCY_ID);
+            $this->command->info("  Stage 15c (compliance docs on file): {$result['created']} created, {$result['skipped']} already present");
+        });
+
+        $this->safeSeed('DemoFicaDocumentsSeeder', function () {
+            $seeder = new \Database\Seeders\Demo\DemoFicaDocumentsSeeder();
+            $result = $seeder->run(self::AGENCY_ID);
+            $this->command->info("  Stage 15c (FICA documents): {$result['created']} submissions got documents, {$result['skipped']} already had some");
+        });
+    }
+
+    // ───────────────────────────────────────────────────────────────────
+    //  STAGE 15e — Payroll -> Leave as a LIVING function (Johan, expanded
+    //  mandate): 7 leave types configured, zero entitlements/applications/
+    //  transactions for any of the 12 payroll employees.
+    // ───────────────────────────────────────────────────────────────────
+
+    private function stage15e_leave(): void
+    {
+        $this->safeSeed('DemoLeaveSeeder', function () {
+            $seeder = new \Database\Seeders\Demo\DemoLeaveSeeder();
+            $result = $seeder->run(self::AGENCY_ID);
+            $this->command->info("  Stage 15e (leave): {$result['created']} applications created");
+        });
+    }
+
+    // ───────────────────────────────────────────────────────────────────
+    //  STAGE 16 — CONFIGURATION SWEEP (2026-09-02, webinar prep, Johan).
+    //
+    //  "We seeded RECORDS all week and never checked CONFIGURATION." Agency
+    //  company details/branding, branch contact details, Role Manager
+    //  provisioning, and per-user FFC/PPRA/compliance fields were all left
+    //  at their post-migrate:fresh NULL state — none of the earlier stages
+    //  ever touched them. Every one of these is a settings/config screen a
+    //  prospective agency would actually open, and every one showed an
+    //  empty state or a compliance warning banner before this stage existed.
+    // ───────────────────────────────────────────────────────────────────
+
+    private function stage16_agencyConfigurationSweep(): void
+    {
+        $this->safeSeed('DemoAgencyBrandingSeeder', function () {
+            $result = (new \Database\Seeders\Demo\DemoAgencyBrandingSeeder())->run(self::AGENCY_ID);
+            $this->command->info('  Stage 16 (agency branding): ' . $result['note']);
+        });
+
+        $this->safeSeed('DemoBranchDetailsSeeder', function () {
+            $result = (new \Database\Seeders\Demo\DemoBranchDetailsSeeder())->run(self::AGENCY_ID);
+            $this->command->info('  Stage 16 (branch details): ' . $result['note']);
+        });
+
+        $this->safeSeed('DemoRoleProvisioningSeeder', function () {
+            $result = (new \Database\Seeders\Demo\DemoRoleProvisioningSeeder())->run(self::AGENCY_ID);
+            $this->command->info('  Stage 16 (role manager): ' . $result['note']);
+        });
+
+        $this->safeSeed('DemoUserComplianceSeeder', function () {
+            $result = (new \Database\Seeders\Demo\DemoUserComplianceSeeder())->run(self::AGENCY_ID);
+            $this->command->info('  Stage 16 (user compliance): ' . $result['note']);
+        });
+
+        $this->safeSeed('DemoInformationOfficerSeeder', function () {
+            $result = (new \Database\Seeders\Demo\DemoInformationOfficerSeeder())->run(self::AGENCY_ID);
+            $this->command->info('  Stage 16 (information officer): ' . $result['note']);
+        });
+
+        $this->safeSeed('DemoOnboardingWizardSeeder', function () {
+            $result = (new \Database\Seeders\Demo\DemoOnboardingWizardSeeder())->run(self::AGENCY_ID);
+            $this->command->info('  Stage 16 (onboarding wizard): ' . $result['note']);
+        });
+
+        $this->safeSeed('DemoContactSourcesTagsSeeder', function () {
+            $result = (new \Database\Seeders\Demo\DemoContactSourcesTagsSeeder())->run(self::AGENCY_ID);
+            $this->command->info('  Stage 16 (contact sources/tags): ' . $result['note']);
+        });
+    }
+
+    /**
+     * Expanded mandate (2026-09-02, "does this read like a live system?") —
+     * documents attached across the system was almost entirely empty: 6/363
+     * properties, 2/290 contacts, 1/125 deals had any document at all. Johan:
+     * "properties without documents attached means buyers pipeline suffers."
+     * Reuses REAL PDF bytes (tonight's real signed e-sign documents + Johan's
+     * own uploaded FICA bundle), physically copied per row via Storage::copy
+     * — every row this produces has a genuinely openable file behind it, per
+     * the "a document row with no file behind it will 404" rule. See
+     * DemoDocumentCoverageSeeder's own docblock for the exact source-file map.
+     */
+    private function stage17_documentCoverage(): void
+    {
+        $this->safeSeed('DemoDocumentCoverageSeeder', function () {
+            $result = (new \Database\Seeders\Demo\DemoDocumentCoverageSeeder())->run(self::AGENCY_ID);
+            $this->command->info('  Stage 17 (document coverage): ' . json_encode($result));
+        });
+    }
+
+    // ───────────────────────────────────────────────────────────────────
+    //  STAGE 18 — CONTACT LIVING-RECORD SWEEP (2026-09-02, expanded mandate).
+    //
+    //  "Does this read like a LIVE SYSTEM that a real agency has been using
+    //  for months?" Contacts had type/tags/property-links already (Group A
+    //  pass), but FICA was hollow (0 fica_documents anywhere, even on
+    //  "approved" submissions), and communications/notes/testimonials/
+    //  wishlists were ALL completely empty — 0 of 290 contacts had any of
+    //  the four. Every seeder here caps coverage at a REALISTIC PORTION of
+    //  contacts (not uniform 100%) so the roster reads as a mix of
+    //  complete/partial/brand-new records, not a uniformly "seeded" set.
+    // ───────────────────────────────────────────────────────────────────
+
+    private function stage18_contactLivingRecordSweep(): void
+    {
+        $this->safeSeed('DemoContactFicaPackSeeder', function () {
+            $result = (new \Database\Seeders\Demo\DemoContactFicaPackSeeder())->run(self::AGENCY_ID);
+            $this->command->info('  Stage 18 (FICA pack): ' . $result['note']);
+        });
+
+        $this->safeSeed('DemoContactActivitySeeder', function () {
+            $result = (new \Database\Seeders\Demo\DemoContactActivitySeeder())->run(self::AGENCY_ID);
+            $this->command->info('  Stage 18 (contact activity): ' . $result['note']);
+        });
+
+        $this->safeSeed('DemoContactWishlistSeeder', function () {
+            $result = (new \Database\Seeders\Demo\DemoContactWishlistSeeder())->run(self::AGENCY_ID);
+            $this->command->info('  Stage 18 (wishlists): ' . $result['note']);
+        });
+    }
+
+    /**
+     * Webinar prep 2026-09-02 — Johan: "A CRM with no communication history
+     * reads as unused." communication_links had zero rows linked to Contact
+     * (only DealV2/Property) before this — every contact's Communications
+     * tab was empty. Confirmed via direct query before writing, not assumed.
+     */
+    private function stage19_contactCommunicationHistory(): void
+    {
+        $this->safeSeed('DemoContactCommunicationHistorySeeder', function () {
+            $result = (new \Database\Seeders\Demo\DemoContactCommunicationHistorySeeder())->run(self::AGENCY_ID);
+            $this->command->info('  Stage 19: contact communication history — ' . json_encode($result));
+        });
+    }
+
+    /**
+     * Webinar prep 2026-09-02 — Johan: "seller live links working and
+     * showing the graphs." presentation_sold_comps / presentation_active_listings
+     * were empty for all 57 demo presentations, so AnalysisDataService::compile()
+     * returned null CMA values and the Seller Live graphs were blank. Also
+     * backfills properties.size_m2 where missing on presentation-linked stock.
+     */
+    private function stage20_presentationMarketData(): void
+    {
+        $this->safeSeed('DemoPresentationMarketDataSeeder', function () {
+            $result = (new \Database\Seeders\Demo\DemoPresentationMarketDataSeeder())->run(self::AGENCY_ID);
+            $this->command->info('  Stage 20: presentation market data — ' . json_encode($result));
+        });
+    }
+
+    // ───────────────────────────────────────────────────────────────────
+    //  STAGE 21 — ELLIE REFERENCE SOURCES (2026-09-03, orphan-list fix).
+    //
+    //  /admin/ellie/reference-sources rendered "No reference sources." — its
+    //  own bad look independent of whether Ellie itself is switched on
+    //  (Ellie is being left off per Johan's decision — the demo's .env has
+    //  no ANTHROPIC_API_KEY and is deliberately not being pointed at the
+    //  key shared with production/staging/QA). This stage is data-only, no
+    //  config, and stands on its own regardless of that decision.
+    // ───────────────────────────────────────────────────────────────────
+
+    private function stage21_ellieReferenceSources(): void
+    {
+        $this->safeSeed('DemoEllieReferenceSourcesSeeder', function () {
+            $result = (new \Database\Seeders\Demo\DemoEllieReferenceSourcesSeeder())->run();
+            $this->command->info('  Stage 21 (Ellie reference sources): ' . $result['note']);
         });
     }
 
@@ -859,15 +1100,37 @@ class DemoDataSeeder extends Seeder
             ]);
         }
 
-        // 3 branches.
+        // 3 branches. IDEMPOTENT (webinar-eve bug, cc6 2026-09-03): this was
+        // an unconditional insertGetId with no existence check — every
+        // standalone re-run of DemoDataSeeder (without an intervening
+        // migrate:fresh) inserted 3 MORE branch rows, duplicating
+        // Margate/Shelly Beach/Port Shepstone. Confirmed live: agency 1 had
+        // 6 branches (ids 1-3 real, 4-6 duplicates) before this fix, which
+        // is what produced the "admin@demo.corexos.co.za / branch_id=4"
+        // duplicate-key error other lanes hit — $this->branchIds[0] pointed
+        // at the newest "Margate" (4) on the second run, not the original (1).
+        // Now keyed on (agency_id, name), matching the existing branch this
+        // agency already has by that name — a re-run finds and reuses it.
         foreach (array_keys(self::TOWN_SUBURBS) as $i => $town) {
-            $bid = DB::table('branches')->insertGetId([
-                'agency_id'  => self::AGENCY_ID,
-                'name'       => $town,
-                'code'       => strtoupper(Str::substr(str_replace(' ', '', $town), 0, 3)),
-                'created_at' => now(),
-                'updated_at' => now(),
-            ]);
+            $existingId = DB::table('branches')
+                ->where('agency_id', self::AGENCY_ID)
+                ->where('name', $town)
+                ->whereNull('deleted_at')
+                ->orderBy('id')
+                ->value('id');
+
+            if ($existingId) {
+                $bid = $existingId;
+                DB::table('branches')->where('id', $bid)->update(['updated_at' => now()]);
+            } else {
+                $bid = DB::table('branches')->insertGetId([
+                    'agency_id'  => self::AGENCY_ID,
+                    'name'       => $town,
+                    'code'       => strtoupper(Str::substr(str_replace(' ', '', $town), 0, 3)),
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+            }
             $this->branchIds[] = $bid;
             $this->branchByTown[$town] = $bid;
         }
@@ -1115,18 +1378,33 @@ class DemoDataSeeder extends Seeder
     private function createUser(string $name, string $email, string $password,
         string $role, int $branchId, bool $isAdmin): int
     {
-        return DB::table('users')->insertGetId([
+        // IDEMPOTENT (webinar-eve bug, cc6 2026-09-03): was a plain
+        // insertGetId with no existence check — a standalone re-run of
+        // DemoDataSeeder (without an intervening migrate:fresh) hit a fatal
+        // duplicate-key error on users.email's unique index on the SECOND
+        // insert of the same demo user (e.g. admin@demo.corexos.co.za). Keyed
+        // on email (the table's own unique key) — a re-run updates the
+        // existing row (picking up the corrected branch_id if branches were
+        // also just de-duplicated) instead of colliding.
+        $existingId = DB::table('users')->where('email', $email)->value('id');
+        $attributes = [
             'name'              => $name,
-            'email'             => $email,
-            'password'          => Hash::make($password),
-            'email_verified_at' => now(),
             'role'              => $role,
             'is_admin'          => $isAdmin ? 1 : 0,
             'agency_id'         => self::AGENCY_ID,
             'branch_id'         => $branchId,
             'is_active'         => 1,
-            'created_at'        => now(),
             'updated_at'        => now(),
+        ];
+        if ($existingId) {
+            DB::table('users')->where('id', $existingId)->update($attributes);
+            return $existingId;
+        }
+        return DB::table('users')->insertGetId($attributes + [
+            'email'             => $email,
+            'password'          => Hash::make($password),
+            'email_verified_at' => now(),
+            'created_at'        => now(),
         ]);
     }
 
@@ -1251,6 +1529,33 @@ class DemoDataSeeder extends Seeder
             $seeder = new \Database\Seeders\Demo\DemoSpatialSeeder();
             $seeder->setCommand($this->command);
             $seeder->run(self::AGENCY_ID);
+        });
+    }
+
+    /**
+     * Webinar day 2026-09-03 (cc-coordinator escalation) — ROOT CAUSE of
+     * "Seller Outreach sends = 0 / Outreach Queue = 0" despite stage3's real
+     * SellerOutreachComposerService/SenderService calls: `seller_outreach_
+     * templates` had ZERO rows on demo. composeContext() falls back to an
+     * EMPTY body when no template resolves ($template?->body ?? ''), which
+     * can never contain {tracking_link} — isSendable() then deterministically
+     * fails validation (`no_tracking_link`) for every single pitch, every
+     * time, and the seeder's own `if (!$ctx->isSendable()) continue;` skips
+     * it silently — no exception, no warning, nothing in the console.
+     *
+     * NOT a Bus::fake()/Queue::fake() issue — send() is synchronous, no
+     * dispatch. NOT a later stage wiping rows — the rows were never created
+     * in the first place. The real seeder (SellerOutreachTemplatesSeeder,
+     * already in this codebase, unchanged, verified byte-identical to
+     * Staging's copy) existed but was simply never called from
+     * DemoDataSeeder — a plain missing-wire bug, same class as the
+     * document_types gap found earlier tonight. Must run before stage3.
+     */
+    private function stage2c_sellerOutreachTemplates(): void
+    {
+        $this->safeSeed('SellerOutreachTemplatesSeeder', function () {
+            $this->call([\Database\Seeders\SellerOutreachTemplatesSeeder::class]);
+            $this->command->info('  Stage 2c: seller outreach templates seeded — unblocks stage3 pitches.');
         });
     }
 
@@ -2688,6 +2993,36 @@ class DemoDataSeeder extends Seeder
     }
 
     /**
+     * Johan, 2026-09-02, webinar-eve — one fully-equipped headline DR2 deal
+     * (deal_no 920005, from stage12b's batch): a real attorney/bond-attorney/
+     * bond-originator from stage15's supplier directory, real OTP/Mandate/
+     * Rates-Clearance PDFs filed to the deal, comments on its 3 completed
+     * steps, and the Supplier Work Orders panel configured (Electrical/
+     * Beetle/Gas/Electric Fence, real suppliers) — all pending, so completing
+     * "Bond Approved" live at the webinar fires 4 real emails to Mailpit.
+     * Runs AFTER stage15 (needs the supplier directory to exist).
+     */
+    private function stage15b_dr2ShowcaseDeal(): void
+    {
+        $this->safeSeed('DemoDr2ShowcaseDealSeeder', function () {
+            $result = (new \Database\Seeders\Demo\DemoDr2ShowcaseDealSeeder())->run(self::AGENCY_ID);
+            $this->command->info('  Stage 15b: DR2 showcase deal — ' . json_encode($result));
+        });
+    }
+
+    /**
+     * "Reads as live" sweep, 2026-09-03 — Calendar Invitations sat at 0 rows
+     * despite 1,455 real calendar events. See DemoCalendarInvitationsSeeder.
+     */
+    private function stage15d_calendarInvitations(): void
+    {
+        $this->safeSeed('DemoCalendarInvitationsSeeder', function () {
+            $result = (new \Database\Seeders\Demo\DemoCalendarInvitationsSeeder())->run(self::AGENCY_ID);
+            $this->command->info('  Stage 15d: calendar invitations — ' . json_encode($result));
+        });
+    }
+
+    /**
      * Johan, 2026-09-02 — webinar-eve demo data gaps, Group B item 1.
      * "Rental properties - none on demo." properties.listing_type='rental'
      * spread across to_let/under_offer/rented (the system's own real
@@ -2747,6 +3082,255 @@ class DemoDataSeeder extends Seeder
             $result = (new \Database\Seeders\Demo\DemoAttorneyCommsToFileSeeder())->run(self::AGENCY_ID);
             $note = $result['note'] ?? '';
             $this->command->info('  Stage 12g: attorney comms to file — ' . ($result['inserted'] ?? 0) . ' seeded.' . ($note ? " {$note}" : ''));
+        });
+    }
+
+    /**
+     * Johan, 2026-09-02 — config sweep after "we seeded RECORDS all week and
+     * never checked CONFIGURATION." demo's document_types GLOBAL catalogue
+     * had only 4 of the real ~37 rows, with stale buyer_pack_eligible/
+     * contact_roles values — the exact root cause behind the empty Viewing
+     * Pack investigation earlier tonight. GLOBAL reference table (no
+     * agency_id), so this is a plain Seeder call, not per-agency.
+     */
+    private function stage12h_documentTypesCatalogue(): void
+    {
+        $this->safeSeed('DocumentTypesCatalogueSeeder', function () {
+            $this->call([\Database\Seeders\DocumentTypesCatalogueSeeder::class]);
+            $this->command->info('  Stage 12h: document_types catalogue synced to canonical values.');
+        });
+    }
+
+    /** Johan, 2026-09-02 — config sweep. Ad Manager's property picker needs an active P24/PP ref to show anything. */
+    private function stage12i_portalSyndication(): void
+    {
+        $this->safeSeed('DemoPortalSyndicationSeeder', function () {
+            $result = (new \Database\Seeders\Demo\DemoPortalSyndicationSeeder())->run(self::AGENCY_ID);
+            $note = $result['note'] ?? '';
+            $this->command->info('  Stage 12i: portal syndication — ' . ($result['updated'] ?? 0) . ' properties marked active.' . ($note ? " {$note}" : ''));
+        });
+    }
+
+    /** Johan, 2026-09-02 — config sweep. agencies.logo_path was NULL; brochures/watermarks/pack PDFs need a logo. */
+    private function stage12j_agencyLogo(): void
+    {
+        $this->safeSeed('DemoAgencyLogoSeeder', function () {
+            $result = (new \Database\Seeders\Demo\DemoAgencyLogoSeeder())->run(self::AGENCY_ID);
+            $note = $result['note'] ?? '';
+            $this->command->info('  Stage 12j: agency logo — ' . ($result['created'] ? 'generated.' : 'skipped.') . ($note ? " {$note}" : ''));
+        });
+    }
+
+    /**
+     * Webinar day 2026-09-03 — every one of demo's 348 sale + 15 rental
+     * properties had a blank `description` column. A real listing always
+     * has marketing copy; this was the single biggest "does this look
+     * actively marketed" failure across the whole slice.
+     */
+    private function stage12k_propertyDescriptions(): void
+    {
+        $this->safeSeed('DemoPropertyDescriptionsSeeder', function () {
+            $result = (new \Database\Seeders\Demo\DemoPropertyDescriptionsSeeder())->run(self::AGENCY_ID);
+            $this->command->info('  Stage 12k: property descriptions — ' . ($result['updated'] ?? 0) . ' filled.');
+        });
+    }
+
+    /**
+     * Webinar day 2026-09-03 — Johan's specific callout: "VIEWING DATA FROM
+     * CALENDAR APPOINTMENTS flowing into the pipeline." BuyerIntelligence
+     * Service::getPropertiesViewed() reads ONLY calendar_event_links (not
+     * calendar_events.contact_id/property_id directly), and most demo
+     * buyers had zero rows there. Builds a deliberately UNEVEN flagship
+     * buyer-journey chain — documented properties, real linked viewings,
+     * feedback, and (for the warm buyers only) a ready Viewing Pack — so
+     * specific buyer/property pairs are provably complete end to end. Must
+     * run after stage12b (DR2 deals) and stage12h (document types) so the
+     * documents it attaches are correctly buyer-pack-eligible.
+     */
+    private function stage12l_buyerJourneyChain(): void
+    {
+        $this->safeSeed('DemoBuyerJourneyChainSeeder', function () {
+            $result = (new \Database\Seeders\Demo\DemoBuyerJourneyChainSeeder())->run(self::AGENCY_ID);
+            $this->command->info('  Stage 12l: buyer journey chain — ' . json_encode($result));
+        });
+    }
+
+    /**
+     * Webinar day 2026-09-03 (cc-coordinator escalation) — "Seller Outreach
+     * sends = 0 / Outreach Queue = 0" despite stage3 containing real
+     * SellerOutreachComposerService/SenderService calls. Root cause:
+     * seller_outreach_templates had zero rows, so every composed pitch got
+     * an empty body and failed isSendable() silently (see stage2c's
+     * docblock for the full trace). stage2c fixes the template gap for the
+     * NEXT true fresh bootstrap, but demo:seed itself is one-time-only
+     * (Stage 1 does an unconditional admin-user INSERT with no existence
+     * check — cannot be re-run against an already-seeded database, confirmed
+     * by reproduction). This stage is the self-contained equivalent of
+     * stage3's outreach loop, safe to run standalone right now, so Seller
+     * Outreach sends AND the Outreach Queue both have real, correct data.
+     */
+    private function stage12m_sellerOutreach(): void
+    {
+        $this->safeSeed('DemoSellerOutreachSeeder', function () {
+            $result = (new \Database\Seeders\Demo\DemoSellerOutreachSeeder())->run(self::AGENCY_ID);
+            $this->command->info('  Stage 12m: seller outreach — ' . json_encode($result));
+        });
+    }
+
+    /**
+     * Webinar day 2026-09-03 — all 132 buyer-pipeline contacts had
+     * agent_id=NULL, so every card on /command-center/buyers/pipeline read
+     * "Unassigned" — found while spot-checking the flagship buyers'
+     * pipeline cards specifically, confirmed systemic before fixing.
+     */
+    private function stage12n_buyerAgentAssignment(): void
+    {
+        $this->safeSeed('DemoBuyerAgentAssignmentSeeder', function () {
+            $result = (new \Database\Seeders\Demo\DemoBuyerAgentAssignmentSeeder())->run(self::AGENCY_ID);
+            $this->command->info('  Stage 12n: buyer agent assignment — ' . ($result['updated'] ?? 0) . ' assigned.');
+        });
+    }
+
+    /**
+     * Webinar day 2026-09-03 — orphan screen (cc6's audit: nobody's slice
+     * all night). commercial-evaluations.* is a real, mature, actively-
+     * maintained feature with zero demo rows — a pure data gap, not a
+     * half-built screen (verdict confirmed by investigation before
+     * building). evaluation.index (deeds/prospecting search tool) needs
+     * no seeding — its "0 rows" is normal pre-query state, not a gap.
+     */
+    private function stage12o_commercialEvaluations(): void
+    {
+        $this->safeSeed('DemoCommercialEvaluationsSeeder', function () {
+            $result = (new \Database\Seeders\Demo\DemoCommercialEvaluationsSeeder())->run(self::AGENCY_ID);
+            $this->command->info('  Stage 12o: commercial evaluations — ' . ($result['created'] ?? 0) . ' seeded.');
+        });
+    }
+
+    /**
+     * Webinar day 2026-09-03 — orphan screen (cc6's audit: nobody's slice
+     * all night). agent.daily / agent.daily.summary are confirmed real,
+     * working code with zero demo data — a pure data gap. The real 41-row
+     * HFC visible-activity catalogue has no seeder anywhere in the
+     * codebase (hand-configured content, never captured as reference
+     * data); ActivityCalendarMappingSeeder exists but is hardcoded to
+     * agency slug 'hfc-coastal' and silently no-ops on demo's
+     * 'corex-demo-realty' slug — not modifying that production file.
+     * ActivityInstantActionsSeeder (the separate hidden "[Auto]" instant-
+     * action catalogue) is a real, ready seeder that was simply never
+     * wired in anywhere — run directly here alongside the demo-specific
+     * visible catalogue + calendar mappings + real-calendar-derived points.
+     */
+    private function stage12p_agentDailyActivity(): void
+    {
+        $this->safeSeed('ActivityInstantActionsSeeder', function () {
+            $this->call([\Database\Seeders\ActivityInstantActionsSeeder::class]);
+        });
+        $this->safeSeed('DemoAgentDailyActivitySeeder', function () {
+            $result = (new \Database\Seeders\Demo\DemoAgentDailyActivitySeeder())->run(self::AGENCY_ID);
+            $this->command->info('  Stage 12p: agent daily activity — ' . json_encode($result));
+        });
+    }
+
+    /**
+     * Webinar day 2026-09-03 — orphan screen (cc3's audit). system_updates
+     * (What's New) confirmed real, working, platform-wide (no agency_id —
+     * every CoreX user sees the same feed, by design). Safe here because
+     * demo runs its own fully isolated database.
+     *
+     * Real bug caught mid-verification: SystemUpdateService::
+     * candidateIdsFor() has a genuine "a user never sees changes that
+     * predate their own account" rule — every demo user's created_at is a
+     * seeding artifact dated today/yesterday, which silently hid the
+     * entire release history from every login including admin's. Fixed by
+     * backdating agency-1 users' created_at ahead of the oldest release
+     * note (one-directional, only moves dates older, never touches a date
+     * already older than that).
+     */
+    private function stage12q_whatsNew(): void
+    {
+        $this->safeSeed('DemoWhatsNewSeeder', function () {
+            $result = (new \Database\Seeders\Demo\DemoWhatsNewSeeder())->run();
+            $this->command->info('  Stage 12q: what\'s new — ' . ($result['created'] ?? 0) . ' seeded.');
+        });
+    }
+
+    /**
+     * Webinar day 2026-09-03 — orphan screen (cc3's audit). training.index
+     * confirmed real, working code, zero demo rows. Reuses the three
+     * genuinely good courses already written in migration
+     * 2026_03_27_500000_create_training_tables.php (real FICA/PPRA
+     * content) whose seed step silently never fired for demo — its guard
+     * checks agency existence AT MIGRATE TIME, before agency 1 existed.
+     * Reported to the coordinator as a real product finding, same defect
+     * class as the hfc-coastal calendar-mapping seeder. One HFC-branded
+     * line reworded (was corex.hfcoastal.co.za).
+     */
+    private function stage12r_training(): void
+    {
+        $this->safeSeed('DemoTrainingSeeder', function () {
+            $result = (new \Database\Seeders\Demo\DemoTrainingSeeder())->run(self::AGENCY_ID);
+            $this->command->info('  Stage 12r: training courses — ' . ($result['courses'] ?? 0) . ' seeded.');
+        });
+    }
+
+    /**
+     * Webinar day 2026-09-03 — orphan screen (cc3's audit), highest-value
+     * of the four per Johan: admin.knowledge.index confirmed real, working
+     * code, zero demo rows — the SAME KnowledgeDocument/KnowledgeChunk
+     * models Ellie's local search already reads. 7 documents covering
+     * FICA procedure, mandate handling, OTP basics, trust account rules,
+     * POPIA, and internal how-tos, against the 10 categories already
+     * seeded on demo. Embeddings deliberately not generated — confirmed
+     * not required for this admin screen (or the LIKE-search fallback) to
+     * work correctly.
+     */
+    private function stage12s_knowledgeBase(): void
+    {
+        $this->safeSeed('DemoKnowledgeBaseSeeder', function () {
+            $result = (new \Database\Seeders\Demo\DemoKnowledgeBaseSeeder())->run(self::AGENCY_ID);
+            $this->command->info('  Stage 12s: knowledge base — ' . ($result['created'] ?? 0) . ' documents seeded.');
+        });
+    }
+
+    /**
+     * Webinar day 2026-09-03 — Johan's #1 named complaint: "the property
+     * intelligence - I could not find a property that shows the graph",
+     * and the seller-live "0 live listings competing" headline sitting
+     * above a populated card grid. Root cause: CompetitorStockMatchService
+     * ::findCompetitors()/findComparableStock() score against
+     * prospecting_listings within ±20% price / ±1 bed of the subject —
+     * real Uvongo rows existed but none fell inside both bands for any of
+     * the 8 hero properties. Confirmed by reading the service and
+     * reproducing its exact query before writing this seeder.
+     */
+    private function stage12t_competitorStock(): void
+    {
+        $this->safeSeed('DemoCompetitorStockSeeder', function () {
+            $result = (new \Database\Seeders\Demo\DemoCompetitorStockSeeder())->run(self::AGENCY_ID);
+            $this->command->info('  Stage 12t: competitor stock — ' . json_encode($result));
+        });
+    }
+
+    /**
+     * Webinar day 2026-09-03 — coordinator-directed: 24 "[DEMO] Spine
+     * Buyer/Seller #N" QA lifecycle fixtures sat at the very top of the
+     * default alphabetical contacts sort ('#' sorts before letters) — the
+     * first thing anyone sees on Contacts read as unmistakably fake.
+     * Soft-deleted (no hard deletes, standing rule) after confirming zero
+     * communication_links/calendar_event_links reference them. Also
+     * resolves two duplicate-name collisions ("Anele Botha" x3, "Zanele
+     * Bezuidenhout" x3) where a name search could land on the flagship
+     * record (rich real story, already in Johan's run sheet) or a bare
+     * one at random — kept the richest record of each pair by data
+     * richness, renamed the others to real-looking, collision-checked
+     * South African names.
+     */
+    private function stage12u_contactRealismCleanup(): void
+    {
+        $this->safeSeed('DemoContactRealismCleanupSeeder', function () {
+            $result = (new \Database\Seeders\Demo\DemoContactRealismCleanupSeeder())->run(self::AGENCY_ID);
+            $this->command->info('  Stage 12u: contact realism cleanup — ' . json_encode($result));
         });
     }
 

@@ -22,16 +22,12 @@ class EsignSettings extends Model
         'agency_id',
         'async_completion_enabled',
         'finalization_stuck_threshold_minutes',
-        'require_identity_before_send',
-        'strict_reauthorisation_binding',
         'whatsapp_resend_enabled',
     ];
 
     protected $casts = [
         'async_completion_enabled' => 'boolean',
         'finalization_stuck_threshold_minutes' => 'integer',
-        'require_identity_before_send' => 'boolean',
-        'strict_reauthorisation_binding' => 'boolean',
         'whatsapp_resend_enabled' => 'boolean',
     ];
 
@@ -47,8 +43,6 @@ class EsignSettings extends Model
                 'agency_id' => 0,
                 'async_completion_enabled' => (bool) config('docuperfect.async_completion'),
                 'finalization_stuck_threshold_minutes' => 15,
-                'require_identity_before_send' => true,
-                'strict_reauthorisation_binding' => true,
                 'whatsapp_resend_enabled' => true,
             ]);
         }
@@ -58,8 +52,6 @@ class EsignSettings extends Model
             [
                 'async_completion_enabled' => true,
                 'finalization_stuck_threshold_minutes' => 15,
-                'require_identity_before_send' => true,
-                'strict_reauthorisation_binding' => true,
                 'whatsapp_resend_enabled' => true,
             ]
         );
@@ -82,27 +74,6 @@ class EsignSettings extends Model
         $minutes = (int) ($this->finalization_stuck_threshold_minutes ?? 15);
 
         return $minutes > 0 ? $minutes : 15;
-    }
-
-    /**
-     * AT-385 — Fill & Review blocks send if any signing party has no
-     * ID/passport number. Default true — Johan: "no id is a massive
-     * problem... we have to gate against it properly." No env fallback,
-     * this setting never existed as an env flag.
-     */
-    public function requireIdentityBeforeSend(): bool
-    {
-        return $this->exists ? (bool) $this->require_identity_before_send : true;
-    }
-
-    /**
-     * AT-332 — after a recipient amends a document, re-authorisation must
-     * come from the same user who authorised the original. Default true —
-     * Johan: "re-auth only allowed by original auth party."
-     */
-    public function strictReauthorisationBinding(): bool
-    {
-        return $this->exists ? (bool) $this->strict_reauthorisation_binding : true;
     }
 
     /**

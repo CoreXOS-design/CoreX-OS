@@ -101,6 +101,85 @@ final class CdsBuilderRedirectTest extends TestCase
         $current->assertOk();
         $this->assertStringContainsString('/templates/cds/builder/', $finalPath,
             'Post-save redirect must land on the CDS builder, not the template list — got ' . $finalPath);
+
+        // 2026-09-04 — and it must get there in ONE hop. See
+        // test_save_confirmation_survives_to_the_builder() below for why.
+        $this->assertSame(1, $hops,
+            'cdsGenerate must reach the builder in a single redirect — a second hop discards the flash message');
+    }
+
+    /**
+     * 2026-09-04 — the save confirmation must reach the page the agent
+     * actually lands on.
+     *
+     * cdsGenerate used to redirect to `templates.edit`, which redirected a
+     * SECOND time to reach the builder. Laravel flash data survives exactly
+     * one redirect, so the `->with('success', ...)` set on the save was
+     * consumed by that intermediate request and the builder rendered with no
+     * confirmation of any kind.
+     *
+     * On live this made a save that had FULLY SUCCEEDED look identical to a
+     * click the page had ignored: the agent pressed Save, the document
+     * redrew unchanged, the only visible difference was a number in the URL
+     * they had no reason to be reading, and nothing anywhere said "saved".
+     * It was reported as "I click save and it does not save anything" — a
+     * bug report against a save path that was working perfectly.
+     *
+     * Pins both halves of the fix: exactly one redirect, and the message
+     * still present on the page at the end of it.
+     */
+    public function test_save_confirmation_survives_to_the_builder(): void
+    {
+        $user = $this->seedAgentWithTemplatePermissions();
+        $template = DocuperfectTemplate::create([
+            'name'           => 'Save Confirmation Template',
+            'render_type'    => 'web',
+            'template_type'  => 'cds',
+            'category'       => 'sales',
+            'signing_parties'=> ['owner_party'],
+            'field_mappings' => [],
+            'owner_id'       => $user->id,
+            'cds_json'       => ['sections' => []],
+        ]);
+        $draft = CdsDraft::create([
+            'user_id'            => $user->id,
+            'agency_id'          => $user->agency_id ?? 1,
+            'template_name'      => $template->name,
+            'cds_json'           => ['sections' => []],
+            'mappings'           => [],
+            'tags'               => [],
+            'tagged_html'        => '<p>Body</p>',
+            'settings'           => [],
+            'source_template_id' => $template->id,
+            'status'             => 'draft',
+        ]);
+
+        $resp = $this
+            ->actingAs($user)
+            ->from('/docuperfect/templates/cds/builder/' . $draft->id)
+            ->post('/docuperfect/templates/cds/generate', [
+                'draft_id'      => $draft->id,
+                'template_name' => $template->name,
+                'is_esign'      => 1,
+                'party_mode'    => 'shared',
+                'allowed_delivery_modes' => 'esign',
+                'security_tier' => 'enhanced',
+                'signing_parties' => json_encode(['owner_party']),
+                'category'      => 'sales',
+                'document_type_id' => null,
+            ]);
+
+        $resp->assertRedirect();
+        $resp->assertSessionHas('success');
+
+        $path = parse_url($resp->headers->get('Location') ?? '', PHP_URL_PATH) ?? '';
+        $this->assertStringContainsString('/templates/cds/builder/', $path,
+            'The save must redirect STRAIGHT to the builder — got ' . $path);
+
+        // Follow that single hop and confirm the agent is actually told.
+        $builder = $this->actingAs($user)->get($path);
+        $builder->assertOk();
+        $builder->assertSee('Template saved', false);
     }
 
     /**

@@ -44,7 +44,28 @@ class ContactController extends Controller
             $filterAgentId = '';
         }
 
-        $query = Contact::with(['type', 'createdBy'])->orderBy('last_name')->orderBy('first_name');
+        // AT-394 — a typed search must find a match anywhere in the agency, not just the
+        // searching agent's own book. Without this, an agent typing an existing colleague's
+        // contact into the search box sees no result and re-creates a duplicate, because the
+        // "my contacts" narrowing below silently swallows it. Deliberately scoped to the search
+        // action only — every other view of this page (no search term) keeps today's own/branch/
+        // all breadth exactly as before.
+        $isSearching = $request->filled('search');
+
+        $query = Contact::with(['type', 'createdBy', 'agent']);
+
+        if ($isSearching) {
+            // AT-394 — the viewer's OWN contacts sort first, ahead of everything else (including
+            // the existing relevance ordering scopeSearch() adds below) — a widened search mixes
+            // in colleagues' records, and the agent's own book is what they're most likely looking
+            // for. "Own" mirrors dataIdentityIds() (the agent themselves, or — for an assistant —
+            // the assigned agent), same identity basis ContactScope's 'own' rule itself uses.
+            $mineIds = array_map('intval', $user->dataIdentityIds());
+            $placeholders = implode(',', array_fill(0, count($mineIds), '?'));
+            $query->orderByRaw("CASE WHEN COALESCE(agent_id, created_by_user_id) IN ({$placeholders}) THEN 0 ELSE 1 END", $mineIds);
+        }
+
+        $query->orderBy('last_name')->orderBy('first_name');
 
         // AT-91 — an EXPLICIT agent pick keys off contacts.agent_id (the
         // operational responsible agent), NOT created_by_user_id (immutable
@@ -54,7 +75,19 @@ class ContactController extends Controller
         // responsible agent. The no-pick default-narrowing paths are left on the
         // original created_by basis (and ContactScope's own-row enforcement) so
         // the everyday contacts page is unchanged.
-        if ($canPickAgent) {
+        if ($isSearching) {
+            // AT-394 — a typed search ALWAYS widens to the whole agency, ahead of any agent/
+            // branch filter currently active — including the "Mine" default every canPickAgent
+            // user (admin/BM/owner) also lands on. (First cut of this fix only widened the
+            // plain-agent 'own' path and left canPickAgent users' "Mine" view still narrowed —
+            // that is exactly the case Johan hit testing as an owner on his own "My Contacts".)
+            // Bypasses ONLY the role-based ContactScope — agency isolation via AgencyScope is
+            // untouched, this can never cross an agency boundary. Rows outside the user's
+            // normal own/branch/selected-agent breadth are flagged read-only below and rendered
+            // without edit/delete affordances, mirroring the existing cross-agent duplicate-
+            // warning pattern (ContactDuplicateService).
+            $query->withoutGlobalScope(\App\Models\Scopes\ContactScope::class);
+        } elseif ($canPickAgent) {
             if ($filterAgentId === 'unassigned') {
                 $query->whereNull('agent_id');
             } elseif ($filterAgentId !== '' && $filterAgentId !== 'all') {
@@ -133,6 +166,22 @@ class ContactController extends Controller
         $perPage = $perPage > 0 ? min($perPage, 200) : 25;
         // Eager-load picker relations so the inline edit-row pickers don't N+1.
         $contacts     = $query->with(['tags', 'parentTypes'])->paginate($perPage)->withQueryString();
+
+        // AT-394 — of THIS page's widened-search results, which ones fall outside the user's
+        // normal breadth (own/branch/selected-agent, admin/owner included)? Re-run the untouched
+        // ContactScope (no bypass here) against just these ids rather than re-implementing its
+        // own/branch/bm/admin rules — whatever survives is exactly what the user could already
+        // see without the widened search (for an admin/owner that's everything, so nothing gets
+        // flagged). The rest render read-only, tagged with their agent, and never link into
+        // show()/destroy() (which still enforce ContactScope and would 403).
+        $restrictedContactIds = [];
+        if ($isSearching) {
+            $pageIds = $contacts->pluck('id')->all();
+            if (!empty($pageIds)) {
+                $inScopeIds = Contact::whereIn('id', $pageIds)->pluck('id')->all();
+                $restrictedContactIds = array_values(array_diff($pageIds, $inScopeIds));
+            }
+        }
         // The four fixed parents, each with its agency-scoped sub-tags — feeds
         // the type/tag pop-up picker on the contact forms (AT-79).
         $contactTypes = ContactType::parents()->with('subTags')->get()->unique('name')->values();
@@ -146,7 +195,8 @@ class ContactController extends Controller
             : null;
 
         return view('corex.contacts.index', compact(
-            'contacts', 'contactTypes', 'contactIdentifierLabels', 'filterAgentId', 'agentList', 'selectedAgent', 'canPickAgent'
+            'contacts', 'contactTypes', 'contactIdentifierLabels', 'filterAgentId', 'agentList', 'selectedAgent', 'canPickAgent',
+            'restrictedContactIds'
         ));
     }
 
@@ -873,13 +923,23 @@ class ContactController extends Controller
         // renders read-only when false so no edit affordance is shown that would only 403 on save.
         $canEdit = $this->canMutateContact($contact);
 
+        // 2026-09-02 — the real FK (deal_contacts) linking this contact to a deal as
+        // buyer/seller exists and is populated, but nothing on this page ever surfaced
+        // it (the only prior deal signal was the narrow "Purchaser" badge on Linked
+        // Properties, which only lights up for a granted deal). Read-only list —
+        // deal-party linking itself is managed from the deal, not from here.
+        $linkedDeals = \App\Models\Deal::whereHas('contacts', fn ($q) => $q->where('contacts.id', $contact->id))
+            ->with(['contacts' => fn ($q) => $q->where('contacts.id', $contact->id)])
+            ->orderByDesc('deal_date')
+            ->get(['id', 'deal_no', 'property_address', 'property_value', 'accepted_status', 'commission_status', 'deal_date', 'registration_date']);
+
         // MERGE NOTE (QA2 -> Staging, 2026-07-26; extended 2026-08-20 for CX-110): several
         // independent additions share this view-variable list — AT-321-C's $fullAuditLog,
         // AT-267's $canEdit, and CX-110's $historyCount. All independent; all kept.
         // Contact-details Phase 2 adds $contactIdentifierLabels; Phase 4 adds the
         // Recent-Sends panel vars ($recentSends, $sendAuditLog, $sendAuditActors);
         // AT-321 audit adds $includeSystem (History-tab system-trail toggle).
-        return view('corex.contacts.show', compact('contact', 'contactTypes', 'contactIdentifierLabels', 'contactTags', 'matchCategories', 'matchTypes', 'featureOptions', 'documentTypes', 'driveLinkedGroups', 'driveUnlinkedDocs', 'drivePropertyMap', 'buyerViewings', 'sellerViewings', 'buyerUpcoming', 'buyerPast', 'sellerUpcoming', 'sellerPast', 'viewingsCount', 'outreachSends', 'outreachClickCounts', 'outreachOutcomeOptions', 'agencyAgents', 'canViewComms', 'contactComms', 'contactThreads', 'commsViaGrant', 'canRequestComms', 'pendingCommsRequest', 'myCaptureStatus', 'waSent', 'emailSent', 'fullAuditLog', 'includeSystem', 'historyCount', 'recentSends', 'sendAuditLog', 'sendAuditActors', 'canEdit'));
+        return view('corex.contacts.show', compact('contact', 'contactTypes', 'contactIdentifierLabels', 'contactTags', 'matchCategories', 'matchTypes', 'featureOptions', 'documentTypes', 'driveLinkedGroups', 'driveUnlinkedDocs', 'drivePropertyMap', 'buyerViewings', 'sellerViewings', 'buyerUpcoming', 'buyerPast', 'sellerUpcoming', 'sellerPast', 'viewingsCount', 'outreachSends', 'outreachClickCounts', 'outreachOutcomeOptions', 'agencyAgents', 'canViewComms', 'contactComms', 'contactThreads', 'commsViaGrant', 'canRequestComms', 'pendingCommsRequest', 'myCaptureStatus', 'waSent', 'emailSent', 'fullAuditLog', 'includeSystem', 'historyCount', 'recentSends', 'sendAuditLog', 'sendAuditActors', 'canEdit', 'linkedDeals'));
     }
 
     public function checkDuplicate(Request $request)

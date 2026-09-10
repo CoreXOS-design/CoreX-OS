@@ -116,6 +116,64 @@ Johannesburg Melville deeds capture still promotes to Johannesburg/Gauteng
 
 ---
 
+## Location field consistency (suburb/city/town/province) — Live (2026-09-07, QA1)
+
+Investigation of property #21014 (Johan, live-testing) found that `properties.town`
+could silently disagree with `suburb`/`city`/`province` after a location edit — the
+Property24 location picker corrected suburb/city/province and all three P24 ids, but
+`town` was never part of that write and kept whatever value it held from promotion
+time. The property Intelligence tab's market snapshot preferred `town` over `city`,
+so a fully-corrected property could still display its old, wrong area.
+
+**Storage:** `properties.city` is the field kept in sync on every save that resolves
+a P24 suburb (`AppliesP24Location::applyP24Location()`), used by the full property
+edit form, the quick-setup wizard, and the mobile API alike. `properties.town` means
+the same thing — "the real town an agent/buyer recognises" for a P24-linked property
+(see `DeedsCaptureController::promote()`'s own town-resolution comment) — and is now
+written from the **same** resolved P24 city row as `city`, every time, so the two can
+never drift again.
+
+**Precedence when they still disagree** (legacy rows saved before this fix, or a
+property whose suburb was never linked to a P24 record): **`city` wins, `town` is the
+fallback only when city is blank** — `$property->city ?: $property->town`. `city` is
+the field this trait actively maintains; `town` is best-effort. This matches
+`Property::slug()`'s own existing `$this->city ?? $this->town` precedence, so the
+Intelligence tab is now consistent with that, not introducing a third convention.
+
+**Other screens that read `town`/`city` together, found during this investigation but
+NOT touched (outside this defect's direct path — reported per CLAUDE.md non-negotiable
+#2, "report don't fix outside scope"):**
+- `app/Models/Property.php:1974` — `slug()`, already city-first (`$this->city ?? $this->town`)
+- `app/Services/WebTemplateDataService.php:113,882,887,889,1477` — public web template data (suburb/town/district fallback chains), town-first
+- `app/Services/Compliance/MarketingReadinessService.php:536` — town-first
+- `app/Services/Map/MapPinService.php:411` — town-first
+- `app/Services/Contact/ContactAddressPropertyGuard.php:247,256` — city-first
+- `app/Services/PrivateProperty/PrivatePropertyListingMapper.php:72` — town-first
+- `app/Http/Controllers/Presentation/PresentationGeneratorController.php:83` — city-first
+- `resources/views/corex/properties/partials/syndication-panel.blade.php:555` — town-first
+
+These will stop mattering for any property edited going forward (town and city are
+now always equal after a P24 suburb pick), but for existing/legacy rows they read
+whichever precedence they already had before this fix — unchanged.
+
+**Repair for existing data:** `php artisan properties:repair-town` — dry-run by
+default, `--apply` to persist. Only touches properties with a resolved
+`p24_city_id` whose `town` disagrees with that city's name (a `town` that was never
+populated is left alone — that's a different, much larger, unrequested change; see
+command docblock). Idempotent.
+
+**Acceptance:** covered by
+`tests/Feature/Properties/PropertyTownFollowsLocationEditTest.php` —
+correcting a property's location via the edit screen updates `town` along with
+`suburb`/`city`/`province`/the three P24 ids; the Intelligence tab shows the
+corrected area even on a property still carrying a stale `town` from before this fix.
+
+**Files:** `app/Http/Concerns/AppliesP24Location.php`,
+`resources/views/corex/properties/intelligence/_market-snapshot.blade.php`,
+`app/Console/Commands/RepairPropertyTownFromP24City.php`.
+
+---
+
 ## Pending Spec Items
 
 The following require full spec before build:

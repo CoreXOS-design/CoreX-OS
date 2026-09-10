@@ -83,6 +83,15 @@ class DemoFilingRegisterSeeder
             );
 
             if ($filing->wasRecentlyCreated) {
+                // A clerk files the paperwork within days of registration, not all in one
+                // mechanical batch — stagger created_at so "recent activity" reads as real
+                // filing activity over time instead of a single seeder timestamp.
+                $filedAt = $regDate->copy()->addDays($idx % 5 + 1)->addHours($idx % 7);
+                DB::table('document_filing_register')->where('id', $filing->id)->update([
+                    'created_at' => $filedAt,
+                    'updated_at' => $filedAt,
+                ]);
+
                 $inserted++;
                 $sequenceCursor++;
             }

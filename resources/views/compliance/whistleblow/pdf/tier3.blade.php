@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>PPRA Complaint — HFC-WB-{{ $complaint->id }}</title>
+    <title>PPRA Complaint — CDX-WB-{{ $complaint->id }}</title>
     <style>
         @page { size: A4; margin: 20mm; }
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -64,7 +64,7 @@
     <div class="cover-meta">
         <div class="cover-meta-row">
             <span class="cover-meta-label">Complaint Reference</span>
-            <span class="cover-meta-value">HFC-WB-{{ $complaint->id }}</span>
+            <span class="cover-meta-value">CDX-WB-{{ $complaint->id }}</span>
         </div>
         <div class="cover-meta-row">
             <span class="cover-meta-label">Lodging Agency</span>

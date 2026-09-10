@@ -134,33 +134,43 @@ class PropertyController extends Controller
         // — so a co-listed property appears under both agents' names. A property
         // is a single row, so an `OR` match still returns it exactly once even
         // when both the primary and secondary are in the selected set.
-        if ($canPickAgent && ! empty($filterAgentIds)) {
+        if ($search !== '') {
+            // AT-394 — a typed search ALWAYS widens to the whole agency, ahead of ANY agent/
+            // branch filter currently active — including a canPickAgent user's (admin/BM/owner)
+            // "Mine" default or an explicit agent_ids pick. (First cut of this fix only widened
+            // the plain-agent 'own' path below and left canPickAgent users' "Mine" view still
+            // narrowed — that is exactly the case Johan hit testing as an owner on his own
+            // "My Contacts"/listings.) Still bounded by AgencyScope (untouched), so this can
+            // never cross an agency boundary. Rows outside the agent's own/branch/selected-agent
+            // breadth render read-only below (see $restrictedPropertyIds).
+        } elseif ($canPickAgent && ! empty($filterAgentIds)) {
             // Admin/BM viewing one or more specific agents
             $ids = array_map('intval', $filterAgentIds);
             $query->where(function ($q) use ($ids) {
                 $q->whereIn('agent_id', $ids)
                   ->orWhereIn('pp_second_agent_id', $ids);
             });
-        } elseif ($canPickAgent) {
-            // All agents — still bounded by the user's data scope
-            if ($dataScope === 'branch') {
-                $branchId = $user->effectiveBranchId();
-                if ($branchId) $query->where('branch_id', $branchId);
-            }
-            // dataScope 'all' ⇒ no restriction
         } else {
-            // Agent: 'my' = own listings only; 'branch' = all branch listings. For an ASSISTANT
-            // "own" is the assigned agent's book (dataIdentityIds() = [agentId, selfId]), never the
+            // No explicit agent pick: an admin/BM's role-default breadth (all/branch), or a
+            // plain agent's "my listings" / "my branch" toggle. For an ASSISTANT "own" is the
+            // assigned agent's book (dataIdentityIds() = [agentId, selfId]), never the
             // assistant's own empty id — so their list loads the agent's listings.
-            if ($viewScope === 'branch' && $user->branch_id) {
-                $query->where('branch_id', $user->branch_id);
-            } else {
-                $ids = $user->dataIdentityIds();
-                $query->where(function ($q) use ($ids) {
-                    $q->whereIn('agent_id', $ids)
-                      ->orWhereIn('pp_second_agent_id', $ids);
-                });
-            }
+            $this->applyRoleScope($query, $user, $dataScope, $canPickAgent, $viewScope);
+        }
+
+        if ($search !== '') {
+            // AT-394 — the viewer's OWN listings sort first, ahead of everything else (including
+            // whatever sort the user picked below) — a widened search mixes in colleagues'
+            // listings, and the agent's own book is what they're most likely looking for. "Own"
+            // matches agent_id OR pp_second_agent_id (the same co-listing rule the scope above
+            // uses), against dataIdentityIds() (the agent themselves, or — for an assistant —
+            // the assigned agent).
+            $mineIds = array_map('intval', $user->dataIdentityIds());
+            $placeholders = implode(',', array_fill(0, count($mineIds), '?'));
+            $query->orderByRaw(
+                "CASE WHEN agent_id IN ({$placeholders}) OR pp_second_agent_id IN ({$placeholders}) THEN 0 ELSE 1 END",
+                array_merge($mineIds, $mineIds)
+            );
         }
 
         // Remember the active filter set for this session (only on an explicit
@@ -314,6 +324,24 @@ class PropertyController extends Controller
         $perPage = $perPage > 0 ? min($perPage, 200) : 20;
         $properties = $query->paginate($perPage)->withQueryString();
 
+        // AT-394 — of THIS page's widened-search results, which fall outside the user's TRUE
+        // permission breadth (role-default all/branch/own — never the transient agent_ids UI
+        // pick, which isn't a permission boundary)? Re-run the SAME restriction (applyRoleScope)
+        // against just these ids rather than duplicating its logic — whatever survives is
+        // exactly what the user could already see without the widened search (for a dataScope
+        // 'all' admin/owner that's everything, so nothing gets flagged). The rest render
+        // read-only below: no link into show() (still gated by authorizeProperty() and would 403).
+        $restrictedPropertyIds = [];
+        if ($search !== '') {
+            $pageIds = $properties->getCollection()->pluck('id')->all();
+            if (!empty($pageIds)) {
+                $checkQuery = Property::query()->whereIn('id', $pageIds);
+                $this->applyRoleScope($checkQuery, $user, $dataScope, $canPickAgent, $viewScope);
+                $inScopeIds = $checkQuery->pluck('id')->all();
+                $restrictedPropertyIds = array_values(array_diff($pageIds, $inScopeIds));
+            }
+        }
+
         // Website views for THIS page only — one grouped query for the whole page,
         // never one per row. Display is page-scoped even when the sort above ran
         // across the full set. (AT-383)
@@ -326,6 +354,7 @@ class PropertyController extends Controller
         $authId = (int) ($user->id ?? 0);
         foreach ($properties as $p) {
             $p->website_views_30d = (int) ($pageWebsiteViews[$p->id] ?? 0);
+            $p->owned_by_other = in_array($p->id, $restrictedPropertyIds, true);
 
             // Is the current viewer the SECONDARY (co-listing) agent on this
             // listing rather than the primary? Drives the "Secondary" badge so a
@@ -408,6 +437,46 @@ class PropertyController extends Controller
             'filterOptions', 'filters', 'currentSort', 'currentDir', 'agencySortMode',
             'myDrafts', 'hasWebsiteStats'
         ));
+    }
+
+    /**
+     * The plain-agent (non-canPickAgent) "my listings" / "my branch" restriction, factored out
+     * so AT-394's search widening can reuse the exact same rule (rather than re-implementing it)
+     * to work out, after the fact, which widened rows the user could ALSO see under the normal
+     * un-widened breadth.
+     */
+    private function applyOwnPropertyScope($query, User $user, string $viewScope): void
+    {
+        if ($viewScope === 'branch' && $user->branch_id) {
+            $query->where('branch_id', $user->branch_id);
+        } else {
+            $ids = $user->dataIdentityIds();
+            $query->where(function ($q) use ($ids) {
+                $q->whereIn('agent_id', $ids)
+                  ->orWhereIn('pp_second_agent_id', $ids);
+            });
+        }
+    }
+
+    /**
+     * AT-394 — the DEFAULT (no explicit agent pick) role-based restriction, for either a
+     * canPickAgent user (admin/BM: role-default all/branch) or a plain agent (own/branch
+     * toggle). Single source of truth so the search-widening check below ("would this row
+     * appear WITHOUT the widened search?") can never drift from what the un-widened query
+     * above actually applies.
+     */
+    private function applyRoleScope($query, User $user, string $dataScope, bool $canPickAgent, string $viewScope): void
+    {
+        if ($canPickAgent) {
+            if ($dataScope === 'branch') {
+                $branchId = $user->effectiveBranchId();
+                if ($branchId) $query->where('branch_id', $branchId);
+            }
+            // dataScope 'all' ⇒ no restriction
+            return;
+        }
+
+        $this->applyOwnPropertyScope($query, $user, $viewScope);
     }
 
     /**
@@ -1304,7 +1373,10 @@ class PropertyController extends Controller
         // When a suburb IS picked, the chain is still verified + canonicalised;
         // when it isn't, the free-text location is kept and p24_suburb_mismatch
         // is flagged so P24 syndication (not the save) is what's gated.
-        $data = $this->applyP24Location($data, false);
+        // $property passed through so a stale P24 link can re-derive itself
+        // from the property's own existing suburb/coordinates even when this
+        // save's request doesn't resubmit them — see applyP24Location().
+        $data = $this->applyP24Location($data, false, $property);
 
         if (! empty($data['publish']) && ! $property->isPublished()) {
             $data['published_at'] = now();

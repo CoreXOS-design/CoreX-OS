@@ -82,7 +82,7 @@
                         $days = (int) $c->updated_at->diffInDays(now());
                     @endphp
                     <tr>
-                        <td class="px-4 py-3 font-mono text-xs font-bold" style="color: var(--text-primary);">HFC-WB-{{ $c->id }}</td>
+                        <td class="px-4 py-3 font-mono text-xs font-bold" style="color: var(--text-primary);">CDX-WB-{{ $c->id }}</td>
                         <td class="px-4 py-3"><span class="ds-badge {{ $tierBadges[$c->tier] ?? 'ds-badge-default' }}">Tier {{ str_replace('tier_', '', $c->tier) }}</span></td>
                         <td class="px-4 py-3" style="color: var(--text-primary);">{{ Str::limit($c->subjects_summary, 30) }}</td>
                         <td class="px-4 py-3 text-xs" style="color: var(--text-secondary);">{{ Str::limit($c->property_address, 30) }}</td>

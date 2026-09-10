@@ -430,9 +430,11 @@ class RoleManagerController extends Controller
         $request->validate([
             'label'       => 'required|string|max:100',
             // Role names are unique WITHIN an agency, not globally — another
-            // agency may legitimately have a role of the same name.
+            // agency may legitimately have a role of the same name. A DELETED
+            // role does not hold its slug hostage: re-using it restores that
+            // role (see below), so the rule only looks at live rows.
             'name'        => ['nullable', 'string', 'max:100', 'regex:/^[a-z0-9_-]+$/',
-                Rule::unique('roles', 'name')->where(fn ($q) => $q->where('agency_id', $agencyId))],
+                Rule::unique('roles', 'name')->where(fn ($q) => $q->where('agency_id', $agencyId)->whereNull('deleted_at'))],
             'description' => 'nullable|string|max:500',
             'color'       => 'nullable|string|max:20',
             'sort_order'  => 'nullable|integer',
@@ -440,21 +442,53 @@ class RoleManagerController extends Controller
 
         $name = $request->name ?: Str::slug($request->label, '_');
 
-        // Ensure uniqueness of auto-generated slug within this agency (incl. trashed).
-        if (Role::withTrashed()->where('name', $name)->where('agency_id', $agencyId)->exists()) {
-            return redirect()->route('corex.role-manager')->withErrors(['name' => "The role slug '{$name}' is already taken in this agency."]);
+        // The auto-generated slug never passed through the rule above, so
+        // re-check it against this agency's LIVE roles.
+        if (Role::where('name', $name)->where('agency_id', $agencyId)->exists()) {
+            return redirect()->route('corex.role-manager')
+                ->withInput()
+                ->withErrors(['name' => "The role slug '{$name}' is already taken in this agency."]);
         }
 
-        $role = Role::create([
+        // A deleted role still occupies its slug: deletes are soft
+        // (Non-negotiable #1) and UNIQUE(name, agency_id) does not consider
+        // deleted_at. Creating that slug again therefore RESTORES the archived
+        // row — its id and audit trail survive — and rebuilds it as a brand-new
+        // role: the label/description/colour/sort order just entered, and
+        // permissions reset to the agent baseline below. The archived role's
+        // old grants are deliberately NOT inherited — "create" must never hand
+        // back access the agency believed it had thrown away.
+        $archived = Role::onlyTrashed()
+            ->where('name', $name)
+            ->where('agency_id', $agencyId)
+            ->first();
+
+        $attributes = [
             'name'        => $name,
             'label'       => $request->label,
             'description' => $request->description,
             'color'       => $request->color ?? '#0d9488',
             'sort_order'  => $request->sort_order ?? (Role::where('agency_id', $agencyId)->max('sort_order') + 1),
-            'is_owner'    => false,
-            'can_be_deleted' => true,
             'agency_id'   => $agencyId,
-        ]);
+        ];
+
+        if ($archived) {
+            $archived->restore();
+            $archived->fill($attributes);
+            $archived->oversight_scope = null;
+            $archived->is_owner        = false;
+            $archived->can_be_deleted  = true;
+            $archived->save();
+            $role = $archived;
+
+            // Clear anything the archived role was still carrying so the agent
+            // baseline below is the whole permission set, not a merge onto it.
+            RolePermission::where('role', $role->name)
+                ->when($agencyId, fn ($q) => $q->where('agency_id', $agencyId), fn ($q) => $q->whereNull('agency_id'))
+                ->forceDelete();
+        } else {
+            $role = Role::create($attributes);
+        }
 
         // Seed new role with this agency's agent permissions as a starting
         // point (fall back to the global template if the agency has none yet).
@@ -481,7 +515,9 @@ class RoleManagerController extends Controller
         Role::clearCache();
         PermissionService::clearCache();
 
-        return redirect()->route('corex.role-manager', ['role' => $role->name])->with('success', "Role '{$role->label}' created with agent permissions as default.");
+        $verb = $archived ? 're-created' : 'created';
+
+        return redirect()->route('corex.role-manager', ['role' => $role->name])->with('success', "Role '{$role->label}' {$verb} with agent permissions as default.");
     }
 
     public function updateRole(Request $request, Role $role)

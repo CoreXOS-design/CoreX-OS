@@ -351,4 +351,49 @@ final class RoleManagerFunctionalTest extends TestCase
             'the role must be soft-deleted (Non-negotiable #1), not hard-deleted'
         );
     }
+
+    public function test_a_deleted_roles_name_can_be_used_again_and_restores_that_role(): void
+    {
+        [$agency, $admin] = $this->provisionedAgency();
+        $agentCount = RolePermission::where('agency_id', $agency->id)->where('role', 'agent')->count();
+
+        Auth::login($admin);
+        $this->rm->storeRole(Request::create('/x', 'POST', ['label' => 'Office Admin', 'name' => 'office_admin_x']));
+        $original = Role::withoutGlobalScopes()->where('agency_id', $agency->id)->where('name', 'office_admin_x')->firstOrFail();
+
+        // Give it a grant the agent baseline does not have, so we can prove the
+        // re-created role does NOT inherit the deleted role's permissions.
+        RolePermission::create([
+            'role' => 'office_admin_x', 'permission_key' => 'edit_permissions',
+            'scope' => null, 'agency_id' => $agency->id,
+        ]);
+
+        $this->rm->destroyRole(Request::create('/x', 'DELETE'), $original);
+
+        // The name is free again — this must not throw "already been taken".
+        $this->rm->storeRole(Request::create('/x', 'POST', ['label' => 'Office Admin', 'name' => 'office_admin_x']));
+
+        $recreated = Role::withoutGlobalScopes()->where('agency_id', $agency->id)->where('name', 'office_admin_x')->firstOrFail();
+        $this->assertNull($recreated->deleted_at, 'the re-created role must be live, not still archived');
+        $this->assertSame($original->id, $recreated->id, 'the archived row is restored, so the audit trail and id survive');
+        $this->assertSame(
+            $agentCount,
+            RolePermission::where('agency_id', $agency->id)->where('role', 'office_admin_x')->count(),
+            're-creating a deleted role must reset it to the agent baseline, never inherit its old grants'
+        );
+    }
+
+    public function test_a_live_roles_name_is_still_rejected(): void
+    {
+        [$agency, $admin] = $this->provisionedAgency();
+
+        Auth::login($admin);
+
+        try {
+            $this->rm->storeRole(Request::create('/x', 'POST', ['label' => 'Another Agent', 'name' => 'agent']));
+            $this->fail('an existing live role name must still be rejected');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('name', $e->errors());
+        }
+    }
 }
