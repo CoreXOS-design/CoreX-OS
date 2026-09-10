@@ -136,6 +136,16 @@ query. AT-288 fixed exactly that class of bug (the Intelligence page had drifted
 unfiltered ad-hoc query that leaked off-market / wrong-type / out-of-band junk). New
 comparable surfaces call the shared selector; they do not write their own.
 
+**Rentals — AT-400 (2026-09-10), investigated and confirmed already correct, nothing built.**
+MIC's canonical tables (`tracked_properties`, `prospecting_listings`) are sales-lead/deeds-office
+scrape pipelines with no `listing_type` column or rental concept at all — there is structurally
+nowhere for rental data to enter them. The one place agency-owned `properties` stock is injected
+into a MIC surface — `MarketIntelligenceController.php`'s canvass-pool stock injection, and
+`SuburbReportDataService`'s own-stock section — was already gated to `listing_type='sale'` in an
+earlier fix (re-verified live on QA1: 45 on-market rentals agency-wide currently kept out by that
+guard). Comparable-stock selection itself is gated for rentals at the shared selector — see §2.5
+above and `.ai/specs/presentations.md` §11.
+
 **Same class, buyer side (AT-289): geographic honesty in per-property CLAIM figures.** The
 seller-outreach `{matching_buyer_count}` and the presentation buyer-demand figure both make a
 per-property, per-suburb claim ("N buyers looking for properties like yours in {suburb}"), so

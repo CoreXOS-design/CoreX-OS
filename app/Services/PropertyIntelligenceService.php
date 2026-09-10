@@ -684,6 +684,12 @@ class PropertyIntelligenceService
         $property = Property::withoutGlobalScopes()->find($propertyId);
         if (!$property) return null;
 
+        // AT-400 (Johan, 2026-09-10) — this card recommends a SALE price and
+        // counts comparable SALES; neither concept applies to a rental.
+        // Same "nothing meaningful to show" path as line 706-708 below, not a
+        // new hidden state.
+        if ($property->isRental()) return null;
+
         $mds             = app(\App\Services\MarketDataSnapshotService::class);
         $comparableSales = $mds->getComparableSales($propertyId);
         $areaAvg         = $mds->calculateAreaAverages($property->suburb);
