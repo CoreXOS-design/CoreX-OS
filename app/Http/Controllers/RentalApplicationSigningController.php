@@ -124,8 +124,9 @@ class RentalApplicationSigningController extends Controller
         // (and therefore can never overwrite) the previous round's
         // signature row, which is the "signature landmine" this build was
         // required to fix.
-        DB::transaction(function () use ($application, $fields, $validated, $request, $audit) {
-            $isResubmit = $application->submitted_at !== null;
+        $isResubmit = $application->submitted_at !== null;
+
+        DB::transaction(function () use ($application, $fields, $validated, $request, $audit, $isResubmit) {
             $fromStatus = $application->status;
 
             $application->fill($fields);
@@ -168,7 +169,12 @@ class RentalApplicationSigningController extends Controller
         // never roll back the applicant's already-committed submission
         // (Johan, 2026-09-07 — "the agent must be notified", but the
         // applicant's data landing is the more important guarantee of the two).
-        app(RentalApplicationNotifier::class)->notifyAgentOfReturn($application->fresh());
+        $application = $application->fresh();
+        app(RentalApplicationNotifier::class)->notifyAgentOfReturn($application);
+
+        // AT-392 — keeps Contact::rental_application_status in sync
+        // (App\Listeners\Contact\RecomputeRentalApplicationStatus).
+        event(new \App\Events\RentalApplication\RentalApplicationSubmitted($application, $isResubmit));
 
         return redirect()->route('rental-applications.public.show', $token)
             ->with('success', 'Thank you — your application has been submitted.');

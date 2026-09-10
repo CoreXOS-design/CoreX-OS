@@ -84,6 +84,7 @@ class Contact extends Model
         'is_buyer'          => 'boolean',
         'last_activity_at'  => 'datetime',
         'buyer_pipeline_entered_at' => 'datetime',
+        'rental_application_status_updated_at' => 'datetime',
         'preapproval_amount'        => 'decimal:2',
         'preapproval_expires_at'    => 'date',
         'messaging_opt_out_at'      => 'datetime',
@@ -286,6 +287,17 @@ class Contact extends Model
             ->withPivot('party_role')
             ->withTimestamps()
             ->latest('documents.created_at');
+    }
+
+    /**
+     * AT-392 — the missing inverse relation. rental_application_status is a
+     * derived cache (kept in sync by App\Listeners\Contact\
+     * RecomputeRentalApplicationStatus); this is the real, permanent
+     * record — every application this contact has ever had.
+     */
+    public function rentalApplications(): HasMany
+    {
+        return $this->hasMany(\App\Models\RentalApplication::class)->latest();
     }
 
     /**

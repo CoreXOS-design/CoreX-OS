@@ -320,6 +320,10 @@ class RentalApplicationAuthorisationController extends Controller
         $notifier->notifyAgentOfDecision($rentalApplication, 'approved', $validated['reason'] ?? null, $decision['is_override']);
         $mailer->sendApproved($rentalApplication);
 
+        // AT-392 — keeps Contact::rental_application_status in sync
+        // (App\Listeners\Contact\RecomputeRentalApplicationStatus).
+        event(new \App\Events\RentalApplication\RentalApplicationApproved($rentalApplication, $request->user()?->id));
+
         return redirect()->route('corex.rental-applications.authorisation.index')
             ->with('success', 'Application approved.');
     }
@@ -369,6 +373,10 @@ class RentalApplicationAuthorisationController extends Controller
         // any "how to improve" guidance. The template itself (subject/body,
         // agency-editable) is built and sent here; no extra content invented.
         $mailer->sendDecline($rentalApplication);
+
+        // AT-392 — keeps Contact::rental_application_status in sync
+        // (App\Listeners\Contact\RecomputeRentalApplicationStatus).
+        event(new \App\Events\RentalApplication\RentalApplicationDeclined($rentalApplication, $request->user()?->id));
 
         return redirect()->route('corex.rental-applications.authorisation.index')
             ->with('success', 'Application declined.');

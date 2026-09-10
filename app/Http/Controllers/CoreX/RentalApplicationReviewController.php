@@ -343,6 +343,10 @@ class RentalApplicationReviewController extends Controller
 
         $sent = $mailer->sendReopened($rentalApplication, $validated['note']);
 
+        // AT-392 — keeps Contact::rental_application_status in sync
+        // (App\Listeners\Contact\RecomputeRentalApplicationStatus).
+        event(new \App\Events\RentalApplication\RentalApplicationReopened($rentalApplication, $isOverrideReopen, $request->user()->id));
+
         return response()->json([
             'ok' => true,
             'mail_sent' => $sent,
