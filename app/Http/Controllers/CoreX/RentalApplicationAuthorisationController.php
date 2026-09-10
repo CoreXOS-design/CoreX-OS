@@ -270,7 +270,6 @@ class RentalApplicationAuthorisationController extends Controller
         Request $request,
         RentalApplication $rentalApplication,
         RentalApplicationAuditService $audit,
-        RentalApplicationMailer $mailer,
         RentalApplicationNotifier $notifier,
     ) {
         $decision = $this->guardCanDecide($rentalApplication);
@@ -317,8 +316,13 @@ class RentalApplicationAuthorisationController extends Controller
                 . " for R" . number_format((float) $validated['approved_rental_amount'], 2) . " ({$decision['tier']})",
         );
 
+        // AT-392 — Johan changed the flow: approval no longer auto-emails
+        // the applicant. "no, agent gets back and upon them being happy it
+        // gets sent out." The agent decides the wishlist and sends —
+        // see RentalApplicationAgentSendController::send(). notifyAgentOfDecision
+        // is how the agent finds out approval happened at all; sendApproved()
+        // no longer fires from here.
         $notifier->notifyAgentOfDecision($rentalApplication, 'approved', $validated['reason'] ?? null, $decision['is_override']);
-        $mailer->sendApproved($rentalApplication);
 
         // AT-392 — keeps Contact::rental_application_status in sync
         // (App\Listeners\Contact\RecomputeRentalApplicationStatus).

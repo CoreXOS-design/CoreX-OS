@@ -12155,6 +12155,7 @@ CREATE TABLE `rental_applications` (
   `reopened_by_user_id` bigint unsigned DEFAULT NULL,
   `reopened_note` text COLLATE utf8mb4_unicode_ci,
   `approved_rental_amount` decimal(12,2) DEFAULT NULL,
+  `applicant_notified_at` timestamp NULL DEFAULT NULL,
   `delivery_mode` enum('download','online') COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `token` varchar(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `token_expires_at` timestamp NULL DEFAULT NULL,
@@ -16284,3 +16285,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1289,'2026_09_09_0
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1290,'2026_09_09_080000_add_communication_poll_chunk_size_to_agencies',273);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1291,'2026_09_10_010000_add_rental_application_status_to_contacts',274);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1292,'2026_09_07_160000_repair_document_names_containing_path_separators',275);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1293,'2026_09_10_020000_add_applicant_notified_at_to_rental_applications',276);

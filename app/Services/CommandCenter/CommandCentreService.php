@@ -90,6 +90,13 @@ class CommandCentreService
             if ($card['count'] > 0) $cards[] = $card;
         }
 
+        // A7c — Rental Applications approved, ready to send (AT-392). Johan:
+        // "agent gets back and upon them being happy it gets sent out." Own
+        // applications only — this is the agent's own action item, not a
+        // branch/agency-wide queue.
+        $card = $this->rentalApplicationsAwaitingSend($userId);
+        if ($card['count'] > 0) $cards[] = $card;
+
         // A8 — FICA: RO Approvals (any authorized reviewer / Reporting Officer — AT-236)
         $card = $this->ficaRoApprovals($user, $agencyId);
         if ($card['count'] > 0) $cards[] = $card;
@@ -1549,6 +1556,39 @@ class CommandCentreService
             // The route sits under the '/docuperfect' prefix — omitting it 404s (the regression
             // Johan hit). Match the sibling cards at :474/:505 which use the full prefixed path.
             'view_all_url' => '/docuperfect/esign/my-documents?filter=authorisation',
+        ];
+    }
+
+    /**
+     * AT-392 — approval no longer auto-emails the applicant; the agent
+     * confirms the tenant's wishlist and sends. This card is how the agent
+     * finds out an approval is waiting on them, on the page they actually
+     * land on. Own applications only (created_by_user_id) — the fuller
+     * actionable surface is the Returned Applications list, which carries
+     * the same "Approved — ready to send" badge.
+     */
+    private function rentalApplicationsAwaitingSend(int $userId): array
+    {
+        $waiting = \App\Models\RentalApplication::where('created_by_user_id', $userId)
+            ->where('status', 'approved')
+            ->whereNull('applicant_notified_at')
+            ->with('contact')
+            ->orderByDesc('updated_at')
+            ->limit(5)
+            ->get();
+
+        return [
+            'card_id' => 'rental_applications_awaiting_send',
+            'title' => 'Rental Applications — Ready to Send',
+            'icon' => 'home',
+            'urgency' => $waiting->isNotEmpty() ? 'high' : 'low',
+            'count' => $waiting->count(),
+            'items' => $waiting->map(fn ($a) => [
+                'title' => $a->contact->full_name ?? 'Unknown applicant',
+                'label' => 'Approved for',
+                'value' => 'R' . number_format((float) $a->approved_rental_amount, 0),
+            ])->toArray(),
+            'view_all_url' => route('corex.rental-applications.returned'),
         ];
     }
 
