@@ -389,6 +389,26 @@
                                         @if($viewerRole === 'agent')
                                             <a href="{{ route('corex.rental-applications.documents.download', [$rentalApplication, $document]) }}" style="color: var(--text-muted);">Download</a>
                                         @endif
+                                        {{-- AT-392 — an untyped, unsplit PDF is exactly the
+                                             "17-page scan with a bank statement buried in it"
+                                             Johan described: worthless once it's filed. Split
+                                             is offered per-document, at intake, so the agent can
+                                             sort it the moment it lands rather than leaving it
+                                             for submit time. Gated to PDFs only — the splitter
+                                             engine rasterizes pages and has nothing to do with
+                                             an already-single-purpose image/doc upload. --}}
+                                        @if($viewerRole === 'agent' && $document->document_type_id === null && $document->mime_type === 'application/pdf')
+                                            {{-- Styled as a text button, matching "View & Mark Up" /
+                                                 "Download" above — NOT ds-badge, which this row
+                                                 already uses for genuine non-interactive status
+                                                 ("Added after submission"). A clickable action must
+                                                 look clickable; reusing badge styling here would
+                                                 make a real action read as inert status text. --}}
+                                            <form method="POST" action="{{ route('tools.pdf_splitter.intake_rental_application', [$rentalApplication, $document]) }}" style="display:inline;">
+                                                @csrf
+                                                <button type="submit" style="color: var(--ds-amber, #b45309); font-weight: 600; cursor: pointer; border: none; background: none; padding: 0;" title="This document hasn't been sorted into document types yet — split it into separate, filed documents before submitting for authorisation.">Split &amp; File</button>
+                                            </form>
+                                        @endif
                                     </span>
                                 </div>
 

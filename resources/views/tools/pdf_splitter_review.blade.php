@@ -441,11 +441,27 @@
         </template>
 
         <div class="flex items-center gap-3 flex-wrap" style="margin-top:4px;">
+            {{-- AT-392 — a rental-application-sourced batch (see
+                 PdfSplitterController::intakeRentalApplicationDocument())
+                 has exactly one destination — the applicant's own contact
+                 record — never a property, so the property-gated "Link"
+                 button below doesn't apply here. This is the ONLY change
+                 this shared view needed: one additional conditional
+                 button, the existing property-based flow untouched. --}}
+            @if(session('splitter_context.rental_application_id'))
+                <button type="submit" class="btn-gen"
+                        formaction="{{ route('tools.pdf_splitter.link_rental_application', session('splitter_context.rental_application_id')) }}"
+                        :disabled="submitting || hasMissing"
+                        title="File every page (across all files above) to the applicant's contact record, by document type">
+                    <span x-text="submitting ? 'Working…' : 'Split &amp; File to Applicant'"></span>
+                </button>
+            @else
             <button type="submit" class="btn-gen" formaction="{{ route('tools.pdf_splitter.link') }}" data-tour="spr-link"
                     :disabled="submitting || hasMissing || !property"
                     :title="hasMissing ? 'A file in this batch could not be loaded — re-upload the whole batch' : (property ? 'File every page (across all files above) to its destination(s) and assigned contact(s)' : 'Pick a property first')">
                 <span x-text="submitting ? 'Working…' : 'Link'"></span>
             </button>
+            @endif
             <button type="submit" class="btn-gen secondary" formaction="{{ route('tools.pdf_splitter.confirm') }}" data-tour="spr-zip"
                     :disabled="submitting || hasMissing"
                     :title="hasMissing ? 'A file in this batch could not be loaded — re-upload the whole batch' : 'Produce one combined ZIP for every file above — no filing, no FICA'">

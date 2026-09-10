@@ -6752,4 +6752,43 @@ Nothing from this item is in any commit — QA1 is unaffected, still at the item
 - `<div>` open/close balance verified programmatically after the palette restructuring (24/24).
 - Real cold-cache timing proof for item 1 (see above).
 - Real browser, screenshot-level pass on QA1 for items 2 and 3/4 — [results appended once the verification pass for 3/4 completes].
+
+### Files changed
+
 - `resources/views/corex/rental-applications/review.blade.php` — drawer relocation, lifted Alpine state, z-index fix, new include params
+- `resources/views/corex/rental-applications/partials/document-highlighter-pages.blade.php` — left tool panel markup, note dot glyph
+- `resources/views/corex/rental-applications/partials/document-highlighter-script.blade.php` — `pickHighlighter()`/`pickNoteTool()`, `NOTE_COLOR`, `openNote` fix on commit, spinner state
+- `app/Services/RentalApplications/RentalApplicationDocumentHighlightService.php` — concurrent `pdftoppm` via `Process::start()`/`::wait()`
+- `config/rental_applications.php` — new, `pdf_render_workers`
+
+---
+
+## PDF Splitter Integration — split-at-intake, first slice (AT-392, 2026-09-10, cc5) — BUILT, landed incrementally
+
+Re-prioritised in by Johan, over the remaining review-screen items (panel resize, PDF zoom — see item 5 above, still paused): *"we discussed incorporating the pdf splitter for the pdfs to get filed from the work go which is still non existant... a bank statement buried in a 17-page scan is worthless later."* This is the first landable slice of a larger piece — split-once-at-intake, filed to the contact by document type. Still queued behind this slice, not yet built: the submit-for-authorisation completeness gate, pulling an already-on-file document onto a new application, and document-age/validity-window display. Each lands separately as it's done, per Johan's instruction.
+
+**Johan's ruling on WHEN the split happens**: at intake, not at submit. An agent can attach a pack and start working immediately — the gate against an unsorted blob sits on SUBMIT FOR AUTHORISATION (not yet built), not on attaching.
+
+**Reuse, not rebuild**: `App\Http\Controllers\Tools\PdfSplitterController` — the same OCR/page-grouping/extraction/review engine the property-mandate flow already uses — is reused as-is. Its property-specific filing method (`link()` → `fileGroupsToDestinations()`) is untouched; two new, additive sibling methods were added to the same class for the contact-only (rental-application) filing path, rather than a second engine:
+
+- **`intakeRentalApplicationDocument(Request, RentalApplication, Document)`** — the "Split" action. Guards via `AuthorisesRentalApplicationAccess::guardRentalApplication()` (own/branch/agency scoping, the same trait every other rental-application controller action uses — not a simpler ad-hoc permission check). Copies the target document into the splitter's working area, builds its manifest via the existing `buildManifestForFile()`, and seeds the session (`splitter_batch`, `splitter_context` — the same session shape `intakeSupporting()` already uses for its own additive intake path) with `rental_application_id` and `source_document_id`, then redirects into the existing splitter review screen.
+- **`linkForRentalApplication(Request, RentalApplication)`** — the "Split & File to Applicant" action. Same guard. Resolves the application's contact, groups pages by document-type label (single-contact case — no property/multi-contact resolution needed here), extracts each group to its own PDF via the existing `extractPageSet()`, creates one `Document` per group (`document_type_id` set, `source_type`/`source_id` = the rental application, matching `RentalApplicationController::uploadDocument()`'s own filing convention exactly) and links it to the contact via the existing `contacts()` pivot (the same reusable "attach without duplicating" mechanism used elsewhere in this codebase), optionally reuses `kickoffMultiFica()`, then **soft-deletes** (never hard-deletes) the original unsplit source document and clears the splitter session.
+
+**UI**: a "Split & File" text-button per untyped PDF in the Supporting Documents list (`resources/views/corex/rental-applications/review.blade.php`), agent-only, gated on `document_type_id === null && mime_type === 'application/pdf'` — styled as a plain colour-text button matching "View & Mark Up"/"Download" in the same row, deliberately NOT `ds-badge`, since that class is already used in this exact row for genuine non-interactive status ("Added after submission") — a real clickable action reusing status-pill styling would read as inert text, not a control. On the splitter's own review screen (`resources/views/tools/pdf_splitter_review.blade.php`), a conditional "Split & File to Applicant" button replaces the property-gated "Link" button (not shown alongside it) whenever `session('splitter_context.rental_application_id')` is set — a rental-application-sourced batch has exactly one destination (the applicant's contact), so the property picker/Link path doesn't apply.
+
+**Verified end-to-end, real data, real routes, no test-double**: using the safe in-process `agentDispatch()`-style technique (bootstraps the actual worktree app, real routing/binding/Blade compilation, real DB — not a forged login session) against QA1's real agent user (id 132, the actual creating agent for application 15 — confirmed `guardRentalApplication()` correctly rejects a different agent, id 24, who doesn't own the record) and rental application 15 (a non-protected QA1 record; applications 12 and 66 were never touched):
+
+1. Review screen renders the Split button for an untyped PDF, and correctly withholds it once a document is typed.
+2. Clicking Split intakes the document into the splitter session (302 to the splitter review screen).
+3. The splitter review screen renders the new "Split & File to Applicant" button and correctly hides the property "Link" button.
+4. Clicking it files the split output: new `Document` created with `document_type_id` set, linked to the correct contact, a valid 1-page PDF confirmed on disk (`file` command) — and the original source document is soft-deleted (`deleted_at` set), never hard-deleted.
+5. Test artifacts created purely for this verification pass (a synthetic PDF and its filed output) were soft-deleted afterward to keep application 15's document history clean; the real end-to-end proof from the same pass (doc 2892 → filed doc 2912) was left as-is, since it exercised a real pre-existing document rather than fabricated test data.
+
+**Not yet built** (queued next, landing separately): the submit-for-authorisation completeness gate ("unsplit shows as visibly incomplete, never silently accepted"); pull-from-contact (attach an already-on-file document to a new application without the applicant re-sending it); document age display wherever a document is picked/reviewed; per-document-type-per-purpose agency-configurable validity windows (2 months rental application default, 3 months FICA including ID, per Johan) with a plain-language staleness warning naming the purpose and margin.
+
+### Files changed
+
+- `app/Http/Controllers/Tools/PdfSplitterController.php` — `intakeRentalApplicationDocument()`, `linkForRentalApplication()`, `AuthorisesRentalApplicationAccess` trait
+- `routes/web.php` — `tools.pdf_splitter.intake_rental_application`, `tools.pdf_splitter.link_rental_application`
+- `resources/views/corex/rental-applications/review.blade.php` — "Split & File" trigger per untyped PDF document
+- `resources/views/tools/pdf_splitter_review.blade.php` — conditional "Split & File to Applicant" button
