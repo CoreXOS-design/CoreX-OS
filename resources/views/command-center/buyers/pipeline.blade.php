@@ -14,37 +14,45 @@
                 @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
                 {{-- Pipeline scope toggle (Layer 3) --}}
                 <div data-tour="buyers-scope" class="inline-flex rounded-md overflow-hidden" style="border: 1px solid var(--border);">
-                    <a href="{{ route('command-center.buyers.pipeline', array_merge(request()->only('view', 'state', 'lead_type'), ['scope' => 'own'])) }}"
+                    <a href="{{ route($indexRouteName ?? 'command-center.buyers.pipeline', array_merge(request()->only('view', 'state', 'lead_type'), ['scope' => 'own'])) }}"
                        class="px-3 py-1.5 text-xs font-semibold whitespace-nowrap no-underline"
                        style="{{ ($pipelineScope ?? 'own') === 'own' ? 'background: var(--brand-icon, #0ea5e9); color: #fff;' : 'background: var(--surface); color: var(--text-muted);' }}">Mine</a>
                     @if($canSeeBranch ?? false)
-                    <a href="{{ route('command-center.buyers.pipeline', array_merge(request()->only('view', 'state', 'lead_type'), ['scope' => 'branch'])) }}"
+                    <a href="{{ route($indexRouteName ?? 'command-center.buyers.pipeline', array_merge(request()->only('view', 'state', 'lead_type'), ['scope' => 'branch'])) }}"
                        class="px-3 py-1.5 text-xs font-semibold whitespace-nowrap no-underline"
                        style="border-left: 1px solid var(--border); {{ ($pipelineScope ?? '') === 'branch' ? 'background: var(--brand-icon, #0ea5e9); color: #fff;' : 'background: var(--surface); color: var(--text-muted);' }}">Branch</a>
                     @endif
-                    <a href="{{ route('command-center.buyers.pipeline', array_merge(request()->only('view', 'state', 'lead_type'), ['scope' => 'agency'])) }}"
+                    <a href="{{ route($indexRouteName ?? 'command-center.buyers.pipeline', array_merge(request()->only('view', 'state', 'lead_type'), ['scope' => 'agency'])) }}"
                        class="px-3 py-1.5 text-xs font-semibold whitespace-nowrap no-underline"
                        style="border-left: 1px solid var(--border); {{ ($pipelineScope ?? '') === 'agency' ? 'background: var(--brand-icon, #0ea5e9); color: #fff;' : 'background: var(--surface); color: var(--text-muted);' }}">All</a>
                 </div>
                 {{-- Lead type: Rentals vs Sales (Johan) — a rental (tenant) lead is separated
-                     from a sale (buyer) lead by the buyer's wishlist listing_type. --}}
+                     from a sale (buyer) lead by the buyer's wishlist listing_type.
+                     AT-401: locked, not merely hidden, on the Rentals entry point —
+                     BuyerPipelineController::index() forces lead_type='rental'
+                     server-side whenever isRentalEntry is true, so a static label
+                     here is honest, not decorative. --}}
+                @if($isRentalEntry ?? false)
+                    <div class="inline-flex rounded-md overflow-hidden px-3 py-1.5 text-xs font-semibold whitespace-nowrap" style="border: 1px solid var(--border); cursor:default;" title="This entry point always shows rental leads only">Rentals only</div>
+                @else
                 <div data-tour="buyers-lead-type" class="inline-flex rounded-md overflow-hidden" style="border: 1px solid var(--border);">
-                    <a href="{{ route('command-center.buyers.pipeline', request()->only('view', 'scope', 'state', 'agent_id')) }}"
+                    <a href="{{ route($indexRouteName ?? 'command-center.buyers.pipeline', request()->only('view', 'scope', 'state', 'agent_id')) }}"
                        class="px-3 py-1.5 text-xs font-semibold whitespace-nowrap no-underline"
                        style="{{ empty($leadType ?? null) ? 'background: var(--brand-icon, #0ea5e9); color: #fff;' : 'background: var(--surface); color: var(--text-muted);' }}">All</a>
-                    <a href="{{ route('command-center.buyers.pipeline', array_merge(request()->only('view', 'scope', 'state', 'agent_id'), ['lead_type' => 'sale'])) }}"
+                    <a href="{{ route($indexRouteName ?? 'command-center.buyers.pipeline', array_merge(request()->only('view', 'scope', 'state', 'agent_id'), ['lead_type' => 'sale'])) }}"
                        class="px-3 py-1.5 text-xs font-semibold whitespace-nowrap no-underline"
                        style="border-left: 1px solid var(--border); {{ ($leadType ?? '') === 'sale' ? 'background: var(--brand-icon, #0ea5e9); color: #fff;' : 'background: var(--surface); color: var(--text-muted);' }}">Sales</a>
-                    <a href="{{ route('command-center.buyers.pipeline', array_merge(request()->only('view', 'scope', 'state', 'agent_id'), ['lead_type' => 'rental'])) }}"
+                    <a href="{{ route($indexRouteName ?? 'command-center.buyers.pipeline', array_merge(request()->only('view', 'scope', 'state', 'agent_id'), ['lead_type' => 'rental'])) }}"
                        class="px-3 py-1.5 text-xs font-semibold whitespace-nowrap no-underline"
                        style="border-left: 1px solid var(--border); {{ ($leadType ?? '') === 'rental' ? 'background: var(--brand-icon, #0ea5e9); color: #fff;' : 'background: var(--surface); color: var(--text-muted);' }}">Rentals</a>
                 </div>
+                @endif
                 {{-- View toggle --}}
                 <div data-tour="buyers-view" class="inline-flex rounded-md overflow-hidden" style="border: 1px solid var(--border);">
-                    <a href="{{ route('command-center.buyers.pipeline', array_merge(request()->only('scope', 'state', 'lead_type'), ['view' => 'kanban'])) }}"
+                    <a href="{{ route($indexRouteName ?? 'command-center.buyers.pipeline', array_merge(request()->only('scope', 'state', 'lead_type'), ['view' => 'kanban'])) }}"
                        class="px-3 py-1.5 text-xs font-semibold whitespace-nowrap no-underline"
                        style="{{ $view === 'kanban' ? 'background: var(--brand-icon, #0ea5e9); color: #fff;' : 'background: var(--surface); color: var(--text-muted);' }}">Kanban</a>
-                    <a href="{{ route('command-center.buyers.pipeline', array_merge(request()->only('scope', 'state', 'lead_type'), ['view' => 'list'])) }}"
+                    <a href="{{ route($indexRouteName ?? 'command-center.buyers.pipeline', array_merge(request()->only('scope', 'state', 'lead_type'), ['view' => 'list'])) }}"
                        class="px-3 py-1.5 text-xs font-semibold whitespace-nowrap no-underline"
                        style="border-left: 1px solid var(--border); {{ $view === 'list' ? 'background: var(--brand-icon, #0ea5e9); color: #fff;' : 'background: var(--surface); color: var(--text-muted);' }}">List</a>
                 </div>
@@ -79,7 +87,7 @@
             <div class="flex items-center gap-2 flex-shrink-0">
                 <a href="{{ route('market-intelligence.show', $contextListing->id) }}"
                    class="text-xs no-underline hover:underline" style="color: var(--brand-icon, #0ea5e9);">View listing →</a>
-                <a href="{{ route('command-center.buyers.pipeline', array_merge(request()->except('prospecting_listing_id'), [])) }}"
+                <a href="{{ route($indexRouteName ?? 'command-center.buyers.pipeline', array_merge(request()->except('prospecting_listing_id'), [])) }}"
                    class="text-xs no-underline hover:underline" style="color: var(--text-muted);">Clear filter</a>
             </div>
         </div>

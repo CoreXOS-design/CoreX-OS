@@ -1029,6 +1029,16 @@
                 @permission('properties.view')
                 <a href="{{ route('corex.rentals.properties.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rentals.properties.index') ? 'active' : '' }}">Properties</a>
                 @endpermission
+
+                {{-- AT-401 — entry point into the SAME Buyer Pipeline board as
+                     Command Center → Buyer Pipeline, lead_type locked to
+                     rental server-side (BuyerPipelineController::index(), by
+                     route name). New permission buyer_pipeline.view gates
+                     ONLY this entry point — the sales-side board keeps its
+                     current (no permission key) access, unchanged. --}}
+                @permission('buyer_pipeline.view')
+                <a href="{{ route('corex.rentals.pipeline.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rentals.pipeline.index') ? 'active' : '' }}">Rental Pipeline</a>
+                @endpermission
             </div>
         </div>
         @endif

@@ -3824,6 +3824,18 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->middleware(['permission:access_properties', 'agency.required'])
         ->name('corex.rentals.properties.index');
 
+    // AT-401 — Rentals → Rental Pipeline. Same BuyerPipelineController::index()
+    // as command-center.buyers.pipeline, detected by route name, forcing
+    // lead_type='rental' after the query string is read — same lock
+    // mechanism as Rentals → Properties above. New permission
+    // buyer_pipeline.view gates ONLY this entry point; the sales-side board
+    // is deliberately left with its current (no permission key) gating —
+    // standardising it is a separate, not-yet-approved work item. See
+    // .ai/specs/rentals-shared-screens.md §4/§6.
+    Route::get('/rentals/pipeline', [\App\Http\Controllers\CommandCenter\BuyerPipelineController::class, 'index'])
+        ->middleware(['permission:buyer_pipeline.view', 'agency.required'])
+        ->name('corex.rentals.pipeline.index');
+
     // Phase 3g — Map module (standalone page + JSON pin + detail endpoints).
     // Same permission as Properties; agency scoping enforced inside the service.
     Route::prefix('map')->middleware(['permission:access_properties', 'agency.required'])->name('corex.map.')->group(function () {
