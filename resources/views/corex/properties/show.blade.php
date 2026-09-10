@@ -1243,6 +1243,20 @@
             @if($tab['key'] === 'rental-images' && ($isNew || strtolower($property->listing_type ?? '') !== 'rental'))
                 @continue
             @endif
+            {{-- AT-402 — a SETTLED (not new, not type-change-pending) sale
+                 property never renders this button at all, not merely hides
+                 it via x-show: with only x-show, the button (and, more to
+                 the point, the tab's whole content panel + its own <form
+                 action="...rental-details...">) was still shipped in every
+                 property's HTML, sale included — just CSS-hidden. Skipped
+                 entirely here, matching the Rental Images tab's own
+                 @continue above. Still rendered (and left reactive via
+                 x-show below) for $isNew/pending, where the type genuinely
+                 isn't settled yet and the button must appear live the
+                 instant Rental is picked, before any save. --}}
+            @if($tab['key'] === 'rental' && !($isNew || $property->listing_type_pending) && strtolower($property->listing_type ?? '') !== 'rental')
+                @continue
+            @endif
             <button type="button"
                     data-prop-tab="{{ $tab['key'] }}"
                     @click="activeTab = '{{ $tab['key'] }}'"
@@ -1996,30 +2010,6 @@
                                                 </label>
                                             </div>
 
-                                            {{-- Has Deposit --}}
-                                            <div class="flex items-center justify-between gap-3">
-                                                <label class="text-xs font-semibold" style="color:var(--text-secondary);">Has Deposit</label>
-                                                <label class="relative inline-flex items-center cursor-pointer">
-                                                    <input type="checkbox" name="has_deposit" value="1"
-                                                           {{ old('has_deposit', $property->has_deposit) ? 'checked' : '' }}
-                                                           class="sr-only peer">
-                                                    <div class="w-9 h-5 rounded-full peer transition-colors"
-                                                         style="background:var(--surface-2); border:1px solid var(--border);"></div>
-                                                    <div class="absolute left-[2px] top-[2px] bg-white w-4 h-4 rounded-full transition-transform peer-checked:translate-x-full shadow-sm"></div>
-                                                </label>
-                                            </div>
-
-                                            <div style="border-top:1px solid var(--border);"></div>
-
-                                            {{-- Lease Period --}}
-                                            <div class="flex items-center justify-between gap-3">
-                                                <label class="text-xs font-semibold" style="color:var(--text-secondary);">Lease Period</label>
-                                                <input type="text" name="lease_period" value="{{ old('lease_period', $property->lease_period) }}"
-                                                       placeholder="e.g. 12 Months"
-                                                       class="w-40 rounded-md px-3 py-1.5 text-xs text-right"
-                                                       style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
-                                            </div>
-
                                             {{-- Price per m2 (auto-calculated) --}}
                                             <div class="flex items-center justify-between gap-3">
                                                 <label class="text-xs font-semibold" style="color:var(--text-secondary);">Price per m&sup2;</label>
@@ -2034,37 +2024,6 @@
                                             </div>
 
                                             <div style="border-top:1px solid var(--border);"></div>
-
-                                            {{-- Optional pricing rows --}}
-                                            @foreach([
-                                                ['price_per_day',  'Price per Day',  'optional'],
-                                                ['price_per_week', 'Price per Week', 'optional'],
-                                                ['price_per_year', 'Price per Year', 'optional'],
-                                            ] as [$field, $label, $hint])
-                                            <div class="flex items-center justify-between gap-3">
-                                                <label class="text-xs font-semibold" style="color:var(--text-secondary);">{{ $label }}</label>
-                                                <div class="flex items-center gap-1">
-                                                    <input type="number" name="{{ $field }}" value="{{ old($field, $property->$field) }}"
-                                                           placeholder="{{ $hint }}" min="0" step="0.01"
-                                                           class="w-32 rounded-md px-3 py-1.5 text-xs text-right"
-                                                           style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
-                                                </div>
-                                            </div>
-                                            @endforeach
-
-                                            <div style="border-top:1px solid var(--border);"></div>
-
-                                            {{-- Lease Type --}}
-                                            <div class="flex items-center justify-between gap-3">
-                                                <label class="text-xs font-semibold" style="color:var(--text-secondary);">Lease Type</label>
-                                                <select name="lease_type" class="w-40 rounded-md px-3 py-1.5 text-xs"
-                                                        style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
-                                                    <option value="">— Select —</option>
-                                                    @foreach(['N Triple Net', 'Gross', 'Modified Gross', 'Percentage'] as $lt)
-                                                    <option value="{{ $lt }}" {{ old('lease_type', $property->lease_type) === $lt ? 'selected' : '' }}>{{ $lt }}</option>
-                                                    @endforeach
-                                                </select>
-                                            </div>
 
                                             {{-- Gross / Net / Yard --}}
                                             @foreach([
@@ -4094,7 +4053,19 @@
              without going through the separate duplicate/change-type flow).
              Holds the rental-only info a sale property has no use for — see
              .ai/specs/rentals-shared-screens.md §5 for the full inventory and
-             the move/stay reasoning for every field. --}}
+             the move/stay reasoning for every field.
+
+             The outer @if is a PHP-level exclusion, not just the x-show
+             below: for a SETTLED sale property this whole panel — including
+             its own dedicated <form action="...rental-details...">  — is
+             never rendered into the HTML at all, matching the Rental Images
+             tab's own @if. x-show alone would have left it CSS-hidden but
+             still present and submittable in the page source, exactly the
+             "carrying rental furniture" problem this tab exists to fix. Kept
+             for $isNew/pending, where the type genuinely isn't settled yet
+             and the panel must react live to a listing_type change before
+             any save. --}}
+        @if($isNew || $property->listing_type_pending || strtolower($property->listing_type ?? '') === 'rental')
         <div x-show="activeTab === 'rental'" x-cloak class="p-6 space-y-4">
             @if($isNew || $property->listing_type_pending)
                 {{-- The property may not exist yet (or is mid type-change), so
@@ -4130,6 +4101,37 @@
                     <div>
                         <label class="prop-label">Lease End Date</label>
                         <input type="date" name="lease_end_date" form="prop-update-form" value="{{ old('lease_end_date', $property->lease_end_date?->format('Y-m-d')) }}" class="prop-input prop-field-date" style="color-scheme: light dark;">
+                    </div>
+                    {{-- AT-402 Part 2 — moved from the old Pricing Details popup,
+                         which showed these to every property, sale included. --}}
+                    <div>
+                        <label class="prop-label">Lease Period</label>
+                        <input type="text" name="lease_period" form="prop-update-form" value="{{ old('lease_period', $property->lease_period) }}" placeholder="e.g. 12 Months" class="prop-input">
+                    </div>
+                    <div>
+                        <label class="prop-label">Lease Type</label>
+                        <select name="lease_type" form="prop-update-form" class="prop-select prop-field-enum">
+                            <option value="">— Select —</option>
+                            @foreach(['N Triple Net', 'Gross', 'Modified Gross', 'Percentage'] as $lt)
+                                <option value="{{ $lt }}" {{ old('lease_type', $property->lease_type) === $lt ? 'selected' : '' }}>{{ $lt }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+                    <div>
+                        <label class="prop-label">Price per Day (R)</label>
+                        <input type="number" name="price_per_day" form="prop-update-form" value="{{ old('price_per_day', $property->price_per_day) }}" placeholder="optional" min="0" step="0.01" class="prop-input prop-field-money">
+                    </div>
+                    <div>
+                        <label class="prop-label">Price per Week (R)</label>
+                        <input type="number" name="price_per_week" form="prop-update-form" value="{{ old('price_per_week', $property->price_per_week) }}" placeholder="optional" min="0" step="0.01" class="prop-input prop-field-money">
+                    </div>
+                    <div>
+                        <label class="prop-label">Price per Year (R)</label>
+                        <input type="number" name="price_per_year" form="prop-update-form" value="{{ old('price_per_year', $property->price_per_year) }}" placeholder="optional" min="0" step="0.01" class="prop-input prop-field-money">
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <input type="checkbox" id="rental_has_deposit_new" name="has_deposit" form="prop-update-form" value="1" {{ old('has_deposit', $property->has_deposit) ? 'checked' : '' }} class="rounded">
+                        <label for="rental_has_deposit_new" class="prop-label !mb-0">Has Deposit</label>
                     </div>
                 </div>
             @else
@@ -4167,6 +4169,37 @@
                             <label class="prop-label">Lease End Date</label>
                             <input type="date" name="lease_end_date" value="{{ old('lease_end_date', $property->lease_end_date?->format('Y-m-d')) }}" class="prop-input prop-field-date" style="color-scheme: light dark;">
                         </div>
+                        {{-- AT-402 Part 2 — moved from the old Pricing Details popup,
+                             which showed these to every property, sale included. --}}
+                        <div>
+                            <label class="prop-label">Lease Period</label>
+                            <input type="text" name="lease_period" value="{{ old('lease_period', $property->lease_period) }}" placeholder="e.g. 12 Months" class="prop-input">
+                        </div>
+                        <div>
+                            <label class="prop-label">Lease Type</label>
+                            <select name="lease_type" class="prop-select prop-field-enum">
+                                <option value="">— Select —</option>
+                                @foreach(['N Triple Net', 'Gross', 'Modified Gross', 'Percentage'] as $lt)
+                                    <option value="{{ $lt }}" {{ old('lease_type', $property->lease_type) === $lt ? 'selected' : '' }}>{{ $lt }}</option>
+                                @endforeach
+                            </select>
+                        </div>
+                        <div>
+                            <label class="prop-label">Price per Day (R)</label>
+                            <input type="number" name="price_per_day" value="{{ old('price_per_day', $property->price_per_day) }}" placeholder="optional" min="0" step="0.01" class="prop-input prop-field-money">
+                        </div>
+                        <div>
+                            <label class="prop-label">Price per Week (R)</label>
+                            <input type="number" name="price_per_week" value="{{ old('price_per_week', $property->price_per_week) }}" placeholder="optional" min="0" step="0.01" class="prop-input prop-field-money">
+                        </div>
+                        <div>
+                            <label class="prop-label">Price per Year (R)</label>
+                            <input type="number" name="price_per_year" value="{{ old('price_per_year', $property->price_per_year) }}" placeholder="optional" min="0" step="0.01" class="prop-input prop-field-money">
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <input type="checkbox" id="rental_has_deposit_settled" name="has_deposit" value="1" {{ old('has_deposit', $property->has_deposit) ? 'checked' : '' }} class="rounded">
+                            <label for="rental_has_deposit_settled" class="prop-label !mb-0">Has Deposit</label>
+                        </div>
                     </div>
                     <div class="flex justify-end">
                         <button type="submit" class="corex-btn-primary text-sm">Save Rental Details</button>
@@ -4174,6 +4207,7 @@
                 </form>
             @endif
         </div>
+        @endif
 
         {{-- ── RENTAL IMAGES TAB ─────────────────────────────────────────────── --}}
         @if(!$isNew && strtolower($property->listing_type ?? '') === 'rental')

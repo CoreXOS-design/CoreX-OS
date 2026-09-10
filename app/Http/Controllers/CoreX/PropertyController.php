@@ -2377,7 +2377,22 @@ class PropertyController extends Controller
             'rental_price_type' => 'nullable|string|max:50',
             'lease_start_date'  => 'nullable|date',
             'lease_end_date'    => 'nullable|date|after_or_equal:lease_start_date',
+            // AT-402 Part 2 — moved off the old Pricing Details popup, which
+            // showed these to every property, sale included.
+            'lease_period'      => 'nullable|string|max:100',
+            'lease_type'        => 'nullable|string|max:100',
+            'price_per_day'     => 'nullable|numeric|min:0',
+            'price_per_week'    => 'nullable|numeric|min:0',
+            'price_per_year'    => 'nullable|numeric|min:0',
         ]);
+
+        // has_deposit is a checkbox: an unchecked box submits nothing at all,
+        // not "false" — reading it via $request->validate() above would leave
+        // the key out of $data entirely and $property->update() would then
+        // silently KEEP whatever has_deposit already was, instead of clearing
+        // it. boolean() always returns a real true/false, checked or not, so
+        // unchecking it actually persists as false.
+        $data['has_deposit'] = $request->boolean('has_deposit');
 
         DB::transaction(function () use ($property, $data) {
             $property->update($data);
