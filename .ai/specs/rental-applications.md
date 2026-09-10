@@ -6995,3 +6995,21 @@ Test marks created for this verification (author_user_id belonging to a temporar
 - `resources/views/corex/rental-applications/review.blade.php` — aside restructured into individually-boxed cards (both roles), item-row column proportions, resize floor 260→320
 - `resources/views/corex/rental-applications/partials/document-highlighter-script.blade.php` — marks stored as normalised fractions, `renderedPageSize`/`observePageResize()`/`toDisplayX()`/`toDisplayY()`, restore/draw/save paths updated
 - `resources/views/corex/rental-applications/partials/document-highlighter-pages.blade.php` — note pin and remove-× button read through `toDisplayX()`/`toDisplayY()`
+
+### Item 6, ROUND 2 (2026-09-10, same day) — Johan rejected round 1 after checking application 76 himself
+
+Round 1 (260→320 floor, boxed cards) was NOT accepted. Johan, checking the real screen himself, not a lane report: *"the description field on every row is so narrow it truncates to about five characters — the rows literally read 'salar', 'wage'... You solved it INSIDE the panel's existing width — and the width is the problem. Going 260 → 320 does not make a 5-character field readable... Work out the width the affordability rows genuinely need... then give the panel that, taking the space from the main column, which plainly has it to spare."* Also, on process: *"Lane test results are never proof here... Check against what Johan actually complained about, not against whether the change you made works."*
+
+Round 1's mistake, precisely: 320 was an INCREMENT off the old 260, not a number derived from what the row actually needs. Boxing the sections was correct and stayed; the width itself was still wrong.
+
+**Round 2 — the default is now summed from the row's real requirements, not picked and checked:** description column comfortable for a real word (~170px) + the date column's already-proven 130px + an amount column comfortable to R999,999.99 (~100px) + two 6px grid gaps + each card's own p-3 padding (24px) = 436px, rounded to **440px** — the new default for BOTH roles. Floor raised 320→**380** (a real narrower option still exists, but the row no longer collapses to a stump at it — the description column alone still comfortably fits real words at 380, confirmed live). Ceiling raised 480→**640**, since a description column is exactly the kind of field worth real extra room on a wide monitor.
+
+**"Degrade legibly," not a stump with no way to see the rest:** every description AND amount input (both roles' editable rows, and the authoriser's read-only description span) now carries a `:title="..."` binding — the full value shows as a native browser tooltip on hover regardless of how narrow the column ever gets, on top of the existing `truncate`/overflow behaviour.
+
+**Verified properly this time** — fresh incognito-style browser contexts (genuinely empty localStorage, no leftover width from any prior test) rather than a script-driven width override, at TWO viewport widths (1500px and 1366px — a common laptop size, to rule out anything viewport-dependent), both roles, reading the actual rendered `<input>` values, not just eyeballing a screenshot: every description on application 76 (the real record Johan tested) reads as a full word — "salary", "wages", "utils" — at the DEFAULT width, with no drag needed. Also checked both new extremes (380 narrow, 640 wide) — holds at both. Screenshots taken at every combination.
+
+Two marks Johan drew himself on application 76's document while independently verifying item 7 (author_user_id 22, timestamped mid-session) were found during this round's own cleanup check and left completely untouched — confirmed by author before assuming they were test debris.
+
+### Files changed (round 2)
+
+- `resources/views/corex/rental-applications/review.blade.php` — default/floor/ceiling widths re-derived (440/380/640) with named constants, `:title` hover fallback on every description/amount field both roles

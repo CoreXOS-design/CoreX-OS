@@ -337,22 +337,35 @@
          keep working unchanged. Persisted per-browser via localStorage
          (rentalReviewAsideWidth) so a drag survives a reload.
 
-         MINIMUM RAISED 260px → 320px, 2026-09-10 ("Item 6", Johan:
-         "rethink this please... it has to hold up across the full resize
-         range, not just at one width — check the narrow end"). Measured
-         live on application 76 with real, multi-line income/expense data:
-         at 260px every 3-column item row (description/date/amount) had no
-         choice but to truncate — "salary" to "sal…", the date to nothing
-         readable. 260 was never actually validated against this row shape;
-         it was inherited unchanged from before the date column existed
-         (see the DRAGGABLE WIDTH note above) specifically because "the
-         aside was a fixed 260px, tight enough already." It wasn't. 320 is
-         not an arbitrary pick either — it's the authoriser panel's OWN
-         original width before the 2026-09-09 unification narrowed it to
-         match the agent's 260 (see the "Layout" note above) — restoring
-         it as the floor for BOTH roles, since both now hold the identical
-         3-column row shape. Max stays 480 (already proven comfortable in
-         the same live check). --}}
+         DEFAULT WIDTH RE-DERIVED FROM CONTENT, 2026-09-10, ROUND 2 ("Item 6",
+         Johan, rejecting the first pass after checking application 76
+         himself: "the description field on every row is so narrow it
+         truncates to about five characters... You solved it INSIDE the
+         panel's existing width — and the width is the problem. Going
+         260 → 320 does not make a 5-character field readable... Work out
+         the width the affordability rows genuinely need... then give the
+         panel that, taking the space from the main column, which plainly
+         has it to spare."
+         He was right and the first pass was wrong: raising the floor by
+         60px was an increment off the OLD number, not a figure derived
+         from what a description/date/amount row actually needs — and
+         .rental-review-main genuinely has width to spare (its own cards —
+         Submitted Application, Supporting Documents, Audit Trail — are
+         short, list-shaped content that was never using the wide column
+         it was given; there is no reason the aside should stay narrow so
+         that column can sit under-used).
+         The new default is SUMMED from the row's own real requirements,
+         not picked and then checked: a description column comfortable for
+         a real word (~170px — "Salary deposit" fits with room),
+         + the date column's already-proven 130px, + an amount column
+         comfortable to R999,999.99 (~100px), + two 6px grid gaps (12px),
+         + each card's own p-3 padding (24px) = 436px, rounded to 440.
+         Floor (drag-to-narrowest) raised 320 → 380 — still narrower than
+         the default, for a user who genuinely wants less panel, but with
+         the "degrade legibly" rule below covering it rather than an
+         unreadable stump. Ceiling raised 480 → 640, since a description
+         column is exactly the kind of field worth giving real extra room
+         to on a wide monitor. --}}
     <style>
         .rental-review-columns { display: flex; flex-direction: column; gap: 20px; }
         .rental-review-main    { flex: 1 1 auto; min-width: 0; }
@@ -361,7 +374,7 @@
         @media (min-width: 1280px) {
             .rental-review-columns { flex-direction: row; gap: 0; align-items: stretch; }
             .rental-review-main    { height: var(--rr-panel-h, calc(100vh - 160px)); max-height: var(--rr-panel-h, calc(100vh - 160px)); overflow-y: auto; margin-right: 16px; }
-            .rental-review-aside   { flex: 0 0 var(--rr-aside-w, 320px); width: var(--rr-aside-w, 320px); align-self: stretch; position: sticky; top: 72px; height: var(--rr-panel-h, calc(100vh - 160px)); max-height: var(--rr-panel-h, calc(100vh - 160px)); overflow-y: auto; overflow-x: hidden; }
+            .rental-review-aside   { flex: 0 0 var(--rr-aside-w, 440px); width: var(--rr-aside-w, 440px); align-self: stretch; position: sticky; top: 72px; height: var(--rr-panel-h, calc(100vh - 160px)); max-height: var(--rr-panel-h, calc(100vh - 160px)); overflow-y: auto; overflow-x: hidden; }
             .rental-review-resizer {
                 display: block; flex: 0 0 6px; width: 6px; cursor: col-resize;
                 align-self: stretch; position: sticky; top: 72px;
@@ -764,11 +777,11 @@
                         <template x-for="(item, index) in incomeItems" :key="index">
                             <div class="grid gap-1.5" style="grid-template-columns: minmax(0,1.6fr) 130px minmax(78px,1fr);">
                                 <input type="text" class="corex-input text-sm w-full" placeholder="e.g. Salary"
-                                       x-model="item.description" @input="onIncomeRowInput()" @blur="save()">
+                                       x-model="item.description" :title="item.description" @input="onIncomeRowInput()" @blur="save()">
                                 <input type="date" class="corex-input text-sm w-full" title="Date this deposit happened"
                                        x-model="item.entry_date" @change="onIncomeRowInput(); save()">
                                 <input type="text" inputmode="decimal" class="corex-input text-sm w-full" placeholder="0.00"
-                                       data-role="amount" x-model="item.amount" @input="onIncomeRowInput()" @blur="save()"
+                                       data-role="amount" x-model="item.amount" :title="item.amount" @input="onIncomeRowInput()" @blur="save()"
                                        @keydown.enter.prevent="focusNextAmountRow('incomeRows', index)">
                             </div>
                         </template>
@@ -789,11 +802,11 @@
                         <template x-for="(item, index) in expenseItems" :key="index">
                             <div class="grid gap-1.5" style="grid-template-columns: minmax(0,1.6fr) 130px minmax(78px,1fr);">
                                 <input type="text" class="corex-input text-sm w-full" placeholder="e.g. Car payment"
-                                       x-model="item.description" @input="onExpenseRowInput()" @blur="save()">
+                                       x-model="item.description" :title="item.description" @input="onExpenseRowInput()" @blur="save()">
                                 <input type="date" class="corex-input text-sm w-full" title="Date this debit happened"
                                        x-model="item.entry_date" @change="onExpenseRowInput(); save()">
                                 <input type="text" inputmode="decimal" class="corex-input text-sm w-full" placeholder="0.00"
-                                       data-role="amount" x-model="item.amount" @input="onExpenseRowInput()" @blur="save()"
+                                       data-role="amount" x-model="item.amount" :title="item.amount" @input="onExpenseRowInput()" @blur="save()"
                                        @keydown.enter.prevent="focusNextAmountRow('expenseRows', index)">
                             </div>
                         </template>
@@ -900,7 +913,7 @@
                                     <span class="flex items-center gap-1.5 min-w-0">
                                         <span class="rounded-full flex-shrink-0" style="width: 7px; height: 7px;" :style="{ background: item.added_by_authoriser ? 'var(--ra-income-authoriser)' : 'var(--ra-income-agent)' }"></span>
                                         <span x-show="item.added_by_authoriser" class="ds-badge ds-badge-info flex-shrink-0" style="font-size:9px; padding:1px 4px;" title="Added by a reviewer/authoriser, not the agent">Auth</span>
-                                        <span :style="{ textDecoration: item.struck_out ? 'line-through' : 'none' }" class="truncate" style="color: var(--text-primary);" x-text="item.description || '(no description)'"></span>
+                                        <span :style="{ textDecoration: item.struck_out ? 'line-through' : 'none' }" class="truncate" style="color: var(--text-primary);" :title="item.description" x-text="item.description || '(no description)'"></span>
                                         <span x-show="item.entry_date" class="flex-shrink-0" style="color: var(--text-muted); font-size:10px;" x-text="item.entry_date"></span>
                                     </span>
                                     <span class="flex items-center justify-end gap-2 flex-shrink-0">
@@ -940,7 +953,7 @@
                                     <span class="flex items-center gap-1.5 min-w-0">
                                         <span class="rounded-full flex-shrink-0" style="width: 7px; height: 7px;" :style="{ background: item.added_by_authoriser ? 'var(--ra-expense-authoriser)' : 'var(--ra-expense-agent)' }"></span>
                                         <span x-show="item.added_by_authoriser" class="ds-badge ds-badge-info flex-shrink-0" style="font-size:9px; padding:1px 4px;" title="Added by a reviewer/authoriser, not the agent">Auth</span>
-                                        <span :style="{ textDecoration: item.struck_out ? 'line-through' : 'none' }" class="truncate" style="color: var(--text-primary);" x-text="item.description || '(no description)'"></span>
+                                        <span :style="{ textDecoration: item.struck_out ? 'line-through' : 'none' }" class="truncate" style="color: var(--text-primary);" :title="item.description" x-text="item.description || '(no description)'"></span>
                                         <span x-show="item.entry_date" class="flex-shrink-0" style="color: var(--text-muted); font-size:10px;" x-text="item.entry_date"></span>
                                     </span>
                                     <span class="flex items-center justify-end gap-2 flex-shrink-0">
@@ -1602,18 +1615,33 @@ function rentalReviewLayout() {
         // resources/views/docuperfect/templates/edit-web.blade.php
         // (startDrag/onDrag), adapted from a percentage split to a pixel
         // width since this layout's aside is a fixed-px sticky column, not
-        // a flex-percentage pane. Clamped 320px (raised from the original
-        // 260px, 2026-09-10 "Item 6" — see the layout <style> block's own
-        // note on why 260 never actually fit this row shape) to 480px
-        // (wide enough for three input columns without eating the whole
-        // screen on a laptop). Persisted per-browser so a drag survives a
-        // reload; the Math.max below re-clamps a value ALREADY in
-        // localStorage from before this floor was raised — a browser that
-        // dragged to exactly the old 260 default must not stay stuck
-        // there forever, plain `|| 320` alone only covers a MISSING key,
-        // not an existing one below the new floor.
+        // a flex-percentage pane.
+        //
+        // ROUND 2, 2026-09-10 — Johan, checking application 76 himself,
+        // rejected the first pass (a 260→320 floor bump): "Going 260 → 320
+        // does not make a 5-character field readable... Work out the width
+        // the affordability rows genuinely need... then give the panel
+        // that." These three constants ARE that derivation, summed once
+        // here rather than picked as a bare number — see the layout <style>
+        // block's own note for the full arithmetic (description + date +
+        // amount + gaps + card padding = 436, rounded to 440). Floor/ceiling
+        // widened around it (380–640) rather than left at the old 320–480,
+        // since those were themselves derived from the old, wrong default.
+        RA_ASIDE_DEFAULT_PX: 440,
+        RA_ASIDE_MIN_PX: 380,
+        RA_ASIDE_MAX_PX: 640,
+        // Persisted per-browser so a drag survives a reload; Math.max/min
+        // below re-clamp a value ALREADY in localStorage from a PRIOR
+        // floor/ceiling (260/320, or the 320/480 this build's own first
+        // pass shipped) — a browser that dragged to one of those old
+        // numbers must not stay stuck outside the current range forever.
+        // Repeats the RA_ASIDE_* numbers as literals rather than referencing
+        // them — a plain object literal can't read a sibling property via
+        // `this` while it's still being constructed. startAsideResize()'s
+        // own clamp below (evaluated later, as a real method call) uses the
+        // named constants directly.
         resizingAside: false,
-        asideWidth: Math.max(320, parseInt(localStorage.getItem('rentalReviewAsideWidth'), 10) || 320),
+        asideWidth: Math.min(640, Math.max(380, parseInt(localStorage.getItem('rentalReviewAsideWidth'), 10) || 440)),
         startAsideResize(e) {
             this.resizingAside = true;
             const startX = e.clientX;
@@ -1633,7 +1661,7 @@ function rentalReviewLayout() {
                 // Dragging the handle LEFT (negative delta) widens the
                 // aside — the aside sits to the RIGHT of the handle.
                 const next = startWidth - (ev.clientX - startX);
-                this.asideWidth = Math.min(480, Math.max(320, next));
+                this.asideWidth = Math.min(this.RA_ASIDE_MAX_PX, Math.max(this.RA_ASIDE_MIN_PX, next));
                 columnsEl.style.setProperty('--rr-aside-w', this.asideWidth + 'px');
             };
             const onUp = () => {
