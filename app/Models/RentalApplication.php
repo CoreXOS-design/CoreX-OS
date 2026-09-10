@@ -235,6 +235,11 @@ class RentalApplication extends Model
             'current_rental_from' => ['nullable', 'date'],
             'current_rental_to' => ['nullable', 'date'],
             'current_rental_still_living' => ['nullable', 'boolean'],
+            // "Dates on entries" (Johan, 2026-09-10) — a recurring day of
+            // the month, not a calendar date (a lease's rent obligation
+            // repeats every month; "the 1st" means the 1st of every month,
+            // not one specific date).
+            'current_rental_due_day' => ['nullable', 'integer', 'min:1', 'max:31'],
             'employer_name' => ['nullable', 'string', 'max:255'],
             'employer_position' => ['nullable', 'string', 'max:255'],
             'employer_address' => ['nullable', 'string', 'max:2000'],
@@ -259,7 +264,7 @@ class RentalApplication extends Model
         'current_residential_address', 'email', 'cell', 'work_number',
         'emergency_contact_name', 'emergency_contact_cell', 'emergency_contact_work',
         'current_landlord_name', 'current_landlord_tel', 'current_rental_amount',
-        'current_rental_from', 'current_rental_to', 'current_rental_still_living',
+        'current_rental_from', 'current_rental_to', 'current_rental_still_living', 'current_rental_due_day',
         'employer_name', 'employer_position', 'employer_address', 'employer_tel',
         'monthly_salary', 'employment_type',
         'occupation_date', 'rental_terms', 'rental_term_months', 'special_conditions', 'adults', 'children',
@@ -278,6 +283,7 @@ class RentalApplication extends Model
         'current_rental_from' => 'date',
         'current_rental_to' => 'date',
         'current_rental_still_living' => 'boolean',
+        'current_rental_due_day' => 'integer',
         'occupation_date' => 'date',
         'rental_term_months' => 'integer',
         'adults' => 'integer',

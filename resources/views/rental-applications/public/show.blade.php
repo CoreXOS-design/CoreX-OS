@@ -114,7 +114,8 @@
                     <x-rental-application-field name="current_landlord_name" label="Name" :value="$application->current_landlord_name" />
                     <x-rental-application-field name="current_landlord_tel" label="Tel" :value="$application->current_landlord_tel" />
                     <x-rental-application-field name="current_rental_amount" label="Current rental amount (R)" type="text" inputmode="decimal" :value="$application->current_rental_amount" />
-                    <div></div>
+                    <x-rental-application-field name="current_rental_due_day" label="Rent due on which day of the month?" type="number" min="1" max="31" :value="$application->current_rental_due_day"
+                        hint="e.g. 1 if your rent is due on the 1st of every month." />
                     <x-rental-application-field name="current_rental_from" label="From" type="date" :value="optional($application->current_rental_from)->format('Y-m-d')" />
                     <div x-data="{ stillLiving: {{ old('current_rental_still_living', $application->current_rental_still_living) ? 'true' : 'false' }} }">
                         <label class="block text-xs text-slate-500 mb-1">To</label>

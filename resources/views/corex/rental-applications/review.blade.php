@@ -37,10 +37,10 @@
     // without proving the compiled output first.
     if ($viewerRole === 'agent') {
         $initialIncomeItems = $assessment->incomeItems->map(fn ($i) => [
-            'id' => $i->id, 'description' => $i->description, 'amount' => $i->amount,
+            'id' => $i->id, 'description' => $i->description, 'amount' => $i->amount, 'entry_date' => $i->entry_date?->format('Y-m-d'),
         ])->values();
         $initialExpenseItems = $assessment->expenseItems->map(fn ($i) => [
-            'id' => $i->id, 'description' => $i->description, 'amount' => $i->amount,
+            'id' => $i->id, 'description' => $i->description, 'amount' => $i->amount, 'entry_date' => $i->entry_date?->format('Y-m-d'),
         ])->values();
     }
     $initialMarkedUpDocIds = $documents->filter(fn ($row) => $row['has_highlights'])->pluck('document.id')->values();
@@ -61,6 +61,8 @@
          initial: {
              notes: {{ Js::from($assessment->notes) }},
              statement_months: {{ Js::from($assessment->statement_months) }},
+             statement_period_from: {{ Js::from($assessment->statement_period_from?->format('Y-m-d')) }},
+             statement_period_to: {{ Js::from($assessment->statement_period_to?->format('Y-m-d')) }},
              has_unpaid_transactions: {{ Js::from((bool) $assessment->has_unpaid_transactions) }},
          },
          initialIncomeItems: {{ Js::from($initialIncomeItems) }},
@@ -289,15 +291,40 @@
          Independent scrolling — the original fixed "100vh - 88px" guess
          didn't account for the QA/env banner or the sticky header's real
          margins. Fixed by MEASURING the real available space at runtime
-         (rentalReviewLayout() below) instead of guessing it. --}}
+         (rentalReviewLayout() below) instead of guessing it.
+
+         DRAGGABLE WIDTH, 2026-09-10 ("Dates on entries", Johan) — the aside
+         was a fixed 260px, tight enough already per the "one-line change,
+         not a rebuild" note above; adding a date column to every income/
+         expense row (and a two-date "statement period" row) would have
+         meant cramming three fields into that width. Johan's own call:
+         "if the dates do not fit cleanly, build the draggable panel width
+         as part of this rather than cramming them in." Reuses the exact
+         drag pattern already shipped for DocuPerfect's web-template editor
+         (resources/views/docuperfect/templates/edit-web.blade.php
+         startDrag/onDrag) rather than inventing a second one — a plain
+         mousedown/mousemove/mouseup drag on a 6px handle, clamped to a
+         sensible min/max, width read from and written to a CSS custom
+         property so the existing sticky/independent-scroll rules above
+         keep working unchanged. Persisted per-browser via localStorage
+         (rentalReviewAsideWidth) so a drag survives a reload — the default
+         (260px) is unchanged for anyone who never drags it. --}}
     <style>
         .rental-review-columns { display: flex; flex-direction: column; gap: 20px; }
         .rental-review-main    { flex: 1 1 auto; min-width: 0; }
         .rental-review-aside   { width: 100%; }
+        .rental-review-resizer { display: none; }
         @media (min-width: 1280px) {
-            .rental-review-columns { flex-direction: row; gap: 16px; align-items: stretch; }
-            .rental-review-main    { height: var(--rr-panel-h, calc(100vh - 160px)); max-height: var(--rr-panel-h, calc(100vh - 160px)); overflow-y: auto; }
-            .rental-review-aside   { flex: 0 0 260px; width: 260px; align-self: stretch; position: sticky; top: 72px; height: var(--rr-panel-h, calc(100vh - 160px)); max-height: var(--rr-panel-h, calc(100vh - 160px)); overflow-y: auto; overflow-x: hidden; }
+            .rental-review-columns { flex-direction: row; gap: 0; align-items: stretch; }
+            .rental-review-main    { height: var(--rr-panel-h, calc(100vh - 160px)); max-height: var(--rr-panel-h, calc(100vh - 160px)); overflow-y: auto; margin-right: 16px; }
+            .rental-review-aside   { flex: 0 0 var(--rr-aside-w, 260px); width: var(--rr-aside-w, 260px); align-self: stretch; position: sticky; top: 72px; height: var(--rr-panel-h, calc(100vh - 160px)); max-height: var(--rr-panel-h, calc(100vh - 160px)); overflow-y: auto; overflow-x: hidden; }
+            .rental-review-resizer {
+                display: block; flex: 0 0 6px; width: 6px; cursor: col-resize;
+                align-self: stretch; position: sticky; top: 72px;
+                height: var(--rr-panel-h, calc(100vh - 160px));
+                background: var(--border); border-radius: 3px; margin: 0 5px;
+            }
+            .rental-review-resizer:hover, .rental-review-resizer.is-dragging { background: var(--ds-blue, #2563eb); }
         }
     </style>
 
@@ -330,6 +357,11 @@
                         <dt style="color: var(--text-muted);">Position</dt><dd>{{ $rentalApplication->employer_position ?? '—' }}</dd>
                         <dt style="color: var(--text-muted);">Monthly salary (self-reported)</dt><dd>{{ $rentalApplication->monthly_salary !== null ? 'R ' . number_format($rentalApplication->monthly_salary, 2) : '—' }}</dd>
                         <dt style="color: var(--text-muted);">Current rental amount</dt><dd>{{ $rentalApplication->current_rental_amount !== null ? 'R ' . number_format($rentalApplication->current_rental_amount, 2) : '—' }}</dd>
+                        {{-- "Dates on entries" (Johan, 2026-09-10) — once submitted, this
+                             screen is the agent's only way to VERIFY the rent-due-day the
+                             applicant answered (the edit form above locks after submission,
+                             same as every other applicant-facing field on this summary). --}}
+                        <dt style="color: var(--text-muted);">Current rent due day</dt><dd>{{ $rentalApplication->current_rental_due_day ?? '—' }}</dd>
                         <dt style="color: var(--text-muted);">Current landlord</dt><dd>{{ $rentalApplication->current_landlord_name ?? '—' }}</dd>
                         <dt style="color: var(--text-muted);">Adults / Children</dt><dd>{{ $rentalApplication->adults ?? '—' }} / {{ $rentalApplication->children ?? '—' }}</dd>
                     </dl>
@@ -528,11 +560,18 @@
             </div>
         </div>
 
+        {{-- Draggable resizer, 2026-09-10 — see the "DRAGGABLE WIDTH" note on
+             the layout <style> block above for why. Hidden below 1280px
+             (the aside stacks full-width there, nothing to drag). --}}
+        <div class="rental-review-resizer" :class="{ 'is-dragging': resizingAside }"
+             @mousedown.prevent="startAsideResize($event)"
+             title="Drag to resize this panel"></div>
+
         {{-- ASIDE — the assessment panel (role-gated: agent captures inline;
              authoriser strikes-and-adds, never edits) plus the role's own
-             actions block at the bottom. Narrow, fixed 260px working column.
-             Never covered by anything — see the in-place-annotation note
-             above the layout <style> block. --}}
+             actions block at the bottom. Narrow working column, width
+             draggable (see resizer above) — never covered by anything, see
+             the in-place-annotation note above the layout <style> block. --}}
         <div class="rental-review-aside rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
             <div class="flex items-center gap-1.5 mb-3">
                 <h2 class="text-sm font-semibold" style="color: var(--text-primary);">{{ $viewerRole === 'agent' ? 'Affordability Assessment' : "Agent's Assessment" }}</h2>
@@ -547,15 +586,34 @@
             </div>
 
             @if($viewerRole === 'agent')
-                {{-- AGENT — inline edit + autosave. Unchanged from before the merge. --}}
+                {{-- AGENT — inline edit + autosave. "Dates on entries" (Johan,
+                     2026-09-10) — "the agent picks a from-date and a
+                     to-date; the month count is calculated from them, not
+                     typed." Replaces the old raw number input; the derived
+                     count is shown read-only right below the two pickers so
+                     the agent can see what the range works out to without
+                     doing the arithmetic. --}}
                 <div class="mb-4">
                     <div class="flex items-center gap-1.5 mb-1">
-                        <label class="text-xs font-medium" style="color: var(--text-secondary);">Months covered</label>
+                        <label class="text-xs font-medium" style="color: var(--text-secondary);">Statement period</label>
                         <span class="ds-badge ds-badge-muted" style="cursor: help; padding: 0 5px;"
-                              title="How many months this bank statement covers. Required to turn the totals below into the MONTHLY figure the affordability guideline actually runs against — the raw total alone means nothing against a monthly legal threshold.">?</span>
+                              title="The from/to dates this bank statement covers. The number of months is worked out from these — required to turn the totals below into the MONTHLY figure the affordability guideline actually runs against.">?</span>
                     </div>
-                    <input type="number" step="1" min="1" max="36" class="corex-input text-sm w-20"
-                           x-model="statementMonths" @blur="save()" placeholder="e.g. 3">
+                    <div class="grid grid-cols-2 gap-1.5">
+                        <input type="date" class="corex-input text-sm w-full" x-model="statementPeriodFrom" @change="save()" aria-label="Statement period from">
+                        <input type="date" class="corex-input text-sm w-full" x-model="statementPeriodTo" @change="save()" aria-label="Statement period to">
+                    </div>
+                    <p class="text-xs mt-1.5" style="color: var(--text-secondary);">
+                        <template x-if="statementPeriodFrom && statementPeriodTo">
+                            <span>Covers <strong x-text="calculatedStatementMonths()"></strong> month<span x-show="calculatedStatementMonths() !== 1">s</span></span>
+                        </template>
+                        <template x-if="!(statementPeriodFrom && statementPeriodTo) && statementMonths">
+                            <span>Currently <strong x-text="statementMonths"></strong> month<span x-show="statementMonths !== 1">s</span> — pick a period above to set it from dates instead.</span>
+                        </template>
+                        <template x-if="!(statementPeriodFrom && statementPeriodTo) && !statementMonths">
+                            <span>Pick both dates to work out how many months this statement covers.</span>
+                        </template>
+                    </p>
                 </div>
 
                 <div class="mb-4">
@@ -567,9 +625,11 @@
                     </div>
                     <div class="space-y-1.5" x-ref="incomeRows">
                         <template x-for="(item, index) in incomeItems" :key="index">
-                            <div class="grid grid-cols-2 gap-1.5">
+                            <div class="grid gap-1.5" style="grid-template-columns: minmax(0,1fr) minmax(0,1fr) 90px;">
                                 <input type="text" class="corex-input text-sm w-full" placeholder="e.g. Salary"
                                        x-model="item.description" @input="onIncomeRowInput()" @blur="save()">
+                                <input type="date" class="corex-input text-sm w-full" title="Date this deposit happened"
+                                       x-model="item.entry_date" @change="onIncomeRowInput(); save()">
                                 <input type="text" inputmode="decimal" class="corex-input text-sm w-full" placeholder="0.00"
                                        data-role="amount" x-model="item.amount" @input="onIncomeRowInput()" @blur="save()"
                                        @keydown.enter.prevent="focusNextAmountRow('incomeRows', index)">
@@ -590,9 +650,11 @@
                     </div>
                     <div class="space-y-1.5" x-ref="expenseRows">
                         <template x-for="(item, index) in expenseItems" :key="index">
-                            <div class="grid grid-cols-2 gap-1.5">
+                            <div class="grid gap-1.5" style="grid-template-columns: minmax(0,1fr) minmax(0,1fr) 90px;">
                                 <input type="text" class="corex-input text-sm w-full" placeholder="e.g. Car payment"
                                        x-model="item.description" @input="onExpenseRowInput()" @blur="save()">
+                                <input type="date" class="corex-input text-sm w-full" title="Date this debit happened"
+                                       x-model="item.entry_date" @change="onExpenseRowInput(); save()">
                                 <input type="text" inputmode="decimal" class="corex-input text-sm w-full" placeholder="0.00"
                                        data-role="amount" x-model="item.amount" @input="onExpenseRowInput()" @blur="save()"
                                        @keydown.enter.prevent="focusNextAmountRow('expenseRows', index)">
@@ -681,6 +743,9 @@
                     <div class="text-xs mb-3">
                         <p style="color: var(--text-muted);">Number of months this bank statement covers</p>
                         <p class="font-semibold" style="color: var(--text-primary);">{{ $assessment->statement_months ?? '—' }}</p>
+                        @if($assessment->statement_period_from && $assessment->statement_period_to)
+                            <p style="color: var(--text-muted);">{{ $assessment->statement_period_from->format('d M Y') }} &ndash; {{ $assessment->statement_period_to->format('d M Y') }}</p>
+                        @endif
                     </div>
 
                     <div class="text-xs mb-4">
@@ -696,6 +761,7 @@
                                         <span class="rounded-full flex-shrink-0" style="width: 7px; height: 7px;" :style="{ background: item.added_by_authoriser ? 'var(--ra-income-authoriser)' : 'var(--ra-income-agent)' }"></span>
                                         <span x-show="item.added_by_authoriser" class="ds-badge ds-badge-info flex-shrink-0" style="font-size:9px; padding:1px 4px;" title="Added by a reviewer/authoriser, not the agent">Auth</span>
                                         <span :style="{ textDecoration: item.struck_out ? 'line-through' : 'none' }" class="truncate" style="color: var(--text-primary);" x-text="item.description || '(no description)'"></span>
+                                        <span x-show="item.entry_date" class="flex-shrink-0" style="color: var(--text-muted); font-size:10px;" x-text="item.entry_date"></span>
                                     </span>
                                     <span class="flex items-center justify-end gap-2 flex-shrink-0">
                                         <span :style="{ textDecoration: item.struck_out ? 'line-through' : 'none' }" style="color: var(--text-primary);" x-text="'R ' + formatAmount(item.amount)"></span>
@@ -705,6 +771,7 @@
                                 <p class="text-[11px] pl-3" style="color: var(--text-muted);" x-show="item.struck_out" x-text="struckLine(item)"></p>
                                 <div class="flex items-center gap-2 pl-3 py-1.5" x-show="replacingItem === ('income-' + item.id)" x-cloak>
                                     <input type="text" x-model="replaceDescription" placeholder="Description" class="corex-input text-xs" style="flex:1;" :data-replace-focus="'income-' + item.id">
+                                    <input type="date" x-model="replaceDate" class="corex-input text-xs" style="width:120px;" title="Date this deposit happened">
                                     <input type="text" inputmode="decimal" x-model="replaceAmount" placeholder="0.00" class="corex-input text-xs" style="width:80px;">
                                     <button type="button" class="text-xs font-semibold flex-shrink-0" style="color: var(--ds-blue, #2563eb);" :disabled="!replaceAmount" @click="addItem('income', item.id)">Add replacement</button>
                                     <button type="button" class="text-xs" style="color: var(--text-muted);" @click="replacingItem = null">Cancel</button>
@@ -713,6 +780,7 @@
                         </template>
                         <div class="flex items-center gap-2 pt-2 mt-1" style="border-top: 1px dashed var(--border);">
                             <input type="text" x-model="newIncomeDescription" placeholder="Description" class="corex-input text-xs" style="flex:1;">
+                            <input type="date" x-model="newIncomeDate" class="corex-input text-xs" style="width:120px;" title="Date this deposit happened">
                             <input type="text" inputmode="decimal" x-model="newIncomeAmount" placeholder="0.00" class="corex-input text-xs" style="width:80px;">
                             <button type="button" class="text-xs font-semibold flex-shrink-0" style="color: var(--ds-blue, #2563eb);" :disabled="!newIncomeAmount" @click="addItem('income')">+ Add</button>
                         </div>
@@ -733,6 +801,7 @@
                                         <span class="rounded-full flex-shrink-0" style="width: 7px; height: 7px;" :style="{ background: item.added_by_authoriser ? 'var(--ra-expense-authoriser)' : 'var(--ra-expense-agent)' }"></span>
                                         <span x-show="item.added_by_authoriser" class="ds-badge ds-badge-info flex-shrink-0" style="font-size:9px; padding:1px 4px;" title="Added by a reviewer/authoriser, not the agent">Auth</span>
                                         <span :style="{ textDecoration: item.struck_out ? 'line-through' : 'none' }" class="truncate" style="color: var(--text-primary);" x-text="item.description || '(no description)'"></span>
+                                        <span x-show="item.entry_date" class="flex-shrink-0" style="color: var(--text-muted); font-size:10px;" x-text="item.entry_date"></span>
                                     </span>
                                     <span class="flex items-center justify-end gap-2 flex-shrink-0">
                                         <span :style="{ textDecoration: item.struck_out ? 'line-through' : 'none' }" style="color: var(--text-primary);" x-text="'R ' + formatAmount(item.amount)"></span>
@@ -742,6 +811,7 @@
                                 <p class="text-[11px] pl-3" style="color: var(--text-muted);" x-show="item.struck_out" x-text="struckLine(item)"></p>
                                 <div class="flex items-center gap-2 pl-3 py-1.5" x-show="replacingItem === ('expense-' + item.id)" x-cloak>
                                     <input type="text" x-model="replaceDescription" placeholder="Description" class="corex-input text-xs" style="flex:1;" :data-replace-focus="'expense-' + item.id">
+                                    <input type="date" x-model="replaceDate" class="corex-input text-xs" style="width:120px;" title="Date this debit happened">
                                     <input type="text" inputmode="decimal" x-model="replaceAmount" placeholder="0.00" class="corex-input text-xs" style="width:80px;">
                                     <button type="button" class="text-xs font-semibold flex-shrink-0" style="color: var(--ds-blue, #2563eb);" :disabled="!replaceAmount" @click="addItem('expense', item.id)">Add replacement</button>
                                     <button type="button" class="text-xs" style="color: var(--text-muted);" @click="replacingItem = null">Cancel</button>
@@ -750,6 +820,7 @@
                         </template>
                         <div class="flex items-center gap-2 pt-2 mt-1" style="border-top: 1px dashed var(--border);">
                             <input type="text" x-model="newExpenseDescription" placeholder="Description" class="corex-input text-xs" style="flex:1;">
+                            <input type="date" x-model="newExpenseDate" class="corex-input text-xs" style="width:120px;" title="Date this debit happened">
                             <input type="text" inputmode="decimal" x-model="newExpenseAmount" placeholder="0.00" class="corex-input text-xs" style="width:80px;">
                             <button type="button" class="text-xs font-semibold flex-shrink-0" style="color: var(--ds-blue, #2563eb);" :disabled="!newExpenseAmount" @click="addItem('expense')">+ Add</button>
                         </div>
@@ -1037,8 +1108,8 @@ function rentalReview({ saveUrl, initial, initialIncomeItems, initialExpenseItem
         // both, total recalculating live." A row carries an `id` once the
         // server has persisted it (used to match it on the next autosave,
         // never re-created); a row typed fresh has no `id` yet. ──────────
-        incomeItems: (initialIncomeItems && initialIncomeItems.length) ? initialIncomeItems : [{ id: null, description: '', amount: '' }],
-        expenseItems: (initialExpenseItems && initialExpenseItems.length) ? initialExpenseItems : [{ id: null, description: '', amount: '' }],
+        incomeItems: (initialIncomeItems && initialIncomeItems.length) ? initialIncomeItems : [{ id: null, description: '', amount: '', entry_date: '' }],
+        expenseItems: (initialExpenseItems && initialExpenseItems.length) ? initialExpenseItems : [{ id: null, description: '', amount: '', entry_date: '' }],
         rowIsBlank(row) {
             return (!row.description || !row.description.trim()) && (row.amount === '' || row.amount === null || row.amount === undefined);
         },
@@ -1053,7 +1124,7 @@ function rentalReview({ saveUrl, initial, initialIncomeItems, initialExpenseItem
                 if (this.rowIsBlank(list[i])) list.splice(i, 1);
             }
             if (!list.length || !this.rowIsBlank(list[list.length - 1])) {
-                list.push({ id: null, description: '', amount: '' });
+                list.push({ id: null, description: '', amount: '', entry_date: '' });
             }
         },
         onIncomeRowInput() {
@@ -1117,8 +1188,29 @@ function rentalReview({ saveUrl, initial, initialIncomeItems, initialExpenseItem
         expenseTotal() {
             return this.expenseItems.filter(r => !this.rowIsBlank(r)).reduce((sum, r) => sum + (parseFloat(r.amount) || 0), 0);
         },
-        // Round 11 — display only (see the field's own comment above).
+        // Round 11 — display only (see the field's own comment above). Kept
+        // as the LAST-KNOWN-GOOD figure so an existing assessment that has
+        // never had a date range picked still shows/uses its old typed
+        // number — "Dates on entries" (2026-09-10) only starts overwriting
+        // this once both dates below are actually set.
         statementMonths: initial.statement_months ?? '',
+        // "Dates on entries" (Johan, 2026-09-10) — "the agent picks a
+        // from-date and a to-date; the month count is CALCULATED from them,
+        // not typed." The server is the single source of truth for the
+        // derivation (RentalApplicationAssessment::calculateStatementMonths(),
+        // same inclusive-calendar-month rule) — this client copy exists only
+        // to show the agent what it will work out to before their next
+        // autosave round-trips it back.
+        statementPeriodFrom: initial.statement_period_from ?? '',
+        statementPeriodTo: initial.statement_period_to ?? '',
+        calculatedStatementMonths() {
+            if (!this.statementPeriodFrom || !this.statementPeriodTo) return null;
+            const from = new Date(this.statementPeriodFrom + 'T00:00:00');
+            const to = new Date(this.statementPeriodTo + 'T00:00:00');
+            if (isNaN(from) || isNaN(to)) return null;
+            const months = (to.getFullYear() - from.getFullYear()) * 12 + (to.getMonth() - from.getMonth()) + 1;
+            return Math.max(1, months);
+        },
         // Round 16 — the unpaid-transactions red flag.
         hasUnpaidTransactions: initial.has_unpaid_transactions ?? false,
         monthlyAverage(total) {
@@ -1289,15 +1381,24 @@ function rentalReview({ saveUrl, initial, initialIncomeItems, initialExpenseItem
                     income_items: sentIncomeRows,
                     expense_items: sentExpenseRows,
                     notes: this.fields.notes,
-                    statement_months: this.statementMonths,
+                    statement_period_from: this.statementPeriodFrom,
+                    statement_period_to: this.statementPeriodTo,
                     has_unpaid_transactions: this.hasUnpaidTransactions,
                     expected_generation: this.expectedGeneration,
                 }),
             }).then(r => r.json().then(data => ({ ok: r.ok, status: r.status, data }))).then(({ ok, status, data }) => {
                 if (ok && data.ok) {
                     this.result = data.result;
-                    (data.income_items || []).forEach((saved, i) => { if (sentIncomeRows[i]) sentIncomeRows[i].id = saved.id; });
-                    (data.expense_items || []).forEach((saved, i) => { if (sentExpenseRows[i]) sentExpenseRows[i].id = saved.id; });
+                    // The server is the single source of truth for the
+                    // derived count (see calculateStatementMonths() above) —
+                    // sync it back so the read-only "Currently N months"
+                    // line and the affordability math agree with what was
+                    // actually persisted, not just the client's own guess.
+                    if (data.result && data.result.statement_months !== undefined) {
+                        this.statementMonths = data.result.statement_months ?? this.statementMonths;
+                    }
+                    (data.income_items || []).forEach((saved, i) => { if (sentIncomeRows[i]) { sentIncomeRows[i].id = saved.id; sentIncomeRows[i].entry_date = saved.entry_date; } });
+                    (data.expense_items || []).forEach((saved, i) => { if (sentExpenseRows[i]) { sentExpenseRows[i].id = saved.id; sentExpenseRows[i].entry_date = saved.entry_date; } });
                     this.saveStatus = data.saved_at ? ('Saved at ' + formatTime(data.saved_at)) : 'Saved';
                 } else if (status === 409 && data.reason === 'generation_conflict') {
                     this.saveError = true;
@@ -1353,7 +1454,54 @@ function rentalReviewLayout() {
         // that panel to fix the cut-off/z-index bug — see the drawer's own
         // comment) can share one toggle despite no longer being DOM-nested.
         wishlistDrawerOpen: false,
+        // DRAGGABLE WIDTH, 2026-09-10 — see the layout <style> block's own
+        // comment for why. Reuses the exact drag pattern already shipped in
+        // resources/views/docuperfect/templates/edit-web.blade.php
+        // (startDrag/onDrag), adapted from a percentage split to a pixel
+        // width since this layout's aside is a fixed-px sticky column, not
+        // a flex-percentage pane. Clamped 260px (the original fixed width —
+        // never smaller, so nobody's screen gets narrower than the shipped
+        // default) to 480px (wide enough for three input columns without
+        // eating the whole screen on a laptop). Persisted per-browser so a
+        // drag survives a reload; falls back to the CSS default (260px) on
+        // a fresh browser that's never dragged it.
+        resizingAside: false,
+        asideWidth: parseInt(localStorage.getItem('rentalReviewAsideWidth'), 10) || 260,
+        startAsideResize(e) {
+            this.resizingAside = true;
+            const startX = e.clientX;
+            const startWidth = this.asideWidth;
+            // Plain DOM lookup, not Alpine's $el magic — found live under a
+            // REAL mouse drag (not a synthetic dispatched event) that
+            // `this.$el` read from inside this method resolves to
+            // something that silently fails to affect the real node's
+            // inline style: asideWidth updated correctly on every drag, the
+            // CSS variable never did. e.target is the resizer handle itself
+            // (a genuine native event, always reliable); walking up to its
+            // one fixed ancestor sidesteps whatever Alpine-context quirk
+            // caused that.
+            const columnsEl = e.target.closest('.rental-review-columns');
+            const onMove = (ev) => {
+                if (!this.resizingAside) return;
+                // Dragging the handle LEFT (negative delta) widens the
+                // aside — the aside sits to the RIGHT of the handle.
+                const next = startWidth - (ev.clientX - startX);
+                this.asideWidth = Math.min(480, Math.max(260, next));
+                columnsEl.style.setProperty('--rr-aside-w', this.asideWidth + 'px');
+            };
+            const onUp = () => {
+                if (!this.resizingAside) return;
+                this.resizingAside = false;
+                localStorage.setItem('rentalReviewAsideWidth', String(this.asideWidth));
+                document.removeEventListener('mousemove', onMove);
+                document.removeEventListener('mouseup', onUp);
+            };
+            document.addEventListener('mousemove', onMove);
+            document.addEventListener('mouseup', onUp);
+        },
         init() {
+            this.$el.style.setProperty('--rr-aside-w', this.asideWidth + 'px');
+
             const recalc = () => {
                 const scrollEl = document.getElementById('appScroll');
                 const header = document.querySelector('.sticky.top-0.z-50');
@@ -1466,9 +1614,9 @@ function rentalAuthorisationViewer({ initialMarkedUpDocIds, currentUserId, curre
 function rentalAssessmentEditor({ currentUserId, incomeItems, expenseItems, addIncomeUrl, addExpenseUrl, incomeItemUrl, expenseItemUrl, statementMonths, maxRentPercent, rent, propertyLinked, hasUnpaidTransactions }) {
     return {
         currentUserId, incomeItems, expenseItems, statementMonths, maxRentPercent, rent, propertyLinked, hasUnpaidTransactions,
-        newIncomeDescription: '', newIncomeAmount: '',
-        newExpenseDescription: '', newExpenseAmount: '',
-        replacingItem: null, replaceDescription: '', replaceAmount: '',
+        newIncomeDescription: '', newIncomeAmount: '', newIncomeDate: '',
+        newExpenseDescription: '', newExpenseAmount: '', newExpenseDate: '',
+        replacingItem: null, replaceDescription: '', replaceAmount: '', replaceDate: '',
         itemError: '',
 
         // Johan: "the result should read clearly as 'this figure was
@@ -1552,8 +1700,9 @@ function rentalAssessmentEditor({ currentUserId, incomeItems, expenseItems, addI
             const isIncome = kind === 'income';
             const description = replacesId ? this.replaceDescription : (isIncome ? this.newIncomeDescription : this.newExpenseDescription);
             const amount = replacesId ? this.replaceAmount : (isIncome ? this.newIncomeAmount : this.newExpenseAmount);
+            const entry_date = replacesId ? this.replaceDate : (isIncome ? this.newIncomeDate : this.newExpenseDate);
             if (!amount) return;
-            const body = { description, amount };
+            const body = { description, amount, entry_date: entry_date || null };
             if (replacesId) body.replaces_item_id = replacesId;
             const item = await this.postJson(isIncome ? addIncomeUrl : addExpenseUrl, 'POST', body);
             if (!item) return;
@@ -1567,9 +1716,9 @@ function rentalAssessmentEditor({ currentUserId, incomeItems, expenseItems, addI
                     struckRow.replaced_by_user = item.added_by;
                     struckRow.replaced_by_at = item.added_at;
                 }
-                this.replacingItem = null; this.replaceDescription = ''; this.replaceAmount = '';
-            } else if (isIncome) { this.newIncomeDescription = ''; this.newIncomeAmount = ''; }
-            else { this.newExpenseDescription = ''; this.newExpenseAmount = ''; }
+                this.replacingItem = null; this.replaceDescription = ''; this.replaceAmount = ''; this.replaceDate = '';
+            } else if (isIncome) { this.newIncomeDescription = ''; this.newIncomeAmount = ''; this.newIncomeDate = ''; }
+            else { this.newExpenseDescription = ''; this.newExpenseAmount = ''; this.newExpenseDate = ''; }
         },
 
         // Johan: strike-and-re-add, not edit. Striking a row that isn't

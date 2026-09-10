@@ -18,12 +18,13 @@ class RentalApplicationIncomeItem extends Model
     use SoftDeletes;
 
     protected $fillable = [
-        'agency_id', 'rental_application_assessment_id', 'description', 'amount', 'sort_order',
+        'agency_id', 'rental_application_assessment_id', 'description', 'amount', 'entry_date', 'sort_order',
         'struck_out_at', 'struck_out_by_user_id', 'added_by_user_id', 'replaces_item_id',
     ];
 
     protected $casts = [
         'amount' => 'decimal:2',
+        'entry_date' => 'date:Y-m-d',
         'sort_order' => 'integer',
         'struck_out_at' => 'datetime',
     ];

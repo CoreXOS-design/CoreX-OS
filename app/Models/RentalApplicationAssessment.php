@@ -26,17 +26,49 @@ class RentalApplicationAssessment extends Model
 
     protected $fillable = [
         'agency_id', 'rental_application_id', 'notes', 'statement_months',
+        'statement_period_from', 'statement_period_to',
         'has_unpaid_transactions', 'updated_by_user_id',
     ];
 
     protected $casts = [
         'statement_months' => 'integer',
+        'statement_period_from' => 'date:Y-m-d',
+        'statement_period_to' => 'date:Y-m-d',
         'has_unpaid_transactions' => 'boolean',
     ];
 
     public function updatedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'updated_by_user_id');
+    }
+
+    /**
+     * "Dates on entries" (Johan, 2026-09-10) — "Months covered" stops being
+     * a typed number and becomes a from/to date range; this is the ONLY
+     * place that number is derived. Calendar-month-inclusive count (a
+     * statement running 15 Jan to 20 Mar covers 3 months' worth of
+     * statements — Jan, Feb, Mar — regardless of which day within Jan or
+     * Mar the range starts/ends on), never a raw day-count divided by ~30
+     * (that would silently under/over-count on short months). Always at
+     * least 1 once both dates are present — a range within the same
+     * calendar month is still "1 month covered."
+     *
+     * Returns null when either date is missing — the caller decides what
+     * that means (for a fresh save it means "don't touch statement_months
+     * yet"; it is never treated as zero).
+     */
+    public static function calculateStatementMonths(?string $from, ?string $to): ?int
+    {
+        if (! $from || ! $to) {
+            return null;
+        }
+
+        $fromDate = \Illuminate\Support\Carbon::parse($from);
+        $toDate = \Illuminate\Support\Carbon::parse($to);
+
+        $months = ($toDate->year - $fromDate->year) * 12 + ($toDate->month - $fromDate->month) + 1;
+
+        return max(1, $months);
     }
 
     public function incomeItems(): HasMany

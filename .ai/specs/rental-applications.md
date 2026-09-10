@@ -6811,3 +6811,68 @@ Second landable slice, immediately following split-at-intake above. Johan's ruli
 
 - `app/Http/Controllers/CoreX/RentalApplicationReviewController.php` — completeness check in `submitForApproval()`
 - `resources/views/corex/rental-applications/review.blade.php` — shared `$unsplitCount`, two visible badges
+
+---
+
+## Dates on entries — statement period, income/expense item dates, current-lease rent-due-day, and the draggable panel width completed (AT-392, 2026-09-10, cc3) — BUILT, landing in pieces
+
+Assigned alongside cc5 (PDF splitter, above) and cc4 (rentals menus). Johan's brief: "the purpose of all of this is rental-payment behaviour — when rent was due versus when it was actually paid." Deliberately **capture only** — no scoring/comparison algorithm was built here; Johan's own words: "capturing the dates is the job. Once the data exists we can talk about what it supports."
+
+### 1. "Months covered" becomes a from/to date range
+
+The typed `statement_months` number input on the agent's Affordability Assessment panel is replaced by two date pickers ("Statement period" — from/to). The month count is **derived**, never typed: `RentalApplicationAssessment::calculateStatementMonths($from, $to)` counts inclusive calendar months (15 Jan–20 Mar = 3 — Jan, Feb, Mar — regardless of which day within Jan/Mar the range starts/ends), always at least 1 once both dates are present, capped at the same 36-month ceiling the old field enforced (a longer range is rejected with a clear message, not silently accepted).
+
+Two new nullable columns on `rental_application_assessments`: `statement_period_from`, `statement_period_to` (migration `2026_09_10_150000_...`). **No backfill, and no retroactive recompute** — an existing assessment's already-stored `statement_months` is left exactly as it is until an agent opens that application again and picks a date range on it; `RentalApplicationReviewController::saveAssessment()` only overwrites `statement_months` when both dates are present in that specific request. `statement_months` itself is no longer accepted from the client at all (the form doesn't send it); the column stays because `qualifyingResult()` still divides by it — it just has a new, single source now.
+
+Both dates required together (`required_with` each way) — a lone date is rejected, never silently treated as a partial range.
+
+### 2. Income and expense entries each carry a date
+
+New nullable `entry_date` (date) column on both `rental_application_income_items` and `rental_application_expense_items` (migration `2026_09_10_140000_...`). Threaded through the whole existing pipeline rather than bolted on: the agent's inline row grid (now 3 columns — date / description / amount, was 2), `RentalApplicationReviewController::saveAssessment()`'s validation (`nullable date before_or_equal:today` — a transaction date can't be in the future) and `syncItems()`'s per-row attributes, and the JSON echoed back after every autosave (so the client learns the canonical stored value, same pattern the row's `id` already used).
+
+**Extended to the authoriser's own add-item endpoint too** (`RentalApplicationAuthorisationController::addAssessmentItem()`/`serializeItem()`) — same column, same table, so an authoriser-added or strike-and-replace line gets the identical field rather than shipping a half-built sibling (BUILD_STANDARD §6, "fix the class"). Not extended to a scoring/comparison against the rent-due-day below — that is deliberately not built.
+
+### 3. Rent due date on the current lease — applicant form AND agent panel, both ends
+
+New nullable `current_rental_due_day` (unsigned tinyint, 1–31 — a recurring day of the month, not a calendar date; a lease's rent obligation repeats every month) on `rental_applications` (migration `2026_09_10_160000_...`). Added to `RentalApplication::fieldValidationRules()`/`$fillable`/`$casts` — the ONE shared list both the public applicant form (`RentalApplicationSigningController`) and the agent's own pre-submission edit form (`RentalApplicationController::update()`) already validate against, so one change reaches both ends without duplicating a second validation path. Also picked up automatically by the reopen/resubmit generation-snapshot mechanism (`RentalApplicationGeneration::computeHash()` builds its snapshot from the same `fieldValidationRules()` keys) and by `generation-show.blade.php`'s generic field-diff renderer (an integer field needs no special-casing there, unlike the existing `$dateFields` list).
+
+Rendered next to `current_rental_amount` in the "Current Landlord" section on both the public form (`rental-applications/public/show.blade.php`) and the agent's own form (`corex/rental-applications/show.blade.php`) — the shared `<x-rental-application-field>` component gained optional `min`/`max` props (backward compatible, every existing usage unaffected) to support the `type="number"` day picker.
+
+**"Verify"**, the other half of Johan's ask, for the normal post-submission flow: `RentalApplicationController::update()` is hard-locked once an application reaches `AGENT_EDIT_LOCKED_STATUSES` (the applicant is the one editing at that point) — so once submitted, the agent's only way to see the answer is the review screen's existing read-only "Submitted Application" summary, which now includes a "Current rent due day" row alongside the fields already shown there. Also added to the printed/emailed application PDF (`corex/rental-applications/pdf.blade.php`) next to the current rental amount, matching every other field in that block.
+
+### 4. Draggable panel width — completed, not re-paused
+
+This is "Item 5" from the PDF-splitter-integration section above, which Johan explicitly paused on 2026-09-10 ("*you are slipping on the small shit when the bigger picture has not been built*") and whose diff was **discarded uncommitted**, not stashed. Re-authorised by Johan as part of this piece specifically because the new date columns don't fit cleanly in the fixed 260px `.rental-review-aside`: "if the dates do not fit cleanly, build the draggable panel width as part of this rather than cramming them in." Coordinated with cc5 first (different sections of the same `review.blade.php`, confirmed no overlap) since cc5 had this on their own list.
+
+Rebuilt from scratch (the earlier diff no longer exists to resume) — a 6px drag handle between `.rental-review-main` and `.rental-review-aside`, reusing the mousedown/mousemove/mouseup pattern already shipped in `resources/views/docuperfect/templates/edit-web.blade.php`'s `startDrag`/`onDrag`, adapted from a percentage split to a pixel width (`--rr-aside-w` CSS custom property) since this layout's aside is a fixed-px sticky column, not a flex-percentage pane. Clamped 260px (unchanged default) to 480px. Persisted per-browser via `localStorage`.
+
+**A real bug found and fixed during verification, not shipped broken**: the first version read the target element via Alpine's `this.$el` magic property from inside the `mousemove`/`mouseup` closures. Under a real, physically-simulated mouse drag (Puppeteer CDP mouse events — not a synthetic `dispatchEvent`), `this.asideWidth` updated correctly on every single drag, but the CSS variable it was supposed to write never did — the `$el` magic silently resolved to something that had no effect when read from outside Alpine's own directive-evaluation call stack, with no thrown error to notice. Confirmed both the symptom (via a wrapped `setProperty` call-counter: zero calls recorded during a real drag) and the fix (switched to a plain `e.target.closest('.rental-review-columns')` DOM lookup — no Alpine magic involved) under the exact same real-mouse-drag test that reproduced it. This is the kind of "verified with a synthetic event, ships broken for a real user" gap BUILD_STANDARD §5a exists to catch — a synthetic-dispatch-only check would have reported this working.
+
+### What was NOT built (deliberately)
+
+No comparison of `current_rental_due_day` against any income item's `entry_date` — no "was rent paid late" flag, no scoring, no colour-coding. Johan: "capturing the dates is the job." The coverage badge, the CmaCoverageService-style suburb-wide pool, and any affordability-formula change are untouched — this piece only adds data capture, nothing recomputes differently as a result.
+
+### Verification
+
+- `php -l` clean on every changed PHP file; all 5 changed/touched Blade files compile via `blade.compiler` directly.
+- `tests/Feature/RentalApplications/RentalApplicationRound11DecimalAndStatementMonthsTest.php` — 28 passed, 63 assertions. Three pre-existing tests that posted `statement_months` directly were updated to the new date-range contract (same intent, new input shape); five new tests cover the date-range validation matrix (mismatched dates, one-sided, over-36-months, no-dates-leaves-existing-value-untouched, dates-overwrite-an-old-typed-value) and four cover entry_date (round-trips, optional-and-empty, future-date rejected, authoriser's add-item endpoint carries its own date).
+- Real browser, real QA1 data (application 70, a genuine `returned` application — not a fixture created for this pass; its assessment/items were cleaned up via hard-delete-of-own-test-rows immediately after, since this table has no soft-delete-visible UI path yet at the assessment level and no other agent's data was touched): statement period set to 1 Jun–31 Aug 2026 → "Covers 3 months" displayed and persisted server-side exactly; a fresh income row (description/date/amount typed together, matching real usage) persisted `entry_date` correctly both client- and server-side; the resizer, under a genuine real-mouse drag, widened the panel from 260px to 360px, the CSS variable and computed layout width both confirmed, and the width survived a page reload via localStorage.
+- A QA-only verification user (`qa-browser-verify-at392-dates@example.test`) was created and hard-deleted afterward (this model has no soft-delete visible in the admin UI to restore via, and it carried no real data) — used only to log in for the browser passes; not left on QA1.
+- Not yet done: a second real-mouse browser pass for the rent-due-day field (public form + agent form + review-screen verify row) — queued as the next landing per "land in pieces, tell me after each."
+
+### Files changed
+
+- `database/migrations/2026_09_10_140000_add_entry_date_to_rental_application_items.php` (new)
+- `database/migrations/2026_09_10_150000_add_statement_period_dates_to_rental_application_assessments.php` (new)
+- `database/migrations/2026_09_10_160000_add_current_rental_due_day_to_rental_applications.php` (new)
+- `app/Models/RentalApplicationAssessment.php` — `statement_period_from`/`statement_period_to` fillable/cast, `calculateStatementMonths()`
+- `app/Models/RentalApplicationIncomeItem.php` / `RentalApplicationExpenseItem.php` — `entry_date` fillable/cast
+- `app/Models/RentalApplication.php` — `current_rental_due_day` fillable/cast/validation rule
+- `app/Http/Controllers/CoreX/RentalApplicationReviewController.php` — date-range validation/derivation in `saveAssessment()`, `entry_date` validation/persistence/echo in `syncItems()`
+- `app/Http/Controllers/CoreX/RentalApplicationAuthorisationController.php` — `entry_date` on `addAssessmentItem()`/`serializeItem()`
+- `resources/views/corex/rental-applications/review.blade.php` — statement-period date pickers, 3-column item rows (both roles), draggable aside width + resizer
+- `resources/views/corex/rental-applications/show.blade.php` — `current_rental_due_day` field (agent form)
+- `resources/views/rental-applications/public/show.blade.php` — `current_rental_due_day` field (applicant form)
+- `resources/views/corex/rental-applications/pdf.blade.php` — rent due day on the printed application
+- `resources/views/components/rental-application-field.blade.php` — optional `min`/`max` props
+- `tests/Feature/RentalApplications/RentalApplicationRound11DecimalAndStatementMonthsTest.php` — updated + new tests

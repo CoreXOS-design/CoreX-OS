@@ -38,7 +38,7 @@
 
 <div class="corex-h2">Current Landlord / Agent / Owner</div>
 <div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">Name: <span class="corex-field-value">{{ $application->current_landlord_name }}</span> &nbsp; Tel No: <span class="corex-field-value">{{ $application->current_landlord_tel }}</span></span></div>
-<div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">Current Rental Amount: R<span class="corex-field-value">{{ $application->current_rental_amount }}</span></span></div>
+<div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">Current Rental Amount: R<span class="corex-field-value">{{ $application->current_rental_amount }}</span> &nbsp; Due Day: <span class="corex-field-value">{{ $application->current_rental_due_day ?? '—' }}</span></span></div>
 <div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">From: <span class="corex-field-value">{{ optional($application->current_rental_from)->format('d/m/Y') }}</span> &nbsp; To: <span class="corex-field-value">{{ $application->current_rental_still_living ? 'Still living there' : optional($application->current_rental_to)->format('d/m/Y') }}</span></span></div>
 
 <div class="corex-h2">Employment Details</div>

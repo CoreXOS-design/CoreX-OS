@@ -576,21 +576,44 @@ class RentalApplicationReviewController extends Controller
             'income_items.*.id' => ['nullable', 'integer'],
             'income_items.*.description' => ['nullable', 'string', 'max:255'],
             'income_items.*.amount' => ['nullable', 'numeric', 'min:0', 'max:99999999.99'],
+            // "Dates on entries" (Johan, 2026-09-10) — the date a captured
+            // deposit/debit actually happened. Can't be in the future (it's
+            // a line off an already-issued bank statement); no lower bound
+            // — old statements are a normal, legitimate capture.
+            'income_items.*.entry_date' => ['nullable', 'date', 'before_or_equal:today'],
             'expense_items' => ['nullable', 'array'],
             'expense_items.*.id' => ['nullable', 'integer'],
             'expense_items.*.description' => ['nullable', 'string', 'max:255'],
             'expense_items.*.amount' => ['nullable', 'numeric', 'min:0', 'max:99999999.99'],
+            'expense_items.*.entry_date' => ['nullable', 'date', 'before_or_equal:today'],
             'notes' => ['nullable', 'string', 'max:5000'],
             // Round 11 — Johan: "we have to ask the nr of months the bank
             // statement is for." A bank statement's captured lines are a
             // lump sum over this many months, not a monthly figure.
-            'statement_months' => ['nullable', 'integer', 'min:1', 'max:36'],
+            //
+            // "Dates on entries" (2026-09-10) — Johan: "months covered
+            // becomes a date range... the month count is calculated from
+            // them, not typed." statement_months is no longer accepted from
+            // the client at all — the form doesn't send it, and if it did
+            // it would be ignored; the derived value's own ceiling (36
+            // months, same as the old field's max) is enforced further
+            // below, against the actual dates, not a client-supplied number.
+            // Required-together: a lone from/to date means the agent picked
+            // one side and hasn't finished — never a valid state to save
+            // silently as a partial range (BUILD_STANDARD §2, "wrong
+            // order"/asymmetric input must be rejected clearly, not guessed).
+            'statement_period_from' => ['nullable', 'date', 'required_with:statement_period_to'],
+            'statement_period_to' => ['nullable', 'date', 'required_with:statement_period_from', 'after_or_equal:statement_period_from'],
             // Round 16 — Johan: "unpaid transactions on bank statement...
             // this is a dangerous app." A single flag, not a list of
             // amounts — individual declined lines are marked on the
             // document itself via the highlighter.
             'has_unpaid_transactions' => ['nullable', 'boolean'],
             'expected_generation' => ['nullable', 'integer', 'min:1'],
+        ], [
+            'statement_period_from.required_with' => 'Enter both a from and to date for the statement period, or leave both blank.',
+            'statement_period_to.required_with' => 'Enter both a from and to date for the statement period, or leave both blank.',
+            'statement_period_to.after_or_equal' => 'The statement period\'s "to" date must be on or after its "from" date.',
         ]);
 
         // Reopen/resubmit, 2026-09-08 — Johan: "agent has review screen open,
@@ -618,15 +641,48 @@ class RentalApplicationReviewController extends Controller
         // request and a junk row.
         $isBlank = fn ($item) => empty($item['description'] ?? null) && (($item['amount'] ?? null) === null || $item['amount'] === '');
 
+        // "Dates on entries" (Johan, 2026-09-10) — statement_months is now
+        // DERIVED from the date range, never submitted directly by the
+        // form. Calculated here, not trusted from the request, so a
+        // crafted/stale statement_months value in the payload can never
+        // disagree with the dates actually being saved alongside it.
+        $statementFrom = ($validated['statement_period_from'] ?? '') === '' ? null : $validated['statement_period_from'];
+        $statementTo = ($validated['statement_period_to'] ?? '') === '' ? null : $validated['statement_period_to'];
+        $derivedStatementMonths = RentalApplicationAssessment::calculateStatementMonths($statementFrom, $statementTo);
+
+        // Same ceiling the old typed-number field enforced (min:1/max:36) —
+        // a date range that works out to more than that is almost certainly
+        // the wrong dates, not a real 3+ year bank statement, and must be
+        // rejected clearly rather than silently accepted or truncated.
+        if ($derivedStatementMonths !== null && $derivedStatementMonths > 36) {
+            return response()->json([
+                'error' => 'That date range covers ' . $derivedStatementMonths . ' months — check the dates. A statement period is expected to be 36 months or fewer.',
+            ], 422);
+        }
+
+        $assessmentAttributes = [
+            'agency_id' => $rentalApplication->agency_id,
+            'notes' => ($validated['notes'] ?? '') === '' ? null : ($validated['notes'] ?? null),
+            'statement_period_from' => $statementFrom,
+            'statement_period_to' => $statementTo,
+            'has_unpaid_transactions' => $request->boolean('has_unpaid_transactions'),
+            'updated_by_user_id' => $request->user()->id,
+        ];
+
+        // Only overwrite statement_months when a full date range was
+        // actually submitted on THIS save. Johan: "existing records keep
+        // whatever month count they hold — nothing recalculates
+        // retrospectively without a date range to derive it from." A save
+        // with no dates yet (a fresh assessment, or an existing one nobody
+        // has re-opened to pick dates on) must leave whatever figure is
+        // already stored untouched, not silently zero it.
+        if ($derivedStatementMonths !== null) {
+            $assessmentAttributes['statement_months'] = $derivedStatementMonths;
+        }
+
         $assessment = RentalApplicationAssessment::updateOrCreate(
             ['rental_application_id' => $rentalApplication->id],
-            [
-                'agency_id' => $rentalApplication->agency_id,
-                'notes' => ($validated['notes'] ?? '') === '' ? null : ($validated['notes'] ?? null),
-                'statement_months' => ($validated['statement_months'] ?? '') === '' ? null : ($validated['statement_months'] ?? null),
-                'has_unpaid_transactions' => $request->boolean('has_unpaid_transactions'),
-                'updated_by_user_id' => $request->user()->id,
-            ],
+            $assessmentAttributes,
         );
 
         $this->syncItems(
@@ -651,8 +707,8 @@ class RentalApplicationReviewController extends Controller
         return response()->json([
             'ok' => true,
             'result' => $assessment->qualifyingResult($maxRentPercent),
-            'income_items' => $assessment->incomeItems->map(fn ($i) => ['id' => $i->id, 'description' => $i->description, 'amount' => $i->amount])->values(),
-            'expense_items' => $assessment->expenseItems->map(fn ($i) => ['id' => $i->id, 'description' => $i->description, 'amount' => $i->amount])->values(),
+            'income_items' => $assessment->incomeItems->map(fn ($i) => ['id' => $i->id, 'description' => $i->description, 'amount' => $i->amount, 'entry_date' => $i->entry_date?->format('Y-m-d')])->values(),
+            'expense_items' => $assessment->expenseItems->map(fn ($i) => ['id' => $i->id, 'description' => $i->description, 'amount' => $i->amount, 'entry_date' => $i->entry_date?->format('Y-m-d')])->values(),
             'saved_at' => $assessment->updated_at?->toIso8601String(),
         ]);
     }
@@ -694,6 +750,7 @@ class RentalApplicationReviewController extends Controller
                 'rental_application_assessment_id' => $assessment->id,
                 'description' => ($item['description'] ?? '') === '' ? null : $item['description'],
                 'amount' => ($item['amount'] ?? '') === '' ? null : $item['amount'],
+                'entry_date' => ($item['entry_date'] ?? '') === '' ? null : $item['entry_date'],
                 'sort_order' => $sortOrder,
             ];
 

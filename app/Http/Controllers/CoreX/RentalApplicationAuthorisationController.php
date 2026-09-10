@@ -496,6 +496,13 @@ class RentalApplicationAuthorisationController extends Controller
         $validated = $request->validate([
             'description' => ['nullable', 'string', 'max:255'],
             'amount' => ['required', 'numeric', 'min:0', 'max:9999999999.99'],
+            // "Dates on entries" (Johan, 2026-09-10) — same column, same
+            // rule as the agent's own inline capture (see
+            // RentalApplicationReviewController::saveAssessment()): an
+            // authoriser-added or replacement line is the identical kind of
+            // row on the identical table, so it gets the identical date
+            // field rather than shipping half the column.
+            'entry_date' => ['nullable', 'date', 'before_or_equal:today'],
             'replaces_item_id' => ['nullable', 'integer'],
         ]);
 
@@ -522,6 +529,7 @@ class RentalApplicationAuthorisationController extends Controller
             'rental_application_assessment_id' => $assessment->id,
             'description' => $validated['description'] ?? null,
             'amount' => $validated['amount'],
+            'entry_date' => $validated['entry_date'] ?? null,
             'sort_order' => ($maxSort ?? -1) + 1,
             'added_by_user_id' => $request->user()->id,
             'replaces_item_id' => $replacesId,
@@ -601,6 +609,7 @@ class RentalApplicationAuthorisationController extends Controller
             'id' => $item->id,
             'description' => $item->description,
             'amount' => (float) $item->amount,
+            'entry_date' => $item->entry_date?->format('Y-m-d'),
             'struck_out' => $item->struck_out_at !== null,
             // "by this person, at this time" — Johan's own phrasing for
             // what the record must read as.
