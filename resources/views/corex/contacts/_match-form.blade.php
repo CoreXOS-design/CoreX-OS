@@ -20,7 +20,34 @@
 @php
     $isEdit = isset($match) && $match instanceof \App\Models\ContactMatch;
     $siblingCount = $contact->matches()->when($isEdit, fn ($q) => $q->where('id', '!=', $match->id))->count();
-    $val = fn (string $field, $default = '') => old($field, $isEdit ? ($match->{$field} ?? $default) : $default);
+    // AT-392 — caller-supplied prefill (e.g. a rental application's own
+    // approved amount/dates), used ONLY on a first-time (create-mode)
+    // wishlist — an existing one always shows what the agent already set,
+    // never silently overwritten on every open. old() still wins over
+    // both, so a failed-validation resubmit keeps whatever was typed.
+    $prefill = $prefill ?? [];
+    $val = fn (string $field, $default = '') => old(
+        $field,
+        $isEdit ? ($match->{$field} ?? $default) : ($prefill[$field] ?? $default)
+    );
+    // AT-392 — true only from the rental-application review screen's
+    // locked entry point: hides the Sale/Rental toggle (this drawer only
+    // ever creates/edits a rental wishlist here, so a togglable control
+    // that gets silently overridden server-side either way would mislead,
+    // not help) and filters Property Types to this agency's real rental
+    // stock. Every other caller (Contact page, Buyer Pipeline drawer)
+    // leaves this false and is completely unaffected.
+    $lockListingType = $lockListingType ?? false;
+    $rentalPropertyTypeNames = $rentalPropertyTypeNames ?? null;
+    // AT-392 — the hard ceiling for the price_max field, only meaningful
+    // when locked to a rental application with an approved amount on
+    // file. Applies whether creating OR editing (unlike $prefill, which is
+    // create-only) — the cap is a live constraint, not a one-time seed.
+    // Real enforcement is server-side (RentalApplicationReviewController +
+    // ContactMatch::enforceRentalApprovedAmountCap()) — this variable
+    // drives only the HTML max attribute and the on-screen explanation,
+    // never the guarantee itself.
+    $approvedRentalAmount = $approvedRentalAmount ?? null;
 
     $selectedPropertyTypes  = old('property_types',           $isEdit ? $match->propertyTypeList()       : []);
     // P24 suburb pre-population: hydrate id+name+city+province for chip display.
@@ -63,7 +90,16 @@
 @endphp
 
                 <form method="POST" action="{{ $formAction }}"
-                      x-data="{ listingType: @js($initialListingType) }"
+                      x-data="{
+                          listingType: @js($initialListingType),
+                          priceMax: @js($val('price_max') !== '' ? (int) $val('price_max') : null),
+                          approvedRentalAmount: @js($approvedRentalAmount !== null ? (int) $approvedRentalAmount : null),
+                          exceedsApproved() {
+                              return this.listingType === 'rental' && this.approvedRentalAmount !== null
+                                  && this.priceMax !== null && this.priceMax !== '' && Number(this.priceMax) > this.approvedRentalAmount;
+                          },
+                          formatRand(n) { return 'R' + Number(n).toLocaleString('en-ZA', { minimumFractionDigits: 0 }); },
+                      }"
                       class="space-y-5">
                     @csrf
                     @if($isEdit) @method('PUT') @endif
@@ -93,10 +129,16 @@
                         </div>
                     @endif
 
-                    {{-- Listing type toggle --}}
+                    {{-- Listing type toggle — locked to Rental (no toggle rendered) when
+                         opened from the rental-application review screen; the server
+                         forces listing_type='rental' regardless, so a togglable control
+                         here would show fields for a mode the save will never honour. --}}
                     <div>
                         <label class="block text-xs font-semibold mb-2" style="color:var(--text-muted);">Listing Type</label>
                         <input type="hidden" name="listing_type" :value="listingType">
+                        @if($lockListingType)
+                            <span class="inline-block px-3 py-1.5 rounded-md text-xs font-semibold text-white" style="background:var(--brand-button, #0ea5e9);">Rental</span>
+                        @else
                         <div class="inline-flex rounded-md p-0.5 gap-0.5" style="background:var(--surface); border:1px solid var(--border);">
                             <button type="button"
                                     @click="listingType = 'sale'"
@@ -113,12 +155,14 @@
                                 Rental
                             </button>
                         </div>
+                        @endif
                     </div>
 
                     {{-- Optional label for this wishlist --}}
                     <div>
                         <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Wishlist Name <span class="font-normal" style="color:var(--text-muted);">(optional)</span></label>
-                        <input type="text" name="name" value="{{ $val('name') }}" placeholder='e.g. "3-bed Margate sale"' maxlength="120"
+                        <input type="text" name="name" value="{{ $val('name') }}"
+                               :placeholder="listingType === 'rental' ? 'e.g. \'3-bed Margate rental\'' : 'e.g. \'3-bed Margate sale\''" maxlength="120"
                                class="w-full rounded-md px-3 py-2 text-sm"
                                style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                     </div>
@@ -149,11 +193,16 @@
                             </select>
                         </div>
 
-                        {{-- Property Types: multi-select chips (spec D2). Legacy property_type also submitted as a hidden mirror of the first chip. --}}
+                        {{-- Property Types: multi-select chips (spec D2). Legacy property_type also submitted as a hidden mirror of the first chip.
+                             AT-392 — when locked to a rental application, only chip options this agency
+                             actually has real rental stock in are rendered (checked against live data, not
+                             a hardcoded residential-only guess — some agencies genuinely have commercial/
+                             vacant-land rental stock). Every other caller renders the full list unchanged. --}}
                         <div x-data="{ selected: @js(array_values($selectedPropertyTypes)) }">
                             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Property Types <span class="font-normal" style="color:var(--text-muted);">(one or more)</span></label>
                             <div class="flex flex-wrap gap-1.5">
                                 @foreach($matchTypes as $type)
+                                @continue($lockListingType && is_array($rentalPropertyTypeNames) && !in_array($type->name, $rentalPropertyTypeNames, true))
                                 <button type="button"
                                         @click="selected.includes('{{ $type->name }}') ? selected = selected.filter(v => v !== '{{ $type->name }}') : selected.push('{{ $type->name }}')"
                                         :class="selected.includes('{{ $type->name }}') ? 'text-white' : ''"
@@ -175,16 +224,20 @@
                     {{-- Suburbs: P24-backed cascading multi-picker (Province → City → Suburb).
                          Hard cutover from free-text — see migration 2026_05_20_100001. --}}
                     <div>
-                        <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Suburbs <span class="font-normal" style="color:var(--text-muted);">(pick from Property24 — must match the Properties list)</span></label>
+                        {{-- AT-392 — Johan: internal jargon on an agent-facing screen, rewritten
+                             in plain language. Applies to both sale and rental — same control,
+                             same wording problem either way. --}}
+                        <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Suburbs <span class="font-normal" style="color:var(--text-muted);">(search and pick the areas — only areas CoreX already has properties in will show up)</span></label>
                         @include('corex._partials.p24-multi-suburb-picker', [
                             'fieldName'      => 'p24_suburb_ids',
                             'initialSuburbs' => $initialP24Suburbs,
                         ])
                     </div>
 
-                    {{-- Row 2: Price range --}}
+                    {{-- Row 2: Price range — "Monthly Rent Range" when locked to rental
+                         (Johan: reads as a purchase price otherwise). --}}
                     <div>
-                        <label class="block text-xs font-semibold mb-2" style="color:var(--text-muted);">Price Range (R)</label>
+                        <label class="block text-xs font-semibold mb-2" style="color:var(--text-muted);" x-text="listingType === 'rental' ? 'Monthly Rent Range (R)' : 'Price Range (R)'"></label>
                         <div class="grid grid-cols-2 gap-3">
                             <div>
                                 {{-- 2026-08-24 (Johan) — step="50000" removed. HTML5 step validation
@@ -204,16 +257,30 @@
                                      Removing rather than rounding the generated values: price is a
                                      free amount, not a stepped quantity, and rounding a derived search
                                      band changes what an agent is searching for without telling them. --}}
-                                <input type="number" name="price_min" value="{{ $val('price_min') }}" placeholder="Min price" min="0"
+                                <input type="number" name="price_min" value="{{ $val('price_min') }}" min="0"
+                                       :placeholder="listingType === 'rental' ? 'Min rent' : 'Min price'"
                                        class="w-full rounded-md px-3 py-2 text-sm"
                                        style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                             </div>
                             <div>
-                                <input type="number" name="price_max" value="{{ $val('price_max') }}" placeholder="Max price" min="0"
+                                {{-- AT-392 — Johan, verbatim: "if a tenant is approved for 10k we do
+                                     not show them anything higher than 10k. done." x-model keeps this
+                                     reactive for the on-screen explanation below; the max attribute is
+                                     a UX courtesy only — the real, unbypassable enforcement is server-
+                                     side (RentalApplicationReviewController's rejection on this screen,
+                                     ContactMatch::enforceRentalApprovedAmountCap() as the universal
+                                     backstop for every other entry point). --}}
+                                <input type="number" name="price_max" x-model.number="priceMax" min="0"
+                                       :max="approvedRentalAmount"
+                                       :placeholder="listingType === 'rental' ? 'Max rent' : 'Max price'"
                                        class="w-full rounded-md px-3 py-2 text-sm"
                                        style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                             </div>
                         </div>
+                        <p class="text-xs mt-2 rounded-md px-3 py-2" x-show="exceedsApproved()" x-cloak
+                           style="background:color-mix(in srgb, var(--ds-crimson, #e11d48) 10%, transparent); color:var(--ds-crimson, #e11d48); border:1px solid var(--ds-crimson, #e11d48);">
+                            Cannot be set above <span x-text="formatRand(approvedRentalAmount)"></span> — that's what this tenant is approved for. Showing them anything higher risks telling them they qualify for a property they don't. If the approved amount itself is wrong, that needs to change through the authorisation decision, not here.
+                        </p>
                     </div>
 
                     {{-- Row 3a: Min/max bedrooms + bathrooms + garages + parking --}}
@@ -243,9 +310,12 @@
                         </div>
                     </div>
 
-                    {{-- Row 4: Floor size / Erf size --}}
+                    {{-- Row 4: Floor size / Erf size. AT-392 — Erf Size is meaningless for
+                         a tenant (they don't own the land); hidden in rental mode. Floor
+                         Size spans the full row when Erf Size is hidden, so rental mode
+                         doesn't leave a bare gap. --}}
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <div>
+                        <div :class="listingType === 'rental' ? 'sm:col-span-2' : ''">
                             <label class="block text-xs font-semibold mb-2" style="color:var(--text-muted);">Floor Size (m²)</label>
                             <div class="grid grid-cols-2 gap-2">
                                 <input type="number" name="floor_size_min" value="{{ $val('floor_size_min') }}" placeholder="Min" min="0"
@@ -256,7 +326,7 @@
                                        style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                             </div>
                         </div>
-                        <div>
+                        <div x-show="listingType === 'sale'">
                             <label class="block text-xs font-semibold mb-2" style="color:var(--text-muted);">Erf Size (m²)</label>
                             <div class="grid grid-cols-2 gap-2">
                                 <input type="number" name="erf_size_min" value="{{ $val('erf_size_min') }}" placeholder="Min" min="0"
@@ -268,6 +338,27 @@
                             </div>
                         </div>
                     </div>
+
+                    @if($lockListingType)
+                    {{-- AT-392 — rental-only, only rendered from the locked entry point.
+                         Prefilled from the application's own occupation_date/
+                         rental_term_months on first creation (see $val()'s $prefill
+                         branch above); editable, never locked. --}}
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Move-in Date</label>
+                            <input type="date" name="move_in_date" value="{{ $val('move_in_date') }}"
+                                   class="w-full rounded-md px-3 py-2 text-sm"
+                                   style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary); color-scheme: light dark;">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Rental Term (months)</label>
+                            <input type="number" name="rental_term_months" value="{{ $val('rental_term_months') }}" placeholder="e.g. 12" min="1" max="60"
+                                   class="w-full rounded-md px-3 py-2 text-sm"
+                                   style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                        </div>
+                    </div>
+                    @endif
 
                     {{-- Feature Preferences (spec D5) — ONE mutually-exclusive selector per feature.
                          Was three independent lists (must-have / nice-to-have / deal-breaker) each showing

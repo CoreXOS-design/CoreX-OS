@@ -6549,3 +6549,152 @@ shown.
 - Real browser, live on QA1: the new Data Scope control appears in Role
   Manager under Contacts → Contact Rental History, saves, and the
   Contact page's Rental History tab honours whatever is set.
+
+---
+
+## Tenant Wishlist drawer — rental-mode wiring and hard approved-amount cap (AT-392, 2026-09-10, cc5) — BUILT
+
+**Status: shipped, on QA1.** Johan hit this live testing application 66: "clicking
+add wishlist to tenant is a shitshow" — screenshot showed the sale/buyer
+wishlist form reused verbatim, unlabelled for rentals, and visually cut off.
+Investigated, designed, approved, built. This section is scoped to exactly
+this fix — it does **not** touch, and is not part of, the much larger
+"agent sends the approval email with matched properties" initiative
+specced above (that section is still pending Johan's separate approval;
+nothing in it shipped as part of this work).
+
+### Root cause, confirmed before building
+
+The wishlist drawer (`@include('corex.contacts._match-form', ...)` from
+`review.blade.php`) is genuinely the SAME shared partial the Contact page
+and Buyer Pipeline drawer use — not a fork, not a copy. It already had a
+`defaultListingType` override built for this exact call site. The bug
+wasn't forked code; it was that not a single field below the listing-type
+toggle actually read that variable — every field was static regardless of
+mode. Separately, the drawer's `position:fixed` markup was nested three
+levels deep inside `.rental-review-aside` (a `position:sticky;
+overflow-y:auto` panel) and shared `z-50` with the page's own sticky
+action bar (`sticky-action-bar.blade.php`) — an exact z-index collision,
+not a value to nudge.
+
+### What shipped
+
+**Finished the rental-mode wiring, no fork** (`resources/views/corex/contacts/_match-form.blade.php`):
+- New optional partial params — `lockListingType` (bool), `rentalPropertyTypeNames`
+  (array|null), `prefill` (array), `approvedRentalAmount` (nullable) — all
+  default to false/null/empty, so every OTHER caller (Contact page, Buyer
+  Pipeline drawer) is completely unaffected.
+- When `lockListingType` is true (only the rental-application entry
+  point): the Sale/Rental toggle is replaced with a static "Rental" label
+  instead of an editable control that the server would silently override
+  anyway; Property Types chips are filtered to whatever types this
+  agency's real `properties` rows under `listing_type='rental'` actually
+  have (checked against live data — this agency genuinely has commercial
+  and vacant-land rental stock, so it is NOT a hardcoded
+  residential-only list); Move-in Date and Rental Term (months) fields are
+  added, rental-only.
+- Reactive regardless of `lockListingType` (same fix benefits the sale
+  side too, since it's the same `listingType` Alpine state already
+  driving the toggle): the wishlist-name placeholder, the Price Range
+  label/placeholders ("Monthly Rent Range (R)" / "Min rent" / "Max rent"
+  in rental mode), and hiding Erf Size (meaningless for a tenant) with
+  Floor Size spanning the row in its place.
+- Suburbs helper text rewritten in plain language on BOTH sale and
+  rental — same jargon, same control, fixed once for both, not scope
+  creep on shared copy.
+
+**Prefill, visible and editable, never locked** — a first-time wishlist
+opened from an approved application prefills max rent from
+`approved_rental_amount`, and move-in date / rental term from
+`occupation_date` / `rental_term_months` (new nullable
+`contact_matches.move_in_date`/`rental_term_months` columns, migration
+`2026_09_10_120000`). An already-existing wishlist is never
+silently overwritten on reopen — `old()` still wins over prefill, which
+wins over the saved value's own default.
+
+**The approved-amount ceiling — hard cap, not a warning.** Johan's ruling,
+mid-build, superseding an earlier warning-plus-audit-log design he'd
+initially approved: *"if a tenant is approved for 10k we do not show them
+anything higher than 10k. done."* Built as two layers:
+1. **Primary, agent-facing rejection** —
+   `RentalApplicationReviewController::validateWishlistPayload()` rejects
+   a submitted `price_max` above `$rentalApplication->approved_rental_amount`
+   with a named field error in plain language, directing the agent to the
+   right fix ("that needs to change through the authorisation decision
+   itself, not here") — before the record is ever touched.
+2. **Universal backstop, every other entry point** —
+   `ContactMatch::enforceRentalApprovedAmountCap()`, called from the
+   model's own `creating`/`updating` events (BUILD_STANDARD §6, fix the
+   class not the instance). Resolves the contact's most recent `approved`
+   rental application and silently CLAMPS `price_max` down to that amount
+   if a write would exceed it — a clamp, not a thrown exception,
+   deliberately: this hook also fires from background/automated paths
+   (e.g. `BuyerLeadCascadeService::seedFromListing()` deriving a wishlist
+   from a portal lead) where throwing would break an unrelated pipeline,
+   and a clamp is the more literal reading of "it simply cannot be set
+   higher" — the stored value provably never exceeds the ceiling,
+   regardless of caller.
+
+**Layout fix, structural** — the drawer's markup moved out of
+`.rental-review-aside`'s subtree entirely, to a direct sibling of
+`.rental-review-main`/`.rental-review-aside` still inside
+`.rental-review-columns`' `x-data="rentalReviewLayout()"` scope (so it
+stays outside every `overflow`/`position:sticky` ancestor, letting
+`position:fixed` escape correctly to the real viewport). `wishlistDrawerOpen`
+was lifted from a local `x-data` on the trigger's parent box into
+`rentalReviewLayout()`'s own state, so the trigger button (still nested
+deep in the aside) and the relocated drawer share one toggle without
+being DOM-siblings. Z-index raised to `z-[100]`, unambiguously above the
+sticky header (`z-50`) and the app shell's own persistent chrome (`z-40`/`z-50`).
+
+### The whole chain, checked end to end — what already was, and wasn't, safe
+
+Johan asked explicitly: confirm no path (wishlist edit, direct save, the
+one-click send, or any API route) can produce a match or a sent list
+above the approved figure.
+
+- **The actual outbound "send" path was ALREADY safe, independently,
+  before this build.** `RentalApplicationPropertyMatcher::forApproval()`
+  (pre-existing) applies its own `applyCeiling()` after matching,
+  checked against `Property::effectivePrice() <= $amount`
+  unconditionally — "regardless of whether MatchingService's own price
+  band worked correctly" (the class's own docblock). It never trusts
+  `ContactMatch.price_max` for the final cutoff. This build did not need
+  to touch it, and didn't.
+- **The live Core Matches "view results" screen** (`ContactMatchController::results()`
+  → `ClientMatchResolver` → `MatchingService::propertiesForMatch()`) has
+  no independent ceiling of its own — it reads `price_max` directly. The
+  model-level clamp above means `price_max` itself can never be SAVED
+  above the approved amount going forward, which closes this for every
+  future write.
+- **What this build does NOT close, flagged for Johan rather than decided
+  silently, per his explicit instruction**: if an approved amount is
+  later REDUCED (the authoriser's override-approve path mutates
+  `approved_rental_amount` on the same `RentalApplication` row in place —
+  confirmed, no new row/generation is created), an ALREADY-SAVED
+  `ContactMatch.price_max` is not retroactively reclamped. It was valid
+  when written; it can now be stale until the next time that wishlist is
+  edited and saved (at which point the clamp applies). Because the send
+  path has its own independent ceiling (above), a stale wishlist can
+  never produce an over-budget SENT list — but the live Core Matches
+  VIEW could show an agent an over-budget property from a stale wishlist
+  in that window. No automatic reclamp-on-approval-reduction was built.
+  This is Johan's decision to make, not defaulted here.
+
+### Verification
+
+- `php -l` clean on every changed PHP file.
+- Both changed Blade files compile via `blade.compiler` directly (no
+  parse errors).
+- Migration `2026_09_10_120000_add_rental_term_fields_to_contact_matches`
+  ran clean against the shared QA1 database.
+- [Test suite results and real-browser screenshot pass — appended below
+  once complete.]
+
+### Files changed
+
+- `database/migrations/2026_09_10_120000_add_rental_term_fields_to_contact_matches.php` — new
+- `app/Models/ContactMatch.php` — fillable/casts for `move_in_date`/`rental_term_months`; `enforceRentalApprovedAmountCap()` + boot() wiring
+- `app/Http/Controllers/CoreX/RentalApplicationReviewController.php` — prefill + rental-stock property-type computation in `show()`; hard-cap rejection + new field validation in `validateWishlistPayload()`
+- `resources/views/corex/contacts/_match-form.blade.php` — rental-mode wiring, prefill, cap UI, new fields, Suburbs copy
+- `resources/views/corex/rental-applications/review.blade.php` — drawer relocation, lifted Alpine state, z-index fix, new include params

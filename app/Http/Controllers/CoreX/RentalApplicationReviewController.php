@@ -213,9 +213,35 @@ class RentalApplicationReviewController extends Controller
         $matchTypes = \App\Models\PropertySettingItem::group('property_type')->where('active', true)->get();
         $featureOptions = array_merge(\App\Http\Controllers\CoreX\ContactMatchController::FEATURE_OPTIONS, \App\Http\Controllers\CoreX\ContactMatchController::POOL_TYPE_OPTIONS);
 
+        // AT-392 — real rental stock only, not the full sale+rental type
+        // list. Johan: "unless the agency actually lets commercial,
+        // investigate before deciding" — investigation found real
+        // commercial/vacant-land rental stock on file, so this filters to
+        // whatever types this agency genuinely has under listing_type
+        // rental TODAY, never a hardcoded residential-only guess.
+        $rentalPropertyTypeNames = \App\Models\Property::query()
+            ->where('agency_id', $rentalApplication->agency_id)
+            ->where('listing_type', 'rental')
+            ->whereNotNull('property_type')
+            ->distinct()
+            ->pluck('property_type')
+            ->all();
+
+        // Prefill for a FIRST-time wishlist only — an existing one shows
+        // what the agent already set, never silently overwritten with the
+        // application's figures on every open.
+        $wishlistPrefill = $existingWishlist ? [] : [
+            'price_max' => $rentalApplication->approved_rental_amount !== null
+                ? (int) $rentalApplication->approved_rental_amount
+                : null,
+            'move_in_date' => $rentalApplication->occupation_date?->format('Y-m-d'),
+            'rental_term_months' => $rentalApplication->rental_term_months,
+        ];
+
         return view('corex.rental-applications.review', compact(
             'rentalApplication', 'assessment', 'maxRentPercent', 'result', 'documents', 'moreInfoRequestedNote', 'declineInfo', 'highlighters',
-            'viewerRole', 'auditLog', 'auditLogTotal', 'existingWishlist', 'matchCategories', 'matchTypes', 'featureOptions'
+            'viewerRole', 'auditLog', 'auditLogTotal', 'existingWishlist', 'matchCategories', 'matchTypes', 'featureOptions',
+            'rentalPropertyTypeNames', 'wishlistPrefill'
         ))->with('isPendingAuthorisation', $rentalApplication->isPendingAuthorisation());
     }
 
@@ -798,7 +824,7 @@ class RentalApplicationReviewController extends Controller
         $contact = $rentalApplication->contact;
         abort_unless($contact, 422, 'This application has no linked contact.');
 
-        $validated = $this->validateWishlistPayload($request);
+        $validated = $this->validateWishlistPayload($request, $rentalApplication);
         $fields = $this->extractWishlistMatchFields($validated);
         // This drawer creates a RENTAL wishlist only, regardless of what
         // the shared form's hidden listing_type field submits (its own
@@ -822,7 +848,7 @@ class RentalApplicationReviewController extends Controller
         $this->guardRentalApplication($rentalApplication);
         abort_if($match->contact_id !== $rentalApplication->contact_id, 403);
 
-        $validated = $this->validateWishlistPayload($request);
+        $validated = $this->validateWishlistPayload($request, $rentalApplication);
         $fields = $this->extractWishlistMatchFields($validated);
         $fields['listing_type'] = 'rental';
         $match->update($fields);
@@ -832,8 +858,14 @@ class RentalApplicationReviewController extends Controller
             ->with('success', 'Wishlist updated.');
     }
 
-    /** Same field set/rules as _match-form.blade.php's other caller (BuyerDetailController). */
-    private function validateWishlistPayload(Request $request): array
+    /**
+     * Same field set/rules as _match-form.blade.php's other caller
+     * (BuyerDetailController), plus two rental-only additions
+     * (move_in_date, rental_term_months) and the hard approved-amount cap
+     * — this controller's own copy, since the shared form is otherwise
+     * agnostic to any linked application.
+     */
+    private function validateWishlistPayload(Request $request, RentalApplication $rentalApplication): array
     {
         $validator = \Illuminate\Support\Facades\Validator::make($request->all(), [
             'listing_type'              => 'nullable|in:sale,rental',
@@ -844,6 +876,8 @@ class RentalApplicationReviewController extends Controller
             'p24_suburb_ids.*'          => 'integer|exists:p24_suburbs,id',
             'price_min'                 => 'nullable|integer|min:0',
             'price_max'                 => 'nullable|integer|min:0',
+            'move_in_date'              => 'nullable|date',
+            'rental_term_months'        => 'nullable|integer|min:1|max:60',
             'beds_min'                  => 'nullable|integer|min:0|max:20',
             'bedrooms_max'              => 'nullable|integer|min:0|max:20',
             'baths_min'                 => 'nullable|integer|min:0|max:20',
@@ -865,11 +899,25 @@ class RentalApplicationReviewController extends Controller
             'criteria_groups_present'   => 'sometimes',
         ]);
 
-        $validator->after(function ($v) {
+        $validator->after(function ($v) use ($rentalApplication) {
             $bedsMin = $v->getData()['beds_min'] ?? null;
             $bedsMax = $v->getData()['bedrooms_max'] ?? null;
             if ($bedsMin !== null && $bedsMax !== null && (int) $bedsMax < (int) $bedsMin) {
                 $v->errors()->add('bedrooms_max', 'Maximum bedrooms cannot be less than minimum bedrooms.');
+            }
+
+            // AT-392, Johan verbatim: "if a tenant is approved for 10k we do
+            // not show them anything higher than 10k. done." Rejected here,
+            // named, in plain language, BEFORE the record is touched — the
+            // model-level clamp (ContactMatch::enforceRentalApprovedAmountCap())
+            // is the universal backstop for every OTHER entry point; this is
+            // the agent's own clear feedback on the intended screen.
+            $priceMax = $v->getData()['price_max'] ?? null;
+            $approvedAmount = $rentalApplication->approved_rental_amount;
+            if ($priceMax !== null && $priceMax !== '' && $approvedAmount !== null && (float) $priceMax > (float) $approvedAmount) {
+                $v->errors()->add('price_max', 'The maximum rent cannot be set above the R' . number_format((float) $approvedAmount, 2)
+                    . ' this tenant is approved for — showing them anything higher risks telling them they qualify for a property they do not. '
+                    . 'If you believe the approved amount is wrong, that needs to change through the authorisation decision itself, not here.');
             }
 
             $conflicts = ContactMatch::conflictingFeatureTokens(
