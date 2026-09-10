@@ -219,6 +219,7 @@ CREATE TABLE `agencies` (
   `whatsapp_launch_mode_seller` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'whatsapp_web',
   `outreach_send_window` json DEFAULT NULL,
   `communication_first_poll_days` smallint unsigned DEFAULT NULL,
+  `communication_poll_chunk_size` smallint unsigned DEFAULT NULL,
   `communication_failure_alert_threshold` smallint unsigned DEFAULT NULL,
   `outreach_queue_expiry_hours` smallint unsigned DEFAULT NULL,
   `outreach_queue_daily_cap_per_agent` smallint unsigned DEFAULT NULL,
@@ -4189,6 +4190,8 @@ CREATE TABLE `contacts` (
   `buyer_pipeline_entered_at` timestamp NULL DEFAULT NULL,
   `buyer_pipeline_notes` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
   `buyer_source` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `rental_application_status` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'none',
+  `rental_application_status_updated_at` timestamp NULL DEFAULT NULL,
   `agency_id` bigint unsigned DEFAULT NULL,
   `branch_id` bigint unsigned NOT NULL,
   `messaging_opt_out_at` timestamp NULL DEFAULT NULL,
@@ -11849,6 +11852,20 @@ CREATE TABLE `rental_amount_versions` (
   CONSTRAINT `rental_amount_versions_rental_id_foreign` FOREIGN KEY (`rental_id`) REFERENCES `rentals` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `rental_application_approval_email_settings`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `rental_application_approval_email_settings` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `max_properties_in_email` tinyint unsigned NOT NULL DEFAULT '5',
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `rental_application_approval_email_settings_agency_id_unique` (`agency_id`),
+  CONSTRAINT `rental_application_approval_email_settings_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `rental_application_assessments`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -12152,6 +12169,7 @@ CREATE TABLE `rental_applications` (
   `reopened_by_user_id` bigint unsigned DEFAULT NULL,
   `reopened_note` text COLLATE utf8mb4_unicode_ci,
   `approved_rental_amount` decimal(12,2) DEFAULT NULL,
+  `applicant_notified_at` timestamp NULL DEFAULT NULL,
   `delivery_mode` enum('download','online') COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `token` varchar(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `token_expires_at` timestamp NULL DEFAULT NULL,
@@ -16277,3 +16295,9 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1285,'2026_09_09_0
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1286,'2026_09_09_060200_drop_rental_application_mark_color_settings_table',269);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1287,'2026_09_09_050000_add_error_detail_to_communication_mailboxes',270);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1288,'2026_09_09_070000_add_created_by_to_rental_application_highlighters_table',271);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1289,'2026_09_09_060000_reconcile_hfcoastal_host_auth_failure_count',272);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1290,'2026_09_09_080000_add_communication_poll_chunk_size_to_agencies',273);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1291,'2026_09_10_010000_add_rental_application_status_to_contacts',274);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1292,'2026_09_07_160000_repair_document_names_containing_path_separators',275);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1293,'2026_09_10_020000_add_applicant_notified_at_to_rental_applications',276);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1294,'2026_09_10_030000_create_rental_application_approval_email_settings_table',277);

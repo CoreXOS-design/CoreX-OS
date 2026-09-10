@@ -87,6 +87,7 @@
                 ['key'=>'viewings','label'=>'Viewings &amp; Feedback <span class="ml-1 text-xs px-1.5 py-0.5 rounded-md" style="background:var(--surface-2);">'. ($viewingsCount ?? 0) .'</span>'],
                 ['key'=>'notes','label'=>'Notes &amp; Testimonials <span class="ml-1 text-xs px-1.5 py-0.5 rounded-md" style="background:var(--surface-2);">'. ($contact->contactNotes->count() + $contact->testimonials->count()) .'</span>'],
                 ['key'=>'drive','label'=>'Drive <span class="ml-1 text-xs px-1.5 py-0.5 rounded-md" style="background:var(--surface-2);">'. $contact->documents->count() .'</span>'],
+                ['key'=>'rental','label'=>'Rental Applications <span class="ml-1 text-xs px-1.5 py-0.5 rounded-md" style="background:var(--surface-2);">'. $contact->rentalApplications->count() .'</span>'],
                 ['key'=>'fica','label'=>'FICA Compliance ' . $ficaIcon],
                 ['key'=>'consent','label'=>'Consent'],
                 ['key'=>'communications','label'=>'Communications <span class="ml-1 text-xs px-1.5 py-0.5 rounded-md" style="background:var(--surface-2);">'. ($contactThreads ?? collect())->count() .'</span>'],
@@ -1415,6 +1416,17 @@
         <div x-show="activeTab === 'drive'" x-cloak class="p-6 space-y-5" id="tab-drive"
              x-data="{ dragging: false }">
             @include('corex.contacts._drive-tab-body')
+        </div>
+
+        {{-- ════════════════════════════
+             RENTAL APPLICATIONS TAB
+             AT-392 — Johan: "the rental application is not a pillar of
+             corex but the contact is" — current status plus every
+             application this contact has ever had, retrievable here at
+             any time by anyone who needs it.
+             ════════════════════════════ --}}
+        <div x-show="activeTab === 'rental'" x-cloak class="p-6 space-y-5" id="tab-rental">
+            @include('corex.contacts._rental-applications-tab-body')
         </div>
 
         {{-- ════════════════════════════

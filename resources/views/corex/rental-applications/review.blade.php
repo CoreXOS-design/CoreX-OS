@@ -820,9 +820,56 @@
                             <div class="mt-1 whitespace-pre-wrap" style="color: var(--text-primary);">{{ $moreInfoRequestedNote }}</div>
                         </div>
                     @endif
-                    @if($rentalApplication->status === 'approved')
+                    @if($rentalApplication->status === 'approved' && $rentalApplication->applicant_notified_at)
                         <div class="rounded-md px-3 py-2 text-xs mb-3" style="background: var(--ds-emerald-soft, #ecfdf5); color: var(--ds-emerald, #059669);">
-                            &check; Approved for R{{ number_format($rentalApplication->approved_rental_amount, 2) }} a month. The applicant has been notified — you can now start matching them to a property.
+                            &check; Approved for R{{ number_format($rentalApplication->approved_rental_amount, 2) }} a month. Sent to the applicant on {{ $rentalApplication->applicant_notified_at->format('d M Y, H:i') }}.
+                        </div>
+                    @elseif($rentalApplication->status === 'approved')
+                        {{-- AT-392 — Johan: "agent gets back and upon them being happy
+                             it gets sent out." Approved but not yet sent: the agent
+                             confirms/refines the tenant's wishlist (reusing the SAME
+                             Core Matches form + drawer as the Buyer Pipeline detail
+                             page — command-center/buyers/detail.blade.php:580-615,
+                             not a second editor), then sends. --}}
+                        <div class="rounded-md px-3 py-3 text-xs mb-3" style="background: var(--ds-amber-soft, #fffbeb); color: var(--ds-amber, #b45309); border: 1px solid var(--ds-amber, #f59e0b);"
+                             x-data="{ wishlistDrawerOpen: false }">
+                            <p class="font-semibold mb-2">&check; Approved for R{{ number_format($rentalApplication->approved_rental_amount, 2) }} a month — not yet sent.</p>
+                            <p class="mb-3">Confirm what the tenant is looking for, then send the approval. If you skip this, the email still goes out with a general list of available rentals under their approved amount.</p>
+                            <div class="flex flex-wrap gap-2">
+                                <button type="button" @click="wishlistDrawerOpen = true" class="corex-btn-outline text-xs">
+                                    {{ $existingWishlist ? 'Review tenant wishlist' : 'Add tenant wishlist' }}
+                                </button>
+                                <form method="POST" action="{{ route('corex.rental-applications.review.send', $rentalApplication) }}">
+                                    @csrf
+                                    <button type="submit" class="corex-btn-primary text-xs">Send approval to applicant</button>
+                                </form>
+                            </div>
+
+                            {{-- Drawer: same pattern as command-center/buyers/detail.blade.php:583-616 --}}
+                            <div x-show="wishlistDrawerOpen" x-cloak
+                                 class="fixed inset-0 z-50 flex justify-end"
+                                 style="background: rgba(0,0,0,0.5);"
+                                 @keydown.escape.window="wishlistDrawerOpen = false">
+                                <div class="h-full overflow-y-auto p-6 w-full max-w-3xl text-left"
+                                     style="background: var(--surface); border-left: 1px solid var(--border); color: var(--text-primary);"
+                                     @click.outside="wishlistDrawerOpen = false">
+                                    <div class="flex items-center justify-between mb-4">
+                                        <h2 class="text-lg font-semibold" style="color: var(--text-primary);">
+                                            {{ $existingWishlist ? 'Edit Tenant Wishlist' : 'New Tenant Wishlist' }}
+                                        </h2>
+                                        <button type="button" @click="wishlistDrawerOpen = false"
+                                                class="text-xl leading-none px-2 py-0" style="color: var(--text-muted); background: none; border: none; cursor: pointer;">&times;</button>
+                                    </div>
+                                    @include('corex.contacts._match-form', [
+                                        'contact' => $rentalApplication->contact,
+                                        'match' => $existingWishlist,
+                                        'defaultListingType' => 'rental',
+                                        'formAction' => $existingWishlist
+                                            ? route('corex.rental-applications.review.wishlist.update', [$rentalApplication, $existingWishlist])
+                                            : route('corex.rental-applications.review.wishlist.add', $rentalApplication),
+                                    ])
+                                </div>
+                            </div>
                         </div>
                     @elseif($rentalApplication->status === 'declined')
                         <div class="rounded-md px-3 py-2 text-xs mb-3" style="background: var(--ds-red-soft, #fef2f2); color: var(--ds-red, #dc2626);">

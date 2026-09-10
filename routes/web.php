@@ -2941,6 +2941,14 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // Reopen/resubmit, 2026-09-08 — send a returned/under-assessment
         // application back to the applicant to fix an answer and re-sign.
         Route::post('/{rentalApplication}/review/reopen', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'reopen'])->name('corex.rental-applications.review.reopen');
+        // AT-392 — the agent's wishlist step on the approval leg, reusing
+        // the Core Matches form/drawer. Not under /contacts/{contact}/matches
+        // because the redirect target and guard are review-screen-specific.
+        Route::post('/{rentalApplication}/review/wishlist', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'addWishlist'])->name('corex.rental-applications.review.wishlist.add');
+        // AT-392 — the agent's own send action, once approved. One-shot,
+        // guarded by applicant_notified_at (see the method's own docblock).
+        Route::post('/{rentalApplication}/review/send', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'send'])->name('corex.rental-applications.review.send');
+        Route::put('/{rentalApplication}/review/wishlist/{match}', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'updateWishlist'])->name('corex.rental-applications.review.wishlist.update');
         // Read-only "what was signed at each point" — one immutable
         // snapshot per submission round (see RentalApplicationGeneration).
         Route::get('/{rentalApplication}/generations/{generation}', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'showGeneration'])->name('corex.rental-applications.generations.show');

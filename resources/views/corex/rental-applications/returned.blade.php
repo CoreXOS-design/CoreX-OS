@@ -130,11 +130,19 @@
                                         @endforeach
                                     </select>
                                 </form>
+                            @elseif($application->status === 'approved' && ! $application->applicant_notified_at)
+                                {{-- AT-392 — Johan: "agent gets back and upon them being happy it gets sent out."
+                                     Approved-but-not-yet-sent is the agent's own action item, not just a status. --}}
+                                <span class="ds-badge" style="background:color-mix(in srgb, var(--ds-amber, #f59e0b) 16%, transparent); color:var(--ds-amber, #f59e0b); font-weight:600;">Approved — ready to send</span>
                             @else
                                 <span class="ds-badge ds-badge-info">{{ str_replace('_', ' ', $application->status) }}</span>
                             @endif
                         @else
-                            <span class="ds-badge ds-badge-info">{{ str_replace('_', ' ', $application->status) }}</span>
+                            @if($application->status === 'approved' && ! $application->applicant_notified_at)
+                                <span class="ds-badge" style="background:color-mix(in srgb, var(--ds-amber, #f59e0b) 16%, transparent); color:var(--ds-amber, #f59e0b); font-weight:600;">Approved — ready to send</span>
+                            @else
+                                <span class="ds-badge ds-badge-info">{{ str_replace('_', ' ', $application->status) }}</span>
+                            @endif
                         @endpermission
                     </td>
                     <td class="px-4 py-2">{{ $application->isFullySigned() ? '✓ Both signed' : 'Incomplete' }}</td>

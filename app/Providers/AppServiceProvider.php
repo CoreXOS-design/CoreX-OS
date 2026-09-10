@@ -689,6 +689,20 @@ class AppServiceProvider extends ServiceProvider
             Event::listen($eventClass, $listenerClass);
         }
 
+        // AT-392 — Contact::rental_application_status is a derived cache over
+        // the contact's own RentalApplication rows, kept in sync via domain
+        // events per non-negotiable #9, rather than written ad-hoc from each
+        // controller action. One listener, four triggers.
+        // Spec: .ai/specs/rental-applications.md — Contact status section.
+        foreach ([
+            \App\Events\RentalApplication\RentalApplicationSubmitted::class,
+            \App\Events\RentalApplication\RentalApplicationApproved::class,
+            \App\Events\RentalApplication\RentalApplicationDeclined::class,
+            \App\Events\RentalApplication\RentalApplicationReopened::class,
+        ] as $rentalApplicationEvent) {
+            Event::listen($rentalApplicationEvent, \App\Listeners\Contact\RecomputeRentalApplicationStatus::class);
+        }
+
         // 2026-08-24 (Johan) — public-link resilience: a SECOND listener on
         // AgentDeactivated (already logged via the wave6 map above through
         // LogAgentEvent). NOT added as a second key in $wave6 above — that

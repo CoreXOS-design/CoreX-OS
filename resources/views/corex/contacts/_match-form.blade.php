@@ -41,7 +41,11 @@
     $selectedMustHaves      = old('must_have_features',       $isEdit ? ($match->must_have_features ?? []) : []);
     $selectedNiceToHaves    = old('nice_to_have_features',    $isEdit ? ($match->nice_to_have_features ?? []) : []);
     $selectedDealBreakers   = old('deal_breakers',            $isEdit ? ($match->deal_breakers ?? [])     : []);
-    $initialListingType     = old('listing_type', $isEdit ? $match->listing_type : 'sale');
+    // AT-392 — an optional caller override for the create-mode default
+    // (e.g. the rental-application review screen wants 'rental', not the
+    // Buyer Pipeline/Contact page default of 'sale'). Every existing
+    // caller that doesn't pass it keeps today's behaviour unchanged.
+    $initialListingType     = old('listing_type', $isEdit ? $match->listing_type : ($defaultListingType ?? 'sale'));
     // Str::headline('pool_own') reads "Pool Own" — override the two pool-type
     // tokens with proper copy; every other token keeps the generic headline.
     $featureLabelOverrides = ['pool_own' => 'Own Pool', 'pool_communal' => 'Communal Pool'];

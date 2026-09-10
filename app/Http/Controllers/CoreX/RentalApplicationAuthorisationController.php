@@ -270,7 +270,6 @@ class RentalApplicationAuthorisationController extends Controller
         Request $request,
         RentalApplication $rentalApplication,
         RentalApplicationAuditService $audit,
-        RentalApplicationMailer $mailer,
         RentalApplicationNotifier $notifier,
     ) {
         $decision = $this->guardCanDecide($rentalApplication);
@@ -317,8 +316,17 @@ class RentalApplicationAuthorisationController extends Controller
                 . " for R" . number_format((float) $validated['approved_rental_amount'], 2) . " ({$decision['tier']})",
         );
 
+        // AT-392 — Johan changed the flow: approval no longer auto-emails
+        // the applicant. "no, agent gets back and upon them being happy it
+        // gets sent out." The agent decides the wishlist and sends —
+        // see RentalApplicationAgentSendController::send(). notifyAgentOfDecision
+        // is how the agent finds out approval happened at all; sendApproved()
+        // no longer fires from here.
         $notifier->notifyAgentOfDecision($rentalApplication, 'approved', $validated['reason'] ?? null, $decision['is_override']);
-        $mailer->sendApproved($rentalApplication);
+
+        // AT-392 — keeps Contact::rental_application_status in sync
+        // (App\Listeners\Contact\RecomputeRentalApplicationStatus).
+        event(new \App\Events\RentalApplication\RentalApplicationApproved($rentalApplication, $request->user()?->id));
 
         return redirect()->route('corex.rental-applications.authorisation.index')
             ->with('success', 'Application approved.');
@@ -330,6 +338,7 @@ class RentalApplicationAuthorisationController extends Controller
         RentalApplicationAuditService $audit,
         RentalApplicationMailer $mailer,
         RentalApplicationNotifier $notifier,
+        \App\Services\RentalApplications\RentalApplicationPdfService $pdfService,
     ) {
         $decision = $this->guardCanDecide($rentalApplication);
 
@@ -369,6 +378,14 @@ class RentalApplicationAuthorisationController extends Controller
         // any "how to improve" guidance. The template itself (subject/body,
         // agency-editable) is built and sent here; no extra content invented.
         $mailer->sendDecline($rentalApplication);
+
+        // AT-392 — Johan: "the documents / application / approval gets
+        // filed on the contact." Best-effort, same as the approval leg.
+        $pdfService->fileAsDocument($rentalApplication, 'Declined Rental Application');
+
+        // AT-392 — keeps Contact::rental_application_status in sync
+        // (App\Listeners\Contact\RecomputeRentalApplicationStatus).
+        event(new \App\Events\RentalApplication\RentalApplicationDeclined($rentalApplication, $request->user()?->id));
 
         return redirect()->route('corex.rental-applications.authorisation.index')
             ->with('success', 'Application declined.');

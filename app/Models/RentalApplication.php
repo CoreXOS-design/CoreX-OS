@@ -270,6 +270,7 @@ class RentalApplication extends Model
         'submitted_at' => 'datetime',
         'submitted_for_approval_at' => 'datetime',
         'reopened_at' => 'datetime',
+        'applicant_notified_at' => 'datetime',
         'current_generation' => 'integer',
         'approved_rental_amount' => 'decimal:2',
         'current_rental_amount' => 'decimal:2',
