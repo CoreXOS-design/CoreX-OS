@@ -187,8 +187,18 @@ function rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, curre
         // Called from each screen's own init() — registers the unsaved-marks
         // beforeunload guard and restores this device's remembered stroke size.
         initHighlighterPrefs() {
+            // AT-401 — an authoriser clicking Approve/Decline navigates away
+            // via a normal form POST. If they happened to have unsaved
+            // highlighter marks open, this guard's native "leave site?"
+            // dialog fired on top of that — nothing to do with whether the
+            // DECISION saved (it always does, server-side), but Johan read it
+            // as "did my approval not save?" The decision forms set this
+            // flag in their own submit handler, after their own plain-
+            // language confirm, right before letting the POST through — this
+            // guard only ever protects against an ACCIDENTAL navigation
+            // losing unsaved marks, never a deliberate one.
             window.addEventListener('beforeunload', (e) => {
-                if (this.dirty) { e.preventDefault(); e.returnValue = ''; }
+                if (this.dirty && !window.__raSuppressUnloadGuard) { e.preventDefault(); e.returnValue = ''; }
             });
             try {
                 const saved = localStorage.getItem('rahStrokeSizeKey');

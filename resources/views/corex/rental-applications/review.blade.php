@@ -945,7 +945,16 @@
                             <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Approve — monthly amount</label>
                             <input type="text" inputmode="decimal" x-model="approveAmount" class="corex-input text-sm w-full mb-2" placeholder="0.00">
                             <textarea x-model="approveReason" rows="2" class="corex-input text-xs w-full mb-2" placeholder="{{ $alreadyDecided ? 'Reason for override (required)' : 'Notes (optional)' }}"></textarea>
-                            <form method="POST" action="{{ route('corex.rental-applications.authorisation.approve', $rentalApplication) }}" @submit="$refs.approveAmountField.value = approveAmount; $refs.approveReasonField.value = approveReason">
+                            {{-- AT-401 — Johan: "the decision buttons should save the
+                                 work and the only modal here is a confirmation."
+                                 One plain-language confirm naming the decision and
+                                 the amount; Cancel stops the submit entirely. On
+                                 confirm, __raSuppressUnloadGuard is set BEFORE the
+                                 POST goes through so the highlighter's own unsaved-
+                                 marks warning (document-highlighter-script.blade.php)
+                                 never fires on this deliberate navigation. --}}
+                            <form method="POST" action="{{ route('corex.rental-applications.authorisation.approve', $rentalApplication) }}"
+                                  @submit="if (!confirm('Approve this tenant for R' + Number(approveAmount || 0).toLocaleString('en-ZA', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + '?')) { $event.preventDefault(); return; } window.__raSuppressUnloadGuard = true; $refs.approveAmountField.value = approveAmount; $refs.approveReasonField.value = approveReason">
                                 @csrf
                                 <input type="hidden" name="approved_rental_amount" x-ref="approveAmountField">
                                 <input type="hidden" name="reason" x-ref="approveReasonField">
@@ -964,7 +973,10 @@
                                  and reflected here so the button can't even be
                                  clicked without one. --}}
                             <textarea x-model="declineReason" rows="2" class="corex-input text-xs w-full mb-2" placeholder="Reason for decline (required) — the agent will see this"></textarea>
-                            <form method="POST" action="{{ route('corex.rental-applications.authorisation.decline', $rentalApplication) }}" @submit="$refs.declineReasonField.value = declineReason">
+                            {{-- AT-401 — same plain-confirm + unload-guard-suppress
+                                 pattern as the Approve form above. --}}
+                            <form method="POST" action="{{ route('corex.rental-applications.authorisation.decline', $rentalApplication) }}"
+                                  @submit="if (!confirm('Decline this application?')) { $event.preventDefault(); return; } window.__raSuppressUnloadGuard = true; $refs.declineReasonField.value = declineReason">
                                 @csrf
                                 <input type="hidden" name="reason" x-ref="declineReasonField">
                                 <button type="submit" class="corex-btn-outline text-xs w-full" style="color: var(--ds-red, #dc2626); border-color: var(--ds-red, #dc2626);" :disabled="!declineReason.trim()">Decline</button>
@@ -976,7 +988,9 @@
                                 <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Request more information</label>
                                 <p class="text-xs mb-2" style="color: var(--text-muted);">Sends this back to the agent, not the applicant.</p>
                                 <textarea x-model="moreInfoReason" rows="2" class="corex-input text-xs w-full mb-2" placeholder="What's missing? (required)"></textarea>
-                                <form method="POST" action="{{ route('corex.rental-applications.authorisation.request-more-info', $rentalApplication) }}" @submit="$refs.moreInfoReasonField.value = moreInfoReason">
+                                {{-- AT-401 — same pattern; this is a decision button too. --}}
+                                <form method="POST" action="{{ route('corex.rental-applications.authorisation.request-more-info', $rentalApplication) }}"
+                                      @submit="if (!confirm('Send this back to the agent for more information?')) { $event.preventDefault(); return; } window.__raSuppressUnloadGuard = true; $refs.moreInfoReasonField.value = moreInfoReason">
                                     @csrf
                                     <input type="hidden" name="reason" x-ref="moreInfoReasonField">
                                     <button type="submit" class="corex-btn-outline text-xs w-full" :disabled="!moreInfoReason.trim()">Request More Information</button>

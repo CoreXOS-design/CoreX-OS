@@ -120,7 +120,25 @@
                     <td class="px-4 py-2">{{ $application->property?->buildDisplayAddress() ?? $application->property_address_override ?? '—' }}</td>
                     <td class="px-4 py-2">
                         @permission('rental_applications.create')
-                            @if(in_array($application->status, \App\Models\RentalApplication::POST_RETURN_STATUSES, true))
+                            {{-- AT-401 — this dropdown's own <option> list is
+                                 AGENT_SETTABLE_STATUSES (+ the disabled
+                                 'returned' placeholder), not the broader
+                                 POST_RETURN_STATUSES this gate used to check.
+                                 'approved'/'declined' are in POST_RETURN_STATUSES
+                                 (so a hand-set judgement call makes sense on
+                                 them) but are NOT agent-settable — they're
+                                 terminal authoriser decisions. Gating on the
+                                 wider list routed them into this <select>
+                                 anyway, and since none of its <option>s match
+                                 either value, the browser fell back to
+                                 displaying the first enabled option
+                                 ('Under assessment') regardless of the real
+                                 status — a pure display bug, the underlying
+                                 column was always correct. Gate on exactly the
+                                 statuses this dropdown can actually represent;
+                                 approved/declined fall through to the plain
+                                 badge below, which already renders them correctly. --}}
+                            @if(in_array($application->status, array_merge(['returned'], \App\Models\RentalApplication::AGENT_SETTABLE_STATUSES), true))
                                 <form method="POST" action="{{ route('corex.rental-applications.update-status', $application) }}" class="inline">
                                     @csrf
                                     <select name="status" onchange="this.form.submit()" class="ds-badge ds-badge-info text-xs" style="border: 1px solid var(--border); cursor: pointer;">
