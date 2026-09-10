@@ -388,15 +388,13 @@ class Deal extends Model
         if (!in_array($side, ['listing', 'selling'], true)) return 0.0;
 
         $externalFlag = (bool) ($this->{$side . '_external'} ?? false);
-        if ($externalFlag) return 0.0;
-
         $sidePct = (float) ($this->{$side . '_split_percent'} ?? 50);
-        $ourPct  = (float) ($this->{$side . '_our_share_percent'} ?? 100);
 
-        $sideFactor = max(0.0, min(1.0, $sidePct / 100.0));
-        $ourFactor  = max(0.0, min(1.0, $ourPct / 100.0));
-
-        return $this->commissionExVat() * $sideFactor * $ourFactor;
+        return \App\Services\Finance\CommissionPoolCalculator::internalPool(
+            $this->commissionExVat(),
+            $externalFlag,
+            $sidePct
+        );
     }
 public function listingPool()
     {

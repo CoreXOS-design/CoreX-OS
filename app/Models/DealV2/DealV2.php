@@ -253,14 +253,14 @@ class DealV2 extends Model
 
     private function calculateInternalPool(string $side): float
     {
-        if ((bool) $this->{$side . '_external'}) {
-            return 0.0;
-        }
-
+        $externalFlag = (bool) $this->{$side . '_external'};
         $sidePct = (float) ($this->{$side . '_split_percent'} ?? 50);
-        $ourPct = (float) ($this->{$side . '_our_share_percent'} ?? 100);
 
-        return $this->commissionExVat() * ($sidePct / 100.0) * ($ourPct / 100.0);
+        return \App\Services\Finance\CommissionPoolCalculator::internalPool(
+            $this->commissionExVat(),
+            $externalFlag,
+            $sidePct
+        );
     }
 
     public function listingPool(): float
