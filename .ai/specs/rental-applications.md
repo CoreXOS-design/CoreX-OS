@@ -7055,6 +7055,22 @@ Test marks created for this verification (author_user_id belonging to a temporar
 - `resources/views/corex/rental-applications/partials/document-highlighter-script.blade.php` — marks stored as normalised fractions, `renderedPageSize`/`observePageResize()`/`toDisplayX()`/`toDisplayY()`, restore/draw/save paths updated
 - `resources/views/corex/rental-applications/partials/document-highlighter-pages.blade.php` — note pin and remove-× button read through `toDisplayX()`/`toDisplayY()`
 
+#### Item 7 — real pre-existing marks verified against the fix, not just new ones (2026-09-10)
+
+Johan accepted the fix's shape but wanted the "no migration needed" claim tested rather than reasoned: *"if it's wrong it's wrong silently and on documents people have already marked up... Take real marks that were created BEFORE your change — not ones you drew afterwards."* He asked for a row count before running anything.
+
+**Row count, reported first**: 168 marks total in `rental_application_document_marks`; 164 created before this fix's commit (2026-09-10 18:57:48), across 20 distinct documents.
+
+**Method — independent ground truth, not trust in the new code**: for each candidate mark, the raw stored raster `x`/`y`/`points` were read straight from the database and cropped directly out of the underlying page raster image (the same PNG the OCR/render pipeline produced), with zero dependence on the client-side fix. That established "this mark covers this exact text" independently. The live, fixed highlighter was then opened for the same mark at 400px/460px/660px (the aside range's floor/default/ceiling) and screenshotted at the same raster-derived region.
+
+**Marks tested — genuine, human-drawn, pre-fix**: Johan's and Andre's own real highlights, on three separate live applications (66, 22, 70), across two different pages of a real bank statement and one letterhead strike. All matched the ground truth exactly at all three widths — a real salary figure ("R 39 447"), two bank-statement transaction rows, a header-row underline, and a freehand strike across a letterhead logo all stayed locked to the same text regardless of panel width.
+
+**Two honest gaps, disclosed rather than left implicit**:
+- Application 76's own original document (the one Johan personally tested on) was superseded by a Split & File action partway through that same testing session and is now soft-deleted — unreachable through the UI (confirmed: direct route access 404s, as archived documents should). Its 17 real marks could not be tested in place; three other live applications were used instead.
+- **Every reachable real pre-fix mark happens to sit on a 1241×1755-raster document.** The only differently-sized real documents in the dataset (1000×1300, 1240×1755) were also archived/unreachable. The fix converts via each page's own `page.width`/`page.height` rather than a fixed number, so it is not size-specific by construction — but that is a claim about the code's design, not a second live measurement. **This has NOT been empirically proven at a second real page size** — only reasoned from how the conversion is written. If a differently-sized document with pre-existing marks ever becomes reachable again, re-running this same check against it would close that gap for real.
+
+No corrections were needed — every tested mark was already correct — so no mark data was touched. Temporary QA-verify user and RO-list grant used for the authoriser-side spot check were reverted/soft-deleted afterward.
+
 ### Item 6, ROUND 2 (2026-09-10, same day) — Johan rejected round 1 after checking application 76 himself
 
 Round 1 (260→320 floor, boxed cards) was NOT accepted. Johan, checking the real screen himself, not a lane report: *"the description field on every row is so narrow it truncates to about five characters — the rows literally read 'salar', 'wage'... You solved it INSIDE the panel's existing width — and the width is the problem. Going 260 → 320 does not make a 5-character field readable... Work out the width the affordability rows genuinely need... then give the panel that, taking the space from the main column, which plainly has it to spare."* Also, on process: *"Lane test results are never proof here... Check against what Johan actually complained about, not against whether the change you made works."*
