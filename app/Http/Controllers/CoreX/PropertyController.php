@@ -2338,6 +2338,66 @@ class PropertyController extends Controller
         ]);
     }
 
+    /**
+     * AT-402 — Rental tab (data fields). Dedicated save action, deliberately
+     * separate from the large update() method above, so this specific save
+     * gets its own clean validation + transaction + authorization from day
+     * one rather than riding update()'s much larger surface.
+     *
+     * Only reachable for a SETTLED rental property (not $isNew, not a
+     * type-change draft) — see show.blade.php's Rental tab: a brand new
+     * property or a listing_type_pending draft still enters its rental
+     * fields through the main store()/update() form (form="prop-update-form"),
+     * exactly as it does today, because the property may not exist yet.
+     *
+     * Server-side re-checks listing_type itself rather than trusting the tab
+     * being hidden client-side — a sale property (or a pending type-change
+     * draft, which hasn't committed to a type yet) gets a 403, never a
+     * silent rental-field write. Same lock-not-hide principle as the Rentals
+     * subsystem entry points (AT-401).
+     *
+     * "Archive/restore" for this data has no separate lifecycle of its own —
+     * it lives on the Property row, so archiving/restoring the PROPERTY
+     * (already soft-deleted via destroy()) already carries these fields with
+     * it; there is no independent rental-detail record to archive.
+     */
+    public function updateRentalDetails(Request $request, Property $property)
+    {
+        $this->authorizeProperty($property);
+
+        abort_if(
+            strtolower((string) $property->listing_type) !== 'rental' || $property->listing_type_pending,
+            403,
+            'This property is not a settled rental listing.'
+        );
+
+        $data = $request->validate([
+            'rental_amount'     => 'nullable|numeric|min:0',
+            'deposit_amount'    => 'nullable|numeric|min:0',
+            'rental_price_type' => 'nullable|string|max:50',
+            'lease_start_date'  => 'nullable|date',
+            'lease_end_date'    => 'nullable|date|after_or_equal:lease_start_date',
+        ]);
+
+        DB::transaction(function () use ($property, $data) {
+            $property->update($data);
+        });
+
+        // Same "portal copies just went stale" nudge the main update() gives —
+        // a rental's price/lease dates are exactly the kind of change that
+        // makes a live, compliant listing's P24/PP copy stale. See
+        // shouldPromptSyndication()'s own docblock for the full reasoning.
+        $redirect = redirect()->route('corex.properties.show', $property)
+            ->with('success', 'Rental details updated.')
+            ->with('tab', 'rental');
+
+        if ($this->shouldPromptSyndication($property)) {
+            $redirect->with('open_syndication', true);
+        }
+
+        return $redirect;
+    }
+
     public function reorderImages(Request $request, Property $property)
     {
         $this->authorizeProperty($property);

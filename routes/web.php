@@ -3787,6 +3787,15 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // Bulk rental-image delete — "Delete selected" / "Delete all". One transaction,
         // same permission + HARD-delete semantics as the single rental delete above.
         Route::post('/{property}/rental-images/delete-bulk',[\App\Http\Controllers\CoreX\PropertyController::class, 'deleteRentalImages'])->name('rental-images.delete-bulk');
+        // AT-402 — Rental tab (data fields, not images). Only reachable for an
+        // EXISTING, non-pending-type-change rental property — a brand new
+        // property or a type-change draft still saves its rental fields
+        // through the main store()/update() form (see show.blade.php's Rental
+        // tab: form="prop-update-form" for those two cases). Dedicated action
+        // so this save is properly validated/transactional/scoped on its own,
+        // per Johan's build standard, without touching the large existing
+        // update() method. Spec: .ai/specs/rentals-shared-screens.md §5.
+        Route::put('/{property}/rental-details', [\App\Http\Controllers\CoreX\PropertyController::class, 'updateRentalDetails'])->name('rental-details.update');
         // Notes
         Route::post('/{property}/notes',                [\App\Http\Controllers\CoreX\PropertyNoteController::class, 'store'])->name('notes.store');
         Route::delete('/{property}/notes/{note}',       [\App\Http\Controllers\CoreX\PropertyNoteController::class, 'destroy'])->name('notes.destroy');

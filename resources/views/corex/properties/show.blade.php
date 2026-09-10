@@ -1207,11 +1207,28 @@
     @endif
 
     {{-- Tab bar (shared) --}}
-        <div class="flex overflow-x-auto" style="border-bottom:1px solid var(--border);">
+        {{-- AT-402 — Rental tab visibility. An EXISTING property's listing_type is
+             fixed for the life of this page load (the <select> only renders when
+             $isNew || listing_type_pending — see the Listing Type field below;
+             otherwise it's a disabled display + hidden input), so a static PHP
+             @continue is enough there. But for a BRAND NEW property (or a
+             type-change draft), listing_type is live-editable before the first
+             save, and the existing "Rental Details" section already reacts to
+             that live change (its own x-data further down) — the Rental tab
+             button must do the same, or an agent who picks "Rental" while
+             creating a listing loses everywhere to enter rental info until
+             after they save once. Mirrors that section's exact pattern. --}}
+        <div class="flex overflow-x-auto" style="border-bottom:1px solid var(--border);"
+             x-data="{ isRentalListing: document.querySelector('[name=listing_type]')?.value === 'rental' }"
+             x-init="document.querySelector('[name=listing_type]')?.addEventListener('change', e => {
+                 isRentalListing = e.target.value === 'rental';
+                 if (!isRentalListing && activeTab === 'rental') activeTab = 'info';
+             })">
             @foreach([
                 ['key'=>'overview',  'label'=>'Overview'],
                 ['key'=>'info',      'label'=>'Info'],
                 ['key'=>'gallery',   'label'=>'Gallery'],
+                ['key'=>'rental',    'label'=>'Rental'],
                 ['key'=>'rental-images', 'label'=>'Rental Images'],
                 ['key'=>'contacts',  'label'=>'Contacts'],
                 ['key'=>'notes',     'label'=>'Notes'],
@@ -1229,6 +1246,7 @@
             <button type="button"
                     data-prop-tab="{{ $tab['key'] }}"
                     @click="activeTab = '{{ $tab['key'] }}'"
+                    @if($tab['key'] === 'rental') x-show="isRentalListing" x-cloak @endif
                     :class="'border-b-2'"
                     :style="activeTab === '{{ $tab['key'] }}' ? 'color:var(--brand-icon); border-color:var(--brand-icon); background:color-mix(in srgb, var(--brand-icon) 6%, transparent);' : 'color:var(--text-secondary); border-color:transparent; background:transparent;'"
                     class="px-6 py-4 text-sm font-semibold whitespace-nowrap flex-shrink-0 transition-colors duration-150 outline-none focus:outline-none"
@@ -1742,7 +1760,6 @@
                           pricing:  true,
                           property: true,
                           mandate:  true,
-                          rental:   '{{ strtolower($property->listing_type ?? '') }}' === 'rental',
                       },
                       toggleAll(state) {
                           for (const k of Object.keys(this.info)) this.info[k] = state;
@@ -3423,44 +3440,6 @@
                     </div>{{-- /info.mandate body --}}
                 </section>{{-- /Mandate section --}}
 
-                {{-- ── SECTION: RENTAL DETAILS (only when listing type = rental) ── --}}
-                <section id="sec-rental" class="prop-section"
-                     x-data="{ isRental: document.querySelector('[name=listing_type]')?.value === 'rental' }"
-                     x-init="document.querySelector('[name=listing_type]')?.addEventListener('change', e => isRental = e.target.value === 'rental')"
-                     x-show="isRental || '{{ strtolower($property->listing_type ?? '') }}' === 'rental'" x-cloak>
-                    <button type="button" class="prop-section-toggle" @click="info.rental = !info.rental">
-                        <h3 class="prop-section-heading"><span class="prop-section-heading-text">Rental Details</span></h3>
-                        <svg class="prop-section-chevron" :class="info.rental ? 'is-open' : ''" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/></svg>
-                    </button>
-                    <div x-show="info.rental" x-collapse class="prop-section-body grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                        <div>
-                            <label class="prop-label">Monthly Rental (R)</label>
-                            <input type="number" name="rental_amount" value="{{ old('rental_amount', $property->rental_amount) }}" placeholder="0.00" min="0" step="0.01" class="prop-input prop-field-money">
-                        </div>
-                        <div>
-                            <label class="prop-label">Deposit (R)</label>
-                            <input type="number" name="deposit_amount" value="{{ old('deposit_amount', $property->deposit_amount) }}" placeholder="0.00" min="0" step="0.01" class="prop-input prop-field-money">
-                        </div>
-                        <div>
-                            <label class="prop-label">Rental Price Type</label>
-                            <select name="rental_price_type" class="prop-select prop-field-enum">
-                                <option value="">— Not Set —</option>
-                                @foreach(['per month' => 'Per Month', 'per sqm' => 'Per Sqm', 'per day' => 'Per Day', 'per week' => 'Per Week', 'per year' => 'Per Year'] as $val => $lbl)
-                                    <option value="{{ $val }}" {{ old('rental_price_type', $property->rental_price_type) === $val ? 'selected' : '' }}>{{ $lbl }}</option>
-                                @endforeach
-                            </select>
-                        </div>
-                        <div>
-                            <label class="prop-label">Lease Start Date</label>
-                            <input type="date" name="lease_start_date" value="{{ old('lease_start_date', $property->lease_start_date?->format('Y-m-d')) }}" class="prop-input prop-field-date" style="color-scheme: light dark;">
-                        </div>
-                        <div>
-                            <label class="prop-label">Lease End Date</label>
-                            <input type="date" name="lease_end_date" value="{{ old('lease_end_date', $property->lease_end_date?->format('Y-m-d')) }}" class="prop-input prop-field-date" style="color-scheme: light dark;">
-                        </div>
-                    </div>
-                </section>
-
             </form>{{-- /prop-update-form --}}
 
             {{-- Save / Delete — outside the update form to prevent nesting --}}
@@ -4106,6 +4085,94 @@
 
             {{-- Portal Agents section removed — agent info shown in live preview and sidebar --}}
 
+        </div>
+
+        {{-- ── RENTAL TAB (data fields) ── AT-402 ──────────────────────────────
+             Visible only for a rental listing (reactively for $isNew /
+             listing_type_pending — see the tab-bar's x-data above; statically
+             for a settled property, since its listing_type can't change
+             without going through the separate duplicate/change-type flow).
+             Holds the rental-only info a sale property has no use for — see
+             .ai/specs/rentals-shared-screens.md §5 for the full inventory and
+             the move/stay reasoning for every field. --}}
+        <div x-show="activeTab === 'rental'" x-cloak class="p-6 space-y-4">
+            @if($isNew || $property->listing_type_pending)
+                {{-- The property may not exist yet (or is mid type-change), so
+                     the dedicated rental-details action below can't be used —
+                     these fields ride the main create/update form instead,
+                     via form="prop-update-form" (the same cross-form-binding
+                     the Gallery tab's file input already relies on), submitting
+                     to the SAME store()/update() action and validation these
+                     fields already used when they lived inside the Info tab. --}}
+                <p class="text-xs" style="color:var(--text-muted);">Saved together with the rest of the property below.</p>
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <div>
+                        <label class="prop-label">Monthly Rental (R)</label>
+                        <input type="number" name="rental_amount" form="prop-update-form" value="{{ old('rental_amount', $property->rental_amount) }}" placeholder="0.00" min="0" step="0.01" class="prop-input prop-field-money">
+                    </div>
+                    <div>
+                        <label class="prop-label">Deposit (R)</label>
+                        <input type="number" name="deposit_amount" form="prop-update-form" value="{{ old('deposit_amount', $property->deposit_amount) }}" placeholder="0.00" min="0" step="0.01" class="prop-input prop-field-money">
+                    </div>
+                    <div>
+                        <label class="prop-label">Rental Price Type</label>
+                        <select name="rental_price_type" form="prop-update-form" class="prop-select prop-field-enum">
+                            <option value="">— Not Set —</option>
+                            @foreach(['per month' => 'Per Month', 'per sqm' => 'Per Sqm', 'per day' => 'Per Day', 'per week' => 'Per Week', 'per year' => 'Per Year'] as $val => $lbl)
+                                <option value="{{ $val }}" {{ old('rental_price_type', $property->rental_price_type) === $val ? 'selected' : '' }}>{{ $lbl }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+                    <div>
+                        <label class="prop-label">Lease Start Date</label>
+                        <input type="date" name="lease_start_date" form="prop-update-form" value="{{ old('lease_start_date', $property->lease_start_date?->format('Y-m-d')) }}" class="prop-input prop-field-date" style="color-scheme: light dark;">
+                    </div>
+                    <div>
+                        <label class="prop-label">Lease End Date</label>
+                        <input type="date" name="lease_end_date" form="prop-update-form" value="{{ old('lease_end_date', $property->lease_end_date?->format('Y-m-d')) }}" class="prop-input prop-field-date" style="color-scheme: light dark;">
+                    </div>
+                </div>
+            @else
+                {{-- Settled rental property — dedicated save action
+                     (PropertyController::updateRentalDetails()): its own
+                     validation, its own DB transaction, the same
+                     authorizeProperty() OWN/BRANCH/AGENCY scoping every other
+                     property write already uses. --}}
+                <form method="POST" action="{{ route('corex.properties.rental-details.update', $property) }}" class="space-y-4">
+                    @csrf
+                    @method('PUT')
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                        <div>
+                            <label class="prop-label">Monthly Rental (R)</label>
+                            <input type="number" name="rental_amount" value="{{ old('rental_amount', $property->rental_amount) }}" placeholder="0.00" min="0" step="0.01" class="prop-input prop-field-money">
+                        </div>
+                        <div>
+                            <label class="prop-label">Deposit (R)</label>
+                            <input type="number" name="deposit_amount" value="{{ old('deposit_amount', $property->deposit_amount) }}" placeholder="0.00" min="0" step="0.01" class="prop-input prop-field-money">
+                        </div>
+                        <div>
+                            <label class="prop-label">Rental Price Type</label>
+                            <select name="rental_price_type" class="prop-select prop-field-enum">
+                                <option value="">— Not Set —</option>
+                                @foreach(['per month' => 'Per Month', 'per sqm' => 'Per Sqm', 'per day' => 'Per Day', 'per week' => 'Per Week', 'per year' => 'Per Year'] as $val => $lbl)
+                                    <option value="{{ $val }}" {{ old('rental_price_type', $property->rental_price_type) === $val ? 'selected' : '' }}>{{ $lbl }}</option>
+                                @endforeach
+                            </select>
+                        </div>
+                        <div>
+                            <label class="prop-label">Lease Start Date</label>
+                            <input type="date" name="lease_start_date" value="{{ old('lease_start_date', $property->lease_start_date?->format('Y-m-d')) }}" class="prop-input prop-field-date" style="color-scheme: light dark;">
+                        </div>
+                        <div>
+                            <label class="prop-label">Lease End Date</label>
+                            <input type="date" name="lease_end_date" value="{{ old('lease_end_date', $property->lease_end_date?->format('Y-m-d')) }}" class="prop-input prop-field-date" style="color-scheme: light dark;">
+                        </div>
+                    </div>
+                    <div class="flex justify-end">
+                        <button type="submit" class="corex-btn-primary text-sm">Save Rental Details</button>
+                    </div>
+                </form>
+            @endif
         </div>
 
         {{-- ── RENTAL IMAGES TAB ─────────────────────────────────────────────── --}}
