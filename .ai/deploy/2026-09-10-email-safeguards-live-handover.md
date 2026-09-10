@@ -79,25 +79,41 @@ New/relevant migrations in this delta (`2026_09_08_170000` through `2026_09_09_0
 | `create_communication_host_circuit_breakers_table` | new table, one row per host |
 | `add_auth_lock_to_communication_host_circuit_breakers` | adds `auth_failure_count`, `auth_locked_at` |
 | `add_error_detail_to_communication_mailboxes` | raw-server-response columns for the diagnostics disclosure |
-| **`reconcile_hfcoastal_host_auth_failure_count`** | **see the warning immediately below — do not run this blind** |
+| `reconcile_hfcoastal_host_auth_failure_count` | **RUN IT.** Johan confirmed — see below. |
 | `add_communication_poll_chunk_size_to_agencies` | agency-configurable chunk size |
 
-### STOP — read this one before running the migrations
+### RESOLVED — run this one, Johan's own words
 
 `reconcile_hfcoastal_host_auth_failure_count` **hardcodes** `mail.hfcoastal.co.za`'s breaker row to
 `auth_failure_count = 2, auth_locked_at = now()` — i.e. it **locks that host on whatever
-environment it runs on**, reflecting tonight's real Staging incident. This is correct on Staging,
-where those two failures genuinely happened.
+environment it runs on**.
 
-**Before running it on live, this needs an explicit answer from Johan, not an assumption:** is
-live's connection to `mail.hfcoastal.co.za` the *same* real Afrihost account/IP relationship as
-Staging's (in which case locking it on live too is the right, cautious thing — the two real
-failures happened against the one real account, and live sharing that risk is real), or is live a
-genuinely separate, clean relationship with Afrihost (in which case this migration would wrongly
-lock a host that's actually fine, blocking Johan's real mail on live for no reason)? **Do not
-guess either way.** If you can't get a fast answer, skip this one migration specifically (`php
-artisan migrate --force` runs everything; if you need to exclude one, use `--path` for the others
-individually, or comment it out temporarily) and flag it back to cc1/Johan before this ships.
+This used to be a STOP pending an answer from Johan. He answered it directly, 2026-09-10: *"if you
+are on johan@hfcoastal.co.za then yes. thats my mailbox and all the other mailboxes are hfc's
+mailboxes."* **`mail.hfcoastal.co.za` is one real, shared Afrihost mail host — the same physical
+mailboxes live and Staging/QA1 both connect to. Live is not a separate mail relationship.**
+
+**Run it on live, deliberately, as part of this delta.** The reasoning, plainly:
+
+- Tonight's two recorded failures were **real** — a genuine 535 rejection from the real Afrihost
+  server, using a password that was genuinely stale at that moment (last changed in July; Johan
+  re-saved it later the same day). Not a Staging bug, not a misconfiguration on Staging's side —
+  the identical two failures would have happened from live at that same moment, with that same
+  old password. The current password is confirmed correct: a real, successful login went through
+  once Afrihost's IP block lifted.
+- Because the host is shared, those two failures count against the **real, external Afrihost
+  cap** regardless of which environment caused them. `communication_host_circuit_breakers` is a
+  **separate table per environment** (Staging, QA1, and live each have their own database) — our
+  own software cannot see across environments, so live's copy of this safety tracker currently
+  reads "0 of 3, all clear" whether that's true or not.
+- **Not running it leaves live's own tracker telling a false story** — genuinely 2 of 3 real
+  strikes already spent, with live's software unaware and unable to warn anyone before a third
+  real attempt (from any environment) risks a second real ban.
+- **Running it means every mailbox on `mail.hfcoastal.co.za` on live — not just Johan's, all of
+  HFC's staff on that host — has Test Connection and automatic polling paused** until a person
+  reviews and deliberately clears the lock (same as it's already behaving on Staging tonight).
+  That pause is the correct, intended behaviour, not a side effect to work around — see §8, do not
+  clear it without understanding why it's there.
 
 ### Verification queries — run these for real, don't trust migrate's output
 
@@ -209,9 +225,12 @@ attention.
   deliberately set below the real external limit, on purpose, so there is always margin before the
   real ban. Raising it trades away the one thing standing between us and a second incident like
   tonight's.
-- **Do not run `reconcile_hfcoastal_host_auth_failure_count` on live without the explicit answer
-  described in §3.** It's the one migration in this delta that encodes environment-specific
-  incident history rather than a schema/feature change.
+- **`reconcile_hfcoastal_host_auth_failure_count` — run it, per §3.** Johan confirmed
+  `mail.hfcoastal.co.za` is one shared host across live and Staging/QA1, not a separate
+  relationship. This is the one migration in this delta that encodes real incident history rather
+  than a schema/feature change — it's resolved, not a thing to second-guess on the day, but if
+  the mail setup changes before this ships (a different account, a different provider) that
+  assumption needs re-checking, not assumed to still hold.
 
 ---
 
