@@ -333,7 +333,18 @@ class Deal extends Model
 
     public function agents()
     {
-        return $this->belongsToMany(User::class)
+        // DR2 financial audit F2 (AT-408) — a deactivated agent's account is
+        // soft-deleted; without withTrashed() here, every historical deal
+        // they were ever part of silently loses their share the moment they
+        // leave, on every consumer of this relationship: the deal_user pivot
+        // row (and the real commission it represents) is untouched, it just
+        // stops being visible. Confirmed live-wrong on real deals 131/132
+        // before this fix (their departed agents' R13,043.48/R36,750.00
+        // vanished from Branch/Company Performance, silently re-labelled as
+        // company profit). This is the one relationship both the live
+        // RollupService path and the dormant Deal::allocations() path read —
+        // fixing it here fixes both at once.
+        return $this->belongsToMany(User::class)->withTrashed()
             ->withPivot([
                 'side',
                 'agent_split_percent',
