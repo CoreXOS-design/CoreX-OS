@@ -6313,3 +6313,67 @@ income data) into a file that leaves the system — his decision to make,
 not a lane's. **Nothing built.** If Johan wants an export, treat it as a
 new feature spec of its own — this section exists only to record that the
 question was raised and deliberately not answered here.
+
+## Maximum properties per approval email — settings screen (AT-392, 2026-09-10)
+
+The approval-leg spec above (§"Matching rule — the approved amount is a
+HARD CEILING") named this as agency-configurable, default 5, but the
+setting only existed as a model/migration/consumer — no settings screen,
+no way for an agency to actually change it. Closing that gap.
+
+**Setting:** `App\Models\RentalApplicationApprovalEmailSetting`
+(`rental_application_approval_email_settings` table — `agency_id` unique,
+`max_properties_in_email` unsigned tinyint, default 5). Same
+never-writes-on-read pattern as `RentalApplicationQualifyingSetting`:
+`maxPropertiesFor(?int $agencyId)` returns the default until the agency
+explicitly saves a row of their own — no row is created on read.
+
+**Real usage site (unchanged):**
+`app/Services/RentalApplications/RentalApplicationPropertyMatcher.php:53`
+— `RentalApplicationPropertyMatcher::forApproval()` already called
+`RentalApplicationApprovalEmailSetting::maxPropertiesFor()` before this
+build; there was no separate hardcoded literal to replace there. The
+"hardcoded value" was the class constant `DEFAULT_MAX_PROPERTIES_IN_EMAIL
+= 5` acting as the only value any agency could ever see, since nothing
+could write to the table. That constant remains — correctly — as the
+in-memory fallback default; what's new is the path to override it.
+
+**Settings screen:** `corex/settings/rental-applications.blade.php`, a
+new "Approval Email — Matched Properties" block (same screen as the
+Qualifying Formula and Reopened Application Link Expiry settings — no
+second settings home), one number field, save via
+`POST corex.settings.rental-applications.approval-email` →
+`RentalApplicationSettingsController::updateApprovalEmailSettings()`.
+Validation: `required|integer|min:1|max:20` — never 0/negative (an
+agency that wants no properties at all turns off the wishlist step
+elsewhere, not by starving this field to zero) and never unbounded (a
+runaway value would turn the approval email into a stock catalogue, not
+a curated match list). Agency-scoped via `updateOrCreate(['agency_id' =>
+...], [...])`, identical shape to every sibling setting on this screen —
+no cross-agency leakage possible by construction (the row's own unique
+key is `agency_id`).
+
+**Findability — a real gap found while wiring this, not a new one
+introduced.** The whole `corex/settings/rental-applications.blade.php`
+screen (already carrying Qualifying Formula, RO/CO, Decline Email,
+Reopen Link Expiry, and Highlighters — none of it new to this commit)
+was never reachable from the main Settings hub
+(`resources/views/corex/settings.blade.php`) or its search — checked
+directly, zero references to `rental-applications` anywhere in that
+file before this change. Added one `'type'=>'link'` entry under the
+Modules section (the same pattern every other settings-page link on that
+hub already uses — see `'doc-types'`, `'coc-service-types'`, etc.),
+gated on the same `rental_applications.manage_settings` permission the
+routes already require, with keywords covering every control on the
+page including this new one ("matched properties approval email max
+maximum send limit") — so a search for any of those terms now surfaces
+the whole page, not just this one field. This was necessary to satisfy
+"findable by the settings search" as asked; it was not previously true
+of ANY setting on this screen, not something this build broke.
+
+Verified: `php -l` on every changed file; `php artisan view:clear`;
+Tinker proof of per-agency save/read-back with no cross-agency leakage;
+Tinker proof that `RentalApplicationPropertyMatcher::forApproval()`
+actually clips its output to a lowered limit; a real browser pass on
+QA1 confirming the field renders, saves, and is found by the settings
+hub's search box.

@@ -2820,6 +2820,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // Reopen/resubmit, 2026-09-08.
     Route::post('/settings/rental-applications/reopen-link-expiry', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateReopenLinkExpiry'])
         ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.reopen-link-expiry');
+    // AT-392 approval-leg, 2026-09-10 — max matched properties per approval email.
+    Route::post('/settings/rental-applications/approval-email', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateApprovalEmailSettings'])
+        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.approval-email');
     // AT-392 authoriser flow, 2026-09-08 — decline email wording, same settings screen.
     Route::post('/settings/rental-applications/decline-email', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateDeclineEmail'])
         ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.decline-email');

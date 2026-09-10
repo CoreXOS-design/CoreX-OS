@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Agency;
 use App\Models\DocumentType;
 use App\Models\RentalApplication;
+use App\Models\RentalApplicationApprovalEmailSetting;
 use App\Models\RentalApplicationChecklistConfig;
 use App\Models\RentalApplicationDeclineEmailSetting;
 use App\Models\RentalApplicationDocumentRequirement;
@@ -52,6 +53,12 @@ class RentalApplicationSettingsController extends Controller
 
         // Reopen/resubmit, 2026-09-08 — how long a reopened link stays valid.
         $reopenLinkExpiryDays = RentalApplicationQualifyingSetting::reopenLinkExpiryDaysFor($agencyId);
+
+        // AT-392 approval-leg — Johan's standing rule: "any threshold, window
+        // or business rule must be an agency-configurable setting with a
+        // sensible default, never hardcoded." How many matched properties
+        // the agent's approval email carries at most.
+        $maxPropertiesInEmail = RentalApplicationApprovalEmailSetting::maxPropertiesFor($agencyId);
 
         // AT-392 authoriser flow — Johan: "ro then co approval process...
         // Both configured as agency settings, multi-select from users,
@@ -108,7 +115,7 @@ class RentalApplicationSettingsController extends Controller
         $archivedHighlighters = $archivedHighlightersQuery->paginate(10, ['*'], 'highlighter_archived_page')->withQueryString();
 
         return view('corex.settings.rental-applications', compact(
-            'documentTypes', 'checklists', 'isConfigured', 'qualifyingMaxRentPercent', 'qualifyingExceedsLegalCeiling', 'agencyUsers', 'roUserIds', 'coUserIds', 'declineEmail', 'reopenLinkExpiryDays', 'activeHighlighters', 'archivedHighlighters', 'highlighterQuery', 'highlighterArchivedSort'
+            'documentTypes', 'checklists', 'isConfigured', 'qualifyingMaxRentPercent', 'qualifyingExceedsLegalCeiling', 'agencyUsers', 'roUserIds', 'coUserIds', 'declineEmail', 'reopenLinkExpiryDays', 'maxPropertiesInEmail', 'activeHighlighters', 'archivedHighlighters', 'highlighterQuery', 'highlighterArchivedSort'
         ));
     }
 
@@ -251,6 +258,30 @@ class RentalApplicationSettingsController extends Controller
 
         return redirect()->route('corex.settings.rental-applications.edit')
             ->with('success', 'Reopened link expiry saved.');
+    }
+
+    /**
+     * AT-392 approval-leg — separate route/method, same reasoning as
+     * updateReopenLinkExpiry() above. Bounds: never 0 or negative (a
+     * "no properties, ever" agency should turn the wishlist step off
+     * elsewhere, not starve this field to zero), and never unbounded (a
+     * runaway value would turn the approval email into a stock catalogue).
+     */
+    public function updateApprovalEmailSettings(Request $request)
+    {
+        $agencyId = $request->user()->effectiveAgencyId();
+
+        $validated = $request->validate([
+            'max_properties_in_email' => ['required', 'integer', 'min:1', 'max:20'],
+        ]);
+
+        RentalApplicationApprovalEmailSetting::updateOrCreate(
+            ['agency_id' => $agencyId],
+            ['max_properties_in_email' => $validated['max_properties_in_email']],
+        );
+
+        return redirect()->route('corex.settings.rental-applications.edit')
+            ->with('success', 'Approval email setting saved.');
     }
 
     public function update(Request $request)

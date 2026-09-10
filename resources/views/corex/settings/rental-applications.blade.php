@@ -130,6 +130,32 @@
         </form>
     </div>
 
+    {{-- AT-392 approval-leg, 2026-09-10 — Johan's standing rule: "any
+         threshold, window or business rule must be an agency-configurable
+         setting with a sensible default, never hardcoded." How many
+         matched properties (wishlist-scored or fallback, always at or
+         under the applicant's approved amount) the agent's approval email
+         carries at most. --}}
+    <div id="approval-email" class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+        <h2 class="text-sm font-semibold mb-1" style="color: var(--text-primary);">Approval Email — Matched Properties</h2>
+        <p class="text-xs mb-3" style="color: var(--text-muted);">
+            When an agent sends the approval email, this is the most properties it will list —
+            always within the applicant's approved amount, never above it.
+        </p>
+
+        <form method="POST" action="{{ route('corex.settings.rental-applications.approval-email') }}" class="flex items-end gap-3">
+            @csrf
+            <div>
+                <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Maximum properties per approval email</label>
+                <input type="number" name="max_properties_in_email" step="1" min="1" max="20"
+                       value="{{ old('max_properties_in_email', $maxPropertiesInEmail) }}"
+                       class="corex-input text-sm" style="width: 100px;">
+                <p class="text-[11px] mt-1" style="color: var(--text-muted);">Default: 5.</p>
+            </div>
+            <button type="submit" class="corex-btn-primary text-xs">Save</button>
+        </form>
+    </div>
+
     {{-- Highlighter collection expansion, 2026-09-09 — Johan: "we allow an
          agency to set up which highlighters they want... as many as they
          want, each with their own label." Replaces the fixed
