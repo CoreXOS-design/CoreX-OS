@@ -233,49 +233,144 @@ Its permission module key is already `rentals` (`config/corex-permissions.php` l
 `rentals` module key is therefore NOT available for anything specced in this document**
 — see §10.
 
-### 5.2 Recommendation (proposal — Johan approves before anything is built)
+### 5.2 Exhaustive inventory — every rental-specific thing on the property screen today
 
-Consolidate the currently-scattered rental fields (`rental_amount`, `deposit_amount`,
-`rental_price_type`, `lease_start_date`, `lease_end_date`, `lease_period`, `lease_type`)
-out of their current homes (the buried "Rental Details" section plus the two orphaned
-fields elsewhere in Info) into **one new tab, labelled "Rental"**, added to the same
-`$tabs` array (`show.blade.php` line ~1206) as a sibling of `overview`/`info`/`gallery`
+Johan's addition: *"once we have a proper rental section on a property it would make
+sense to move the rest of the rental on properties to the rental tab."* This is the
+full inventory that instruction requires, gathered by reading the property show view,
+the property edit form, the creation wizard, the model, the controller, and every
+consumer (portals, matching, documents, mobile) that reads a rental-classified field —
+not just the tab strip.
+
+**Authoritative source used to scope this list, not a guess:** `PropertyController`
+already has its own canonical definition of "the rental fields" — the type-switch clone
+logic (`app/Http/Controllers/CoreX/PropertyController.php:1653-1654`, inside
+`makeClone()`) nulls out exactly this set when a rental draft is switched to sale:
+`rental_amount, deposit_amount, commission_percent, admin_fee, marketing_fee,
+lease_start_date, lease_end_date, rental_images_json`. This spec's inventory is built
+against that list plus everything else found by direct inspection of the Blade views —
+the two do not fully overlap, and the gaps between them are exactly the "scattered"
+problem Johan is describing.
+
+| # | Item | Location | What it is | Move / Stay | Reason |
+|---|---|---|---|---|---|
+| 1 | **Rental Images** tab | `show.blade.php:1210` (tab def), `:1221` (visibility gate), `:4106-4114+` (body); backed by `rental_images_json` (Property.php:554/572) and `rental_upload_keys` (Property.php:463/567, written by `App\Http\Controllers\Api\MobileRentalImagesController`) | Photo/inspection-gallery manager, own upload/save/delete routes | **STAYS its own tab** | Media-management concern, parallel to the existing Gallery tab's job, not a data-form field. Merging a photo manager into a data-form tab would make both worse. See §5.3 for the fold-in question, still open for Johan. |
+| 2 | "Rental Details" **section** — `rental_amount`, `deposit_amount`, `rental_price_type`, `lease_start_date`, `lease_end_date` | `show.blade.php:3421-3450`, inside the Info tab's edit form | The only grouped rental data-entry block that exists today | **MOVES** (the `<input>`s relocate into the new Rental tab) | Exactly the "scattered rental info" Johan means — five fields buried inside a collapsible section of a tab that is mostly about non-rental info. |
+| 3 | `lease_period` input | `show.blade.php:~1995`, elsewhere in the Info tab, disconnected from item 2's section | Free-text lease period | **MOVES** | Same field class as item 2, currently orphaned even further from its siblings than item 2 is — the clearest case of "scattered." |
+| 4 | `lease_type` input | `show.blade.php:~2038`, elsewhere in the Info tab, disconnected from item 2's section | Lease type select | **MOVES** | Same as item 3. |
+| 5 | `pet_friendly` | Column exists (`Property.php:452` fillable, `575` cast) — **no `<input>` anywhere in `show.blade.php` or `wizard.blade.php`** | A rental attribute with no UI home at all today | **MOVES** (i.e. gets its first-ever input, placed directly in the new Rental tab) | Not currently "scattered" so much as unreachable — the Rental tab is the fix, not a relocation. No migration; column already exists. |
+| 6 | `commission_percent`, `admin_fee`, `marketing_fee` | Columns exist (`Property.php:421-423` fillable, `606-608` cast), validated in `PropertyController::store()`/`update()` (lines 893-895, 1276-1278), included in item 2's authoritative "rental fields" clone-clear list (line 1653-1654), consumed by Docuperfect document generation (`WebTemplateDataService.php`, `ESignWizardController.php` commission/marketing-fee defaults) and captured today only via the **mobile app** (`Api/MobilePropertyController.php:292-294` validation, `:1718-1720` read) | Rental commission/fee figures the system already treats as rental-only (see the clone-clear list) but has never surfaced on the desktop screen | **MOVE** (first-ever desktop inputs, placed in the new Rental tab) | Same situation as `pet_friendly` — three more fields the codebase already classifies as rental-exclusive (via its own clone logic) that simply have no desktop UI. Completing this is squarely inside "move the rest of the rental info to the rental tab," not new scope. See the stop-flag in §5.5 before building these three specifically. |
+| 7 | `rental_price_type` labels | Also read directly (raw column, not an accessor) by both portal mappers — `PrivatePropertyListingMapper.php:941`, `Property24ListingMapper.php:113` | Feeds the rental-rate-cadence field on both portal syndication payloads | **MOVES with item 2** | See §5.4 — a raw-column server-side read is unaffected by where its `<select>` renders on screen, since the column name and form target are unchanged. |
+| 8 | **Page-header / list / portal price display** — `$property->formattedPrice()` | `show.blade.php:1064` (mobile header strip, persistent across all tabs), `:1313` (Overview tab summary card); `index.blade.php:771,839,1002,1044` (list rows); `live-preview.blade.php:223,389` (public portal-facing page) | The headline price shown everywhere a property is glanced at | **STAYS exactly where each is — never moves** | This is Johan's own flagged concern, and it checks out: burying this would be a real regression. See §5.4 for why moving item 2's input has zero effect on any of these. |
+| 9 | `effectivePrice()` / `formattedPrice()` reads in syndication & matching | `Property24ListingMapper.php:45`, `PrivatePropertyListingMapper.php:76,351`, `MatchingService.php:375`, `PropertyMatchScoringService.php:239` | Portal feed price + buyer-match scoring, all already listing-type-safe | **STAYS — not UI, not moved** | Confirmed these all call the `effectivePrice()`/`formattedPrice()` accessors, never `$property->rental_amount` directly for price. Independent of any tab-relocation. |
+| 10 | "Change listing type" toggle/action | `show.blade.php:743, 1719-1871`; handled by `PropertyController::makeClone()`/`changeType()` | Switches a draft between sale and rental (archives current, opens a new draft of the other type) | **STAYS in Info tab**, next to the `listing_type` control | Applies to sale properties too (converts sale→rental); it is a type-classification action, not rental-only content, and must sit next to the field it operates on. |
+| 11 | `listing_type` field itself (select/hidden) | `show.blade.php:1844-1865` | The switch that determines whether the new Rental tab is visible at all | **STAYS in Info tab** | Cannot live inside the tab it controls — an agent switching a draft *to* rental would need the Rental tab already visible to find the switch that reveals it. Circular if moved. |
+| 12 | `listing_type_pending` banner | `show.blade.php:71-78` | Post-type-change confirmation banner | **STAYS** | General to either direction of a type change, not rental-content storage. |
+| 13 | "Not selling" / Prospecting banner | `show.blade.php:~1027-1042`, `PropertyController::markNotSelling()` | Prospecting-stage action | **STAYS** | Applies identically to sale and rental prospecting stock; not rental-specific. |
+| 14 | Sale/Rental filter on the Properties **list** screen | `index.blade.php:356-358` | List-level filter, not property-detail content | **STAYS** (out of scope for this section — this is §2's shared-screen filter, already specced) | Different screen, already covered. |
+| 15 | Wizard (creation-time) rental fields — deposit, lease start/end, `rental_price_type` | `wizard.blade.php:517-524+` ("Rental-only fields" block), step-3 Alpine data | Creation-time capture of a subset of item 2's fields | **STAYS in the wizard** | See §5.5 — the wizard is a separate, sequential creation flow; this spec's consolidation is about the tabbed **edit** screen, not the wizard's steps. |
+| 16 | Wizard step-1 shared price field (`s1.price`) | `wizard.blade.php:180-190` | The **same control** used for both "Asking price" (sale) and "Monthly rental" (rental), relabelled by `x-show` on `s1.listing_type` | **STAYS in the wizard, unmodified** | Structurally identical to item 8's concern — this is the headline price at creation time, sharing one input with sale. It is not a rental-only field the way items 2-6 are; it is the same slot sale uses. |
+| 17 | Tenant link (who currently leases it) | Reuses `PropertyContactController::link()` (`app/Http/Controllers/CoreX/PropertyContactController.php:103`, `LINK_ROLES` includes `tenant` at line 86) via the existing Contacts tab | Contact↔Property linking, role-based | **Read-only summary surfaces in the new Rental tab; the linking mechanism itself stays on the Contacts tab** | No second linking UI is built — see §6 for how this feeds the tenant-won trigger. |
+
+### 5.3 Recommendation (proposal — Johan approves before anything is built)
+
+Add one new tab, labelled **"Rental"**, to the same `$tabs` array
+(`show.blade.php` line ~1206) as a sibling of `overview`/`info`/`gallery`/`rental-images`
 — same conditional-visibility pattern already proven for `rental-images` (line 1221):
-render the tab button only when `listing_type === 'rental'` (or `$isNew` and the wizard
-has not yet been given a type), same property, same screen, no new route.
+render the tab button only when `listing_type === 'rental'` (or `$isNew` before a type
+is chosen), same property, same screen, no new route. It holds items 2-6 and 17 from
+the table above (everything marked MOVE), plus the three new fields proposed below.
 
-**Rental Images stays a separate tab, not folded in.** Reasoning: Rental Images is a
-media/gallery concern (parallel to the existing Gallery tab's job), while the new Rental
-tab is a data-form concern (parallel to the Info tab's job). Merging a photo manager and
-a data form into one tab body would make both harder to use, not easier — it would be
-the first UX regression this feature introduces. This is a recommendation, not a
-decision — flagged in §11 for Johan's confirm/override.
+**Rental Images (item 1) stays a separate tab, not folded in** — reaffirmed after the
+full inventory, not just the earlier surface read. Still flagged for Johan's
+confirm/override, not decided.
 
-**Proposed content of the new Rental tab** — every item marked with what it is today:
+**New fields proposed** — genuinely new, not found anywhere in the inventory above:
 
-| Field | Status | Notes |
-|---|---|---|
-| Monthly Rental (`rental_amount`) | **Exists** — move from Rental Details section | |
-| Deposit (`deposit_amount`) | **Exists** — move from Rental Details section | |
-| Rental Price Type (`rental_price_type`) | **Exists** — move from Rental Details section | |
-| Lease Start Date (`lease_start_date`) | **Exists** — move from Rental Details section | |
-| Lease End Date (`lease_end_date`) | **Exists** — move from Rental Details section | |
-| Lease Period (`lease_period`) | **Exists**, currently orphaned elsewhere in Info tab | Move in, no new column |
-| Lease Type (`lease_type`) | **Exists**, currently orphaned elsewhere in Info tab | Move in, no new column |
-| Pet Friendly (`pet_friendly`) | **Exists as a column, has no input anywhere today** | Add the missing checkbox — no migration, column already exists |
-| Furnished status | **New** | A sale property has no furnishing state; a rental listing's furnished/unfurnished/part-furnished status is standard rental-listing information a prospective tenant needs and CoreX does not currently capture |
-| Availability date | **New** | When the property is available to move in — distinct from `lease_start_date` (a signed lease's start), needed even before a lease exists so the listing can advertise "Available from" |
-| Utilities included | **New** | Whether water/electricity/levies are included in the monthly rental — directly affects what a tenant is comparing between listings |
-| Who currently leases it (tenant link, read-only display) | **Exists as a mechanism** — `PropertyContactController` already supports linking a Contact to a Property with `role = 'tenant'` (`LINK_ROLES` includes `tenant`, `app/Http/Controllers/CoreX/PropertyContactController.php:86`) via the existing Contacts tab. The new Rental tab would surface a read-only summary of the currently-linked tenant(s), reusing the existing Contacts-tab linking mechanism rather than building a second one | See §6 — this is also where the tenant-won trigger's "who leased it" link lands |
+| Field | Why |
+|---|---|
+| Furnished status | A sale property has no furnishing state; furnished/unfurnished/part-furnished is standard rental-listing information a prospective tenant needs and CoreX does not currently capture anywhere |
+| Availability date | When the property is available to move in — distinct from `lease_start_date` (a signed lease's start), needed even before a lease exists so the listing can advertise "Available from" |
+| Utilities included | Whether water/electricity/levies are included in the monthly rental — directly affects what a tenant is comparing between listings |
 
-The three genuinely **new** fields (furnished status, availability date, utilities
-included) require three new nullable columns on `properties` — a small, additive
+These three require three new nullable columns on `properties` — a small, additive
 migration, no change to any existing column or status governance. No other new fields
 are proposed; anything beyond this list needs Johan to name it specifically.
 
-**Not decided here — Johan's approval needed on:** the exact field list above (add/cut
-anything), and whether Rental Images should in fact fold into the new tab despite the
-recommendation against it.
+### 5.4 Why the move is mechanically safe — no forked path, no broken display
+
+Every display consumer found in §5.2 (items 8, 9) reads price through
+`formattedPrice()`/`effectivePrice()`, and every portal/matching consumer (items 6, 7,
+9) reads its field as a plain model attribute (`$property->rental_amount`,
+`$property->rental_price_type`, etc.) — **none of them care which Blade tab an
+`<input>` sits in.** Relocating an `<input>`'s position on screen has zero effect on
+either kind of consumer, provided the column name is never renamed (it isn't, anywhere
+in this spec) and the input still submits to the same save path.
+
+**On the save path specifically:** today, items 2-4's inputs sit inside the single
+`<form id="prop-update-form">` that wraps the Info tab's content, and that form closes
+immediately after item 2's section (confirmed: `</form>{{-- /prop-update-form --}}`
+follows the Rental Details section directly). The codebase already has the pattern for
+"an input that visually lives in a different tab pane but still submits with the main
+form" — the Gallery tab's create-mode file input already uses
+`form="prop-update-form"` (an HTML5 attribute that binds an input to a form by id
+regardless of DOM nesting) to submit into the same form from outside it. **The new
+Rental tab uses the identical `form="prop-update-form"` pattern for every relocated and
+new input** — so `PropertyController::update()` receives the exact same POST fields it
+receives today, under the exact same names, validated by the exact same rules. No
+controller change, no validation-path change, no new route. This is a pure UI
+relocation, not a data or save-path change.
+
+### 5.5 Stops and flags found during this investigation
+
+**No stop was found against the move itself.** Every consumer of every relocated field
+(portal syndication, matching, document generation, mobile) was traced and confirmed to
+read either an accessor (`formattedPrice()`/`effectivePrice()`) or a plain model
+attribute — never the Blade markup's position — so nothing breaks by moving where the
+`<input>` renders. This was the actual risk Johan asked to be checked for, and it does
+not materialise.
+
+**One flag, informational only, not created by this spec and not fixed by it:** the
+type-switch clone logic's canonical "rental fields" list (§5.2's authoritative source,
+`PropertyController.php:1653-1654`) clears `rental_amount`, `deposit_amount`,
+`commission_percent`, `admin_fee`, `marketing_fee`, `lease_start_date`,
+`lease_end_date`, `rental_images_json` when a rental draft is switched to sale — but
+does **not** clear `rental_price_type`, `lease_period`, or `lease_type`. This is a
+pre-existing gap in that list, unrelated to where any input renders on screen — it
+exists today regardless of this spec and is not worsened by moving the UI. Not proposed
+for a fix here (out of scope, per non-negotiable #1 — a fix would be a separate,
+explicitly-scoped item); noted so it's on the record rather than discovered later and
+mistaken for something this move introduced.
+
+**Stop-flag on items 6 (`commission_percent`/`admin_fee`/`marketing_fee`) specifically:**
+before building their first-ever desktop inputs, confirm with Johan that these are
+rental-exclusive in practice, not just rental-exclusive in the clone-clear list. The
+Docuperfect side (`WebTemplateDataService.php`) reads them generically off "property"
+without checking `listing_type`, meaning a sale property's mandate/commission documents
+could theoretically want a `commission_percent` too. Because the clone logic already
+nulls these out on every switch to sale, the system has already made this call — adding
+their inputs only inside the (rental-only-visible) Rental tab changes nothing for a
+sale property that has no route to set them today. This is presented as confirmation of
+existing behaviour, not a new restriction, but it is exactly the kind of "would a move
+break something outside the property screen" question Johan asked to have checked
+before anything is built.
+
+### 5.6 Migration path for users — nothing changes except which tab it's under
+
+No data changes, no column renames, no URL changes, no permission changes. An agent's
+existing bookmarked property edit link opens the same property; the fields have simply
+moved one tab over.
+
+For the "an agent who knows where a field lives today will go looking for it" problem
+specifically: the new Rental tab appears immediately adjacent to Info/Gallery/Rental
+Images on every rental-listing property, using the same plain tab-bar pattern already
+in use — no rearrangement of the surrounding tabs, so the Rental tab is simply the next
+thing an agent scanning the tab bar encounters, in the same place a Contacts or Notes
+tab would be found. Beyond that positional discoverability, a one-time dismissible
+inline note ("Rental details have moved to the Rental tab") in the old Rental Details
+section's former spot, shown for a limited period after ship, is a reasonable option —
+but it's a UX add, not a requirement, and is flagged for Johan to decide he wants it
+rather than assumed (see §10).
 
 ---
 
@@ -514,22 +609,31 @@ are reused unchanged, not renamed.
 
 ## 10. Items flagged for Johan's decision — not decided in this spec
 
-1. **Rental tab field list (§5.2)** — the proposed table of existing/moved/new fields.
-   Approve, cut, or add before any migration is written.
-2. **Rental Images fold-in (§5.2)** — recommendation is to keep it a separate tab from
-   the new Rental tab. Needs Johan's confirm or override.
-3. **Prospecting drill-down banner on the rentals pipeline entry point (§4)** — no
+1. **Rental tab field list (§5.2, §5.3)** — the full inventory's move/stay calls and
+   the three genuinely new fields (furnished status, availability date, utilities
+   included). Approve, cut, or add before any migration is written.
+2. **Rental Images fold-in (§5.2 item 1, §5.3)** — recommendation, reaffirmed after the
+   full inventory, is to keep it a separate tab from the new Rental tab. Needs Johan's
+   confirm or override.
+3. **`commission_percent`/`admin_fee`/`marketing_fee` desktop inputs (§5.2 item 6,
+   §5.5)** — presented as completing existing rental-exclusive fields that today have no
+   desktop UI (only mobile). Confirm these should get their first desktop inputs at all,
+   and that the Rental tab (rental-only-visible) is the right place for them.
+4. **Post-ship "fields moved" pointer (§5.6)** — a one-time dismissible note pointing
+   agents to the new tab is proposed as optional UX, not required. Decide whether to
+   build it.
+5. **Prospecting drill-down banner on the rentals pipeline entry point (§4)** — no
    rental equivalent exists; does one need to be built, or is it correctly absent?
-4. **Retroactive tenant-won linking (§6.4)** — the trigger as specced fires only at the
+6. **Retroactive tenant-won linking (§6.4)** — the trigger as specced fires only at the
    moment a property's status changes to "Let Out". If a tenant is linked to an
    already-let-out property *after* the fact (via the ordinary Contacts tab, not through
    the "who leased it" prompt), should that also mark them won? Johan's description
    describes the status-change moment specifically; this spec does not extend the
    trigger beyond that without being told to.
-5. **§7.3 (standardising Core Matches and Buyer Pipeline scoping onto Role Manager)** —
+7. **§7.3 (standardising Core Matches and Buyer Pipeline scoping onto Role Manager)** —
    presented with its exact live-behaviour consequences; needs its own explicit
    go-ahead, separate from the three new screens.
-6. **Exact final class/listener names** (`MarkTenantWonOnPropertyLetOut` etc.) are
+8. **Exact final class/listener names** (`MarkTenantWonOnPropertyLetOut` etc.) are
    illustrative — normal build-time naming, not a decision Johan needs to make.
 
 ---
@@ -545,3 +649,9 @@ are reused unchanged, not renamed.
   module — it is unrelated and untouched by this work.
 - §7.3 (sales-side scoping retrofit) does not ship as part of this spec's build unless
   and until Johan separately approves it.
+- No change to the property creation **wizard** (§5.2 items 15-16) — its rental fields
+  and its shared sale/rental price field stay exactly as they are; this spec's
+  consolidation is scoped to the tabbed edit screen only.
+- No fix to the pre-existing gap where `rental_price_type`/`lease_period`/`lease_type`
+  aren't cleared by the sale/rental type-switch clone logic (§5.5) — flagged for the
+  record, not remediated here.
