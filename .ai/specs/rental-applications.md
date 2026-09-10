@@ -4352,6 +4352,65 @@ an application) is cc3's work on the same controller file, in a
 separate branch, landed alongside this one — non-overlapping methods,
 confirmed at coordination time.
 
+#### Property link — lock after submission (2026-09-10)
+
+Johan, QA1 finding (item 2 follow-up): the property link could be
+changed or cleared at any point, including while an authoriser was
+actively deciding against it (`under_assessment`) and after the
+outcome email had already gone out naming it. Reproduced directly on
+a real, fully-approved application — nothing crashed, but the record
+no longer matched what was actually approved against.
+
+**Rule:** once locked, `RentalApplicationReviewController::linkProperty()`
+refuses the request with a 403 — server-side, not a hidden button. The
+same request straight at the route on a locked application is refused
+exactly the same way a button click would be.
+
+**Locked statuses** (`RentalApplicationQualifyingSetting::PROPERTY_LOCKED_STATUSES`):
+`under_assessment`, `approved`, `declined`, `withdrawn`. Open statuses —
+where the agent is still actively preparing the application —
+`draft`, `sent`, `in_progress`, `returned`, `reopened` — are
+unaffected; the property remains freely changeable there, which is
+the entire point of the item-4 fix this follows on from.
+
+**Why the line falls at submission, not just approval:** the
+property's rent is what the authoriser's decision is actually made
+against from the moment the application is submitted for
+authorisation — not just from the moment it's approved. Locking only
+at "approved" would leave the property swappable for the whole
+window the authoriser is deciding, which is the more dangerous gap
+of the two (a decision made against one property, recorded against
+another). This was directly reproduced: this build's own testing
+changed the linked property while an application sat at
+`under_assessment`, with no error.
+
+**Agency-configurable, per the standing rule** ("any threshold,
+window or business rule... never hardcoded"): `agencies` →
+`rental_application_qualifying_settings.lock_property_after_submission`
+(nullable boolean; `RentalApplicationQualifyingSetting::
+lockPropertyAfterSubmissionFor()` — null row/column falls back to the
+default). Default **true** (`RentalApplicationQualifyingSetting::
+DEFAULT_LOCK_PROPERTY_AFTER_SUBMISSION`). Settings screen: Company →
+Rental Applications → "Property Link Lock" (one checkbox, not a
+status picker — a single sensible default with an on/off toggle, not
+a configurable threshold). Turning it off restores the exact
+pre-fix behaviour (changeable at any status) — the ability is gated,
+never removed.
+
+**Audit trail:** unchanged and untouched by this fix —
+`linkProperty()` already logged every permitted change via
+`RentalApplicationAuditService` (`property_link` category,
+`linked`/`changed`/`cleared` event types, old/new property id +
+address, human summary) before this lock existed. A change made
+while the setting is off, or while the application is still in an
+open status, is logged exactly as before; the lock only ever prevents
+the write from happening at all — there is never a silent or
+unlogged property change.
+
+**Transaction:** the property save and its audit-log write are now
+wrapped in `DB::transaction()` — an audit-log failure can no longer
+leave a property change persisted with no record of it.
+
 ### Unpaid transactions flag
 
 New `has_unpaid_transactions` boolean column on

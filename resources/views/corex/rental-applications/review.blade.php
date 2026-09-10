@@ -162,6 +162,22 @@
                         underneath (search-properties/link-property, agent-only,
                         unconditional on status) is unchanged.
                     --}}
+                    @if($propertyLinkLocked ?? false)
+                        {{--
+                            Locked, 2026-09-10 (Johan, QA1 item 2 follow-up) —
+                            server-side gate lives in linkProperty() itself
+                            (a POST straight at the route 403s); this is just
+                            the honest UI reflection of that, not the
+                            enforcement. Never rendered as a disabled version
+                            of the interactive control — a genuinely
+                            different, read-only state, so there's nothing
+                            here that LOOKS clickable but silently no-ops.
+                        --}}
+                        <p class="text-xs" style="color: var(--text-muted);">
+                            {{ $rentalApplication->property ? 'Property: ' . (optional($rentalApplication->property)->title ?: optional($rentalApplication->property)->buildDisplayAddress()) : 'No property linked.' }}
+                            <span style="color: var(--text-muted);">&middot; locked — submitted for authorisation.</span>
+                        </p>
+                    @else
                     <div class="mt-1" x-data="rentalReviewPropertyLink({{ Js::from([
                         'searchUrl' => route('corex.rental-applications.search-properties'),
                         'linkUrl' => route('corex.rental-applications.review.link-property', $rentalApplication),
@@ -199,6 +215,7 @@
                             <input type="hidden" name="property_id" x-ref="propertyIdInput">
                         </form>
                     </div>
+                    @endif
                 @endif
             </div>
         </x-slot>
