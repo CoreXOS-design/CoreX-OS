@@ -831,8 +831,7 @@
                              Core Matches form + drawer as the Buyer Pipeline detail
                              page — command-center/buyers/detail.blade.php:580-615,
                              not a second editor), then sends. --}}
-                        <div class="rounded-md px-3 py-3 text-xs mb-3" style="background: var(--ds-amber-soft, #fffbeb); color: var(--ds-amber, #b45309); border: 1px solid var(--ds-amber, #f59e0b);"
-                             x-data="{ wishlistDrawerOpen: false }">
+                        <div class="rounded-md px-3 py-3 text-xs mb-3" style="background: var(--ds-amber-soft, #fffbeb); color: var(--ds-amber, #b45309); border: 1px solid var(--ds-amber, #f59e0b);">
                             <p class="font-semibold mb-2">&check; Approved for R{{ number_format($rentalApplication->approved_rental_amount, 2) }} a month — not yet sent.</p>
                             <p class="mb-3">Confirm what the tenant is looking for, then send the approval. If you skip this, the email still goes out with a general list of available rentals under their approved amount.</p>
                             <div class="flex flex-wrap gap-2">
@@ -843,32 +842,6 @@
                                     @csrf
                                     <button type="submit" class="corex-btn-primary text-xs">Send approval to applicant</button>
                                 </form>
-                            </div>
-
-                            {{-- Drawer: same pattern as command-center/buyers/detail.blade.php:583-616 --}}
-                            <div x-show="wishlistDrawerOpen" x-cloak
-                                 class="fixed inset-0 z-50 flex justify-end"
-                                 style="background: rgba(0,0,0,0.5);"
-                                 @keydown.escape.window="wishlistDrawerOpen = false">
-                                <div class="h-full overflow-y-auto p-6 w-full max-w-3xl text-left"
-                                     style="background: var(--surface); border-left: 1px solid var(--border); color: var(--text-primary);"
-                                     @click.outside="wishlistDrawerOpen = false">
-                                    <div class="flex items-center justify-between mb-4">
-                                        <h2 class="text-lg font-semibold" style="color: var(--text-primary);">
-                                            {{ $existingWishlist ? 'Edit Tenant Wishlist' : 'New Tenant Wishlist' }}
-                                        </h2>
-                                        <button type="button" @click="wishlistDrawerOpen = false"
-                                                class="text-xl leading-none px-2 py-0" style="color: var(--text-muted); background: none; border: none; cursor: pointer;">&times;</button>
-                                    </div>
-                                    @include('corex.contacts._match-form', [
-                                        'contact' => $rentalApplication->contact,
-                                        'match' => $existingWishlist,
-                                        'defaultListingType' => 'rental',
-                                        'formAction' => $existingWishlist
-                                            ? route('corex.rental-applications.review.wishlist.update', [$rentalApplication, $existingWishlist])
-                                            : route('corex.rental-applications.review.wishlist.add', $rentalApplication),
-                                    ])
-                                </div>
                             </div>
                         </div>
                     @elseif($rentalApplication->status === 'declined')
@@ -1001,6 +974,52 @@
                 @endif
             </div>
         </div>
+
+        {{-- AT-392 — Tenant Wishlist drawer, relocated here (root cause of the
+             cut-off/sliced-behind-the-header bug reported on QA1: this drawer
+             used to live nested inside .rental-review-aside above, a
+             position:sticky/overflow-y:auto panel — its own position:fixed
+             overlay shared z-50 with the page's sticky action bar
+             (sticky-action-bar.blade.php), an exact collision, not a value
+             tweak away. As a direct sibling of .rental-review-main/.rental-review-aside,
+             still inside .rental-review-columns' x-data="rentalReviewLayout()"
+             scope (wishlistDrawerOpen lives there now, not on a local x-data,
+             so the trigger button above and this drawer share the same state
+             even though they're no longer DOM-nested), it is no longer inside
+             any overflow/sticky ancestor, and z-[100] sits unambiguously above
+             both the sticky header (z-50) and the app shell's own persistent
+             chrome (z-40/z-50). Same pattern as
+             command-center/buyers/detail.blade.php:583-616 otherwise. --}}
+        @if($rentalApplication->status === 'approved' && !$rentalApplication->applicant_notified_at)
+            <div x-show="wishlistDrawerOpen" x-cloak
+                 class="fixed inset-0 z-[100] flex justify-end"
+                 style="background: rgba(0,0,0,0.5);"
+                 @keydown.escape.window="wishlistDrawerOpen = false">
+                <div class="h-full overflow-y-auto p-6 w-full max-w-3xl text-left"
+                     style="background: var(--surface); border-left: 1px solid var(--border); color: var(--text-primary);"
+                     @click.outside="wishlistDrawerOpen = false">
+                    <div class="flex items-center justify-between mb-4">
+                        <h2 class="text-lg font-semibold" style="color: var(--text-primary);">
+                            {{ $existingWishlist ? 'Edit Tenant Wishlist' : 'New Tenant Wishlist' }}
+                        </h2>
+                        <button type="button" @click="wishlistDrawerOpen = false"
+                                class="text-xl leading-none px-2 py-0" style="color: var(--text-muted); background: none; border: none; cursor: pointer;">&times;</button>
+                    </div>
+                    @include('corex.contacts._match-form', [
+                        'contact' => $rentalApplication->contact,
+                        'match' => $existingWishlist,
+                        'defaultListingType' => 'rental',
+                        'lockListingType' => true,
+                        'rentalPropertyTypeNames' => $rentalPropertyTypeNames,
+                        'prefill' => $wishlistPrefill,
+                        'approvedRentalAmount' => $rentalApplication->approved_rental_amount,
+                        'formAction' => $existingWishlist
+                            ? route('corex.rental-applications.review.wishlist.update', [$rentalApplication, $existingWishlist])
+                            : route('corex.rental-applications.review.wishlist.add', $rentalApplication),
+                    ])
+                </div>
+            </div>
+        @endif
     </div>
 </div>
 
@@ -1345,6 +1364,12 @@ function formatTime(iso) {
 // unbounded.
 function rentalReviewLayout() {
     return {
+        // AT-392 — lifted here from a local x-data on the amber "approved,
+        // not yet sent" box so the drawer trigger button (still nested deep
+        // in .rental-review-aside) and the drawer itself (relocated OUTSIDE
+        // that panel to fix the cut-off/z-index bug — see the drawer's own
+        // comment) can share one toggle despite no longer being DOM-nested.
+        wishlistDrawerOpen: false,
         init() {
             const recalc = () => {
                 const scrollEl = document.getElementById('appScroll');
