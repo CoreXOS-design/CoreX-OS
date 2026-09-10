@@ -1294,8 +1294,18 @@ class DealRegisterController extends Controller
     {
         abort_unless(auth()->user()?->hasPermission('deals.create') || auth()->user()?->hasPermission('deals.edit'), 403);
 
+        // AT-398 split-pricing: the FIRST property on a deal inherits its price
+        // from the deal's own (already-required) property_value/total_commission
+        // fields — see Deal::syncPrimaryPropertyPivot(). Every property after
+        // that needs its OWN price entered here; Johan's ruling (via
+        // AskUserQuestion): the existing price is never redistributed, and the
+        // deal total is always the sum of every property's own price — never a
+        // separately-typed total that could disagree with the parts.
+        $isFirst = $deal->properties()->count() === 0;
         $data = $request->validate([
             'property_id' => ['required', 'integer', 'exists:properties,id'],
+            'allocated_price' => [$isFirst ? 'nullable' : 'required', 'numeric', 'min:0'],
+            'allocated_commission' => [$isFirst ? 'nullable' : 'required', 'numeric', 'min:0'],
         ]);
         $property = Property::findOrFail($data['property_id']);
 
@@ -1319,17 +1329,32 @@ class DealRegisterController extends Controller
             }
         }
 
-        DB::transaction(function () use ($deal, $property) {
+        DB::transaction(function () use ($deal, $property, $isFirst, $data) {
             $row = DealProperty::withTrashed()->where('deal_id', $deal->id)->where('property_id', $property->id)->first();
             if ($row) {
                 if ($row->trashed()) {
                     $row->restore();
                 }
+                if (! $isFirst) {
+                    $row->update(['allocated_price' => $data['allocated_price'], 'allocated_commission' => $data['allocated_commission']]);
+                }
             } else {
-                $isFirst = $deal->properties()->count() === 0;
                 DealProperty::create(['deal_id' => $deal->id, 'property_id' => $property->id, 'is_primary' => $isFirst]);
                 if ($isFirst) {
+                    // saveQuietly() bypasses Deal::booted()'s updated hook (by
+                    // design — see that hook's own docblock), so the price
+                    // mirror it would normally do never fires here. Mirror it
+                    // explicitly onto the row just created instead.
                     $deal->forceFill(['property_id' => $property->id])->saveQuietly();
+                    DealProperty::where('deal_id', $deal->id)->where('property_id', $property->id)->update([
+                        'allocated_price' => $deal->property_value,
+                        'allocated_commission' => $deal->total_commission,
+                    ]);
+                } else {
+                    DealProperty::where('deal_id', $deal->id)->where('property_id', $property->id)->update([
+                        'allocated_price' => $data['allocated_price'],
+                        'allocated_commission' => $data['allocated_commission'],
+                    ]);
                 }
             }
 
@@ -1342,6 +1367,12 @@ class DealRegisterController extends Controller
 
             $this->logDealEvent($deal, 'property_added', null, null, "Property added: {$property->address}");
         });
+
+        // Split-pricing: deal totals are always the SUM of every linked
+        // property's own allocation — never a separately-entered figure that
+        // could disagree with the parts (Johan's ruling). No-op while the
+        // deal has 0-1 properties (nothing to sum beyond what's already there).
+        app(\App\Services\Deal\DealPropertyPricingService::class)->recalculateTotals($deal);
 
         // Bring the newly added property into sync with the deal's CURRENT
         // status — re-fires the same, already-tested Wave 2 listeners rather
@@ -1381,6 +1412,69 @@ class DealRegisterController extends Controller
         DealProperty::where('id', $row->pivot->id)->delete(); // soft
         $this->logDealEvent($deal, 'property_removed', null, null, "Property removed: {$property->address}");
 
+        // Split-pricing: dropping a property's allocation out of the sum.
+        app(\App\Services\Deal\DealPropertyPricingService::class)->recalculateTotals($deal);
+
         return back()->with('success', "{$property->address} removed from this deal.");
+    }
+
+    /**
+     * AT-398 — restore a soft-removed property link. A distinct action from
+     * addProperty() (rather than "search and re-add") so the Archived/Restore
+     * UI (BUILD_STANDARD full-CRUD floor) has a direct, one-click affordance —
+     * mirrors dr2/_removed-steps.blade.php's restore pattern for pipeline steps.
+     */
+    public function restoreProperty(Request $request, Deal $deal, Property $property): RedirectResponse
+    {
+        abort_unless(auth()->user()?->hasPermission('deals.create') || auth()->user()?->hasPermission('deals.edit'), 403);
+
+        $row = DealProperty::onlyTrashed()->where('deal_id', $deal->id)->where('property_id', $property->id)->first();
+        if (! $row) {
+            return back()->withErrors(['property_id' => 'That property is not in this deal\'s removed list.']);
+        }
+
+        try {
+            app(\App\Services\Deal\DealPropertyOwnerGate::class)->assertCanAddToDeal($deal, $property);
+        } catch (\App\Exceptions\Deal\PropertyOwnerMismatchException $e) {
+            return back()->withErrors(['property_id' => $e->getMessage()]);
+        }
+
+        $row->restore();
+        $this->logDealEvent($deal, 'property_restored', null, null, "Property restored: {$property->address}");
+        app(\App\Services\Deal\DealPropertyPricingService::class)->recalculateTotals($deal);
+
+        return back()->with('success', "{$property->address} restored to this deal.");
+    }
+
+    /**
+     * AT-398 split-pricing — edit an already-linked property's own price.
+     * Only meaningful once a deal has 2+ properties (below that, the deal's
+     * own property_value/total_commission fields ARE the property's price —
+     * see Deal::syncPrimaryPropertyPivot()); this endpoint refuses otherwise
+     * so there is never a second place editing the same single figure.
+     */
+    public function updatePropertyPrice(Request $request, Deal $deal, Property $property): RedirectResponse
+    {
+        abort_unless(auth()->user()?->hasPermission('deals.create') || auth()->user()?->hasPermission('deals.edit'), 403);
+
+        if ($deal->properties()->count() < 2) {
+            return back()->withErrors(['allocated_price' => 'This deal has only one property — edit its price on the main deal form above.']);
+        }
+
+        $row = DealProperty::where('deal_id', $deal->id)->where('property_id', $property->id)->whereNull('deleted_at')->first();
+        if (! $row) {
+            return back()->withErrors(['allocated_price' => 'That property is not on this deal.']);
+        }
+
+        $data = $request->validate([
+            'allocated_price' => ['required', 'numeric', 'min:0'],
+            'allocated_commission' => ['required', 'numeric', 'min:0'],
+        ]);
+
+        $row->update($data);
+        $this->logDealEvent($deal, 'property_price_updated', null, null, "Price updated for {$property->address}");
+        app(\App\Services\Deal\DealPropertyPricingService::class)->recalculateTotals($deal);
+
+        return back()->with('success', "Price updated for {$property->address}.");
     }
 }
