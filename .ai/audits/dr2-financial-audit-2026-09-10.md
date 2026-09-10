@@ -220,17 +220,19 @@ Before reading these findings against the code: the live product's "DR2" (`Dr2\D
 
 | # | Finding | Money at risk | Reaches | Ticket |
 |---|---|---|---|---|
-| F1 | Settlement screen doesn't disclose VAT basis | R6,521.74+ per affected deal | Real payment | (see Jira) |
-| F2 | Soft-deleted agents dropped from commission aggregation | R49,793.48 live/period + R625,804.43 latent | Real dashboard (live); real settlement engine if reactivated (latent) | (see Jira) |
-| F3 | Audit tool's own diagnostic message is wrong | N/A (process) | N/A | (see Jira) |
-| F4 | Company Performance silently switches calculators | Same as F2 | Real dashboard | (see Jira) |
-| F5 | Branch Performance's two methods disagree on period rule | Not yet quantified | Real dashboard | (see Jira) |
-| F6 | Agent Dashboard uses an uncross-checked formula | Not quantified | Real screen | (see Jira) |
-| F7 | 3 independent commission-ex-VAT formulas | R0.10 portfolio / R0.03 period | Screen only | (see Jira) |
-| F8 | DealMoneyLineRebuilder's silent split-normalization | R0 today, live risk | Real settlement path if triggered | (see Jira) |
-| F9 | Worksheet's 3 hand-copied formulas | R0 | Screen only | (see Jira) |
-| F10 | Payroll commission has no automated link to deals | Unquantified | Real payment (manual) | (see Jira) |
-| F11 | Money math uses float, not fixed-point | Same as F7 | Screen only | (see Jira) |
-| F12 | sale_price/purchase_price precision mismatch | Negligible | Neither | (see Jira) |
+| F1 | Settlement screen doesn't disclose VAT basis | R6,521.74+ per affected deal | Real payment | **AT-407** |
+| F2 | Soft-deleted agents dropped from commission aggregation | R49,793.48 live/period + R625,804.43 latent | Real dashboard (live); real settlement engine if reactivated (latent) | **AT-408** |
+| F3 | Audit tool's own diagnostic message is wrong | N/A (process) | N/A | **AT-409** |
+| F4 | Company Performance silently switches calculators | Same as F2 | Real dashboard | **AT-410** |
+| F5 | Branch Performance's two methods disagree on period rule | Not yet quantified | Real dashboard | **AT-411** |
+| F6 | Agent Dashboard uses an uncross-checked formula | Not quantified | Real screen | **AT-412** |
+| F7 | 3 independent commission-ex-VAT formulas | R0.10 portfolio / R0.03 period | Screen only | **AT-413** |
+| F8 | DealMoneyLineRebuilder's silent split-normalization | R0 today, live risk | Real settlement path if triggered | **AT-414** |
+| F9 | Worksheet's 3 hand-copied formulas | R0 | Screen only | **AT-415** |
+| F10 | Payroll commission has no automated link to deals | Unquantified | Real payment (manual) | **AT-416** |
+| F11 | Money math uses float, not fixed-point | Same as F7 | Screen only | **AT-417** |
+| F12 | sale_price/purchase_price precision mismatch | Negligible | Neither | **AT-418** |
 
 (AT-403 — the share-percent commission defect behind deal 1818 itself — is cc6's ticket, not duplicated here.)
+
+All 12 tickets are Tasks in the AT project (CoreX Os Web), assigned to Johan Reichel, status **To Do**. Each ticket's description repeats its finding's what/money/reaches/proof/recommended-fix summary and cross-references this document and the other tickets it's coupled with.
