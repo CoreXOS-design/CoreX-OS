@@ -6697,4 +6697,53 @@ above the approved figure.
 - `app/Models/ContactMatch.php` — fillable/casts for `move_in_date`/`rental_term_months`; `enforceRentalApprovedAmountCap()` + boot() wiring
 - `app/Http/Controllers/CoreX/RentalApplicationReviewController.php` — prefill + rental-stock property-type computation in `show()`; hard-cap rejection + new field validation in `validateWishlistPayload()`
 - `resources/views/corex/contacts/_match-form.blade.php` — rental-mode wiring, prefill, cap UI, new fields, Suburbs copy
+
+---
+
+## Document review screen — the four "morning list" items (AT-392, 2026-09-10, cc5) — BUILT, landed incrementally
+
+Johan's original list from earlier that morning, displaced behind the wishlist drawer work above (a sequencing error, not a scope change) and resumed as the sole priority. Landed piece by piece per his explicit instruction, each verified and merged to QA1 as it finished rather than held as one batch. All four items are on the shared review/authorisation document markup partials
+(`resources/views/corex/rental-applications/partials/document-highlighter-pages.blade.php`,
+`document-highlighter-script.blade.php`) — one fix serves both screens, per this codebase's own standing pattern.
+
+### Item 2 — the note popover, fixed
+
+Johan: *"adding notes still just shows a dot, no entered text on screen."* Root cause: `commitNote()` never opened the newly-added note's popover — `openNote` stayed null after commit (and on reload), so a note collapsed straight to an unlabelled dot with no visible confirmation of what was typed. The text was never actually lost — confirmed against real saved data on application 66 earlier this session — this was a discoverability bug, not data loss. Fixed by setting `openNote` to the just-committed note's `{page, index}` (the same shape `toggleNotePopover()` already uses) immediately after the push, so the popover opens on add, showing the real text. Deliberately scoped to the add-moment only, not reload behaviour — the broader "a note must be recognisable without clicking" concern is addressed structurally by item 3/4's fixed note identity below, not re-litigated here.
+
+**Landed together with item 1** in a single commit rather than two separate ones — a sequencing slip (moved into item 1's work before committing item 2) — flagged plainly, doesn't affect either fix's correctness.
+
+### Item 1 — PDF load, investigated before adding a spinner
+
+Johan: *"the pdf takes a long time to load on this screen - suggesting a loading modal that the agent dont think the first page is it?"* Investigated the actual bottleneck rather than only adding a loading indicator, per his explicit instruction ("investigate WHY it is slow... if it is slow because of something fixable, say so").
+
+**Real cause found**: rendering a multi-page document's remaining pages ran as ONE `pdftoppm` process working through the entire range sequentially, on a box with 16 CPU cores sitting unused. **Fixed** by splitting a multi-page range into concurrent `pdftoppm` processes (`RentalApplicationDocumentHighlightService::rasterizeIntoCache()`, using Symfony `Process::start()`/`::wait()` — starting every chunk before waiting on any, the actual mechanism of parallelism, not a relabelled sequential loop). Worker count is a new `config('rental_applications.pdf_render_workers', 4)` — deliberately a server-tuning knob, not an agency setting, since it's not a business decision and this box shares its cores across six concurrent lanes. **Measured real, cold-cache, on the same 17-page document used earlier this session**: the remaining-pages step dropped from **8.5s to 2.6s** — a genuine ~3.3x speedup, not estimated, with all 17 output pages confirmed correctly numbered and uncorrupted after the concurrent writes.
+
+**The loading indicator itself** — already existed and was already accurate ("Page 1 of N shown — loading the remaining N pages"), just visually too quiet for a multi-second wait (a static line of small text reads as "done" at a glance). Added a genuine animated spinner (inline SVG, `animate-spin`) so the in-progress state is unmistakable rather than merely stated — not a modal, since the existing inline banner already correctly lets the agent keep marking page 1 while the rest load, which a blocking modal would have undone.
+
+### Items 3 & 4 — the tool palette, "a desk with highlighters lying on it"
+
+Johan's governing design principle, verbatim, stated as the whole answer to both items: *"a desk with highlighters lying on it. Every tool is always visible, always in the same place, nothing morphs into anything else. You pick one up, it stays picked up until you pick up another, and you can see at a glance which one is in your hand."*
+
+**Root cause confirmed before building** (this session's earlier STEP 1 investigation, restated here since the fix follows directly from it): `activeTool` (highlight/note) and `activeHighlighterId` (the colour) were two fully independent Alpine variables. The colour picker was a dropdown that changed ONLY the colour, never the tool — so picking a colour while Note was the active tool silently primed the *next* note with that colour instead of switching to drawing, exactly Johan's *"picked income but it stayed on note"* complaint. Separately, the header toolbar was a single flex row where the stroke-size buttons only rendered when Highlight was active — switching tools removed/re-added DOM elements and visibly reflowed everything after them, Johan's *"some shows, some goes away."*
+
+**What shipped:**
+- The header toolbar (Highlight/Note toggle, the colour dropdown, stroke-size buttons, undo/redo) is gone. The sticky header, when a document is open, now holds only the document label, mark count, Save, and Done — kept there because THAT'S what genuinely needs to survive scroll position (Johan, 2026-09-08: "place them in a header... always visible"), not the tools themselves.
+- A new **fixed 190px left panel**, inside the document viewer (so it reaches both the agent review screen and the authoriser screen automatically — same shared partial): a "MARK-UP TOOLS" heading; a **HIGHLIGHTER** section with one always-visible button per agency-configured highlighter — clicking a button sets the tool AND the colour together, in one action (`pickHighlighter(id)`), so there is no code path left where they can drift apart; a **NOTE** section with its own single button (`pickNoteTool()`), completely decoupled from the highlighter palette — clicking it clears `activeHighlighterId` so a note never inherits a stray leftover colour; a **Stroke** row that always renders (dimmed and inert, never removed, when Note is active — nothing in the panel ever changes shape depending on tool); Undo/Redo.
+- **Unmistakable active-tool indication**: whichever button (a highlighter or Note) is currently selected gets a 2px colour-matched border, a tinted background, bold text, and an explicit checkmark — not the old single light-tint-on-a-crowded-row treatment Johan called "a subtle tint."
+- **A note's visual identity on the document is now fixed**, coordinated with cc4 (building the matching note icon on the authoriser screen — confirmed no competing implementation, same shared partial reaches both screens automatically): a fixed amber colour (`NOTE_COLOR`) with a small white "N" glyph inside the existing dot (kept as the click target, per Johan's own instruction relayed by cc4 — "still keep the dot then with a proper icon"), never `fillFor()`'s highlighter-colour lookup. A highlight stroke and a note dot can no longer share a colour by coincidence of category. Deliberately plain text for the glyph, not an inline `<svg>` — this file's own docblock already flags SVG-inside-`<template>` clone failure as a known, previously-hard-won bug class; the note dot renders inside exactly such a template loop.
+- The Legend gained a Note entry (same fixed amber + N) alongside the highlighter entries.
+
+**Not touched**: `resolveMarkColors()` (the PHP burn-time colour resolution for the downloaded/emailed PDF) — this piece is scoped to the live on-screen view, which is what Johan's items were about; the burned-PDF note colour is a separate, smaller follow-up if wanted, not assumed here.
+
+### Item 5 — not yet built
+
+Draggable right-panel width and PDF zoom — queued as the fourth and final piece, per Johan's stated priority order.
+
+### Verification
+
+- `php -l` clean on every changed file.
+- All three changed Blade files compile via `blade.compiler` directly.
+- `<div>` open/close balance verified programmatically after the palette restructuring (24/24).
+- Real cold-cache timing proof for item 1 (see above).
+- Real browser, screenshot-level pass on QA1 for items 2 and 3/4 — [results appended once the verification pass for 3/4 completes].
 - `resources/views/corex/rental-applications/review.blade.php` — drawer relocation, lifted Alpine state, z-index fix, new include params

@@ -73,6 +73,15 @@ function rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, curre
 
         activeDocId: null,
         activeTool: 'highlight', // default tool = highlighter (Johan)
+        // 2026-09-10 (cc5+cc4, AT-392) — Johan: "a note must look like a
+        // note on the document, not like a highlight." A note's marker
+        // used to share fillFor()'s highlighter-colour lookup with a
+        // highlight stroke, so a small dot in an agency's Income colour
+        // and a stroke in that same colour read as the same kind of mark.
+        // Fixed identity now, regardless of category — coordinated with
+        // cc4 (building the matching note icon on the authoriser screen;
+        // same shared partial, so it's automatically the same on both).
+        NOTE_COLOR: '#d97706',
         loading: false,
         loadError: '',
         applyError: '',
@@ -112,7 +121,6 @@ function rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, curre
         // the archived ones."
         highlighters: highlighters || [],
         activeHighlighterId: null,
-        pickerOpen: false,
         /** Choosable right now for a NEW mark — not archived, visible to this viewer's role (its own scope, or 'both'), in the agency's own configured order. Works identically whether an agency has 2 or 12. */
         pickerHighlighters() {
             return this.highlighters.filter(h => !h.archived && (h.role_scope === this.currentUserRole || h.role_scope === 'both'));
@@ -121,9 +129,27 @@ function rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, curre
         activeHighlighter() {
             return this.highlighters.find(h => h.id === this.activeHighlighterId) || null;
         },
-        selectHighlighter(id) {
+        // 2026-09-10 (cc5, AT-392, palette redesign) — Johan, verbatim:
+        // "selected note, added, then clicked the highlight colour, picked
+        // income but it stayed on note ... colours and highlight should
+        // sit next to each other." The old picker set ONLY the colour
+        // (activeHighlighterId), leaving activeTool wherever it already
+        // was — picking a colour while Note was selected silently primed
+        // the NEXT note with that colour instead of switching to drawing.
+        // A palette button is now the tool AND the colour in one action —
+        // there is no code path left where they can drift apart.
+        pickHighlighter(id) {
+            this.activeTool = 'highlight';
             this.activeHighlighterId = id;
-            this.pickerOpen = false;
+        },
+        // Notes get their own fixed visual identity now (see fillFor()'s
+        // note branch below), decoupled from the highlighter palette
+        // entirely — clearing activeHighlighterId means a note never
+        // silently inherits whatever colour was last active for a
+        // highlight, which is exactly the ambiguity Johan hit.
+        pickNoteTool() {
+            this.activeTool = 'note';
+            this.activeHighlighterId = null;
         },
         /** The legend's own list — every NON-archived highlighter (so it always explains what's currently choosable, for either role) PLUS any archived highlighter that still has at least one mark actually on THIS open document, so an old mark's colour is never left unexplained just because someone tidied the settings screen. */
         legendHighlighters() {

@@ -22,74 +22,169 @@
      shared JS factory, reading `highlighters` (passed in from the
      controller) — never CSS custom properties, never hardcoded here. --}}
 
-{{-- Legend — Johan asked for this explicitly ("a map key"). Driven by
-     legendHighlighters() — every currently-choosable highlighter, plus
-     any archived one that still has a mark on THIS open document (an old
-     mark's colour is never left unexplained just because someone tidied
-     the settings screen). Each row carries its own role tag now that role
-     is a per-highlighter property, not a fixed second axis.
-
-     2026-09-08, night sweep at 1522px — --ds-slate-soft was never actually
-     defined in corex.css, so its hardcoded #f1f5f9 fallback always won
-     regardless of theme, against theme-aware (light-in-dark-mode) text —
-     unreadable in dark mode. --surface-2 is the real, theme-aware token. --}}
-<div class="flex flex-wrap items-center gap-3 py-2 px-3 rounded-md text-xs mb-2" x-show="!loading && !loadError"
-     style="background: var(--surface-2, #f9fafb); border: 1px solid var(--border);">
-    <span class="font-semibold" style="color: var(--text-secondary);">Legend</span>
-    <template x-for="h in legendHighlighters()" :key="h.id">
-        <span class="flex items-center gap-1">
-            <span :style="{ display:'inline-block', width:'20px', height:'14px', borderRadius:'3px', background: h.color, opacity: h.archived ? '0.5' : '1' }"></span>
-            <span style="color: var(--text-muted);" x-text="h.label"></span>
-            <span style="color: var(--text-muted); font-size: 10px;" x-text="'(' + (h.role_scope === 'both' ? 'agent + authoriser' : h.role_scope) + (h.archived ? ', archived' : '') + ')'"></span>
-        </span>
-    </template>
-    <span class="text-[11px]" style="color: var(--text-muted);" x-show="legendHighlighters().length === 0">No highlighters configured yet.</span>
-</div>
-
 <template x-if="loading">
     <p class="text-sm py-4" style="color: var(--text-secondary);">Loading document…</p>
 </template>
 <template x-if="loadError">
     <p class="text-sm py-4" style="color: var(--ds-crimson, #dc2626);" x-text="loadError"></p>
 </template>
-<p class="text-xs py-2" style="color: var(--text-muted);" x-show="!loading && !loadError">
-    <span x-show="activeTool === 'highlight'">Click and drag across the document, like a marker pen, to highlight.</span>
-    <span x-show="activeTool === 'note'">Click anywhere on the document to pin a note.</span>
-    Marks are saved for this document — anyone who opens it next sees the same marks. You can edit or remove your own marks; anyone else's are read-only to you.
-</p>
 
-{{-- Progressive load, 2026-09-08 — Johan: "the agent must be able to
-     SEE that more pages are still coming, and roughly how many. A
-     page 1 that looks like the whole document is worse than a slow
-     load." Sharpness kept at full quality per his decision — this is
-     a one-time cost per document, made LESS painful by showing page 1
-     immediately, not made invisible.
-     2026-09-10 — Johan hit this again: "suggesting a loading modal that
-     the agent dont think the first page is it." The banner text was
-     already correct, it just wasn't visually loud enough for a
-     multi-second wait — a flat, static line of small text reads as
-     "done" at a glance. Added a genuinely animated spinner so the
-     in-progress state is unmistakable, not just stated. --}}
-<div class="flex items-center gap-2 text-xs py-2 px-3 rounded-md mb-2" x-show="pagesLoading" x-cloak
-     style="background: var(--ds-blue-soft, #eff6ff); color: var(--ds-blue, #2563eb);">
-    <svg class="w-3.5 h-3.5 flex-shrink-0 animate-spin" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="3" opacity="0.25"/>
-        <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
-    </svg>
-    <span>Page 1 of <span x-text="totalPages"></span> shown — loading the remaining <span x-text="totalPages - pages.length"></span> pages. You can start marking up page 1 now.</span>
-</div>
+{{-- 2026-09-10 (cc5, AT-392) — "a desk with highlighters lying on it.
+     Every tool is always visible, always in the same place, nothing
+     morphs into anything else." The tool controls used to live in the
+     sticky header as a single reflowing row (stroke-size buttons
+     appearing/disappearing depending on which tool was active — Johan:
+     "some shows, some goes away"), plus a colour DROPDOWN that only ever
+     changed the colour, never the tool — the exact ambiguity Johan hit
+     ("picked income but it stayed on note"). Fixed left panel now: every
+     highlighter is its own always-visible button that IS the tool
+     (picking a colour picks up highlight mode with it, one action, no
+     separate colour-then-tool step left to drift apart); Note is its own
+     button with its own fixed identity, never sharing the highlighter
+     palette. `position: sticky` here is safe — unlike the tenant-wishlist
+     drawer's earlier z-index bug, this panel is a normal flow sibling
+     inside .rental-review-main's own scroll box, never position:fixed,
+     so it has no viewport-escape/stacking-context risk to begin with. --}}
+<div class="flex gap-4 items-start" x-show="!loading && !loadError">
+    <div class="flex-shrink-0 space-y-3" style="width: 190px; position: sticky; top: 0;">
+        <p class="text-[11px] font-bold uppercase tracking-wide" style="color: var(--text-muted);">Mark-Up Tools</p>
 
-<div class="flex items-center gap-2 text-xs py-2 px-3 rounded-md mb-2" x-show="applyError" x-cloak
-     style="background: #fef2f2; color: var(--ds-crimson, #dc2626); border: 1px solid var(--ds-crimson, #dc2626);">
-    <span x-text="applyError"></span>
-    {{-- Version-conflict recovery — Johan: no live locking, but a genuine
-         collision must be visible and recoverable, not silent. Reloading is
-         the whole recovery mechanism: it discards this tab's unsaved
-         changes and re-fetches the current, now-authoritative state. --}}
-    <button type="button" x-show="applyErrorReason === 'version_conflict'" class="text-xs font-semibold underline" @click="reloadHighlighter()">Reload document</button>
-</div>
+        {{-- HIGHLIGHTER — Johan: "heading - highlighter - income / expense /
+             unpaid ... separate buttons that can easily be clicked and used." --}}
+        <div>
+            <p class="text-[10px] font-semibold uppercase tracking-wide mb-1" style="color: var(--text-muted);">Highlighter</p>
+            <div class="space-y-1">
+                <template x-for="h in pickerHighlighters()" :key="h.id">
+                    <button type="button" class="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-xs text-left transition-all duration-100"
+                            @click="pickHighlighter(h.id)"
+                            :style="{
+                                background: (activeTool === 'highlight' && activeHighlighterId === h.id) ? ('color-mix(in srgb, ' + h.color + ' 15%, var(--surface))') : 'var(--surface)',
+                                border: (activeTool === 'highlight' && activeHighlighterId === h.id) ? ('2px solid ' + h.color) : '1px solid var(--border)',
+                                fontWeight: (activeTool === 'highlight' && activeHighlighterId === h.id) ? '700' : '400',
+                            }">
+                        <span :style="{ display:'inline-block', width:'12px', height:'12px', borderRadius:'3px', flexShrink:'0', background: h.color }"></span>
+                        <span class="flex-1 truncate" x-text="h.label"></span>
+                        <span x-show="activeTool === 'highlight' && activeHighlighterId === h.id" style="font-weight:800;">&check;</span>
+                    </button>
+                </template>
+                <template x-if="pickerHighlighters().length === 0">
+                    <p class="text-[10px] leading-snug" style="color: var(--text-muted);">No highlighters are configured for your role yet — add one under Settings → Rental Applications.</p>
+                </template>
+            </div>
+        </div>
 
-<div class="space-y-4 pt-2" x-show="!loading && !loadError">
+        {{-- NOTE — its own section, its own fixed identity, never sharing
+             the highlighter colour palette (see pickNoteTool()). --}}
+        <div>
+            <p class="text-[10px] font-semibold uppercase tracking-wide mb-1" style="color: var(--text-muted);">Note</p>
+            <button type="button" class="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-xs text-left transition-all duration-100"
+                    @click="pickNoteTool()"
+                    :style="{
+                        background: activeTool === 'note' ? 'color-mix(in srgb, ' + NOTE_COLOR + ' 15%, var(--surface))' : 'var(--surface)',
+                        border: activeTool === 'note' ? ('2px solid ' + NOTE_COLOR) : '1px solid var(--border)',
+                        fontWeight: activeTool === 'note' ? '700' : '400',
+                    }">
+                <span class="rounded-full flex items-center justify-center" :style="{ width:'12px', height:'12px', flexShrink:'0', background: NOTE_COLOR }">
+                    <span style="color:#fff; font-size:7px; font-weight:800; line-height:1;">N</span>
+                </span>
+                <span class="flex-1">Add a note</span>
+                <span x-show="activeTool === 'note'" style="font-weight:800;">&check;</span>
+            </button>
+        </div>
+
+        {{-- Stroke width — Johan: "not click buttons change" — always
+             rendered, never removed from the layout; dimmed and inert
+             (not hidden) when Note is the active tool, so nothing here
+             ever shifts position depending on which tool is selected. --}}
+        <div :style="{ opacity: activeTool === 'highlight' ? '1' : '0.4', pointerEvents: activeTool === 'highlight' ? 'auto' : 'none' }">
+            <p class="text-[10px] font-semibold uppercase tracking-wide mb-1" style="color: var(--text-muted);">Stroke</p>
+            <div class="flex items-center gap-1">
+                <template x-for="s in strokeSizes" :key="s.key">
+                    <button type="button" class="flex-1 text-[11px] px-1 py-1 rounded-md" :title="s.label" @click="setStrokeSize(s.key)"
+                            :style="{ border:'1px solid var(--border)', background: strokeSizeKey === s.key ? 'var(--ds-blue-soft, #eff6ff)' : 'transparent', fontWeight: strokeSizeKey === s.key ? '700' : '400' }" x-text="s.label"></button>
+                </template>
+            </div>
+        </div>
+
+        <div class="flex items-center gap-1 pt-1" style="border-top: 1px solid var(--border);">
+            <button type="button" class="flex-1 text-xs px-2 py-1 rounded-md" title="Undo (Ctrl+Z)"
+                    @click="undo()" :disabled="!canUndo()"
+                    :style="{ border:'1px solid var(--border)', color: canUndo() ? 'var(--text-secondary)' : 'var(--text-muted)', opacity: canUndo() ? '1' : '0.5', cursor: canUndo() ? 'pointer' : 'default' }">Undo</button>
+            <button type="button" class="flex-1 text-xs px-2 py-1 rounded-md" title="Redo (Ctrl+Shift+Z)"
+                    @click="redo()" :disabled="!canRedo()"
+                    :style="{ border:'1px solid var(--border)', color: canRedo() ? 'var(--text-secondary)' : 'var(--text-muted)', opacity: canRedo() ? '1' : '0.5', cursor: canRedo() ? 'pointer' : 'default' }">Redo</button>
+        </div>
+    </div>
+
+    <div class="flex-1 min-w-0">
+        {{-- Legend — Johan asked for this explicitly ("a map key"). Driven by
+             legendHighlighters() — every currently-choosable highlighter, plus
+             any archived one that still has a mark on THIS open document (an old
+             mark's colour is never left unexplained just because someone tidied
+             the settings screen). Each row carries its own role tag now that role
+             is a per-highlighter property, not a fixed second axis.
+
+             2026-09-08, night sweep at 1522px — --ds-slate-soft was never actually
+             defined in corex.css, so its hardcoded #f1f5f9 fallback always won
+             regardless of theme, against theme-aware (light-in-dark-mode) text —
+             unreadable in dark mode. --surface-2 is the real, theme-aware token. --}}
+        <div class="flex flex-wrap items-center gap-3 py-2 px-3 rounded-md text-xs mb-2"
+             style="background: var(--surface-2, #f9fafb); border: 1px solid var(--border);">
+            <span class="font-semibold" style="color: var(--text-secondary);">Legend</span>
+            <template x-for="h in legendHighlighters()" :key="h.id">
+                <span class="flex items-center gap-1">
+                    <span :style="{ display:'inline-block', width:'20px', height:'14px', borderRadius:'3px', background: h.color, opacity: h.archived ? '0.5' : '1' }"></span>
+                    <span style="color: var(--text-muted);" x-text="h.label"></span>
+                    <span style="color: var(--text-muted); font-size: 10px;" x-text="'(' + (h.role_scope === 'both' ? 'agent + authoriser' : h.role_scope) + (h.archived ? ', archived' : '') + ')'"></span>
+                </span>
+            </template>
+            <span class="flex items-center gap-1">
+                <span class="rounded-full flex items-center justify-center" :style="{ width:'14px', height:'14px', flexShrink:'0', background: NOTE_COLOR }">
+                    <span style="color:#fff; font-size:7px; font-weight:800; line-height:1;">N</span>
+                </span>
+                <span style="color: var(--text-muted);">Note</span>
+            </span>
+            <span class="text-[11px]" style="color: var(--text-muted);" x-show="legendHighlighters().length === 0">No highlighters configured yet.</span>
+        </div>
+
+        <p class="text-xs py-2" style="color: var(--text-muted);">
+            <span x-show="activeTool === 'highlight'">Click and drag across the document, like a marker pen, to highlight.</span>
+            <span x-show="activeTool === 'note'">Click anywhere on the document to pin a note.</span>
+            Marks are saved for this document — anyone who opens it next sees the same marks. You can edit or remove your own marks; anyone else's are read-only to you.
+        </p>
+
+        {{-- Progressive load, 2026-09-08 — Johan: "the agent must be able to
+             SEE that more pages are still coming, and roughly how many. A
+             page 1 that looks like the whole document is worse than a slow
+             load." Sharpness kept at full quality per his decision — this is
+             a one-time cost per document, made LESS painful by showing page 1
+             immediately, not made invisible.
+             2026-09-10 — Johan hit this again: "suggesting a loading modal that
+             the agent dont think the first page is it." The banner text was
+             already correct, it just wasn't visually loud enough for a
+             multi-second wait — a flat, static line of small text reads as
+             "done" at a glance. Added a genuinely animated spinner so the
+             in-progress state is unmistakable, not just stated. --}}
+        <div class="flex items-center gap-2 text-xs py-2 px-3 rounded-md mb-2" x-show="pagesLoading" x-cloak
+             style="background: var(--ds-blue-soft, #eff6ff); color: var(--ds-blue, #2563eb);">
+            <svg class="w-3.5 h-3.5 flex-shrink-0 animate-spin" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="3" opacity="0.25"/>
+                <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+            </svg>
+            <span>Page 1 of <span x-text="totalPages"></span> shown — loading the remaining <span x-text="totalPages - pages.length"></span> pages. You can start marking up page 1 now.</span>
+        </div>
+
+        <div class="flex items-center gap-2 text-xs py-2 px-3 rounded-md mb-2" x-show="applyError" x-cloak
+             style="background: #fef2f2; color: var(--ds-crimson, #dc2626); border: 1px solid var(--ds-crimson, #dc2626);">
+            <span x-text="applyError"></span>
+            {{-- Version-conflict recovery — Johan: no live locking, but a genuine
+                 collision must be visible and recoverable, not silent. Reloading is
+                 the whole recovery mechanism: it discards this tab's unsaved
+                 changes and re-fetches the current, now-authoritative state. --}}
+            <button type="button" x-show="applyErrorReason === 'version_conflict'" class="text-xs font-semibold underline" @click="reloadHighlighter()">Reload document</button>
+        </div>
+
+        <div class="space-y-4 pt-2">
     <template x-for="page in pages" :key="page.index">
         <div>
             <div class="flex items-center justify-between mb-1">
@@ -166,11 +261,12 @@
                                 :style="{ position:'absolute', left:(mark.points[0].x-9)+'px', top:(mark.points[0].y-9)+'px', width:'18px', height:'18px', borderRadius:'9999px', background:'#475569', color:'#fff', fontSize:'12px', lineHeight:'16px', textAlign:'center', border:'1px solid #fff', padding:'0', pointerEvents:'auto', cursor:'pointer' }">&times;</button>
                     </template>
                     {{-- Notes — a pinned marker + its text, visible inline. Dot
-                         fill resolves to its highlighter's colour (fillFor,
-                         same as a highlight stroke) with a plain fixed
-                         white ring for contrast — this is a discrete pin,
-                         not a stroke crossing text, so a border here isn't
-                         the "line as it strikes out" Johan ruled out.
+                         fill is now a fixed NOTE_COLOR (2026-09-10, see the
+                         template above), never fillFor()'s highlighter-colour
+                         lookup, with a plain fixed white ring for contrast —
+                         this is a discrete pin, not a stroke crossing text, so
+                         a border here isn't the "line as it strikes out" Johan
+                         ruled out.
                          2026-09-08 — Johan: "note does not work - clicked, shows
                          small modal but cannot type anything in it." Root cause,
                          found the same way as the highlighter bug above (a real
@@ -187,10 +283,22 @@
                          from ever reaching the draw surface, on every interactive
                          element here (not just the textarea — the marker dot and
                          its popover buttons had the same latent exposure). --}}
+                    {{-- 2026-09-10 (cc5+cc4, Johan: "a note must look like a note
+                         on the document, not like a highlight") — fixed colour
+                         (NOTE_COLOR) and a plain-text "N" glyph, never fillFor()'s
+                         highlighter-colour lookup, so a note is identifiable at a
+                         glance regardless of category and can never be mistaken
+                         for a highlight stroke. Dot stays the click target
+                         (unchanged hit area/position) — only its fill and the
+                         glyph inside it changed. Text, not <svg>, deliberately —
+                         this file's own docblock flags SVG-inside-<template>
+                         clone failure as a known, hard-won landmine. --}}
                     <template x-for="(note, ni) in notesFor(page.index)" :key="'n'+ni">
                         <div @pointerdown.stop :style="{ position:'absolute', left:note.x+'px', top:note.y+'px', transform:'translate(-50%,-50%)', pointerEvents:'auto' }">
-                            <div class="rounded-full" :style="{ width:'16px', height:'16px', background: fillFor(note), border:'2px solid #fff', boxShadow:'0 0 0 1px rgba(0,0,0,0.3)', cursor:'pointer' }"
-                                 @click="toggleNotePopover(page.index, ni)"></div>
+                            <div class="rounded-full flex items-center justify-center" :style="{ width:'16px', height:'16px', background: NOTE_COLOR, border:'2px solid #fff', boxShadow:'0 0 0 1px rgba(0,0,0,0.3)', cursor:'pointer' }"
+                                 @click="toggleNotePopover(page.index, ni)">
+                                <span style="color:#fff; font-size:8px; font-weight:800; line-height:1; user-select:none;">N</span>
+                            </div>
                             <div x-show="openNote && openNote.page === page.index && openNote.index === ni" x-cloak
                                  class="rounded-md p-2" style="position:absolute; top:20px; left:0; width:240px; background: var(--surface); border:1px solid var(--border); box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 10;">
                                 <p class="text-sm mb-1" style="white-space:pre-wrap; color: var(--text-primary);" x-text="note.text"></p>
@@ -217,4 +325,6 @@
             </div>
         </div>
     </template>
+        </div>
+    </div>
 </div>

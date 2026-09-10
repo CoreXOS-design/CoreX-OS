@@ -187,73 +187,23 @@
                 </div>
             </template>
             <template x-if="activeDocId !== null">
-                {{-- Shared highlighter toolbar — identical for both roles, driven
-                     entirely by the shared rentalDocumentHighlighter() factory
-                     both root components spread in. Unified screen, 2026-09-09:
-                     this used to be duplicated (here, and inline per-document on
-                     the authoriser's old screen) — one copy now. --}}
+                {{-- 2026-09-10 (cc5, AT-392, Johan's "desk with highlighters"
+                     principle) — this used to hold the full tool set
+                     (Highlight/Note toggle, a colour dropdown that changed
+                     meaning depending on which was picked last, stroke
+                     size, undo/redo) in one reflowing header row: Johan,
+                     verbatim, "some shows, some goes away? ... not click
+                     buttons change, etc." Every drawing/marking tool moved
+                     to the new fixed left panel inside the document viewer
+                     (document-highlighter-pages.blade.php) — one place,
+                     always visible, nothing here changes shape depending on
+                     what's selected. This header keeps only what genuinely
+                     needs to stay reachable regardless of scroll position
+                     (Johan, 2026-09-08: "place them in a header... always
+                     visible") — the document label and the page-level
+                     Save/Done actions, not the tools themselves. --}}
                 <div class="flex items-center gap-3 flex-wrap justify-end">
                     <span class="text-xs font-medium truncate max-w-[160px]" style="color: var(--text-secondary);" x-text="label"></span>
-                    <div class="flex items-center gap-1">
-                        <button type="button" class="text-xs px-2 py-1 rounded-md" @click="activeTool = 'highlight'"
-                                :style="{ border:'1px solid var(--border)', background: activeTool === 'highlight' ? 'var(--ds-blue-soft, #eff6ff)' : 'transparent', fontWeight: activeTool === 'highlight' ? '700' : '400' }">Highlight</button>
-                        <button type="button" class="text-xs px-2 py-1 rounded-md" @click="activeTool = 'note'"
-                                :style="{ border:'1px solid var(--border)', background: activeTool === 'note' ? 'var(--ds-blue-soft, #eff6ff)' : 'transparent', fontWeight: activeTool === 'note' ? '700' : '400' }">Note</button>
-                    </div>
-                    {{-- Highlighter picker, collection expansion 2026-09-09
-                         — Johan: "an agency can have 10 highlighters set
-                         up, each with their own label." A row of buttons
-                         (the old three-category picker) stopped scaling
-                         the moment the count became agency-defined rather
-                         than a fixed three — Johan: "a row of ten swatches
-                         ... will be unusable and will crowd out Highlight,
-                         Note, thickness and Undo." One dropdown button
-                         instead: its own footprint never changes whether
-                         an agency has configured 2 highlighters or 12 —
-                         only the list inside the dropdown grows. Only the
-                         viewer's own active, role-visible highlighters
-                         appear (pickerHighlighters()) — never the other
-                         role's, never archived ones. --}}
-                    <div class="relative" x-show="!loading && !loadError">
-                        <button type="button" class="text-xs px-2 py-1 rounded-md flex items-center gap-1.5"
-                                @click="pickerOpen = !pickerOpen" :disabled="!activeHighlighter()"
-                                :style="{ border:'1px solid var(--border)', opacity: activeHighlighter() ? '1' : '0.6', cursor: activeHighlighter() ? 'pointer' : 'default' }">
-                            <span :style="{ display:'inline-block', width:'12px', height:'12px', borderRadius:'3px', flexShrink:'0', background: activeHighlighter() ? activeHighlighter().color : 'transparent', border: activeHighlighter() ? 'none' : '1px dashed var(--text-muted)' }"></span>
-                            <span x-text="activeHighlighter() ? activeHighlighter().label : 'No highlighter'"></span>
-                            <span style="font-size:9px;" x-show="pickerHighlighters().length > 0">&#9662;</span>
-                        </button>
-                        <div x-show="pickerOpen" x-cloak @click.outside="pickerOpen = false"
-                             class="absolute z-20 mt-1 rounded-md py-1" style="min-width:170px; max-height:280px; overflow-y:auto; background: var(--surface); border:1px solid var(--border); box-shadow: 0 4px 12px rgba(0,0,0,0.15);">
-                            <template x-for="h in pickerHighlighters()" :key="h.id">
-                                <button type="button" class="text-xs w-full text-left px-3 py-1.5 flex items-center gap-2"
-                                        @click="selectHighlighter(h.id)"
-                                        :style="{ background: activeHighlighterId === h.id ? 'var(--ds-blue-soft, #eff6ff)' : 'transparent', fontWeight: activeHighlighterId === h.id ? '700' : '400' }">
-                                    <span :style="{ display:'inline-block', width:'12px', height:'12px', borderRadius:'3px', flexShrink:'0', background: h.color }"></span>
-                                    <span x-text="h.label"></span>
-                                </button>
-                            </template>
-                            <template x-if="pickerHighlighters().length === 0">
-                                <div class="text-xs px-3 py-1.5" style="color: var(--text-muted); width:220px; white-space:normal;">No highlighters are configured for your role yet — add one under Settings → Rental Applications.</div>
-                            </template>
-                        </div>
-                    </div>
-                    {{-- Highlighter size, 2026-09-08 — Johan: "we need a way
-                         to adjust the highlighter smaller or larger." Three
-                         presets, remembered in localStorage. --}}
-                    <div class="flex items-center gap-1" x-show="!loading && !loadError && activeTool === 'highlight'">
-                        <template x-for="s in strokeSizes" :key="s.key">
-                            <button type="button" class="text-xs px-2 py-1 rounded-md" :title="s.label" @click="setStrokeSize(s.key)"
-                                    :style="{ border:'1px solid var(--border)', background: strokeSizeKey === s.key ? 'var(--ds-blue-soft, #eff6ff)' : 'transparent', fontWeight: strokeSizeKey === s.key ? '700' : '400' }" x-text="s.label"></button>
-                        </template>
-                    </div>
-                    <div class="flex items-center gap-1" x-show="!loading && !loadError">
-                        <button type="button" class="text-xs px-2 py-1 rounded-md" title="Undo (Ctrl+Z)"
-                                @click="undo()" :disabled="!canUndo()"
-                                :style="{ border:'1px solid var(--border)', color: canUndo() ? 'var(--text-secondary)' : 'var(--text-muted)', opacity: canUndo() ? '1' : '0.5', cursor: canUndo() ? 'pointer' : 'default' }">Undo</button>
-                        <button type="button" class="text-xs px-2 py-1 rounded-md" title="Redo (Ctrl+Shift+Z)"
-                                @click="redo()" :disabled="!canRedo()"
-                                :style="{ border:'1px solid var(--border)', color: canRedo() ? 'var(--text-secondary)' : 'var(--text-muted)', opacity: canRedo() ? '1' : '0.5', cursor: canRedo() ? 'pointer' : 'default' }">Redo</button>
-                    </div>
                     <span class="text-xs font-semibold hidden sm:inline" style="color: var(--text-secondary);" x-show="!loading">
                         <span x-text="markCount()"></span> mark<span x-show="markCount() !== 1">s</span>
                     </span>
