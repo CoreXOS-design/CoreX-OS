@@ -61,59 +61,65 @@ commits from other lanes.
 
 ## 3. Migrations — what must run, and how to actually verify (not migrate output)
 
-Everything below already ran cleanly on Staging. Run the same sequence on live, then verify with
-the real queries — `php artisan migrate` printing "DONE" only proves the migration didn't throw,
-not that the data is what you expect.
+**Do not run `php artisan migrate --force` blind for this delta.** One of these eight migrations
+must be deliberately excluded from live. Run the other seven explicitly, in order, by path.
 
 ```bash
-php artisan migrate --force
+php artisan migrate --force \
+  --path=database/migrations/2026_09_08_170000_add_incremental_poll_watermarks_to_communication_mailboxes.php \
+  --path=database/migrations/2026_09_08_210000_add_messages_behind_estimate_to_communication_mailboxes.php \
+  --path=database/migrations/2026_09_09_020000_add_poll_backoff_to_communication_mailboxes.php \
+  --path=database/migrations/2026_09_09_030000_create_communication_host_circuit_breakers_table.php \
+  --path=database/migrations/2026_09_09_040000_add_auth_lock_to_communication_host_circuit_breakers.php \
+  --path=database/migrations/2026_09_09_040000_create_outbound_mail_guard_captures_table.php \
+  --path=database/migrations/2026_09_09_050000_add_error_detail_to_communication_mailboxes.php \
+  --path=database/migrations/2026_09_09_080000_add_communication_poll_chunk_size_to_agencies.php
 ```
 
-New/relevant migrations in this delta (`2026_09_08_170000` through `2026_09_09_080000`):
+**Deliberately NOT in that list:** `2026_09_09_060000_reconcile_hfcoastal_host_auth_failure_count.php`.
+Do not run it on live. See below for why.
 
-| Migration | What it does |
-|---|---|
-| `add_incremental_poll_watermarks_to_communication_mailboxes` | adds `last_uid_seen`, `inbox_uid_validity`, `sent_last_uid`, `sent_uid_validity` |
-| `add_messages_behind_estimate_to_communication_mailboxes` | health-badge support |
-| `add_poll_backoff_to_communication_mailboxes` | back-off/disable columns |
-| `create_communication_host_circuit_breakers_table` | new table, one row per host |
-| `add_auth_lock_to_communication_host_circuit_breakers` | adds `auth_failure_count`, `auth_locked_at` |
-| `add_error_detail_to_communication_mailboxes` | raw-server-response columns for the diagnostics disclosure |
-| `reconcile_hfcoastal_host_auth_failure_count` | **RUN IT.** Johan confirmed — see below. |
-| `add_communication_poll_chunk_size_to_agencies` | agency-configurable chunk size |
+| Migration | What it does | Runs on live? |
+|---|---|---|
+| `add_incremental_poll_watermarks_to_communication_mailboxes` | adds `last_uid_seen`, `inbox_uid_validity`, `sent_last_uid`, `sent_uid_validity` | Yes |
+| `add_messages_behind_estimate_to_communication_mailboxes` | health-badge support | Yes |
+| `add_poll_backoff_to_communication_mailboxes` | back-off/disable columns | Yes |
+| `create_communication_host_circuit_breakers_table` | new table, one row per host | Yes |
+| `add_auth_lock_to_communication_host_circuit_breakers` | adds `auth_failure_count`, `auth_locked_at` | Yes |
+| `create_outbound_mail_guard_captures_table` | interception-capture logging | Yes |
+| `add_error_detail_to_communication_mailboxes` | raw-server-response columns for the diagnostics disclosure | Yes |
+| `reconcile_hfcoastal_host_auth_failure_count` | writes Staging's own incident history onto `mail.hfcoastal.co.za`'s breaker row | **NO — excluded, see below** |
+| `add_communication_poll_chunk_size_to_agencies` | agency-configurable chunk size | Yes |
 
-### RESOLVED — run this one, Johan's own words
+### DO NOT RUN `reconcile_hfcoastal_host_auth_failure_count` ON LIVE — deliberately excluded
 
-`reconcile_hfcoastal_host_auth_failure_count` **hardcodes** `mail.hfcoastal.co.za`'s breaker row to
-`auth_failure_count = 2, auth_locked_at = now()` — i.e. it **locks that host on whatever
-environment it runs on**.
+**Final decision, Johan's word, 2026-09-10.** This was investigated properly before deciding, not
+assumed either way — the full reasoning is worth reading if you're ever unsure whether to
+reconsider it:
 
-This used to be a STOP pending an answer from Johan. He answered it directly, 2026-09-10: *"if you
-are on johan@hfcoastal.co.za then yes. thats my mailbox and all the other mailboxes are hfc's
-mailboxes."* **`mail.hfcoastal.co.za` is one real, shared Afrihost mail host — the same physical
-mailboxes live and Staging/QA1 both connect to. Live is not a separate mail relationship.**
+- The two recorded failures were **real, but they were Staging's** — a genuine 535 rejection
+  against a password that was stale *at that moment* (last changed in July, corrected by Johan
+  later the same day). Proven fixed: a real, successful login went through on Staging afterward.
+- **Live's credentials are confirmed good.** Johan, 2026-09-10, verbatim: *"live worked until we
+  did the outgoing email part this week, and it worked until we hit the multi test. so theres no
+  issue with passwords on live."* Live was never the environment that hit the stale password.
+- The migration is **not a soft precaution** — it's a standing stop. Checked directly in the code:
+  nothing ever resets `auth_failure_count` on a successful login (only `resetAuthLock()` does,
+  and that is only ever called by a human — see `HostCircuitBreaker.php`), and the lock is checked
+  and enforced *before* every single real connection attempt, in all four call sites (Test
+  Connection ×3, the poll job). Once tripped, it does not recover on its own — ever. Running this
+  on live would pause Test Connection and automatic polling for **every HFC mailbox on
+  `mail.hfcoastal.co.za`**, indefinitely, until a person manually clears it — for a problem that
+  was proven to be Staging's, not live's.
+- **Live does not need this pre-loaded to be protected.** The actual safeguards — the rate
+  limiter, the same threshold-of-2 auth-failure lock, chunked polling — ship as **code**, not
+  data, in this same delta. They protect live automatically starting from live's very first real
+  attempt after promotion. If live ever does hit two real failures, the exact same lock trips
+  there, on its own, with no history needing to be pre-loaded for it to work.
 
-**Run it on live, deliberately, as part of this delta.** The reasoning, plainly:
-
-- Tonight's two recorded failures were **real** — a genuine 535 rejection from the real Afrihost
-  server, using a password that was genuinely stale at that moment (last changed in July; Johan
-  re-saved it later the same day). Not a Staging bug, not a misconfiguration on Staging's side —
-  the identical two failures would have happened from live at that same moment, with that same
-  old password. The current password is confirmed correct: a real, successful login went through
-  once Afrihost's IP block lifted.
-- Because the host is shared, those two failures count against the **real, external Afrihost
-  cap** regardless of which environment caused them. `communication_host_circuit_breakers` is a
-  **separate table per environment** (Staging, QA1, and live each have their own database) — our
-  own software cannot see across environments, so live's copy of this safety tracker currently
-  reads "0 of 3, all clear" whether that's true or not.
-- **Not running it leaves live's own tracker telling a false story** — genuinely 2 of 3 real
-  strikes already spent, with live's software unaware and unable to warn anyone before a third
-  real attempt (from any environment) risks a second real ban.
-- **Running it means every mailbox on `mail.hfcoastal.co.za` on live — not just Johan's, all of
-  HFC's staff on that host — has Test Connection and automatic polling paused** until a person
-  reviews and deliberately clears the lock (same as it's already behaving on Staging tonight).
-  That pause is the correct, intended behaviour, not a side effect to work around — see §8, do not
-  clear it without understanding why it's there.
+If this delta is ever re-cut with a different mail setup (a different account, a different
+provider) this assumption needs re-checking, not carried forward blind — but as of 2026-09-10, for
+`mail.hfcoastal.co.za` specifically, it's resolved: **do not run it.**
 
 ### Verification queries — run these for real, don't trust migrate's output
 
@@ -134,6 +140,12 @@ communication_poll_disable_threshold`. Expected mailbox columns include `last_ui
 inbox_uid_validity, sent_last_uid, sent_uid_validity, last_send_error_detail,
 last_sent_folder_append_error_detail, last_error_detail`. If any of these are missing, a migration
 silently didn't run or didn't apply — stop, don't proceed to caches/reload.
+
+The `mail.hfcoastal.co.za` row printed by that query is **expected to be empty/null** at this
+point — the table exists (from `create_communication_host_circuit_breakers_table`), but no row for
+that host is seeded, because the one migration that would write it was deliberately skipped. That
+is correct. A row appears the first time any real connection attempt targets that host, created
+fresh by the running code, not pre-loaded.
 
 Standard post-migrate steps, unchanged from any other CoreX deploy:
 
@@ -225,12 +237,15 @@ attention.
   deliberately set below the real external limit, on purpose, so there is always margin before the
   real ban. Raising it trades away the one thing standing between us and a second incident like
   tonight's.
-- **`reconcile_hfcoastal_host_auth_failure_count` — run it, per §3.** Johan confirmed
-  `mail.hfcoastal.co.za` is one shared host across live and Staging/QA1, not a separate
-  relationship. This is the one migration in this delta that encodes real incident history rather
-  than a schema/feature change — it's resolved, not a thing to second-guess on the day, but if
-  the mail setup changes before this ships (a different account, a different provider) that
-  assumption needs re-checking, not assumed to still hold.
+- **Do not run `reconcile_hfcoastal_host_auth_failure_count` on live — final decision, §3.**
+  Johan confirmed `mail.hfcoastal.co.za` is one shared host across live and Staging/QA1, not a
+  separate relationship — but he also confirmed live's own credentials are current and working
+  ("no issue with passwords on live"), and tonight's two failures were proven to be Staging's, not
+  live's. Running this migration would impose a standing, human-clear-only stop on every HFC
+  mailbox on live for a problem that was never live's. Resolved, not a thing to second-guess on
+  the day — but if the mail setup changes before this ships (a different account, a different
+  provider, live's own credentials turn out to be stale after all) that assumption needs
+  re-checking, not assumed to still hold.
 
 ---
 
