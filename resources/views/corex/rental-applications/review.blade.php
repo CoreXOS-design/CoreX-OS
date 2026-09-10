@@ -141,6 +141,27 @@
                         agent's call, not a decision this merge hands the authoriser
                         for free.
                     --}}
+                    {{--
+                        AT-392 follow-up, Johan (QA1, item 4 of the post-test findings,
+                        2026-09-10): "if you did not select the property before the
+                        rental application opens you cannot add it on the application."
+                        Investigated by actually doing it, not by reading the source —
+                        the control was never broken: search-properties and
+                        link-property both work exactly as built, unconditionally, at
+                        every status, with no gate beyond the ordinary agent-viewer
+                        check already on this whole block. The real defect was that
+                        this control read as inert status text, not a button, and its
+                        copy ("Link a property to check against its rent") framed
+                        itself as an affordability side-calculator rather than what it
+                        actually is — the only way to attach a property to THIS
+                        application at all. A few lines away, the affordability panel
+                        (a different feature's screen real estate, not touched here)
+                        has its OWN static, non-clickable sentence that happens to
+                        start with the same three words — easy to mistake for the
+                        same control. Fix is copy + prominence only; the mechanism
+                        underneath (search-properties/link-property, agent-only,
+                        unconditional on status) is unchanged.
+                    --}}
                     <div class="mt-1" x-data="rentalReviewPropertyLink({{ Js::from([
                         'searchUrl' => route('corex.rental-applications.search-properties'),
                         'linkUrl' => route('corex.rental-applications.review.link-property', $rentalApplication),
@@ -148,13 +169,16 @@
                             ?: optional($rentalApplication->property)?->buildDisplayAddress(),
                     ]) }})">
                         <template x-if="!searching">
-                            <p class="text-xs">
-                                <span style="color: var(--text-muted);" x-show="currentLabel" x-text="'Linked for affordability: ' + currentLabel"></span>
-                                <span style="color: var(--ds-amber, #d97706);" x-show="!currentLabel">Link a property to check against its rent</span>
-                                <button type="button" class="underline ml-1" style="color: var(--brand-icon, #2563eb);" @click="searching = true">
-                                    <span x-text="currentLabel ? 'Change' : 'Link a property'"></span>
+                            <p class="text-xs flex items-center flex-wrap gap-1.5">
+                                <span style="color: var(--text-muted);" x-show="currentLabel" x-text="'Property: ' + currentLabel"></span>
+                                <span style="color: var(--text-muted);" x-show="!currentLabel">No property linked yet.</span>
+                                <button type="button"
+                                        class="corex-btn-outline"
+                                        style="padding: 0.15rem 0.6rem; font-size: 0.7rem; line-height: 1.2;"
+                                        @click="searching = true">
+                                    <span x-text="currentLabel ? 'Change property' : 'Link a property'"></span>
                                 </button>
-                                <button type="button" class="underline ml-1" style="color: var(--ds-red, #dc2626);" x-show="currentLabel" @click="clear()">Clear</button>
+                                <button type="button" class="underline" style="color: var(--ds-red, #dc2626);" x-show="currentLabel" @click="clear()">Clear</button>
                             </p>
                         </template>
                         <template x-if="searching">
