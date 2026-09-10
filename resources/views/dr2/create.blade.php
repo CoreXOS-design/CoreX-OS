@@ -193,7 +193,17 @@
 
             {{-- AT-398 — multi-property add/remove list. Only meaningful once the deal
                  already exists (addProperty/removeProperty/updatePrice/restore all
-                 route-model-bind to a real Deal), so this only renders in edit mode. --}}
+                 route-model-bind to a real Deal), so this only renders in edit mode.
+
+                 A <form> cannot contain another <form> — a browser silently drops
+                 nested ones, which broke the page's OWN "Update Deal" submit
+                 (found on a real browser pass; hand-tracing the markup missed it).
+                 None of the four actions below live inside a nested <form> here:
+                 each visible control is a plain button/input associated to its
+                 REAL <form> — declared OUTSIDE this page's main form, see the
+                 "AT-398 standalone forms" block right after the main form's
+                 closing tag — via the HTML5 form="..." attribute, which works
+                 regardless of DOM nesting. --}}
             @if(($mode ?? 'create') === 'edit' && $deal->exists)
             @php
                 $dr2ActiveProps = $deal->properties()->orderByDesc('deal_properties.is_primary')->orderBy('deal_properties.created_at')->get();
@@ -239,11 +249,8 @@
                             <div style="display:flex;align-items:center;gap:.6rem;flex-shrink:0;">
                                 @if(!$p->pivot->is_primary)
                                     <button type="button" class="dr2mp-edit-price text-xs underline" data-property="{{ $p->id }}" data-address="{{ $p->address }}" data-price="{{ $p->pivot->allocated_price }}" data-commission="{{ $p->pivot->allocated_commission }}" style="color:var(--text-muted);">Edit price</button>
-                                    <form method="POST" action="{{ route('deals-dr2.properties.remove', [$deal, $p]) }}" class="dr2mp-remove-form" data-address="{{ $p->address }}">
-                                        @csrf
-                                        @method('DELETE')
-                                        <button type="submit" class="text-xs" style="color:#b91c1c;">Remove</button>
-                                    </form>
+                                    {{-- Real form lives outside the main <form> — see "AT-398 standalone forms" below. --}}
+                                    <button type="submit" form="dr2mp-remove-form-{{ $p->id }}" class="dr2mp-remove-trigger text-xs" data-address="{{ $p->address }}" style="color:#b91c1c;background:none;border:none;padding:0;cursor:pointer;font-family:inherit;">Remove</button>
                                 @else
                                     <span class="text-xs" style="color:var(--text-faint);" title="Pick a different property as primary before removing this one">Primary — remove by making another property primary first</span>
                                 @endif
@@ -254,25 +261,23 @@
                     @endforelse
                 </div>
 
-                {{-- Inline price editor — populated by JS when "Edit price" is clicked --}}
+                {{-- Inline price editor — populated by JS when "Edit price" is clicked.
+                     Not a <form> here; its inputs/button are associated (form="dr2mp_edit_form")
+                     to the real, standalone form declared outside the main form below. --}}
                 <div id="dr2mp_edit_box" style="display:none;border:1px solid var(--border);border-radius:8px;padding:.6rem;margin-bottom:.75rem;background:var(--surface);">
                     <div class="text-xs font-semibold mb-1" id="dr2mp_edit_label" style="color:var(--text-secondary);"></div>
-                    <form method="POST" id="dr2mp_edit_form">
-                        @csrf
-                        @method('PATCH')
-                        <div style="display:flex;gap:.6rem;align-items:end;flex-wrap:wrap;">
-                            <div>
-                                <label class="text-[11px] block" style="color:var(--text-muted);">Price</label>
-                                <input type="number" step="0.01" min="0" name="allocated_price" id="dr2mp_edit_price" class="input-base text-xs" required>
-                            </div>
-                            <div>
-                                <label class="text-[11px] block" style="color:var(--text-muted);">Commission (Incl VAT)</label>
-                                <input type="number" step="0.01" min="0" name="allocated_commission" id="dr2mp_edit_commission" class="input-base text-xs" required>
-                            </div>
-                            <button type="submit" class="corex-btn-outline text-xs">Save</button>
-                            <button type="button" id="dr2mp_edit_cancel" class="text-xs underline" style="color:var(--text-muted);">Cancel</button>
+                    <div style="display:flex;gap:.6rem;align-items:end;flex-wrap:wrap;">
+                        <div>
+                            <label class="text-[11px] block" style="color:var(--text-muted);">Price</label>
+                            <input type="number" step="0.01" min="0" name="allocated_price" id="dr2mp_edit_price" class="input-base text-xs" form="dr2mp_edit_form" required>
                         </div>
-                    </form>
+                        <div>
+                            <label class="text-[11px] block" style="color:var(--text-muted);">Commission (Incl VAT)</label>
+                            <input type="number" step="0.01" min="0" name="allocated_commission" id="dr2mp_edit_commission" class="input-base text-xs" form="dr2mp_edit_form" required>
+                        </div>
+                        <button type="submit" form="dr2mp_edit_form" class="corex-btn-outline text-xs">Save</button>
+                        <button type="button" id="dr2mp_edit_cancel" class="text-xs underline" style="color:var(--text-muted);">Cancel</button>
+                    </div>
                 </div>
 
                 {{-- Removed properties — archive/restore, mirrors dr2/_removed-steps.blade.php --}}
@@ -286,40 +291,39 @@
                         @foreach($dr2RemovedProps as $rp)
                             <div style="display:flex;align-items:center;justify-content:space-between;gap:.6rem;padding:.3rem .1rem;font-size:12.5px;">
                                 <span style="text-decoration:line-through;color:#6b7280;">{{ $rp->address }}</span>
-                                <form method="POST" action="{{ route('deals-dr2.properties.restore', [$deal, $rp]) }}" style="margin:0;">
-                                    @csrf
-                                    <button type="submit" style="padding:.15rem .7rem;font-size:11.5px;font-weight:600;color:#2563eb;background:#fff;border:1px solid #bfdbfe;border-radius:6px;cursor:pointer;font-family:inherit;">Restore</button>
-                                </form>
+                                {{-- Real form lives outside the main <form> — see "AT-398 standalone forms" below. --}}
+                                <button type="submit" form="dr2mp-restore-form-{{ $rp->id }}" style="padding:.15rem .7rem;font-size:11.5px;font-weight:600;color:#2563eb;background:#fff;border:1px solid #bfdbfe;border-radius:6px;cursor:pointer;font-family:inherit;">Restore</button>
                             </div>
                         @endforeach
                     </div>
                 </div>
                 @endif
 
-                {{-- Add another property --}}
+                {{-- Add another property. Not a <form> here; its inputs/button are
+                     associated (form="dr2mp_add_form_real") to the real, standalone
+                     form declared outside the main form below. --}}
                 <div style="border-top:1px dashed var(--border);padding-top:.6rem;">
                     <label class="text-xs font-semibold block mb-1" style="color:var(--text-secondary);">Add another property</label>
                     <div style="position:relative;">
                         <input type="text" id="dr2mp_search" autocomplete="off" placeholder="Search a property by address, reference, complex…" class="input-base w-full text-xs">
                         <div id="dr2mp_results" style="position:absolute;z-index:40;left:0;right:0;top:100%;background:var(--surface);border:1px solid var(--border);border-radius:6px;box-shadow:0 8px 24px var(--shadow, rgba(0,0,0,.08));max-height:14rem;overflow:auto;display:none;"></div>
                     </div>
-                    <form method="POST" action="{{ route('deals-dr2.properties.add', $deal) }}" id="dr2mp_add_form" style="display:none;margin-top:.5rem;">
-                        @csrf
-                        <input type="hidden" name="property_id" id="dr2mp_add_property_id">
+                    <div id="dr2mp_add_form" style="display:none;margin-top:.5rem;">
+                        <input type="hidden" name="property_id" id="dr2mp_add_property_id" form="dr2mp_add_form_real">
                         <div class="text-xs mb-1" id="dr2mp_add_label" style="color:var(--text-muted);"></div>
                         <div style="display:flex;gap:.6rem;align-items:end;flex-wrap:wrap;">
                             <div>
                                 <label class="text-[11px] block" style="color:var(--text-muted);">Price</label>
-                                <input type="number" step="0.01" min="0" name="allocated_price" id="dr2mp_add_price" class="input-base text-xs">
+                                <input type="number" step="0.01" min="0" name="allocated_price" id="dr2mp_add_price" class="input-base text-xs" form="dr2mp_add_form_real">
                             </div>
                             <div>
                                 <label class="text-[11px] block" style="color:var(--text-muted);">Commission (Incl VAT)</label>
-                                <input type="number" step="0.01" min="0" name="allocated_commission" id="dr2mp_add_commission" class="input-base text-xs">
+                                <input type="number" step="0.01" min="0" name="allocated_commission" id="dr2mp_add_commission" class="input-base text-xs" form="dr2mp_add_form_real">
                             </div>
-                            <button type="submit" class="corex-btn-outline text-xs">Add to deal</button>
+                            <button type="submit" form="dr2mp_add_form_real" class="corex-btn-outline text-xs">Add to deal</button>
                             <button type="button" id="dr2mp_add_cancel" class="text-xs underline" style="color:var(--text-muted);">Cancel</button>
                         </div>
-                    </form>
+                    </div>
                 </div>
             </div>
             @endif
@@ -784,6 +788,44 @@
     </div>
 
 </div>
+
+@if(($mode ?? 'create') === 'edit' && $deal->exists)
+{{-- AT-398 standalone forms — the REAL <form> elements for the multi-property
+     list above. A <form> cannot contain another <form>: a browser silently
+     discards a nested one (and, worse, this broke the PAGE's own "Update
+     Deal" submit when these lived inside it — found on a real browser pass).
+     Every visible control for these lives inside the main form above and is
+     wired to its real form here purely via the HTML5 form="..." attribute,
+     which associates regardless of DOM position. Nothing here is visible —
+     these are naked <form> tags carrying only CSRF/method/action. --}}
+@php
+    $dr2ActiveNonPrimary = $deal->properties()->wherePivot('is_primary', false)->get();
+    $dr2RemovedPropsStandalone = $deal->withTrashedProperties()->wherePivotNotNull('deal_properties.deleted_at')->get();
+@endphp
+<div style="display:none;" aria-hidden="true">
+    @foreach($dr2ActiveNonPrimary as $p)
+        <form method="POST" action="{{ route('deals-dr2.properties.remove', [$deal, $p]) }}" id="dr2mp-remove-form-{{ $p->id }}" class="dr2mp-remove-form" data-address="{{ $p->address }}">
+            @csrf
+            @method('DELETE')
+        </form>
+    @endforeach
+
+    @foreach($dr2RemovedPropsStandalone as $rp)
+        <form method="POST" action="{{ route('deals-dr2.properties.restore', [$deal, $rp]) }}" id="dr2mp-restore-form-{{ $rp->id }}">
+            @csrf
+        </form>
+    @endforeach
+
+    <form method="POST" id="dr2mp_edit_form">
+        @csrf
+        @method('PATCH')
+    </form>
+
+    <form method="POST" action="{{ route('deals-dr2.properties.add', $deal) }}" id="dr2mp_add_form_real">
+        @csrf
+    </form>
+</div>
+@endif
 
 {{-- (walk fix 2) Add-new attorney inline modal — a FIRM + a contact person.
      Field order per Johan: Firm, Attorney, Contact, Email, Address. --}}
@@ -1472,8 +1514,11 @@
         const dr2mpEditCancel = document.getElementById('dr2mp_edit_cancel');
         if (dr2mpEditCancel) dr2mpEditCancel.addEventListener('click', () => { dr2mpEditBox.style.display = 'none'; });
 
-        // Remove — confirm before submitting the (soft-delete) form.
-        dr2mpRoot.querySelectorAll('.dr2mp-remove-form').forEach(form => {
+        // Remove — confirm before submitting the (soft-delete) form. These forms
+        // live OUTSIDE dr2mpRoot now (see the "AT-398 standalone forms" block
+        // after the page's main form) — only the trigger button is inside the
+        // list; the submit event still fires on the form itself either way.
+        document.querySelectorAll('.dr2mp-remove-form').forEach(form => {
             form.addEventListener('submit', e => {
                 if (!confirm('Remove ' + form.dataset.address + ' from this deal?')) e.preventDefault();
             });

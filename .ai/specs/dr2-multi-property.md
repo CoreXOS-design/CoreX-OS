@@ -318,15 +318,62 @@ added/removed/edited from the existing deal edit screen — so no new
 independent search/sort/filter/pagination screen is owed beyond what the
 embedded list itself now provides (§8).
 
+## 10a. Defects found by cc1's real browser pass (2026-09-10)
+
+This is the exact category of defect a browser catches and code-tracing
+cannot — recorded here rather than glossed over, per BUILD_STANDARD's
+"fix the class, not the instance."
+
+**Defect 1 (forced a revert) — nested `<form>` broke the page's own "Update
+Deal" submit.** All four of the multi-property list's forms
+(`dr2mp_edit_form`, the per-row remove forms, the per-row restore forms,
+`dr2mp_add_form`) were declared INSIDE the page's main deal-capture
+`<form>`. A `<form>` cannot contain another `<form>` — invalid HTML — and a
+browser silently drops the inner ones from the parse tree, which broke the
+OUTER form's own submit. Johan would have hit this on the very first deal
+he opened, since "Update Deal" is the core action of that screen.
+
+Fixed by moving all four to a `display:none` block declared immediately
+after the main form's closing tag (`resources/views/dr2/create.blade.php`,
+the "AT-398 standalone forms" block) and associating each visible
+input/button back to its real, external form via the HTML5 `form="..."`
+attribute — which works regardless of DOM nesting. Fixed the SAME defect
+in all four places, not just the one cc1 noticed, per Johan's "fix the
+class" instruction. Verified mechanically (not by re-reading the markup):
+a temporary diagnostic test rendered the real page through the full HTTP
+stack for a deal exercising all four forms at once, and a `DOMDocument`
+parser walked every `<form>` on the page confirming zero are nested inside
+another (6 total forms on the page — the main one, the four AT-398 ones,
+and the layout's own logout form — zero nested). The diagnostic test itself
+was deleted after use; it was never meant to be permanent coverage.
+
+**Defect 2 — pre-existing deals showed R0.00 on the new price card.** The
+original migration's backfill set `is_primary = true` for every existing
+deal's one property but never set `allocated_price`/`allocated_commission`
+— so the new per-property price card showed R0.00 against a property that
+plainly has a price. The deal's own authoritative `property_value`/
+`total_commission` were never affected — this was display staleness on the
+new card only, but it reads as broken the instant Johan opens an old deal.
+
+Fixed via a follow-up migration
+(`2026_09_10_120000_backfill_allocated_price_for_existing_single_property_deals`)
+applying the exact mirroring rule already built for the single-property
+case: `allocated_price`/`allocated_commission` = the deal's own
+`property_value`/`total_commission`, scoped to `is_primary = 1 AND
+allocated_price IS NULL` — precisely the rows the original backfill left
+incomplete. Run against the real QA1 database: **corrected 16 rows**,
+verified idempotent (re-running immediately after reports "corrected 0"),
+and verified it never touches a row that already carries a real price or a
+non-primary row (which has no deal-level total to mirror from in the first
+place).
+
 ## 10. Test coverage
 
 Reporting convention (per Johan, 2026-09-10): the branch's own coverage is
 the headline; a pre-existing file re-run as a regression check is named
 separately, never folded into one combined figure.
 
-**This branch's own tests: 51 across 5 files, 107 assertions, all passing**
-(verified via a dedicated run of exactly these 5 files, excluding the
-pre-existing regression file below).
+**This branch's own tests: 55 across 6 files, 113 assertions, all passing.**
 
 | File | Count | Covers |
 |---|---|---|
@@ -335,28 +382,32 @@ pre-existing regression file below).
 | `tests/Feature/Property/PropertyOwnershipGuardTest.php` | 18 | Lock/unlock by status, all four assert methods, self-exclusion behavior |
 | `tests/Feature/Dr2/DealAddRemovePropertyControllerTest.php` | 11 | HTTP-level: accept, refuse+message, branch co-share, primary-removal block, audit, permission gate, price sum on add/remove/update/restore |
 | `tests/Feature/Dr2/DealMultiPropertyBladeTest.php` | 4 | Blade rendering: empty state, multi-property sum + read-only main fields, archive/restore section, plain-language refusal on the page |
+| `tests/Feature/Dr2/BackfillAllocatedPriceTest.php` | 4 | Defect 2's fix: corrects stale NULLs from the deal's own totals, idempotent, never overwrites a real price, never touches a non-primary row |
 
 **Pre-existing regression check (not this branch's own coverage):**
 `tests/Feature/Dr2/Wave2DealPropertyStatusSyncTest.php` — 15 tests, 39
 assertions, all still passing — proves the six-listener rewrite introduced
 zero regressions on ordinary single-property deals.
 
-Combined run (both together, one process): 66 passed, 146 assertions, zero
-cross-file interference.
+Combined run (all 7 files together, one process): 70 passed, 152
+assertions, zero cross-file interference.
 
 **Functional proof against the live QA1 database** (real rows, created and
-fully cleaned up afterward via raw SQL — verified zero residue both times):
-pivot mirroring, gate refusal, ownership lock, self-exclusion (first pass);
-and, this revision — the additive price-on-top behavior, sum-recalculation
-on add/edit/remove/restore (including that an edited price survives a
-remove-then-restore round trip), and a full HTTP-stack Blade render of the
-real edit page for a genuine multi-property deal.
+fully cleaned up afterward via raw SQL — verified zero residue every time):
+pivot mirroring, gate refusal, ownership lock, self-exclusion; the additive
+price-on-top behavior and sum-recalculation on add/edit/remove/restore
+(including that an edited price survives a remove-then-restore round trip);
+a full HTTP-stack Blade render of the real edit page; the Defect 1 nesting
+fix verified via a real `DOMDocument` parse of the rendered page (not
+grep); and the Defect 2 backfill migration run for real — 16 rows
+corrected, then confirmed idempotent.
 
-**Not exercised by any of the above — stated plainly, not glossed over:**
-no interactive browser was available in this environment (no browser-
-automation tool, and Vite assets aren't built in this scratch worktree), so
-the client-side JS itself — the add-property search dropdown, the
-Address/Price/Date-added sort buttons, the filter box, and the inline
-edit-price box opening/closing — was traced by hand against the rendered
-markup and IDs, not exercised at runtime. Confirming those actually fire in
-a live browser is still owed once this lands somewhere with built assets.
+**Still owed — a full browser pass, including the save button specifically**
+(per cc1's own instruction on hand-off): the client-side JS itself — the
+add-property search dropdown, the Address/Price/Date-added sort buttons,
+the filter box, the inline edit-price box opening/closing, AND, most
+importantly, that "Update Deal" now saves correctly with the relocated
+forms in place — was traced by hand and verified structurally (DOM
+nesting), not exercised end-to-end by a human/browser. No browser-
+automation tool is available in this environment. Handing back to cc1 for
+that pass, as instructed, rather than declaring this fixed on inspection.
