@@ -188,7 +188,141 @@
                         <input type="checkbox" id="dr2_property_showall" class="w-3 h-3"> Show sold/archived too
                     </label>
                 </div>
+                <div class="mt-1 text-xs" style="color:var(--text-faint)">Only link a second property here when the SAME owner(s) are selling all of them together on this one deal.</div>
             </div>
+
+            {{-- AT-398 — multi-property add/remove list. Only meaningful once the deal
+                 already exists (addProperty/removeProperty/updatePrice/restore all
+                 route-model-bind to a real Deal), so this only renders in edit mode. --}}
+            @if(($mode ?? 'create') === 'edit' && $deal->exists)
+            @php
+                $dr2ActiveProps = $deal->properties()->orderByDesc('deal_properties.is_primary')->orderBy('deal_properties.created_at')->get();
+                $dr2RemovedProps = $deal->withTrashedProperties()->wherePivotNotNull('deal_properties.deleted_at')->get();
+            @endphp
+            <div class="field-full" id="dr2-multi-props">
+                <label class="ds-label block mb-1">Properties on this deal ({{ $dr2ActiveProps->count() }})</label>
+
+                @error('property_id')
+                    <div class="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800 mb-2">{{ $message }}</div>
+                @enderror
+                @error('allocated_price')
+                    <div class="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800 mb-2">{{ $message }}</div>
+                @enderror
+
+                @if($dr2ActiveProps->count() > 1)
+                <div class="flex items-center gap-3 mb-2 flex-wrap">
+                    <input type="text" id="dr2mp_filter" placeholder="Filter by address…" class="input-base text-xs" style="max-width:220px;">
+                    <div class="flex items-center gap-1 text-[11px]" style="color:var(--text-muted);">
+                        Sort:
+                        <button type="button" class="dr2mp-sort-btn underline" data-sort="address" style="color:var(--text-secondary);">Address</button>
+                        <button type="button" class="dr2mp-sort-btn underline" data-sort="price" style="color:var(--text-secondary);">Price</button>
+                        <button type="button" class="dr2mp-sort-btn underline" data-sort="added" style="color:var(--text-secondary);">Date added</button>
+                    </div>
+                </div>
+                @endif
+
+                <div id="dr2mp_list" class="flex flex-col gap-1.5 mb-2">
+                    @forelse($dr2ActiveProps as $p)
+                        <div class="dr2mp-row" data-address="{{ strtolower($p->address ?? '') }}" data-price="{{ (float) ($p->pivot->allocated_price ?? 0) }}" data-added="{{ optional($p->pivot->created_at)->timestamp ?? 0 }}"
+                             style="display:flex;align-items:center;justify-content:space-between;gap:.6rem;padding:.5rem .7rem;border:1px solid var(--border);border-radius:8px;">
+                            <div style="min-width:0;">
+                                <div style="display:flex;align-items:center;gap:.4rem;flex-wrap:wrap;">
+                                    <span style="font-weight:600;color:var(--text-primary);">{{ $p->address }}</span>
+                                    @if($p->pivot->is_primary)
+                                        <span style="font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.02em;padding:.05rem .35rem;border-radius:.35rem;color:#065f46;background:#ecfdf5;">Primary</span>
+                                    @endif
+                                </div>
+                                <div style="font-size:.78rem;color:var(--text-muted);">
+                                    R {{ number_format((float) ($p->pivot->allocated_price ?? 0), 2) }} price · R {{ number_format((float) ($p->pivot->allocated_commission ?? 0), 2) }} commission
+                                </div>
+                            </div>
+                            <div style="display:flex;align-items:center;gap:.6rem;flex-shrink:0;">
+                                @if(!$p->pivot->is_primary)
+                                    <button type="button" class="dr2mp-edit-price text-xs underline" data-property="{{ $p->id }}" data-address="{{ $p->address }}" data-price="{{ $p->pivot->allocated_price }}" data-commission="{{ $p->pivot->allocated_commission }}" style="color:var(--text-muted);">Edit price</button>
+                                    <form method="POST" action="{{ route('deals-dr2.properties.remove', [$deal, $p]) }}" class="dr2mp-remove-form" data-address="{{ $p->address }}">
+                                        @csrf
+                                        @method('DELETE')
+                                        <button type="submit" class="text-xs" style="color:#b91c1c;">Remove</button>
+                                    </form>
+                                @else
+                                    <span class="text-xs" style="color:var(--text-faint);" title="Pick a different property as primary before removing this one">Primary — remove by making another property primary first</span>
+                                @endif
+                            </div>
+                        </div>
+                    @empty
+                        <div class="text-xs" style="color:var(--text-faint);padding:.5rem;">No properties linked yet — search below to add the first one.</div>
+                    @endforelse
+                </div>
+
+                {{-- Inline price editor — populated by JS when "Edit price" is clicked --}}
+                <div id="dr2mp_edit_box" style="display:none;border:1px solid var(--border);border-radius:8px;padding:.6rem;margin-bottom:.75rem;background:var(--surface);">
+                    <div class="text-xs font-semibold mb-1" id="dr2mp_edit_label" style="color:var(--text-secondary);"></div>
+                    <form method="POST" id="dr2mp_edit_form">
+                        @csrf
+                        @method('PATCH')
+                        <div style="display:flex;gap:.6rem;align-items:end;flex-wrap:wrap;">
+                            <div>
+                                <label class="text-[11px] block" style="color:var(--text-muted);">Price</label>
+                                <input type="number" step="0.01" min="0" name="allocated_price" id="dr2mp_edit_price" class="input-base text-xs" required>
+                            </div>
+                            <div>
+                                <label class="text-[11px] block" style="color:var(--text-muted);">Commission (Incl VAT)</label>
+                                <input type="number" step="0.01" min="0" name="allocated_commission" id="dr2mp_edit_commission" class="input-base text-xs" required>
+                            </div>
+                            <button type="submit" class="corex-btn-outline text-xs">Save</button>
+                            <button type="button" id="dr2mp_edit_cancel" class="text-xs underline" style="color:var(--text-muted);">Cancel</button>
+                        </div>
+                    </form>
+                </div>
+
+                {{-- Removed properties — archive/restore, mirrors dr2/_removed-steps.blade.php --}}
+                @if($dr2RemovedProps->isNotEmpty())
+                <div x-data="{ dr2mpRm:false }" style="margin-bottom:.75rem;">
+                    <button type="button" @click="dr2mpRm=!dr2mpRm"
+                            style="padding:.25rem .7rem;font-size:12px;font-weight:600;color:#b45309;background:#fff;border:1px solid #fcd34d;border-radius:999px;cursor:pointer;font-family:inherit;">
+                        <span x-text="dr2mpRm ? '▾' : '▸'"></span> Removed properties ({{ $dr2RemovedProps->count() }})
+                    </button>
+                    <div x-show="dr2mpRm" x-cloak style="margin-top:.5rem;display:flex;flex-direction:column;gap:.3rem;">
+                        @foreach($dr2RemovedProps as $rp)
+                            <div style="display:flex;align-items:center;justify-content:space-between;gap:.6rem;padding:.3rem .1rem;font-size:12.5px;">
+                                <span style="text-decoration:line-through;color:#6b7280;">{{ $rp->address }}</span>
+                                <form method="POST" action="{{ route('deals-dr2.properties.restore', [$deal, $rp]) }}" style="margin:0;">
+                                    @csrf
+                                    <button type="submit" style="padding:.15rem .7rem;font-size:11.5px;font-weight:600;color:#2563eb;background:#fff;border:1px solid #bfdbfe;border-radius:6px;cursor:pointer;font-family:inherit;">Restore</button>
+                                </form>
+                            </div>
+                        @endforeach
+                    </div>
+                </div>
+                @endif
+
+                {{-- Add another property --}}
+                <div style="border-top:1px dashed var(--border);padding-top:.6rem;">
+                    <label class="text-xs font-semibold block mb-1" style="color:var(--text-secondary);">Add another property</label>
+                    <div style="position:relative;">
+                        <input type="text" id="dr2mp_search" autocomplete="off" placeholder="Search a property by address, reference, complex…" class="input-base w-full text-xs">
+                        <div id="dr2mp_results" style="position:absolute;z-index:40;left:0;right:0;top:100%;background:var(--surface);border:1px solid var(--border);border-radius:6px;box-shadow:0 8px 24px var(--shadow, rgba(0,0,0,.08));max-height:14rem;overflow:auto;display:none;"></div>
+                    </div>
+                    <form method="POST" action="{{ route('deals-dr2.properties.add', $deal) }}" id="dr2mp_add_form" style="display:none;margin-top:.5rem;">
+                        @csrf
+                        <input type="hidden" name="property_id" id="dr2mp_add_property_id">
+                        <div class="text-xs mb-1" id="dr2mp_add_label" style="color:var(--text-muted);"></div>
+                        <div style="display:flex;gap:.6rem;align-items:end;flex-wrap:wrap;">
+                            <div>
+                                <label class="text-[11px] block" style="color:var(--text-muted);">Price</label>
+                                <input type="number" step="0.01" min="0" name="allocated_price" id="dr2mp_add_price" class="input-base text-xs">
+                            </div>
+                            <div>
+                                <label class="text-[11px] block" style="color:var(--text-muted);">Commission (Incl VAT)</label>
+                                <input type="number" step="0.01" min="0" name="allocated_commission" id="dr2mp_add_commission" class="input-base text-xs">
+                            </div>
+                            <button type="submit" class="corex-btn-outline text-xs">Add to deal</button>
+                            <button type="button" id="dr2mp_add_cancel" class="text-xs underline" style="color:var(--text-muted);">Cancel</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+            @endif
 
             {{-- (Enhancement 2 + DR2 party picker) Seller — property tick-list (fast
                  path) + full contact search + add-new. Linking here also creates the
@@ -259,16 +393,27 @@
                  Excl + VAT are DERIVED for display, not forked into storage. --}}
             <div class="field-full"><h3 class="ds-label" style="margin-top:.35rem;font-weight:700;color:var(--text-primary);">Financials</h3></div>
 
+            {{-- AT-398 split-pricing — once a deal covers more than one property, its
+                 Selling Price/Commission are always the SUM of every property's own
+                 price (see the "Properties on this deal" list below); this deal has
+                 more than one, so these fields become read-only here — the sum they
+                 already show round-trips unchanged on save, and each property's own
+                 price is edited in the list below instead. --}}
+            @php $dr2MultiPriced = $deal->exists && $deal->properties->count() > 1; @endphp
+
             {{-- (Enhancement 4) Selling Price — prefilled from the advertised price, overridable --}}
             <div>
                 <label class="ds-label block mb-1">Selling Price</label>
-                <input type="number" step="0.01" class="input-base money-input" name="property_value" id="dr2_property_value" value="{{ old('property_value', $deal->property_value) }}" required>
+                <input type="number" step="0.01" class="input-base money-input" name="property_value" id="dr2_property_value" value="{{ old('property_value', $deal->property_value) }}" required {{ $dr2MultiPriced ? 'readonly' : '' }}>
+                @if($dr2MultiPriced)
+                    <div class="mt-1 text-xs" style="color:var(--text-faint)">This deal has more than one property — this is the sum of their prices below. Edit each property's own price there.</div>
+                @endif
             </div>
 
             {{-- VAT basis — what the amount you enter means (agency VAT rate from config) --}}
             <div>
                 <label class="ds-label block mb-1">Commission basis</label>
-                <select class="input-base" id="dr2_vat_mode">
+                <select class="input-base" id="dr2_vat_mode" {{ $dr2MultiPriced ? 'disabled' : '' }}>
                     <option value="incl">VAT-inclusive</option>
                     <option value="excl">VAT-exclusive</option>
                 </select>
@@ -278,14 +423,14 @@
             {{-- Commission % — of the selling price; two-way with the amount --}}
             <div>
                 <label class="ds-label block mb-1">Commission %</label>
-                <input type="number" step="0.01" class="input-base" name="commission_percent_display" id="dr2_commission_percent" value="{{ old('commission_percent_display') }}">
+                <input type="number" step="0.01" class="input-base" name="commission_percent_display" id="dr2_commission_percent" value="{{ old('commission_percent_display') }}" {{ $dr2MultiPriced ? 'readonly' : '' }}>
                 <div class="mt-1 text-xs" style="color:var(--text-faint)">Prefills from the property; two-way with the amount.</div>
             </div>
 
             {{-- Commission amount in the selected basis — two-way with % --}}
             <div>
                 <label class="ds-label block mb-1"><span id="dr2_comm_amount_label">Commission (Incl VAT)</span></label>
-                <input type="number" step="0.01" class="input-base money-input" id="dr2_commission_amount" value="">
+                <input type="number" step="0.01" class="input-base money-input" id="dr2_commission_amount" value="" {{ $dr2MultiPriced ? 'readonly' : '' }}>
                 <div class="mt-1 text-xs" style="color:var(--text-faint)">Fill either % or amount — the other populates live.</div>
             </div>
 
@@ -712,6 +857,7 @@
         contactInline: @json(route('deals-dr2.contact.inline')),
         attorneySearch: @json(route('deals-dr2.attorney.search')),
         attorneyInline: @json(route('deals-dr2.attorney.inline')),
+        propertiesUpdatePrice: @json($deal->exists ? route('deals-dr2.properties.updatePrice', ['deal' => $deal->id, 'property' => '__ID__']) : null),
     };
     const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
     const money = v => { const n = Number(v); return isNaN(n) ? '' : n.toLocaleString('en-ZA'); };
@@ -1270,6 +1416,119 @@
         recompute('pct');
     } else {
         recompute('mode'); // set the amount label + zeroed display
+    }
+
+    // ---------- AT-398 — multi-property add/remove list (edit mode only) ----------
+    const dr2mpRoot = document.getElementById('dr2-multi-props');
+    if (dr2mpRoot) {
+        // Filter the active list by address (client-side — the list is always a
+        // handful of rows per deal, never a paginated set).
+        const dr2mpFilter = document.getElementById('dr2mp_filter');
+        if (dr2mpFilter) {
+            dr2mpFilter.addEventListener('input', () => {
+                const q = dr2mpFilter.value.trim().toLowerCase();
+                dr2mpRoot.querySelectorAll('.dr2mp-row').forEach(row => {
+                    row.style.display = !q || row.dataset.address.includes(q) ? '' : 'none';
+                });
+            });
+        }
+
+        // Sort the active list by address / price / date added (client-side,
+        // toggles ascending/descending on repeat clicks of the same column).
+        let dr2mpSortDir = 1;
+        let dr2mpSortKey = null;
+        dr2mpRoot.querySelectorAll('.dr2mp-sort-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const key = btn.dataset.sort;
+                dr2mpSortDir = (dr2mpSortKey === key) ? -dr2mpSortDir : 1;
+                dr2mpSortKey = key;
+                const list = document.getElementById('dr2mp_list');
+                const rows = Array.from(list.querySelectorAll('.dr2mp-row'));
+                rows.sort((a, b) => {
+                    const av = key === 'price' || key === 'added' ? parseFloat(a.dataset[key]) || 0 : a.dataset[key];
+                    const bv = key === 'price' || key === 'added' ? parseFloat(b.dataset[key]) || 0 : b.dataset[key];
+                    return av < bv ? -dr2mpSortDir : av > bv ? dr2mpSortDir : 0;
+                });
+                rows.forEach(r => list.appendChild(r));
+            });
+        });
+
+        // Edit price — one shared inline box, filled in for whichever row was clicked.
+        const dr2mpEditBox = document.getElementById('dr2mp_edit_box');
+        const dr2mpEditForm = document.getElementById('dr2mp_edit_form');
+        const dr2mpEditLabel = document.getElementById('dr2mp_edit_label');
+        const dr2mpEditPrice = document.getElementById('dr2mp_edit_price');
+        const dr2mpEditCommission = document.getElementById('dr2mp_edit_commission');
+        dr2mpRoot.querySelectorAll('.dr2mp-edit-price').forEach(btn => {
+            btn.addEventListener('click', () => {
+                dr2mpEditLabel.textContent = 'Editing price for ' + btn.dataset.address;
+                dr2mpEditPrice.value = btn.dataset.price || '';
+                dr2mpEditCommission.value = btn.dataset.commission || '';
+                dr2mpEditForm.action = R.propertiesUpdatePrice.replace('__ID__', btn.dataset.property);
+                dr2mpEditBox.style.display = '';
+                dr2mpEditBox.scrollIntoView({ block: 'nearest' });
+            });
+        });
+        const dr2mpEditCancel = document.getElementById('dr2mp_edit_cancel');
+        if (dr2mpEditCancel) dr2mpEditCancel.addEventListener('click', () => { dr2mpEditBox.style.display = 'none'; });
+
+        // Remove — confirm before submitting the (soft-delete) form.
+        dr2mpRoot.querySelectorAll('.dr2mp-remove-form').forEach(form => {
+            form.addEventListener('submit', e => {
+                if (!confirm('Remove ' + form.dataset.address + ' from this deal?')) e.preventDefault();
+            });
+        });
+
+        // Add another property — same search idiom as the primary picker above,
+        // against the same endpoint, in its own results box.
+        const dr2mpSearch = document.getElementById('dr2mp_search');
+        const dr2mpResults = document.getElementById('dr2mp_results');
+        const dr2mpAddForm = document.getElementById('dr2mp_add_form');
+        const dr2mpAddPropertyId = document.getElementById('dr2mp_add_property_id');
+        const dr2mpAddPrice = document.getElementById('dr2mp_add_price');
+        const dr2mpAddCommission = document.getElementById('dr2mp_add_commission');
+        const dr2mpAddLabel = document.getElementById('dr2mp_add_label');
+        const closeDr2mp = () => { dr2mpResults.style.display = 'none'; dr2mpResults.innerHTML = ''; };
+        const runDr2mp = debounce(() => {
+            const q = dr2mpSearch.value.trim();
+            if (q.length < 2) { closeDr2mp(); return; }
+            fetch(R.properties + '?q=' + encodeURIComponent(q), { headers: { Accept: 'application/json' } })
+                .then(r => r.ok ? r.json() : [])
+                .then(rows => {
+                    if (!Array.isArray(rows) || !rows.length) {
+                        dr2mpResults.innerHTML = '<div style="padding:.6rem .8rem;color:#9ca3af;font-size:.85rem;">No match.</div>';
+                        dr2mpResults.style.display = 'block'; return;
+                    }
+                    dr2mpResults.innerHTML = rows.map(row => {
+                        const addr = row.address || ('Property #' + row.id);
+                        const price = (row.price != null && row.price !== '') ? 'R ' + money(row.price) : '';
+                        return '<div class="dr2mp-arow" role="button" tabindex="0" data-id="' + row.id + '" data-address="' + esc(addr) + '" data-price="' + (row.price ?? '') + '" data-comm="' + (row.commission_percent ?? '') + '" style="padding:.6rem .8rem;cursor:pointer;border-bottom:1px solid #f3f4f6;">'
+                            + '<div style="font-weight:600;color:#0b2a4a;">' + addr + '</div>'
+                            + (price ? '<div style="font-size:.78rem;color:#6b7280;">' + price + '</div>' : '') + '</div>';
+                    }).join('');
+                    dr2mpResults.style.display = 'block';
+                    dr2mpResults.querySelectorAll('.dr2mp-arow').forEach(el => {
+                        el.addEventListener('mouseover', () => el.style.background = '#f9fafb');
+                        el.addEventListener('mouseout', () => el.style.background = '#fff');
+                        el.addEventListener('click', () => {
+                            dr2mpAddPropertyId.value = el.dataset.id;
+                            dr2mpAddLabel.textContent = 'Adding ' + el.dataset.address;
+                            if (el.dataset.price) dr2mpAddPrice.value = Number(el.dataset.price);
+                            dr2mpSearch.value = el.dataset.address;
+                            dr2mpAddForm.style.display = '';
+                            closeDr2mp();
+                        });
+                    });
+                }).catch(closeDr2mp);
+        }, 220);
+        dr2mpSearch.addEventListener('input', runDr2mp);
+        dr2mpSearch.addEventListener('focus', runDr2mp);
+        document.addEventListener('click', e => { if (!e.target.closest('#dr2mp_search') && !e.target.closest('#dr2mp_results')) closeDr2mp(); });
+        const dr2mpAddCancel = document.getElementById('dr2mp_add_cancel');
+        if (dr2mpAddCancel) dr2mpAddCancel.addEventListener('click', () => {
+            dr2mpAddForm.style.display = 'none'; dr2mpAddPropertyId.value = ''; dr2mpSearch.value = '';
+            dr2mpAddPrice.value = ''; dr2mpAddCommission.value = '';
+        });
     }
 })();
 </script>
