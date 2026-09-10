@@ -139,6 +139,38 @@ change needed for this screen specifically.
 
 ## 3. Screen B — Rentals → Core Matches
 
+**BUILT AND LANDED ON QA1, 2026-09-10 — the third and final entry (Properties,
+then Pipeline, then Core Matches, per Johan's ordering).** The listing_type gap
+identified below was closed on the ONE shared screen first: `index()` and
+`allView()` now both accept `?listing_type=sale|rental` (default `''` = today's
+mixed behaviour, unchanged for the plain screens), backed by a Sale/Rental
+toggle in both `index.blade.php` (link pills, matching Rental Pipeline's
+pattern — this screen had no existing filter form to hang a `<select>` on) and
+`all.blade.php` (a `<select>` in the existing agent-filter form, matching
+Properties' pattern).
+
+The Rentals entry point locks it with the same route-name mechanism as §2/§4:
+new routes `corex.rentals.core-matches.index` and `corex.rentals.core-matches.all`,
+forcing `listing_type = 'rental'` after the query string is read. One
+deliberate refinement beyond the original table in §6.1: `.index` reuses
+`core_matches.view`, but `.all` reuses `core_matches.all_view` specifically
+(not `core_matches.view`) — gating it on the weaker permission would have let
+anyone with base view access see every agent's rental matches through the
+rentals entry, an escalation the sales-side `.all` route does not allow.
+Self-links (filter form action, Clear filter) and the My/All cross-links use
+`$indexRouteName` / `$counterpartRouteName` so navigating within a locked
+entry point never bounces to the unlocked screen. No new permission key for
+either route. Nav entry mirrors the sales-side Core Matches item's own
+feature-flag (`core-matches`) and `matches_enabled` setting guards.
+
+Verified in a real browser: agency-wide there are 595 Core Matches (383 sale /
+212 rental) — both `/corex/rentals/core-matches` and
+`/corex/rentals/core-matches/all` show only rentals ("212 searches" exactly on
+the All variant, confirming genuine subset filtering, not a no-op),
+`?listing_type=sale` does not escape the lock on either route, and
+`/corex/core-matches` and `/corex/core-matches/all` are unchanged — both still
+have their editable Sale/Rental controls.
+
 **Entry point, not a screen.** Same controller
 (`App\Http\Controllers\CoreX\ContactMatchController`), same views.
 
