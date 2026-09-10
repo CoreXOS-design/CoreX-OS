@@ -483,7 +483,7 @@ class PropertyController extends Controller
                 }
             }
             if (empty($property->title))   $hfcMissingFields[] = ['field' => 'title',   'label' => 'Title'];
-            if (empty($property->price))   $hfcMissingFields[] = ['field' => 'price',   'label' => 'Price'];
+            if (empty($property->effectivePrice()))   $hfcMissingFields[] = ['field' => 'price',   'label' => 'Price'];
             if (empty($property->status))  $hfcMissingFields[] = ['field' => 'status',  'label' => 'Status'];
             if (empty($property->suburb))  $hfcMissingFields[] = ['field' => 'suburb',  'label' => 'Suburb'];
         }
@@ -1603,7 +1603,7 @@ class PropertyController extends Controller
             elseif (empty($property->agent->phone)) $missing[] = 'Agent phone number';
             elseif (empty($property->agent->email)) $missing[] = 'Agent email';
             if (empty($property->title))   $missing[] = 'Title';
-            if (empty($property->price))   $missing[] = 'Price';
+            if (empty($property->effectivePrice()))   $missing[] = 'Price';
             if (empty($property->status))  $missing[] = 'Status';
             if (empty($property->suburb))  $missing[] = 'Suburb';
             if ($missing) {

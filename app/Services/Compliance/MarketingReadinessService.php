@@ -135,7 +135,7 @@ class MarketingReadinessService
             'documents' => $presentDocs,
             'listing' => [
                 'title' => $property->title,
-                'price' => $property->price,
+                'price' => $property->effectivePrice(),
                 'property_type' => $property->property_type,
                 'photo_count' => $this->countPhotos($property),
             ],
@@ -535,7 +535,7 @@ class MarketingReadinessService
             // import would re-break it).
             'town' => $property->town ?: $property->city,
             'province' => $property->province,
-            'price' => $property->price,
+            'price' => $property->effectivePrice(),
             'property_type' => $property->property_type,
             // erf_size is NEVER compulsory. Sectional-title units (e.g. a flat
             // in a complex) legitimately have no erf size, and even freehold
