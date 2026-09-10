@@ -11852,6 +11852,20 @@ CREATE TABLE `rental_amount_versions` (
   CONSTRAINT `rental_amount_versions_rental_id_foreign` FOREIGN KEY (`rental_id`) REFERENCES `rentals` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `rental_application_approval_email_settings`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `rental_application_approval_email_settings` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `max_properties_in_email` tinyint unsigned NOT NULL DEFAULT '5',
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `rental_application_approval_email_settings_agency_id_unique` (`agency_id`),
+  CONSTRAINT `rental_application_approval_email_settings_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `rental_application_assessments`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -16286,3 +16300,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1290,'2026_09_09_0
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1291,'2026_09_10_010000_add_rental_application_status_to_contacts',274);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1292,'2026_09_07_160000_repair_document_names_containing_path_separators',275);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1293,'2026_09_10_020000_add_applicant_notified_at_to_rental_applications',276);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1294,'2026_09_10_030000_create_rental_application_approval_email_settings_table',277);
