@@ -85,7 +85,7 @@ class ClientSellerInsightsController extends Controller
                 'suburb'        => $p->suburb,
                 'role'          => $links->get($p->id),
                 'status'        => $p->status ?? null,
-                'price'         => $p->price,
+                'price'         => $p->effectivePrice(),
                 'price_display' => method_exists($p, 'formattedPrice') ? $p->formattedPrice() : null,
                 'thumbnail'     => ($p->gallery_images_json ?? [])[0] ?? null,
                 'headline'      => [
@@ -173,7 +173,7 @@ class ClientSellerInsightsController extends Controller
                 'beds'          => $p->beds,
                 'baths'         => $p->baths,
                 'garages'       => $p->garages,
-                'price'         => $p->price,
+                'price'         => $p->effectivePrice(),
                 'price_display' => method_exists($p, 'formattedPrice') ? $p->formattedPrice() : null,
                 'thumbnail'     => ($p->gallery_images_json ?? [])[0] ?? null,
                 'images'        => $p->gallery_images_json ?? [],

@@ -100,7 +100,7 @@ class BuyerIntelligenceService
                 'property_id' => $prop->id,
                 'address' => method_exists($prop, 'buildDisplayAddress') ? $prop->buildDisplayAddress() : ($prop->title ?? "Property #{$prop->id}"),
                 'suburb' => $prop->suburb,
-                'price' => $prop->price,
+                'price' => $prop->effectivePrice(),
                 'event_id' => $event->id,
                 'event_date' => $event->event_date,
                 'event_title' => $event->title,
@@ -132,7 +132,7 @@ class BuyerIntelligenceService
             ->with('property')
             ->get();
 
-        $prices = $views->map(fn($v) => $v->property?->price)->filter();
+        $prices = $views->map(fn($v) => $v->property?->effectivePrice())->filter();
         $suburbs = $views->map(fn($v) => $v->property?->suburb)->filter()->countBy();
 
         // Feedback patterns
@@ -183,7 +183,7 @@ class BuyerIntelligenceService
             ->map(fn (Property $p) => [
                 'id'             => $p->id,
                 'address'        => $p->address ?: $p->title,
-                'price'          => $p->price,
+                'price'          => $p->effectivePrice(),
                 'suburb'         => $p->suburb,
                 'match_score'    => (int) ($p->match_score ?? 0),
                 'days_on_market' => $p->published_at ? (int) $p->published_at->diffInDays(now()) : null,
