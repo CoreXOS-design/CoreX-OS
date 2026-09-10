@@ -322,7 +322,12 @@ class PropertyController extends Controller
         // stored value to a sane range so a missing/invalid value can't break paging.
         $perPage = (int) PerformanceSetting::get('properties_per_page', 20);
         $perPage = $perPage > 0 ? min($perPage, 200) : 20;
-        $properties = $query->paginate($perPage)->withQueryString();
+        // ->appends($this->paginationQuery()), not ->withQueryString() — the session
+        // fallback above already absorbs a bare re-visit, but the page=2+ links
+        // themselves still lost blank filters (e.g. "All Listings" -> ?agent_ids=)
+        // to ConvertEmptyStringsToNull, so a copied/bookmarked page-2 URL silently
+        // reverted to the recipient's own "my listings" default. See that method's doc.
+        $properties = $query->paginate($perPage)->appends($this->paginationQuery($request));
 
         // AT-394 — of THIS page's widened-search results, which fall outside the user's TRUE
         // permission breadth (role-default all/branch/own — never the transient agent_ids UI
@@ -2797,10 +2802,17 @@ class PropertyController extends Controller
                 // agent. This route is public, so resolve past AgencyScope, but
                 // only honour an agent belonging to THIS property's agency — never
                 // surface a cross-agency contact on a public page.
-                $displayAgent = User::withoutGlobalScope(\App\Models\Scopes\AgencyScope::class)
+                $candidate = User::withoutGlobalScope(\App\Models\Scopes\AgencyScope::class)
                     ->where('id', (int) $agentChoice)
                     ->where('agency_id', $property->agency_id)
                     ->first();
+
+                // AT-267 — an assistant never surfaces themselves on a listing
+                // preview, even via a hand-built ?agent=<id> link; falls back
+                // to the listing agent below, same as the `me` branch.
+                if ($candidate && ! $candidate->is_assistant) {
+                    $displayAgent = $candidate;
+                }
             } elseif ($agentChoice === 'me' && $authUser && ! $authUser->is_assistant) {
                 // AT-267 — an assistant never surfaces themselves on a listing
                 // preview; it falls back to the listing agent below.

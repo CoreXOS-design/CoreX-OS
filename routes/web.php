@@ -3806,6 +3806,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
 
         // Notes
         Route::post('/{contact}/notes',          [\App\Http\Controllers\CoreX\ContactNoteController::class, 'store'])->name('notes.store');
+        Route::put('/{contact}/notes/{note}',    [\App\Http\Controllers\CoreX\ContactNoteController::class, 'update'])->name('notes.update');
         Route::delete('/{contact}/notes/{note}', [\App\Http\Controllers\CoreX\ContactNoteController::class, 'destroy'])->name('notes.destroy');
 
         // Testimonials (capture only — publishing lives in Company Settings → Website)

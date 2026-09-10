@@ -78,6 +78,34 @@ class ContactNoteController extends Controller
             ->with('success', $successMessage);
     }
 
+    public function update(Request $request, Contact $contact, ContactNote $note)
+    {
+        // AT-267 — same edit-permission gate as store().
+        $this->authorizeContact($contact);
+        abort_unless($note->contact_id === $contact->id, 404);
+
+        $data = $request->validate([
+            'type' => ['nullable', 'required_without:body', 'string', \Illuminate\Validation\Rule::in(ContactNote::QUICK_PICK_TYPES)],
+            'body' => 'nullable|required_without:type|string|max:5000',
+        ]);
+
+        // The contact page's edit form is body-only (no type selector, same as
+        // its Add Note form) — validate()->validated() simply omits a key that
+        // wasn't in the request, so array_key_exists (not ?? null) keeps the
+        // note's existing quick-pick type intact instead of silently clearing
+        // it on every body-only edit. Same empty-textarea-becomes-null gotcha
+        // as store() (2026-08-20) for body — ?? '' covers absent AND
+        // present-but-null.
+        $note->update([
+            'type' => array_key_exists('type', $data) ? $data['type'] : $note->type,
+            'body' => $data['body'] ?? '',
+        ]);
+
+        return redirect()->route('corex.contacts.show', $contact)
+            ->with('success', 'Note updated.')
+            ->withFragment('tab-notes');
+    }
+
     public function destroy(Contact $contact, ContactNote $note)
     {
         // AT-267 — same edit-permission gate as store().

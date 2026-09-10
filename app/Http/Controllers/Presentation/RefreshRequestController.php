@@ -44,7 +44,11 @@ final class RefreshRequestController extends Controller
             ]),
         };
 
-        $requests = $query->orderByDesc('created_at')->paginate(30);
+        // ->appends(), not left bare — page=2+ links must carry ?status= forward or
+        // paging off page 1 of any non-default tab (Resolved, All, ...) silently
+        // reverts to the "Open" default. See paginationQuery()'s doc for the related
+        // ConvertEmptyStringsToNull gotcha this also guards against.
+        $requests = $query->orderByDesc('created_at')->paginate(30)->appends($this->paginationQuery($request));
 
         $counts = [
             'pending'      => PresentationRefreshRequest::where('agency_id', $effective)

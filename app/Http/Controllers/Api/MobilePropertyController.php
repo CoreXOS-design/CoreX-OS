@@ -1477,6 +1477,183 @@ class MobilePropertyController extends Controller
         ], $moved === 0 && $unknown !== [] ? 422 : 200);
     }
 
+    // ── PUT /api/mobile/properties/{id}/gallery/reorder ─────────────
+    // Persists a drag-reorder of the property's photos. Two scopes:
+    //   - room_tag omitted/null → reorders the master gallery grid
+    //     (gallery_images_json) — this order is also what decides the
+    //     cover photo and the order sent to portals.
+    //   - room_tag given        → reorders the photos WITHIN that one
+    //     tag's bucket (gallery_categories_json.categories[name=room_tag]
+    //     .images) only, leaving the master grid order untouched.
+    //
+    // Body: { "images": ["<url>", …], "room_tag": "Kitchen" | null,
+    //          "gallery_fingerprint": "<sha1>" (optional) }
+    //
+    // `images` is a PERMUTATION of the URLs already in that scope — this
+    // endpoint only reorders, it never adds or removes a photo (upload and
+    // images/delete own those). A submitted URL not currently in scope is
+    // dropped and reported back in `unknown_images` rather than silently
+    // accepted. A URL that IS in scope but missing from the submission is
+    // never dropped — it stays in the gallery, appended at the end in its
+    // prior relative order, so a stale/partial client array can never
+    // delete a photo through this endpoint.
+    public function reorderImages(Request $request, Property $property): JsonResponse
+    {
+        $this->authorizeProperty($request->user(), $property);
+
+        $data = $request->validate([
+            'images'              => 'required|array',
+            'images.*'            => 'string|max:2048',
+            'room_tag'            => 'nullable|string|max:100',
+            'gallery_fingerprint' => 'nullable|string',
+        ]);
+
+        $roomTag = $this->canonicalGalleryTag($property, $data['room_tag'] ?? null, $tagError);
+        if ($tagError !== null) {
+            return response()->json($tagError, 422);
+        }
+
+        $sent = $data['gallery_fingerprint'] ?? null;
+        if (is_string($sent) && $sent !== '' && $sent !== $property->galleryFingerprint()) {
+            return response()->json([
+                'message' => 'This gallery has changed since you loaded it. Refresh and redo the reorder.',
+                'stale'   => true,
+            ], 409);
+        }
+
+        $unknown = [];
+
+        // Reorders $current to follow $requested's order. Anything in $requested
+        // that isn't in $current is dropped into $unknown (by reference) instead
+        // of being accepted as a new member — adding photos is upload's job, not
+        // this endpoint's. Anything in $current missing from $requested keeps its
+        // place at the end, so a partial array never deletes a photo.
+        $reorder = function (array $current, array $requested) use (&$unknown) {
+            $currentKeys = [];
+            foreach ($current as $u) {
+                if (is_string($u)) {
+                    $currentKeys[$this->imageMatchKey($u)] = $u;
+                }
+            }
+
+            $placed = [];
+            $seen   = [];
+            foreach ($requested as $u) {
+                if (!is_string($u)) continue;
+                $key = $this->imageMatchKey($u);
+                if (!isset($currentKeys[$key])) {
+                    $unknown[] = $u;
+                    continue;
+                }
+                if (isset($seen[$key])) continue;
+                $seen[$key] = true;
+                $placed[] = $currentKeys[$key];
+            }
+            foreach ($currentKeys as $key => $u) {
+                if (!isset($seen[$key])) {
+                    $placed[] = $u;
+                }
+            }
+
+            return $placed;
+        };
+
+        DB::transaction(function () use ($property, $data, $roomTag, $reorder) {
+            /** @var Property $locked */
+            $locked = Property::whereKey($property->getKey())->lockForUpdate()->firstOrFail();
+
+            if ($roomTag === null) {
+                $locked->gallery_images_json = $reorder($locked->gallery_images_json ?? [], $data['images']);
+            } else {
+                $cats       = $locked->gallery_categories_json ?? ['categories' => [], 'unsorted' => []];
+                $categories = $cats['categories'] ?? [];
+                $index      = null;
+                foreach ($categories as $i => $cat) {
+                    if (($cat['name'] ?? null) === $roomTag) {
+                        $index = $i;
+                        break;
+                    }
+                }
+                if ($index !== null) {
+                    $categories[$index]['images'] = $reorder($categories[$index]['images'] ?? [], $data['images']);
+                    $cats['categories'] = $categories;
+                    $locked->gallery_categories_json = $cats;
+                }
+            }
+
+            $locked->saveQuietly();
+        });
+
+        $fresh = $property->fresh();
+
+        return response()->json([
+            'message'             => 'Photo order updated.',
+            'room_tag'            => $roomTag,
+            'unknown_images'      => $unknown,
+            'gallery_images'      => $this->absoluteImageUrls($fresh->gallery_images_json ?? []),
+            'gallery_categories'  => $this->buildGalleryCategories($fresh),
+            'gallery_fingerprint' => $fresh->galleryFingerprint(),
+        ]);
+    }
+
+    // ── PUT /api/mobile/properties/{id}/gallery/tags/reorder ────────
+    // Persists a drag-reorder of the TAG LIST itself (not the photos inside
+    // each tag) — writes gallery_tag_order, the same column the web gallery
+    // sorter writes via reorderImages(). See Property::applyGalleryTagOrder().
+    //
+    // Body: { "tags": ["Kitchen", "Lounge", …] }  — full or partial order.
+    // Any currently-available tag omitted from the list is appended at the
+    // end automatically on read (applyGalleryTagOrder's own behaviour), so
+    // a client can't strand a tag by sending a stale/incomplete list. A
+    // submitted name that doesn't match any currently-available tag
+    // (case-insensitively) is rejected outright — this endpoint reorders
+    // tags, it does not create them (POST gallery/tags does that).
+    public function reorderGalleryTags(Request $request, Property $property): JsonResponse
+    {
+        $this->authorizeProperty($request->user(), $property);
+
+        $data = $request->validate([
+            'tags'   => 'required|array',
+            'tags.*' => 'string|max:100',
+        ]);
+
+        $available = $property->getAvailableGalleryTags();
+        $byLower = [];
+        foreach ($available as $t) {
+            $byLower[strtolower($t)] = $t;
+        }
+
+        $invalid = [];
+        $order   = [];
+        $seen    = [];
+        foreach ($data['tags'] as $t) {
+            if (!is_string($t)) continue;
+            $key = strtolower(trim($t));
+            if (!isset($byLower[$key])) {
+                $invalid[] = $t;
+                continue;
+            }
+            if (isset($seen[$key])) continue;
+            $seen[$key] = true;
+            $order[] = $byLower[$key];
+        }
+
+        if ($invalid !== []) {
+            return response()->json([
+                'message'        => 'Some tags do not exist on this property.',
+                'errors'         => ['tags' => ['Unknown tag(s): ' . implode(', ', $invalid)]],
+                'available_tags' => $available,
+            ], 422);
+        }
+
+        $property->update(['gallery_tag_order' => $order]);
+
+        return response()->json([
+            'message'        => 'Tag order updated.',
+            'available_tags' => $property->fresh()->getAvailableGalleryTags(),
+        ]);
+    }
+
     // ── POST /api/mobile/properties/{id}/images/delete ─────────────
     // Removes already-uploaded photos. Body accepts either shape (or both):
     //   { "images": ["<url>", …] }

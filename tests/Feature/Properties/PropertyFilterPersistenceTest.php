@@ -79,6 +79,52 @@ final class PropertyFilterPersistenceTest extends TestCase
             ->assertOk();
     }
 
+    /**
+     * Regression: "All Listings" (?agent_ids=all) surviving page 1 but being
+     * silently dropped from the page=2 pagination link. Root cause: Laravel's
+     * global ConvertEmptyStringsToNull middleware turns some blank query values
+     * to null, and the paginator's ->withQueryString() built its links from that
+     * raw (nulled) array — PHP's http_build_query() omits null-valued keys
+     * outright. The session fallback above already stopped the visible symptom
+     * here (a param-less page=2 would restore the saved session filter), but
+     * the page=2 URL itself still silently lost the filter, so a copied or
+     * bookmarked page-2 link handed to someone else reverted to THEIR "my
+     * listings" default. Fixed via Controller::paginationQuery().
+     */
+    public function test_all_listings_filter_survives_pagination_to_page_two(): void
+    {
+        [$agency, $admin] = $this->agencyWithAdmin();
+        $agentA = $this->agencyUser($agency, 'agent');
+        $agentB = $this->agencyUser($agency, 'agent');
+
+        // Force pagination to kick in with just two listings.
+        \App\Models\PerformanceSetting::set('properties_per_page', 1, $agency);
+
+        $this->property($agency, $agentA, 'ZZZ-Alpha-House');
+        $this->property($agency, $agentB, 'ZZZ-Bravo-House');
+
+        // Neither listing belongs to the admin, so "my listings" would show NEITHER.
+        $page1 = $this->actingAs($admin)
+            ->get(route('corex.properties.index', ['agent_ids' => 'all']))
+            ->assertOk();
+
+        preg_match('/href="([^"]*page=2[^"]*)"/', $page1->getContent(), $m);
+        $this->assertNotEmpty($m, 'page 2 link not found in rendered pagination');
+        $page2Url = html_entity_decode($m[1]);
+
+        $this->assertStringContainsString(
+            'agent_ids=all',
+            $page2Url,
+            'the "All Listings" filter was dropped from the page 2 pagination link'
+        );
+
+        $page2 = $this->get($page2Url)->assertOk();
+        $this->assertTrue(
+            str_contains($page2->getContent(), 'ZZZ-Alpha-House') || str_contains($page2->getContent(), 'ZZZ-Bravo-House'),
+            'page 2 reverted to "my listings" instead of staying on "All Listings"'
+        );
+    }
+
     public function test_status_priority_orders_listings_by_agency_sequence(): void
     {
         [$agency, $admin] = $this->agencyWithAdmin();

@@ -165,7 +165,11 @@ class ContactController extends Controller
         $perPage = (int) PerformanceSetting::get('contacts_per_page', 25);
         $perPage = $perPage > 0 ? min($perPage, 200) : 25;
         // Eager-load picker relations so the inline edit-row pickers don't N+1.
-        $contacts     = $query->with(['tags', 'parentTypes'])->paginate($perPage)->withQueryString();
+        // ->appends($this->paginationQuery()), not ->withQueryString() — see that
+        // method's doc: an explicit "All Contacts" (?agent_id=) was being silently
+        // dropped from every page=2+ link, so paging off page 1 reverted to "My
+        // Contacts".
+        $contacts     = $query->with(['tags', 'parentTypes'])->paginate($perPage)->appends($this->paginationQuery($request));
 
         // AT-394 — of THIS page's widened-search results, which ones fall outside the user's
         // normal breadth (own/branch/selected-agent, admin/owner included)? Re-run the untouched
