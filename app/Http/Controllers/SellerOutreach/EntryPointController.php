@@ -154,6 +154,9 @@ final class EntryPointController extends Controller
             }
         }
 
+        // AT-398 — the owner set behind an open deal cannot move underneath it.
+        app(\App\Services\Property\PropertyOwnershipGuard::class)->assertCanLink($property, 'seller');
+
         // Link contact ↔ existing property via the seller pivot. Idempotent.
         DB::table('contact_property')->updateOrInsert(
             ['contact_id' => $contact->id, 'property_id' => $property->id],
@@ -540,6 +543,8 @@ final class EntryPointController extends Controller
             // Link the FORM contact (when engaged) ↔ property as seller. Deed sellers are already
             // linked via "+ Link as seller". Idempotent.
             if ($contact) {
+                // AT-398 — the owner set behind an open deal cannot move underneath it.
+                app(\App\Services\Property\PropertyOwnershipGuard::class)->assertCanLink($property, 'seller');
                 DB::table('contact_property')->updateOrInsert(
                     ['contact_id' => $contact->id, 'property_id' => $property->id],
                     ['role' => 'seller', 'updated_at' => now(), 'created_at' => now()],

@@ -26,21 +26,74 @@ class Deal extends Model
             if ($deal->branch_id && !$deal->branches()->where('branches.id', $deal->branch_id)->exists()) {
                 $deal->branches()->attach($deal->branch_id, ['role' => 'originator']);
             }
+
+            // AT-398 — same mirroring, for property_id → deal_properties. Every
+            // consumer of $deal->properties() (the six status-sync listeners,
+            // the grant-exclusivity service) reads ONLY the pivot, so a deal
+            // saved through the pre-existing single-property picker — which
+            // still only ever sets deals.property_id — MUST get a mirrored row
+            // or it would silently vanish from its own status-sync listeners.
+            self::syncPrimaryPropertyPivot($deal);
         });
 
         // If the branch_id on the deal changes, keep the originator
         // row in sync. Co-branches are managed explicitly via
         // attachCoBranch()/detachCoBranch() and are left alone here.
         static::updated(function (Deal $deal) {
-            if (!$deal->wasChanged('branch_id') || !$deal->branch_id) {
-                return;
+            if ($deal->wasChanged('branch_id') && $deal->branch_id) {
+                $deal->branches()->newPivotStatement()
+                    ->where('deal_id', $deal->id)
+                    ->where('role', 'originator')
+                    ->delete();
+                $deal->branches()->attach($deal->branch_id, ['role' => 'originator']);
             }
-            $deal->branches()->newPivotStatement()
-                ->where('deal_id', $deal->id)
-                ->where('role', 'originator')
-                ->delete();
-            $deal->branches()->attach($deal->branch_id, ['role' => 'originator']);
+
+            // AT-398 — property_id changing via the ORIGINAL single-property
+            // picker means "replace which property this deal is about" (that
+            // picker has no concept of "add a second property" — that is the
+            // NEW addProperty()/removeProperty() actions, which write
+            // deal_properties directly and never touch property_id at all,
+            // so they never re-trigger this). The old primary is REMOVED
+            // (soft-deleted, never hard — Johan: keep a note it was once
+            // there), not silently kept as a demoted second property.
+            if ($deal->wasChanged('property_id')) {
+                self::syncPrimaryPropertyPivot($deal, (int) $deal->getOriginal('property_id'));
+            }
         });
+    }
+
+    /**
+     * AT-398 — make deal_properties agree with deals.property_id (the
+     * PRIMARY property). $previousPropertyId, when given, is soft-removed
+     * from the pivot if it differs from the new property_id — see the
+     * `updated` hook above for why that is the correct behaviour for this
+     * specific write path.
+     */
+    private static function syncPrimaryPropertyPivot(Deal $deal, ?int $previousPropertyId = null): void
+    {
+        if ($previousPropertyId && $previousPropertyId !== (int) $deal->property_id) {
+            DealProperty::where('deal_id', $deal->id)->where('property_id', $previousPropertyId)->delete(); // soft (SoftDeletes)
+        }
+
+        if (! $deal->property_id) {
+            return;
+        }
+
+        $row = DealProperty::withTrashed()->where('deal_id', $deal->id)->where('property_id', $deal->property_id)->first();
+        if ($row) {
+            if ($row->trashed()) {
+                $row->restore();
+            }
+            if (! $row->is_primary) {
+                $row->is_primary = true;
+                $row->save();
+            }
+        } else {
+            DealProperty::create(['deal_id' => $deal->id, 'property_id' => $deal->property_id, 'is_primary' => true]);
+        }
+
+        // Exactly one non-trashed row is ever primary.
+        DealProperty::where('deal_id', $deal->id)->where('property_id', '!=', $deal->property_id)->where('is_primary', true)->update(['is_primary' => false]);
     }
 
     /**
@@ -158,10 +211,36 @@ class Deal extends Model
         'link_reviewed_at'  => 'datetime',
     ];
 
-    /** Phase 3i — direct FK to the property this deal concerns. */
+    /** Phase 3i — direct FK to the property this deal concerns. Kept as the PRIMARY property — unchanged for every existing commission/reporting consumer. */
     public function property()
     {
         return $this->belongsTo(\App\Models\Property::class, 'property_id');
+    }
+
+    /**
+     * AT-398 — every property linked to this deal (the primary, plus any
+     * co-property added under the same-owner rule). ALWAYS includes a row
+     * for the primary — see the creating migration's backfill — so this is
+     * the one place to read regardless of whether the deal predates this
+     * feature. `wherePivotNull('deleted_at')` hides a soft-removed link;
+     * use `withTrashedProperties()` below to include the full history.
+     */
+    public function properties(): BelongsToMany
+    {
+        return $this->belongsToMany(\App\Models\Property::class, 'deal_properties')
+            ->using(\App\Models\DealProperty::class)
+            ->withPivot(['id', 'is_primary', 'allocated_price', 'allocated_commission', 'deleted_at'])
+            ->wherePivotNull('deal_properties.deleted_at')
+            ->withTimestamps();
+    }
+
+    /** Every property EVER linked, including soft-removed ones — for the deal's own history/audit view. */
+    public function withTrashedProperties(): BelongsToMany
+    {
+        return $this->belongsToMany(\App\Models\Property::class, 'deal_properties')
+            ->using(\App\Models\DealProperty::class)
+            ->withPivot(['id', 'is_primary', 'allocated_price', 'allocated_commission', 'deleted_at'])
+            ->withTimestamps();
     }
 
     /**

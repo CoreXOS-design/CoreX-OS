@@ -1086,6 +1086,10 @@ final class DeedsCaptureController extends Controller
             if ($ownerContactIds->isEmpty() && $trackedProperty->owner_contact_id) {
                 $ownerContactIds = collect([$trackedProperty->owner_contact_id]);
             }
+            // AT-398 — promotion can MATCH an existing property (not only
+            // create a new one); the owner set behind an open deal on that
+            // existing property cannot move underneath it.
+            app(\App\Services\Property\PropertyOwnershipGuard::class)->assertCanLink($property, 'owner');
             foreach ($ownerContactIds as $contactId) {
                 DB::table('contact_property')->updateOrInsert(
                     ['contact_id' => $contactId, 'property_id' => $property->id],

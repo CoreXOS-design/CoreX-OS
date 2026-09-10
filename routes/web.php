@@ -863,6 +863,10 @@ Route::prefix('deals-dr2')->middleware('auth')->name('deals-dr2.')->group(functi
     Route::post('/{deal}',       [\App\Http\Controllers\Dr2\DealRegisterController::class, 'update'])->middleware('permission:create_deals')->name('update');
     Route::post('/{deal}/quick', [\App\Http\Controllers\Dr2\DealRegisterController::class, 'quickUpdate'])->middleware('permission:create_deals')->name('quickUpdate');
 
+    // AT-398 — multi-property. Same permission as deal setup (create_deals).
+    Route::post('/{deal}/properties',                [\App\Http\Controllers\Dr2\DealRegisterController::class, 'addProperty'])->whereNumber('deal')->middleware('permission:create_deals')->name('properties.add');
+    Route::delete('/{deal}/properties/{property}',    [\App\Http\Controllers\Dr2\DealRegisterController::class, 'removeProperty'])->whereNumber(['deal', 'property'])->middleware('permission:create_deals')->name('properties.remove');
+
     // Feedback — DR2 doctrine: AGENTS may read the log + add remarks (view_deals),
     // separate from deal setup (create_deals). Pipeline step updates ride m1's routes.
     Route::get('/{deal}/log',    [\App\Http\Controllers\Dr2\DealRegisterController::class, 'log'])->middleware('permission:view_deals')->name('log');

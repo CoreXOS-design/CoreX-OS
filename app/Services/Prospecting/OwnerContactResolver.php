@@ -111,6 +111,9 @@ final class OwnerContactResolver
             ->filter()
             ->unique();
 
+        // AT-398 — the owner set behind an open deal cannot move underneath it.
+        app(\App\Services\Property\PropertyOwnershipGuard::class)->assertCanLink($property, 'owner');
+
         foreach ($contactIds as $contactId) {
             DB::table('contact_property')->updateOrInsert(
                 ['contact_id' => $contactId, 'property_id' => $property->id],

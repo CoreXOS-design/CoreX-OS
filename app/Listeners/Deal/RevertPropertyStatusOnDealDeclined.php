@@ -26,7 +26,7 @@ class RevertPropertyStatusOnDealDeclined
 
             $deal = $event->deal;
             $agencyId = (int) ($deal->agency_id ?? 0);
-            if ($agencyId <= 0 || empty($deal->property_id)) {
+            if ($agencyId <= 0) {
                 return;
             }
 
@@ -34,31 +34,47 @@ class RevertPropertyStatusOnDealDeclined
                 return; // agency turned the companion OFF (default is ON).
             }
 
-            $property = $deal->property;
-            if (! $property) {
-                return;
-            }
-            // Only revert a listing this feature flagged under-offer, and only when we
-            // have the exact prior status to restore.
-            if ((string) $property->status !== 'under_offer') {
-                return;
-            }
-            $prior = $property->pre_deal_offer_status;
-            if ($prior === null || $prior === '') {
-                return;
-            }
-
-            // Wave 2 AGGREGATE rule — a property may carry multiple concurrent
-            // deals (two offers). Only revert to on-market when NO other active
-            // (pending/granted) deal remains: deal 1 declined while deal 2 is
-            // still pending → the property STAYS under-offer.
-            if (app(DealPropertyStatusService::class)->otherActiveDealsExist($deal)) {
+            // AT-398 — every property linked to the deal (deal_properties),
+            // checked and reverted INDEPENDENTLY: on a multi-property deal,
+            // property A can genuinely have no other active deal (reverts)
+            // while property B still does (stays under-offer) — this is the
+            // one listener where the mixed-status case is a real, expected
+            // outcome, not an edge case to special-case away.
+            $statusService = app(DealPropertyStatusService::class);
+            $properties = $deal->properties()->get();
+            if ($properties->isEmpty()) {
                 return;
             }
 
-            $property->status = (string) $prior;
-            $property->pre_deal_offer_status = null;
-            $property->save(); // PropertyObserver: audit + re-syndication.
+            foreach ($properties as $property) {
+                try {
+                    // Only revert a listing this feature flagged under-offer, and only when we
+                    // have the exact prior status to restore.
+                    if ((string) $property->status !== 'under_offer') {
+                        continue;
+                    }
+                    $prior = $property->pre_deal_offer_status;
+                    if ($prior === null || $prior === '') {
+                        continue;
+                    }
+
+                    // Wave 2 AGGREGATE rule — a property may carry multiple concurrent
+                    // deals (two offers). Only revert to on-market when NO other active
+                    // (pending/granted) deal remains on THIS property: deal 1 declined
+                    // while deal 2 is still pending → this property STAYS under-offer.
+                    if ($statusService->otherActiveDealsExistForProperty((int) $property->id, (int) $deal->id)) {
+                        continue;
+                    }
+
+                    $property->status = (string) $prior;
+                    $property->pre_deal_offer_status = null;
+                    $property->save(); // PropertyObserver: audit + re-syndication.
+                } catch (\Throwable $e) {
+                    \Log::warning('Wave2 RevertPropertyStatusOnDealDeclined failed for one property', [
+                        'error' => $e->getMessage(), 'deal_id' => $deal->id, 'property_id' => $property->id,
+                    ]);
+                }
+            }
         } catch (\Throwable $e) {
             \Log::warning('Wave2 RevertPropertyStatusOnDealDeclined failed', [
                 'error' => $e->getMessage(), 'deal_id' => $event->deal->id ?? null,
