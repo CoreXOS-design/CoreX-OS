@@ -36,6 +36,25 @@
         <div class="p-3 rounded-xl bg-red-50 border border-red-100 text-red-700 text-sm mb-4">{{ session('error') }}</div>
     @endif
 
+    @php
+        // Defect fix, AT-392 (Johan via cc5's journey walk) — this page
+        // never told the applicant WHY it was reopened, only the email did;
+        // an applicant who lost that email had no way to act. "Fresh" means
+        // the reopen hasn't been superseded by a resubmission since.
+        $isFreshReopen = $application->reopened_at
+            && (! $application->submitted_at || $application->submitted_at->lt($application->reopened_at));
+    @endphp
+    @if($isFreshReopen)
+        <div class="p-4 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-sm mb-4">
+            <p class="font-semibold mb-1">Your agent has reopened this application</p>
+            @if($application->reopened_note)
+                <p class="whitespace-pre-line">{{ $application->reopened_note }}</p>
+            @else
+                <p>Please review and update the details below, then submit again.</p>
+            @endif
+        </div>
+    @endif
+
     {{--
         AT-392, Johan 2026-09-07 — the controller's own show() already routes
         ANY 'returned'-or-later status to the separate already-submitted.blade.php

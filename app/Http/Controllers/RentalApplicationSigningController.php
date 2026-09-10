@@ -65,7 +65,7 @@ class RentalApplicationSigningController extends Controller
      * TPN consent) in one sitting. Every field optional; only the two
      * signature captures are required to submit online.
      */
-    public function submit(Request $request, string $token)
+    public function submit(Request $request, string $token, \App\Services\RentalApplications\RentalApplicationAuditService $audit)
     {
         $application = $this->findByToken($token);
 
@@ -124,8 +124,9 @@ class RentalApplicationSigningController extends Controller
         // (and therefore can never overwrite) the previous round's
         // signature row, which is the "signature landmine" this build was
         // required to fix.
-        DB::transaction(function () use ($application, $fields, $validated, $request) {
+        DB::transaction(function () use ($application, $fields, $validated, $request, $audit) {
             $isResubmit = $application->submitted_at !== null;
+            $fromStatus = $application->status;
 
             $application->fill($fields);
             $application->delivery_mode = 'online';
@@ -140,6 +141,27 @@ class RentalApplicationSigningController extends Controller
             $this->storeSignature($application, 'tpn_consent', $validated['tpn_consent_signature'], $request);
 
             \App\Models\RentalApplicationGeneration::seal($application, $request);
+
+            // Defect fix, AT-392 (Johan via cc5's journey walk) — neither a
+            // first submission nor a resubmit-after-reopen ever wrote to the
+            // evidentiary trail; there was no way to tell an applicant had
+            // ever responded. No User actor exists on this public,
+            // unauthenticated route — both calls take null, same as any
+            // other applicant-originated event on this feature.
+            \App\Models\RentalApplicationStatusHistory::record(
+                $application, $fromStatus, 'returned', null,
+                $isResubmit ? 'Applicant resubmitted online.' : 'Applicant submitted online.',
+            );
+            $audit->log(
+                $application,
+                eventCategory: 'applicant',
+                eventType: $isResubmit ? 'resubmitted' : 'submitted',
+                oldValues: ['status' => $fromStatus],
+                newValues: ['status' => 'returned'],
+                humanSummary: $isResubmit
+                    ? 'Applicant resubmitted online after a reopen.'
+                    : 'Applicant submitted the application online.',
+            );
         });
 
         // Outside the transaction, deliberately: a notification failure must
