@@ -162,12 +162,15 @@ final class RentalApplicationDocumentMarkSaveTest extends TestCase
         self::assertSame(1, $response->json('mark_count'));
 
         // ── Step 3: the mark is really in the database, not just in the response body. ──
+        // AT-401 — marks are rows (rental_application_document_marks) now,
+        // not JSON; marks_json is frozen and no longer written.
         $highlight = RentalApplicationDocumentHighlight::where('document_id', $document->id)->firstOrFail();
         self::assertSame(1, $highlight->marks_version);
-        self::assertCount(1, $highlight->marks_json[0] ?? []);
-        self::assertSame($incomeHighlighter->id, $highlight->marks_json[0][0]['highlighter_id']);
-        self::assertSame($agent->id, $highlight->marks_json[0][0]['author_user_id']);
-        self::assertSame('agent', $highlight->marks_json[0][0]['author_role']);
+        $page0Marks = \App\Models\RentalApplicationDocumentMark::where('document_id', $document->id)->where('page', 0)->get();
+        self::assertCount(1, $page0Marks);
+        self::assertSame($incomeHighlighter->id, $page0Marks[0]->highlighter_id);
+        self::assertSame($agent->id, $page0Marks[0]->author_user_id);
+        self::assertSame('agent', $page0Marks[0]->author_role);
 
         // ── Step 4: a SECOND open (as a browser reload would do) sees the
         // real, current version — not stale, not zero. This is the exact
@@ -215,7 +218,11 @@ final class RentalApplicationDocumentMarkSaveTest extends TestCase
         // And the stale client's mark was NOT silently written.
         $highlight = RentalApplicationDocumentHighlight::where('document_id', $document->id)->firstOrFail();
         self::assertSame(1, $highlight->marks_version, 'the refused save must not have moved the version at all');
-        self::assertEmpty($highlight->marks_json[0] ?? []);
+        self::assertSame(
+            0,
+            \App\Models\RentalApplicationDocumentMark::where('document_id', $document->id)->where('mark_uid', 'stale-client-mark')->count(),
+            'the stale client\'s mark must never have been persisted as a row'
+        );
     }
 
     /**
@@ -261,11 +268,11 @@ final class RentalApplicationDocumentMarkSaveTest extends TestCase
         $response->assertOk();
         self::assertSame(1, $response->json('mark_count'), 'the note must be counted as saved, not silently dropped');
 
-        $highlight = RentalApplicationDocumentHighlight::where('document_id', $document->id)->firstOrFail();
-        self::assertCount(1, $highlight->marks_json[0] ?? [], 'the note must actually be persisted, not just claimed in the response');
-        self::assertSame('note', $highlight->marks_json[0][0]['type']);
-        self::assertSame('Tenant confirmed this is the correct bank statement.', $highlight->marks_json[0][0]['text']);
-        self::assertNull($highlight->marks_json[0][0]['highlighter_id'], 'no highlighter was available, so this must be explicitly null, never a guessed/default id');
+        $page0Marks = \App\Models\RentalApplicationDocumentMark::where('document_id', $document->id)->where('page', 0)->get();
+        self::assertCount(1, $page0Marks, 'the note must actually be persisted, not just claimed in the response');
+        self::assertSame('note', $page0Marks[0]->type);
+        self::assertSame('Tenant confirmed this is the correct bank statement.', $page0Marks[0]->text);
+        self::assertNull($page0Marks[0]->highlighter_id, 'no highlighter was available, so this must be explicitly null, never a guessed/default id');
     }
 
     /**
@@ -301,7 +308,96 @@ final class RentalApplicationDocumentMarkSaveTest extends TestCase
         $response->assertOk();
         self::assertSame(0, $response->json('mark_count'), 'a highlight with no resolvable colour is still refused');
 
-        $highlight = RentalApplicationDocumentHighlight::where('document_id', $document->id)->firstOrFail();
-        self::assertEmpty($highlight->marks_json[0] ?? []);
+        self::assertSame(
+            0,
+            \App\Models\RentalApplicationDocumentMark::where('document_id', $document->id)->count(),
+            'a highlight with no resolvable colour must never be persisted as a row'
+        );
+    }
+
+    /**
+     * AT-401 — the governance rule: an agent's mark is evidence, and an
+     * authoriser must never be able to remove or alter it, even when the
+     * SAME person holds both roles (exactly how an agent's mark was
+     * destroyed on application 66 — one Johan-owned account, agent hat then
+     * authoriser hat, and the old per-user-only ownership check saw no
+     * difference). Real HTTP requests through both real routes, same
+     * pattern as every other test in this file.
+     */
+    public function test_an_authoriser_cannot_remove_an_agents_mark_even_as_the_same_user(): void
+    {
+        $agent = $this->agent();
+        $app = $this->application();
+        $document = $this->attachTwoPageDocument($app, $agent);
+
+        RentalApplicationHighlighter::seedDefaultsFor($this->agency->id);
+        $incomeHighlighter = RentalApplicationHighlighter::where('agency_id', $this->agency->id)
+            ->where('label', 'Income')->where('role_scope', 'agent')->firstOrFail();
+
+        // Agent draws a mark.
+        $this->actingAs($agent)->postJson(route('corex.rental-applications.documents.highlight', [$app, $document]), [
+            'base_version' => 0,
+            'marks' => [
+                0 => [[
+                    'id' => 'agent-evidence-mark', 'type' => 'highlight', 'highlighter_id' => $incomeHighlighter->id,
+                    'points' => [['x' => 10, 'y' => 10], ['x' => 100, 'y' => 10]], 'width' => 16,
+                ]],
+                1 => [],
+            ],
+        ])->assertOk();
+
+        // The SAME user, now acting as this agency's authoriser (RO tier),
+        // tries to remove that agent mark by resubmitting page 0 without it.
+        // Agency::find() memoises per-process (Agency.php's own $findMemo,
+        // reset between real HTTP requests but NOT between in-process test
+        // calls) — bust it or isRentalApplicationRO() below reads the
+        // pre-update Agency instance cached by an earlier call in this test.
+        $this->agency->update(['rental_application_ro_user_ids' => [$agent->id]]);
+        \App\Models\Agency::forgetFindMemo();
+        $agent->refresh();
+
+        $response = $this->actingAs($agent)
+            ->postJson(route('corex.rental-applications.authorisation.documents.highlight', [$app, $document]), [
+                'base_version' => 1,
+                'marks' => [0 => [], 1 => []],
+            ]);
+
+        $response->assertStatus(422);
+        $response->assertJson(['reason' => 'ownership_conflict']);
+
+        $mark = \App\Models\RentalApplicationDocumentMark::withTrashed()->where('mark_uid', 'agent-evidence-mark')->firstOrFail();
+        self::assertFalse($mark->trashed(), 'the agent\'s mark must survive the refused removal attempt intact');
+        self::assertSame('agent', $mark->author_role);
+
+        // The same authoriser CAN remove their OWN mark, though — draw one
+        // via the authoriser route, then remove it via the same route.
+        $this->actingAs($agent)
+            ->postJson(route('corex.rental-applications.authorisation.documents.highlight', [$app, $document]), [
+                'base_version' => 1,
+                'marks' => [
+                    0 => [
+                        ['id' => 'agent-evidence-mark', 'type' => 'highlight', 'highlighter_id' => $incomeHighlighter->id, 'points' => [['x' => 10, 'y' => 10], ['x' => 100, 'y' => 10]], 'width' => 16],
+                        ['id' => 'authoriser-own-mark', 'type' => 'note', 'x' => 20, 'y' => 20, 'text' => 'Queried with agent.'],
+                    ],
+                    1 => [],
+                ],
+            ])->assertOk();
+
+        $undo = $this->actingAs($agent)
+            ->postJson(route('corex.rental-applications.authorisation.documents.highlight', [$app, $document]), [
+                'base_version' => 2,
+                'marks' => [
+                    0 => [
+                        ['id' => 'agent-evidence-mark', 'type' => 'highlight', 'highlighter_id' => $incomeHighlighter->id, 'points' => [['x' => 10, 'y' => 10], ['x' => 100, 'y' => 10]], 'width' => 16],
+                        // authoriser-own-mark omitted — this is their own undo.
+                    ],
+                    1 => [],
+                ],
+            ]);
+
+        $undo->assertOk();
+        $ownMark = \App\Models\RentalApplicationDocumentMark::withTrashed()->where('mark_uid', 'authoriser-own-mark')->firstOrFail();
+        self::assertTrue($ownMark->trashed(), 'the authoriser must be able to undo their own mark');
+        self::assertNotNull($ownMark->deleted_at, 'undo is a soft delete, never a hard delete');
     }
 }

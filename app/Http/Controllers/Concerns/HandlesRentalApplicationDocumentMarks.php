@@ -144,7 +144,7 @@ trait HandlesRentalApplicationDocumentMarks
             ], 409);
         } catch (\App\Exceptions\RentalApplicationMarkOwnershipException $e) {
             return response()->json([
-                'error' => 'One of these marks belongs to a different user and can\'t be changed or removed. Reload the document to see the current marks.',
+                'error' => 'One of these marks was created by the agent, or belongs to a different user, and can\'t be changed or removed here. Reload the document to see the current marks.',
                 'reason' => 'ownership_conflict',
             ], 422);
         } catch (\Throwable $e) {
@@ -153,10 +153,12 @@ trait HandlesRentalApplicationDocumentMarks
             return response()->json(['error' => 'Could not save highlights on this document. Please try again.'], 422);
         }
 
+        // AT-401 — marks_json is frozen (no longer written); the true count
+        // now lives in rental_application_document_marks.
         return response()->json([
             'ok' => true,
             'has_highlights' => $highlight->highlighted_file_path !== null,
-            'mark_count' => collect($highlight->marks_json ?? [])->flatten(1)->count(),
+            'mark_count' => \App\Models\RentalApplicationDocumentMark::where('document_id', $document->id)->count(),
             'marks_version' => $highlight->marks_version,
             'saved_at' => $highlight->updated_at?->toIso8601String(),
         ]);
