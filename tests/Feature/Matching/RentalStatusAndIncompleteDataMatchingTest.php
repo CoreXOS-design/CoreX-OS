@@ -7,6 +7,7 @@ namespace Tests\Feature\Matching;
 use App\Models\Agency;
 use App\Models\Branch;
 use App\Models\Contact;
+use App\Models\P24Suburb;
 use App\Models\ContactMatch;
 use App\Models\Property;
 use App\Models\User;
@@ -127,13 +128,19 @@ final class RentalStatusAndIncompleteDataMatchingTest extends TestCase
         );
     }
 
-    public function test_an_under_offer_listing_still_reaches_match_results(): void
+    public function test_an_under_offer_listing_is_never_offered_to_a_buyer(): void
     {
-        // under_offer is NOT in Property::OFF_MARKET_STATUSES — the sale can
-        // still fall through and agents want backup buyers on it.
+        // Johan's ruling, 2026-09-10. under_offer stays ON MARKET everywhere
+        // else in CoreX (it is deliberately NOT in
+        // Property::OFF_MARKET_STATUSES) — this exclusion is matching-only: a
+        // buyer is never shown stock that already has an offer on it.
         $property = $this->rental(['status' => 'under_offer']);
 
-        $this->assertContains($property->id, $this->resolve($this->wishlist())->pluck('id')->all());
+        $this->assertNotContains($property->id, $this->resolve($this->wishlist())->pluck('id')->all());
+        $this->assertTrue(
+            in_array('under_offer', Property::OFF_MARKET_STATUSES, true) === false,
+            'the matching-only exclusion must not have leaked into the model-wide on-market definition'
+        );
     }
 
     public function test_an_agency_defined_status_is_not_silently_dropped(): void
@@ -194,8 +201,19 @@ final class RentalStatusAndIncompleteDataMatchingTest extends TestCase
         $this->assertLessThan(
             100,
             (int) $resolved->firstWhere('id', $property->id)->match_score,
-            'a near-miss must be decayed, not scored as a perfect fit'
+            'a near-miss must be DECAYED, not paid full price marks — handing score() a '
+            . 'band without decaying inside it would score an over-budget property 100'
         );
+    }
+
+    public function test_a_property_inside_the_stated_budget_still_scores_full_price_marks(): void
+    {
+        // The decay must bite only OUTSIDE the buyer's stated range.
+        $property = $this->rental(['price' => 7000]);
+
+        $resolved = $this->resolve($this->wishlist());
+
+        $this->assertSame(100, (int) $resolved->firstWhere('id', $property->id)->match_score);
     }
 
     public function test_a_property_far_over_budget_is_still_excluded(): void
@@ -277,5 +295,79 @@ final class RentalStatusAndIncompleteDataMatchingTest extends TestCase
             $counts[$match->id]['total'],
             'the counts page and the results page must never disagree about how many properties match'
         );
+    }
+
+    // ---- Johan's ruling, 2026-09-10 — parent-area suburbs -----------------
+
+    /** Creates the Margate / Margate Beach pair in one city, as P24 files them. */
+    private function seedMargate(): array
+    {
+        $parent = P24Suburb::forceCreate(['name' => 'Margate', 'slug' => 'margate', 'p24_city_id' => 376]);
+        $child  = P24Suburb::forceCreate(['name' => 'Margate Beach', 'slug' => 'margate-beach', 'p24_city_id' => 376]);
+
+        return [$parent, $child];
+    }
+
+    public function test_a_beachfront_wishlist_also_matches_its_parent_suburb(): void
+    {
+        // The live case: the buyer ticked "Margate Beach"; the 2-bed at R6 940
+        // that plainly suited her is filed under plain "Margate".
+        [$parent, $child] = $this->seedMargate();
+        $property = $this->rental(['p24_suburb_id' => $parent->id]);
+
+        $ids = $this->resolve($this->wishlist(['p24_suburb_ids' => [$child->id]]))->pluck('id')->all();
+
+        $this->assertContains($property->id, $ids);
+    }
+
+    public function test_the_parent_area_rule_runs_child_to_parent_only(): void
+    {
+        // A buyer who ticks the broad "Margate" is NOT handed the beachfront
+        // sub-suburbs. Deliberately asymmetric — a separate decision.
+        [$parent, $child] = $this->seedMargate();
+        $property = $this->rental(['p24_suburb_id' => $child->id]);
+
+        $ids = $this->resolve($this->wishlist(['p24_suburb_ids' => [$parent->id]]))->pluck('id')->all();
+
+        $this->assertNotContains($property->id, $ids);
+    }
+
+    public function test_parent_widening_never_crosses_a_city_boundary(): void
+    {
+        // p24_suburbs holds the same NAME in more than one province — see
+        // P24Suburb::lookup()'s Melville note. A same-named suburb in another
+        // city must never be pulled in.
+        $child     = P24Suburb::forceCreate(['name' => 'Margate Beach', 'slug' => 'margate-beach', 'p24_city_id' => 376]);
+        $elsewhere = P24Suburb::forceCreate(['name' => 'Margate', 'slug' => 'margate-gp', 'p24_city_id' => 999]);
+        $property  = $this->rental(['p24_suburb_id' => $elsewhere->id]);
+
+        $ids = $this->resolve($this->wishlist(['p24_suburb_ids' => [$child->id]]))->pluck('id')->all();
+
+        $this->assertNotContains($property->id, $ids);
+    }
+
+    public function test_widening_matches_whole_words_only(): void
+    {
+        // "Ram" must never be treated as the parent of "Ramsgate".
+        $ram      = P24Suburb::forceCreate(['name' => 'Ram', 'slug' => 'ram', 'p24_city_id' => 376]);
+        $ramsgate = P24Suburb::forceCreate(['name' => 'Ramsgate', 'slug' => 'ramsgate', 'p24_city_id' => 376]);
+
+        $this->assertNotContains(
+            $ram->id,
+            MatchingService::suburbIdsWithParentAreas([$ramsgate->id]),
+            'prefix matching is word-boundary, never character-boundary'
+        );
+    }
+
+    public function test_a_single_word_suburb_widens_to_nothing(): void
+    {
+        $ramsgate = P24Suburb::forceCreate(['name' => 'Ramsgate', 'slug' => 'ramsgate', 'p24_city_id' => 376]);
+
+        $this->assertSame([$ramsgate->id], MatchingService::suburbIdsWithParentAreas([$ramsgate->id]));
+    }
+
+    public function test_an_open_wishlist_is_unaffected_by_widening(): void
+    {
+        $this->assertSame([], MatchingService::suburbIdsWithParentAreas([]));
     }
 }

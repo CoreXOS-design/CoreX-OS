@@ -135,4 +135,89 @@ class P24Suburb extends Model
 
         return $r * 2 * atan2(sqrt($a), sqrt(1 - $a));
     }
+
+    /** Process-level memo for withParentAreaIds(), keyed by the sorted id set. */
+    private static array $parentAreaCache = [];
+
+    /**
+     * Expand a wishlist's suburb ids to include their PARENT AREA.
+     *
+     * Johan's ruling, 2026-09-10 (live: contact 18900 / match 671 showed zero
+     * rentals): P24 files "Margate Beach" (23618) and "Margate North Beach"
+     * (26831) as suburbs entirely separate from "Margate" (5), and "Uvongo
+     * Beach" (10) separately from "Uvongo" (2). A buyer who ticks the beachfront
+     * name was therefore shown nothing from the parent suburb next door, even
+     * though that is plainly the area they asked about.
+     *
+     * A suburb P is the parent of suburb C when P's name is a strict
+     * WORD-boundary prefix of C's name — "Margate" parents both "Margate Beach"
+     * and "Margate North Beach"; "Ramsgate" (one word) parents nothing, and
+     * "Ram" could never match it. Candidate parent names are computed in PHP and
+     * looked up by exact name, so this is an indexed IN lookup, never a LIKE
+     * scan over 20k rows.
+     *
+     * Scoped to the child's own p24_city_id, because a bare name is NOT unique
+     * countrywide — see lookup() above, where "Melville" exists in both
+     * Johannesburg and Port Shepstone. A child row carrying no city id is not
+     * expanded at all rather than risk pulling in a same-named suburb from
+     * another province.
+     *
+     * Widening only ever runs child -> parent. A buyer who ticks the broad
+     * "Margate" is NOT given the beachfront sub-suburbs; that is a separate
+     * question and a separate decision.
+     *
+     * @param  int[]  $ids
+     * @return int[]  the original ids plus any parent-area ids
+     */
+    public static function withParentAreaIds(array $ids): array
+    {
+        $ids = array_values(array_unique(array_filter(array_map('intval', $ids))));
+        if (empty($ids)) {
+            return [];
+        }
+
+        sort($ids);
+        $key = implode(',', $ids);
+        if (isset(self::$parentAreaCache[$key])) {
+            return self::$parentAreaCache[$key];
+        }
+
+        $rows = static::query()->whereIn('id', $ids)->get(['id', 'name', 'p24_city_id']);
+
+        // (city id => candidate parent names) — only for children we can scope.
+        $byCity = [];
+        foreach ($rows as $row) {
+            $cityId = (int) ($row->p24_city_id ?? 0);
+            if ($cityId === 0) {
+                continue; // unscopeable; never widen on a bare name
+            }
+            $words = preg_split('/\s+/', trim((string) $row->name)) ?: [];
+            for ($i = 1; $i < count($words); $i++) { // strict prefixes only
+                $byCity[$cityId][] = implode(' ', array_slice($words, 0, $i));
+            }
+        }
+
+        $expanded = $ids;
+        if (!empty($byCity)) {
+            $parents = static::query()
+                ->where(function ($q) use ($byCity) {
+                    foreach ($byCity as $cityId => $names) {
+                        $q->orWhere(function ($sub) use ($cityId, $names) {
+                            $sub->where('p24_city_id', $cityId)
+                                ->whereIn('name', array_values(array_unique($names)));
+                        });
+                    }
+                })
+                ->pluck('id')
+                ->map(fn ($id) => (int) $id)
+                ->all();
+
+            $expanded = array_merge($expanded, $parents);
+        }
+
+        $expanded = array_values(array_unique($expanded));
+        sort($expanded);
+
+        return self::$parentAreaCache[$key] = $expanded;
+    }
 }

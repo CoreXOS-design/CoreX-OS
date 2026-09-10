@@ -64,10 +64,14 @@ class MatchingService
      *
      * Inverted to a BLACKLIST so the check fails OPEN: only a status that is
      * unambiguously the OTHER market's excludes. A neutral status (active,
-     * under_offer, on_show, available, or anything an agency defines for
-     * itself) passes either way, and a status nobody has taught this class
-     * about can never again silently delete live stock — BUILD_STANDARD §2
-     * (the input-space rule) and §3 (prevent or absorb, never break).
+     * on_show, available, or anything an agency defines for itself) passes
+     * either way, and a status nobody has taught this class about can never
+     * again silently delete live stock — BUILD_STANDARD §2 (the input-space
+     * rule) and §3 (prevent or absorb, never break).
+     *
+     * `under_offer` is the one status this check would let through that
+     * NON_MATCHABLE_EXTRA_STATUSES then stops on purpose — Johan's ruling of
+     * 2026-09-10, recorded there.
      */
     private const WRONG_INTENT_STATUSES = [
         // A SALE match must never surface a listing sitting on a rental status.
@@ -190,7 +194,17 @@ class MatchingService
      * write-side vocabulary, so they do not belong in the model constant.
      * 'rented' is P24's let-concluded value (CoreX writes 'let_out').
      */
-    private const NON_MATCHABLE_EXTRA_STATUSES = ['rented', 'pending'];
+    private const NON_MATCHABLE_EXTRA_STATUSES = [
+        'rented',      // P24's let-concluded value (CoreX writes 'let_out')
+        'pending',
+        // Johan's ruling, 2026-09-10. `under_offer` is ON MARKET everywhere
+        // else in CoreX (dashboards, website, the Property model) and is
+        // deliberately NOT added to Property::OFF_MARKET_STATUSES — this is a
+        // matching-only rule: a buyer is never shown stock that already has an
+        // offer on it. Asked and answered explicitly when the status whitelist
+        // fix below put 303 under-offer listings back in front of buyers.
+        'under_offer',
+    ];
 
     /**
      * THE off-market list, DERIVED from Property::OFF_MARKET_STATUSES rather
@@ -466,7 +480,9 @@ class MatchingService
         if ($erfMax)     $numLoose($query, 'erf_size_m2', '<=', (int) ceil($erfMax * (1 + $sizeTol)));
 
         // Hard-cutover suburb filter: match by P24 suburb id.
-        $suburbIds = $overrides['p24_suburb_ids'] ?? $match->p24SuburbIdList();
+        $suburbIds = self::suburbIdsWithParentAreas(
+            $overrides['p24_suburb_ids'] ?? $match->p24SuburbIdList()
+        );
         if (!empty($suburbIds)) {
             $query->whereIn('p24_suburb_id', $suburbIds);
         }
@@ -654,8 +670,8 @@ class MatchingService
         if ($match->erf_size_min && !$numLooseOk($p->erf_size_m2, '>=', (int) floor($match->erf_size_min * (1 - $sizeTol)))) return false;
         if ($match->erf_size_max && !$numLooseOk($p->erf_size_m2, '<=', (int) ceil($match->erf_size_max * (1 + $sizeTol)))) return false;
 
-        $suburbIds = $match->p24SuburbIdList();
-        if (!empty($suburbIds) && !in_array($p->p24_suburb_id, $suburbIds, true)) {
+        $suburbIds = self::suburbIdsWithParentAreas($match->p24SuburbIdList());
+        if (!empty($suburbIds) && !in_array((int) $p->p24_suburb_id, $suburbIds, true)) {
             return false;
         }
 
@@ -1062,6 +1078,30 @@ class MatchingService
             $delta = $price - $maxFull;
             return max(0.0, 1 - $delta / max(1, $max * 0.5));
         }
+
+        // Inside the tolerance band but OUTSIDE the buyer's stated range: decay
+        // across the band instead of paying full price marks.
+        //
+        // 2026-09-10: without this, handing score() a band (which is what makes
+        // relaxed near-misses reachable at all) would pay a property 30% over
+        // budget the SAME price score as one bang inside the range — a live
+        // R11 400 rental scored 100 against a R10 000 ceiling. That is a worse
+        // version of the very complaint that created the price hard gate on
+        // 2026-08-11 ("Lucille Maxwell's R951,501 ceiling matched 88-91% on a
+        // property ~R130k over budget"). .ai/specs/matches.md §5.1 is explicit
+        // that a near-miss is "surfaced with a decayed match_score"; this is
+        // where it decays.
+        //
+        // A caller passing no band ($bandPct = 0.0) is unaffected: minFull/
+        // maxFull then equal min/max, so neither branch below can be entered
+        // and the behaviour is byte-for-byte what it was.
+        if ($max && $price > $max) {
+            return max(0.0, 1 - ($price - $max) / max(1, $maxFull - $max));
+        }
+        if ($min && $price < $min) {
+            return max(0.0, 1 - ($min - $price) / max(1, $min - $minFull));
+        }
+
         return 1.0;
     }
 
@@ -1097,9 +1137,29 @@ class MatchingService
      * so a buyer explicitly wanting a DIFFERENT suburb is never counted as "demand
      * for properties like yours in {property_suburb}".
      */
+    /**
+     * A wishlist's suburbs PLUS their parent areas (Johan's ruling,
+     * 2026-09-10) — "Margate Beach" also means "Margate", "Uvongo Beach" also
+     * means "Uvongo". See P24Suburb::withParentAreaIds() for the rule and why
+     * it is scoped per city.
+     *
+     * Every suburb decision in this class routes through here — the SQL
+     * candidate query, suburbCompatible()'s hard gate, and the
+     * matchSurvivesFilters() mirror — so the query and the scorer can never
+     * disagree about which areas a buyer asked for. That disagreement is
+     * exactly the class of bug this file was just cleaned of.
+     *
+     * @param  int[]  $ids
+     * @return int[]
+     */
+    public static function suburbIdsWithParentAreas(array $ids): array
+    {
+        return empty($ids) ? [] : \App\Models\P24Suburb::withParentAreaIds($ids);
+    }
+
     public function suburbCompatible(Property $property, ContactMatch $match): bool
     {
-        $ids = $match->p24SuburbIdList();
+        $ids = self::suburbIdsWithParentAreas($match->p24SuburbIdList());
         if (empty($ids)) return true;                   // open to anywhere
         if (!$property->p24_suburb_id) return false;    // buyer named suburbs; property has none
         return in_array((int) $property->p24_suburb_id, $ids, true);
