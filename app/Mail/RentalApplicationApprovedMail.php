@@ -8,15 +8,17 @@ use Illuminate\Mail\Mailable;
 use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Envelope;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Collection;
 
 /**
  * AT-392 authoriser flow — the applicant-facing approval email. Johan:
  * "accept flow should essentially maybe email applicant... congrats you are
- * approved to rent for x amount." Deliberately NOT agency-configurable
- * (unlike the decline email) — not asked for, and NOT built with any
- * "matching properties" content — Johan was explicit that idea is still
- * unsettled and not to build it: "here is a list of properties that
- * matches wishlist? ... IDEA, not settled. Do NOT build it."
+ * approved to rent for x amount." The matching-properties content this
+ * class's own docblock once said not to build ("IDEA, not settled. Do NOT
+ * build it") is now built, per Johan's explicit later decision — see
+ * .ai/specs/rental-applications.md, "agent sends, not auto-send". Sent by
+ * the AGENT (RentalApplicationReviewController::send()), never
+ * automatically on approve() any more.
  */
 class RentalApplicationApprovedMail extends Mailable
 {
@@ -26,7 +28,8 @@ class RentalApplicationApprovedMail extends Mailable
     public string $agencyName;
     public string $amount;
 
-    public function __construct(public RentalApplication $application)
+    /** @param Collection<int, \App\Models\Property> $properties */
+    public function __construct(public RentalApplication $application, public Collection $properties)
     {
         $this->applicantName = $application->contact->full_name ?: 'there';
         $this->agencyName = $application->agency->name ?? config('mail.from.name', 'CoreX OS');
@@ -42,6 +45,8 @@ class RentalApplicationApprovedMail extends Mailable
 
     public function content(): Content
     {
-        return new Content(view: 'emails.rental-application-approved');
+        return new Content(view: 'emails.rental-application-approved', with: [
+            'properties' => $this->properties,
+        ]);
     }
 }

@@ -5,6 +5,8 @@ namespace App\Http\Controllers\CoreX;
 use App\Http\Controllers\Concerns\AuthorizesRentalApplicationAccess;
 use App\Http\Controllers\Concerns\HandlesRentalApplicationDocumentMarks;
 use App\Http\Controllers\Controller;
+use App\Models\Contact;
+use App\Models\ContactMatch;
 use App\Models\Document;
 use App\Models\RentalApplication;
 use App\Models\RentalApplicationAssessment;
@@ -193,9 +195,27 @@ class RentalApplicationReviewController extends Controller
         $auditLogTotal = $rentalApplication->auditLog()->count();
         $auditLog = $rentalApplication->auditLog()->with('user')->latest('created_at')->limit(200)->get();
 
+        // AT-392 — the agent's wishlist step (approved, ready-to-send state
+        // only, but harmless/unused otherwise). Same option data
+        // ContactMatchController::edit() supplies so _match-form.blade.php
+        // renders identically wherever it's reused.
+        $existingWishlist = $rentalApplication->contact
+            ? ContactMatch::withoutGlobalScopes()
+                ->where('contact_id', $rentalApplication->contact_id)
+                ->where('listing_type', 'rental')
+                ->where('status', ContactMatch::STATUS_ACTIVE)
+                ->whereNull('deleted_at')
+                ->orderByDesc('is_primary')
+                ->orderByDesc('updated_at')
+                ->first()
+            : null;
+        $matchCategories = \App\Models\PropertySettingItem::group('category')->get();
+        $matchTypes = \App\Models\PropertySettingItem::group('property_type')->where('active', true)->get();
+        $featureOptions = array_merge(\App\Http\Controllers\CoreX\ContactMatchController::FEATURE_OPTIONS, \App\Http\Controllers\CoreX\ContactMatchController::POOL_TYPE_OPTIONS);
+
         return view('corex.rental-applications.review', compact(
             'rentalApplication', 'assessment', 'maxRentPercent', 'result', 'documents', 'moreInfoRequestedNote', 'declineInfo', 'highlighters',
-            'viewerRole', 'auditLog', 'auditLogTotal'
+            'viewerRole', 'auditLog', 'auditLogTotal', 'existingWishlist', 'matchCategories', 'matchTypes', 'featureOptions'
         ))->with('isPendingAuthorisation', $rentalApplication->isPendingAuthorisation());
     }
 
@@ -283,6 +303,47 @@ class RentalApplicationReviewController extends Controller
      * public form pre-fill automatically (Johan: "prefilled - its a
      * reopen, not new") — see RentalApplicationSigningController::show().
      */
+
+    /**
+     * AT-392 — the agent's own send action. Johan: "when the agent is
+     * happy, THEY send. One email, containing the approval, the amount,
+     * and the matched properties." Idempotent guard (applicant_notified_at
+     * already set → 422, not a silent second send) — this is a one-shot
+     * action, not a resend button.
+     */
+    public function send(Request $request, RentalApplication $rentalApplication, RentalApplicationMailer $mailer, RentalApplicationAuditService $audit, \App\Services\RentalApplications\RentalApplicationPropertyMatcher $matcher)
+    {
+        $this->guardRentalApplication($rentalApplication);
+
+        if ($rentalApplication->status !== 'approved') {
+            return redirect()->route('corex.rental-applications.review', $rentalApplication)
+                ->with('error', 'This application is not approved yet.');
+        }
+        if ($rentalApplication->applicant_notified_at) {
+            return redirect()->route('corex.rental-applications.review', $rentalApplication)
+                ->with('error', 'The applicant has already been sent this approval.');
+        }
+
+        $properties = $matcher->forApproval($rentalApplication);
+
+        $sent = $mailer->sendApproved($rentalApplication, $properties);
+
+        $rentalApplication->applicant_notified_at = now();
+        $rentalApplication->save();
+
+        $audit->log(
+            $rentalApplication,
+            eventCategory: 'agent',
+            eventType: 'approval_sent',
+            user: $request->user(),
+            newValues: ['applicant_notified_at' => $rentalApplication->applicant_notified_at->toIso8601String()],
+            metadata: ['matched_property_count' => $properties->count(), 'mail_sent' => $sent],
+            humanSummary: 'Sent the approval to the applicant, with ' . $properties->count() . ' matched propert' . ($properties->count() === 1 ? 'y' : 'ies') . '.',
+        );
+
+        return redirect()->route('corex.rental-applications.review', $rentalApplication)
+            ->with('success', 'Approval sent to the applicant.');
+    }
     public function reopen(Request $request, RentalApplication $rentalApplication, RentalApplicationMailer $mailer, RentalApplicationAuditService $audit)
     {
         $this->guardRentalApplication($rentalApplication);
@@ -707,5 +768,132 @@ class RentalApplicationReviewController extends Controller
         }
 
         return false;
+    }
+
+    /**
+     * AT-392 — the agent's wishlist step, reusing the SAME Core Matches
+     * form and drawer pattern as the Buyer Pipeline detail page
+     * (command-center/buyers/detail.blade.php:580-615), not a second
+     * editor. Johan: "modal showing same as core matches on contact - we
+     * have this already."
+     *
+     * Deliberately its own validation here rather than reusing
+     * BuyerDetailController's private validateWishlistPayload() —
+     * duplicated, not shared, because that method is private and this
+     * redirects somewhere different (back to the review screen, not the
+     * buyer-detail page). Flagged rather than silently left drifting: if
+     * the Core Matches field set changes, both copies need updating.
+     */
+    public function addWishlist(Request $request, RentalApplication $rentalApplication)
+    {
+        $this->guardRentalApplication($rentalApplication);
+
+        $contact = $rentalApplication->contact;
+        abort_unless($contact, 422, 'This application has no linked contact.');
+
+        $validated = $this->validateWishlistPayload($request);
+        $fields = $this->extractWishlistMatchFields($validated);
+        // This drawer creates a RENTAL wishlist only, regardless of what
+        // the shared form's hidden listing_type field submits (its own
+        // default is 'sale', built for the Buyer Pipeline) — forced last,
+        // after the merge, so nothing upstream can override it.
+        $fields['listing_type'] = 'rental';
+
+        $contact->matches()->create(array_merge([
+            'agency_id'          => $contact->agency_id,
+            'created_by_user_id' => $request->user()->id,
+            'status'             => ContactMatch::STATUS_ACTIVE,
+        ], $fields));
+
+        return redirect()
+            ->route('corex.rental-applications.review', $rentalApplication)
+            ->with('success', 'Wishlist added.');
+    }
+
+    public function updateWishlist(Request $request, RentalApplication $rentalApplication, ContactMatch $match)
+    {
+        $this->guardRentalApplication($rentalApplication);
+        abort_if($match->contact_id !== $rentalApplication->contact_id, 403);
+
+        $validated = $this->validateWishlistPayload($request);
+        $fields = $this->extractWishlistMatchFields($validated);
+        $fields['listing_type'] = 'rental';
+        $match->update($fields);
+
+        return redirect()
+            ->route('corex.rental-applications.review', $rentalApplication)
+            ->with('success', 'Wishlist updated.');
+    }
+
+    /** Same field set/rules as _match-form.blade.php's other caller (BuyerDetailController). */
+    private function validateWishlistPayload(Request $request): array
+    {
+        $validator = \Illuminate\Support\Facades\Validator::make($request->all(), [
+            'listing_type'              => 'nullable|in:sale,rental',
+            'category'                  => 'nullable|string|max:100',
+            'property_types'            => 'nullable|array',
+            'property_types.*'          => 'string|max:100',
+            'p24_suburb_ids'            => 'nullable|array',
+            'p24_suburb_ids.*'          => 'integer|exists:p24_suburbs,id',
+            'price_min'                 => 'nullable|integer|min:0',
+            'price_max'                 => 'nullable|integer|min:0',
+            'beds_min'                  => 'nullable|integer|min:0|max:20',
+            'bedrooms_max'              => 'nullable|integer|min:0|max:20',
+            'baths_min'                 => 'nullable|integer|min:0|max:20',
+            'garages_min'               => 'nullable|integer|min:0|max:20',
+            'parking_min'               => 'nullable|integer|min:0|max:20',
+            'floor_size_min'            => 'nullable|integer|min:0',
+            'floor_size_max'            => 'nullable|integer|min:0',
+            'erf_size_min'              => 'nullable|integer|min:0',
+            'erf_size_max'              => 'nullable|integer|min:0',
+            'must_have_features'        => 'nullable|array',
+            'must_have_features.*'      => 'string|max:60',
+            'nice_to_have_features'     => 'nullable|array',
+            'nice_to_have_features.*'   => 'string|max:60',
+            'deal_breakers'             => 'nullable|array',
+            'deal_breakers.*'           => 'string|max:60',
+            'notes'                     => 'nullable|string|max:500',
+            'is_primary'                => 'nullable|boolean',
+            'name'                      => 'nullable|string|max:120',
+            'criteria_groups_present'   => 'sometimes',
+        ]);
+
+        $validator->after(function ($v) {
+            $bedsMin = $v->getData()['beds_min'] ?? null;
+            $bedsMax = $v->getData()['bedrooms_max'] ?? null;
+            if ($bedsMin !== null && $bedsMax !== null && (int) $bedsMax < (int) $bedsMin) {
+                $v->errors()->add('bedrooms_max', 'Maximum bedrooms cannot be less than minimum bedrooms.');
+            }
+
+            $conflicts = ContactMatch::conflictingFeatureTokens(
+                $v->getData()['must_have_features'] ?? [],
+                $v->getData()['nice_to_have_features'] ?? [],
+                $v->getData()['deal_breakers'] ?? [],
+            );
+            if ($conflicts) {
+                $v->errors()->add('must_have_features', 'Each feature can be in only one category (Must-have, Nice, or Deal-breaker). In two: ' . implode(', ', $conflicts) . '.');
+            }
+        });
+
+        $data = $validator->validate();
+
+        if ($request->has('criteria_groups_present')) {
+            foreach (['property_types', 'p24_suburb_ids', 'must_have_features', 'nice_to_have_features', 'deal_breakers'] as $group) {
+                if (!isset($data[$group])) {
+                    $data[$group] = [];
+                }
+            }
+        }
+
+        return $data;
+    }
+
+    private function extractWishlistMatchFields(array $validated): array
+    {
+        if (isset($validated['property_types']) && !empty($validated['property_types'])) {
+            $validated['property_type'] = $validated['property_types'][0] ?? null;
+        }
+
+        return $validated;
     }
 }

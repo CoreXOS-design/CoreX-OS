@@ -126,7 +126,7 @@ class RentalApplicationMailer
      * Johan: "congrats you are approved to rent for x amount." No
      * "matching properties" content — that's explicitly unsettled, not built.
      */
-    public function sendApproved(RentalApplication $application): bool
+    public function sendApproved(RentalApplication $application, \Illuminate\Support\Collection $properties): bool
     {
         $recipientEmail = $application->recipientEmail();
 
@@ -135,7 +135,7 @@ class RentalApplicationMailer
         }
 
         try {
-            Mail::to($recipientEmail)->send(new RentalApplicationApprovedMail($application));
+            Mail::to($recipientEmail)->send(new RentalApplicationApprovedMail($application, $properties));
 
             return true;
         } catch (\Throwable $e) {
