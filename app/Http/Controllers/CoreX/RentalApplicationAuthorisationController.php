@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\CoreX;
 
+use App\Http\Controllers\Concerns\AuthorizesRentalApplicationAccess;
 use App\Http\Controllers\Concerns\HandlesRentalApplicationDocumentMarks;
 use App\Http\Controllers\Controller;
 use App\Models\Document;
@@ -46,6 +47,7 @@ class RentalApplicationAuthorisationController extends Controller
 {
     use HandlesRentalApplicationDocumentMarks;
     use \App\Http\Controllers\Concerns\FiltersRentalApplicationList;
+    use AuthorizesRentalApplicationAccess;
 
     /** Mime types the browser can render natively — mirrors RentalApplicationReviewController exactly. */
     private const INLINE_VIEWABLE_MIME_PREFIXES = ['application/pdf', 'image/'];
@@ -107,6 +109,15 @@ class RentalApplicationAuthorisationController extends Controller
         $isCO = $user->isRentalApplicationCO((int) $rentalApplication->agency_id);
         abort_unless($isRO || $isCO, 403, 'Only a configured Reviewer or Override user may act on this application.');
 
+        // AT-392 — own/branch/agency, Johan's design standard, enforced at
+        // the query layer here too — genuinely different question from the
+        // RO/CO tier check above (that's WHO may act as an authoriser at
+        // all; this is WHICH records they may act on), so both are checked,
+        // neither replaces the other. Same reusable scope trait the agent
+        // screens already use for this exact model — not a second,
+        // hand-rolled comparison that could drift from it.
+        $this->guardRentalApplication($rentalApplication);
+
         $this->guardNotSelfApproving($rentalApplication, $user);
 
         $alreadyDecided = in_array($rentalApplication->status, ['approved', 'declined'], true);
@@ -130,6 +141,13 @@ class RentalApplicationAuthorisationController extends Controller
             $user->isRentalApplicationRO((int) $rentalApplication->agency_id) || $user->isRentalApplicationCO((int) $rentalApplication->agency_id),
             403,
         );
+
+        // AT-392 — own/branch/agency, Johan's design standard, at the query
+        // layer: RO/CO tier is agency-wide role ELIGIBILITY (a deliberate,
+        // separate ruling — see this class's own show() docblock), never a
+        // data-visibility grant on its own. A branch-scoped authoriser must
+        // not reach another branch's application by direct URL either.
+        $this->guardRentalApplication($rentalApplication);
     }
 
     /**
@@ -161,8 +179,15 @@ class RentalApplicationAuthorisationController extends Controller
         // not just the search/sort logic.
         $perPage = $this->resolvePerPage($request);
 
+        // AT-392 — own/branch/agency at the query layer, same reusable scope
+        // scopeVisibleTo() already applies for the agent's own index()/
+        // returned() screens on this exact model. RO/CO tier (checked above)
+        // answers WHO may act as an authoriser; this answers WHICH records
+        // they see — a branch-scoped authoriser's queue is their own
+        // branch's applications, never the whole agency's.
         $query = RentalApplication::whereNotNull('submitted_for_approval_at')
             ->where('rental_applications.status', 'under_assessment')
+            ->visibleTo($user)
             ->with(['contact', 'property', 'createdBy']);
 
         $this->applySearchSortAndDateRange($query, $request, 'submitted_for_approval_at', 'submitted_for_approval_at', 'asc');
