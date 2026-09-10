@@ -1141,9 +1141,24 @@ class PdfSplitterController extends Controller
             }
         }
 
+        // AT-392 — cc6's finding, confirmed: a batch that arrived via
+        // intakeRentalApplicationDocument() already has its destination
+        // fully determined (the application's own contact) — the agent
+        // picked it the moment they clicked "Split & File" on that specific
+        // application. Showing a property card AND a "search for a
+        // contact" card on top of that is not just noise, it's actively
+        // wrong: it invites the agent to search for someone they've
+        // already implicitly chosen. $rentalApplicationContact drives a
+        // fixed "Filing to: {name}" statement instead — no picker at all.
+        $rentalApplicationContact = null;
+        if (is_array($splitterContext) && !empty($splitterContext['rental_application_id'])) {
+            $ra = RentalApplication::find($splitterContext['rental_application_id']);
+            $rentalApplicationContact = $ra?->contact;
+        }
+
         return view('tools.pdf_splitter_review', compact(
             'manifests', 'canFica', 'canLinkDeal', 'routing', 'roleSets', 'roleLabels', 'skipped', 'missingCount',
-            'prefillProperty'
+            'prefillProperty', 'rentalApplicationContact'
         ));
     }
 

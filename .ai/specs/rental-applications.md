@@ -7042,3 +7042,20 @@ Two marks Johan drew himself on application 76's document while independently ve
 - `routes/web.php` — `tools.pdf_splitter.contacts.search`, `tools.pdf_splitter.link_to_contact`
 - `resources/views/tools/pdf_splitter_review.blade.php` — contact picker, "Link to Contact" button, Alpine state/methods
 - `resources/views/tools/pdf_splitter.blade.php` — the "Finish — back to the contact" equivalent of the existing property finish link
+
+---
+
+## Standalone PDF Splitter — the leading card still led with property, on the rental-application path (AT-392, 2026-09-10, cc5) — BUILT, closes the item
+
+cc6 hit this independently, re-walking the flow: *"the splitter review screen's very first card is 'Link split documents to a property,' even when entered from the rental-application (contact-only) path."* Reproduced directly, not taken on faith — real browser, real login, application 70 (a non-Johan throwaway test record, contact "Testing Live Live", no property), clicked the real "Split & File" trigger, and confirmed via the actual rendered card order: **"Link split documents to a property" led the page**, followed by a "Don't know the property yet? Link to a contact instead" search box — on a path where the contact was already 100% determined the moment the agent clicked Split & File on that specific application. Worse than a leading property card: it invited the agent to SEARCH for a contact they'd already implicitly chosen.
+
+**Root cause**: the previous slice's fix (the standalone splitter's contact-anchor path) and the rental-application intake path (`intakeRentalApplicationDocument()`/`linkForRentalApplication()`, landed two slices earlier) share the SAME Blade view (`pdf_splitter_review.blade.php`) — correct, that's the established one-screen-serves-both-entry-points pattern — but the property/contact-picker CARD itself was never made conditional on which path the batch arrived by. Only the SUBMIT BUTTON was (the earlier `@if(session('splitter_context.rental_application_id'))` branch, landed with split-at-intake) — the leading card above it stayed unconditional.
+
+**Fix**: `review()` now resolves `$rentalApplicationContact` (the application's own contact) whenever `splitter_context.rental_application_id` is set. When present, the picker card is replaced entirely — no search box, no property prompt, nothing to choose — with a fixed statement: **"Filing to: {name}. Every page below files to this applicant's contact record, by document type — no property involved."** This is the actual first thing on the page on this path now. The per-page "Assign to contact(s)" column (previously "Pick a property above to assign contacts" — equally wrong, and now a genuine dead end since there's no property picker to point back to) is fixed the same way: "Files to {name}." per row. Where a batch has no rental-application context (both the standalone property path and the standalone contact-anchor path from the previous slice), nothing changed — same `@else` branch, byte-identical to before this fix.
+
+**Verified**: Blade compiles clean (directive balance confirmed via `blade.compiler` directly, not just `php -l`, which doesn't catch unbalanced `@if`/`@endif`). Real browser re-run of the exact same reproduction (application 70, real login, real Split & File click) — see landing report for the before/after screenshots.
+
+### Files changed
+
+- `app/Http/Controllers/Tools/PdfSplitterController.php` — `review()` resolves `$rentalApplicationContact`
+- `resources/views/tools/pdf_splitter_review.blade.php` — fixed "Filing to: {name}" statement replaces the picker card and the per-page contact column on the rental-application path
