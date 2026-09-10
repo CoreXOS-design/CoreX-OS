@@ -77,6 +77,17 @@ class RentalApplicationReviewController extends Controller
      * blocked for a submitted application (today's read-only-view fix) and
      * stays blocked. This is a narrow, explicitly audited exception for
      * exactly one field, not a backdoor to the rest of the form.
+     *
+     * Lock, added 2026-09-10 (Johan, QA1 item 2 follow-up) — reproduced on
+     * a real, fully-approved application: this endpoint would silently
+     * accept a property swap after the outcome email had already gone out
+     * naming a different one, and — more dangerously — while an authoriser
+     * was actively deciding against the property's rent (status
+     * under_assessment). Server-side gate, not a hidden button: a request
+     * straight at this route on a locked application gets a 403 same as a
+     * button click would, per RentalApplicationQualifyingSetting's agency-
+     * configurable default (locked from submission onward; an agency can
+     * turn it off and get the old, unrestricted behaviour back).
      */
     public function linkProperty(Request $request, RentalApplication $rentalApplication, \App\Services\RentalApplications\RentalApplicationAuditService $audit)
     {
@@ -93,23 +104,31 @@ class RentalApplicationReviewController extends Controller
             return back();
         }
 
+        abort_if(
+            RentalApplicationQualifyingSetting::isPropertyLinkLockedFor($rentalApplication),
+            403,
+            "The linked property can't be changed once the application has been submitted for authorisation — this keeps the record consistent with any decision or outcome already based on it. Ask an admin to review this in Rental Application Settings if this needs to change.",
+        );
+
         $oldProperty = $oldPropertyId ? \App\Models\Property::find($oldPropertyId) : null;
         $newProperty = $newPropertyId ? \App\Models\Property::find($newPropertyId) : null;
 
-        $rentalApplication->property_id = $newPropertyId;
-        $rentalApplication->save();
+        \Illuminate\Support\Facades\DB::transaction(function () use ($rentalApplication, $newPropertyId, $oldPropertyId, $oldProperty, $newProperty, $audit, $request) {
+            $rentalApplication->property_id = $newPropertyId;
+            $rentalApplication->save();
 
-        $audit->log(
-            $rentalApplication,
-            eventCategory: 'property_link',
-            eventType: $newPropertyId ? ($oldPropertyId ? 'changed' : 'linked') : 'cleared',
-            user: $request->user(),
-            oldValues: ['property_id' => $oldPropertyId, 'address' => $oldProperty?->buildDisplayAddress()],
-            newValues: ['property_id' => $newPropertyId, 'address' => $newProperty?->buildDisplayAddress()],
-            humanSummary: $newProperty
-                ? "Linked property: {$newProperty->buildDisplayAddress()}"
-                : 'Cleared the linked property',
-        );
+            $audit->log(
+                $rentalApplication,
+                eventCategory: 'property_link',
+                eventType: $newPropertyId ? ($oldPropertyId ? 'changed' : 'linked') : 'cleared',
+                user: $request->user(),
+                oldValues: ['property_id' => $oldPropertyId, 'address' => $oldProperty?->buildDisplayAddress()],
+                newValues: ['property_id' => $newPropertyId, 'address' => $newProperty?->buildDisplayAddress()],
+                humanSummary: $newProperty
+                    ? "Linked property: {$newProperty->buildDisplayAddress()}"
+                    : 'Cleared the linked property',
+            );
+        });
 
         return back()->with('success', $newProperty ? 'Property linked.' : 'Property link cleared.');
     }
@@ -220,6 +239,7 @@ class RentalApplicationReviewController extends Controller
         // as the authoriser screen already had, so a busy application can't
         // bury anything below it on either screen.
         $viewerRole = 'agent';
+        $propertyLinkLocked = RentalApplicationQualifyingSetting::isPropertyLinkLockedFor($rentalApplication);
         $auditLogTotal = $rentalApplication->auditLog()->count();
         $auditLog = $rentalApplication->auditLog()->with('user')->latest('created_at')->limit(200)->get();
 
@@ -290,7 +310,7 @@ class RentalApplicationReviewController extends Controller
 
         return view('corex.rental-applications.review', compact(
             'rentalApplication', 'assessment', 'maxRentPercent', 'result', 'documents', 'moreInfoRequestedNote', 'declineInfo', 'highlighters',
-            'viewerRole', 'auditLog', 'auditLogTotal', 'existingWishlist', 'matchCategories', 'matchTypes', 'featureOptions',
+            'viewerRole', 'propertyLinkLocked', 'auditLog', 'auditLogTotal', 'existingWishlist', 'matchCategories', 'matchTypes', 'featureOptions',
             'rentalPropertyTypeNames', 'wishlistPrefill', 'pickableContactDocuments', 'pickableStaleness'
         ))->with('isPendingAuthorisation', $rentalApplication->isPendingAuthorisation());
     }

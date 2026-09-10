@@ -56,6 +56,11 @@ class RentalApplicationSettingsController extends Controller
         // Reopen/resubmit, 2026-09-08 — how long a reopened link stays valid.
         $reopenLinkExpiryDays = RentalApplicationQualifyingSetting::reopenLinkExpiryDaysFor($agencyId);
 
+        // Item 2 follow-up, 2026-09-10 — whether the linked property locks once
+        // the application is submitted for authorisation (see
+        // RentalApplicationQualifyingSetting::PROPERTY_LOCKED_STATUSES).
+        $propertyLockEnabled = RentalApplicationQualifyingSetting::lockPropertyAfterSubmissionFor($agencyId);
+
         // AT-392 approval-leg — Johan's standing rule: "any threshold, window
         // or business rule must be an agency-configurable setting with a
         // sensible default, never hardcoded." How many matched properties
@@ -133,7 +138,7 @@ class RentalApplicationSettingsController extends Controller
             ->get();
 
         return view('corex.settings.rental-applications', compact(
-            'documentTypes', 'checklists', 'isConfigured', 'qualifyingMaxRentPercent', 'qualifyingExceedsLegalCeiling', 'agencyUsers', 'roUserIds', 'coUserIds', 'declineEmail', 'reopenLinkExpiryDays', 'maxPropertiesInEmail', 'activeHighlighters', 'archivedHighlighters', 'highlighterQuery', 'highlighterArchivedSort', 'validityDefaults', 'validityOverrides'
+            'documentTypes', 'checklists', 'isConfigured', 'qualifyingMaxRentPercent', 'qualifyingExceedsLegalCeiling', 'agencyUsers', 'roUserIds', 'coUserIds', 'declineEmail', 'reopenLinkExpiryDays', 'propertyLockEnabled', 'maxPropertiesInEmail', 'activeHighlighters', 'archivedHighlighters', 'highlighterQuery', 'highlighterArchivedSort', 'validityDefaults', 'validityOverrides'
         ));
     }
 
@@ -276,6 +281,40 @@ class RentalApplicationSettingsController extends Controller
 
         return redirect()->route('corex.settings.rental-applications.edit')
             ->with('success', 'Reopened link expiry saved.');
+    }
+
+    /**
+     * Item 2 follow-up, 2026-09-10 — Johan: "any threshold, window or
+     * business rule an agency-configurable setting with a sensible
+     * default, never hardcoded." Separate route/method, same reasoning as
+     * updateReopenLinkExpiry() above. A checkbox, not a status picker —
+     * Johan asked for one sensible default (locked from submission for
+     * authorisation onward) with an on/off toggle, not a configurable
+     * threshold; see RentalApplicationQualifyingSetting::PROPERTY_LOCKED_STATUSES
+     * for exactly what "locked" covers and why.
+     */
+    public function updatePropertyLock(Request $request)
+    {
+        $agencyId = $request->user()->effectiveAgencyId();
+
+        // A checkbox posts nothing at all when unchecked — absence means
+        // "off", never "not submitted" (AT-162/CLAUDE.md §10a: guard every
+        // boolean write with has(), an absent checkbox must not be coerced
+        // into wiping a setting the form never actually rendered). This
+        // form only ever renders the one field, so has() on it is exactly
+        // "was this form submitted."
+        if (! $request->has('lock_property_after_submission')) {
+            return redirect()->route('corex.settings.rental-applications.edit')
+                ->withErrors(['lock_property_after_submission' => 'That did not save — please try again.']);
+        }
+
+        RentalApplicationQualifyingSetting::updateOrCreate(
+            ['agency_id' => $agencyId],
+            ['lock_property_after_submission' => $request->boolean('lock_property_after_submission')],
+        );
+
+        return redirect()->route('corex.settings.rental-applications.edit')
+            ->with('success', 'Property link setting saved.');
     }
 
     /**

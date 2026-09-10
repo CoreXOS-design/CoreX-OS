@@ -184,6 +184,40 @@
         </form>
     </div>
 
+    {{-- Item 2 follow-up, 2026-09-10 — Johan: "any threshold, window or
+         business rule an agency-configurable setting with a sensible
+         default, never hardcoded." Reproduced on a real, fully-approved
+         application: the linked property could be swapped or cleared at
+         any point, including while an authoriser was actively deciding
+         against it, and after the outcome email had already gone out
+         naming it. Default locked from submission for authorisation
+         onward — see RentalApplicationQualifyingSetting::PROPERTY_LOCKED_STATUSES
+         for exactly which statuses that covers. Server-enforced in
+         linkProperty() itself regardless of this checkbox's state on
+         screen; this only controls what that check allows. --}}
+    <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+        <h2 class="text-sm font-semibold mb-1" style="color: var(--text-primary);">Property Link Lock</h2>
+        <p class="text-xs mb-3" style="color: var(--text-muted);">
+            Once an application is submitted for authorisation, the linked property is what the
+            authoriser's decision — and the applicant's outcome email — are actually based on.
+            With this on, the linked property can no longer be changed or cleared from that point
+            (submitted for authorisation, approved, or declined) — only while the agent is still
+            preparing the application. Turn this off to allow changing the property at any time,
+            as before.
+        </p>
+
+        <form method="POST" action="{{ route('corex.settings.rental-applications.property-lock') }}" class="flex items-center gap-3">
+            @csrf
+            <input type="hidden" name="lock_property_after_submission" value="0">
+            <label class="flex items-center gap-2 text-xs" style="color: var(--text-secondary);">
+                <input type="checkbox" name="lock_property_after_submission" value="1"
+                       @checked(old('lock_property_after_submission', $propertyLockEnabled))>
+                Lock the linked property once submitted for authorisation
+            </label>
+            <button type="submit" class="corex-btn-primary text-xs">Save</button>
+        </form>
+    </div>
+
     {{-- AT-392 approval-leg, 2026-09-10 — Johan's standing rule: "any
          threshold, window or business rule must be an agency-configurable
          setting with a sensible default, never hardcoded." How many

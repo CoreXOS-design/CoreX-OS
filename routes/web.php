@@ -2837,6 +2837,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // Reopen/resubmit, 2026-09-08.
     Route::post('/settings/rental-applications/reopen-link-expiry', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateReopenLinkExpiry'])
         ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.reopen-link-expiry');
+    // Item 2 follow-up, 2026-09-10 — lock the property link once submitted for authorisation.
+    Route::post('/settings/rental-applications/property-lock', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updatePropertyLock'])
+        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.property-lock');
     // AT-392 approval-leg, 2026-09-10 — max matched properties per approval email.
     Route::post('/settings/rental-applications/approval-email', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateApprovalEmailSettings'])
         ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.approval-email');

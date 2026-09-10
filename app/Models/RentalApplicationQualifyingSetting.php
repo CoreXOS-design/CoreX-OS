@@ -41,11 +41,28 @@ class RentalApplicationQualifyingSetting extends Model
      */
     public const DEFAULT_REOPEN_LINK_EXPIRY_DAYS = 14;
 
-    protected $fillable = ['agency_id', 'max_rent_percent_of_gross_income', 'reopen_link_expiry_days'];
+    /**
+     * Johan, QA1 (item 2 follow-up, 2026-09-10) — reproduced on a real,
+     * fully-approved application: the linked property could be swapped or
+     * cleared at any point, including after the outcome email had already
+     * gone out naming it, and — more dangerously — while an authoriser was
+     * actively deciding against it. Default locked (true): the flow makes
+     * the property load-bearing for a human decision the moment it's
+     * submitted for authorisation, not just once approved, so that is
+     * where the default draws the line. An agency that wants the old,
+     * unrestricted behaviour can turn this off.
+     */
+    public const DEFAULT_LOCK_PROPERTY_AFTER_SUBMISSION = true;
+
+    /** Statuses at/after which the property link is treated as load-bearing for a decision already made or in progress. */
+    public const PROPERTY_LOCKED_STATUSES = ['under_assessment', 'approved', 'declined', 'withdrawn'];
+
+    protected $fillable = ['agency_id', 'max_rent_percent_of_gross_income', 'reopen_link_expiry_days', 'lock_property_after_submission'];
 
     protected $casts = [
         'max_rent_percent_of_gross_income' => 'decimal:2',
         'reopen_link_expiry_days' => 'integer',
+        'lock_property_after_submission' => 'boolean',
     ];
 
     public static function maxRentPercentFor(?int $agencyId): float
@@ -76,5 +93,25 @@ class RentalApplicationQualifyingSetting extends Model
         return $row && $row->reopen_link_expiry_days !== null
             ? (int) $row->reopen_link_expiry_days
             : self::DEFAULT_REOPEN_LINK_EXPIRY_DAYS;
+    }
+
+    public static function lockPropertyAfterSubmissionFor(?int $agencyId): bool
+    {
+        if ($agencyId === null || $agencyId <= 0) {
+            return self::DEFAULT_LOCK_PROPERTY_AFTER_SUBMISSION;
+        }
+
+        $row = static::where('agency_id', $agencyId)->first();
+
+        return $row && $row->lock_property_after_submission !== null
+            ? (bool) $row->lock_property_after_submission
+            : self::DEFAULT_LOCK_PROPERTY_AFTER_SUBMISSION;
+    }
+
+    /** True when this application's current status is one the property-link lock treats as load-bearing. */
+    public static function isPropertyLinkLockedFor(\App\Models\RentalApplication $rentalApplication): bool
+    {
+        return self::lockPropertyAfterSubmissionFor((int) $rentalApplication->agency_id)
+            && in_array($rentalApplication->status, self::PROPERTY_LOCKED_STATUSES, true);
     }
 }

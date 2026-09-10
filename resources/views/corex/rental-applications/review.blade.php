@@ -365,7 +365,39 @@
          the "degrade legibly" rule below covering it rather than an
          unreadable stump. Ceiling raised 480 → 640, since a description
          column is exactly the kind of field worth giving real extra room
-         to on a wide monitor. --}}
+         to on a wide monitor.
+
+         ROUND 3, 2026-09-10, SAME DAY — Johan accepted the description fix
+         but found the AMOUNT column now clipping its last digit on
+         application 76's real larger figures ("28861.3", "29340.9",
+         "28863.0" instead of the full 8-character value) at the very
+         default width just fixed. Root cause, found by measuring — not
+         guessing again: this headless test browser renders NO native
+         scrollbar (Linux/Chromium default is an overlay scrollbar that
+         takes zero layout width), but `.rental-review-aside` genuinely
+         overflows vertically on a real 6-row+ record and `overflow-y:auto`
+         WILL show a real, space-consuming scrollbar in an ordinary desktop
+         Chrome/Edge on Windows — commonly ~17px wide. That 17px was never
+         accounted for in the row's width budget, so every column
+         (including amount) had slightly less real room than this test
+         environment showed. Fixed at the root with `scrollbar-gutter:
+         stable` below — the browser reserves that space in the layout
+         WHETHER OR NOT a scrollbar is currently drawn, so the content
+         width this test environment measures now matches what a real
+         scrollbar-showing browser actually has, instead of silently
+         disagreeing by ~17px.
+         Amount column's own floor also raised 78px → 100px (a hard
+         minimum now, not contingent on leftover flex space) — checked
+         against this application's own real data (largest captured
+         figures: R29,340.99 / R28,863.00, both 8 characters) plus headroom
+         to a realistic 9-character ceiling (R999,999.99). Description's
+         ratio trimmed 1.6fr → 1.5fr to make room for amount's new floor
+         without re-widening the whole row. Default recomputed with the
+         scrollbar now included in the budget: 170 (desc) + 130 (date) +
+         100 (amount, now a real floor not a lower bound) + 12 (gaps) + 24
+         (card padding) + 17 (scrollbar-gutter reservation) = 453, rounded
+         to 460. Floor/ceiling shifted the same +20px the default moved:
+         400–660. --}}
     <style>
         .rental-review-columns { display: flex; flex-direction: column; gap: 20px; }
         .rental-review-main    { flex: 1 1 auto; min-width: 0; }
@@ -374,7 +406,7 @@
         @media (min-width: 1280px) {
             .rental-review-columns { flex-direction: row; gap: 0; align-items: stretch; }
             .rental-review-main    { height: var(--rr-panel-h, calc(100vh - 160px)); max-height: var(--rr-panel-h, calc(100vh - 160px)); overflow-y: auto; margin-right: 16px; }
-            .rental-review-aside   { flex: 0 0 var(--rr-aside-w, 440px); width: var(--rr-aside-w, 440px); align-self: stretch; position: sticky; top: 72px; height: var(--rr-panel-h, calc(100vh - 160px)); max-height: var(--rr-panel-h, calc(100vh - 160px)); overflow-y: auto; overflow-x: hidden; }
+            .rental-review-aside   { flex: 0 0 var(--rr-aside-w, 460px); width: var(--rr-aside-w, 460px); align-self: stretch; position: sticky; top: 72px; height: var(--rr-panel-h, calc(100vh - 160px)); max-height: var(--rr-panel-h, calc(100vh - 160px)); overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable; }
             .rental-review-resizer {
                 display: block; flex: 0 0 6px; width: 6px; cursor: col-resize;
                 align-self: stretch; position: sticky; top: 72px;
@@ -749,23 +781,29 @@
                     </p>
                 </div>
 
-                {{-- Income/expense rows — description takes the lion's share
-                     (1.6fr), date is a fixed 130px (enough for a full
-                     "06/24/2026" plus the native picker icon, verified live
-                     — 118px still clipped the last digit of the year), and
-                     amount gets whatever's left with a 78px floor. Measured
-                     live on application 76 (real descriptions: "salary"/
-                     "wages"): the OLD equal-1fr split spent the row's
-                     scarcest space on the date, whose content never varies
-                     in shape, instead of description, which is what an
-                     agent actually reads to identify the line. At the new
-                     320px floor the amount column can clip its last digit on
-                     a long figure (e.g. "28861." not "28861.34") — accepted
-                     as the honest tradeoff at the absolute narrow end
-                     (protecting description, which identifies WHAT the line
-                     is, over the tail of a number whose section total is
-                     already shown below); the resizer exists exactly for
-                     the agent who wants the full figure without scrolling. --}}
+                {{-- Income/expense rows — description 1.5fr, date a fixed
+                     130px (enough for a full "06/24/2026" plus the native
+                     picker icon, verified live — 118px still clipped the
+                     last digit of the year), amount a REAL 100px floor
+                     (raised from 78px, ROUND 3, 2026-09-10 below).
+                     ROUND 3 correction — Johan, after round 2 fixed
+                     description: "the AMOUNT column is now the clipped
+                     one... a rand value silently missing its last digit is
+                     the kind of thing that gets trusted and shouldn't be."
+                     Round 2's own comment here previously called an
+                     amount clipping its last digit an "accepted tradeoff"
+                     — that was wrong, full stop, not a judgement call that
+                     held up: a number an agent/authoriser reads as money
+                     must never render incomplete, at any width this row
+                     is asked to hold. 78px was contingent on leftover
+                     flex space (not a real minimum); 100px is a hard floor,
+                     checked against application 76's own largest captured
+                     figures (R29,340.99 / R28,863.00, both 8 characters)
+                     with headroom to 9 (R999,999.99). Description trimmed
+                     1.6fr → 1.5fr to make room for amount's new floor
+                     without re-widening the whole row — still comfortably
+                     fits real single/double words at every width this row
+                     is asked to hold. --}}
                 <div class="rounded-md p-3" style="background: var(--surface); border: 1px solid var(--border);">
                     <div class="flex items-center gap-1.5 mb-1">
                         <span class="rounded-full flex-shrink-0" style="width: 9px; height: 9px; background: var(--ra-income-agent); border: 1px solid var(--ra-income-underline);"></span>
@@ -775,7 +813,7 @@
                     </div>
                     <div class="space-y-1.5" x-ref="incomeRows">
                         <template x-for="(item, index) in incomeItems" :key="index">
-                            <div class="grid gap-1.5" style="grid-template-columns: minmax(0,1.6fr) 130px minmax(78px,1fr);">
+                            <div class="grid gap-1.5" style="grid-template-columns: minmax(0,1.5fr) 130px minmax(100px,1fr);">
                                 <input type="text" class="corex-input text-sm w-full" placeholder="e.g. Salary"
                                        x-model="item.description" :title="item.description" @input="onIncomeRowInput()" @blur="save()">
                                 <input type="date" class="corex-input text-sm w-full" title="Date this deposit happened"
@@ -800,7 +838,7 @@
                     </div>
                     <div class="space-y-1.5" x-ref="expenseRows">
                         <template x-for="(item, index) in expenseItems" :key="index">
-                            <div class="grid gap-1.5" style="grid-template-columns: minmax(0,1.6fr) 130px minmax(78px,1fr);">
+                            <div class="grid gap-1.5" style="grid-template-columns: minmax(0,1.5fr) 130px minmax(100px,1fr);">
                                 <input type="text" class="corex-input text-sm w-full" placeholder="e.g. Car payment"
                                        x-model="item.description" :title="item.description" @input="onExpenseRowInput()" @blur="save()">
                                 <input type="date" class="corex-input text-sm w-full" title="Date this debit happened"
@@ -1623,17 +1661,15 @@ function rentalReviewLayout() {
         // the affordability rows genuinely need... then give the panel
         // that." These three constants ARE that derivation, summed once
         // here rather than picked as a bare number — see the layout <style>
-        // block's own note for the full arithmetic (description + date +
-        // amount + gaps + card padding = 436, rounded to 440). Floor/ceiling
-        // widened around it (380–640) rather than left at the old 320–480,
-        // since those were themselves derived from the old, wrong default.
-        RA_ASIDE_DEFAULT_PX: 440,
-        RA_ASIDE_MIN_PX: 380,
-        RA_ASIDE_MAX_PX: 640,
+        // block's own note for the full arithmetic and ROUND 3 (amount
+        // column's own floor + scrollbar-gutter reservation, 440→460).
+        RA_ASIDE_DEFAULT_PX: 460,
+        RA_ASIDE_MIN_PX: 400,
+        RA_ASIDE_MAX_PX: 660,
         // Persisted per-browser so a drag survives a reload; Math.max/min
         // below re-clamp a value ALREADY in localStorage from a PRIOR
-        // floor/ceiling (260/320, or the 320/480 this build's own first
-        // pass shipped) — a browser that dragged to one of those old
+        // floor/ceiling (260/320, 320/480, or 380/640 — this build's own
+        // two prior passes) — a browser that dragged to one of those old
         // numbers must not stay stuck outside the current range forever.
         // Repeats the RA_ASIDE_* numbers as literals rather than referencing
         // them — a plain object literal can't read a sibling property via
@@ -1641,7 +1677,7 @@ function rentalReviewLayout() {
         // own clamp below (evaluated later, as a real method call) uses the
         // named constants directly.
         resizingAside: false,
-        asideWidth: Math.min(640, Math.max(380, parseInt(localStorage.getItem('rentalReviewAsideWidth'), 10) || 440)),
+        asideWidth: Math.min(660, Math.max(400, parseInt(localStorage.getItem('rentalReviewAsideWidth'), 10) || 460)),
         startAsideResize(e) {
             this.resizingAside = true;
             const startX = e.clientX;

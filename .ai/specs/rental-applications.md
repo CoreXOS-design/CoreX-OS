@@ -7042,3 +7042,24 @@ Two marks Johan drew himself on application 76's document while independently ve
 - `routes/web.php` — `tools.pdf_splitter.contacts.search`, `tools.pdf_splitter.link_to_contact`
 - `resources/views/tools/pdf_splitter_review.blade.php` — contact picker, "Link to Contact" button, Alpine state/methods
 - `resources/views/tools/pdf_splitter.blade.php` — the "Finish — back to the contact" equivalent of the existing property finish link
+
+---
+
+## Item 6, Round 3 (2026-09-10, same day) — the amount column was the next thing clipping
+
+Johan accepted round 2's description fix on application 76 at the default width, then found the AMOUNT column was now the one clipping: *"the description field...gone. ONE FINISHING ITEM... the AMOUNT column is now the clipped one. On 76 at the default width the larger figures render as '28861.3', '29340.9', '28863.0'... a rand value silently missing its last digit is the kind of thing that gets trusted and shouldn't be. Give the amount field the width a realistic salary figure actually needs — check the real range in the data rather than picking a number."*
+
+**Root cause, measured rather than guessed a second time:** this headless test browser (Linux/Chromium) renders NO native scrollbar space — the default is an overlay scrollbar that consumes zero layout width. `.rental-review-aside` genuinely overflows vertically on any record with more than a handful of income/expense lines (application 76 has 8), so `overflow-y:auto` WILL show a real, space-consuming scrollbar in an ordinary desktop Chrome/Edge on Windows — commonly ~17px. That 17px was never in round 2's width budget, so every column had slightly less real room in a normal desktop browser than this test environment showed — explaining why round 2's own verification (fresh contexts, real values, two viewports) still missed what Johan saw.
+
+**Fixed at the root, not by re-guessing a number:**
+- `scrollbar-gutter: stable` added to `.rental-review-aside` — the browser reserves scrollbar space in the layout WHETHER OR NOT a scrollbar is currently drawn, so this test environment's measurements now agree with what a real scrollbar-showing browser has, instead of silently disagreeing by ~17px.
+- Amount column's floor raised 78px (a soft `1fr`-contingent lower bound) → **100px, a hard minimum** — checked against application 76's own real captured data (largest figures: R29,340.99 / R28,863.00, both 8 characters) with headroom to a realistic 9-character ceiling (R999,999.99), not picked and then checked.
+- Description's ratio trimmed 1.6fr → 1.5fr to make room for amount's new floor without re-widening the whole row.
+- Default recomputed with the scrollbar now IN the budget: 170 (desc) + 130 (date) + 100 (amount, now a real floor) + 12 (gaps) + 24 (card padding) + 17 (scrollbar-gutter reservation) = 453, rounded to **460**. Floor/ceiling shifted the same +20px the default moved: **400–660**.
+- Round 2's own comment calling an amount clipping its last digit an "accepted tradeoff" was wrong and has been corrected in place — a money figure must never render incomplete, at any width the row is asked to hold, full stop.
+
+**Verified against the worst realistic case, not just the plain one:** fresh incognito-style context, application 76's real data, both at the new default (460px, plain) AND with a SIMULATED real ~17px scrollbar forced via a `::-webkit-scrollbar` override (reproducing exactly what this headless environment cannot show natively) — every captured amount (R28,861.34 through R29,340.99) rendered complete in both cases, and held even at the new 400px narrow floor with the same simulated scrollbar. Both roles checked: the authoriser's read-only amount display (plain flex text, not the same fixed-column grid) was never actually at risk — confirmed anyway, renders complete.
+
+### Files changed (round 3)
+
+- `resources/views/corex/rental-applications/review.blade.php` — `scrollbar-gutter: stable`, amount column floor 78px→100px (hard minimum), description 1.6fr→1.5fr, default/floor/ceiling 440/380/640 → 460/400/660

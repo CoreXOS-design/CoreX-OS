@@ -12206,6 +12206,7 @@ CREATE TABLE `rental_application_qualifying_settings` (
   `updated_at` timestamp NULL DEFAULT NULL,
   `max_rent_percent_of_gross_income` decimal(5,2) NOT NULL DEFAULT '30.00',
   `reopen_link_expiry_days` smallint unsigned DEFAULT NULL,
+  `lock_property_after_submission` tinyint(1) DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `rental_application_qualifying_settings_agency_id_unique` (`agency_id`),
   CONSTRAINT `rental_application_qualifying_settings_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE
@@ -16407,7 +16408,6 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1296,'2026_09_10_0
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1297,'2026_09_10_100000_create_deal_properties_table',280);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1298,'2026_09_10_120000_add_rental_term_fields_to_contact_matches',281);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1299,'2026_09_10_090000_backfill_contact_rental_application_status',282);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1300,'2026_09_10_110000_change_allocated_price_to_decimal_on_deal_properties',283);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1301,'2026_09_10_080000_create_rental_application_document_marks_table',284);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1302,'2026_09_10_080100_backfill_rental_application_document_marks_from_json',284);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1303,'2026_09_10_140000_add_entry_date_to_rental_application_items',285);
@@ -16416,3 +16416,6 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1305,'2026_09_10_1
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1306,'2026_09_10_160000_add_current_rental_due_day_to_rental_applications',288);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1307,'2026_09_10_150000_create_rental_application_document_table',289);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1308,'2026_09_10_170000_create_rental_application_document_validity_windows_table',290);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1309,'2026_09_10_110000_change_allocated_price_to_decimal_on_deal_properties',291);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1310,'2026_09_10_120000_backfill_allocated_price_for_existing_single_property_deals',291);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1311,'2026_09_10_200000_add_lock_property_after_submission_to_rental_application_qualifying_settings',292);
