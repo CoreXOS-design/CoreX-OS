@@ -111,6 +111,13 @@
                     </label>
                 </div>
                 <p class="text-xs" style="color:var(--text-muted);">Admin/Owner roles always see all buyers. This setting affects agents and branch managers only.</p>
+
+                <div class="pt-3 border-t" style="border-color:var(--border);">
+                    <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Kanban column limit</label>
+                    <input type="number" name="buyer_kanban_column_limit" value="{{ $settings->buyer_kanban_column_limit ?? \App\Models\AgencyContactSettings::DEFAULT_BUYER_KANBAN_COLUMN_LIMIT }}" min="10" max="500"
+                           class="w-full md:w-40 px-3 py-2 rounded-md text-sm" style="background:var(--surface-2); color:var(--text-primary); border:1px solid var(--border);">
+                    <p class="text-xs mt-1" style="color:var(--text-muted);">Most buyers/tenants shown per Kanban column (New/Warm/Cold/Lost) before it switches to "View all in List". Kanban is a scrollbar, not a page — at real volume it loads every buyer in that state on one screen. List view has full pagination and stays uncapped.</p>
+                </div>
             </div>
         </div>
 

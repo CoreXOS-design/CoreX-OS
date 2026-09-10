@@ -123,8 +123,8 @@
                              style="background:color-mix(in srgb, var(--ds-amber, #f59e0b) 12%, transparent); border:1px solid var(--ds-amber, #f59e0b);">
                             <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="color:var(--ds-amber, #f59e0b);"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v4m0 4h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg>
                             <p class="text-xs leading-snug" style="color:var(--text-primary);">
-                                <strong>This buyer won't be counted in matches yet.</strong>
-                                Add at least one requirement (price, area, beds, property type, or any other wish) for this buyer to appear in match counts and lists.
+                                <strong>This {{ $match->listing_type === 'rental' ? 'tenant' : 'buyer' }} won't be counted in matches yet.</strong>
+                                Add at least one requirement (price, area, beds, property type, or any other wish) for this {{ $match->listing_type === 'rental' ? 'tenant' : 'buyer' }} to appear in match counts and lists.
                             </p>
                         </div>
                     @endif

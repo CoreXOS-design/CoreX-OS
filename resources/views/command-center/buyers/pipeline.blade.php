@@ -22,15 +22,15 @@
                 @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
                 {{-- Pipeline scope toggle (Layer 3) --}}
                 <div data-tour="buyers-scope" class="inline-flex rounded-md overflow-hidden" style="border: 1px solid var(--border);">
-                    <a href="{{ route($indexRouteName ?? 'command-center.buyers.pipeline', array_merge(request()->only('view', 'state', 'lead_type'), ['scope' => 'own'])) }}"
+                    <a href="{{ route($indexRouteName ?? 'command-center.buyers.pipeline', array_merge(request()->only('view', 'state', 'lead_type', 'agent_id', 'q', 'sort', 'dir'), ['scope' => 'own'])) }}"
                        class="px-3 py-1.5 text-xs font-semibold whitespace-nowrap no-underline"
                        style="{{ ($pipelineScope ?? 'own') === 'own' ? 'background: var(--brand-icon, #0ea5e9); color: #fff;' : 'background: var(--surface); color: var(--text-muted);' }}">Mine</a>
                     @if($canSeeBranch ?? false)
-                    <a href="{{ route($indexRouteName ?? 'command-center.buyers.pipeline', array_merge(request()->only('view', 'state', 'lead_type'), ['scope' => 'branch'])) }}"
+                    <a href="{{ route($indexRouteName ?? 'command-center.buyers.pipeline', array_merge(request()->only('view', 'state', 'lead_type', 'agent_id', 'q', 'sort', 'dir'), ['scope' => 'branch'])) }}"
                        class="px-3 py-1.5 text-xs font-semibold whitespace-nowrap no-underline"
                        style="border-left: 1px solid var(--border); {{ ($pipelineScope ?? '') === 'branch' ? 'background: var(--brand-icon, #0ea5e9); color: #fff;' : 'background: var(--surface); color: var(--text-muted);' }}">Branch</a>
                     @endif
-                    <a href="{{ route($indexRouteName ?? 'command-center.buyers.pipeline', array_merge(request()->only('view', 'state', 'lead_type'), ['scope' => 'agency'])) }}"
+                    <a href="{{ route($indexRouteName ?? 'command-center.buyers.pipeline', array_merge(request()->only('view', 'state', 'lead_type', 'agent_id', 'q', 'sort', 'dir'), ['scope' => 'agency'])) }}"
                        class="px-3 py-1.5 text-xs font-semibold whitespace-nowrap no-underline"
                        style="border-left: 1px solid var(--border); {{ ($pipelineScope ?? '') === 'agency' ? 'background: var(--brand-icon, #0ea5e9); color: #fff;' : 'background: var(--surface); color: var(--text-muted);' }}">All</a>
                 </div>
@@ -44,28 +44,63 @@
                     <div class="inline-flex rounded-md overflow-hidden px-3 py-1.5 text-xs font-semibold whitespace-nowrap" style="border: 1px solid var(--border); cursor:default;" title="This entry point always shows rental leads only">Rentals only</div>
                 @else
                 <div data-tour="buyers-lead-type" class="inline-flex rounded-md overflow-hidden" style="border: 1px solid var(--border);">
-                    <a href="{{ route($indexRouteName ?? 'command-center.buyers.pipeline', request()->only('view', 'scope', 'state', 'agent_id')) }}"
+                    <a href="{{ route($indexRouteName ?? 'command-center.buyers.pipeline', request()->only('view', 'scope', 'state', 'agent_id', 'q', 'sort', 'dir')) }}"
                        class="px-3 py-1.5 text-xs font-semibold whitespace-nowrap no-underline"
                        style="{{ empty($leadType ?? null) ? 'background: var(--brand-icon, #0ea5e9); color: #fff;' : 'background: var(--surface); color: var(--text-muted);' }}">All</a>
-                    <a href="{{ route($indexRouteName ?? 'command-center.buyers.pipeline', array_merge(request()->only('view', 'scope', 'state', 'agent_id'), ['lead_type' => 'sale'])) }}"
+                    <a href="{{ route($indexRouteName ?? 'command-center.buyers.pipeline', array_merge(request()->only('view', 'scope', 'state', 'agent_id', 'q', 'sort', 'dir'), ['lead_type' => 'sale'])) }}"
                        class="px-3 py-1.5 text-xs font-semibold whitespace-nowrap no-underline"
                        style="border-left: 1px solid var(--border); {{ ($leadType ?? '') === 'sale' ? 'background: var(--brand-icon, #0ea5e9); color: #fff;' : 'background: var(--surface); color: var(--text-muted);' }}">Sales</a>
-                    <a href="{{ route($indexRouteName ?? 'command-center.buyers.pipeline', array_merge(request()->only('view', 'scope', 'state', 'agent_id'), ['lead_type' => 'rental'])) }}"
+                    <a href="{{ route($indexRouteName ?? 'command-center.buyers.pipeline', array_merge(request()->only('view', 'scope', 'state', 'agent_id', 'q', 'sort', 'dir'), ['lead_type' => 'rental'])) }}"
                        class="px-3 py-1.5 text-xs font-semibold whitespace-nowrap no-underline"
                        style="border-left: 1px solid var(--border); {{ ($leadType ?? '') === 'rental' ? 'background: var(--brand-icon, #0ea5e9); color: #fff;' : 'background: var(--surface); color: var(--text-muted);' }}">Rentals</a>
                 </div>
                 @endif
                 {{-- View toggle --}}
                 <div data-tour="buyers-view" class="inline-flex rounded-md overflow-hidden" style="border: 1px solid var(--border);">
-                    <a href="{{ route($indexRouteName ?? 'command-center.buyers.pipeline', array_merge(request()->only('scope', 'state', 'lead_type'), ['view' => 'kanban'])) }}"
+                    <a href="{{ route($indexRouteName ?? 'command-center.buyers.pipeline', array_merge(request()->only('scope', 'state', 'lead_type', 'agent_id', 'q', 'sort', 'dir'), ['view' => 'kanban'])) }}"
                        class="px-3 py-1.5 text-xs font-semibold whitespace-nowrap no-underline"
                        style="{{ $view === 'kanban' ? 'background: var(--brand-icon, #0ea5e9); color: #fff;' : 'background: var(--surface); color: var(--text-muted);' }}">Kanban</a>
-                    <a href="{{ route($indexRouteName ?? 'command-center.buyers.pipeline', array_merge(request()->only('scope', 'state', 'lead_type'), ['view' => 'list'])) }}"
+                    <a href="{{ route($indexRouteName ?? 'command-center.buyers.pipeline', array_merge(request()->only('scope', 'state', 'lead_type', 'agent_id', 'q', 'sort', 'dir'), ['view' => 'list'])) }}"
                        class="px-3 py-1.5 text-xs font-semibold whitespace-nowrap no-underline"
                        style="border-left: 1px solid var(--border); {{ $view === 'list' ? 'background: var(--brand-icon, #0ea5e9); color: #fff;' : 'background: var(--surface); color: var(--text-muted);' }}">List</a>
                 </div>
             </div>
         </div>
+    </div>
+
+    {{-- Search + filters --}}
+    <div class="rounded-md px-4 py-3" style="background: var(--surface); border: 1px solid var(--border);">
+        <form method="GET" action="{{ route($indexRouteName ?? 'command-center.buyers.pipeline') }}" class="flex flex-wrap items-center gap-2">
+            <input type="hidden" name="view" value="{{ $view }}">
+            <input type="hidden" name="scope" value="{{ $pipelineScope ?? '' }}">
+            @unless($isRentalEntry ?? false)
+                <input type="hidden" name="lead_type" value="{{ $leadType ?? '' }}">
+            @endunless
+            @if(!empty($sortBy ?? null))<input type="hidden" name="sort" value="{{ $sortBy }}">@endif
+            @if(!empty($sortDir ?? null))<input type="hidden" name="dir" value="{{ $sortDir }}">@endif
+            <input type="text" name="q" value="{{ $search ?? '' }}" placeholder="Search name, phone or email…"
+                   class="flex-1 min-w-[200px] px-3 py-1.5 rounded-md text-sm"
+                   style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+            <select name="state" onchange="this.form.submit()" class="px-3 py-1.5 rounded-md text-xs"
+                    style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                <option value="">All states</option>
+                @foreach(['new' => 'New', 'warm' => 'Warm', 'cold' => 'Cold', 'lost' => 'Lost'] as $stateOptKey => $stateOptLabel)
+                    <option value="{{ $stateOptKey }}" {{ ($stateFilter ?? '') === $stateOptKey ? 'selected' : '' }}>{{ $stateOptLabel }}</option>
+                @endforeach
+            </select>
+            <select name="agent_id" onchange="this.form.submit()" class="px-3 py-1.5 rounded-md text-xs max-w-[200px]"
+                    style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                <option value="">All agents</option>
+                @foreach($agentOptions ?? [] as $agentOpt)
+                    <option value="{{ $agentOpt->id }}" {{ (string) ($agentFilter ?? '') === (string) $agentOpt->id ? 'selected' : '' }}>{{ $agentOpt->name }}</option>
+                @endforeach
+            </select>
+            <button type="submit" class="corex-btn-outline text-xs">Search</button>
+            @if(($search ?? '') !== '' || !empty($stateFilter ?? null) || !empty($agentFilter ?? null))
+                <a href="{{ route($indexRouteName ?? 'command-center.buyers.pipeline', array_merge(request()->only('view', 'scope', 'lead_type'), [])) }}"
+                   class="text-xs no-underline" style="color: var(--text-muted);">Clear</a>
+            @endif
+        </form>
     </div>
 
     {{-- Prospecting drill-down context banner (set when arriving via a
@@ -146,7 +181,10 @@
                                     </div>
                                     <div class="min-w-0 flex-1">
                                         <div class="text-xs font-semibold truncate" style="color: var(--text-primary);">{{ $buyer->full_name }}</div>
-                                        <div class="text-[10px]" style="color: var(--text-muted);">{{ $buyer->agent?->name ?? 'Unassigned' }}</div>
+                                        <div class="text-[10px] truncate" style="color: var(--text-muted);">
+                                            {{ $buyer->agent?->name ?? 'Unassigned' }}
+                                            · Since {{ $buyer->buyer_pipeline_entered_at?->format('d M Y') ?? '—' }}
+                                        </div>
                                     </div>
                                 </div>
                                 @unless($buyer->hasCountableWishlist())
@@ -180,6 +218,14 @@
                             <div class="py-6 text-center text-xs" style="color: var(--text-muted);">No {{ $personNounPlural }} in this state</div>
                         @endforelse
                     </div>
+                    @php $stateHiddenCount = ($columnTotals[$stateKey] ?? 0) - $stateItems->count(); @endphp
+                    @if($stateHiddenCount > 0)
+                        <a href="{{ route($indexRouteName ?? 'command-center.buyers.pipeline', array_merge(request()->except(['view']), ['view' => 'list', 'state' => $stateKey])) }}"
+                           class="block text-center text-[10px] font-semibold py-2 no-underline hover:opacity-80"
+                           style="border-top: 1px solid var(--border); color: var(--brand-icon, #0ea5e9);">
+                            +{{ number_format($stateHiddenCount) }} more · View all in List
+                        </a>
+                    @endif
                 </div>
             @endforeach
         </div>
@@ -187,13 +233,34 @@
         {{-- List View --}}
         <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
             <div class="overflow-x-auto">
+            @php
+                // Sort doors — the query already accepted any of these three via
+                // ?sort=, so every clickable header just links to what already
+                // worked. Clicking the active column flips direction; a fresh
+                // column starts ascending.
+                $sortLink = function (string $col) use ($indexRouteName, $sortBy, $sortDir) {
+                    $nextDir = ($sortBy ?? null) === $col && ($sortDir ?? 'desc') === 'asc' ? 'desc' : 'asc';
+                    return route($indexRouteName ?? 'command-center.buyers.pipeline', array_merge(
+                        request()->except(['sort', 'dir']),
+                        ['sort' => $col, 'dir' => $nextDir]
+                    ));
+                };
+                $sortArrow = fn (string $col) => ($sortBy ?? null) === $col ? (($sortDir ?? 'desc') === 'asc' ? '↑' : '↓') : '';
+            @endphp
             <table class="min-w-full text-sm ds-table">
                 <thead>
                     <tr style="background: var(--surface-2); border-bottom: 1px solid var(--border);">
-                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Name</th>
-                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">State</th>
+                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">
+                            <a href="{{ $sortLink('name') }}" class="no-underline" style="color: inherit;">Name {{ $sortArrow('name') }}</a>
+                        </th>
+                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">
+                            <a href="{{ $sortLink('buyer_state') }}" class="no-underline" style="color: inherit;">State {{ $sortArrow('buyer_state') }}</a>
+                        </th>
                         <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Agent</th>
-                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Last Activity</th>
+                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Since</th>
+                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">
+                            <a href="{{ $sortLink('last_activity_at') }}" class="no-underline" style="color: inherit;">Last Activity {{ $sortArrow('last_activity_at') }}</a>
+                        </th>
                         <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Core Matches</th>
                         <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Actions</th>
                     </tr>
@@ -228,6 +295,7 @@
                                 </span>
                             </td>
                             <td class="px-4 py-3 text-xs" style="color: var(--text-secondary);">{{ $buyer->agent?->name ?? 'Unassigned' }}</td>
+                            <td class="px-4 py-3 text-xs" style="color: var(--text-muted);">{{ $buyer->buyer_pipeline_entered_at?->format('d M Y') ?? '—' }}</td>
                             <td class="px-4 py-3 text-xs" style="color: var(--text-muted);">{{ $buyer->last_activity_at?->diffForHumans() ?? 'Never' }}</td>
                             <td class="px-4 py-3 text-xs" style="color: var(--text-muted);">{{ number_format($coreMatchCounts->get($buyer->id, 0)) }}</td>
                             <td class="px-4 py-3">
@@ -242,7 +310,7 @@
                             </td>
                         </tr>
                     @empty
-                        <tr><td colspan="6" class="px-4 py-12 text-center text-sm" style="color: var(--text-muted);">No {{ $personNounPlural }} found.</td></tr>
+                        <tr><td colspan="7" class="px-4 py-12 text-center text-sm" style="color: var(--text-muted);">No {{ $personNounPlural }} found{{ ($search ?? '') !== '' ? ' matching “' . $search . '”' : '' }}.</td></tr>
                     @endforelse
                 </tbody>
             </table>

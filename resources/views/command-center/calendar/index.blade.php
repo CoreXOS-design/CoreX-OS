@@ -1056,7 +1056,7 @@
                                   :title="c.conflictLabel ? '⚠  Conflict: ' + c.conflictLabel : ''">
                                 <span class="text-[10px] px-1 py-0.5 rounded font-bold"
                                       :style="c.type === 'agent' ? 'background:#475569;color:#fff' : (c.role === 'seller_contact' ? 'background:#0f172a;color:#fff' : 'background:var(--brand-icon);color:#fff')"
-                                      x-text="c.type === 'agent' ? 'Agent' : (c.role === 'seller_contact' ? 'Seller' : 'Buyer')"></span>
+                                      x-text="c.type === 'agent' ? 'Agent' : (c.role === 'seller_contact' ? 'Seller' : (c.role_label || 'Buyer'))"></span>
                                 <template x-if="c.conflict"><span class="text-[10px]" style="color: #f59e0b;">⚠ </span></template>
                                 <span x-text="c.name"></span>
                                 <button type="button" @click="remove(c)" class="opacity-60 hover:opacity-100">&times;</button>
@@ -4676,6 +4676,13 @@ function contactSearch() {
                            : cfg.actor_role === 'seller_action' ? 'seller_contact'
                            : 'attendee';
                 } catch { c.role = 'attendee'; }
+            }
+            // Drive the chip label off what this contact actually IS (searchAttendees()
+            // reports is_rental from their primary wishlist), not off which screen the
+            // event was scheduled from — a tenant chosen for a buyer_contact slot reads
+            // "Tenant", never "Buyer".
+            if (!c.role_label && c.role === 'buyer_contact') {
+                c.role_label = c.is_rental ? 'Tenant' : 'Buyer';
             }
             this.chosen.push(c); this.query = ''; this.results = [];
             // Conflict check for user (agent) attendees

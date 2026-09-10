@@ -2979,19 +2979,28 @@ class CalendarController extends Controller
         $contacts = \App\Models\Contact::query()
             ->where('agency_id', $agencyId)
             ->whereNull('deleted_at')
-            ->with(['phones', 'emails', 'type', 'agent'])
+            ->with(['phones', 'emails', 'type', 'agent', 'matches'])
             ->search($q)
             ->limit(7)
             ->get()
-            ->map(fn ($c) => [
-                'id'           => $c->id,
-                'name'         => trim($c->first_name . ' ' . $c->last_name) ?: ('Contact #' . $c->id),
-                'phone'        => $c->phone,
-                'email'        => $c->email,
-                'identifier'   => $c->matchedIdentifier($q),
-                'contact_type' => $c->type?->name,
-                'type'         => 'contact',
-            ]);
+            ->map(function ($c) use ($q) {
+                // Same lens as buyers/detail.blade.php's $isRentalContact — the
+                // contact's primary (or first) wishlist decides tenant vs buyer,
+                // so a rental contact added here labels correctly instead of
+                // defaulting to "Buyer" (see contactSearch().add() in
+                // calendar/index.blade.php).
+                $primaryWishlist = $c->matches->firstWhere('is_primary', true) ?? $c->matches->first();
+                return [
+                    'id'           => $c->id,
+                    'name'         => trim($c->first_name . ' ' . $c->last_name) ?: ('Contact #' . $c->id),
+                    'phone'        => $c->phone,
+                    'email'        => $c->email,
+                    'identifier'   => $c->matchedIdentifier($q),
+                    'contact_type' => $c->type?->name,
+                    'type'         => 'contact',
+                    'is_rental'    => ($primaryWishlist->listing_type ?? null) === 'rental',
+                ];
+            });
 
         // Search users (agents) — exclude the current user
         $users = \App\Models\User::query()
@@ -3015,6 +3024,7 @@ class CalendarController extends Controller
                 // and agents alike rather than a missing-key branch.
                 'contact_type' => null,
                 'type'         => 'agent',
+                'is_rental'    => false,
             ]);
 
         return response()->json($contacts->concat($users)->values());

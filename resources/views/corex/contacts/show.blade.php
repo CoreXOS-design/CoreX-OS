@@ -1531,11 +1531,15 @@
                                 @if($match->price_min || $match->price_max)
                                 <span class="text-sm font-bold" style="color:var(--text-primary);">{{ $match->priceRangeLabel() }}</span>
                                 @endif
-                                @if($match->suburb)
+                                @if(!empty($match->suburbList()))
                                 <span class="text-xs px-2 py-0.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary);">
-                                    📍 {{ $match->suburb }}
+                                    📍 {{ implode(', ', $match->suburbList()) }}
                                 </span>
                                 @endif
+                                {{-- AT-402 audit — dates on entries (Johan). --}}
+                                <span class="text-xs" style="color:var(--text-muted);" title="Saved">
+                                    Saved {{ $match->created_at?->format('d M Y') ?? '—' }}
+                                </span>
                             </div>
 
                             {{-- Detail grid --}}

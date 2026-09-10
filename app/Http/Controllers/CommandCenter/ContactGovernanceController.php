@@ -46,6 +46,7 @@ class ContactGovernanceController extends Controller
     {
         $request->validate([
             'buyer_pipeline_default_scope' => 'required|in:own,branch,agency',
+            'buyer_kanban_column_limit' => 'required|integer|min:10|max:500',
             'duplicate_mode' => 'required|in:auto_link,soft_warn,hard_block_override,hard_block_request',
             'duplicate_match_fields' => 'required|array|min:1',
             'duplicate_match_fields.*' => 'in:phone,email,id_number',
@@ -72,6 +73,7 @@ class ContactGovernanceController extends Controller
         $settings->update(array_merge(
             $request->only([
                 'buyer_pipeline_default_scope',
+                'buyer_kanban_column_limit',
                 'duplicate_mode',
                 'duplicate_match_fields',
                 'address_match_mode',
