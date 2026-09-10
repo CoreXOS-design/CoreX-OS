@@ -7013,3 +7013,32 @@ Two marks Johan drew himself on application 76's document while independently ve
 ### Files changed (round 2)
 
 - `resources/views/corex/rental-applications/review.blade.php` — default/floor/ceiling widths re-derived (440/380/640) with named constants, `:title` hover fallback on every description/amount field both roles
+
+---
+
+## Standalone PDF Splitter — no-property dead end fixed, contact anchor added (AT-392, 2026-09-10, cc5) — BUILT, real defect, not user error
+
+**Johan reported he was blocked, and was right to be.** His own words: *"the splitter works on a linked property. for a applicant we might not know the property yet, so the linked contact on the application should be used on the splitter"*, followed by *"cant continue as I cant submit for auth as the docs have not been split... we have to get the splitter working properly before I can split."* First response to this wrongly treated it as user error (he'd reached the standalone splitter via the nav link instead of the rental-application's own "Split & File" trigger) — corrected: an agent being able to walk into a dead end is itself the defect, not a wrong door. This entry fixes the actual door, not just the one already-working path past it.
+
+**What was actually broken**: `PdfSplitterController::link()` (the standalone splitter's own filing action, reached via the "PDF Splitter" nav item — a DIFFERENT, older code path from `linkForRentalApplication()` above) hard-required a `Property` — no property selected meant an immediate redirect-with-error, full stop, no way to file anything except "Download ZIP." An agent with a document and a known person but no property yet had no door through.
+
+**The fix — a genuine second door, not a fallback note**: the standalone review screen now offers "Don't know the property yet? Link to a contact instead" the moment no property is set — a real contact search-and-pick (`searchContacts()`, mirrors `searchProperties()` exactly, including sitting on the SAME `Contact::search()` scope this codebase's own contact-search screens already use — nothing new invented there) and a real "Link to Contact" submit button (`linkToContact()`), filing every page to that contact directly. Picking one clears the other — a batch anchors on a property OR a contact, never both, never ambiguously.
+
+**Zero regression to the property path — proven, not asserted**: `link()`, `fileGroupsToDestinations()`, and every property-based behaviour are completely untouched — the diff against `PdfSplitterController.php` is 209 insertions, 0 deletions. Everything new is additive: two new methods (`searchContacts()`, `linkToContact()`), one new private filing helper (`fileGroupsToContact()` — a contact-only sibling to `fileGroupsToDestinations()`, not a modification of it).
+
+**Filing convention**: `source_type = 'contact'`, `source_id = $contact->id` — a genuinely new value (checked the whole codebase for an existing "filed straight to a contact, no property/application" convention first; none existed). Documents attach to the contact via the same `contacts()` pivot every other "file to a person" path in this codebase already uses (`Contact::documents()` — the exact relation the earlier pull-from-contact slice reads from — so a document filed this way is immediately visible/pickable from a rental application too, no extra wiring). Naming mirrors `fileGroupsToDestinations()`'s own contact-naming branch (person, not address). FICA kickoff is available on this path too (`kickoffMultiFica()` was already contact-collection-driven, not property-coupled — reused as-is, a genuine capability gain, not scope creep).
+
+**Role Manager scoping — enforced, not bypassed**: `searchContacts()` runs a plain `Contact::query()->search($q)` with `ContactScope` (own/branch/agency, per Role Manager) fully in effect — no `withoutGlobalScope` call anywhere in this new code, unlike `propertyContacts()`'s own deliberate (and unrelated) bypass for an already-attached contact.
+
+**Deliberate scope decision, stated plainly**: every document type files to the contact in this path, without `link()`'s AT-167 property/contact destination-config branching — there's no property here to misfile TO, so that distinction doesn't apply, and blocking on it would reintroduce exactly the kind of dead end this fix exists to remove. A single anchor contact for the whole batch, not `link()`'s per-page multi-contact picker — the review screen's contact picker is one search-and-pick, matching `linkForRentalApplication()`'s own "single applicant" shape, not a second multi-party UI.
+
+**Verified end-to-end on a throwaway QA1 record, not Johan's own application** — a prior pass mistakenly ran the equivalent proof directly on Johan's live application 76 (moved its real status to `under_assessment`; left as-is on his own instruction rather than reverted, since it's recoverable on QA1 and it genuinely did unblock him — but the process error is noted here plainly). This pass: uploaded a real PDF through the actual standalone `run()` endpoint with no property and no rental-application context → review screen correctly showed the contact picker and a disabled "Link to Contact" until a contact was chosen → `searchContacts()` returned real, correctly-scoped results (confirmed the exact target contact surfaces, ranked first on an exact-name search) → `linkToContact()` filed a real, correctly-typed, correctly-linked Document (`source_type='contact'`, `contacts()` pivot attached) with zero property involved anywhere in the request → cleaned up (soft-deleted) afterward.
+
+**Browser evidence**: [see landing report — real authenticated session via a throwaway QA-verify login through the actual login form, screenshots attached/described in the report, not a forged session].
+
+### Files changed
+
+- `app/Http/Controllers/Tools/PdfSplitterController.php` — `searchContacts()`, `linkToContact()`, `fileGroupsToContact()` — all additive, `link()`/`fileGroupsToDestinations()` untouched
+- `routes/web.php` — `tools.pdf_splitter.contacts.search`, `tools.pdf_splitter.link_to_contact`
+- `resources/views/tools/pdf_splitter_review.blade.php` — contact picker, "Link to Contact" button, Alpine state/methods
+- `resources/views/tools/pdf_splitter.blade.php` — the "Finish — back to the contact" equivalent of the existing property finish link

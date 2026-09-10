@@ -1291,6 +1291,10 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/tools/pdf-splitter/download', [PdfSplitterController::class, 'downloadLastZip'])->middleware('permission:access_pdf_splitter')->name('tools.pdf_splitter.download');
     Route::get('/tools/pdf-splitter/properties/search', [PdfSplitterController::class, 'searchProperties'])->middleware('permission:access_pdf_splitter')->name('tools.pdf_splitter.properties.search');
     Route::get('/tools/pdf-splitter/properties/{property}/contacts', [PdfSplitterController::class, 'propertyContacts'])->middleware('permission:access_pdf_splitter')->name('tools.pdf_splitter.properties.contacts')->where('property', '[0-9]+');
+    // AT-392 — the standalone splitter's own no-property fallback: search
+    // for and file to a contact directly. See linkToContact()'s docblock.
+    Route::get('/tools/pdf-splitter/contacts/search', [PdfSplitterController::class, 'searchContacts'])->middleware('permission:access_pdf_splitter')->name('tools.pdf_splitter.contacts.search');
+    Route::post('/tools/pdf-splitter/link-to-contact', [PdfSplitterController::class, 'linkToContact'])->middleware('permission:access_pdf_splitter')->name('tools.pdf_splitter.link_to_contact');
     // AT-105 enh — per-page "Link" (file + multi-FICA) is a distinct action
     // from the ZIP download. Both submit the per-page assignments for every
     // file in the batch.
