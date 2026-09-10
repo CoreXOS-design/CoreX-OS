@@ -245,4 +245,55 @@ final class RentalApplicationInputPreservationTest extends TestCase
         $response->assertSessionHasErrors('monthly_salary');
         $this->assertNull($app->fresh()->monthly_salary);
     }
+
+    // ── AT-392 applicant-surface audit, 2026-09-10 — Johan: "these two
+    // fields can contradict each other and the database accepts it, that's
+    // a defect." A "moved out" date before "moved in" was silently saved
+    // (found live: from=2026-08-15, to=2026-01-01). Pure date-logic, no
+    // agency-config judgement call — applies identically on both entry
+    // points since fieldValidationRules() is shared. ─────────────────────
+
+    public function test_current_rental_to_before_current_rental_from_is_rejected_on_the_public_form(): void
+    {
+        $app = $this->application(['status' => 'sent']);
+        $sig = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+
+        $response = $this->post(route('rental-applications.public.submit', $app->token), [
+            'current_rental_from' => '2026-08-15',
+            'current_rental_to' => '2026-01-01',
+            'declaration_signature' => $sig,
+            'tpn_consent_signature' => $sig,
+        ]);
+
+        $response->assertSessionHasErrors('current_rental_to');
+        $this->assertSame('sent', $app->fresh()->status, 'Nothing was saved — the contradiction blocked the whole submission.');
+    }
+
+    public function test_current_rental_to_equal_to_current_rental_from_is_accepted(): void
+    {
+        $app = $this->application(['status' => 'sent']);
+        $sig = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+
+        $response = $this->post(route('rental-applications.public.submit', $app->token), [
+            'current_rental_from' => '2026-08-15',
+            'current_rental_to' => '2026-08-15',
+            'declaration_signature' => $sig,
+            'tpn_consent_signature' => $sig,
+        ]);
+
+        $response->assertSessionDoesntHaveErrors();
+        $this->assertSame('returned', $app->fresh()->status);
+    }
+
+    public function test_current_rental_to_before_current_rental_from_is_rejected_on_the_agent_side_too(): void
+    {
+        $app = $this->application();
+
+        $response = $this->actingAs($this->agent)->put(route('corex.rental-applications.update', $app), [
+            'current_rental_from' => '2026-08-15',
+            'current_rental_to' => '2026-01-01',
+        ]);
+
+        $response->assertSessionHasErrors('current_rental_to');
+    }
 }

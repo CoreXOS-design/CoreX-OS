@@ -234,7 +234,14 @@ class RentalApplication extends Model
             'current_landlord_tel' => ['nullable', 'string', 'max:50'],
             'current_rental_amount' => ['nullable', 'numeric', 'min:0', 'max:99999999.99'],
             'current_rental_from' => ['nullable', 'date'],
-            'current_rental_to' => ['nullable', 'date'],
+            // AT-392 applicant-surface audit, 2026-09-10 — a "moved out"
+            // date before "moved in" saved silently with no error (found
+            // live: from=2026-08-15, to=2026-01-01 both accepted). Pure
+            // date-logic, not a business judgement call — no agency-config
+            // knob needed. Never fires when "still living here" is ticked:
+            // that checkbox disables (browser) and nulls (server,
+            // normalizeStillLiving()) this field before it could conflict.
+            'current_rental_to' => ['nullable', 'date', 'after_or_equal:current_rental_from'],
             'current_rental_still_living' => ['nullable', 'boolean'],
             // "Dates on entries" (Johan, 2026-09-10) — a recurring day of
             // the month, not a calendar date (a lease's rent obligation

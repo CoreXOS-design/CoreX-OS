@@ -22,7 +22,7 @@
     <canvas id="{{ $canvasId }}" width="600" height="150" class="w-full block" style="height:120px; cursor:crosshair;"></canvas>
 </div>
 <div class="flex justify-between items-center mt-1 mb-4">
-    <button type="button" onclick="clearRentalSignature('{{ $field }}')" class="text-xs text-slate-500 hover:text-slate-700 font-medium">Clear</button>
+    <button type="button" onclick="clearRentalSignature('{{ $field }}')" class="text-xs text-slate-500 hover:text-slate-700 font-medium px-3 py-3 -mx-3 -my-3 inline-flex items-center">Clear</button>
     <span class="text-xs text-slate-400">Draw your {{ $label }} signature above</span>
 </div>
 
