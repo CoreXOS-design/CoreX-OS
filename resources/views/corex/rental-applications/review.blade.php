@@ -44,6 +44,13 @@
         ])->values();
     }
     $initialMarkedUpDocIds = $documents->filter(fn ($row) => $row['has_highlights'])->pluck('document.id')->values();
+    // AT-392 — Johan: "unsplit shows as visibly incomplete on the
+    // application, never silently accepted." Shared by the Submit button
+    // (header) and the Supporting Documents heading (badge) below — same
+    // test RentalApplicationReviewController::submitForApproval() enforces
+    // server-side, and the same test the "Split & File" trigger uses to
+    // decide whether to show itself on each individual document.
+    $unsplitCount = $documents->filter(fn ($row) => $row['document']->document_type_id === null && $row['document']->mime_type === 'application/pdf')->count();
 @endphp
 
 @section('corex-content')
@@ -177,6 +184,9 @@
                              same actions, same guard (hidden once a decision exists),
                              just reachable regardless of scroll position now. --}}
                         @unless(in_array($rentalApplication->status, ['approved', 'declined'], true))
+                            @if($unsplitCount > 0)
+                                <span class="ds-badge ds-badge-warning" title="{{ $unsplitCount === 1 ? 'One supporting document' : "{$unsplitCount} supporting documents" }} still need to be split into typed, filed pieces before this application can go to the authoriser.">{{ $unsplitCount }} unsorted</span>
+                            @endif
                             <button type="button" class="corex-btn-primary text-xs" :disabled="submittingForApproval"
                                     @click="submitForApproval()" x-text="submittingForApproval ? 'Submitting…' : ({{ $isPendingAuthorisation ? 'true' : 'false' }} ? 'Re-submit to authoriser' : 'Submit to authoriser')"></button>
                         @endunless
@@ -339,6 +349,9 @@
                 <h2 class="text-sm font-semibold mb-3" style="color: var(--text-primary);">
                     Supporting Documents
                     <span class="ds-badge ds-badge-default">{{ $documents->count() }}</span>
+                    @if($unsplitCount > 0)
+                        <span class="ds-badge ds-badge-warning" title="These documents must be split into typed, filed pieces before this application can be submitted for authorisation.">{{ $unsplitCount }} not yet sorted</span>
+                    @endif
                 </h2>
 
                 @if($documents->isEmpty())

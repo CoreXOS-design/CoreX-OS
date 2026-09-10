@@ -508,6 +508,25 @@ class RentalApplicationReviewController extends Controller
             ], 409);
         }
 
+        // AT-392 — Johan: "the gate is on SUBMIT FOR AUTHORISATION, not on
+        // attaching... cannot hand the authoriser an unsorted blob." An
+        // agent can attach freely and start working immediately; this is
+        // the one point that refuses to hand off an untyped PDF. Same test
+        // as the review screen's "Split & File" trigger visibility.
+        $unsplitCount = $rentalApplication->documents()
+            ->whereNull('document_type_id')
+            ->where('mime_type', 'application/pdf')
+            ->count();
+        if ($unsplitCount > 0) {
+            return response()->json([
+                'error' => $unsplitCount === 1
+                    ? 'One supporting document hasn\'t been sorted into document types yet — split it before submitting for authorisation.'
+                    : "{$unsplitCount} supporting documents haven't been sorted into document types yet — split them before submitting for authorisation.",
+                'reason' => 'unsplit_documents',
+                'unsplit_count' => $unsplitCount,
+            ], 422);
+        }
+
         $rentalApplication->status = 'under_assessment';
         $rentalApplication->submitted_for_approval_at = now();
         $rentalApplication->save();

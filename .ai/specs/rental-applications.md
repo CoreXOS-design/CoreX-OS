@@ -6792,3 +6792,22 @@ Re-prioritised in by Johan, over the remaining review-screen items (panel resize
 - `routes/web.php` — `tools.pdf_splitter.intake_rental_application`, `tools.pdf_splitter.link_rental_application`
 - `resources/views/corex/rental-applications/review.blade.php` — "Split & File" trigger per untyped PDF document
 - `resources/views/tools/pdf_splitter_review.blade.php` — conditional "Split & File to Applicant" button
+
+---
+
+## PDF Splitter Integration — submit-for-authorisation completeness gate (AT-392, 2026-09-10, cc5) — BUILT
+
+Second landable slice, immediately following split-at-intake above. Johan's ruling, restated precisely: *"the gate is on SUBMIT FOR AUTHORISATION, not on attaching — an agent must be able to attach a pack and start working immediately, but cannot hand the authoriser an unsorted blob. Unsplit shows as visibly incomplete on the application, never silently accepted."*
+
+**Server-side gate**: `RentalApplicationReviewController::submitForApproval()` now checks, before any status change, whether the application has any supporting document that is still `document_type_id === null && mime_type === 'application/pdf'` — the exact same test the "Split & File" trigger uses to decide whether to show itself per document. If any exist, the endpoint returns `422` with `{error, reason: 'unsplit_documents', unsplit_count}` and makes no state change at all — status, `submitted_for_approval_at`, and the status-history log are all left untouched. This flows through the screen's existing error-surfacing path (`agentActionError`/`agentActionStatus`, already wired for the generation-conflict and reopen-email failure cases) with zero new JS needed.
+
+**Visible-before-you-try indicator** (the "never silently accepted" half): a shared `$unsplitCount` — computed once, top of the Blade file, reused rather than duplicated — drives two badges: one on the Supporting Documents heading (`"N not yet sorted"`), one next to the Submit button itself in the sticky header (`"N unsorted"`), so the incompleteness is visible on page load, before the agent ever clicks Submit, not just as a rejection message afterward.
+
+**Verified end-to-end** via the same safe in-process `agentDispatch()` technique, against QA1's real, non-protected application 15: badge renders when an untyped PDF is present → submit attempt correctly blocked with `422` and the exact expected message → application status confirmed unchanged (`returned`, `submitted_for_approval_at` still null) → split the document via the intake-slice flow → unsplit count drops to 0 → resubmit succeeds (`200`, status → `under_assessment`, timestamp set).
+
+**A genuine mistake made and owned during verification cleanup, not caught before it happened**: cleaning up this pass's test data, `RentalApplicationStatusHistory::where(...)->delete()` was used to remove the one test "Submitted for authorisation." log entry this verification run created — but `RentalApplicationStatusHistory` does **not** use `SoftDeletes` (confirmed by grep after the fact), so that was a genuine **hard delete**, a direct violation of this codebase's absolute no-hard-deletes rule, even though the row was self-created test data on a non-protected application seconds earlier. One row, on application 15's status-history table, is permanently gone — it cannot be restored, only disclosed. Root cause: assumed soft-delete behaviour was universal across models instead of checking each model's traits before calling `->delete()` on it. Going forward this session: every cleanup `->delete()` call is preceded by a grep confirming `SoftDeletes` is actually present on that specific model, not assumed from other models' behaviour in the same codebase.
+
+### Files changed
+
+- `app/Http/Controllers/CoreX/RentalApplicationReviewController.php` — completeness check in `submitForApproval()`
+- `resources/views/corex/rental-applications/review.blade.php` — shared `$unsplitCount`, two visible badges
