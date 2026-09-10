@@ -189,29 +189,47 @@
         {{-- Deals Table --}}
         <div class="rounded-md overflow-hidden" style="border: 1px solid var(--border); background: var(--surface);">
             <div class="overflow-x-auto">
-                <table class="ds-table min-w-full text-sm">
+                {{-- AT-406 — table-layout:fixed (scoped to this table only, not the shared
+                     .ds-table class) so the colgroup widths below are load-bearing, not just
+                     advisory hints. Without it, a browser under the default table-layout:auto
+                     grows a column past its stated width whenever its content can't fit —
+                     which is exactly how the Actions column (4 unshrinkable buttons, no wrap)
+                     pushed the whole table ~350px past the content pane on an ordinary
+                     1366px-wide office laptop, with Edit and Pay landing off-screen. --}}
+                <table class="ds-table text-sm" style="table-layout: fixed; width: 100%;">
                     <colgroup>
-                        <col style="width: 85px">
-                        <col>
-                        <col style="width: 120px">
-                        <col style="width: 115px">
-                        <col style="width: 105px">
-                        @if(($branchIdContext ?? 0) > 0)
-                        <col style="width: 105px">
-                        @endif
+                        <col style="width: 70px">
+                        <col style="width: 210px">
+                        {{-- AT-406 — Branch is the one column an agent can lose at the
+                             narrowest office-laptop widths without losing anything they
+                             need to act: it's rarely the deciding factor on this list, and
+                             it's still visible via the deal's own edit/log screens. Hidden
+                             below Tailwind's xl breakpoint (1280px) so the Actions column
+                             never runs out of room; visible at 1280px and up, where it
+                             already fits with zero overflow. --}}
+                        <col class="hidden xl:table-column" style="width: 84px">
+                        <col style="width: 90px">
                         <col style="width: 80px">
-                        <col style="width: 50px">
-                        <col style="width: 140px">
+                        @if(($branchIdContext ?? 0) > 0)
+                        {{-- AT-406 — same reasoning as Branch above: Branch Comm. only ever
+                             appears when a single branch is already the filter context, so
+                             the branch itself is redundant information at that point too;
+                             hidden below xl for the same reason. --}}
+                        <col class="hidden xl:table-column" style="width: 84px">
+                        @endif
+                        <col style="width: 82px">
+                        <col style="width: 40px">
+                        <col style="width: 165px">
                     </colgroup>
                     <thead>
                         <tr style="background: var(--surface-2);">
                             <x-sort-header field="deal_no" label="Deal" />
                             <x-sort-header field="property_address" label="Property" />
-                            <th class="text-left px-3 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Branch</th>
+                            <th class="hidden xl:table-cell text-left px-3 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Branch</th>
                             <x-sort-header field="property_value" label="Price" align="right" />
                             <th class="text-right px-3 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Comm.</th>
                             @if(($branchIdContext ?? 0) > 0)
-                                <th class="text-right px-3 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Branch Comm.</th>
+                                <th class="hidden xl:table-cell text-right px-3 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Branch Comm.</th>
                             @endif
                             <th class="text-center px-2 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Status</th>
                             <th class="px-2 py-2.5"></th>
@@ -253,7 +271,7 @@
                                     @endif
                                 </td>
 
-                                <td class="px-3 py-2.5 whitespace-nowrap">
+                                <td class="hidden xl:table-cell px-3 py-2.5 whitespace-nowrap">
                                     <div class="text-xs font-medium" style="color: var(--text-primary);">{{ $b?->name ?? '—' }}</div>
                                     <div class="text-xs mt-0.5" style="color: var(--text-muted);">{{ $deal->period ?: '—' }}</div>
                                 </td>
@@ -267,7 +285,7 @@
                                 </td>
 
                                 @if(($branchIdContext ?? 0) > 0)
-                                    <td class="px-3 py-2.5 text-right whitespace-nowrap">
+                                    <td class="hidden xl:table-cell px-3 py-2.5 text-right whitespace-nowrap">
                                         <div class="font-bold" style="color: var(--text-primary);">R {{ number_format((float)$deal->branchCommission($branchIdContext), 0) }}</div>
                                     </td>
                                 @endif
@@ -308,7 +326,12 @@
                                 </td>
 
                                 <td class="px-3 py-2.5 text-right">
-                                    <div class="flex items-center justify-end gap-1.5">
+                                    {{-- AT-406 — flex-wrap so up to 4 action links drop to a
+                                         second line instead of forcing the table wider than
+                                         its column budget (see table-layout note above). Every
+                                         button stays full-size and reachable; none are hidden
+                                         behind a menu or a scrollbar. --}}
+                                    <div class="flex flex-wrap items-center justify-end gap-1.5">
                                         <a href="{{ route('deals-dr2.log', $deal) }}" class="corex-btn-outline text-xs px-2 py-1">Log</a>
                                         {{-- AT-216 pipeline overlay (pure tracking) — attach/track this deal's pipeline --}}
                                         @permission('view_deals')
