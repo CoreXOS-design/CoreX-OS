@@ -41,6 +41,10 @@
                         <span class="ds-badge {{ $match->listing_type === 'rental' ? 'ds-badge-info' : 'ds-badge-success' }}">
                             {{ $match->listingTypeLabel() }}
                         </span>
+                        {{-- AT-402 audit — dates on entries (Johan). --}}
+                        <span class="text-xs" style="color: var(--text-muted);" title="Saved">
+                            Saved {{ $match->created_at?->format('d M Y') ?? '—' }}
+                        </span>
                         @if(auth()->user()->hasPermission('access_core_matches'))
                         {{-- AT-240 — edit this wishlist/criteria; opens the existing edit flow. --}}
                         <a href="{{ route('corex.contacts.matches.edit', [$contact, $match]) }}"
@@ -99,7 +103,7 @@
                             {{ $match->floor_size_min ? number_format($match->floor_size_min) : '—' }}–{{ $match->floor_size_max ? number_format($match->floor_size_max) : '—' }} m²
                         </span>
                         @endif
-                        @if(!$match->category && !$match->property_type && !$match->suburb && !$match->price_min && !$match->price_max && !$match->beds_min && !$match->baths_min)
+                        @if(!$match->category && !$match->property_type && empty($match->suburbList()) && !$match->price_min && !$match->price_max && !$match->beds_min && !$match->baths_min)
                         <span class="text-xs italic" style="color: var(--text-muted);">Any property</span>
                         @endif
                     </div>

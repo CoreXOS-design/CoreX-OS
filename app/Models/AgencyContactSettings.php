@@ -16,6 +16,9 @@ class AgencyContactSettings extends Model
         'agency_id',
         'sharing_mode', // DEPRECATED — visibility now governed by role_permissions.scope
         'buyer_pipeline_default_scope',
+        // Most buyers/tenants shown per Kanban column before it points the
+        // agent at the (fully paginated) List view instead.
+        'buyer_kanban_column_limit',
         'duplicate_mode',
         'duplicate_match_fields',
         'address_match_mode', // AT-60 — address-duplicate-guard aggressiveness (off|standard|strict)
@@ -53,6 +56,7 @@ class AgencyContactSettings extends Model
         'duplicate_match_fields' => 'array',
         'warn_on_held_address_capture' => 'boolean',
         'portal_lead_auto_seed_buyer' => 'boolean',
+        'buyer_kanban_column_limit' => 'integer',
         'buyer_warm_days' => 'integer',
         'buyer_cold_days' => 'integer',
         'buyer_lost_days' => 'integer',
@@ -112,6 +116,9 @@ class AgencyContactSettings extends Model
      */
     public const DEFAULT_MIN_COUNTABLE_CRITERIA = ['any'];
 
+    /** Buyer/Rental Pipeline kanban: max cards shown per column before "View all in List". */
+    public const DEFAULT_BUYER_KANBAN_COLUMN_LIMIT = 50;
+
     /** Per-request cache of the resolved min-countable bar, keyed by agency id. */
     protected static array $minCountableCache = [];
 
@@ -123,6 +130,7 @@ class AgencyContactSettings extends Model
         $defaults = [
             'sharing_mode' => 'branch',
             'buyer_pipeline_default_scope' => 'own',
+            'buyer_kanban_column_limit' => self::DEFAULT_BUYER_KANBAN_COLUMN_LIMIT,
             'duplicate_mode' => 'soft_warn',
             // entity_reg_no added 2026-08-13 (.ai/specs/contact-entity-type.md
             // §6.7) — an entity contact dedups on its registration number the
@@ -159,6 +167,13 @@ class AgencyContactSettings extends Model
         }
 
         return self::withoutGlobalScopes()->firstOrCreate(['agency_id' => $agencyId], $defaults);
+    }
+
+    /** Buyer/Rental Pipeline kanban: resolved column card limit (null-safe, clamped 10–500). */
+    public function buyerKanbanColumnLimit(): int
+    {
+        $v = (int) ($this->buyer_kanban_column_limit ?? self::DEFAULT_BUYER_KANBAN_COLUMN_LIMIT);
+        return max(10, min(500, $v));
     }
 
     /** Recurring-events: resolved max occurrences per series per query (null-safe, clamped 1–1000). */

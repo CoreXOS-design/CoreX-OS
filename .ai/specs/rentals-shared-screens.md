@@ -755,3 +755,98 @@ state lives in the DB, not per-checkout); confirmed the three new columns exist 
 2026-11-01 / water+levies-included-but-not-electricity on a real rental property,
 confirmed in the database directly; the sale property's raw HTML has zero occurrences
 of any of the three fields; a direct POST at the sale property's route still 403s.
+
+---
+
+## Rentals → Properties list — design-standard audit (AT-392, 2026-09-10, cc5)
+
+Pre-launch audit of the rental Properties list (`corex.rentals.properties.index`, `PropertyController::index()`, same action as the sale-side list, distinguished by route name and locked to `listing_type='rental'` after the query string is read). Same treatment as the authorisation-screen audit — findings listed, only the genuinely straightforward fix landed here.
+
+### Search/sort/pagination/empty state/CRUD floor — all PASS, checked not assumed
+
+- **Search**: `Property::searchAddress()` — real column, no ambiguous-JOIN risk. A search deliberately widens past the user's own scope (documented AT-394 behaviour) but flags out-of-scope rows and disables their links, backed by the same real per-record guard as everything else, not a UI-only hint.
+- **Sort**: whitelisted columns, default from a real agency setting (`properties_sort_mode`) falling back to newest-first — not arbitrary.
+- **Pagination**: real, agency-configurable per-page (`PerformanceSetting::get('properties_per_page', 20)`), clamped.
+- **Empty state**: two real messages — "No properties match these filters" vs. "No properties yet."
+- **CRUD floor**: Create/Read/Update/Archive(soft-delete via `destroy()`, confirmed genuine `SoftDeletes`, no `forceDelete()` anywhere)/Restore all present as real routes.
+
+### OWN/BRANCH/AGENCY scoping — correctly wired, but a load-bearing nuance to understand before judging "everyone sees everything" as a bug
+
+`applyRoleScope()` and the `show()`/mutation guards use the same `PermissionService::getDataScope()` mechanism already proven correct on the authorisation screens. But `properties`/`contacts` specifically layer a SECOND, agency-wide toggle on top: a role's stored scope is only 'own' or "wider," and when "wider," the *effective* breadth is `agencies.split_branches_enabled` — branch-only when true, agency-wide when false. **Every real agency in this database currently has `split_branches_enabled = false`**, including agency 1 — so today, for every role except a pure-'own' one, the properties list is legitimately agency-wide by an existing, deliberate setting, not a missing scoping wire like the authorisation screens had.
+
+Proved this precisely rather than assumed: constructed a throwaway `viewer`-role test user (a real, already-configured role with `scope='branch'` stored in `role_permissions` — not invented) and confirmed `PermissionService::getDataScope()` resolves to `'all'`, exactly as the code's own documented logic predicts given `split_branches_enabled=false`. **Deliberately did not flip that live, agency-wide setting to force a "blocked" result** — doing so would have changed real data visibility for any real concurrent user for the duration of the test, which is a worse risk than leaving one code path statically-verified rather than click-through-proved. The mechanism itself is the same one already live-proven on the authorisation screens tonight; what's untested is specifically "does `split_branches_enabled=true` behave correctly," which no real agency currently exercises.
+
+### FOUND AND FIXED — a real, currently-dormant scoping gap on property document actions
+
+`PropertySgController::saveDocument()`/`download()` (SG = Surveyor-General document integration) checked cross-agency access only (`guardAgency()` — a hardcoded agency-id comparison) and never consulted the same own/branch/agency scope the property record itself uses. Not exploitable *today* — same reason as above, `split_branches_enabled` is off everywhere, so 'branch' scope resolves to 'all' regardless — but wired to become a real gap the moment any agency turns branch-splitting on, since this route would keep ignoring it while the rest of the module correctly respected it. Fixed by wiring in the same `AuthorizesPropertyAccess` trait (`authorizeProperty()`) every other property-mutating/viewing action already uses — `saveDocument()` (a write) gets mutation scope, `download()` (a read) gets view scope, matching the show() page's own breadth exactly. Confirmed a no-op for every real user today (`getDataScope()`/`mutationScope()` both resolve to `'all'` for a real agent right now) — this only changes behaviour once an agency's Data Isolation setting is actually turned on.
+
+### FOUND — real, not invented: the "expired" status has no way to be isolated on this screen
+
+Real agency-1 rental status counts: `withdrawn` 357/359 (two counts taken minutes apart, live data), `expired` 104, `let_out` 70, `to_let` 18-20, `active` 6, `draft` 2-5, `archived` 1, `prospecting` 1. Cross-referenced independently by two separate research passes, same result both times: **`expired` — the SECOND-LARGEST bucket at 104 real properties — has no KPI tile and no filter-dropdown option.** It's excluded from "Available" (`Property::OFF_MARKET_STATUSES`) and only reachable by selecting "All Statuses" and scanning manually. `withdrawn` (the largest bucket) has a filter option but no KPI tile — findable, just not surfaced as prominently. `archived` (1 record) has neither, negligible volume. Every OTHER real status (`to_let`, `active`, `draft`, `prospecting`, `let_out`) is correctly represented — nothing was invented, this is specifically the one real gap.
+
+**Not fixed here, deliberately** — unlike the SG-document guard, this isn't a pure "wire in an existing mechanism" fix: it's a visible addition to a screen agents use daily (a new filter option, possibly a new KPI tile), which is a UI/information-architecture call, not a mechanical completeness fix. Flagging rather than building it unasked.
+
+### Sale vocabulary, navigation, dead controls — confirmed clean
+
+Grepped the full view for sale-only language (Buyer/Seller/Offer/Purchase/Mandate) — the KPI tiles, status set, and listing-type control all correctly relabel or drop for the rentals lens (e.g. "On Market"→"Available", "Sold"→"Rented Out", sale-only statuses dropped entirely rather than mislabelled). The listing-type dropdown becomes a static "Rentals only" label on this entry point — server-enforced, not decorative, initially misread as dead but the gating condition confirmed it's correct. Navigation correctly keeps the Rentals lens via the same route-name + session pattern used elsewhere. No half-wired controls found. The legacy "Hidden→Rentals panel" (`Rental\RentalPropertyController`) still exists in routes but isn't linked from anywhere current — a previously-recorded PARKED decision, not a fresh finding.
+
+### Files changed
+
+- `app/Http/Controllers/CoreX/PropertySgController.php` — `authorizeProperty()` wired into `saveDocument()`/`download()`, `AuthorizesPropertyAccess` trait added
+
+## 12. Rentals → Core Matches / Rental Pipeline — design-standard audit + fixes (AT-402, 2026-09-10, cc4)
+
+Full design-standard audit (Johan's own bar: "proper crud? search / sort / own / branch / agency levels... not me asking for it once we get to that stage") of Core Matches and the Rental Pipeline, reported to Johan/conductor before any substantial fix, per explicit instruction. Findings list delivered separately; this section records only what was subsequently approved and fixed. **Not decided by cc4**: the "no manual add-to-pipeline" behaviour (Johan confirmed this is the intended design, not a gap) and the Viewing Pack download's own/branch/agency check (already correct — the reference pattern the detail page should have matched and didn't; recorded as still-open, not fixed in this pass).
+
+### 12.1 SECURITY CHECK — cross-agency access, proved live before anything else was touched
+
+Per explicit instruction ("prove it LIVE... assume nothing", citing cc1's same-night `exists:properties,id` multi-tenancy bypass on rental-application property-linking). Tested as a real restricted agent (Kym Pollard, agency 1) against the live QA1 site: a contact belonging to a DIFFERENT agency (id 18673, agency 20) hit at `/corex/command-center/buyers/18673` returned a clean **404** — `AgencyScope` on `Contact`'s route-model binding holds. Grepped both `ContactMatchController` and `BuyerDetailController` for the specific cc1 pattern (a validation `exists:table,id` rule, or a client-supplied `property_id`/`contact_id` written without a scope check) — neither controller has one; the only `exists:` rules present target the global `p24_suburbs` reference table, not tenant data. **No multi-tenancy breach found on these two screens.** The previously-reported gap (an agent reading another agent's SAME-agency match/tenant record) is real but is an intra-agency own/branch scoping gap, not the cross-agency class cc1 found — the two are not the same finding and should not be conflated.
+
+### 12.2 Fixed — dead `$match->suburb` (dropped column) silently rendering blank, forever
+
+`ContactMatch::suburbList()` (JSON `suburbs`/`p24_suburb_ids`, actively synced on every save) is the canonical, live source — the model's own docblock says so explicitly ("never the legacy `suburb` (dropped) or derived `suburbs` shadow" refers to avoiding an *even older* raw column, not this one). Four views still referenced the dropped singular `suburb` column directly, always null: `core-matches/all.blade.php`, `core-matches/index.blade.php` (badge + empty-state check), `contacts/show.blade.php` (Saved Matches badge), `contacts/match-results.blade.php` (empty-state check only — its own badge already used `suburbList()` correctly). Beyond the cosmetic blank badge, the empty-state checks had a real behavioural bug: a wishlist with ONLY a suburb set (no other criteria) was wrongly shown as "Any property." Fixed by restoring the correct source (`suburbList()` / `implode(', ', ...)`) in all four, not by removing the field. A fifth false-positive grep hit (`viewing-packs/show.blade.php`'s `$cm->suburb`) was checked and confirmed to be a `Property` model (`coreMatchesFor()` returns `Collection<Property>`), which still has a real `suburb` column — left untouched.
+
+### 12.3 Fixed — "This buyer won't be counted..." showing on a rental wishlist
+
+`resources/views/corex/contacts/_match-form.blade.php` (shared by every entry point — Contact page, Core Matches, Buyer Pipeline drawer) hardcoded "buyer" in the AT-71 uncountable-wishlist warning regardless of `$match->listing_type`. Fixed at the shared source, both sentences, using the same `$match->listing_type === 'rental' ? 'tenant' : 'buyer'` pattern already established on the Buyer/Rental Pipeline detail page (`buyers/detail.blade.php`'s `$isRentalContact`). Verified live against a genuine uncountable rental wishlist (match id 127): now reads "This tenant won't be counted in matches yet... for this tenant to appear in match counts and lists."
+
+### 12.4 Fixed — calendar attendee chip labelling a tenant "Buyer"
+
+The Attendees multi-select on the Schedule/Edit Event modals (`command-center/calendar/index.blade.php`) hardcoded "Buyer" as the chip label for anyone in the `buyer_contact` role UNLESS a server-supplied `role_label` was present. The property-pivot autofill path (`CalendarController`'s owner-lookup endpoint) already carries a real pivot-role label (e.g. literally "Tenant" when the `contact_property.role` pivot says so) — that path was already correct. The gap was the **search-added** path: `searchAttendees()` never told the client anything about the contact beyond name/phone/email, so `contactSearch().add()`'s client-side role-guessing (driven by the *event class*, e.g. "this class's actor is a buyer_action") always fell back to the literal string "Buyer," regardless of what the contact actually is. Fixed by driving the label off the contact, not the screen: `searchAttendees()` now returns `is_rental` per contact (same lens as `buyers/detail.blade.php`'s `$isRentalContact` — primary-or-first wishlist's `listing_type`), `add()` sets `role_label = is_rental ? 'Tenant' : 'Buyer'` when auto-assigning a buyer_contact role, and both chip templates prefer `role_label` before falling back to the hardcoded string. Verified live: `GET .../calendar/search/attendees?q=Edith` (a known tenant) now returns `"is_rental":true` in the JSON payload.
+
+### 12.5 Fixed — Rental Pipeline: search, sort, filter doors added
+
+All three were already real, working query-layer capability with no UI door — the fix in every case was to expose what already worked, not build new capability:
+
+- **Search** (`?q=`): wired to `Contact::scopeSearch()` — the same canonical name/phone/email/id_number search every other contact picker in CoreX uses (including the attendee search above), so this board searches on exactly the fields an agent already reaches for elsewhere. Applied to both the active board and the Won/Success section so a searched-for name never silently vanishes from both.
+- **Sort**: the controller already accepted an arbitrary `?sort=`/`?dir=` via a raw `orderBy()` with zero UI door and zero whitelist. Whitelisted to three real, meaningful columns (`name` — two columns, first+last, under one door; `buyer_state`; `last_activity_at`) and wired clickable arrows onto the matching List-view headers.
+- **Filter**: `state`/`agent_id` already worked server-side via hand-typed URL params; added real `<select>` dropdowns (auto-submitting on change) to a new search/filter toolbar shared by both Kanban and List views. The agent dropdown's options come from a copy of the same scope+lead-type query with state/agent/search NOT yet applied, so the list of agents never shrinks to nothing once a filter narrows the board.
+- Every existing scope/lead-type/view toggle link on the page was extended to also preserve `agent_id`, `q`, `sort`, `dir` — previously several of these silently dropped `agent_id` on toggle (a pre-existing, related gap fixed as part of wiring the same class of control).
+
+### 12.6 Fixed — dates on entries (Johan's own standing request)
+
+- **Core Matches** (all four screens: contact-level tab, the `Core Matches` index, `All View`, the match-results page, the match-edit page): a "Saved {date}" tag added next to each match's type pill, reading `created_at` — every screen was completely missing a date before this.
+- **Rental Pipeline**: a "Since {date}" reading `contacts.buyer_pipeline_entered_at` (the same column the buyer/tenant detail page's own "Since" line already uses) added to both the Kanban card (next to the assigned agent) and the List view (new dedicated column, between Agent and Last Activity).
+
+### 12.7 Fixed — Kanban pagination (agency-configurable, per Johan's explicit instruction not to hardcode)
+
+The Kanban board ran one unbounded query per load — `Contact::buyers()...get()` with every buyer/tenant in scope, in every state, grouped client-side, with only a CSS `max-h-[60vh] overflow-y-auto` standing in for pagination. Fine at QA1's volume; at a real agency's volume this loads the entire pipeline onto one page on every visit. Fixed by capping each of the four columns independently (`New`/`Warm`/`Cold`/`Lost`), each queried and limited separately rather than one big fetch sliced afterwards. The cap is a new agency setting, `agency_contact_settings.buyer_kanban_column_limit` (default 50, clamped 10–500 via `AgencyContactSettings::buyerKanbanColumnLimit()`, editable on the Contact Governance settings page under "Buyer Pipeline Default View"), following the exact same pattern as the existing `calendar_max_occurrences`/`mic_match_threshold` agency knobs on the same model. A column that's truncated shows a real "+N more · View all in List" link at the bottom, going to the fully-paginated List view pre-filtered to that state — Kanban stays a lightweight triage view, List stays the tool for volume, nothing is silently dropped. The truncation count itself is computed from the SAME filtered query (scope + lead type + agent + search) so it reconciles with what's actually on screen, not a stale unfiltered total.
+
+**Deliberately NOT added to the Setup Wizard** (non-negotiable #10a normally requires this for every new setting) — this is a display/pagination threshold, not a business policy an agency configures once when onboarding; it sits alongside `buyer_warm_days`/`buyer_cold_days`/`duplicate_mode` and the rest of the Contact Governance settings group, none of which are in the wizard today either (a pre-existing gap for that whole settings group, out of scope to retrofit here). Flagging the omission explicitly rather than silently deciding it, per the rule's own escape valve — Johan's call if this whole settings group should eventually reach the wizard.
+
+### Files changed (§12)
+
+- `app/Http/Controllers/CommandCenter/BuyerPipelineController.php` — search/sort-whitelist/agent-options/kanban column cap
+- `app/Http/Controllers/CommandCenter/CalendarController.php` — `is_rental` on `searchAttendees()`
+- `app/Http/Controllers/CommandCenter/ContactGovernanceController.php` — `buyer_kanban_column_limit` validation + save
+- `app/Models/AgencyContactSettings.php` — `buyer_kanban_column_limit` column, default, resolver
+- `database/migrations/2026_09_10_230000_add_buyer_kanban_column_limit_to_agency_contact_settings.php`
+- `resources/views/command-center/buyers/pipeline.blade.php` — search/filter toolbar, sortable headers, Since column/card date, kanban "N more"
+- `resources/views/command-center/calendar/index.blade.php` — attendee chip `role_label` preference, `add()` sets it from `is_rental`
+- `resources/views/command-center/settings/contact-governance.blade.php` — kanban column limit input
+- `resources/views/corex/contacts/_match-form.blade.php` — tenant/buyer wording on the uncountable-wishlist warning
+- `resources/views/corex/contacts/match-edit.blade.php` — Saved date
+- `resources/views/corex/contacts/match-results.blade.php` — Saved date, suburb empty-state fix
+- `resources/views/corex/contacts/show.blade.php` — Saved date, suburb fix
+- `resources/views/corex/core-matches/all.blade.php` — Saved date, suburb fix
+- `resources/views/corex/core-matches/index.blade.php` — Saved date, suburb fix (badge + empty-state)

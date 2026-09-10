@@ -21,6 +21,7 @@
                 <p class="text-xs" style="color: var(--text-muted);">
                     {{ $contact->first_name }} {{ $contact->last_name }}
                     @if($match->name) · <span style="color: var(--text-secondary);">{{ $match->name }}</span> @endif
+                    · Saved {{ $match->created_at?->format('d M Y') ?? '—' }}
                 </p>
             </div>
             <div class="flex flex-wrap items-center gap-2">

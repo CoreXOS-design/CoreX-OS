@@ -19,6 +19,7 @@ class BuyerPipelineController extends Controller
         $view = $request->get('view', 'kanban');
         $stateFilter = $request->get('state');
         $agentFilter = $request->get('agent_id');
+        $search = trim((string) $request->get('q', ''));
 
         // AT-401 — Rentals → Rental Pipeline is the SAME action as
         // command-center.buyers.pipeline, reached by a second route,
@@ -78,6 +79,12 @@ class BuyerPipelineController extends Controller
             $query->where('agent_id', (int) $agentFilter);
         }
         $this->applyLeadTypeFilter($query, $leadType);
+        // Canonical contact search (name/phone/email/id_number) — the same
+        // scope every other contact picker uses, so this board searches on
+        // exactly the fields an agent already reaches for elsewhere.
+        if ($search !== '') {
+            $query->search($search);
+        }
 
         // Buyer WON (Johan 2026-08-13) — converted buyers live in a SEPARATE success section, OUT of
         // the active pipeline. Build the success list from the same scope, and exclude 'won' from the
@@ -89,6 +96,9 @@ class BuyerPipelineController extends Controller
             $wonQuery->where('agent_id', (int) $agentFilter);
         }
         $this->applyLeadTypeFilter($wonQuery, $leadType);
+        if ($search !== '') {
+            $wonQuery->search($search);
+        }
         $wonBuyers = $wonQuery->orderByDesc('last_activity_at')->get();
 
         if (! $stateFilter) {
@@ -123,10 +133,41 @@ class BuyerPipelineController extends Controller
                 ->first(['id', 'address', 'suburb', 'price', 'portal_source']);
         }
 
+        // Column-sort doors — the query already accepted an arbitrary ?sort=
+        // via orderBy() with no header ever linking to it. Whitelisted to the
+        // three columns that map to a real, meaningful sort (name is two
+        // columns under one door); dir is whitelisted separately so a bad
+        // value can never reach the query builder.
+        $sortBy = $request->get('sort', 'last_activity_at');
+        $sortDir = $request->get('dir') === 'asc' ? 'asc' : 'desc';
+        if (!in_array($sortBy, ['name', 'buyer_state', 'last_activity_at'], true)) {
+            $sortBy = 'last_activity_at';
+        }
+
+        // Agent filter door — options come from a copy of the SAME scope +
+        // lead-type query (before state/agent/search narrow it further), so
+        // the dropdown always lists every agent reachable from here rather
+        // than shrinking to nothing once a filter is applied.
+        $agentOptionsQuery = Contact::buyers();
+        $this->applyPipelineScope($agentOptionsQuery, $user, $pipelineScope);
+        $this->applyLeadTypeFilter($agentOptionsQuery, $leadType);
+        $agentOptions = $agentOptionsQuery->whereNotNull('agent_id')
+            ->with('agent:id,name')
+            ->get()
+            ->pluck('agent')
+            ->filter()
+            ->unique('id')
+            ->sortBy('name')
+            ->values();
+
         if ($view === 'list') {
-            $sortBy = $request->get('sort', 'last_activity_at');
-            $sortDir = $request->get('dir', 'desc');
-            $buyers = $query->orderBy($sortBy, $sortDir)->paginate(25)->withQueryString();
+            $listQuery = clone $query;
+            if ($sortBy === 'name') {
+                $listQuery->orderBy('first_name', $sortDir)->orderBy('last_name', $sortDir);
+            } else {
+                $listQuery->orderBy($sortBy, $sortDir);
+            }
+            $buyers = $listQuery->paginate(25)->withQueryString();
 
             return view('command-center.buyers.pipeline', [
                 'view' => 'list',
@@ -140,16 +181,45 @@ class BuyerPipelineController extends Controller
                 'contextListing' => $contextListing,
                 'isRentalEntry' => $isRentalEntry,
                 'indexRouteName' => $indexRouteName,
+                'search' => $search,
+                'agentOptions' => $agentOptions,
+                'agentFilter' => $agentFilter,
+                'stateFilter' => $stateFilter,
+                'sortBy' => $sortBy,
+                'sortDir' => $sortDir,
             ]);
         }
 
-        // Kanban view — group by state
-        $allBuyers = $query->orderByDesc('last_activity_at')->get();
-        $columns = [
-            'new' => $allBuyers->where('buyer_state', 'new')->values(),
-            'warm' => $allBuyers->where('buyer_state', 'warm')->values(),
-            'cold' => $allBuyers->where('buyer_state', 'cold')->values(),
-            'lost' => $allBuyers->where('buyer_state', 'lost')->values(),
+        // Kanban view — group by state. Each column is capped (agency-configurable,
+        // AgencyContactSettings::buyerKanbanColumnLimit(), default 50) and queried
+        // separately rather than one unbounded ->get() grouped client-side — at real
+        // agency volume that single query was loading every buyer/tenant in scope,
+        // in every state, onto one page, with only a CSS scrollbar standing in for
+        // pagination. The true per-state count (for the "N more" affordance) still
+        // comes from stateCounts()'s aggregate COUNT query below.
+        $columnLimit = AgencyContactSettings::forAgency((int) ($user->effectiveAgencyId() ?: 0))->buyerKanbanColumnLimit();
+        // True per-state totals under EVERY active filter (scope, lead type, agent,
+        // search) — not just stateCounts()'s header-pill totals, which never applied
+        // agent/search — so the "N more" affordance always reconciles with what a
+        // search/agent filter actually narrowed to, not a stale unfiltered count.
+        $columnTotals = (clone $query)->selectRaw('buyer_state, count(*) as cnt')
+            ->groupBy('buyer_state')
+            ->pluck('cnt', 'buyer_state')
+            ->toArray();
+        $counts = $this->stateCounts($user, $pipelineScope, $leadType);
+        $columns = [];
+        foreach (['new', 'warm', 'cold', 'lost'] as $stateKey) {
+            $columns[$stateKey] = (clone $query)
+                ->where('buyer_state', $stateKey)
+                ->orderByDesc('last_activity_at')
+                ->limit($columnLimit)
+                ->get();
+        }
+        $columnTotals = [
+            'new' => $columnTotals['new'] ?? 0,
+            'warm' => $columnTotals['warm'] ?? 0,
+            'cold' => $columnTotals['cold'] ?? 0,
+            'lost' => $columnTotals['lost'] ?? 0,
         ];
 
         $riskScores = DB::table('buyer_lost_risk_scores as brs')
@@ -159,9 +229,13 @@ class BuyerPipelineController extends Controller
             )
             ->pluck('brs.score', 'brs.contact_id');
 
+        $shownIds = collect($columns)->flatMap(fn ($c) => $c->pluck('id'))->merge($wonBuyers->pluck('id'));
+
         return view('command-center.buyers.pipeline', [
             'view' => 'kanban',
             'columns' => $columns,
+            'columnTotals' => $columnTotals,
+            'columnLimit' => $columnLimit,
             'wonBuyers' => $wonBuyers,
             // 2026-08-20 (Johan, reported for a meeting) — this call was
             // missing $leadType entirely: the kanban columns are built from
@@ -172,9 +246,9 @@ class BuyerPipelineController extends Controller
             // column lists (scrollbars) shrank under a filter, the header
             // badges never moved. See list view's equivalent call above,
             // which already passed this correctly.
-            'counts' => $this->stateCounts($user, $pipelineScope, $leadType),
+            'counts' => $counts,
             'riskScores' => $riskScores,
-            'coreMatchCounts' => $this->coreMatchCounts($allBuyers->pluck('id')->merge($wonBuyers->pluck('id'))),
+            'coreMatchCounts' => $this->coreMatchCounts($shownIds),
             'pipelineScope' => $pipelineScope,
             // Also missing entirely — the Sales/Rentals button never knew
             // which one was active in kanban view (always rendered "All" as
@@ -185,6 +259,10 @@ class BuyerPipelineController extends Controller
             'contextListing' => $contextListing,
             'isRentalEntry' => $isRentalEntry,
             'indexRouteName' => $indexRouteName,
+            'search' => $search,
+            'agentOptions' => $agentOptions,
+            'agentFilter' => $agentFilter,
+            'stateFilter' => $stateFilter,
         ]);
     }
 

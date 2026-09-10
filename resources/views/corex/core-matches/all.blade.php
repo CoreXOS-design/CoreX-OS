@@ -138,14 +138,19 @@
                         {{ $match->listingTypeLabel() }}
                     </span>
 
+                    {{-- AT-402 audit — dates on entries (Johan). --}}
+                    <span class="text-xs flex-shrink-0 whitespace-nowrap" style="color:var(--text-muted);" title="Saved">
+                        {{ $match->created_at?->format('d M Y') ?? '—' }}
+                    </span>
+
                     {{-- Criteria --}}
                     <div class="flex items-center gap-1.5 flex-wrap flex-1 min-w-0">
                         @if($match->price_min || $match->price_max)
                         <span class="text-xs font-bold" style="color:var(--text-primary);">{{ $match->priceRangeLabel() }}</span>
                         <span class="text-xs" style="color:var(--text-muted);">·</span>
                         @endif
-                        @if($match->suburb)
-                        <span class="text-xs font-medium" style="color:var(--text-secondary);">📍 {{ $match->suburb }}</span>
+                        @if(!empty($match->suburbList()))
+                        <span class="text-xs font-medium" style="color:var(--text-secondary);">📍 {{ implode(', ', $match->suburbList()) }}</span>
                         <span class="text-xs" style="color:var(--text-muted);">·</span>
                         @endif
                         @if($match->category)
