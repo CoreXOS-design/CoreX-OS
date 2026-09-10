@@ -48,6 +48,7 @@
                 'timestamp' => optional($a->submitted_at ?: $a->created_at)->timestamp,
                 'amount' => $a->approved_rental_amount,
                 'view_url' => route('corex.rental-applications.review', $a->id),
+                'pdf_url' => route('corex.rental-applications.pdf', $a->id),
             ])->values()->toJson() }},
         }"
          class="space-y-3">
@@ -71,23 +72,32 @@
             .filter(a => outcome === 'all' || outcome.split(',').includes(a.status))
             .sort((a, b) => sort === 'date_desc' ? b.timestamp - a.timestamp : a.timestamp - b.timestamp)"
             :key="app.id">
-            <a :href="app.view_url" class="block rounded-md p-3 flex items-center justify-between gap-3 hover:opacity-80"
-               style="background:var(--surface); border:1px solid var(--border);">
-                <div class="min-w-0">
+            <div class="rounded-md p-3 flex items-center justify-between gap-3"
+                 style="background:var(--surface); border:1px solid var(--border);">
+                <a :href="app.view_url" class="min-w-0 flex-1 hover:opacity-80">
                     <div class="text-sm font-medium truncate" style="color:var(--text-primary);" x-text="app.address"></div>
                     <div class="text-[11px] mt-0.5" style="color:var(--text-muted);">
                         <span x-text="app.date"></span>
                         <template x-if="app.amount"><span> · Approved for R<span x-text="Number(app.amount).toLocaleString()"></span>/mo</span></template>
                     </div>
+                </a>
+                <div class="flex items-center gap-2 flex-shrink-0">
+                    {{-- AT-392 — Johan: "allow the agent to download and print it if
+                         they want to physically file the whole pack." Same existing
+                         PDF service every other rental-application download already uses. --}}
+                    <a :href="app.pdf_url" @click.stop title="Download the full application pack"
+                       class="text-[11px] font-semibold px-2 py-0.5 rounded-md whitespace-nowrap" style="color:var(--brand-icon,#2563eb); border:1px solid var(--border);">
+                        Download
+                    </a>
+                    <span class="text-[10px] font-semibold px-2 py-0.5 rounded-md whitespace-nowrap"
+                          :style="{
+                              approved: 'background:color-mix(in srgb, var(--ds-green, #16a34a) 14%, transparent); color:var(--ds-green, #16a34a);',
+                              declined: 'background:color-mix(in srgb, var(--ds-red, #dc2626) 14%, transparent); color:var(--ds-red, #dc2626);',
+                              withdrawn: 'background:var(--surface-2); color:var(--text-muted);',
+                          }[app.status] || 'background:color-mix(in srgb, var(--ds-amber, #f59e0b) 14%, transparent); color:var(--ds-amber, #f59e0b);'"
+                          x-text="app.status.replaceAll('_', ' ')"></span>
                 </div>
-                <span class="text-[10px] font-semibold px-2 py-0.5 rounded-md whitespace-nowrap flex-shrink-0"
-                      :style="{
-                          approved: 'background:color-mix(in srgb, var(--ds-green, #16a34a) 14%, transparent); color:var(--ds-green, #16a34a);',
-                          declined: 'background:color-mix(in srgb, var(--ds-red, #dc2626) 14%, transparent); color:var(--ds-red, #dc2626);',
-                          withdrawn: 'background:var(--surface-2); color:var(--text-muted);',
-                      }[app.status] || 'background:color-mix(in srgb, var(--ds-amber, #f59e0b) 14%, transparent); color:var(--ds-amber, #f59e0b);'"
-                      x-text="app.status.replaceAll('_', ' ')"></span>
-            </a>
+            </div>
         </template>
 
         <div x-show="apps.filter(a => outcome === 'all' || outcome.split(',').includes(a.status)).length === 0" x-cloak

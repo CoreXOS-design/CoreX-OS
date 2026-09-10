@@ -311,7 +311,7 @@ class RentalApplicationReviewController extends Controller
      * already set → 422, not a silent second send) — this is a one-shot
      * action, not a resend button.
      */
-    public function send(Request $request, RentalApplication $rentalApplication, RentalApplicationMailer $mailer, RentalApplicationAuditService $audit, \App\Services\RentalApplications\RentalApplicationPropertyMatcher $matcher)
+    public function send(Request $request, RentalApplication $rentalApplication, RentalApplicationMailer $mailer, RentalApplicationAuditService $audit, \App\Services\RentalApplications\RentalApplicationPropertyMatcher $matcher, \App\Services\RentalApplications\RentalApplicationPdfService $pdfService)
     {
         $this->guardRentalApplication($rentalApplication);
 
@@ -330,6 +330,13 @@ class RentalApplicationReviewController extends Controller
 
         $rentalApplication->applicant_notified_at = now();
         $rentalApplication->save();
+
+        // AT-392 — Johan: "the documents / application / approval gets
+        // filed on the contact... available at any point if anyone needs
+        // to look at it." Best-effort (fileAsDocument() catches its own
+        // failures) — a filing failure must never undo an already-sent
+        // approval.
+        $pdfService->fileAsDocument($rentalApplication, 'Approved Rental Application');
 
         $audit->log(
             $rentalApplication,

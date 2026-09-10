@@ -96,6 +96,58 @@ class RentalApplicationPdfService
         return $path;
     }
 
+    /**
+     * AT-392 — Johan: "the rental application is not a pillar of corex but
+     * the contact is, so we need to save the information on the contact so
+     * its available at any point if anyone needs to look at it." Files the
+     * generated pack as a real, persisted Document attached to the
+     * contact via the same document_contacts pivot e-sign already uses
+     * (SignatureService::linkFiledDocumentToContactsAndProperty()) —
+     * not a new mechanism. Called at the outcome moments (approved/
+     * declined), not on every render, so a contact's Drive/Rental
+     * Applications history gains one dated snapshot per real decision.
+     */
+    public function fileAsDocument(RentalApplication $rentalApplication, string $label): ?\App\Models\Document
+    {
+        if (! $rentalApplication->contact_id) {
+            return null;
+        }
+
+        try {
+            $path = $this->generate($rentalApplication);
+            $filename = $label . ' — ' . $rentalApplication->contact->full_name . ' — ' . now()->format('Y-m-d') . '.pdf';
+            $storedPath = 'rental-applications/' . $rentalApplication->id . '/filed/' . \Illuminate\Support\Str::random(20) . '.pdf';
+
+            Storage::disk('local')->put($storedPath, file_get_contents($path));
+
+            $document = \App\Models\Document::withoutAgencyStamping(fn () => \App\Models\Document::create([
+                'original_name' => $filename,
+                'storage_path' => $storedPath,
+                'disk' => 'local',
+                'mime_type' => 'application/pdf',
+                'size' => Storage::disk('local')->size($storedPath),
+                'source_type' => 'rental_application',
+                'source_id' => $rentalApplication->id,
+                'agency_id' => $rentalApplication->agency_id,
+                'branch_id' => $rentalApplication->branch_id,
+            ]));
+
+            $document->contacts()->syncWithoutDetaching([$rentalApplication->contact_id => ['party_role' => 'applicant']]);
+            if ($rentalApplication->property_id) {
+                $document->properties()->syncWithoutDetaching([$rentalApplication->property_id]);
+            }
+
+            return $document;
+        } catch (\Throwable $e) {
+            Log::warning('AT-392 rental application fileAsDocument failed', [
+                'rental_application_id' => $rentalApplication->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            return null;
+        }
+    }
+
     private function cachePath(int $applicationId, int $generation): string
     {
         return "rental-applications/{$applicationId}/generations/{$generation}.pdf";

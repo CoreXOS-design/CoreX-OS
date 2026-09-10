@@ -338,6 +338,7 @@ class RentalApplicationAuthorisationController extends Controller
         RentalApplicationAuditService $audit,
         RentalApplicationMailer $mailer,
         RentalApplicationNotifier $notifier,
+        \App\Services\RentalApplications\RentalApplicationPdfService $pdfService,
     ) {
         $decision = $this->guardCanDecide($rentalApplication);
 
@@ -377,6 +378,10 @@ class RentalApplicationAuthorisationController extends Controller
         // any "how to improve" guidance. The template itself (subject/body,
         // agency-editable) is built and sent here; no extra content invented.
         $mailer->sendDecline($rentalApplication);
+
+        // AT-392 — Johan: "the documents / application / approval gets
+        // filed on the contact." Best-effort, same as the approval leg.
+        $pdfService->fileAsDocument($rentalApplication, 'Declined Rental Application');
 
         // AT-392 — keeps Contact::rental_application_status in sync
         // (App\Listeners\Contact\RecomputeRentalApplicationStatus).
