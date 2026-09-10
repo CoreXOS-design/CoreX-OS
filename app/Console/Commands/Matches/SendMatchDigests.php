@@ -180,7 +180,7 @@ class SendMatchDigests extends Command
             $groups[$contactId]['items'][] = [
                 'property_id'  => (int) $property->id,
                 'address'      => $property->buildDisplayAddress(),
-                'price'        => (int) ($property->price ?? 0),
+                'price'        => (int) $property->effectivePrice(),
                 'score'        => (int) $row->score,
                 'listing_type' => $property->listing_type,
             ];
