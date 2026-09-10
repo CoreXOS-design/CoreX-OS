@@ -361,6 +361,17 @@
 
                 {{-- Presentations V2 — one-button generator (Phase 1) + coverage badge + asking-price modal (Phase 2) --}}
                 @if(auth()->user()->hasPermission('create_presentations'))
+                @if($property->isRental())
+                    {{-- AT-400 (Johan, 2026-09-10) — presentations compare against sale
+                         prices only; a rental has nothing for them to be generated from.
+                         Not a silent dead button — plain-language reason, no jargon,
+                         per STANDARDS.md "No Silent Locks". --}}
+                    <div class="rounded-md px-3 py-2.5 text-[11px]"
+                         style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-muted);">
+                        <div class="font-semibold" style="color:var(--text-primary);">Presentation not available</div>
+                        <div class="mt-0.5">This is a rental. Presentations compare a property against sale prices in the area, so there isn't one to generate for a rental listing.</div>
+                    </div>
+                @else
                 @php
                     // Pre-generate accuracy warning (Johan, 2026-08-20 — relocated
                     // from the review screen to here: "warns them BEFORE they
@@ -724,6 +735,7 @@
                     };
                 }
                 </script>
+                @endif
                 @endif
 
                 {{-- AT-262 (Andre's design + Johan's extension): duplicate optionally AS the other

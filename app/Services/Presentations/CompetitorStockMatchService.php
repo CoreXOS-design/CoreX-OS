@@ -355,6 +355,18 @@ final class CompetitorStockMatchService
      */
     private function resolveCriteria(Property $subject): ?ComparableStockCriteria
     {
+        // AT-400 (Johan, 2026-09-10) — "we can switch off comparables for
+        // intelligence... we dont need to compare like sales to other
+        // properties" for a rental. CoreX doesn't have rental comp data the
+        // way it has sale comp data, so a rental is never comparable — same
+        // "can't be compared" path as a subject missing agency/suburb/family,
+        // not a new failure mode. Both findComparableStock() and
+        // findCompetitors() already degrade to an empty collection when this
+        // returns null.
+        if ($subject->isRental()) {
+            return null;
+        }
+
         if (!$subject->agency_id || !$subject->suburb) {
             return null;
         }
