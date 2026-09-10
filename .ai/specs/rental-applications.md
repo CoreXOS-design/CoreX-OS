@@ -6735,11 +6735,17 @@ Johan's governing design principle, verbatim, stated as the whole answer to both
 
 **Not touched**: `resolveMarkColors()` (the PHP burn-time colour resolution for the downloaded/emailed PDF) — this piece is scoped to the live on-screen view, which is what Johan's items were about; the burned-PDF note colour is a separate, smaller follow-up if wanted, not assumed here.
 
-### Item 5 — not yet built
+### Item 5 — PAUSED, not landed (2026-09-10, Johan re-prioritised)
 
-Draggable right-panel width and PDF zoom — queued as the fourth and final piece, per Johan's stated priority order.
+Draggable right-panel width and PDF zoom were built and real-browser-verified in a worktree, then **discarded uncommitted, not merged** — Johan: *"you are slipping on the small shit when the bigger picture has not been built."* The splitter integration and dated entries below are the real priority; item 5 waits.
 
-### Verification
+Recorded here so the work isn't silently lost if picked up later:
+- **Drag handle**: built, and largely verified (persistence and the mobile-layout CSS-custom-property scoping both confirmed clean) — but automated drag simulation was intermittent enough in verification that a real manual drag is the honest final check, not fully signed off.
+- **PDF zoom: a real, confirmed bug, not shipped.** Binding the image's width to a *percentage* of an `inline-block` parent that itself shrinks to the image's own rendered size is a circular sizing dependency — the browser can't resolve genuine growth from it, so the image visibly never resized even though the zoom-level readout updated correctly. Root cause diagnosed, not fixed: the correct approach binds width to an explicit pixel value derived from the page's own known `width` (already present in the `pages` array from the server) times the zoom factor, not a percentage.
+
+Nothing from this item is in any commit — QA1 is unaffected, still at the items-2/3/4 state. Whoever resumes this needs to re-build it, not un-revert it; the diff was discarded, not stashed.
+
+### Verification (items 1–4 only, item 5 excluded per the above)
 
 - `php -l` clean on every changed file.
 - All three changed Blade files compile via `blade.compiler` directly.
