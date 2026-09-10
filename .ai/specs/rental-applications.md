@@ -6947,3 +6947,51 @@ Fourth and final landable slice of the PDF Splitter Integration Johan re-priorit
 - `routes/web.php` — `corex.settings.rental-applications.validity-windows`
 - `resources/views/corex/settings/rental-applications.blade.php` — new Document Validity Windows section
 - `resources/views/corex/rental-applications/review.blade.php` — staleness badge on documents and the picker
+
+---
+
+## Right-hand panel redesign + highlighter marks re-project on resize (AT-392, 2026-09-10, cc3) — BUILT, both items
+
+Two of eight findings Johan raised testing application 76 on QA1 directly, both assigned to cc3 as the owner of the right-hand panel and the draggable resize (cc5 owns items 5/8 — splitter rebuilt to anchor on the linked contact; cc4 owns rentals menus/core matches/pipeline; cc6 owns the application's property link — none of those touched here).
+
+**Correction on record, not undone:** an earlier report this session said two throwaway test applications' contacts/signatures were "hard-deleted." There are no hard deletes anywhere in this system, including test data, including on QA1 — a standing Johan rule. Noted; every cleanup from this point in the session forward uses soft-delete (`->delete()`), never `->forceDelete()`.
+
+### Item 6 — right-hand panel redesign, both roles
+
+Johan, verbatim: *"the right hand panel needs to be redesigned on rental for user and auth - look at the space available and then we go and put big boxes on there. rethink this please."*
+
+**Measured before touching anything** — real browser, real QA1 data, application 76 (Johan's own live-tested record, 6 income + 2 expense lines): at the aside's then-default 260px, every 3-column item row (description/date/amount, added by the "Dates on entries" build above) had no choice but to truncate — descriptions to 3-4 letters, dates to nothing readable. The aside was ALSO one undifferentiated card with every section separated only by a margin, unlike `.rental-review-main`, which is a plain container of independently-boxed cards (Submitted Application / Supporting Documents / Audit Trail).
+
+**The fix, both roles (agent's Affordability Assessment panel and the authoriser's Agent's Assessment panel):**
+1. Every logical section (statement period, income, expenses, unpaid flag, qualifying result, notes, decision/actions) is now its own `rounded-md p-3` card — the exact same tokens and pattern `.rental-review-main`'s cards and this aside's own pre-existing "Qualifies for up to" box already used. No new visual style introduced.
+2. Item-row column proportions rebalanced: description 1.6fr (what an agent actually reads to identify a line), date a fixed 130px (proven live — 92-118px still clipped the year), amount gets the remainder with a 78px floor. At the narrowest width an amount can clip its last digit; description never does — a deliberate tradeoff (the line's total is shown below the list regardless; what identifies the line is not).
+3. The resize floor raised 260px → 320px. Not arbitrary: measured live that 260 never actually fit the 3-column row shape (it was inherited unchanged from before dates existed), and 320 is the authoriser panel's OWN original width before a 2026-09-09 unification narrowed it to match the agent's 260 — restored now that both roles carry the identical row shape. Max stays 480 (already proven comfortable). A value already in localStorage below 320 from before this change is re-clamped up on load, not left stuck.
+
+**Verified in a real browser, both roles, both ends of the range** (application 76, narrow=320 and wide=480): every section legible, no truncated descriptions, full dates, the authoriser's Decision box (approve/decline) reachable without excessive scrolling at either width. Screenshots taken at each combination, not just one.
+
+### Item 7 — highlighter marks don't re-project on a panel resize
+
+Johan, verbatim: *"look at what happens if you resize the panels - the highlighter do not match. it just stays."*
+
+**Root cause, verified by reading the code, not assumed** (`document-highlighter-script.blade.php`): a mark's `x`/`y`/`points` were converted from the server's RASTER px (the OCR'd page image's own fixed dimensions — confirmed the same coordinate space Tesseract's hOCR word boxes already live in, per Johan's own framing) to DISPLAY px exactly ONCE — either at restore time (`restoreSavedMarksForPages()`, scaled by whatever `img.clientWidth` happened to be that moment) or at draw time (captured live from the mouse). Every render (`strokesSvgFor()`'s SVG polylines, the note pin, the remove-× button) then used that baked-in number directly, forever. A panel resize changes the image's rendered width after that moment; nothing ever re-ran the conversion, so the overlay stayed exactly where it was drawn while the page underneath it grew or shrank.
+
+**Worse than cosmetic, confirmed by reading `applyHighlights()` (the save path):** it re-derives its raster-conversion scale factor fresh from the CURRENT `img.clientWidth` on every save — so saving right after a resize multiplied a STALE display-px mark by the WRONG scale factor. A save made mid-resize could permanently corrupt the stored position, not just misdraw it on screen.
+
+**Fix, matching Johan's prescribed shape exactly:** a mark's `x`/`y`/`points`/`width` in the client's in-memory `marks[]` array are now a NORMALISED FRACTION (0–1) of the page's own width/height — the same stable space raster px already lives in, just divided instead of multiplied, so converting to/from it needs only `page.width`/`page.height` (always known, never the DOM) in both `restoreSavedMarksForPages()` and `applyHighlights()`. Actual screen pixels are computed ONLY at render time, via new `toDisplayX()`/`toDisplayY()` helpers, against `renderedPageSize` — a reactive property kept live by a `ResizeObserver` attached to every loaded page's `<img>` (not just pages with pre-existing saved marks — a page that starts with zero marks can still get a fresh one drawn on it before any resize, so every loaded page is observed unconditionally). Ephemeral, still-being-drawn state (`this.drag.points`, the pending-note position) deliberately stays raw display px — it only ever exists for the current render, there's nothing to re-project.
+
+**No server-side migration needed — checked, not assumed.** Every already-stored mark is in RASTER px, which was already the stable, render-size-independent space this fix normalises against. The bug was entirely in how the CLIENT converted between that stable space and whatever it happened to be displaying; nothing was ever wrong with what got persisted, so nothing stored needs correcting.
+
+**Proved in a real browser, per Johan's explicit bar ("a screenshot at one width is not evidence")** — application 76, its real "Other.pdf" document:
+- Drew a highlight, then read its position as a FRACTION of the image's rendered width (`x_px / img.clientWidth`) — 0.15050 before any resize.
+- Dragged the divider through 320 → 400 → 480 → back to 320 (image width 592 → 512 → 432 → 592). The fraction stayed 0.15050 at every single width — confirmed by reading the actual rendered `<polyline>` coordinates each time, not inferred. Screenshots at all four widths show the highlight staying locked to the exact same stamp/text on the document.
+- Drew a second mark, resized to 480 BEFORE saving (the exact scenario that used to corrupt the stored position), saved via `applyHighlights()`, and read the value that actually landed in the database: raster x/y of 311/685 — which is exactly 25%/55% of that document's raster width, matching what was drawn, not shifted by the intervening resize.
+- Opened a completely fresh browser session afterward (not a reload — a new login, new navigation) and confirmed the mark restored to the identical 0.25/0.55 fraction, rendered visually locked onto the same sentence of real text.
+- All 22 pre-existing server-side tests (`RentalApplicationDocumentMarkSaveTest`, `RentalApplicationHighlighterTest`) still pass unchanged — the server-side wire contract (client still sends/receives raster px) was never touched, only how the client converts to/from it.
+
+Test marks created for this verification (author_user_id belonging to a temporary QA-only account) were soft-deleted afterward, scoped to that author only — nothing of Johan's own marks on application 76 was touched.
+
+### Files changed
+
+- `resources/views/corex/rental-applications/review.blade.php` — aside restructured into individually-boxed cards (both roles), item-row column proportions, resize floor 260→320
+- `resources/views/corex/rental-applications/partials/document-highlighter-script.blade.php` — marks stored as normalised fractions, `renderedPageSize`/`observePageResize()`/`toDisplayX()`/`toDisplayY()`, restore/draw/save paths updated
+- `resources/views/corex/rental-applications/partials/document-highlighter-pages.blade.php` — note pin and remove-× button read through `toDisplayX()`/`toDisplayY()`

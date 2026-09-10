@@ -56,6 +56,16 @@ class PropertyController extends Controller
         $indexRouteName = $request->route()->getName();
         $isRentalEntry  = $indexRouteName === 'corex.rentals.properties.index';
 
+        // AT-401 — remembers which lens the user most recently entered
+        // Properties through, so the sidebar can keep highlighting "Rentals →
+        // Properties" (and not the sales "Properties" item) on a page reached
+        // FROM this list that shares the same corex.properties.* route names
+        // (a property's show/edit/wizard screens — there's no rentals-prefixed
+        // variant of those). A UI-highlighting/return-link signal only, never
+        // used for the listing_type lock above — that always derives from the
+        // route name itself, never from session state.
+        session(['corex.lens.properties' => $isRentalEntry]);
+
         // ── Filter persistence ────────────────────────────────────────────
         // The whole active filter set (agents, status, search, every advanced
         // filter) survives navigation for the life of the browser session —
@@ -221,6 +231,15 @@ class PropertyController extends Controller
             // On-market = live stock (for_sale incl. sub-labels, under_offer, …),
             // i.e. NOT terminal/draft. Single source of truth on the model.
             $query->whereNotIn('status', Property::OFF_MARKET_STATUSES);
+        } elseif ($status === 'rented_out') {
+            // AT-401 — the Rentals-lens equivalent of the sale side's "Sold"
+            // tab/filter. Not a single literal status value: real data on the
+            // rental side carries both 'let_out' and a legacy capitalised
+            // 'Rented' variant, so this matches case-insensitively — the same
+            // lowercase comparison Property::normalizedStatus() already uses,
+            // not a new convention. A synthetic filter keyword, exactly like
+            // 'on_market' above, never a literal column value.
+            $query->whereRaw('LOWER(status) IN (?, ?)', ['let_out', 'rented']);
         } elseif ($status !== '') {
             $query->where('status', $status);
         }
@@ -263,6 +282,9 @@ class PropertyController extends Controller
             . " SUM(CASE WHEN status NOT IN ($offMarketIn) THEN 1 ELSE 0 END) as active,"
             . " SUM(CASE WHEN status = 'draft' THEN 1 ELSE 0 END) as draft,"
             . " SUM(CASE WHEN status = 'sold' THEN 1 ELSE 0 END) as sold,"
+            // AT-401 — Rentals-lens "Rented Out" tile. Same case-insensitive
+            // let_out/rented pair as the 'rented_out' filter keyword above.
+            . " SUM(CASE WHEN LOWER(status) IN ('let_out','rented') THEN 1 ELSE 0 END) as rented_out,"
             // PROSPECTING (Johan, 2026-08-20/21) — same clone-of-$query
             // aggregate every other tile already uses, so this tile can never
             // disagree with the filtered list: "whatever filters the list
@@ -270,11 +292,12 @@ class PropertyController extends Controller
             . " SUM(CASE WHEN status = '" . Property::STATUS_PROSPECTING . "' THEN 1 ELSE 0 END) as prospecting"
         )->first();
         $stats = [
-            'total'       => (int) ($agg->total ?? 0),
-            'active'      => (int) ($agg->active ?? 0),
-            'draft'       => (int) ($agg->draft ?? 0),
-            'sold'        => (int) ($agg->sold ?? 0),
-            'prospecting' => (int) ($agg->prospecting ?? 0),
+            'total'      => (int) ($agg->total ?? 0),
+            'active'     => (int) ($agg->active ?? 0),
+            'draft'      => (int) ($agg->draft ?? 0),
+            'sold'       => (int) ($agg->sold ?? 0),
+            'rentedOut'  => (int) ($agg->rented_out ?? 0),
+            'prospecting'=> (int) ($agg->prospecting ?? 0),
         ];
 
         // Sorting — whitelisted columns only

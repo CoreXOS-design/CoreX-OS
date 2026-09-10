@@ -129,15 +129,22 @@
                         </div>
                     @endif
 
-                    {{-- Listing type toggle — locked to Rental (no toggle rendered) when
-                         opened from the rental-application review screen; the server
-                         forces listing_type='rental' regardless, so a togglable control
-                         here would show fields for a mode the save will never honour. --}}
+                    {{-- Listing type toggle — locked (no toggle rendered) when:
+                         (a) opened from the rental-application review screen — the
+                             server forces listing_type='rental' regardless, or
+                         (b) AT-401 — editing an EXISTING match. A wishlist's type is
+                             set once at creation; ContactMatchController::update() /
+                             BuyerDetailController::updateWishlist() both ignore any
+                             submitted listing_type and keep the match's original, so
+                             a togglable control here would show fields for a mode the
+                             save will never honour — exactly the same reasoning as (a).
+                         In both cases the static label reflects the REAL locked value,
+                         never a hardcoded one. --}}
                     <div>
                         <label class="block text-xs font-semibold mb-2" style="color:var(--text-muted);">Listing Type</label>
                         <input type="hidden" name="listing_type" :value="listingType">
-                        @if($lockListingType)
-                            <span class="inline-block px-3 py-1.5 rounded-md text-xs font-semibold text-white" style="background:var(--brand-button, #0ea5e9);">Rental</span>
+                        @if($lockListingType || $isEdit)
+                            <span class="inline-block px-3 py-1.5 rounded-md text-xs font-semibold text-white" style="background:var(--brand-button, #0ea5e9);">{{ $initialListingType === 'rental' ? 'Rental' : 'For Sale' }}</span>
                         @else
                         <div class="inline-flex rounded-md p-0.5 gap-0.5" style="background:var(--surface); border:1px solid var(--border);">
                             <button type="button"

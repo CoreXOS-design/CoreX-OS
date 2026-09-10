@@ -2,13 +2,21 @@
 @extends('layouts.corex')
 
 @section('corex-content')
+@php
+    // AT-401 — the Rentals entry point is locked to tenant leads only, so the
+    // sale vocabulary ("buyer") throughout this shared view swaps to "tenant"
+    // whenever isRentalEntry is true. Same ONE-set-of-code pattern as the
+    // listing_type lock itself: a plain variable swap, never a forked view.
+    $personNoun = ($isRentalEntry ?? false) ? 'tenant' : 'buyer';
+    $personNounPlural = ($isRentalEntry ?? false) ? 'tenants' : 'buyers';
+@endphp
 <div class="w-full space-y-5">
     {{-- Header --}}
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div data-tour="buyers-intro">
-                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Buyer Pipeline</h1>
-                <p class="text-xs" style="color: var(--text-muted);">Track buyer lifecycle: New → Warm → Cold → Lost</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">{{ ($isRentalEntry ?? false) ? 'Rental Pipeline' : 'Buyer Pipeline' }}</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Track {{ $personNoun }} lifecycle: New → Warm → Cold → Lost</p>
             </div>
             <div class="flex flex-wrap items-center gap-2">
                 @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
@@ -67,7 +75,7 @@
              style="background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 12%, transparent); border: 1px solid color-mix(in srgb, var(--brand-icon, #0ea5e9) 30%, transparent);">
             <div class="min-w-0">
                 <div class="text-[10px] uppercase tracking-wider" style="color: var(--brand-icon, #0ea5e9);">
-                    Filtered to buyers matching prospecting listing
+                    Filtered to {{ $personNounPlural }} matching prospecting listing
                 </div>
                 <div class="text-sm font-semibold truncate mt-0.5" style="color: var(--text-primary);">
                     {{ $contextListing->address ?? ('Listing #' . $contextListing->id) }}
@@ -145,7 +153,7 @@
                                     <div class="mt-1">
                                         <span class="inline-block text-[10px] font-semibold px-1.5 py-0.5 rounded-md whitespace-nowrap"
                                               style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 15%, transparent); color: var(--ds-amber, #f59e0b);"
-                                              title="On the pipeline but has no countable wishlist (search criteria removed), so this buyer is excluded from all match figures. Add a wishlist to include them.">No core match · not in figures</span>
+                                              title="On the pipeline but has no countable wishlist (search criteria removed), so this {{ $personNoun }} is excluded from all match figures. Add a wishlist to include them.">No core match · not in figures</span>
                                     </div>
                                 @endunless
                                 <div class="flex items-center justify-between text-[10px] mt-1" style="color: var(--text-muted);">
@@ -169,7 +177,7 @@
                                 </a>
                             </div>
                         @empty
-                            <div class="py-6 text-center text-xs" style="color: var(--text-muted);">No buyers in this state</div>
+                            <div class="py-6 text-center text-xs" style="color: var(--text-muted);">No {{ $personNounPlural }} in this state</div>
                         @endforelse
                     </div>
                 </div>
@@ -211,7 +219,7 @@
                                 @unless($buyer->hasCountableWishlist())
                                     <span class="inline-block ml-2 text-[10px] font-semibold px-1.5 py-0.5 rounded-md align-middle whitespace-nowrap"
                                           style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 15%, transparent); color: var(--ds-amber, #f59e0b);"
-                                          title="On the pipeline but has no countable wishlist (search criteria removed), so this buyer is excluded from all match figures. Add a wishlist to include them.">No core match · not in figures</span>
+                                          title="On the pipeline but has no countable wishlist (search criteria removed), so this {{ $personNoun }} is excluded from all match figures. Add a wishlist to include them.">No core match · not in figures</span>
                                 @endunless
                             </td>
                             <td class="px-4 py-3">
@@ -234,7 +242,7 @@
                             </td>
                         </tr>
                     @empty
-                        <tr><td colspan="6" class="px-4 py-12 text-center text-sm" style="color: var(--text-muted);">No buyers found.</td></tr>
+                        <tr><td colspan="6" class="px-4 py-12 text-center text-sm" style="color: var(--text-muted);">No {{ $personNounPlural }} found.</td></tr>
                     @endforelse
                 </tbody>
             </table>
@@ -255,7 +263,7 @@
             <span class="text-xs px-2 py-0.5 rounded-full font-bold whitespace-nowrap" style="background: color-mix(in srgb, var(--ds-green, #059669) 15%, transparent); color: var(--ds-green, #059669);">{{ number_format($counts['won'] ?? $wonBuyers->count()) }}</span>
         </div>
         @if($wonBuyers->isEmpty())
-            <div class="px-4 py-4 text-xs" style="color: var(--text-muted);">No won buyers yet. When a buyer is linked to a property, they move here automatically.</div>
+            <div class="px-4 py-4 text-xs" style="color: var(--text-muted);">No won {{ $personNounPlural }} yet. When a {{ $personNoun }} is linked to a property, they move here automatically.</div>
         @else
             <div class="p-2 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
                 @foreach($wonBuyers as $buyer)

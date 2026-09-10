@@ -29,6 +29,17 @@ class BuyerPipelineController extends Controller
         $indexRouteName = $request->route()->getName();
         $isRentalEntry  = $indexRouteName === 'corex.rentals.pipeline.index';
 
+        // AT-401 — remembers which lens the user most recently entered the
+        // Pipeline through, so the sidebar (and the buyer-detail page's "Back
+        // to Buyer Pipeline" link) can keep pointing at "Rentals → Rental
+        // Pipeline" after navigating into a buyer card — command-center.
+        // buyers.show shares the same route names regardless of entry point,
+        // and unlike Properties/Core Matches it isn't opened in a new tab, so
+        // this is the MAIN path an agent takes out of this list. A
+        // UI-highlighting/return-link signal only — never used for the
+        // lead_type lock above, which always derives from the route name.
+        session(['corex.lens.pipeline' => $isRentalEntry]);
+
         // Rentals vs Sales (Johan) — a portal/enquiry buyer's derived wishlist carries the
         // enquired listing's listing_type (BuyerLeadCascadeService::deriveCriteria), so a
         // tenant/rental lead is separable from a buyer/sale lead by contact_matches.listing_type.

@@ -74,6 +74,14 @@ class ContactMatchController extends Controller
         $isRentalEntry        = $indexRouteName === 'corex.rentals.core-matches.index';
         $counterpartRouteName = $isRentalEntry ? 'corex.rentals.core-matches.all' : 'corex.core-matches.all';
 
+        // AT-401 — remembers which lens the user most recently entered Core
+        // Matches through, so the sidebar can keep highlighting "Rentals →
+        // Core Matches" on Edit/Results/etc. (corex.contacts.matches.*),
+        // which share the same route names regardless of entry point. A
+        // UI-highlighting signal only — never used for the listing_type lock
+        // above, which always derives from the route name itself.
+        session(['corex.lens.core_matches' => $isRentalEntry]);
+
         // AT-401 — listing_type lens, new to this screen (spec §3). Default
         // '' preserves today's behaviour (sale + rental mixed) for anyone
         // not using a Rentals entry point.
@@ -130,6 +138,10 @@ class ContactMatchController extends Controller
         $indexRouteName       = $request->route()->getName();
         $isRentalEntry        = $indexRouteName === 'corex.rentals.core-matches.all';
         $counterpartRouteName = $isRentalEntry ? 'corex.rentals.core-matches.index' : 'corex.core-matches.index';
+
+        // AT-401 — same lens-memory signal as index() above, for the exact
+        // same reason (nav highlighting on shared Edit/Results routes).
+        session(['corex.lens.core_matches' => $isRentalEntry]);
 
         $listingType = $request->query('listing_type', '');
         if ($isRentalEntry) {
@@ -255,7 +267,19 @@ class ContactMatchController extends Controller
     public function update(Request $request, Contact $contact, ContactMatch $match)
     {
         abort_if($match->contact_id !== $contact->id, 403);
-        $match->update($this->validatePayload($request));
+
+        $data = $this->validatePayload($request);
+
+        // AT-401 — a wishlist's listing_type is set once at creation and never
+        // switchable via edit, in any context: the criteria fields (property
+        // types, price bands, etc.) mean something different for a buyer than
+        // a tenant, and the edit form itself no longer renders a togglable
+        // control (_match-form.blade.php), so this is the authoritative lock,
+        // not a UI nicety. Any listing_type in the submitted payload is
+        // ignored; the match keeps whatever it already was.
+        $data['listing_type'] = $match->listing_type;
+
+        $match->update($data);
 
         return redirect()->route('corex.contacts.matches.results', [$contact, $match])
             ->with('success', 'Match updated.');
