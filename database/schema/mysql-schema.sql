@@ -12073,6 +12073,24 @@ CREATE TABLE `rental_application_document_requirements` (
   CONSTRAINT `rental_app_doc_req_doctype_fk` FOREIGN KEY (`document_type_id`) REFERENCES `document_types` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `rental_application_document_validity_windows`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `rental_application_document_validity_windows` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `purpose` varchar(30) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `document_type_id` bigint unsigned DEFAULT NULL,
+  `validity_days` smallint unsigned NOT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `rental_app_doc_validity_unique` (`agency_id`,`purpose`,`document_type_id`),
+  KEY `rental_app_doc_validity_doctype_fk` (`document_type_id`),
+  CONSTRAINT `rental_app_doc_validity_agency_fk` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `rental_app_doc_validity_doctype_fk` FOREIGN KEY (`document_type_id`) REFERENCES `document_types` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `rental_application_expense_items`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -16397,3 +16415,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1304,'2026_09_10_1
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1305,'2026_09_10_100000_grant_buyer_pipeline_view_alongside_core_matches_view',287);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1306,'2026_09_10_160000_add_current_rental_due_day_to_rental_applications',288);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1307,'2026_09_10_150000_create_rental_application_document_table',289);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1308,'2026_09_10_170000_create_rental_application_document_validity_windows_table',290);

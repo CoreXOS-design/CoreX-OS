@@ -6910,3 +6910,35 @@ Third landable slice. Johan, verbatim: *"Also build the other direction: the age
 - `app/Http/Controllers/CoreX/RentalApplicationAuthorisationController.php` — `show()` merges referenced documents (mirrors the agent controller), `guardDocumentBelongsToApplication()` accepts referenced docs
 - `routes/web.php` — `corex.rental-applications.documents.attach-existing`, `corex.rental-applications.documents.referenced-download`
 - `resources/views/corex/rental-applications/review.blade.php` — age display, "From contact's file" badge, pull-from-contact picker + JS, Split/download gated on ownership
+
+---
+
+## PDF Splitter Integration — validity windows and staleness warnings (AT-392, 2026-09-10, cc5) — BUILT — completes the PDF Splitter Integration item
+
+Fourth and final landable slice of the PDF Splitter Integration Johan re-prioritised in. His exact words: *"Validity windows are per document type PER PURPOSE, agency-configurable — 2 months for the rental application, 3 months for FICA including the ID copy. A stale document warns naming the purpose it fails and by how long, in plain language."*
+
+**No existing model fit** — checked before building, not assumed. `RentalApplicationDocumentRequirement`'s "$type" is `employment_type` (an entirely different axis — which document types are required per employment type, not how long a type stays valid per purpose). A genuinely new table was needed.
+
+**What shipped:**
+- **New model `RentalApplicationDocumentValidityWindow`** (migration `rental_application_document_validity_windows`: `agency_id`, `purpose` [`rental_application`|`fica`], `document_type_id` nullable, `validity_days`, unique on the triple). `document_type_id = null` is the purpose-wide default (Johan's own 2/3-month figures); a present `document_type_id` is a per-type override on top of it. No row at all for a purpose = the hardcoded 60/90-day fallback applies in-memory — reuses the exact "presence-row-as-configured-signal" pattern `RentalApplicationChecklistConfig` already established for the employment-type checklist, rather than inventing a second variant of the same idea.
+- **`RentalApplicationDocumentValidityWindow::daysFor($agencyId, $purpose, $documentTypeId)`** resolves type-override → purpose-default → shipped default, absorbing that three-way fallback once so no call site reimplements it.
+- **`::stalenessWarning($createdAt, $agencyId, $purpose, $documentTypeId)`** returns `null` when within window, or Johan's own required shape verbatim: *"This document is too old for {purpose} purposes — {N} days past the {window}-day limit."* — naming the purpose and the exact margin, in plain language, shown as-is by every caller with no further formatting.
+- **Wired in wherever a document is picked or reviewed on this screen** (Johan's own phrase): the Supporting Documents list (both owned and referenced/pulled documents, both agent and authoriser roles) and the "Attach from contact's file" picker from the previous slice — a stale document warns at the exact moment an agent is deciding whether to reuse it, not only after it's already attached. This purpose is always `'rental_application'` on this screen regardless of where a referenced document was originally filed — that's what it's being used FOR here.
+- **Settings UI**: a new section on the existing `corex.settings.rental-applications` screen (not a second settings home) — two purpose-wide default inputs, plus an Alpine-driven add/remove list of per-document-type overrides, one form, `updateValidityWindows()` (delete-then-recreate overrides, `updateOrCreate` the two purpose defaults — same shape `update()`'s checklist save already uses).
+- **A real bug found and fixed during verification, not shipped broken**: this codebase's Carbon returns a *float* from `diffInDays()` (fractional day precision), not a whole number — the first version of the warning sentence read "15.000000024387 days past the 60-day limit." Cast to `(int)` before the sentence is composed; re-verified clean ("15 days past...") after the fix.
+
+**Verified end-to-end** via the real controller (not just the model in isolation): unconfigured agency correctly gets 60/90 defaults → warning composes correctly for a stale document, stays null for a fresh one → saving custom settings (45-day default + a 20-day per-type override) through the real `updateValidityWindows()` route persists and is read back correctly, including confirming an unrelated document type still falls through to the new default rather than the override → settings screen renders the saved values → a genuinely aged document on QA1 application 15 (temporarily backdated, restored immediately after) shows the staleness badge on the real review screen. Test settings rows removed afterward (this table has no `SoftDeletes` — deliberately, mirroring its sibling `RentalApplicationDocumentRequirement`/`RentalApplicationChecklistConfig`, which are pure current-state configuration rows the product itself already hard-replaces on every save, not historical/business records — this is not the same category of hard-delete the no-hard-deletes rule is protecting).
+
+**Deliberately NOT in the Setup Wizard** — flagged as a question for Johan, not silently decided either way: `.ai/specs/rental-applications.md`'s own 2026-09-08 entry already records that NONE of this settings screen's other knobs (qualifying formula, RO/CO tiers, decline-email wording, the document checklist) have ever reached `config/agency-onboarding-copy.php` — a pre-existing gap already reported once and not yet resolved. This new setting was built to match that same screen's existing pattern rather than unilaterally fixing (or further entrenching) a gap that spans the whole module. Whether this specific setting — or the whole rental-applications settings cluster — belongs in the wizard is Johan's call to make, not a default to assume silently in either direction.
+
+### Files changed
+
+- `database/migrations/2026_09_10_170000_create_rental_application_document_validity_windows_table.php` — new
+- `database/schema/mysql-schema.sql` — re-dumped, `DEFINER` stripped
+- `app/Models/RentalApplicationDocumentValidityWindow.php` — new
+- `app/Http/Controllers/CoreX/RentalApplicationSettingsController.php` — `updateValidityWindows()`, `edit()` passes defaults/overrides
+- `app/Http/Controllers/CoreX/RentalApplicationReviewController.php` — `staleness_warning` on every document row + the picker
+- `app/Http/Controllers/CoreX/RentalApplicationAuthorisationController.php` — `staleness_warning` on every document row (mirrors the agent controller)
+- `routes/web.php` — `corex.settings.rental-applications.validity-windows`
+- `resources/views/corex/settings/rental-applications.blade.php` — new Document Validity Windows section
+- `resources/views/corex/rental-applications/review.blade.php` — staleness badge on documents and the picker

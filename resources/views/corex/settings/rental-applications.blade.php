@@ -60,6 +60,60 @@
         </div>
     </form>
 
+    {{-- AT-392 — Johan: "validity windows are per document type PER
+         PURPOSE, agency-configurable — 2 months for the rental application,
+         3 months for FICA including the ID copy. A stale document warns
+         naming the purpose it fails and by how long, in plain language."
+         Separate form/route, same reasoning as every other section on this
+         page — one save can never interfere with another. --}}
+    <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);"
+         x-data="{ rows: {{ Js::from($validityOverrides->map(fn ($o) => ['purpose' => $o->purpose, 'document_type_id' => $o->document_type_id, 'validity_days' => $o->validity_days])->values()) }} }">
+        <h2 class="text-sm font-semibold mb-1" style="color: var(--text-primary);">Document Validity Windows</h2>
+        <p class="text-xs mb-3" style="color: var(--text-muted);">
+            How old a supporting document may be before an agent sees a staleness warning on it. Applies wherever a
+            document is picked or reviewed on the rental-application screen — never blocks anything by itself.
+        </p>
+        <form method="POST" action="{{ route('corex.settings.rental-applications.validity-windows') }}" class="space-y-4">
+            @csrf
+            <div class="grid grid-cols-2 gap-4 max-w-md">
+                @foreach(\App\Models\RentalApplicationDocumentValidityWindow::PURPOSES as $purpose)
+                    <label class="text-xs font-medium" style="color: var(--text-primary);">
+                        {{ \App\Models\RentalApplicationDocumentValidityWindow::PURPOSE_LABELS[$purpose] }} default (days)
+                        <input type="number" min="1" max="730" name="defaults[{{ $purpose }}]" value="{{ $validityDefaults[$purpose] }}"
+                               class="mt-1 block w-full rounded-md text-sm" style="border: 1px solid var(--border); padding: 6px 8px;">
+                    </label>
+                @endforeach
+            </div>
+
+            <div>
+                <h3 class="text-xs font-semibold mb-2" style="color: var(--text-primary);">Per-document-type overrides</h3>
+                <template x-for="(row, i) in rows" :key="i">
+                    <div class="flex items-center gap-2 mb-2 text-xs">
+                        <select :name="'overrides[' + i + '][purpose]'" x-model="row.purpose" class="rounded-md" style="border: 1px solid var(--border); padding: 4px 6px;">
+                            @foreach(\App\Models\RentalApplicationDocumentValidityWindow::PURPOSES as $purpose)
+                                <option value="{{ $purpose }}">{{ \App\Models\RentalApplicationDocumentValidityWindow::PURPOSE_LABELS[$purpose] }}</option>
+                            @endforeach
+                        </select>
+                        <select :name="'overrides[' + i + '][document_type_id]'" x-model.number="row.document_type_id" class="rounded-md flex-1" style="border: 1px solid var(--border); padding: 4px 6px;">
+                            <option value="">Document type…</option>
+                            @foreach($documentTypes as $dt)
+                                <option value="{{ $dt->id }}">{{ $dt->label }}</option>
+                            @endforeach
+                        </select>
+                        <input type="number" min="1" max="730" :name="'overrides[' + i + '][validity_days]'" x-model.number="row.validity_days" placeholder="days" class="w-20 rounded-md" style="border: 1px solid var(--border); padding: 4px 6px;">
+                        <button type="button" @click="rows.splice(i, 1)" style="color: var(--ds-red, #dc2626);">Remove</button>
+                    </div>
+                </template>
+                <button type="button" @click="rows.push({purpose: 'rental_application', document_type_id: '', validity_days: 60})"
+                        class="text-xs font-medium" style="color: var(--brand-icon, #2563eb);">+ Add override</button>
+            </div>
+
+            <div class="flex justify-end">
+                <button type="submit" class="corex-btn-primary text-xs">Save Validity Windows</button>
+            </div>
+        </form>
+    </div>
+
     {{-- AT-392 Phase 2 — Johan: "qualifying formula - agency can set this."
          Separate <form>/route so this save can never interfere with the
          checklist form above.

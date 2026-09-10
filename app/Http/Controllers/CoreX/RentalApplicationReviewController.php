@@ -11,6 +11,7 @@ use App\Models\Document;
 use App\Models\RentalApplication;
 use App\Models\RentalApplicationAssessment;
 use App\Models\RentalApplicationDocumentHighlight;
+use App\Models\RentalApplicationDocumentValidityWindow;
 use App\Models\RentalApplicationExpenseItem;
 use App\Models\RentalApplicationIncomeItem;
 use App\Models\RentalApplicationQualifyingSetting;
@@ -133,14 +134,23 @@ class RentalApplicationReviewController extends Controller
             ->whereNotNull('highlighted_file_path')
             ->pluck('id', 'document_id');
 
-        $documents = $rentalApplication->documents->map(function (Document $document) use ($highlightedByDocId) {
+        // AT-392 — Johan: "a stale document warns naming the purpose it
+        // fails and by how long, in plain language." This screen's purpose
+        // is always 'rental_application', regardless of where a referenced
+        // document was originally filed — that's what it's being used FOR
+        // here, not where it came from.
+        $agencyId = (int) $rentalApplication->agency_id;
+        $documents = $rentalApplication->documents->map(function (Document $document) use ($highlightedByDocId, $agencyId) {
             return [
                 'document' => $document,
                 'inline_viewable' => $this->isInlineViewable($document->mime_type),
                 'has_highlights' => $highlightedByDocId->has($document->id),
                 'pulled_from_contact' => false,
+                'staleness_warning' => RentalApplicationDocumentValidityWindow::stalenessWarning(
+                    $document->created_at, $agencyId, 'rental_application', $document->document_type_id
+                ),
             ];
-        })->concat($rentalApplication->referencedDocuments->map(function (Document $document) use ($highlightedByDocId) {
+        })->concat($rentalApplication->referencedDocuments->map(function (Document $document) use ($highlightedByDocId, $agencyId) {
             // AT-392 "pull from contact" — filed elsewhere (source_type/
             // source_id untouched), only REFERENCED here. Never eligible for
             // Split (that would archive a document another context owns)
@@ -152,6 +162,9 @@ class RentalApplicationReviewController extends Controller
                 'inline_viewable' => $this->isInlineViewable($document->mime_type),
                 'has_highlights' => $highlightedByDocId->has($document->id),
                 'pulled_from_contact' => true,
+                'staleness_warning' => RentalApplicationDocumentValidityWindow::stalenessWarning(
+                    $document->created_at, $agencyId, 'rental_application', $document->document_type_id
+                ),
             ];
         }));
 
@@ -266,11 +279,19 @@ class RentalApplicationReviewController extends Controller
                 ->latest('documents.created_at')
                 ->get()
             : collect();
+        // "Document age shows wherever an agent picks OR reviews a
+        // document" — the picker is exactly a "picks" moment, so it gets
+        // the same staleness check as the main list, keyed by id rather
+        // than folded into the row shape (the Blade iterates plain Document
+        // objects here, unlike $documents above).
+        $pickableStaleness = $pickableContactDocuments->mapWithKeys(fn (Document $d) => [
+            $d->id => RentalApplicationDocumentValidityWindow::stalenessWarning($d->created_at, $agencyId, 'rental_application', $d->document_type_id),
+        ]);
 
         return view('corex.rental-applications.review', compact(
             'rentalApplication', 'assessment', 'maxRentPercent', 'result', 'documents', 'moreInfoRequestedNote', 'declineInfo', 'highlighters',
             'viewerRole', 'auditLog', 'auditLogTotal', 'existingWishlist', 'matchCategories', 'matchTypes', 'featureOptions',
-            'rentalPropertyTypeNames', 'wishlistPrefill', 'pickableContactDocuments'
+            'rentalPropertyTypeNames', 'wishlistPrefill', 'pickableContactDocuments', 'pickableStaleness'
         ))->with('isPendingAuthorisation', $rentalApplication->isPendingAuthorisation());
     }
 

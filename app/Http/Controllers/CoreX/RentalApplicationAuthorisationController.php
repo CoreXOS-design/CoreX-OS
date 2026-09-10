@@ -8,6 +8,7 @@ use App\Models\Document;
 use App\Models\RentalApplication;
 use App\Models\RentalApplicationAssessment;
 use App\Models\RentalApplicationDocumentHighlight;
+use App\Models\RentalApplicationDocumentValidityWindow;
 use App\Models\RentalApplicationExpenseItem;
 use App\Models\RentalApplicationIncomeItem;
 use App\Models\RentalApplicationQualifyingSetting;
@@ -200,19 +201,26 @@ class RentalApplicationAuthorisationController extends Controller
             ->whereNotNull('highlighted_file_path')
             ->pluck('id', 'document_id');
 
-        $documents = $rentalApplication->documents->map(function (Document $document) use ($highlightedByDocId) {
+        $agencyId = (int) $rentalApplication->agency_id;
+        $documents = $rentalApplication->documents->map(function (Document $document) use ($highlightedByDocId, $agencyId) {
             return [
                 'document' => $document,
                 'inline_viewable' => $this->isInlineViewable($document->mime_type),
                 'has_highlights' => $highlightedByDocId->has($document->id),
                 'pulled_from_contact' => false,
+                'staleness_warning' => RentalApplicationDocumentValidityWindow::stalenessWarning(
+                    $document->created_at, $agencyId, 'rental_application', $document->document_type_id
+                ),
             ];
-        })->concat($rentalApplication->referencedDocuments->map(function (Document $document) use ($highlightedByDocId) {
+        })->concat($rentalApplication->referencedDocuments->map(function (Document $document) use ($highlightedByDocId, $agencyId) {
             return [
                 'document' => $document,
                 'inline_viewable' => $this->isInlineViewable($document->mime_type),
                 'has_highlights' => $highlightedByDocId->has($document->id),
                 'pulled_from_contact' => true,
+                'staleness_warning' => RentalApplicationDocumentValidityWindow::stalenessWarning(
+                    $document->created_at, $agencyId, 'rental_application', $document->document_type_id
+                ),
             ];
         }));
 

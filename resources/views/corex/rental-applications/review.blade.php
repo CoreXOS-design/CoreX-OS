@@ -414,6 +414,13 @@
                                              picks or reviews a document." Plain age, every document,
                                              both roles — title carries the exact timestamp. --}}
                                         <span style="color: var(--text-muted); font-size: 11px;" title="{{ $document->created_at->format('d M Y H:i') }}">— {{ $document->created_at->diffForHumans() }}</span>
+                                        @if($row['staleness_warning'])
+                                            {{-- AT-392 — Johan: "a stale document warns naming the
+                                                 purpose it fails and by how long, in plain language."
+                                                 RentalApplicationDocumentValidityWindow::stalenessWarning()
+                                                 already composed the exact sentence — shown verbatim. --}}
+                                            <span class="ds-badge ds-badge-warning" title="{{ $row['staleness_warning'] }}">{{ $row['staleness_warning'] }}</span>
+                                        @endif
                                         @if($row['pulled_from_contact'])
                                             {{-- AT-392 "pull from contact" — filed elsewhere, only
                                                  referenced here (rental_application_document pivot);
@@ -527,6 +534,9 @@
                                             <span style="color: var(--text-muted);" title="{{ $existing->created_at->format('d M Y H:i') }}">— {{ $existing->created_at->diffForHumans() }}</span>
                                             @if($existing->documentType)
                                                 <span class="ds-badge ds-badge-default">{{ $existing->documentType->label }}</span>
+                                            @endif
+                                            @if($pickableStaleness[$existing->id] ?? null)
+                                                <span class="ds-badge ds-badge-warning" title="{{ $pickableStaleness[$existing->id] }}">{{ $pickableStaleness[$existing->id] }}</span>
                                             @endif
                                         </span>
                                         <button type="button" style="color: var(--brand-icon, #2563eb); font-weight: 600;"

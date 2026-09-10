@@ -2839,6 +2839,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // AT-392 authoriser flow, 2026-09-08 — decline email wording, same settings screen.
     Route::post('/settings/rental-applications/decline-email', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateDeclineEmail'])
         ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.decline-email');
+    // AT-392 — validity windows per document type per purpose.
+    Route::post('/settings/rental-applications/validity-windows', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateValidityWindows'])
+        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.validity-windows');
     // AT-392 authoriser flow, 2026-09-08 — RO/CO tiers, same settings screen.
     Route::post('/settings/rental-applications/ro', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateRO'])
         ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.ro');

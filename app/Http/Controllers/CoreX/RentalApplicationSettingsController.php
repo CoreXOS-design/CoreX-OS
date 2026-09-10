@@ -10,10 +10,12 @@ use App\Models\RentalApplicationApprovalEmailSetting;
 use App\Models\RentalApplicationChecklistConfig;
 use App\Models\RentalApplicationDeclineEmailSetting;
 use App\Models\RentalApplicationDocumentRequirement;
+use App\Models\RentalApplicationDocumentValidityWindow;
 use App\Models\RentalApplicationHighlighter;
 use App\Models\RentalApplicationQualifyingSetting;
 use App\Models\User;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 
 /**
@@ -114,8 +116,24 @@ class RentalApplicationSettingsController extends Controller
         );
         $archivedHighlighters = $archivedHighlightersQuery->paginate(10, ['*'], 'highlighter_archived_page')->withQueryString();
 
+        // AT-392 — Johan: "validity windows are per document type PER
+        // PURPOSE, agency-configurable — 2 months for the rental
+        // application, 3 months for FICA including the ID copy." The
+        // purpose-wide defaults (document_type_id null) and the per-type
+        // overrides are shown separately so the screen is honest about
+        // which is which, same "isConfigured" honesty principle as the
+        // checklist section above.
+        $validityDefaults = [];
+        foreach (RentalApplicationDocumentValidityWindow::PURPOSES as $purpose) {
+            $validityDefaults[$purpose] = RentalApplicationDocumentValidityWindow::daysFor($agencyId, $purpose, null);
+        }
+        $validityOverrides = RentalApplicationDocumentValidityWindow::where('agency_id', $agencyId)
+            ->whereNotNull('document_type_id')
+            ->with('documentType')
+            ->get();
+
         return view('corex.settings.rental-applications', compact(
-            'documentTypes', 'checklists', 'isConfigured', 'qualifyingMaxRentPercent', 'qualifyingExceedsLegalCeiling', 'agencyUsers', 'roUserIds', 'coUserIds', 'declineEmail', 'reopenLinkExpiryDays', 'maxPropertiesInEmail', 'activeHighlighters', 'archivedHighlighters', 'highlighterQuery', 'highlighterArchivedSort'
+            'documentTypes', 'checklists', 'isConfigured', 'qualifyingMaxRentPercent', 'qualifyingExceedsLegalCeiling', 'agencyUsers', 'roUserIds', 'coUserIds', 'declineEmail', 'reopenLinkExpiryDays', 'maxPropertiesInEmail', 'activeHighlighters', 'archivedHighlighters', 'highlighterQuery', 'highlighterArchivedSort', 'validityDefaults', 'validityOverrides'
         ));
     }
 
@@ -326,5 +344,50 @@ class RentalApplicationSettingsController extends Controller
 
         return redirect()->route('corex.settings.rental-applications.edit')
             ->with('success', 'Rental application document checklist saved.');
+    }
+
+    /**
+     * AT-392 — Johan: "validity windows are per document type PER PURPOSE,
+     * agency-configurable." One form submits both purpose-wide defaults and
+     * the full set of per-type overrides together — same delete-then-
+     * recreate shape as update() above, so a removed override genuinely
+     * disappears rather than lingering as an orphaned row.
+     */
+    public function updateValidityWindows(Request $request)
+    {
+        $agencyId = $request->user()->effectiveAgencyId();
+
+        $validated = $request->validate([
+            'defaults' => ['required', 'array'],
+            'defaults.rental_application' => ['required', 'integer', 'min:1', 'max:730'],
+            'defaults.fica' => ['required', 'integer', 'min:1', 'max:730'],
+            'overrides' => ['nullable', 'array'],
+            'overrides.*.purpose' => ['required_with:overrides.*.document_type_id', Rule::in(RentalApplicationDocumentValidityWindow::PURPOSES)],
+            'overrides.*.document_type_id' => ['required_with:overrides.*.purpose', 'integer', 'exists:document_types,id'],
+            'overrides.*.validity_days' => ['required_with:overrides.*.purpose', 'integer', 'min:1', 'max:730'],
+        ]);
+
+        foreach (RentalApplicationDocumentValidityWindow::PURPOSES as $purpose) {
+            RentalApplicationDocumentValidityWindow::updateOrCreate(
+                ['agency_id' => $agencyId, 'purpose' => $purpose, 'document_type_id' => null],
+                ['validity_days' => $validated['defaults'][$purpose]],
+            );
+        }
+
+        RentalApplicationDocumentValidityWindow::where('agency_id', $agencyId)
+            ->whereNotNull('document_type_id')
+            ->delete();
+
+        foreach ($validated['overrides'] ?? [] as $row) {
+            RentalApplicationDocumentValidityWindow::create([
+                'agency_id' => $agencyId,
+                'purpose' => $row['purpose'],
+                'document_type_id' => $row['document_type_id'],
+                'validity_days' => $row['validity_days'],
+            ]);
+        }
+
+        return redirect()->route('corex.settings.rental-applications.edit')
+            ->with('success', 'Document validity windows saved.');
     }
 }
