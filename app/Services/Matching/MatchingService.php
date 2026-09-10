@@ -30,12 +30,50 @@ class MatchingService
     public const TIER_FAIR_MIN   = 50;
 
     /**
-     * Property statuses considered valid for each listing intent. A sale match
-     * must never surface a rental listing's status and vice versa.
+     * Relaxed-mode price tolerance (.ai/specs/matches.md §5.1 — "price_min /
+     * price_max | Relaxed | +/-30% band").
+     *
+     * ONE number, shared by the SQL candidate query AND by score()'s price hard
+     * gate. 2026-09-10: those two had drifted apart. propertiesForMatch()
+     * widened the SQL bound by 30% and then called score() WITHOUT a band, so
+     * the gate re-cut at the exact stated ceiling and returned 0 — the widened
+     * rows were fetched only to be thrown away, and the relaxed near-miss
+     * surfacing the spec describes had never actually worked. The price gate's
+     * own docblock already claimed it gated on "the SAME tolerance-widened
+     * band"; it simply was never handed one. Named here so SQL and scorer can
+     * never disagree again — BUILD_STANDARD §6 (fix the class).
      */
-    private const STATUS_BY_LISTING_TYPE = [
-        'sale'   => ['for_sale', 'forsale', 'active', 'available', 'on_market'],
-        'rental' => ['for_rent', 'forrent', 'to_rent', 'torent', 'available_rent', 'active'],
+    public const RELAXED_PRICE_BAND = 0.30;
+
+    /**
+     * Statuses that belong to the OPPOSITE listing intent — the belt-and-braces
+     * cross-check that stops a property mis-tagged with the wrong listing_type
+     * (but a correct status) from slipping through.
+     *
+     * 2026-09-10 (Johan, live bug — contact 18900 / match 671 showed ZERO
+     * rentals): this used to be a WHITELIST (STATUS_BY_LISTING_TYPE) of the
+     * statuses each intent was ALLOWED to carry. A whitelist fails CLOSED on
+     * any status it has not heard of, and the rental list never contained
+     * `to_let` — CoreX's own canonical on-market rental status
+     * (Property::systemStatuses(), Property.php "the four on-market pickers
+     * active/for_sale/to_let/under_offer"). Result: 19 of agency 1's 26 live
+     * rentals were discarded before a single one was scored, silently, with no
+     * error anywhere. `under_offer`, `on_show`, `on_auction` and every
+     * agency-defined status in PropertySettingItem were dropped by the same
+     * mechanism.
+     *
+     * Inverted to a BLACKLIST so the check fails OPEN: only a status that is
+     * unambiguously the OTHER market's excludes. A neutral status (active,
+     * under_offer, on_show, available, or anything an agency defines for
+     * itself) passes either way, and a status nobody has taught this class
+     * about can never again silently delete live stock — BUILD_STANDARD §2
+     * (the input-space rule) and §3 (prevent or absorb, never break).
+     */
+    private const WRONG_INTENT_STATUSES = [
+        // A SALE match must never surface a listing sitting on a rental status.
+        'sale'   => ['to_let', 'to_rent', 'torent', 'for_rent', 'forrent', 'available_rent', 'let_out', 'rented'],
+        // A RENTAL match must never surface a listing sitting on a sale status.
+        'rental' => ['for_sale', 'forsale', 'on_auction', 'sold', 'sold_by_3rd_party', 'transferred'],
     ];
 
     /** Allowed values for the agency `matches_visibility_scope` setting. */
@@ -146,16 +184,48 @@ class MatchingService
      * agent match emails. Fix-the-class — one list, one normalised predicate
      * (isMatchableStatus), every matching entry point routed through it.
      */
-    private const NON_MATCHABLE_STATUSES = [
-        // AT-350 — a property another agency sold is as unavailable to our buyers
-        // as one we sold ourselves. Omitting it would leak exactly what the note
-        // above records leaking for 'Sold': match emails to agents, offering
-        // buyers a house that has already changed hands. The comparison below is
-        // an exact in_array, so the value has to be listed literally.
-        'sold', 'sold_by_3rd_party', 'transferred', 'rented', 'let_out',
-        'withdrawn', 'expired', 'cancelled',
-        'unavailable', 'archived', 'draft', 'pending',
-    ];
+    /**
+     * Matching-only additions to Property::OFF_MARKET_STATUSES — portal-fed
+     * values that mean "off the market" but are not part of CoreX's own
+     * write-side vocabulary, so they do not belong in the model constant.
+     * 'rented' is P24's let-concluded value (CoreX writes 'let_out').
+     */
+    private const NON_MATCHABLE_EXTRA_STATUSES = ['rented', 'pending'];
+
+    /**
+     * THE off-market list, DERIVED from Property::OFF_MARKET_STATUSES rather
+     * than restated here.
+     *
+     * 2026-09-10: this was a hand-maintained literal that had already drifted
+     * from the model constant it duplicates — it was missing `prospecting` and
+     * `not_selling`, so ingested-but-unmandated stock (stock we do not hold a
+     * mandate on at all) was matchable and could be offered to buyers. The
+     * model constant's own docblock says to use it "everywhere instead of
+     * re-listing these literals — see BUILD_STANDARD §6 (fix the class)"; this
+     * class was the instance that ignored it. Derived now, so it cannot drift
+     * again.
+     *
+     * @return string[]
+     */
+    public static function nonMatchableStatuses(): array
+    {
+        return array_values(array_unique(array_merge(
+            Property::OFF_MARKET_STATUSES,
+            self::NON_MATCHABLE_EXTRA_STATUSES,
+        )));
+    }
+
+    /**
+     * The same list as a quoted, comma-joined SQL fragment for the three
+     * `LOWER(TRIM(status)) NOT IN (...)` clauses below. Values are class
+     * constants, never user input.
+     */
+    private static function nonMatchableStatusesSql(): string
+    {
+        return collect(self::nonMatchableStatuses())
+            ->map(fn ($s) => "'" . addslashes($s) . "'")
+            ->implode(',');
+    }
 
     /**
      * Case-insensitive match-eligibility test for a property's lifecycle status.
@@ -184,7 +254,7 @@ class MatchingService
             return false;
         }
 
-        return !in_array($s, self::NON_MATCHABLE_STATUSES, true);
+        return !in_array($s, self::nonMatchableStatuses(), true);
     }
 
     /**
@@ -267,7 +337,7 @@ class MatchingService
             ->where(function (Builder $sub) {
                 $sub->whereNull('status')
                     ->orWhereRaw('LOWER(TRIM(status)) NOT IN ('
-                        . collect(self::NON_MATCHABLE_STATUSES)->map(fn ($s) => "'$s'")->implode(',')
+                        . self::nonMatchableStatusesSql()
                         . ')');
             });
 
@@ -341,14 +411,16 @@ class MatchingService
         if ($listingType) {
             $query->where('listing_type', $listingType);
 
-            // Belt-and-braces: also constrain by status so a property mis-tagged
-            // with the wrong listing_type but correct status doesn't slip through.
-            $allowedStatuses = self::STATUS_BY_LISTING_TYPE[$listingType] ?? null;
-            if ($allowedStatuses) {
-                $query->where(function (Builder $sub) use ($allowedStatuses) {
+            // Belt-and-braces: also exclude a property mis-tagged with the wrong
+            // listing_type but sitting on the OTHER market's status. Blacklist,
+            // not whitelist — see WRONG_INTENT_STATUSES for why (a whitelist
+            // silently ate every `to_let` rental in the agency).
+            $wrongIntent = self::WRONG_INTENT_STATUSES[$listingType] ?? null;
+            if ($wrongIntent) {
+                $query->where(function (Builder $sub) use ($wrongIntent) {
                     $sub->whereNull('status')
-                        ->orWhereRaw('LOWER(status) IN ('
-                            . collect($allowedStatuses)->map(fn ($s) => "'$s'")->implode(',')
+                        ->orWhereRaw('LOWER(TRIM(status)) NOT IN ('
+                            . collect($wrongIntent)->map(fn ($s) => "'" . addslashes($s) . "'")->implode(',')
                             . ')');
                 });
             }
@@ -357,16 +429,29 @@ class MatchingService
         if ($category)          $strLoose($query, 'category', $category);
         if (!empty($propertyTypes)) $strLooseIn($query, 'property_type', $propertyTypes);
 
-        // Numeric criteria: allow NULL on the property side too.
+        // Numeric criteria: a property-side value that is NULL *or 0* means the
+        // listing simply hasn't captured that figure, and an incomplete listing
+        // is never penalised.
+        //
+        // 2026-09-10 (Johan, live bug — match 671): this used to tolerate NULL
+        // only, so a captured-but-unpriced listing (price = 0) was deleted here
+        // as though it cost nothing and therefore fell below every buyer's
+        // minimum. score() has ALWAYS read 0 the other way — its price gate says
+        // "Only gates when the PROPERTY reports a price: 0/null price is
+        // incomplete data, not a mismatch", and its beds gate says the same for
+        // 0 beds. So the SQL pre-filter was throwing away rows the scorer would
+        // have happily scored (the St Michaels On Sea 2-bed scored 60 and was
+        // never seen). Same class as the status whitelist above: two halves of
+        // one engine disagreeing about what "missing" means. They agree now.
         $numLoose = function (Builder $q, string $col, string $op, int $val) {
             $q->where(function (Builder $q2) use ($col, $op, $val) {
-                $q2->whereNull($col)->orWhere($col, $op, $val);
+                $q2->whereNull($col)->orWhere($col, 0)->orWhere($col, $op, $val);
             });
         };
         // In relaxed mode the SQL bound is widened into a tolerance band so a
         // near-miss survives to the scoring stage — score() then decays it and
         // the MIN_SCORE_TO_DISPLAY floor drops anything genuinely too far off.
-        $priceTol = $relaxed ? 0.30 : 0.0;  // ±30% price band
+        $priceTol = $relaxed ? self::RELAXED_PRICE_BAND : 0.0;  // ±30% price band
         $countTol = $relaxed ? 1    : 0;    // allow 1 short on beds / baths / garages
         $sizeTol  = $relaxed ? 0.30 : 0.0;  // ±30% floor / erf size band
 
@@ -388,8 +473,10 @@ class MatchingService
 
         return $query->with(['agent', 'branch'])
             ->get()
-            ->map(function (Property $p) use ($match) {
-                $sc = $this->score($p, $match);
+            ->map(function (Property $p) use ($match, $priceTol) {
+                // $priceTol, not 0.0 — the scorer's price gate must use the same
+                // band the SQL above widened by. See RELAXED_PRICE_BAND.
+                $sc = $this->score($p, $match, $priceTol);
                 $p->setAttribute('match_score', $sc);
                 $p->setAttribute('match_tier', self::tierFor($sc));
                 return $p;
@@ -490,7 +577,7 @@ class MatchingService
             ->where(function (Builder $sub) {
                 $sub->whereNull('status')
                     ->orWhereRaw('LOWER(TRIM(status)) NOT IN ('
-                        . collect(self::NON_MATCHABLE_STATUSES)->map(fn ($s) => "'$s'")->implode(',')
+                        . self::nonMatchableStatusesSql()
                         . ')');
             });
         if ($agencyId) {
@@ -516,7 +603,7 @@ class MatchingService
         // Both callers always evaluate in relaxed mode — same as
         // propertiesForMatch()'s default ($overrides['relaxed'] never set by
         // either).
-        $priceTol = 0.30;
+        $priceTol = self::RELAXED_PRICE_BAND;
         $countTol = 1;
         $sizeTol  = 0.30;
 
@@ -529,8 +616,10 @@ class MatchingService
             if ($p->listing_type !== $listingType) {
                 return false;
             }
-            $allowedStatuses = self::STATUS_BY_LISTING_TYPE[$listingType] ?? null;
-            if ($allowedStatuses !== null && $p->status !== null && !in_array(strtolower($p->status), $allowedStatuses, true)) {
+            // Mirror of propertiesForMatch()'s WRONG_INTENT_STATUSES clause.
+            $wrongIntent = self::WRONG_INTENT_STATUSES[$listingType] ?? null;
+            if ($wrongIntent !== null && $p->status !== null
+                && in_array(strtolower(trim((string) $p->status)), $wrongIntent, true)) {
                 return false;
             }
         }
@@ -546,8 +635,11 @@ class MatchingService
         }
 
         $numLooseOk = function ($val, string $op, int $threshold): bool {
-            if ($val === null) {
-                return true; // property side NULL is never penalised
+            // NULL or 0 = the listing never captured this figure. Mirrors
+            // propertiesForMatch()'s $numLoose and score()'s own gates, which
+            // both read 0 as "incomplete", not as a real value of zero.
+            if ($val === null || (int) $val === 0) {
+                return true; // incomplete listings are never penalised
             }
             return $op === '>=' ? ((int) $val >= $threshold) : ((int) $val <= $threshold);
         };
