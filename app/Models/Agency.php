@@ -25,6 +25,23 @@ class Agency extends Model
         static::created(function (Agency $agency) {
             \App\Services\RoleProvisioningService::provisionForAgency($agency);
         });
+
+        // Keep the find() memo (below) from ever serving a stale copy. A save
+        // reached via any path OTHER than the memoized find() itself (e.g.
+        // Agency::findOrFail($id)->save(), ::create(), ::update()) never
+        // touches $findMemo, so a later Agency::find($id) in the same
+        // request/process would otherwise return the pre-save instance.
+        // Overwriting the entry on every save (restore() calls save()
+        // internally, so this covers restore too) and dropping it on delete
+        // (soft or forced) keeps the memo correct regardless of which path
+        // wrote the row.
+        static::saved(function (Agency $agency) {
+            self::$findMemo[$agency->getKey()] = $agency;
+        });
+
+        static::deleted(function (Agency $agency) {
+            unset(self::$findMemo[$agency->getKey()]);
+        });
     }
 
     /**
