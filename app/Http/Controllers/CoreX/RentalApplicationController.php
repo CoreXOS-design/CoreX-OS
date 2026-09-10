@@ -216,8 +216,15 @@ class RentalApplicationController extends Controller
     {
         $q = trim((string) $request->query('q', ''));
 
+        // 2026-09-10 — applies the SAME scopeVisibleTo() the write paths now
+        // enforce (Property::findLinkableForRentalApplication()), so the
+        // picker never offers a property the agent couldn't actually link —
+        // a branch/own-restricted agent used to see the whole agency's
+        // rental stock here and only find out it wasn't linkable after
+        // picking it and getting refused.
         $properties = Property::query()
             ->where('listing_type', 'rental')
+            ->visibleTo($request->user())
             ->when($q !== '', fn ($query) => $query->where(function ($w) use ($q) {
                 $w->where('address', 'like', "%{$q}%")->orWhere('title', 'like', "%{$q}%");
             }))
@@ -234,15 +241,34 @@ class RentalApplicationController extends Controller
     /**
      * AT-392 spec §1 — contact required, everything else optional. Nothing
      * here may block a send (BUILD_STANDARD §2, the input-space rule).
+     *
+     * property_id, 2026-09-10 — same cross-tenant class cc1 found on the
+     * review screen's link-property endpoint (`exists:properties,id` is a
+     * raw, unscoped query). Note contact_id does NOT share this bug despite
+     * the same-looking `exists:contacts,id` rule: `Contact::findOrFail()`
+     * three lines below goes through the model, so AgencyScope already
+     * 404s a cross-agency contact_id before RentalApplication::create() is
+     * ever reached — checked, not assumed, before leaving it untouched.
      */
     public function store(Request $request)
     {
         $validated = $request->validate([
             'contact_id' => ['required', 'integer', 'exists:contacts,id'],
-            'property_id' => ['nullable', 'integer', 'exists:properties,id'],
+            'property_id' => ['nullable', 'integer'],
         ]);
 
         $contact = Contact::findOrFail($validated['contact_id']);
+
+        $requestedPropertyId = $validated['property_id'] ?? null;
+        $property = Property::findLinkableForRentalApplication($requestedPropertyId, $request->user());
+        if ($requestedPropertyId !== null && $property === null) {
+            \Illuminate\Support\Facades\Log::warning('AT-392 rental application create: refused cross-tenant/out-of-scope property_id', [
+                'user_id' => $request->user()->id,
+                'agency_id' => $request->user()->effectiveAgencyId(),
+                'requested_property_id' => $requestedPropertyId,
+            ]);
+            abort(403, "You don't have access to that property, so it can't be linked to this application. Search for it above rather than entering an id directly.");
+        }
 
         // Johan, QA1 — "have not even sent anything, yet top left shows
         // sent?" status starts 'draft' (true starting state — nothing has
@@ -255,7 +281,7 @@ class RentalApplicationController extends Controller
             $this->prefillFromContact($contact),
             [
                 'contact_id' => $contact->id,
-                'property_id' => $validated['property_id'] ?? null,
+                'property_id' => $property?->id,
                 'branch_id' => $request->user()->effectiveBranchId(),
                 'created_by_user_id' => $request->user()->id,
                 'status' => 'draft',
@@ -344,7 +370,7 @@ class RentalApplicationController extends Controller
      * softer warn-then-save), with `old()` preserving everything the
      * SECOND tab typed so reloading and redoing the edit costs nothing.
      */
-    public function update(Request $request, RentalApplication $rentalApplication)
+    public function update(Request $request, RentalApplication $rentalApplication, \App\Services\RentalApplications\RentalApplicationAuditService $audit)
     {
         $this->guardRentalApplication($rentalApplication);
 
@@ -375,8 +401,30 @@ class RentalApplicationController extends Controller
         $request->merge(RentalApplication::sanitizeNumericInput($request->only(RentalApplication::NUMERIC_FIELDS)));
 
         $validated = $request->validate(array_merge(RentalApplication::fieldValidationRules(), [
-            'property_id' => ['nullable', 'integer', 'exists:properties,id'],
+            'property_id' => ['nullable', 'integer'],
         ]));
+
+        // 2026-09-10 — same cross-tenant class cc1 found on the review
+        // screen (exists:properties,id is a raw, unscoped query). Only
+        // re-resolve when the field was actually sent — same "absent means
+        // keep the existing value" contract line 406 already had, so a form
+        // post that never touches property_id can't be misread as "clear it."
+        if ($request->has('property_id')) {
+            $requestedPropertyId = $validated['property_id'] ?? null;
+            $property = \App\Models\Property::findLinkableForRentalApplication($requestedPropertyId, $request->user());
+            if ($requestedPropertyId !== null && $property === null) {
+                $audit->log(
+                    $rentalApplication,
+                    eventCategory: 'property_link',
+                    eventType: 'link_refused',
+                    user: $request->user(),
+                    newValues: ['requested_property_id' => $requestedPropertyId],
+                    humanSummary: "Refused: property #{$requestedPropertyId} isn't visible to this user (wrong agency, branch, or book).",
+                );
+                abort(403, "You don't have access to that property, so it can't be linked to this application. Search for it above rather than entering an id directly.");
+            }
+            $validated['property_id'] = $property?->id;
+        }
 
         $fields = collect($validated)->except(['property_id'])->all();
         $fields = array_map(fn ($v) => $v === '' ? null : $v, $fields);

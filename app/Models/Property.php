@@ -1581,6 +1581,53 @@ class Property extends Model
         return $query->whereRaw('1 = 0');
     }
 
+    /**
+     * AT-392 cross-tenant property-link fix, 2026-09-10 — the ONE resolver
+     * every rental-application write path linking a property_id must use.
+     *
+     * cc1 found this live: `'property_id' => ['exists:properties,id']` runs
+     * a raw query against the properties TABLE, never through this model,
+     * so AgencyScope (and every other scope) never applies — the rule only
+     * answers "does this id exist ANYWHERE", not "may this user link THIS
+     * property". An ordinary agent in one agency POSTed a real property id
+     * belonging to a completely different agency straight at the endpoint,
+     * bypassing the search picker, and it saved: 302 success, no 403, the
+     * application's property_id genuinely set to another tenant's stock.
+     *
+     * Fixed by resolving through this model with BOTH its scopes: the
+     * global AgencyScope (BelongsToAgency, cross-agency isolation) AND
+     * scopeVisibleTo() above (branch/own, whatever the agency has
+     * configured for the `properties` data-scope in Role Manager) — so
+     * this closes the same gap for branch/own, not just agency, per
+     * Johan's instruction not to assume agency is the only boundary
+     * leaking here (cc5 separately found a cross-branch reach on the
+     * authorisation screens the same night). Also re-applies the existing
+     * `listing_type='rental'` business rule the search picker already
+     * enforces — a for-sale listing was never meant to be linkable here
+     * either, and the raw `exists:properties,id` check didn't stop that
+     * (lower severity, same root defect class, fixed alongside).
+     *
+     * Returns null for BOTH "no id given" (clearing a link is always
+     * allowed) and "id given but not visible to this user" — deliberately
+     * the SAME null, not a distinguishable error, so a caller can never
+     * use this to enumerate which ids exist in other tenants. The caller
+     * aborts 403 only when a non-null id was given and this still came
+     * back null; see RentalApplicationReviewController::linkProperty() /
+     * RentalApplicationController::store()/update() for the abort + audit
+     * log of the refused attempt.
+     */
+    public static function findLinkableForRentalApplication(?int $propertyId, \App\Models\User $user): ?self
+    {
+        if ($propertyId === null) {
+            return null;
+        }
+
+        return static::query()
+            ->where('listing_type', 'rental')
+            ->visibleTo($user)
+            ->find($propertyId);
+    }
+
     public function isPublished(): bool
     {
         return $this->published_at !== null;

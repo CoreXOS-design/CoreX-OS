@@ -89,16 +89,48 @@ class RentalApplicationReviewController extends Controller
      * configurable default (locked from submission onward; an agency can
      * turn it off and get the old, unrestricted behaviour back).
      */
+    /**
+     * AT-392 cross-tenant fix, 2026-09-10 (cc1's live find) — `property_id`
+     * used to be validated with `exists:properties,id`, a RAW query against
+     * the table that never goes through Property's AgencyScope. Existence
+     * and permission are different questions; this endpoint was only ever
+     * asking the first. An ordinary agent POSTed a real property_id
+     * belonging to a different agency straight at this route (bypassing the
+     * search picker entirely — the picker being scoped was never the
+     * protection) and it saved with a 302, no error. Fixed by resolving the
+     * id through Property::findLinkableForRentalApplication() — the model,
+     * with its scopes (agency AND whatever branch/own the agency has
+     * configured for `properties` in Role Manager) — so an id that exists
+     * but isn't this user's to link resolves to null exactly like an id
+     * that doesn't exist at all, and never reaches save().
+     */
     public function linkProperty(Request $request, RentalApplication $rentalApplication, \App\Services\RentalApplications\RentalApplicationAuditService $audit)
     {
         $this->guardRentalApplication($rentalApplication);
 
-        $validated = $request->validate([
-            'property_id' => ['nullable', 'integer', 'exists:properties,id'],
+        $request->validate([
+            'property_id' => ['nullable', 'integer'],
         ]);
 
         $oldPropertyId = $rentalApplication->property_id;
-        $newPropertyId = $validated['property_id'] ?? null;
+        $requestedPropertyId = $request->filled('property_id') ? (int) $request->input('property_id') : null;
+
+        $newProperty = \App\Models\Property::findLinkableForRentalApplication($requestedPropertyId, $request->user());
+
+        if ($requestedPropertyId !== null && $newProperty === null) {
+            $audit->log(
+                $rentalApplication,
+                eventCategory: 'property_link',
+                eventType: 'link_refused',
+                user: $request->user(),
+                newValues: ['requested_property_id' => $requestedPropertyId],
+                humanSummary: "Refused: property #{$requestedPropertyId} isn't visible to this user (wrong agency, branch, or book).",
+            );
+
+            abort(403, "You don't have access to that property, so it can't be linked to this application. Search for it above rather than entering an id directly — if it should be visible and isn't, ask an admin to check Role Manager's Rental History / Properties access for your role.");
+        }
+
+        $newPropertyId = $newProperty?->id;
 
         if ($oldPropertyId === $newPropertyId) {
             return back();
@@ -111,7 +143,6 @@ class RentalApplicationReviewController extends Controller
         );
 
         $oldProperty = $oldPropertyId ? \App\Models\Property::find($oldPropertyId) : null;
-        $newProperty = $newPropertyId ? \App\Models\Property::find($newPropertyId) : null;
 
         \Illuminate\Support\Facades\DB::transaction(function () use ($rentalApplication, $newPropertyId, $oldPropertyId, $oldProperty, $newProperty, $audit, $request) {
             $rentalApplication->property_id = $newPropertyId;
