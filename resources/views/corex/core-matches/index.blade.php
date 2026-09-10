@@ -15,6 +15,25 @@
                 <p class="text-xs" style="color: var(--text-muted);">Buyer and renter search criteria saved against your contacts.</p>
             </div>
             <div class="flex items-center gap-2 flex-wrap">
+                {{-- AT-401 — listing_type lens. Locked (not merely hidden) on the
+                     Rentals entry point: ContactMatchController::index() forces
+                     listing_type='rental' server-side whenever isRentalEntry is
+                     true, so a static label here is honest, not decorative. --}}
+                @if($isRentalEntry ?? false)
+                <span class="corex-btn-outline text-sm" style="color:#fff; border-color:rgba(255,255,255,0.25); background:rgba(255,255,255,0.08); cursor:default;" title="This entry point always shows rental searches only">Rentals only</span>
+                @else
+                <div class="inline-flex rounded-md overflow-hidden" style="border: 1px solid var(--border);">
+                    <a href="{{ route($indexRouteName ?? 'corex.core-matches.index') }}"
+                       class="px-3 py-1.5 text-xs font-semibold whitespace-nowrap no-underline"
+                       style="{{ empty($listingType ?? null) ? 'background: var(--brand-icon, #0ea5e9); color: #fff;' : 'background: var(--surface); color: var(--text-muted);' }}">All</a>
+                    <a href="{{ route($indexRouteName ?? 'corex.core-matches.index', ['listing_type' => 'sale']) }}"
+                       class="px-3 py-1.5 text-xs font-semibold whitespace-nowrap no-underline"
+                       style="border-left: 1px solid var(--border); {{ ($listingType ?? '') === 'sale' ? 'background: var(--brand-icon, #0ea5e9); color: #fff;' : 'background: var(--surface); color: var(--text-muted);' }}">Sales</a>
+                    <a href="{{ route($indexRouteName ?? 'corex.core-matches.index', ['listing_type' => 'rental']) }}"
+                       class="px-3 py-1.5 text-xs font-semibold whitespace-nowrap no-underline"
+                       style="border-left: 1px solid var(--border); {{ ($listingType ?? '') === 'rental' ? 'background: var(--brand-icon, #0ea5e9); color: #fff;' : 'background: var(--surface); color: var(--text-muted);' }}">Rentals</a>
+                </div>
+                @endif
                 @include('layouts.partials.tour-header-launcher')
                 <a href="{{ route('corex.contacts.index') }}" class="corex-btn-outline text-sm"
                    style="color:#fff; border-color:rgba(255,255,255,0.25); background:rgba(255,255,255,0.08);">
@@ -22,7 +41,7 @@
                     Contacts
                 </a>
                 @permission('core_matches.all_view')
-                <a href="{{ route('corex.core-matches.all') }}" class="corex-btn-outline text-sm"
+                <a href="{{ route($counterpartRouteName ?? 'corex.core-matches.all') }}" class="corex-btn-outline text-sm"
                    style="color:#fff; border-color:rgba(255,255,255,0.25); background:rgba(255,255,255,0.08);">
                     <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.641 0-8.58-3.007-9.964-7.178Z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /></svg>
                     All View

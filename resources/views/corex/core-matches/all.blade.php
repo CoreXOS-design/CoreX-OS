@@ -16,7 +16,7 @@
                 </p>
             </div>
             <div class="flex items-center gap-2 flex-wrap">
-                <a href="{{ route('corex.core-matches.index') }}" class="corex-btn-outline text-sm"
+                <a href="{{ route($counterpartRouteName ?? 'corex.core-matches.index') }}" class="corex-btn-outline text-sm"
                    style="color:#fff; border-color:rgba(255,255,255,0.25); background:rgba(255,255,255,0.08);">
                     <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" /></svg>
                     My Core Matches
@@ -27,7 +27,7 @@
 
     {{-- Filter bar --}}
     <div class="rounded-md px-5 py-4" style="background:var(--surface); border:1px solid var(--border);">
-        <form method="GET" action="{{ route('corex.core-matches.all') }}"
+        <form method="GET" action="{{ route($indexRouteName ?? 'corex.core-matches.all') }}"
               class="flex items-end gap-3 flex-wrap">
             <div class="flex flex-col gap-1">
                 <label class="text-xs font-medium" style="color:var(--text-secondary);">Filter by agent</label>
@@ -40,8 +40,26 @@
                     @endforeach
                 </select>
             </div>
-            @if($agentId !== null)
-            <a href="{{ route('corex.core-matches.all') }}" class="corex-btn-outline text-sm">Clear filter</a>
+            {{-- AT-401 — listing_type lens (spec §3). Locked (not merely
+                 hidden) on the Rentals entry point: allView() forces
+                 listing_type='rental' server-side whenever isRentalEntry is
+                 true, so a static label here is honest, not decorative. --}}
+            <div class="flex flex-col gap-1">
+                <label class="text-xs font-medium" style="color:var(--text-secondary);">Type</label>
+                @if($isRentalEntry ?? false)
+                <span class="rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary); cursor:default;" title="This entry point always shows rental searches only">Rentals only</span>
+                @else
+                <select name="listing_type" onchange="this.form.submit()"
+                        class="rounded-md px-3 py-2 text-sm"
+                        style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary); min-width:160px;">
+                    <option value="" @selected(($listingType ?? '') === '')>Sale &amp; Rental</option>
+                    <option value="sale" @selected(($listingType ?? '') === 'sale')>Sale</option>
+                    <option value="rental" @selected(($listingType ?? '') === 'rental')>Rental</option>
+                </select>
+                @endif
+            </div>
+            @if($agentId !== null || (!($isRentalEntry ?? false) && ($listingType ?? '') !== ''))
+            <a href="{{ route($indexRouteName ?? 'corex.core-matches.all') }}" class="corex-btn-outline text-sm">Clear filter</a>
             @endif
             <div class="flex-1"></div>
             <span class="text-xs font-semibold px-2.5 py-1 rounded-md whitespace-nowrap"

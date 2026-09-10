@@ -57,14 +57,39 @@ class ContactMatchController extends Controller
 
     public function __construct(protected MatchingService $matching) {}
 
-    public function index()
+    public function index(Request $request)
     {
         /** @var \App\Models\User $user */
         $user = auth()->user();
 
+        // AT-401 — Rentals → Core Matches is the SAME action as
+        // corex.core-matches.index, reached by a second route, detected by
+        // NAME (never client-supplied — the client cannot set
+        // request()->route()). Self-referencing links in index.blade.php use
+        // $indexRouteName so the listing-type toggle and any future
+        // self-link stay on whichever entry point the user is actually on.
+        // $counterpartRouteName is the matching "All View" route for this
+        // entry, so switching between My/All stays inside the same lens.
+        $indexRouteName       = $request->route()->getName();
+        $isRentalEntry        = $indexRouteName === 'corex.rentals.core-matches.index';
+        $counterpartRouteName = $isRentalEntry ? 'corex.rentals.core-matches.all' : 'corex.core-matches.all';
+
+        // AT-401 — listing_type lens, new to this screen (spec §3). Default
+        // '' preserves today's behaviour (sale + rental mixed) for anyone
+        // not using a Rentals entry point.
+        $listingType = $request->query('listing_type', '');
+
+        // THE LOCK — applied after the query string is read, so a
+        // hand-edited ?listing_type=sale on this entry point is overridden,
+        // not trusted. Same mechanism as Rentals → Properties / Pipeline.
+        if ($isRentalEntry) {
+            $listingType = 'rental';
+        }
+
         $allMatches = ContactMatch::with(['contact.type', 'createdBy', 'feedback'])
             ->whereHas('contact')
             ->where('created_by_user_id', $user->id)
+            ->when($listingType !== '', fn ($q) => $q->where('listing_type', $listingType))
             ->orderByRaw("FIELD(status,'active','paused','fulfilled','expired')")
             ->latest()
             ->get();
@@ -82,7 +107,9 @@ class ContactMatchController extends Controller
                 'matches' => $matches->get($c->id, collect()),
             ]);
 
-        return view('corex.core-matches.index', compact('contacts', 'matchCounts'));
+        return view('corex.core-matches.index', compact(
+            'contacts', 'matchCounts', 'listingType', 'isRentalEntry', 'indexRouteName', 'counterpartRouteName'
+        ));
     }
 
     /**
@@ -94,6 +121,20 @@ class ContactMatchController extends Controller
     {
         /** @var \App\Models\User $user */
         $user = auth()->user();
+
+        // AT-401 — Rentals → Core Matches (All View) — same lock mechanism as
+        // index() above. $indexRouteName here is THIS route's own name, for
+        // this view's self-links (filter form action, Clear filter);
+        // $counterpartRouteName is the matching "My Core Matches" route so
+        // switching between All/My stays inside the same lens.
+        $indexRouteName       = $request->route()->getName();
+        $isRentalEntry        = $indexRouteName === 'corex.rentals.core-matches.all';
+        $counterpartRouteName = $isRentalEntry ? 'corex.rentals.core-matches.index' : 'corex.core-matches.index';
+
+        $listingType = $request->query('listing_type', '');
+        if ($isRentalEntry) {
+            $listingType = 'rental';
+        }
 
         // Scope: whole agency, or just the viewer's branch when branch-split is on.
         $agency   = \App\Models\Agency::find($user->effectiveAgencyId());
@@ -120,6 +161,7 @@ class ContactMatchController extends Controller
         // ContactMatch carries BelongsToAgency, so the agency is already scoped.
         $query = ContactMatch::with(['contact.type', 'createdBy', 'feedback'])
             ->whereHas('contact')
+            ->when($listingType !== '', fn ($q) => $q->where('listing_type', $listingType))
             ->orderByRaw("FIELD(status,'active','paused','fulfilled','expired')")
             ->latest();
 
@@ -143,7 +185,8 @@ class ContactMatchController extends Controller
             ->values();
 
         return view('corex.core-matches.all', compact(
-            'byAgent', 'matchCounts', 'agents', 'agentId', 'branchLimited'
+            'byAgent', 'matchCounts', 'agents', 'agentId', 'branchLimited',
+            'listingType', 'isRentalEntry', 'indexRouteName', 'counterpartRouteName'
         ));
     }
 

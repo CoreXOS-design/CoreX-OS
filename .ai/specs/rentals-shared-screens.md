@@ -60,6 +60,27 @@ five-state board with the rental lens applied — no new states are introduced f
 
 ## 2. Screen A — Rentals → Properties
 
+**BUILT AND LANDED ON QA1, 2026-09-10.** Exactly as specced below, with one
+implementation refinement: the lock is detected by **route name**
+(`$request->route()->getName() === 'corex.rentals.properties.index'`), not a route
+default/closure — simpler, equally uneditable by the client (a route name is never
+client-supplied). Every self-referencing `route('corex.properties.index', ...)` call in
+`index.blade.php` (filter form action, Clear links, pagination/chip URLs — 7 call
+sites) was changed to `route($indexRouteName ?? 'corex.properties.index', ...)`, where
+`$indexRouteName` is the controller's own route name, so "Clear filters" and every
+other self-link on the Rentals entry point stays on the Rentals entry point instead of
+bouncing to the unlocked screen. Session-persisted filters use a separate key
+(`corex.rentals.properties.filters` vs `corex.properties.filters`) so a saved filter
+set never leaks between the two entry points. No new permission — reuses
+`properties.view`. Nav entry added to the existing Rentals panel in
+`corex-sidebar.blade.php`, directly under Real Estate (placement unchanged).
+
+Verified in a real browser on QA1: the entry shows only `For Rent` listings, editing
+the URL to `?listing_type=sale` does not escape the lock (still only rentals), and
+`/corex/properties` (Real Estate → Properties) is unchanged — still has the editable
+Sale/Rental toggle.
+
+
 **Entry point, not a screen.** Same route family, same controller
 (`App\Http\Controllers\CoreX\PropertyController`), same view
 (`resources/views/corex/properties/index.blade.php` / `show.blade.php`), same model
@@ -118,6 +139,38 @@ change needed for this screen specifically.
 
 ## 3. Screen B — Rentals → Core Matches
 
+**BUILT AND LANDED ON QA1, 2026-09-10 — the third and final entry (Properties,
+then Pipeline, then Core Matches, per Johan's ordering).** The listing_type gap
+identified below was closed on the ONE shared screen first: `index()` and
+`allView()` now both accept `?listing_type=sale|rental` (default `''` = today's
+mixed behaviour, unchanged for the plain screens), backed by a Sale/Rental
+toggle in both `index.blade.php` (link pills, matching Rental Pipeline's
+pattern — this screen had no existing filter form to hang a `<select>` on) and
+`all.blade.php` (a `<select>` in the existing agent-filter form, matching
+Properties' pattern).
+
+The Rentals entry point locks it with the same route-name mechanism as §2/§4:
+new routes `corex.rentals.core-matches.index` and `corex.rentals.core-matches.all`,
+forcing `listing_type = 'rental'` after the query string is read. One
+deliberate refinement beyond the original table in §6.1: `.index` reuses
+`core_matches.view`, but `.all` reuses `core_matches.all_view` specifically
+(not `core_matches.view`) — gating it on the weaker permission would have let
+anyone with base view access see every agent's rental matches through the
+rentals entry, an escalation the sales-side `.all` route does not allow.
+Self-links (filter form action, Clear filter) and the My/All cross-links use
+`$indexRouteName` / `$counterpartRouteName` so navigating within a locked
+entry point never bounces to the unlocked screen. No new permission key for
+either route. Nav entry mirrors the sales-side Core Matches item's own
+feature-flag (`core-matches`) and `matches_enabled` setting guards.
+
+Verified in a real browser: agency-wide there are 595 Core Matches (383 sale /
+212 rental) — both `/corex/rentals/core-matches` and
+`/corex/rentals/core-matches/all` show only rentals ("212 searches" exactly on
+the All variant, confirming genuine subset filtering, not a no-op),
+`?listing_type=sale` does not escape the lock on either route, and
+`/corex/core-matches` and `/corex/core-matches/all` are unchanged — both still
+have their editable Sale/Rental controls.
+
 **Entry point, not a screen.** Same controller
 (`App\Http\Controllers\CoreX\ContactMatchController`), same views.
 
@@ -157,6 +210,21 @@ change needed. Archive/delete on Core Matches already exists behind
 ---
 
 ## 4. Screen C — Rentals → Rental Pipeline
+
+**BUILT AND LANDED ON QA1, 2026-09-10 — before Core Matches, per Johan's re-priority
+(cheapest-first: Properties, then Pipeline, then Core Matches).** Same route-name lock
+mechanism as Screen A: `corex.rentals.pipeline.index` detected by
+`$request->route()->getName()`, forcing `lead_type = 'rental'` after the query string
+is read. All 9 self-referencing `route('command-center.buyers.pipeline', ...)` calls in
+`pipeline.blade.php` now resolve via `$indexRouteName`. New permission
+`buyer_pipeline.view` (§6.2 below) gates only this entry point — the sales-side board
+keeps its current no-permission-key access, unchanged, per Johan's explicit "do not
+build the sales-side standardisation right now."
+
+Verified in a real browser: the entry shows a genuine subset (174 rental leads vs 469
+total on the unfiltered board — confirmed the filter actually narrows, not a no-op),
+`?lead_type=sale` on the URL does not escape the lock, and the sales-side board is
+unchanged.
 
 **Entry point, not a screen.** Same controller
 (`App\Http\Controllers\CommandCenter\BuyerPipelineController`), same view

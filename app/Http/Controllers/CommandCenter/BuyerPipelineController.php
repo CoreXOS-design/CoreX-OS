@@ -19,6 +19,16 @@ class BuyerPipelineController extends Controller
         $view = $request->get('view', 'kanban');
         $stateFilter = $request->get('state');
         $agentFilter = $request->get('agent_id');
+
+        // AT-401 — Rentals → Rental Pipeline is the SAME action as
+        // command-center.buyers.pipeline, reached by a second route,
+        // detected by NAME (never client-supplied). Every self-referencing
+        // route() call in pipeline.blade.php uses $indexRouteName instead of
+        // a hardcoded route name, so the toggle/sort/scope links on this
+        // entry point stay on this entry point.
+        $indexRouteName = $request->route()->getName();
+        $isRentalEntry  = $indexRouteName === 'corex.rentals.pipeline.index';
+
         // Rentals vs Sales (Johan) — a portal/enquiry buyer's derived wishlist carries the
         // enquired listing's listing_type (BuyerLeadCascadeService::deriveCriteria), so a
         // tenant/rental lead is separable from a buyer/sale lead by contact_matches.listing_type.
@@ -26,6 +36,12 @@ class BuyerPipelineController extends Controller
         // buyers default to sale); null/'' = all. Rentals + Sales partition the board exactly.
         $leadType = $request->get('lead_type');
         $leadType = in_array($leadType, ['sale', 'rental'], true) ? $leadType : null;
+        // THE LOCK — applied after the query string is read, so a
+        // hand-edited ?lead_type=sale on this entry point is overridden, not
+        // trusted. Same mechanism as Rentals → Properties.
+        if ($isRentalEntry) {
+            $leadType = 'rental';
+        }
 
         // Layer 3: Pipeline workspace scope (independent of Layer 2 contact access)
         $pipelineScope = $request->get('scope', $this->defaultPipelineScope($user));
@@ -111,6 +127,8 @@ class BuyerPipelineController extends Controller
                 'leadType' => $leadType,
                 'canSeeBranch' => (bool) $user->branch_id,
                 'contextListing' => $contextListing,
+                'isRentalEntry' => $isRentalEntry,
+                'indexRouteName' => $indexRouteName,
             ]);
         }
 
@@ -154,6 +172,8 @@ class BuyerPipelineController extends Controller
             'leadType' => $leadType,
             'canSeeBranch' => (bool) $user->branch_id,
             'contextListing' => $contextListing,
+            'isRentalEntry' => $isRentalEntry,
+            'indexRouteName' => $indexRouteName,
         ]);
     }
 

@@ -1021,6 +1021,39 @@
                 @if($user->isRentalApplicationAuthoriser())
                 <a href="{{ route('corex.rental-applications.authorisation.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rental-applications.authorisation.*') ? 'active' : '' }}">Rental Application Authorisation</a>
                 @endif
+
+                {{-- AT-401 — entry point into the SAME Properties screen as
+                     Real Estate → Properties, listing_type locked to rental
+                     server-side (PropertyController::index(), by route name).
+                     Reuses properties.view — no new permission, same screen. --}}
+                @permission('properties.view')
+                <a href="{{ route('corex.rentals.properties.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rentals.properties.index') ? 'active' : '' }}">Properties</a>
+                @endpermission
+
+                {{-- AT-401 — entry point into the SAME Buyer Pipeline board as
+                     Command Center → Buyer Pipeline, lead_type locked to
+                     rental server-side (BuyerPipelineController::index(), by
+                     route name). New permission buyer_pipeline.view gates
+                     ONLY this entry point — the sales-side board keeps its
+                     current (no permission key) access, unchanged. --}}
+                @permission('buyer_pipeline.view')
+                <a href="{{ route('corex.rentals.pipeline.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rentals.pipeline.index') ? 'active' : '' }}">Rental Pipeline</a>
+                @endpermission
+
+                {{-- AT-401 — entry point into the SAME Core Matches screen as
+                     Real Estate → Core Matches, listing_type locked to rental
+                     server-side (ContactMatchController::index(), by route
+                     name). Reuses core_matches.view — no new permission, same
+                     screen. Mirrors the sales-side nav item's own feature-flag
+                     and setting guards so a disabled Core Matches feature
+                     hides this entry too. --}}
+                @feature('core-matches')
+                @permission('core_matches.view')
+                @if(\Illuminate\Support\Facades\Route::has('corex.rentals.core-matches.index') && \App\Models\PerformanceSetting::get('matches_enabled', 1))
+                <a href="{{ route('corex.rentals.core-matches.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rentals.core-matches.*') ? 'active' : '' }}">Core Matches</a>
+                @endif
+                @endpermission
+                @endfeature
             </div>
         </div>
         @endif

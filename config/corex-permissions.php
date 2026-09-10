@@ -382,6 +382,15 @@ return [
         // agent without this cap cannot reassign (enforced server-side).
         ['key' => 'contacts.reassign_agent',     'label' => 'Reassign Contact Agent / Co-Agent', 'section' => 'contacts',   'type' => 'action',  'module' => 'contacts',         'sort_order' => 19],
 
+        // ── Buyer Pipeline (AT-401 — new: the sales-side board at
+        // /corex/command-center/buyers/pipeline has never had a permission
+        // key of its own; this key gates ONLY the new Rentals -> Rental
+        // Pipeline entry point. Standardising the sales side onto this same
+        // key is a separate, not-yet-approved work item — see
+        // .ai/specs/rentals-shared-screens.md §6.3. type=>'action' so it
+        // gets a Role Manager own/branch/agency scope selector from day one. ──
+        ['key' => 'buyer_pipeline.view',         'label' => 'View',                        'section' => 'buyer-pipeline',   'type' => 'action',  'module' => 'buyer_pipeline',   'sort_order' => 10],
+
         // ── Core Matches ──
         ['key' => 'access_core_matches',         'label' => 'Access Core Matches',         'section' => 'core-matches',     'type' => 'access',  'module' => 'core_matches',     'sort_order' => 1],
         ['key' => 'core_matches.view',           'label' => 'View',                        'section' => 'core-matches',     'type' => 'action',  'module' => 'core_matches',     'sort_order' => 10],

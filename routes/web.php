@@ -3821,6 +3821,28 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/{property}/website-syndication/{apiKey}/refresh',    [\App\Http\Controllers\Website\WebsiteSyndicationController::class, 'refresh'])->name('website-syndication.refresh');
     });
 
+    // AT-401 — Rentals → Properties. Deliberately the SAME controller action
+    // as corex.properties.index above, not a copy — PropertyController::index()
+    // detects this route by NAME (request()->route()->getName(), never
+    // user-editable) and forces listing_type='rental' unconditionally, after
+    // the query string is read, so it cannot be escaped by editing the URL.
+    // See .ai/specs/rentals-shared-screens.md §2.
+    Route::get('/rentals/properties', [\App\Http\Controllers\CoreX\PropertyController::class, 'index'])
+        ->middleware(['permission:access_properties', 'agency.required'])
+        ->name('corex.rentals.properties.index');
+
+    // AT-401 — Rentals → Rental Pipeline. Same BuyerPipelineController::index()
+    // as command-center.buyers.pipeline, detected by route name, forcing
+    // lead_type='rental' after the query string is read — same lock
+    // mechanism as Rentals → Properties above. New permission
+    // buyer_pipeline.view gates ONLY this entry point; the sales-side board
+    // is deliberately left with its current (no permission key) gating —
+    // standardising it is a separate, not-yet-approved work item. See
+    // .ai/specs/rentals-shared-screens.md §4/§6.
+    Route::get('/rentals/pipeline', [\App\Http\Controllers\CommandCenter\BuyerPipelineController::class, 'index'])
+        ->middleware(['permission:buyer_pipeline.view', 'agency.required'])
+        ->name('corex.rentals.pipeline.index');
+
     // Phase 3g — Map module (standalone page + JSON pin + detail endpoints).
     // Same permission as Properties; agency scoping enforced inside the service.
     Route::prefix('map')->middleware(['permission:access_properties', 'agency.required'])->name('corex.map.')->group(function () {
@@ -3865,6 +3887,25 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::get('/core-matches/all', [\App\Http\Controllers\CoreX\ContactMatchController::class, 'allView'])
         ->middleware('permission:core_matches.all_view')
         ->name('corex.core-matches.all');
+
+    // AT-401 — Rentals → Core Matches. Same ContactMatchController::index()/
+    // allView() as above, detected by route NAME, forcing listing_type='rental'
+    // after the query string is read — same lock mechanism as Rentals →
+    // Properties / Rental Pipeline. No new permission: reuses core_matches.view
+    // per .ai/specs/rentals-shared-screens.md §6.1 (the shared screen already
+    // gates access; the rentals lens is a lock, not a new capability).
+    Route::get('/rentals/core-matches', [\App\Http\Controllers\CoreX\ContactMatchController::class, 'index'])
+        ->middleware('permission:core_matches.view')
+        ->name('corex.rentals.core-matches.index');
+
+    // .all is the oversight/agency-wide variant — gated by core_matches.all_view,
+    // matching corex.core-matches.all's own gate exactly. Gating it on
+    // core_matches.view alone would let anyone with base view access see
+    // every agent's rental matches through this entry point, an escalation
+    // the sales-side .all route does not allow.
+    Route::get('/rentals/core-matches/all', [\App\Http\Controllers\CoreX\ContactMatchController::class, 'allView'])
+        ->middleware('permission:core_matches.all_view')
+        ->name('corex.rentals.core-matches.all');
 
     // Portal Leads (P24 + PP unified). Spec: .ai/specs/portal-leads.md
     Route::prefix('real-estate/portal-leads')
