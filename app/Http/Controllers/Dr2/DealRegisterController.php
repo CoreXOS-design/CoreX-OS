@@ -7,6 +7,7 @@ use App\Models\Branch;
 use App\Models\Contact;
 use App\Models\Deal;
 use App\Models\DealLog;
+use App\Models\DealProperty;
 use App\Models\DealSettlement;
 use App\Models\DealV2\AgencyServiceProvider;
 use App\Models\DealV2\AgencyServiceProviderContact;
@@ -616,6 +617,23 @@ class DealRegisterController extends Controller
         // §2.2 — resolve the picked property link (manual pick = exact confidence).
         $propertyId = !empty($data['property_id']) ? (int) $data['property_id'] : null;
 
+        // AT-398 — Johan: "there cannot be a deal without an owner." Whenever a
+        // property IS being linked (this field is nullable — a name-only deal
+        // with no property at all is unaffected, that's a different, pre-existing
+        // DR1-parity capability), that property must have a resolvable seller-
+        // side contact. A refusal here, not a silent empty owner list to design
+        // around later.
+        if ($propertyId) {
+            $linkCandidate = Property::find($propertyId);
+            if ($linkCandidate) {
+                try {
+                    app(\App\Services\Deal\DealPropertyOwnerGate::class)->assertHasKnownOwner($linkCandidate);
+                } catch (\App\Exceptions\Deal\PropertyOwnerMismatchException $e) {
+                    return back()->withErrors(['property_id' => $e->getMessage()])->withInput();
+                }
+            }
+        }
+
         // Wave 2 granted-uniqueness — a property may carry multiple concurrent
         // deals, but AT MOST ONE granted. Block a NEW grant here (before any
         // write) when another deal already holds the granted/registered lane.
@@ -699,8 +717,8 @@ class DealRegisterController extends Controller
         if ($propertyId) {
             $linkProperty = Property::find($propertyId);
             if ($linkProperty) {
-                $this->syncPartyLinks($linkProperty, $sellerIds, 'seller');
-                $this->syncPartyLinks($linkProperty, $buyerIds, 'buyer');
+                $this->syncPartyLinks($linkProperty, $sellerIds, 'seller', (int) $deal->id);
+                $this->syncPartyLinks($linkProperty, $buyerIds, 'buyer', (int) $deal->id);
             }
         }
 
@@ -1094,7 +1112,7 @@ class DealRegisterController extends Controller
         }
     }
 
-    private function syncPartyLinks(Property $property, array $contactIds, string $role): void
+    private function syncPartyLinks(Property $property, array $contactIds, string $role, ?int $excludingDealId = null): void
     {
         foreach ($contactIds as $cid) {
             // Respect an existing link of ANY role — no silent re-roling.
@@ -1105,6 +1123,13 @@ class DealRegisterController extends Controller
             if (! $contact) {
                 continue;
             }
+            // AT-398 — the owner set behind an open deal cannot move
+            // underneath it. Excludes THIS deal's own lock: syncing this
+            // deal's own seller onto its own property is the lock's purpose,
+            // not a violation of it — a genuinely different seller arriving
+            // here while another deal is open is exactly what must be caught.
+            app(\App\Services\Property\PropertyOwnershipGuard::class)
+                ->assertCanLink($property, $role, $excludingDealId);
             $property->contacts()->attach($cid, ['role' => $role]);
             if ($role === 'seller') {
                 \App\Models\PropertySellerLink::ensureExists((int) $property->id, $cid);
@@ -1253,5 +1278,109 @@ class DealRegisterController extends Controller
         return trim(($firm ?? '')
             . ($attorney ? ' — ' . $attorney : '')
             . ($contact ? ' (via ' . $contact . ')' : ''));
+    }
+
+    // ── AT-398 — multi-property ──────────────────────────────────────────────
+
+    /**
+     * Add a property to a deal. Johan's strict rule: the property's owners
+     * must be EXACTLY the same set as the deal's existing properties — every
+     * seller on the deal must be able to sign for every property on it.
+     * Refused (never silently dropped) with a plain-English reason when the
+     * owners don't match, the owners aren't known yet, or the property is
+     * already committed elsewhere and this deal is already Granted/Registered.
+     */
+    public function addProperty(Request $request, Deal $deal): RedirectResponse
+    {
+        abort_unless(auth()->user()?->hasPermission('deals.create') || auth()->user()?->hasPermission('deals.edit'), 403);
+
+        $data = $request->validate([
+            'property_id' => ['required', 'integer', 'exists:properties,id'],
+        ]);
+        $property = Property::findOrFail($data['property_id']);
+
+        try {
+            app(\App\Services\Deal\DealPropertyOwnerGate::class)->assertCanAddToDeal($deal, $property);
+        } catch (\App\Exceptions\Deal\PropertyOwnerMismatchException $e) {
+            return back()->withErrors(['property_id' => $e->getMessage()]);
+        }
+
+        // A deal already Granted/Registered may only gain a property that is
+        // not itself already committed elsewhere — the same exclusivity rule
+        // a fresh grant would be checked against, applied at add-time because
+        // this deal will not pass through a fresh grant again.
+        if (in_array($deal->accepted_status, ['G', 'R'], true)) {
+            $conflict = app(\App\Services\Deal\DealPropertyStatusService::class)
+                ->committedDealOnProperty($property->id, $deal->id);
+            if ($conflict !== null) {
+                return back()->withErrors([
+                    'property_id' => "Can't add {$property->address} — deal #{$conflict->deal_no} already carries a Granted or Registered status on it.",
+                ]);
+            }
+        }
+
+        DB::transaction(function () use ($deal, $property) {
+            $row = DealProperty::withTrashed()->where('deal_id', $deal->id)->where('property_id', $property->id)->first();
+            if ($row) {
+                if ($row->trashed()) {
+                    $row->restore();
+                }
+            } else {
+                $isFirst = $deal->properties()->count() === 0;
+                DealProperty::create(['deal_id' => $deal->id, 'property_id' => $property->id, 'is_primary' => $isFirst]);
+                if ($isFirst) {
+                    $deal->forceFill(['property_id' => $property->id])->saveQuietly();
+                }
+            }
+
+            // Johan (Q3, answered): share the deal across both branches when a
+            // linked property belongs to a different one — reuses the existing
+            // co-branch pivot (Deal::attachCoBranch()), never invents a new one.
+            if ($property->branch_id && (int) $property->branch_id !== (int) $deal->branch_id) {
+                $deal->attachCoBranch((int) $property->branch_id);
+            }
+
+            $this->logDealEvent($deal, 'property_added', null, null, "Property added: {$property->address}");
+        });
+
+        // Bring the newly added property into sync with the deal's CURRENT
+        // status — re-fires the same, already-tested Wave 2 listeners rather
+        // than duplicating their logic. Idempotent: a property already in the
+        // right state is left alone; the deal's OTHER properties are untouched
+        // (each listener acts on its own linked properties independently).
+        $fresh = $deal->fresh();
+        if (in_array($fresh->accepted_status, ['P', 'G'], true)) {
+            event(new \App\Events\Deal\DealCreated($fresh, auth()->id()));
+        }
+        if (in_array($fresh->accepted_status, ['G', 'R'], true)) {
+            event(new \App\Events\Deal\DealStageAdvanced($fresh, $fresh->accepted_status, $fresh->accepted_status, auth()->id()));
+        }
+
+        return back()->with('success', "{$property->address} added to this deal.");
+    }
+
+    /**
+     * Remove a property from a deal. SOFT removal only (deal_properties.deleted_at)
+     * — Johan: keep a note it was once there, never let it just disappear. The
+     * primary property may not be removed directly here — reassign a different
+     * property as primary first (editing property_id already does this via
+     * Deal's own syncPrimaryPropertyPivot()).
+     */
+    public function removeProperty(Request $request, Deal $deal, Property $property): RedirectResponse
+    {
+        abort_unless(auth()->user()?->hasPermission('deals.create') || auth()->user()?->hasPermission('deals.edit'), 403);
+
+        $row = $deal->properties()->where('properties.id', $property->id)->first();
+        if (! $row) {
+            return back()->withErrors(['property_id' => 'That property is not on this deal.']);
+        }
+        if ((bool) $row->pivot->is_primary) {
+            return back()->withErrors(['property_id' => 'This is the primary property on the deal — pick a different property as primary before removing this one.']);
+        }
+
+        DealProperty::where('id', $row->pivot->id)->delete(); // soft
+        $this->logDealEvent($deal, 'property_removed', null, null, "Property removed: {$property->address}");
+
+        return back()->with('success', "{$property->address} removed from this deal.");
     }
 }

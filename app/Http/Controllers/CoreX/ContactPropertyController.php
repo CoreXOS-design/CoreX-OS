@@ -59,6 +59,16 @@ class ContactPropertyController extends Controller
             $role = $roleMap[$esignRole] ?? null;
         }
 
+        // AT-398 — the owner set behind an open deal cannot move underneath it.
+        $property = Property::find((int) $data['property_id']);
+        if ($property) {
+            try {
+                app(\App\Services\Property\PropertyOwnershipGuard::class)->assertCanLink($property, $role);
+            } catch (\App\Exceptions\Property\OwnershipLockedException $e) {
+                return back()->withErrors(['role' => $e->getMessage()])->with('tab', 'properties');
+            }
+        }
+
         $alreadyLinked = $contact->properties()->where('properties.id', (int) $data['property_id'])->exists();
 
         $contact->properties()->syncWithoutDetaching([
@@ -91,6 +101,14 @@ class ContactPropertyController extends Controller
     public function unlink(Contact $contact, Property $property)
     {
         $this->authorizeContact($contact);
+
+        // AT-398 — the owner set behind an open deal cannot move underneath it.
+        try {
+            app(\App\Services\Property\PropertyOwnershipGuard::class)->assertCanUnlink($property, $contact->id);
+        } catch (\App\Exceptions\Property\OwnershipLockedException $e) {
+            return back()->withErrors(['contact' => $e->getMessage()])->with('tab', 'properties');
+        }
+
         $contact->properties()->detach($property->id);
 
         return back()->with('success', 'Property unlinked.')->with('tab', 'properties');

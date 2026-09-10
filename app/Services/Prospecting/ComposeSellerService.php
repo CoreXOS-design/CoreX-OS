@@ -315,6 +315,12 @@ class ComposeSellerService
     /** Link a contact to the property as a seller (idempotent). `source`: 'deed' | 'manual'. */
     public function linkSellerToProperty(int $contactId, int $propertyId, string $source = 'manual'): void
     {
+        // AT-398 — the owner set behind an open deal cannot move underneath it.
+        $property = Property::find($propertyId);
+        if ($property) {
+            app(\App\Services\Property\PropertyOwnershipGuard::class)->assertCanLink($property, 'seller');
+        }
+
         DB::table('contact_property')->updateOrInsert(
             ['contact_id' => $contactId, 'property_id' => $propertyId],
             ['role' => 'seller', 'source' => $source, 'updated_at' => now(), 'created_at' => now()],
@@ -324,6 +330,12 @@ class ComposeSellerService
     /** Remove a seller link (the contact + property both survive — only the link is dropped). */
     public function unlinkSeller(int $contactId, int $propertyId): void
     {
+        // AT-398 — the owner set behind an open deal cannot move underneath it.
+        $property = Property::find($propertyId);
+        if ($property) {
+            app(\App\Services\Property\PropertyOwnershipGuard::class)->assertCanUnlink($property, $contactId);
+        }
+
         DB::table('contact_property')
             ->where('contact_id', $contactId)
             ->where('property_id', $propertyId)
@@ -451,6 +463,13 @@ class ComposeSellerService
             return;
         }
 
+        // AT-398 — selecting a deed resyncs the WHOLE seller set; the owner
+        // set behind an open deal cannot move underneath it.
+        $lockedProperty = Property::find($propertyId);
+        if ($lockedProperty) {
+            app(\App\Services\Property\PropertyOwnershipGuard::class)->assertCanLink($lockedProperty, 'seller');
+        }
+
         DB::transaction(function () use ($agencyId, $listing, $propertyId, $deedTp, $deedTpId, $branchId, $userId) {
             DB::table('prospecting_listings')->where('id', $listing->id)->update([
                 'linked_deed_tracked_property_id' => $deedTpId,
@@ -492,6 +511,13 @@ class ComposeSellerService
      *  revert the property address to the listing's portal address. */
     public function unlinkDeed(int $agencyId, object $listing, int $propertyId): void
     {
+        // AT-398 — unlinking a deed drops the WHOLE deed-sourced seller set;
+        // the owner set behind an open deal cannot move underneath it.
+        $lockedProperty = Property::find($propertyId);
+        if ($lockedProperty) {
+            app(\App\Services\Property\PropertyOwnershipGuard::class)->assertOwnershipMutable($lockedProperty);
+        }
+
         DB::transaction(function () use ($listing, $propertyId) {
             DB::table('contact_property')->where('property_id', $propertyId)->where('role', 'seller')->where('source', 'deed')->delete();
             DB::table('prospecting_listings')->where('id', $listing->id)->update([

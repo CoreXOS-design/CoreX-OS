@@ -21,7 +21,7 @@ class MarkPropertySoldOnDealMilestone
         try {
             $deal = $event->deal;
             $agencyId = (int) ($deal->agency_id ?? 0);
-            if ($agencyId <= 0 || empty($deal->property_id)) {
+            if ($agencyId <= 0) {
                 return;
             }
 
@@ -38,19 +38,30 @@ class MarkPropertySoldOnDealMilestone
                 return;
             }
 
-            $property = $deal->property;
-            if (! $property) {
-                return;
-            }
-            $current = (string) $property->status;
-            // Idempotent; never override a HARDER terminal state.
-            if (in_array($current, ['sold', 'transferred', 'withdrawn', 'archived'], true)) {
+            // AT-398 — every property linked to the deal (deal_properties),
+            // not just the one primary.
+            $properties = $deal->properties()->get();
+            if ($properties->isEmpty()) {
                 return;
             }
 
-            $property->status = 'sold';
-            $property->pre_deal_offer_status = null; // sold is terminal — no revert target.
-            $property->save();
+            foreach ($properties as $property) {
+                try {
+                    $current = (string) $property->status;
+                    // Idempotent; never override a HARDER terminal state.
+                    if (in_array($current, ['sold', 'transferred', 'withdrawn', 'archived'], true)) {
+                        continue;
+                    }
+
+                    $property->status = 'sold';
+                    $property->pre_deal_offer_status = null; // sold is terminal — no revert target.
+                    $property->save();
+                } catch (\Throwable $e) {
+                    \Log::warning('Wave2 MarkPropertySoldOnDealMilestone failed for one property', [
+                        'error' => $e->getMessage(), 'deal_id' => $deal->id, 'property_id' => $property->id,
+                    ]);
+                }
+            }
         } catch (\Throwable $e) {
             \Log::warning('Wave2 MarkPropertySoldOnDealMilestone failed', [
                 'error' => $e->getMessage(), 'deal_id' => $event->deal->id ?? null,

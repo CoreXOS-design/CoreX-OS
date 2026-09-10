@@ -1243,6 +1243,13 @@ class MobilePropertyController extends Controller
             $role = ['seller' => 'owner', 'lessor' => 'lessor', 'buyer' => 'buyer', 'lessee' => 'tenant'][$esignRole] ?? null;
         }
 
+        // AT-398 — the owner set behind an open deal cannot move underneath it.
+        try {
+            app(\App\Services\Property\PropertyOwnershipGuard::class)->assertCanLink($property, $role);
+        } catch (\App\Exceptions\Property\OwnershipLockedException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+
         $property->contacts()->syncWithoutDetaching([$contact->id => ['role' => $role]]);
 
         if (in_array($role, ['owner', 'seller', 'landlord', 'lessor'], true)) {
@@ -1266,6 +1273,13 @@ class MobilePropertyController extends Controller
     public function contactsUnlink(Request $request, Property $property, Contact $contact): JsonResponse
     {
         $this->authorizeProperty($request->user(), $property);
+
+        // AT-398 — the owner set behind an open deal cannot move underneath it.
+        try {
+            app(\App\Services\Property\PropertyOwnershipGuard::class)->assertCanUnlink($property, $contact->id);
+        } catch (\App\Exceptions\Property\OwnershipLockedException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
 
         $property->contacts()->detach($contact->id);
 

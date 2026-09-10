@@ -167,6 +167,23 @@ return Application::configure(basePath: dirname(__DIR__))
             return back()->with('error', $e->getMessage());
         });
 
+        // AT-398 — safety net for any ownership-lock/owner-mismatch site that
+        // isn't (or can't be) caught locally for a tailored redirect. Both
+        // exceptions already carry a plain-English message by construction —
+        // "no raw error reaches a user" (BUILD_STANDARD.md §4).
+        $exceptions->render(function (\App\Exceptions\Property\OwnershipLockedException $e, $request) {
+            if ($request->expectsJson()) {
+                return response()->json(['ok' => false, 'message' => $e->getMessage()], 422);
+            }
+            return back()->with('error', $e->getMessage());
+        });
+        $exceptions->render(function (\App\Exceptions\Deal\PropertyOwnerMismatchException $e, $request) {
+            if ($request->expectsJson()) {
+                return response()->json(['ok' => false, 'message' => $e->getMessage()], 422);
+            }
+            return back()->withErrors(['property' => $e->getMessage()])->withInput();
+        });
+
         // 419 session-expired UX: instead of the bare Laravel 419 page, send
         // the user back to /dashboard with a flash message. The auth middleware
         // on /dashboard will bounce them to login if their session is gone —

@@ -123,6 +123,16 @@ class PropertyContactController extends Controller
         }
 
         $role = $data['role'];
+
+        // AT-398 — the owner set behind an open deal cannot move underneath it.
+        try {
+            app(\App\Services\Property\PropertyOwnershipGuard::class)->assertCanLink($property, $role);
+        } catch (\App\Exceptions\Property\OwnershipLockedException $e) {
+            return ($request->expectsJson() || $request->wantsJson())
+                ? response()->json(['ok' => false, 'message' => $e->getMessage()], 422)
+                : back()->withErrors(['role' => $e->getMessage()])->with('tab', 'contacts');
+        }
+
         $property->contacts()->syncWithoutDetaching([
             $contact->id => ['role' => $role],
         ]);
@@ -195,6 +205,14 @@ class PropertyContactController extends Controller
             if ($duplicates->isNotEmpty()) {
                 $mode = $service->resolveMode($agencyId);
                 if ($mode === 'auto_link') {
+                    // AT-398 — same ownership lock as link() above.
+                    try {
+                        app(\App\Services\Property\PropertyOwnershipGuard::class)->assertCanLink($property, $role);
+                    } catch (\App\Exceptions\Property\OwnershipLockedException $e) {
+                        return ($request->expectsJson() || $request->wantsJson())
+                            ? response()->json(['ok' => false, 'message' => $e->getMessage()], 422)
+                            : back()->withErrors(['role' => $e->getMessage()])->with('tab', 'contacts');
+                    }
                     $existing = $duplicates->first();
                     $wasLinked = $property->contacts()->where('contacts.id', $existing->id)->exists();
                     $property->contacts()->syncWithoutDetaching([$existing->id => ['role' => $role]]);
@@ -250,6 +268,15 @@ class PropertyContactController extends Controller
             $data['id_number']             = $idNumber;
             $data['id_number_captured_at'] = now();
             $data['id_number_source']      = 'property_inline_create';
+        }
+
+        // AT-398 — same ownership lock as link() above.
+        try {
+            app(\App\Services\Property\PropertyOwnershipGuard::class)->assertCanLink($property, $role);
+        } catch (\App\Exceptions\Property\OwnershipLockedException $e) {
+            return ($request->expectsJson() || $request->wantsJson())
+                ? response()->json(['ok' => false, 'message' => $e->getMessage()], 422)
+                : back()->withErrors(['role' => $e->getMessage()])->with('tab', 'contacts');
         }
 
         $contact = Contact::create($data);
@@ -308,6 +335,15 @@ class PropertyContactController extends Controller
                 $data['entity_reg_no'] ?? null,
             );
 
+        // AT-398 — same ownership lock as link() above.
+        try {
+            app(\App\Services\Property\PropertyOwnershipGuard::class)->assertCanLink($property, $role);
+        } catch (\App\Exceptions\Property\OwnershipLockedException $e) {
+            return ($request->expectsJson() || $request->wantsJson())
+                ? response()->json(['ok' => false, 'message' => $e->getMessage()], 422)
+                : back()->withErrors(['role' => $e->getMessage()])->with('tab', 'contacts');
+        }
+
         $wasLinked = $property->contacts()->where('contacts.id', $contact->id)->exists();
         $property->contacts()->syncWithoutDetaching([$contact->id => ['role' => $role]]);
         if (in_array($role, ['owner', 'seller', 'landlord', 'lessor'])) {
@@ -339,6 +375,15 @@ class PropertyContactController extends Controller
     public function unlink(Request $request, Property $property, Contact $contact)
     {
         $this->authorizeProperty($property);
+
+        // AT-398 — the owner set behind an open deal cannot move underneath it.
+        try {
+            app(\App\Services\Property\PropertyOwnershipGuard::class)->assertCanUnlink($property, $contact->id);
+        } catch (\App\Exceptions\Property\OwnershipLockedException $e) {
+            return ($request->expectsJson() || $request->wantsJson())
+                ? response()->json(['ok' => false, 'message' => $e->getMessage()], 422)
+                : back()->withErrors(['contact' => $e->getMessage()])->with('tab', 'contacts');
+        }
 
         $property->contacts()->detach($contact->id);
 
@@ -372,6 +417,15 @@ class PropertyContactController extends Controller
         $data = $request->validate([
             'role' => ['required', 'string', Rule::in(self::LINK_ROLES)],
         ]);
+
+        // AT-398 — the owner set behind an open deal cannot move underneath it.
+        try {
+            app(\App\Services\Property\PropertyOwnershipGuard::class)->assertCanChangeRole($property, $contact->id, $data['role']);
+        } catch (\App\Exceptions\Property\OwnershipLockedException $e) {
+            return ($request->expectsJson() || $request->wantsJson())
+                ? response()->json(['ok' => false, 'message' => $e->getMessage()], 422)
+                : back()->withErrors(['role' => $e->getMessage()])->with('tab', 'contacts');
+        }
 
         $property->contacts()->updateExistingPivot($contact->id, ['role' => $data['role']]);
 

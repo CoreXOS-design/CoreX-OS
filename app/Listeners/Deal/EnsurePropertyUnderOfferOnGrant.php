@@ -34,7 +34,7 @@ class EnsurePropertyUnderOfferOnGrant
 
             $deal = $event->deal;
             $agencyId = (int) ($deal->agency_id ?? 0);
-            if ($agencyId <= 0 || empty($deal->property_id)) {
+            if ($agencyId <= 0) {
                 return;
             }
 
@@ -42,23 +42,40 @@ class EnsurePropertyUnderOfferOnGrant
                 return; // feature OFF — same gate as the create-time flagging.
             }
 
-            // Read the property FRESH — the deal's cached ->property relation can be
-            // stale (loaded at deal-create time as 'under_offer', now reverted), which
-            // would make the guard below wrongly skip the re-grant re-flag.
-            $property = \App\Models\Property::withoutGlobalScopes()->find($deal->property_id);
-            if (! $property) {
-                return;
-            }
-            // Only act on a live listing. If it is already under-offer nothing to
-            // do; if it is off-market (e.g. the milestone listener just sold it, or
-            // a genuinely sold twin), never resurrect it.
-            if (! $property->isOnMarket() || (string) $property->status === 'under_offer') {
+            // AT-398 — every property linked to the deal (deal_properties),
+            // not just the one primary. Ids read fresh via the pivot, not
+            // through a cached relation — same staleness reason as before.
+            $propertyIds = $deal->properties()->pluck('properties.id');
+            if ($propertyIds->isEmpty()) {
                 return;
             }
 
-            $property->pre_deal_offer_status = (string) $property->status;
-            $property->status = 'under_offer';
-            $property->save(); // PropertyObserver: audit + re-syndication.
+            foreach ($propertyIds as $propertyId) {
+                try {
+                    // Read FRESH, not via a cached relation — the deal's cached
+                    // property can be stale (loaded at create time as
+                    // 'under_offer', now reverted), which would wrongly skip
+                    // the re-grant re-flag.
+                    $property = \App\Models\Property::withoutGlobalScopes()->find($propertyId);
+                    if (! $property) {
+                        continue;
+                    }
+                    // Only act on a live listing. If it is already under-offer nothing to
+                    // do; if it is off-market (e.g. the milestone listener just sold it, or
+                    // a genuinely sold twin), never resurrect it.
+                    if (! $property->isOnMarket() || (string) $property->status === 'under_offer') {
+                        continue;
+                    }
+
+                    $property->pre_deal_offer_status = (string) $property->status;
+                    $property->status = 'under_offer';
+                    $property->save(); // PropertyObserver: audit + re-syndication.
+                } catch (\Throwable $e) {
+                    \Log::warning('Wave2 EnsurePropertyUnderOfferOnGrant failed for one property', [
+                        'error' => $e->getMessage(), 'deal_id' => $deal->id, 'property_id' => $propertyId,
+                    ]);
+                }
+            }
         } catch (\Throwable $e) {
             \Log::warning('Wave2 EnsurePropertyUnderOfferOnGrant failed', [
                 'error' => $e->getMessage(), 'deal_id' => $event->deal->id ?? null,
