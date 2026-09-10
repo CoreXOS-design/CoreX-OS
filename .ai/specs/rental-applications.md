@@ -7232,3 +7232,26 @@ Johan's standing bar, restated for this pass: "we always need proper crud? searc
 - `resources/views/corex/rental-applications/index.blade.php` — date filter relabelled, search placeholder mentions phone
 - `resources/views/corex/rental-applications/returned.blade.php` — "Show archived" toggle, archived sub-table, per-row Archive button, all with `return_to=returned`
 - `resources/views/layouts/corex-sidebar.blade.php` — "Rental Applications" subitem active-state broadened to the full route family
+
+**Standing rule change, 2026-09-10 (Johan) — no more hard deletes for test-data cleanup, full stop.** This was the third hard-delete incident in one evening across three lanes (cc5 twice, cc3 once), each self-caught and self-reported — Johan treated it as a process failure, not a lane failure, and removed the trap rather than asking for more care: **no `forceDelete()`, no `truncate()`, no `delete()` on a model not confirmed to use `SoftDeletes`. If a model doesn't support soft delete, that is itself a finding to report — never a licence to force it. When unsure, leave the rows.** Orphaned test data on QA1 costs nothing; a destroyed row costs the thing the rule protects, and this module holds applicants' ID copies, payslips, and bank statements. Applied for the first time in the very next cleanup below.
+
+---
+
+## Authoriser panel description truncation (2026-09-10, cc5's finding, cc3's fix)
+
+cc5 found this during independent verification of Item 7 and correctly reported it rather than touching it — it lives in the authoriser's own read-only display, not the file cc5 was working in. The authoriser's income/expense rows used `grid grid-cols-2` (a bare 50/50 split) to cram a status dot, the conditional "Auth" badge, the description, AND the entry date into one flex-packed half — the exact same class of defect Johan already made this build fix once on the agent's editable-row side, in code that fix never reached. Reproduced with cc5's own realistic-length descriptions ("Monthly Salary Payment", "Vehicle Finance Instalment" — not edge-case-long): both clipped to fragments at the panel's default (460px) AND floor (400px).
+
+**Fixed the same way as the agent side — derived from what the row needs, not by widening the panel again:**
+- Entry date moved to its own line below the row, matching the struck-out reason's existing sub-line pattern. It's supplementary metadata; description and amount shouldn't have to compete with it for space on one line.
+- `grid-cols-2` replaced with an explicit `minmax(0,1fr)` description column against a real 155px minimum for amount+button, sized off this row's own worst case (R999,999.99 ≈ 77px + "Strike out", the longer of the two button labels, ≈ 54px + gap-2 + margin) — measured via canvas `measureText()` against the row's own real computed font, not picked and checked.
+
+**Verified with real values rendering as full words, at both widths, per Johan's explicit bar:**
+- cc5's exact repro (no "Auth" badge): both descriptions render as full words at 460px and at the 400px floor.
+- The worst case, tested deliberately (Auth badge + the longest of the two descriptions + a 6-digit amount, all at once): full words and the full amount at 460px. At the 400px floor the amount (`R 999 999,99`) and the "Strike out" button still render complete — the description degrades to the existing `:title` tooltip fallback, the same "degrade legibly" pattern already accepted on the agent side's own extremes, not a new compromise invented here.
+- Application 76's own real data ("salary"/"wages"/"utils"): no regression: full words at both widths, dates now sit on their own line under each row.
+
+**First application of the new no-hard-delete rule above:** cleanup checked `SoftDeletes` on every model touched before calling `delete()` on any of them. `RentalApplicationAssessment` (the one model in this chain already flagged elsewhere in this spec as lacking the trait) was left in place, orphaned under its now-soft-deleted parent application, rather than force-deleted. Everything else (the application, its income/expense items, the throwaway contact, the temporary QA-verify user) was soft-deleted normally.
+
+### Files changed
+
+- `resources/views/corex/rental-applications/review.blade.php` — authoriser income/expense row grid restructured, entry date moved to its own sub-line
