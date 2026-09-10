@@ -4147,6 +4147,36 @@
                         <label class="prop-label">Marketing Fee (R)</label>
                         <input type="number" name="marketing_fee" form="prop-update-form" value="{{ old('marketing_fee', $property->marketing_fee) }}" placeholder="optional" min="0" step="0.01" class="prop-input prop-field-money">
                     </div>
+                    {{-- AT-402 Part 4 — Furnished Status (agency-managed list,
+                         Settings → Properties & Listings), move-in Availability
+                         date (the existing occupation_date column — see the
+                         migration docblock, not a new field), and itemised
+                         utilities. --}}
+                    <div>
+                        <label class="prop-label">Furnished Status</label>
+                        <select name="furnished_status" form="prop-update-form" class="prop-select prop-field-enum">
+                            <option value="">— Not Set —</option>
+                            @foreach($settingItems['furnishedStatuses'] ?? [] as $fs)
+                                <option value="{{ $fs->name }}" {{ old('furnished_status', $property->furnished_status) === $fs->name ? 'selected' : '' }}>{{ $fs->name }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+                    <div>
+                        <label class="prop-label">Availability Date</label>
+                        <input type="date" name="occupation_date" form="prop-update-form" value="{{ old('occupation_date', $property->occupation_date?->format('Y-m-d')) }}" class="prop-input prop-field-date" style="color-scheme: light dark;">
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <input type="checkbox" id="rental_water_included_new" name="water_included" form="prop-update-form" value="1" {{ old('water_included', $property->water_included) ? 'checked' : '' }} class="rounded">
+                        <label for="rental_water_included_new" class="prop-label !mb-0">Water Included</label>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <input type="checkbox" id="rental_electricity_included_new" name="electricity_included" form="prop-update-form" value="1" {{ old('electricity_included', $property->electricity_included) ? 'checked' : '' }} class="rounded">
+                        <label for="rental_electricity_included_new" class="prop-label !mb-0">Electricity Included</label>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <input type="checkbox" id="rental_levies_included_new" name="levies_included" form="prop-update-form" value="1" {{ old('levies_included', $property->levies_included) ? 'checked' : '' }} class="rounded">
+                        <label for="rental_levies_included_new" class="prop-label !mb-0">Levies Included</label>
+                    </div>
                 </div>
             @else
                 {{-- Settled rental property — dedicated save action
@@ -4230,6 +4260,34 @@
                         <div>
                             <label class="prop-label">Marketing Fee (R)</label>
                             <input type="number" name="marketing_fee" value="{{ old('marketing_fee', $property->marketing_fee) }}" placeholder="optional" min="0" step="0.01" class="prop-input prop-field-money">
+                        </div>
+                        {{-- AT-402 Part 4 — Furnished Status (agency-managed
+                             list), move-in Availability date (the existing
+                             occupation_date column), and itemised utilities. --}}
+                        <div>
+                            <label class="prop-label">Furnished Status</label>
+                            <select name="furnished_status" class="prop-select prop-field-enum">
+                                <option value="">— Not Set —</option>
+                                @foreach($settingItems['furnishedStatuses'] ?? [] as $fs)
+                                    <option value="{{ $fs->name }}" {{ old('furnished_status', $property->furnished_status) === $fs->name ? 'selected' : '' }}>{{ $fs->name }}</option>
+                                @endforeach
+                            </select>
+                        </div>
+                        <div>
+                            <label class="prop-label">Availability Date</label>
+                            <input type="date" name="occupation_date" value="{{ old('occupation_date', $property->occupation_date?->format('Y-m-d')) }}" class="prop-input prop-field-date" style="color-scheme: light dark;">
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <input type="checkbox" id="rental_water_included_settled" name="water_included" value="1" {{ old('water_included', $property->water_included) ? 'checked' : '' }} class="rounded">
+                            <label for="rental_water_included_settled" class="prop-label !mb-0">Water Included</label>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <input type="checkbox" id="rental_electricity_included_settled" name="electricity_included" value="1" {{ old('electricity_included', $property->electricity_included) ? 'checked' : '' }} class="rounded">
+                            <label for="rental_electricity_included_settled" class="prop-label !mb-0">Electricity Included</label>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <input type="checkbox" id="rental_levies_included_settled" name="levies_included" value="1" {{ old('levies_included', $property->levies_included) ? 'checked' : '' }} class="rounded">
+                            <label for="rental_levies_included_settled" class="prop-label !mb-0">Levies Included</label>
                         </div>
                     </div>
                     <div class="flex justify-end">

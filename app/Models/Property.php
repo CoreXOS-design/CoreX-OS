@@ -526,6 +526,11 @@ class Property extends Model
         'matterport_id',
         'virtual_tour_url',
         'rental_price_type',
+        // AT-402 Part 4 — Furnished Status / Utilities Included.
+        'furnished_status',
+        'water_included',
+        'electricity_included',
+        'levies_included',
         'p24_syndication_enabled',
         'p24_syndication_status',
         'p24_ref',
@@ -578,6 +583,9 @@ class Property extends Model
         'price'               => 'integer',
         'price_on_application' => 'boolean',
         'has_deposit'         => 'boolean',
+        'water_included'      => 'boolean',
+        'electricity_included' => 'boolean',
+        'levies_included'     => 'boolean',
         'listing_type_pending' => 'boolean',
         // Money columns are decimal(12,2) in the schema (storage precision is
         // preserved there regardless of cast). They are cast to float — NOT

@@ -557,6 +557,8 @@ class PropertyController extends Controller
             'mandateTypes'    => PropertySettingItem::group('mandate_type')->get(),
             // Build 3 — condition levels drive CMA Middle band adjustment.
             'conditionLevels' => PropertySettingItem::group('condition_level')->where('active', true)->get(),
+            // AT-402 — Rental tab's Furnished Status select.
+            'furnishedStatuses' => PropertySettingItem::group('furnished_status')->where('active', true)->get(),
         ];
 
         $branches = Branch::orderBy('name')->get();
@@ -833,6 +835,8 @@ class PropertyController extends Controller
             'mandateTypes'    => PropertySettingItem::group('mandate_type')->get(),
             // Build 3 — condition levels drive CMA Middle band adjustment.
             'conditionLevels' => PropertySettingItem::group('condition_level')->where('active', true)->get(),
+            // AT-402 — Rental tab's Furnished Status select.
+            'furnishedStatuses' => PropertySettingItem::group('furnished_status')->where('active', true)->get(),
         ];
         $branches  = Branch::orderBy('name')->get();
         $agents    = $this->agentList($property);
@@ -882,6 +886,10 @@ class PropertyController extends Controller
             'price'            => 'required|integer|min:0',
             'price_on_application' => 'nullable|boolean',
             'has_deposit'      => 'nullable|boolean',
+            // AT-402 Part 4 — itemised, not a single "utilities included" flag.
+            'water_included'       => 'nullable|boolean',
+            'electricity_included' => 'nullable|boolean',
+            'levies_included'      => 'nullable|boolean',
             'lease_period'     => 'nullable|string|max:100',
             'price_per_day'    => 'nullable|numeric|min:0',
             'price_per_week'   => 'nullable|numeric|min:0',
@@ -952,6 +960,11 @@ class PropertyController extends Controller
             'matterport_id'      => 'nullable|string|max:100',
             'virtual_tour_url'   => 'nullable|url|max:1000',
             'rental_price_type'  => 'nullable|string|max:50',
+            // AT-402 Part 4 — Furnished Status / move-in Availability date.
+            // occupation_date already exists as a column (see the migration's
+            // docblock) — this is the first validation rule for it anywhere.
+            'furnished_status'   => 'nullable|string|max:100',
+            'occupation_date'    => 'nullable|date',
             'pp_hide_street_name'   => 'nullable|boolean',
             'pp_hide_street_number' => 'nullable|boolean',
             'pp_hide_complex_name'  => 'nullable|boolean',
@@ -1265,6 +1278,10 @@ class PropertyController extends Controller
             'price'            => $reqIf($priceRequired, '|integer|min:0'),
             'price_on_application' => 'nullable|boolean',
             'has_deposit'      => 'nullable|boolean',
+            // AT-402 Part 4 — itemised, not a single "utilities included" flag.
+            'water_included'       => 'nullable|boolean',
+            'electricity_included' => 'nullable|boolean',
+            'levies_included'      => 'nullable|boolean',
             'lease_period'     => 'nullable|string|max:100',
             'price_per_day'    => 'nullable|numeric|min:0',
             'price_per_week'   => 'nullable|numeric|min:0',
@@ -1335,6 +1352,11 @@ class PropertyController extends Controller
             'matterport_id'      => 'nullable|string|max:100',
             'virtual_tour_url'   => 'nullable|url|max:1000',
             'rental_price_type'  => 'nullable|string|max:50',
+            // AT-402 Part 4 — Furnished Status / move-in Availability date.
+            // occupation_date already exists as a column (see the migration's
+            // docblock) — this is the first validation rule for it anywhere.
+            'furnished_status'   => 'nullable|string|max:100',
+            'occupation_date'    => 'nullable|date',
             'pp_hide_street_name'   => 'nullable|boolean',
             'pp_hide_street_number' => 'nullable|boolean',
             'pp_hide_complex_name'  => 'nullable|boolean',
@@ -2404,15 +2426,27 @@ class PropertyController extends Controller
             'commission_percent' => 'nullable|numeric|min:0|max:100',
             'admin_fee'          => "nullable|numeric|min:0|max:{$feeCeiling}",
             'marketing_fee'      => "nullable|numeric|min:0|max:{$feeCeiling}",
+            // AT-402 Part 4 — Furnished Status / Availability / Utilities.
+            // furnished_status: free-text-shaped but UI-constrained to the
+            // agency's own PropertySettingItem list (group 'furnished_status')
+            // — same convention as property_type/category above, no FK.
+            'furnished_status'  => 'nullable|string|max:100',
+            // occupation_date IS the "move-in Availability date" — an
+            // existing column, not a new one (see the migration's docblock).
+            'occupation_date'   => 'nullable|date',
         ]);
 
-        // has_deposit is a checkbox: an unchecked box submits nothing at all,
-        // not "false" — reading it via $request->validate() above would leave
+        // has_deposit / water_included / electricity_included / levies_included
+        // are all checkboxes: an unchecked box submits nothing at all, not
+        // "false" — reading them via $request->validate() above would leave
         // the key out of $data entirely and $property->update() would then
-        // silently KEEP whatever has_deposit already was, instead of clearing
+        // silently KEEP whatever value already existed, instead of clearing
         // it. boolean() always returns a real true/false, checked or not, so
-        // unchecking it actually persists as false.
-        $data['has_deposit'] = $request->boolean('has_deposit');
+        // unchecking any of them actually persists as false.
+        $data['has_deposit']         = $request->boolean('has_deposit');
+        $data['water_included']      = $request->boolean('water_included');
+        $data['electricity_included'] = $request->boolean('electricity_included');
+        $data['levies_included']     = $request->boolean('levies_included');
 
         DB::transaction(function () use ($property, $data) {
             $property->update($data);
