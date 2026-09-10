@@ -77,9 +77,9 @@
 
     {{-- Listing Pool --}}
     <div class="ds-status-card" style="border-left-color: var(--brand-icon);">
-        <div class="ds-label">Listing Pool (Our share)</div>
+        <div class="ds-label">Listing Pool (Our share, Ex VAT)</div>
         <div class="ds-value-xl mt-1" style="color:var(--text-primary)">R <span class="js-pool" data-side="listing">{{ $money($listingPool) }}</span></div>
-        <div class="text-xs text-[color:var(--text-muted)] mt-1">External payable: R {{ $money($listingExternalPayable ?? 0) }}</div>
+        <div class="text-xs text-[color:var(--text-muted)] mt-1">External payable (Incl VAT): R {{ $money($listingExternalPayable ?? 0) }}</div>
     </div>
 
     {{-- Listing Side Card --}}
@@ -194,9 +194,9 @@
 
     {{-- Selling Pool --}}
     <div class="ds-status-card" style="border-left-color: var(--ds-green);">
-        <div class="ds-label">Selling Pool (Our share)</div>
+        <div class="ds-label">Selling Pool (Our share, Ex VAT)</div>
         <div class="ds-value-xl mt-1" style="color:var(--text-primary)">R <span class="js-pool" data-side="selling">{{ $money($sellingPool) }}</span></div>
-        <div class="text-xs text-[color:var(--text-muted)] mt-1">External payable: R {{ $money($sellingExternalPayable ?? 0) }}</div>
+        <div class="text-xs text-[color:var(--text-muted)] mt-1">External payable (Incl VAT): R {{ $money($sellingExternalPayable ?? 0) }}</div>
     </div>
 
     {{-- Selling Side Card --}}
@@ -326,11 +326,11 @@
             </div>
 
             <div class="grid grid-cols-1 md:grid-cols-4 gap-3 text-sm">
-                <div><span class="ds-label">Total Commission:</span> <span class="ds-value">R {{ $money($deal->total_commission) }}</span></div>
-                <div><span class="ds-label">External Payable:</span> <span class="ds-value">R <span id="js-external-total">{{ $money($externalPayableTotal ?? 0) }}</span></span></div>
-                <div><span class="ds-label">Company Portion:</span> <span class="ds-value">R <span id="js-company-total">{{ $money($totals['company']) }}</span></span></div>
+                <div><span class="ds-label">Total Commission (Incl VAT):</span> <span class="ds-value">R {{ $money($deal->total_commission) }}</span></div>
+                <div><span class="ds-label">External Payable (Incl VAT):</span> <span class="ds-value">R <span id="js-external-total">{{ $money($externalPayableTotal ?? 0) }}</span></span></div>
+                <div><span class="ds-label">Company Portion (Ex VAT):</span> <span class="ds-value">R <span id="js-company-total">{{ $money($totals['company']) }}</span></span></div>
                 <div>
-                    <span class="ds-label">Checksum:</span>
+                    <span class="ds-label">Checksum (Ex VAT):</span>
                     <span class="{{ $checksumOk ? 'text-green-700' : 'text-red-700' }} font-bold">
                         R <span id="js-checksum">{{ $money($checksumTotal) }}</span>
                         (<span id="js-checksum-status">{{ $checksumOk ? 'OK' : 'NOT OK' }}</span>)
