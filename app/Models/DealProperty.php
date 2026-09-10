@@ -32,7 +32,7 @@ class DealProperty extends Pivot
 
     protected $casts = [
         'is_primary' => 'boolean',
-        'allocated_price' => 'decimal:2',
+        'allocated_price' => 'integer',
         'allocated_commission' => 'decimal:2',
     ];
 }
