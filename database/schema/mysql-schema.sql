@@ -16301,3 +16301,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1291,'2026_09_10_0
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1292,'2026_09_07_160000_repair_document_names_containing_path_separators',275);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1293,'2026_09_10_020000_add_applicant_notified_at_to_rental_applications',276);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1294,'2026_09_10_030000_create_rental_application_approval_email_settings_table',277);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1295,'2026_09_10_040000_grant_contact_rental_history_view_alongside_contacts_view',278);

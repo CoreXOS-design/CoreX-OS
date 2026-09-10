@@ -6426,13 +6426,43 @@ $user): string` (`PermissionService.php`, next to `calendarScope()`/
 of `'own'` — every sibling defaults the OTHER way; this one is
 deliberately the exception, per Johan's explicit instruction.
 
-**Synced, not seeded:** `php artisan corex:sync-permissions` (no
-`--seed-defaults`, no `--prune`) was run to create the permission
-*definition* row only — confirmed via its own output ("`1 created`...
-not yet assigned to any role"). No `role_permissions` grant was seeded
-for any role, which is exactly what makes the `?? 'all'` default take
-effect for every role until an agency admin explicitly configures
-otherwise in Role Manager.
+**Definition synced, grants explicitly backfilled — not left to the
+code-level default alone.** `php artisan corex:sync-permissions` (no
+`--seed-defaults`, no `--prune`) created the permission *definition* row
+only. The obvious next move — leave every role ungranted and let
+`contactRentalHistoryScope()`'s `?? 'all'` carry the default — was tried
+first and found wanting: Role Manager's own scope-matrix initialisation
+(`role-manager.blade.php:847-861`) shows an *ungranted* permission as
+**"None"** regardless of what the backend would actually resolve, since
+its own default logic only shows `'all'` when a grant row exists with no
+scope set. An admin opening Role Manager would see "None" and reasonably
+believe access was off, when it was actually wide open — a real,
+misleading discrepancy caught by looking at the actual rendered page,
+not by reading the JS.
+
+Generic seeding wasn't the fix either: `config/corex-permissions.php`'s
+own `scope_defaults` (super_admin/admin=`all`, branch_manager=`branch`,
+agent=`own`, viewer=`branch`) is what `--merge-defaults` would apply,
+and `shared_scope_modules` (`p24`, `knowledge`) makes a module
+permanently `all` with no per-role control at all — neither fits "the
+same default for every role, but still editable per role."
+
+Fixed with a migration
+(`2026_09_10_040000_grant_contact_rental_history_view_alongside_contacts_view.php`):
+for every existing `(agency_id, role)` pair already granted
+`contacts.view` (55 pairs plus the NULL-agency global template, at the
+time of writing — "any user working with a contact" only means anyone
+who can already see contacts at all), insert-or-restore a
+`contact_rental_history.view` row at `scope = 'all'`. Hit
+BUILD_STANDARD.md §5a's own named trap while writing it — a stray
+soft-deleted row from this build's own earlier Tinker verification
+collided with the table's unique index on a plain `updateOrCreate()`
+(which doesn't see trashed rows); fixed with the prescribed
+`withTrashed()->firstOrNew()` + explicit `restore()` pattern. The
+`?? 'all'` code-level default in `contactRentalHistoryScope()` stays as
+a genuine safety net (a role created after this migration runs still
+gets the correct default even with no row), it just isn't the ONLY
+place the default lives any more.
 
 ### The query layer — same mechanism as the list screens, not a parallel one
 
