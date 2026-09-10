@@ -103,7 +103,57 @@ function rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, curre
         pagesLoading: false,
         _savedByPage: {},
         loadedVersion: 0, // marks_version at the moment this document was (re)loaded — sent back as base_version on save
-        marks: [],   // FLAT array: {id, type:'highlight', page, points:[{x,y}], width, highlighterId, authorUserId, authorName, authorRole} | {id, type:'note', page, x, y, text, highlighterId, authorUserId, authorName, authorRole}
+        // FLAT array: {id, type:'highlight', page, points:[{x,y}], width, highlighterId, authorUserId, authorName, authorRole} | {id, type:'note', page, x, y, text, highlighterId, authorUserId, authorName, authorRole}
+        //
+        // "Item 7" (Johan, 2026-09-10): "resize the panels - the highlighter
+        // do not match. it just stays." Root cause, confirmed by reading
+        // this file rather than assumed: x/y/points here used to be RAW
+        // DISPLAY PIXELS, converted from the server's RASTER px (the OCR'd
+        // page image's own fixed dimensions — never changes) exactly ONCE,
+        // either when a mark was restored from the server (scaled by
+        // whatever img.clientWidth happened to be at that moment) or when a
+        // fresh one was drawn (captured live from the mouse at that
+        // moment). Every render (the SVG polylines, the note pin, the
+        // remove-× button) then used that baked-in number directly. A panel
+        // resize changes the image's rendered width AFTER that moment, and
+        // nothing here ever re-ran the conversion — so the overlay stayed
+        // exactly where it was drawn while the page underneath it grew or
+        // shrank. Worse than cosmetic: applyHighlights() (the SAVE path)
+        // re-derives its raster-conversion scale factor fresh from the
+        // CURRENT img.clientWidth every time, so saving after a resize
+        // multiplied a stale display-px number by the WRONG scale factor —
+        // a save made right after a resize could permanently corrupt the
+        // stored position, not just misdraw it on screen.
+        //
+        // FIX: x/y/points here are now a NORMALISED FRACTION (0–1) of the
+        // page's own width/height — the exact same stable space RASTER px
+        // already lives in, just divided down instead of multiplied up, so
+        // converting to/from it needs only page.width/page.height (always
+        // known, never the DOM) in both restoreSavedMarksForPages() and
+        // applyHighlights(). Actual screen pixels are computed ONLY at
+        // render time, via toDisplayX()/toDisplayY() below, against
+        // renderedPageSize — a reactive property kept live by a
+        // ResizeObserver per page, so a resize re-triggers the SVG/pin/
+        // button bindings that read it exactly the way any other reactive
+        // Alpine dependency does. Ephemeral, still-being-drawn state
+        // (this.drag.points, pendingNote) deliberately stays in raw
+        // display px — it only ever exists for the current render, there's
+        // nothing to re-project.
+        //
+        // NO SERVER-SIDE MIGRATION NEEDED. Checked, not assumed: every
+        // already-stored mark is in RASTER px, which was already the
+        // stable, render-size-independent space this fix normalises
+        // against — the bug was entirely in how the CLIENT converted
+        // between that stable space and whatever it happened to be
+        // displaying, never in what got persisted.
+        marks: [],
+        // { [pageIndex]: {width, height} } — the CURRENT rendered CSS px of
+        // that page's <img>, kept live by observePageResize()'s
+        // ResizeObserver. Reactive (a plain property on this component's
+        // own data), so any binding that reads it re-evaluates automatically
+        // when a resize updates it.
+        renderedPageSize: {},
+        _pageResizeObservers: {},
         dirty: false,
 
         // Highlighter collection expansion, 2026-09-09 — Johan: "an agency
@@ -270,6 +320,11 @@ function rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, curre
             this.totalPages = 0;
             this.marks = [];
             this._savedByPage = {};
+            // "Item 7" — a document switch (or reloadHighlighter()'s
+            // version-conflict recovery, which also calls this) must not
+            // leave the PREVIOUS document's page observers watching now-
+            // detached <img> elements forever.
+            this.disconnectPageResizeObservers();
             this.loadedVersion = 0;
             this.dirty = false;
             this.undoStack = [];
@@ -436,8 +491,17 @@ function rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, curre
         // pixels and a finished layout pass are two different guarantees.
         async restoreSavedMarksForPages(pageIndexes) {
             for (const pageIndex of pageIndexes) {
-                const saved = this._savedByPage[String(pageIndex)] || this._savedByPage[pageIndex];
-                if (!saved) continue;
+                // "Item 7" fix — the resize observer must attach to EVERY
+                // page as it loads, not only ones with pre-existing saved
+                // marks. A page with zero saved marks today can still get a
+                // FRESH one drawn on it a moment later (startDraw()/
+                // endDraw()); without an observer already watching it,
+                // renderedPageSize[pageIndex] would stay undefined and
+                // toDisplayX/Y would fall back to 0 the first time a resize
+                // tried to re-project that page's marks. The original code
+                // returned early here (`if (!saved) continue`) before ever
+                // reaching the img lookup — moved the early-return to skip
+                // only the mark-RESTORATION step below, not observation.
                 await this.$nextTick();
                 const img = document.querySelector('img.rah-page-img[data-page="' + pageIndex + '"]');
                 if (!img) continue;
@@ -445,8 +509,14 @@ function rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, curre
                 if (!img.clientWidth) { await this._waitForLayout(img); }
                 const page = this.pages.find(p => p.index === pageIndex);
                 if (!page || !img.clientWidth) continue;
-                const scaleX = img.clientWidth / page.width;
-                const scaleY = img.clientHeight / page.height;
+                this.observePageResize(pageIndex, img);
+
+                const saved = this._savedByPage[String(pageIndex)] || this._savedByPage[pageIndex];
+                if (!saved) continue;
+                // Normalise against the page's own fixed width/height, never
+                // the DOM — see the marks: [] docblock above for the full
+                // reasoning. Actual screen pixels are computed only at
+                // render time, via toDisplayX()/toDisplayY().
                 saved.forEach(m => {
                     // highlighter_id/id/author survive round-trips verbatim
                     // — the server pass-through of an unchanged mark
@@ -465,12 +535,12 @@ function rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, curre
                         authorRole: m.author_role || null,
                     };
                     if (m.type === 'note') {
-                        this.marks.push({ ...common, type: 'note', page: pageIndex, x: m.x * scaleX, y: m.y * scaleY, text: m.text });
+                        this.marks.push({ ...common, type: 'note', page: pageIndex, x: m.x / page.width, y: m.y / page.height, text: m.text });
                     } else {
                         this.marks.push({
                             ...common, type: 'highlight', page: pageIndex,
-                            points: (m.points || []).map(p => ({ x: p.x * scaleX, y: p.y * scaleY })),
-                            width: (m.width || 26) * scaleX,
+                            points: (m.points || []).map(p => ({ x: p.x / page.width, y: p.y / page.height })),
+                            width: (m.width || 26) / page.width,
                         });
                     }
                 });
@@ -488,7 +558,43 @@ function rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, curre
                 if (this.applyError) return; // save failed — stay open so nothing is lost
             }
             this.activeDocId = null;
+            this.disconnectPageResizeObservers();
         },
+        // "Item 7" — one ResizeObserver per page, watching that page's own
+        // <img> for any change in its rendered size (a panel drag, a
+        // browser-window resize, anything). Idempotent per page — called
+        // from restoreSavedMarksForPages() on every page as it loads;
+        // observing an already-watched page is a silent no-op rather than
+        // stacking duplicate observers on it.
+        observePageResize(pageIndex, img) {
+            this.renderedPageSize[pageIndex] = { width: img.clientWidth, height: img.clientHeight };
+            if (this._pageResizeObservers[pageIndex]) return;
+            const ro = new ResizeObserver(() => {
+                this.renderedPageSize[pageIndex] = { width: img.clientWidth, height: img.clientHeight };
+            });
+            ro.observe(img);
+            this._pageResizeObservers[pageIndex] = ro;
+        },
+        // Disconnects every page's observer — called on close/document-switch
+        // so a detached <img> from a previous document is never watched
+        // forever (this viewer already resets marks/pages/etc wholesale in
+        // loadDocument(); observers get the same treatment).
+        disconnectPageResizeObservers() {
+            Object.values(this._pageResizeObservers).forEach(ro => ro.disconnect());
+            this._pageResizeObservers = {};
+            this.renderedPageSize = {};
+        },
+        // The one and only place a normalised (0–1) mark coordinate becomes
+        // an actual screen pixel — reads the reactive renderedPageSize, so
+        // every binding that calls this (the SVG polylines, the note pin,
+        // the remove-× button) automatically re-evaluates when a resize
+        // updates it, exactly like any other Alpine-tracked dependency.
+        // Falls back to 0 only in the brief window before a page's first
+        // ResizeObserver callback has fired — matches the pre-existing
+        // "no img.clientWidth yet" guards elsewhere in this file rather than
+        // inventing a new failure mode.
+        toDisplayX(frac, pageIndex) { return frac * (this.renderedPageSize[pageIndex]?.width || 0); },
+        toDisplayY(frac, pageIndex) { return frac * (this.renderedPageSize[pageIndex]?.height || 0); },
         strokesFor(p) { return this.marks.filter(m => m.type === 'highlight' && m.page === p); },
         notesFor(p) { return this.marks.filter(m => m.type === 'note' && m.page === p); },
         // Delete-handle hover, freehand redesign 2026-09-09 — Johan: "every
@@ -545,17 +651,26 @@ function rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, curre
                 + '></polyline>';
             let svg = '';
             this.strokesFor(p).forEach(m => {
+                // "Item 7" — m.points/m.width are normalised (0–1) fractions
+                // now; re-projected to actual screen pixels HERE, at render
+                // time, against the page's CURRENT rendered size. This is
+                // the fix: strokesSvgFor() is called from x-html, so reading
+                // the reactive renderedPageSize inside toDisplayX/Y means
+                // Alpine re-runs this whole function — and redraws every
+                // stroke in its correct place — automatically whenever a
+                // resize changes that size, not just once at load/draw time.
+                const dispPoints = m.points.map(pt => ({ x: this.toDisplayX(pt.x, p), y: this.toDisplayY(pt.y, p) }));
                 // Floor, 2026-09-08 — Johan: "with a floor so it can never
                 // collapse." A mark restored from an old save (or scaled
                 // down oddly by the raster<->display conversion) must still
                 // read as a real band, never thin out to a hairline.
-                const fillWidth = Math.max(m.width, 8);
+                const fillWidth = Math.max(this.toDisplayX(m.width, p), 8);
                 // Opacity raised slightly from the original 0.5 now that
                 // there's no underline to lean on for legibility — verified
                 // by eye against a real dense document (multiply blend
                 // already darkens more assertively than plain alpha ever
                 // did, so this is a small nudge, not a big compensation).
-                svg += poly(m.points, this.fillFor(m), fillWidth, 0.55, m.id);
+                svg += poly(dispPoints, this.fillFor(m), fillWidth, 0.55, m.id);
             });
             if (this.drag.active && this.drag.page === p && this.activeTool === 'highlight') {
                 const preview = { highlighterId: this.activeHighlighterId };
@@ -722,8 +837,21 @@ function rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, curre
             // a stroke's entire meaning IS its colour; a note's isn't.
             if (this.drag.points.length >= 2 && this.activeHighlighterId !== null) {
                 this.pushHistory();
+                // "Item 7" — this.drag.points/strokeWidth are raw display px
+                // (captured live from the current mouse position/render, via
+                // startDraw()/moveDraw()'s getBoundingClientRect()) — a
+                // fresh stroke normalises to a fraction of the CURRENT
+                // renderedPageSize the instant it's committed, exactly the
+                // same space a restored mark ends up in, so both are
+                // rendered and re-projected on resize identically from
+                // here on.
+                const size = this.renderedPageSize[page];
+                const normPoints = size && size.width
+                    ? this.drag.points.map(pt => ({ x: pt.x / size.width, y: pt.y / size.height }))
+                    : this.drag.points;
+                const normWidth = size && size.width ? this.strokeWidth / size.width : this.strokeWidth;
                 this.marks.push({
-                    id: this.generateMarkId(), type: 'highlight', page, points: this.drag.points, width: this.strokeWidth,
+                    id: this.generateMarkId(), type: 'highlight', page, points: normPoints, width: normWidth,
                     highlighterId: this.activeHighlighterId, authorUserId: this.currentUserId, authorName: this.currentUserName, authorRole: this.currentUserRole,
                 });
                 this.dirty = true;
@@ -748,8 +876,14 @@ function rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, curre
             if (text !== '') {
                 this.pushHistory();
                 const notePage = this.pendingNote.page;
+                // "Item 7" — same normalisation as a fresh highlight stroke
+                // above; this.pendingNote.x/y are raw display px captured
+                // live in endDraw().
+                const size = this.renderedPageSize[notePage];
+                const nx = size && size.width ? this.pendingNote.x / size.width : this.pendingNote.x;
+                const ny = size && size.height ? this.pendingNote.y / size.height : this.pendingNote.y;
                 this.marks.push({
-                    id: this.generateMarkId(), type: 'note', page: notePage, x: this.pendingNote.x, y: this.pendingNote.y, text,
+                    id: this.generateMarkId(), type: 'note', page: notePage, x: nx, y: ny, text,
                     highlighterId: this.activeHighlighterId, authorUserId: this.currentUserId, authorName: this.currentUserName, authorRole: this.currentUserRole,
                 });
                 this.dirty = true;
@@ -792,10 +926,18 @@ function rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, curre
             try {
                 const marksByPage = {};
                 for (const page of this.pages) {
-                    const img = document.querySelector('img.rah-page-img[data-page="' + page.index + '"]');
-                    if (!img || !img.clientWidth) continue;
-                    const scaleX = page.width / img.clientWidth;
-                    const scaleY = page.height / img.clientHeight;
+                    // "Item 7" fix — m.points/m.x/m.y/m.width are normalised
+                    // (0–1) fractions now, converting to RASTER px against
+                    // the page's own fixed width/height. This is deliberately
+                    // NO LONGER read from img.clientWidth at all: that was
+                    // the exact bug (a save's scale factor was always fresh
+                    // and correct, but it multiplied against a STALE
+                    // display-px mark that hadn't been re-projected since
+                    // the last resize — a save made right after resizing
+                    // could silently corrupt the stored position). A
+                    // fraction needs only the page's own stable dimensions,
+                    // so that failure mode no longer exists.
+                    if (!page.width || !page.height) continue;
 
                     const toServerMark = m => ({
                         id: m.id, highlighter_id: m.highlighterId,
@@ -813,18 +955,18 @@ function rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, curre
                         // document's own resolution, not the viewer's zoom,
                         // so a stroke drawn at any screen size simplifies by
                         // the same real-world amount.
-                        const rasterPoints = m.points.map(p => ({ x: Math.round(p.x * scaleX), y: Math.round(p.y * scaleY) }));
+                        const rasterPoints = m.points.map(p => ({ x: Math.round(p.x * page.width), y: Math.round(p.y * page.height) }));
                         return {
                             ...toServerMark(m),
                             type: 'highlight',
                             points: this.simplifyPath(rasterPoints, 1.5),
-                            width: Math.round(m.width * scaleX),
+                            width: Math.round(m.width * page.width),
                         };
                     });
                     const notes = this.notesFor(page.index).map(m => ({
                         ...toServerMark(m),
                         type: 'note',
-                        x: Math.round(m.x * scaleX), y: Math.round(m.y * scaleY),
+                        x: Math.round(m.x * page.width), y: Math.round(m.y * page.height),
                         text: m.text,
                     }));
                     // 2026-09-08 — ALWAYS assign, even an empty array. The

@@ -335,8 +335,24 @@
          sensible min/max, width read from and written to a CSS custom
          property so the existing sticky/independent-scroll rules above
          keep working unchanged. Persisted per-browser via localStorage
-         (rentalReviewAsideWidth) so a drag survives a reload — the default
-         (260px) is unchanged for anyone who never drags it. --}}
+         (rentalReviewAsideWidth) so a drag survives a reload.
+
+         MINIMUM RAISED 260px → 320px, 2026-09-10 ("Item 6", Johan:
+         "rethink this please... it has to hold up across the full resize
+         range, not just at one width — check the narrow end"). Measured
+         live on application 76 with real, multi-line income/expense data:
+         at 260px every 3-column item row (description/date/amount) had no
+         choice but to truncate — "salary" to "sal…", the date to nothing
+         readable. 260 was never actually validated against this row shape;
+         it was inherited unchanged from before the date column existed
+         (see the DRAGGABLE WIDTH note above) specifically because "the
+         aside was a fixed 260px, tight enough already." It wasn't. 320 is
+         not an arbitrary pick either — it's the authoriser panel's OWN
+         original width before the 2026-09-09 unification narrowed it to
+         match the agent's 260 (see the "Layout" note above) — restoring
+         it as the floor for BOTH roles, since both now hold the identical
+         3-column row shape. Max stays 480 (already proven comfortable in
+         the same live check). --}}
     <style>
         .rental-review-columns { display: flex; flex-direction: column; gap: 20px; }
         .rental-review-main    { flex: 1 1 auto; min-width: 0; }
@@ -345,7 +361,7 @@
         @media (min-width: 1280px) {
             .rental-review-columns { flex-direction: row; gap: 0; align-items: stretch; }
             .rental-review-main    { height: var(--rr-panel-h, calc(100vh - 160px)); max-height: var(--rr-panel-h, calc(100vh - 160px)); overflow-y: auto; margin-right: 16px; }
-            .rental-review-aside   { flex: 0 0 var(--rr-aside-w, 260px); width: var(--rr-aside-w, 260px); align-self: stretch; position: sticky; top: 72px; height: var(--rr-panel-h, calc(100vh - 160px)); max-height: var(--rr-panel-h, calc(100vh - 160px)); overflow-y: auto; overflow-x: hidden; }
+            .rental-review-aside   { flex: 0 0 var(--rr-aside-w, 320px); width: var(--rr-aside-w, 320px); align-self: stretch; position: sticky; top: 72px; height: var(--rr-panel-h, calc(100vh - 160px)); max-height: var(--rr-panel-h, calc(100vh - 160px)); overflow-y: auto; overflow-x: hidden; }
             .rental-review-resizer {
                 display: block; flex: 0 0 6px; width: 6px; cursor: col-resize;
                 align-self: stretch; position: sticky; top: 72px;
@@ -657,9 +673,27 @@
              authoriser strikes-and-adds, never edits) plus the role's own
              actions block at the bottom. Narrow working column, width
              draggable (see resizer above) — never covered by anything, see
-             the in-place-annotation note above the layout <style> block. --}}
-        <div class="rental-review-aside rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
-            <div class="flex items-center gap-1.5 mb-3">
+             the in-place-annotation note above the layout <style> block.
+
+             REDESIGNED 2026-09-10 ("Item 6", Johan, verbatim: "the right
+             hand panel needs to be redesigned on rental for user and auth -
+             look at the space available and then we go and put big boxes
+             on there. rethink this please"). Root problem measured in a
+             real browser on a real record (application 76, 6 income + 2
+             expense lines): the aside was ONE undifferentiated card with
+             every section separated only by a margin — no visual grouping
+             at all, unlike .rental-review-main which is a plain space-y
+             container of INDEPENDENTLY-boxed cards (Submitted Application /
+             Supporting Documents / Audit Trail, each its own bordered
+             surface). The aside now matches that exact pattern instead of
+             inventing a new one — every logical group (statement period,
+             income, expenses, unpaid flag, notes) is its own
+             `rounded-md p-3` card, same tokens the main column's cards and
+             this aside's own pre-existing "Qualifies for up to" box already
+             use. This is "put big boxes on there" read literally: boxes
+             sized to what they actually hold, not a wall of small text. --}}
+        <div class="rental-review-aside space-y-3">
+            <div class="flex items-center gap-1.5">
                 <h2 class="text-sm font-semibold" style="color: var(--text-primary);">{{ $viewerRole === 'agent' ? 'Affordability Assessment' : "Agent's Assessment" }}</h2>
                 @if($viewerRole === 'agent')
                     <span class="ds-badge ds-badge-muted" style="cursor: help; padding: 0 5px;"
@@ -679,7 +713,7 @@
                      count is shown read-only right below the two pickers so
                      the agent can see what the range works out to without
                      doing the arithmetic. --}}
-                <div class="mb-4">
+                <div class="rounded-md p-3" style="background: var(--surface); border: 1px solid var(--border);">
                     <div class="flex items-center gap-1.5 mb-1">
                         <label class="text-xs font-medium" style="color: var(--text-secondary);">Statement period</label>
                         <span class="ds-badge ds-badge-muted" style="cursor: help; padding: 0 5px;"
@@ -702,7 +736,24 @@
                     </p>
                 </div>
 
-                <div class="mb-4">
+                {{-- Income/expense rows — description takes the lion's share
+                     (1.6fr), date is a fixed 130px (enough for a full
+                     "06/24/2026" plus the native picker icon, verified live
+                     — 118px still clipped the last digit of the year), and
+                     amount gets whatever's left with a 78px floor. Measured
+                     live on application 76 (real descriptions: "salary"/
+                     "wages"): the OLD equal-1fr split spent the row's
+                     scarcest space on the date, whose content never varies
+                     in shape, instead of description, which is what an
+                     agent actually reads to identify the line. At the new
+                     320px floor the amount column can clip its last digit on
+                     a long figure (e.g. "28861." not "28861.34") — accepted
+                     as the honest tradeoff at the absolute narrow end
+                     (protecting description, which identifies WHAT the line
+                     is, over the tail of a number whose section total is
+                     already shown below); the resizer exists exactly for
+                     the agent who wants the full figure without scrolling. --}}
+                <div class="rounded-md p-3" style="background: var(--surface); border: 1px solid var(--border);">
                     <div class="flex items-center gap-1.5 mb-1">
                         <span class="rounded-full flex-shrink-0" style="width: 9px; height: 9px; background: var(--ra-income-agent); border: 1px solid var(--ra-income-underline);"></span>
                         <label class="text-xs font-medium" style="color: var(--text-secondary);">Income (gross)</label>
@@ -711,7 +762,7 @@
                     </div>
                     <div class="space-y-1.5" x-ref="incomeRows">
                         <template x-for="(item, index) in incomeItems" :key="index">
-                            <div class="grid gap-1.5" style="grid-template-columns: minmax(0,1fr) minmax(0,1fr) 90px;">
+                            <div class="grid gap-1.5" style="grid-template-columns: minmax(0,1.6fr) 130px minmax(78px,1fr);">
                                 <input type="text" class="corex-input text-sm w-full" placeholder="e.g. Salary"
                                        x-model="item.description" @input="onIncomeRowInput()" @blur="save()">
                                 <input type="date" class="corex-input text-sm w-full" title="Date this deposit happened"
@@ -727,7 +778,7 @@
                     </p>
                 </div>
 
-                <div class="mb-4">
+                <div class="rounded-md p-3" style="background: var(--surface); border: 1px solid var(--border);">
                     <div class="flex items-center gap-1.5 mb-1">
                         <span class="rounded-full flex-shrink-0" style="width: 9px; height: 9px; background: var(--ra-expense-agent); border: 1px solid var(--ra-expense-underline);"></span>
                         <label class="text-xs font-medium" style="color: var(--text-secondary);">Expenses / existing debt</label>
@@ -736,7 +787,7 @@
                     </div>
                     <div class="space-y-1.5" x-ref="expenseRows">
                         <template x-for="(item, index) in expenseItems" :key="index">
-                            <div class="grid gap-1.5" style="grid-template-columns: minmax(0,1fr) minmax(0,1fr) 90px;">
+                            <div class="grid gap-1.5" style="grid-template-columns: minmax(0,1.6fr) 130px minmax(78px,1fr);">
                                 <input type="text" class="corex-input text-sm w-full" placeholder="e.g. Car payment"
                                        x-model="item.description" @input="onExpenseRowInput()" @blur="save()">
                                 <input type="date" class="corex-input text-sm w-full" title="Date this debit happened"
@@ -752,7 +803,7 @@
                     </p>
                 </div>
 
-                <div class="mb-4">
+                <div class="rounded-md p-3" style="background: var(--surface); border: 1px solid var(--border);">
                     <div class="flex items-center gap-1.5 mb-1">
                         <span class="rounded-full flex-shrink-0" style="width: 9px; height: 9px; background: var(--ra-unpaid-agent); border: 1px solid var(--ra-unpaid-underline);"></span>
                         <label class="text-xs font-medium" style="color: var(--text-secondary);">Unpaid transactions</label>
@@ -792,13 +843,13 @@
                     </template>
                 </div>
 
-                <div class="mt-4">
+                <div class="rounded-md p-3" style="background: var(--surface); border: 1px solid var(--border);">
                     <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Notes</label>
-                    <textarea rows="7" class="corex-input text-sm w-full" style="resize: none; overflow-y: auto;"
+                    <textarea rows="5" class="corex-input text-sm w-full" style="resize: none; overflow-y: auto;"
                               x-model="fields.notes" x-init="autoGrowTextarea($el)" @input="autoGrowTextarea($el)" @blur="save()"></textarea>
                 </div>
 
-                <div class="flex items-center gap-1.5 text-xs mt-2 px-2 py-1 rounded-md" x-show="saveStatus"
+                <div class="flex items-center gap-1.5 text-xs px-2 py-1 rounded-md" x-show="saveStatus"
                      :style="saveError ? 'background: var(--ds-red-soft, #fef2f2); color: var(--ds-red, #dc2626);' : 'background: var(--ds-emerald-soft, #ecfdf5); color: var(--ds-emerald, #059669);'">
                     <span x-show="!saveError && saveStatus !== 'Saving…'">&check;</span>
                     <span x-text="saveStatus"></span>
@@ -811,7 +862,10 @@
                      component's concern; the assessment items are this nested
                      scope's. Unchanged from before the merge except its position
                      on the page (now the shared aside, not a second blade's own
-                     main column). --}}
+                     main column). Boxed 2026-09-10 ("Item 6") — same
+                     rationale as the agent variant above: every section its
+                     own card, matching .rental-review-main's existing
+                     pattern instead of one continuous unbroken column. --}}
                 <div x-data="rentalAssessmentEditor({
                          currentUserId: {{ Js::from(auth()->id()) }},
                          incomeItems: {{ Js::from($serializedIncomeItems) }},
@@ -825,8 +879,8 @@
                          rent: {{ Js::from($result['rent'] ?? null) }},
                          propertyLinked: {{ Js::from((bool) ($result['property_linked'] ?? false)) }},
                          hasUnpaidTransactions: {{ Js::from((bool) $assessment->has_unpaid_transactions) }},
-                     })">
-                    <div class="text-xs mb-3">
+                     })" class="space-y-3">
+                    <div class="text-xs rounded-md p-3" style="background: var(--surface); border: 1px solid var(--border);">
                         <p style="color: var(--text-muted);">Number of months this bank statement covers</p>
                         <p class="font-semibold" style="color: var(--text-primary);">{{ $assessment->statement_months ?? '—' }}</p>
                         @if($assessment->statement_period_from && $assessment->statement_period_to)
@@ -834,7 +888,7 @@
                         @endif
                     </div>
 
-                    <div class="text-xs mb-4">
+                    <div class="text-xs rounded-md p-3" style="background: var(--surface); border: 1px solid var(--border);">
                         <div class="flex items-center gap-1.5 mb-1">
                             <span class="rounded-full flex-shrink-0" style="width: 9px; height: 9px; background: var(--ra-income-authoriser); border: 1px solid var(--ra-income-underline);"></span>
                             <p class="font-medium" style="color: var(--text-secondary);">Income (gross, before deductions)</p>
@@ -874,7 +928,7 @@
                         <p style="color: var(--text-secondary);" x-show="statementMonths">Monthly average (÷ <span x-text="statementMonths"></span> months — used in the affordability check below): <strong x-text="'R ' + formatAmount(grossIncome())"></strong></p>
                     </div>
 
-                    <div class="text-xs mb-4">
+                    <div class="text-xs rounded-md p-3" style="background: var(--surface); border: 1px solid var(--border);">
                         <div class="flex items-center gap-1.5 mb-1">
                             <span class="rounded-full flex-shrink-0" style="width: 9px; height: 9px; background: var(--ra-expense-authoriser); border: 1px solid var(--ra-expense-underline);"></span>
                             <p class="font-medium" style="color: var(--text-secondary);">Expenses / existing debt</p>
@@ -913,12 +967,12 @@
                         <p class="mt-2" style="color: var(--text-secondary);">Total (struck-out lines excluded): <strong x-text="'R ' + formatAmount(expenseTotal())"></strong></p>
                     </div>
 
-                    <div class="mb-4 flex items-center gap-1.5" x-show="hasUnpaidTransactions">
+                    <div class="flex items-center gap-1.5 rounded-md p-3" x-show="hasUnpaidTransactions" style="background: var(--ds-crimson-soft, #fef2f2); border: 1px solid var(--ds-crimson, #dc2626);">
                         <span class="rounded-full flex-shrink-0" style="width: 9px; height: 9px; background: var(--ra-unpaid-authoriser); border: 1px solid var(--ra-unpaid-underline);"></span>
                         <span class="text-xs font-semibold" style="color: var(--ds-crimson, #dc2626);">Agent flagged unpaid/declined transactions on the bank statement</span>
                     </div>
 
-                    <div x-show="itemError" x-cloak class="text-xs mb-3 rounded-md px-2 py-1.5" style="background: var(--ds-crimson-soft, #fef2f2); color: var(--ds-crimson, #dc2626);" x-text="itemError"></div>
+                    <div x-show="itemError" x-cloak class="text-xs rounded-md px-2 py-1.5" style="background: var(--ds-crimson-soft, #fef2f2); color: var(--ds-crimson, #dc2626);" x-text="itemError"></div>
 
                     <template x-if="statementMonths && incomeTotal() > 0">
                         <div class="rounded-md p-3" style="background: var(--surface-2, #f9fafb); border: 1px solid var(--border);">
@@ -942,7 +996,10 @@
                         </div>
                     </template>
                     @if($assessment->notes)
-                        <p class="text-xs mt-3 whitespace-pre-wrap" style="color: var(--text-primary);">{{ $assessment->notes }}</p>
+                        <div class="rounded-md p-3" style="background: var(--surface); border: 1px solid var(--border);">
+                            <p class="text-xs font-medium mb-1" style="color: var(--text-secondary);">Agent's notes</p>
+                            <p class="text-xs whitespace-pre-wrap" style="color: var(--text-primary);">{{ $assessment->notes }}</p>
+                        </div>
                     @endif
                 </div>
             @endif
@@ -952,7 +1009,7 @@
                  Agent: submit/reopen/request-info-to-applicant, unchanged.
                  Authoriser: self-approval explanation or Approve/Decline/
                  Request-More-Info, unchanged. --}}
-            <div class="rounded-md p-3 mt-4" style="border: 1px solid var(--border);">
+            <div class="rounded-md p-3" style="background: var(--surface); border: 1px solid var(--border);">
                 @if($viewerRole === 'agent')
                     @if($moreInfoRequestedNote)
                         <div class="rounded-md px-3 py-2 text-xs mb-3" style="background: var(--surface-2); color: var(--ds-amber); border: 1px solid var(--ds-amber);">
@@ -1545,14 +1602,18 @@ function rentalReviewLayout() {
         // resources/views/docuperfect/templates/edit-web.blade.php
         // (startDrag/onDrag), adapted from a percentage split to a pixel
         // width since this layout's aside is a fixed-px sticky column, not
-        // a flex-percentage pane. Clamped 260px (the original fixed width —
-        // never smaller, so nobody's screen gets narrower than the shipped
-        // default) to 480px (wide enough for three input columns without
-        // eating the whole screen on a laptop). Persisted per-browser so a
-        // drag survives a reload; falls back to the CSS default (260px) on
-        // a fresh browser that's never dragged it.
+        // a flex-percentage pane. Clamped 320px (raised from the original
+        // 260px, 2026-09-10 "Item 6" — see the layout <style> block's own
+        // note on why 260 never actually fit this row shape) to 480px
+        // (wide enough for three input columns without eating the whole
+        // screen on a laptop). Persisted per-browser so a drag survives a
+        // reload; the Math.max below re-clamps a value ALREADY in
+        // localStorage from before this floor was raised — a browser that
+        // dragged to exactly the old 260 default must not stay stuck
+        // there forever, plain `|| 320` alone only covers a MISSING key,
+        // not an existing one below the new floor.
         resizingAside: false,
-        asideWidth: parseInt(localStorage.getItem('rentalReviewAsideWidth'), 10) || 260,
+        asideWidth: Math.max(320, parseInt(localStorage.getItem('rentalReviewAsideWidth'), 10) || 320),
         startAsideResize(e) {
             this.resizingAside = true;
             const startX = e.clientX;
@@ -1572,7 +1633,7 @@ function rentalReviewLayout() {
                 // Dragging the handle LEFT (negative delta) widens the
                 // aside — the aside sits to the RIGHT of the handle.
                 const next = startWidth - (ev.clientX - startX);
-                this.asideWidth = Math.min(480, Math.max(260, next));
+                this.asideWidth = Math.min(480, Math.max(320, next));
                 columnsEl.style.setProperty('--rr-aside-w', this.asideWidth + 'px');
             };
             const onUp = () => {

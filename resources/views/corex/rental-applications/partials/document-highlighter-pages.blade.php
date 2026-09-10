@@ -258,7 +258,7 @@
                         <button type="button" title="Remove this mark" x-show="canEditMark(mark) && mark.id && hoveredMarkId === mark.id"
                                 @mouseover="hoveredMarkId = mark.id" @mouseout="if (hoveredMarkId === mark.id) hoveredMarkId = null"
                                 @pointerdown.stop.prevent="removeMark(page.index, mi, 'highlight')"
-                                :style="{ position:'absolute', left:(mark.points[0].x-9)+'px', top:(mark.points[0].y-9)+'px', width:'18px', height:'18px', borderRadius:'9999px', background:'#475569', color:'#fff', fontSize:'12px', lineHeight:'16px', textAlign:'center', border:'1px solid #fff', padding:'0', pointerEvents:'auto', cursor:'pointer' }">&times;</button>
+                                :style="{ position:'absolute', left:(toDisplayX(mark.points[0].x, page.index)-9)+'px', top:(toDisplayY(mark.points[0].y, page.index)-9)+'px', width:'18px', height:'18px', borderRadius:'9999px', background:'#475569', color:'#fff', fontSize:'12px', lineHeight:'16px', textAlign:'center', border:'1px solid #fff', padding:'0', pointerEvents:'auto', cursor:'pointer' }">&times;</button>
                     </template>
                     {{-- Notes — a pinned marker + its text, visible inline. Dot
                          fill is now a fixed NOTE_COLOR (2026-09-10, see the
@@ -294,7 +294,7 @@
                          this file's own docblock flags SVG-inside-<template>
                          clone failure as a known, hard-won landmine. --}}
                     <template x-for="(note, ni) in notesFor(page.index)" :key="'n'+ni">
-                        <div @pointerdown.stop :style="{ position:'absolute', left:note.x+'px', top:note.y+'px', transform:'translate(-50%,-50%)', pointerEvents:'auto' }">
+                        <div @pointerdown.stop :style="{ position:'absolute', left:toDisplayX(note.x, page.index)+'px', top:toDisplayY(note.y, page.index)+'px', transform:'translate(-50%,-50%)', pointerEvents:'auto' }">
                             <div class="rounded-full flex items-center justify-center" :style="{ width:'16px', height:'16px', background: NOTE_COLOR, border:'2px solid #fff', boxShadow:'0 0 0 1px rgba(0,0,0,0.3)', cursor:'pointer' }"
                                  @click="toggleNotePopover(page.index, ni)">
                                 <span style="color:#fff; font-size:8px; font-weight:800; line-height:1; user-select:none;">N</span>
