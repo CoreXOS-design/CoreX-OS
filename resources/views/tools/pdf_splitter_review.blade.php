@@ -191,6 +191,22 @@
         </div>
     @endif
 
+    @if($rentalApplicationContact)
+        {{-- AT-392 — cc6's finding: a batch split from a rental application
+             already has its destination fully determined the moment the
+             agent clicked "Split & File" on that application — it is
+             ALWAYS that application's own contact, never a property. No
+             picker, no search box, nothing to choose — the leading thing
+             on this screen states where it's going, not asks. --}}
+        <div class="card p-4 mb-4" data-tour="spr-property" style="border-left: 3px solid var(--brand-icon, #0ea5e9);">
+            <div class="text-sm" style="color: var(--text-primary);">
+                Filing to: <span class="font-medium">{{ $rentalApplicationContact->full_name }}</span>
+            </div>
+            <p class="text-xs mt-1" style="color: var(--text-muted);">
+                Every page below files to this applicant's contact record, by document type — no property involved.
+            </p>
+        </div>
+    @else
     {{-- Property picker — ONE property for the whole batch --}}
     <div class="card p-4 mb-4" data-tour="spr-property" style="border-left: 3px solid var(--brand-icon, #0ea5e9);">
         <div class="flex items-center justify-between mb-2">
@@ -276,6 +292,7 @@
             Pick EITHER a property (enables per-page contact assignment) OR a contact above (files everything to that person) to enable linking. You can still “Download ZIP” without either.
         </p>
     </div>
+    @endif
 
     {{-- Deal target (WS3 · D4 — register users only, optional) --}}
     @if(!empty($canLinkDeal))
@@ -428,6 +445,10 @@
 
                                     {{-- Contact assignment (many-to-many across roles) --}}
                                     <td>
+                                        @if($rentalApplicationContact)
+                                            {{-- AT-392 — single fixed applicant, nothing to pick per page. --}}
+                                            <span class="text-xs" style="color: var(--text-muted);">Files to {{ $rentalApplicationContact->full_name }}.</span>
+                                        @else
                                         <template x-if="!property">
                                             <span class="text-xs" style="color: var(--text-muted);">Pick a property above to assign contacts.</span>
                                         </template>
@@ -468,6 +489,7 @@
                                                 </template>
                                             </div>
                                         </template>
+                                        @endif
                                     </td>
 
                                     {{-- Snippet + scores --}}
