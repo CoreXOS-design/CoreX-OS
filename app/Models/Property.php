@@ -1785,6 +1785,21 @@ class Property extends Model
     }
 
     /**
+     * SQL-context mirror of effectivePrice()/isRental(), for callers that must
+     * filter/sort on price in the database rather than in PHP (e.g. a
+     * WHERE clause over thousands of rows). Deliberately NOT wrapped in
+     * COALESCE — callers that need NULL-tolerant comparisons (a listing with
+     * neither field populated shouldn't be excluded by a price filter) rely
+     * on the raw NULL passing through, exactly as the existing `price`/
+     * `rental_amount` columns already do.
+     */
+    public static function effectivePriceSql(string $table = 'properties'): string
+    {
+        return "CASE WHEN LOWER(TRIM({$table}.listing_type)) IN ('rental','to_let','to-let','lease') "
+            . "THEN {$table}.rental_amount ELSE {$table}.price END";
+    }
+
+    /**
      * Normalised rental inspection galleries. The `rental_images_json` column is
      * null until the first save, so this returns the canonical default shape
      * (empty in/out/custom) and back-fills any missing keys/sub-keys on partial

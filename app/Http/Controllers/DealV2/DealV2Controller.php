@@ -537,7 +537,7 @@ class DealV2Controller extends Controller
             ->get()
             ->map(fn (Property $p) => $p->toSearchResult([
                 'address'            => $p->buildDisplayAddress(), // legacy key kept for the picker JS
-                'price'              => $p->listing_price ?? $p->price ?? null,
+                'price'              => $p->effectivePrice(),
                 'listing_agent_id'   => $p->agent_id,
                 'listing_agent_name' => $p->agent?->name,
                 'commission_percent' => $p->commission_percent,

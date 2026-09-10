@@ -91,7 +91,7 @@ class MobilePropertyController extends Controller
                 'property_type' => $p->property_type,
                 'category'      => $p->category,
                 'listing_type'  => $p->listing_type,
-                'price'         => $p->price,
+                'price'         => $p->effectivePrice(),
                 'price_display' => $p->formattedPrice(),
                 // Same first image as the web listing card, as an absolute URL
                 // so it loads on a mobile device (relative /storage paths don't).
@@ -884,7 +884,7 @@ class MobilePropertyController extends Controller
             'city'           => $property->city,
             'province'       => $property->province,
 
-            'price'          => $property->price,
+            'price'          => $property->effectivePrice(),
             'price_display'  => $property->formattedPrice(),
             'listing_type'   => $property->listing_type,
             'status'         => $property->status,
@@ -1668,7 +1668,7 @@ class MobilePropertyController extends Controller
             'title'           => $property->title,
             'excerpt'         => $property->excerpt,
             'description'     => $property->description,
-            'price'           => $property->price,
+            'price'           => $property->effectivePrice(),
             'price_display'   => $property->formattedPrice(),
 
             // Address

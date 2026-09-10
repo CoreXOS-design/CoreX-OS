@@ -414,7 +414,7 @@ class PropertyWizardController extends Controller
         if ($publish) {
             // Defensive readiness gate — mirror client checklist
             $images = $property->gallery_images_json ?? [];
-            abort_if(empty($property->title) || empty($property->price) || empty($property->suburb) || empty($images),
+            abort_if(empty($property->title) || empty($property->effectivePrice()) || empty($property->suburb) || empty($images),
                 422, 'Property is missing required fields for publishing.');
 
             // Observer sees published_at transition → dispatches SyncPropertyToWebsite

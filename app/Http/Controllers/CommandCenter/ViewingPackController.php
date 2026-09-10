@@ -351,7 +351,7 @@ class ViewingPackController extends Controller
 
         return response()->json($rows->map(fn (Property $p) => $p->toSearchResult([
             'ref'   => $p->property_number,
-            'price' => $p->price,
+            'price' => $p->effectivePrice(),
         ])));
     }
 

@@ -179,7 +179,7 @@ class ViewingPackSelectionService
     {
         return [
             'property_id'  => $property->id,
-            'price'        => $property->price,
+            'price'        => $property->effectivePrice(),
             'suburb'       => $property->suburb,
             'beds'         => $property->beds,
             'baths'        => $property->baths,

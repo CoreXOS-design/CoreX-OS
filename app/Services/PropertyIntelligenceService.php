@@ -347,7 +347,7 @@ class PropertyIntelligenceService
             ->map(fn($p) => [
                 'id' => $p->id,
                 'title' => $p->title,
-                'price' => $p->price,
+                'price' => $p->effectivePrice(),
                 'suburb' => $p->suburb,
                 // Days on market = days since the listing went ON market. Prefer
                 // listed_date (the real listing date); published_at is only set when
@@ -397,7 +397,7 @@ class PropertyIntelligenceService
                 'property_type'  => $p->property_type,
                 'beds'           => $this->sanePropertyCount($p->beds),
                 'baths'          => $this->sanePropertyCount($p->baths),
-                'price'          => $p->price,
+                'price'          => $p->effectivePrice(),
                 'days_on_market' => ($dom = $p->listed_date ?? $p->p24_activated_at ?? $p->pp_activated_at ?? $p->published_at ?? $p->created_at)
                     ? \App\Support\HumanDiff::daysBetween($dom) : null,
             ])

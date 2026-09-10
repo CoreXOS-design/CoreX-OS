@@ -370,8 +370,19 @@ class MatchingService
         $countTol = $relaxed ? 1    : 0;    // allow 1 short on beds / baths / garages
         $sizeTol  = $relaxed ? 0.30 : 0.0;  // ±30% floor / erf size band
 
-        if ($priceMin)   $numLoose($query, 'price', '>=', (int) floor($priceMin * (1 - $priceTol)));
-        if ($priceMax)   $numLoose($query, 'price', '<=', (int) ceil($priceMax * (1 + $priceTol)));
+        // Price must compare against the LISTING'S effective price (rent for a
+        // rental, sale price for a sale) — not the raw `price` column, which is
+        // 0/null on rentals (the rent lives in `rental_amount`). Mirrors
+        // Property::effectivePrice() at the SQL layer since this filter runs
+        // before rows are ever hydrated into models.
+        $numLoosePrice = function (Builder $q, string $op, int $val) {
+            $sql = Property::effectivePriceSql('properties');
+            $q->where(function (Builder $q2) use ($sql, $op, $val) {
+                $q2->whereRaw("({$sql}) IS NULL")->orWhereRaw("({$sql}) {$op} ?", [$val]);
+            });
+        };
+        if ($priceMin)   $numLoosePrice($query, '>=', (int) floor($priceMin * (1 - $priceTol)));
+        if ($priceMax)   $numLoosePrice($query, '<=', (int) ceil($priceMax * (1 + $priceTol)));
         if ($bedsMin)    $numLoose($query, 'beds', '>=', max(0, (int) $bedsMin - $countTol));
         if ($bathsMin)   $numLoose($query, 'baths', '>=', max(0, (int) $bathsMin - $countTol));
         if ($garagesMin) $numLoose($query, 'garages', '>=', max(0, (int) $garagesMin - $countTol));
@@ -552,8 +563,12 @@ class MatchingService
             return $op === '>=' ? ((int) $val >= $threshold) : ((int) $val <= $threshold);
         };
 
-        if ($match->price_min && !$numLooseOk($p->price, '>=', (int) floor($match->price_min * (1 - $priceTol)))) return false;
-        if ($match->price_max && !$numLooseOk($p->price, '<=', (int) ceil($match->price_max * (1 + $priceTol)))) return false;
+        // effectivePrice() collapses "no data" to 0.0 rather than null — treat
+        // <= 0 as null here too, so an incomplete listing still isn't penalised
+        // (matches the NULL-tolerant semantics $numLooseOk already implements).
+        $effPrice = $p->effectivePrice() > 0 ? $p->effectivePrice() : null;
+        if ($match->price_min && !$numLooseOk($effPrice, '>=', (int) floor($match->price_min * (1 - $priceTol)))) return false;
+        if ($match->price_max && !$numLooseOk($effPrice, '<=', (int) ceil($match->price_max * (1 + $priceTol)))) return false;
         if ($match->beds_min && !$numLooseOk($p->beds, '>=', max(0, (int) $match->beds_min - $countTol))) return false;
         if ($match->baths_min && !$numLooseOk($p->baths, '>=', max(0, (int) $match->baths_min - $countTol))) return false;
         if ($match->garages_min && !$numLooseOk($p->garages, '>=', max(0, (int) $match->garages_min - $countTol))) return false;
@@ -621,7 +636,7 @@ class MatchingService
      */
     protected function applyHardFilters(Builder $query, Property $property): void
     {
-        $price    = (int) ($property->price ?? 0);
+        $price    = (int) $property->effectivePrice();
         $beds     = (int) ($property->beds ?? 0);
         $baths    = (int) ($property->baths ?? 0);
         $garages  = (int) ($property->garages ?? 0);
@@ -764,8 +779,8 @@ class MatchingService
         // property genuinely outside the band now excludes instead of merely
         // losing points. Only gates when the PROPERTY reports a price: 0/null
         // price is incomplete data, not a mismatch.
-        if (($match->price_min || $match->price_max) && (int) $property->price > 0) {
-            $price   = (int) $property->price;
+        if (($match->price_min || $match->price_max) && (int) $property->effectivePrice() > 0) {
+            $price   = (int) $property->effectivePrice();
             $bandPct = max(0.0, $priceBandPct);
             $min     = (int) ($match->price_min ?: 0);
             $max     = (int) ($match->price_max ?: 0);
@@ -952,7 +967,7 @@ class MatchingService
      */
     protected function priceFitRatio(Property $property, ContactMatch $match, float $bandPct = 0.0): float
     {
-        $price = (int) ($property->price ?? 0);
+        $price = (int) $property->effectivePrice();
         if ($price <= 0) return 0.0;
 
         $min = (int) ($match->price_min ?: 0);

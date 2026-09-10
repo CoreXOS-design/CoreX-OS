@@ -464,7 +464,7 @@ class EllieToolkit
             'filters'     => array_filter(['status' => $status, 'listing_type' => $type]),
             'examples'    => $rows->map(fn ($p) => [
                 'address'  => trim(($p->address ?: '') . ($p->suburb ? ', ' . $p->suburb : '')) ?: 'No address captured',
-                'price'    => $p->price !== null ? 'R ' . number_format((float) $p->price, 0, '.', ',') : null,
+                'price'    => $p->effectivePrice() > 0 ? 'R ' . number_format($p->effectivePrice(), 0, '.', ',') : null,
                 'status'   => $p->status,
                 'type'     => $p->property_type,
                 'for'      => $p->listing_type,
@@ -596,7 +596,7 @@ class EllieToolkit
 
         return ['properties' => $rows->map(fn ($p) => [
             'address' => trim(($p->address ?: '') . ($p->suburb ? ', ' . $p->suburb : '')) ?: 'No address captured',
-            'price'   => $p->price !== null ? 'R ' . number_format((float) $p->price, 0, '.', ',') : null,
+            'price'   => $p->effectivePrice() > 0 ? 'R ' . number_format($p->effectivePrice(), 0, '.', ',') : null,
             'status'  => $p->status,
             'type'    => $p->property_type,
             'for'     => $p->listing_type,

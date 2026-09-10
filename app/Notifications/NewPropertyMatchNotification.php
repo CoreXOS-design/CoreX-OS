@@ -46,7 +46,7 @@ class NewPropertyMatchNotification extends Notification
             ->greeting("Hi {$notifiable->name},")
             ->line("A new property is a **{$this->score}% match** for **{$contactName}**:")
             ->line("**{$address}**")
-            ->line('R ' . number_format((int) ($this->property->price ?? 0)))
+            ->line('R ' . number_format((int) $this->property->effectivePrice()))
             ->action('View property', url('/corex/properties/' . $this->property->id))
             ->line('You can share this with your client from the property page.');
     }

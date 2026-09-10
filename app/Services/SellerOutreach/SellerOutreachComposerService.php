@@ -266,7 +266,7 @@ final class SellerOutreachComposerService
         // Properties table column is `beds`, not `bedrooms` — confirmed in pre-flight.
         $propertyType = $property?->property_type ?? null;
         $propertyBeds = $property?->beds ?? null;
-        $propertyPrice = $property?->price ?? null;
+        $propertyPrice = $property ? $property->effectivePrice() : null;
         $listingType = $property?->listing_type ?? 'sale';
 
         $town = $address->town

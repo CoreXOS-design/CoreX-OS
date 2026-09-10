@@ -398,7 +398,7 @@ final class MapController extends Controller
             ['label' => 'Town',         'value' => $property->town   ?: '—'],
             ['label' => 'Bedrooms',     'value' => $property->beds   !== null ? (string) $property->beds  : '—'],
             ['label' => 'Bathrooms',    'value' => $property->baths  !== null ? (string) $property->baths : '—'],
-            ['label' => 'Asking price', 'value' => $property->price ? 'R ' . number_format((int) $property->price, 0, '.', ' ') : '—'],
+            ['label' => 'Asking price', 'value' => $property->effectivePrice() ? 'R ' . number_format((int) $property->effectivePrice(), 0, '.', ' ') : '—'],
             ['label' => 'Status',       'value' => $property->status ?: '—'],
             ['label' => 'GPS source',   'value' => $property->geo_source ?: '—'],
         ]);

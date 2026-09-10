@@ -39,7 +39,7 @@ class MatchPropertyJob implements ShouldQueue
     {
         $property = Property::find($this->propertyId);
         if (!$property) return;
-        if (!$property->agency_id || !$property->price) return;
+        if (!$property->agency_id || !$property->effectivePrice()) return;
         // Per-agency read (multi-tenancy #7): this runs on the queue with NO auth,
         // so the agency must be passed explicitly — a bare get() would read the
         // global default and honour the wrong agency's toggle.
