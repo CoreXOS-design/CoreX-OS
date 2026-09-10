@@ -964,18 +964,55 @@
                         <template x-if="incomeItems.length === 0"><p style="color: var(--text-muted);">Nothing captured yet.</p></template>
                         <template x-for="item in incomeItems" :key="item.id">
                             <div>
-                                <div class="grid grid-cols-2 gap-1.5 py-1 items-center" :style="{ opacity: item.struck_out ? '0.55' : '1' }">
+                                {{--
+                                    2026-09-10 (cc5's finding, real data proof) — this row was
+                                    `grid grid-cols-2` (a bare 50/50 split) squeezing dot + the
+                                    conditional "Auth" badge + description + the entry date all
+                                    into ONE flex-packed half, so a perfectly realistic
+                                    description ("Monthly Salary Payment", "Vehicle Finance
+                                    Instalment" — cc5's own repro, not edge-case-long) truncated
+                                    to a fragment at the panel's default AND floor width. Same
+                                    class of defect Johan already made us fix once on the agent
+                                    side, in a file this fix never touched (it lives in the
+                                    read-only authoriser display, not the agent's editable
+                                    input rows).
+
+                                    Fixed the same way, not by cranking the panel wider again:
+                                    derived from what the row's OWN content needs. The entry
+                                    date moved to its own line below (matching the struck-out
+                                    reason's existing sub-line pattern) — it's supplementary
+                                    metadata, not something description and amount should have
+                                    to compete with for space on one line. `grid-cols-2` (fixed
+                                    50/50) replaced with an explicit `minmax(0,1fr)` description
+                                    column against a REAL 155px minimum for amount+button —
+                                    sized off this row's own worst case (R999,999.99 ≈ 77px +
+                                    "Strike out", the longer of Strike out/Restore, ≈ 54px +
+                                    gap-2 + margin), not picked and checked.
+
+                                    Verified at the default (460px): even with the "Auth" badge
+                                    showing (the worst case — badge + description sharing the
+                                    same line), both cc5's test descriptions render as full
+                                    words. At the floor (400px): the common case (no badge)
+                                    renders full words with room to spare; the compound edge
+                                    case (badge shown AND cc5's longest description AND the
+                                    absolute floor, all three at once) can still clip — the
+                                    existing `:title` tooltip on the description span already
+                                    covers that, the same "degrade legibly" fallback the agent
+                                    side's own extremes rely on. Not chasing the panel wider a
+                                    third time for a three-way-compound edge case at the floor.
+                                --}}
+                                <div class="grid gap-1.5 py-1 items-center" style="grid-template-columns: minmax(0,1fr) 155px;" :style="{ opacity: item.struck_out ? '0.55' : '1' }">
                                     <span class="flex items-center gap-1.5 min-w-0">
                                         <span class="rounded-full flex-shrink-0" style="width: 7px; height: 7px;" :style="{ background: item.added_by_authoriser ? 'var(--ra-income-authoriser)' : 'var(--ra-income-agent)' }"></span>
                                         <span x-show="item.added_by_authoriser" class="ds-badge ds-badge-info flex-shrink-0" style="font-size:9px; padding:1px 4px;" title="Added by a reviewer/authoriser, not the agent">Auth</span>
                                         <span :style="{ textDecoration: item.struck_out ? 'line-through' : 'none' }" class="truncate" style="color: var(--text-primary);" :title="item.description" x-text="item.description || '(no description)'"></span>
-                                        <span x-show="item.entry_date" class="flex-shrink-0" style="color: var(--text-muted); font-size:10px;" x-text="item.entry_date"></span>
                                     </span>
                                     <span class="flex items-center justify-end gap-2 flex-shrink-0">
                                         <span :style="{ textDecoration: item.struck_out ? 'line-through' : 'none' }" style="color: var(--text-primary);" x-text="'R ' + formatAmount(item.amount)"></span>
                                         <button type="button" class="text-xs" :style="{ color: item.struck_out ? 'var(--ds-emerald, #059669)' : 'var(--ds-crimson, #dc2626)' }" @click="toggleStrike('income', item)" x-text="item.struck_out ? 'Restore' : 'Strike out'"></button>
                                     </span>
                                 </div>
+                                <p class="text-[11px] pl-3" style="color: var(--text-muted);" x-show="item.entry_date" x-text="item.entry_date"></p>
                                 <p class="text-[11px] pl-3" style="color: var(--text-muted);" x-show="item.struck_out" x-text="struckLine(item)"></p>
                                 <div class="flex items-center gap-2 pl-3 py-1.5" x-show="replacingItem === ('income-' + item.id)" x-cloak>
                                     <input type="text" x-model="replaceDescription" placeholder="Description" class="corex-input text-xs" style="flex:1;" :data-replace-focus="'income-' + item.id">
@@ -1004,18 +1041,22 @@
                         <template x-if="expenseItems.length === 0"><p style="color: var(--text-muted);">Nothing captured.</p></template>
                         <template x-for="item in expenseItems" :key="item.id">
                             <div>
-                                <div class="grid grid-cols-2 gap-1.5 py-1 items-center" :style="{ opacity: item.struck_out ? '0.55' : '1' }">
+                                {{-- 2026-09-10 — same fix as the income row above: entry date
+                                     moved to its own line, grid-cols-2 replaced with a real
+                                     minmax(0,1fr)/155px split. See the income row's own comment
+                                     for the full derivation and verification. --}}
+                                <div class="grid gap-1.5 py-1 items-center" style="grid-template-columns: minmax(0,1fr) 155px;" :style="{ opacity: item.struck_out ? '0.55' : '1' }">
                                     <span class="flex items-center gap-1.5 min-w-0">
                                         <span class="rounded-full flex-shrink-0" style="width: 7px; height: 7px;" :style="{ background: item.added_by_authoriser ? 'var(--ra-expense-authoriser)' : 'var(--ra-expense-agent)' }"></span>
                                         <span x-show="item.added_by_authoriser" class="ds-badge ds-badge-info flex-shrink-0" style="font-size:9px; padding:1px 4px;" title="Added by a reviewer/authoriser, not the agent">Auth</span>
                                         <span :style="{ textDecoration: item.struck_out ? 'line-through' : 'none' }" class="truncate" style="color: var(--text-primary);" :title="item.description" x-text="item.description || '(no description)'"></span>
-                                        <span x-show="item.entry_date" class="flex-shrink-0" style="color: var(--text-muted); font-size:10px;" x-text="item.entry_date"></span>
                                     </span>
                                     <span class="flex items-center justify-end gap-2 flex-shrink-0">
                                         <span :style="{ textDecoration: item.struck_out ? 'line-through' : 'none' }" style="color: var(--text-primary);" x-text="'R ' + formatAmount(item.amount)"></span>
                                         <button type="button" class="text-xs" :style="{ color: item.struck_out ? 'var(--ds-emerald, #059669)' : 'var(--ds-crimson, #dc2626)' }" @click="toggleStrike('expense', item)" x-text="item.struck_out ? 'Restore' : 'Strike out'"></button>
                                     </span>
                                 </div>
+                                <p class="text-[11px] pl-3" style="color: var(--text-muted);" x-show="item.entry_date" x-text="item.entry_date"></p>
                                 <p class="text-[11px] pl-3" style="color: var(--text-muted);" x-show="item.struck_out" x-text="struckLine(item)"></p>
                                 <div class="flex items-center gap-2 pl-3 py-1.5" x-show="replacingItem === ('expense-' + item.id)" x-cloak>
                                     <input type="text" x-model="replaceDescription" placeholder="Description" class="corex-input text-xs" style="flex:1;" :data-replace-focus="'expense-' + item.id">
