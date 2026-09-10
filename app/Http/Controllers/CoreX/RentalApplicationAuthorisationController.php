@@ -181,7 +181,7 @@ class RentalApplicationAuthorisationController extends Controller
     {
         $this->guardCanView($rentalApplication);
 
-        $rentalApplication->load(['contact', 'property', 'signatures', 'documents.documentType']);
+        $rentalApplication->load(['contact', 'property', 'signatures', 'documents.documentType', 'referencedDocuments.documentType']);
 
         $assessment = RentalApplicationAssessment::firstOrNew(
             ['rental_application_id' => $rentalApplication->id],
@@ -191,7 +191,12 @@ class RentalApplicationAuthorisationController extends Controller
         $maxRentPercent = RentalApplicationQualifyingSetting::maxRentPercentFor((int) $rentalApplication->agency_id);
         $result = $assessment->exists ? $assessment->qualifyingResult($maxRentPercent) : null;
 
-        $highlightedByDocId = RentalApplicationDocumentHighlight::whereIn('document_id', $rentalApplication->documents->pluck('id'))
+        // AT-392 "pull from contact" — the unified screen shows the
+        // authoriser the same set of documents the agent sees, including
+        // anything pulled from the contact's file history (not just what
+        // this application owns).
+        $allDocIds = $rentalApplication->documents->pluck('id')->merge($rentalApplication->referencedDocuments->pluck('id'));
+        $highlightedByDocId = RentalApplicationDocumentHighlight::whereIn('document_id', $allDocIds)
             ->whereNotNull('highlighted_file_path')
             ->pluck('id', 'document_id');
 
@@ -200,8 +205,16 @@ class RentalApplicationAuthorisationController extends Controller
                 'document' => $document,
                 'inline_viewable' => $this->isInlineViewable($document->mime_type),
                 'has_highlights' => $highlightedByDocId->has($document->id),
+                'pulled_from_contact' => false,
             ];
-        });
+        })->concat($rentalApplication->referencedDocuments->map(function (Document $document) use ($highlightedByDocId) {
+            return [
+                'document' => $document,
+                'inline_viewable' => $this->isInlineViewable($document->mime_type),
+                'has_highlights' => $highlightedByDocId->has($document->id),
+                'pulled_from_contact' => true,
+            ];
+        }));
 
         $history = $rentalApplication->statusHistory()->with('changedBy')->latest('created_at')->get();
 
@@ -677,12 +690,11 @@ class RentalApplicationAuthorisationController extends Controller
         );
     }
 
+    /** AT-392 "pull from contact" — see the identical guard in RentalApplicationReviewController for the full rationale. */
     private function guardDocumentBelongsToApplication(RentalApplication $rentalApplication, Document $document): void
     {
-        abort_unless(
-            $document->source_type === 'rental_application' && (int) $document->source_id === $rentalApplication->id,
-            404
-        );
+        $owned = $document->source_type === 'rental_application' && (int) $document->source_id === $rentalApplication->id;
+        abort_unless($owned || $rentalApplication->referencedDocuments()->where('documents.id', $document->id)->exists(), 404);
     }
 
     private function isInlineViewable(?string $mimeType): bool

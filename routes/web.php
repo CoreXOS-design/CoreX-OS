@@ -2922,6 +2922,11 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::get('/{rentalApplication}/documents/{document}', [\App\Http\Controllers\CoreX\RentalApplicationController::class, 'downloadDocument'])->name('corex.rental-applications.documents.download');
         Route::post('/{rentalApplication}/documents', [\App\Http\Controllers\CoreX\RentalApplicationController::class, 'uploadDocument'])
             ->middleware('permission:rental_applications.create')->name('corex.rental-applications.documents.upload');
+        // AT-392 "pull from contact" — attach a document already on file
+        // against this application's contact, without the applicant
+        // re-sending it. Same permission as a fresh upload.
+        Route::post('/{rentalApplication}/documents/attach-existing', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'attachExistingDocument'])
+            ->middleware('permission:rental_applications.create')->name('corex.rental-applications.documents.attach-existing');
         Route::delete('/{rentalApplication}', [\App\Http\Controllers\CoreX\RentalApplicationController::class, 'destroy'])
             ->middleware('permission:rental_applications.create')->name('corex.rental-applications.destroy');
         Route::post('/{rentalApplication}/restore', [\App\Http\Controllers\CoreX\RentalApplicationController::class, 'restore'])
@@ -2949,6 +2954,11 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::get('/{rentalApplication}/documents/{document}/highlight-data/remaining', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'highlightRemainingPages'])->name('corex.rental-applications.documents.highlight-data.remaining');
         Route::post('/{rentalApplication}/documents/{document}/highlight', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'applyHighlight'])->name('corex.rental-applications.documents.highlight');
         Route::get('/{rentalApplication}/documents/{document}/highlighted-file', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'highlightedFile'])->name('corex.rental-applications.documents.highlighted-file');
+        // AT-392 "pull from contact" — a REFERENCED document's download,
+        // separate from corex.rental-applications.documents.download (owned
+        // documents only, in RentalApplicationController — not edited here,
+        // owned by another lane).
+        Route::get('/{rentalApplication}/documents/{document}/referenced-download', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'downloadReferencedDocument'])->name('corex.rental-applications.documents.referenced-download');
         // Authoriser flow, 2026-09-08 — agent-side actions only (request more
         // info from the applicant, submit to the authoriser). The authoriser's
         // own actions live under a separate prefix below, gated to authorisers.

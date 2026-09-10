@@ -50,7 +50,11 @@
     // test RentalApplicationReviewController::submitForApproval() enforces
     // server-side, and the same test the "Split & File" trigger uses to
     // decide whether to show itself on each individual document.
-    $unsplitCount = $documents->filter(fn ($row) => $row['document']->document_type_id === null && $row['document']->mime_type === 'application/pdf')->count();
+    // Owned documents only — a referenced (pulled-from-contact) document's
+    // typing/splitting was already this application's business at its
+    // original filing home, not here (see guardDocumentBelongsToApplication
+    // and submitForApproval()'s matching server-side count).
+    $unsplitCount = $documents->filter(fn ($row) => !$row['pulled_from_contact'] && $row['document']->document_type_id === null && $row['document']->mime_type === 'application/pdf')->count();
 @endphp
 
 @section('corex-content')
@@ -406,7 +410,17 @@
                             <div class="rounded-md border" style="border-color: var(--border);">
                                 <div class="flex items-center justify-between px-3 py-2 text-xs">
                                     <span>{{ $document->original_name }}
-                                        @if($viewerRole === 'agent')
+                                        {{-- AT-392 — Johan: "document age shows wherever an agent
+                                             picks or reviews a document." Plain age, every document,
+                                             both roles — title carries the exact timestamp. --}}
+                                        <span style="color: var(--text-muted); font-size: 11px;" title="{{ $document->created_at->format('d M Y H:i') }}">— {{ $document->created_at->diffForHumans() }}</span>
+                                        @if($row['pulled_from_contact'])
+                                            {{-- AT-392 "pull from contact" — filed elsewhere, only
+                                                 referenced here (rental_application_document pivot);
+                                                 source_type/source_id untouched. --}}
+                                            <span class="ds-badge ds-badge-default" title="Already on file for this contact — attached here without the applicant re-sending it.">From contact's file</span>
+                                        @endif
+                                        @if($viewerRole === 'agent' && !$row['pulled_from_contact'])
                                             {{-- Agent-added-documents, 2026-09-08 — cc4's backend
                                                  (RentalApplicationController::uploadDocument()). --}}
                                             <span style="color: var(--text-muted); font-size: 11px;">— {{ $document->uploaded_by ? 'added by ' . ($document->uploader->name ?? 'an agent') : 'from applicant' }}</span>
@@ -432,7 +446,11 @@
                                             <span class="ds-badge ds-badge-default" title="This file type cannot be previewed on screen — download it to view it.">No preview</span>
                                         @endif
                                         @if($viewerRole === 'agent')
-                                            <a href="{{ route('corex.rental-applications.documents.download', [$rentalApplication, $document]) }}" style="color: var(--text-muted);">Download</a>
+                                            {{-- AT-392 "pull from contact" — a referenced document
+                                                 isn't owned by this application's own download route
+                                                 (that route checks source_type/source_id ownership),
+                                                 so it needs the separate referenced-download route. --}}
+                                            <a href="{{ $row['pulled_from_contact'] ? route('corex.rental-applications.documents.referenced-download', [$rentalApplication, $document]) : route('corex.rental-applications.documents.download', [$rentalApplication, $document]) }}" style="color: var(--text-muted);">Download</a>
                                         @endif
                                         {{-- AT-392 — an untyped, unsplit PDF is exactly the
                                              "17-page scan with a bank statement buried in it"
@@ -441,8 +459,11 @@
                                              sort it the moment it lands rather than leaving it
                                              for submit time. Gated to PDFs only — the splitter
                                              engine rasterizes pages and has nothing to do with
-                                             an already-single-purpose image/doc upload. --}}
-                                        @if($viewerRole === 'agent' && $document->document_type_id === null && $document->mime_type === 'application/pdf')
+                                             an already-single-purpose image/doc upload. Never
+                                             offered on a referenced (pulled-from-contact) document
+                                             — splitting it would archive a document this
+                                             application doesn't own, filed against another context. --}}
+                                        @if($viewerRole === 'agent' && !$row['pulled_from_contact'] && $document->document_type_id === null && $document->mime_type === 'application/pdf')
                                             {{-- Styled as a text button, matching "View & Mark Up" /
                                                  "Download" above — NOT ds-badge, which this row
                                                  already uses for genuine non-interactive status
@@ -486,6 +507,37 @@
                             <input type="file" multiple accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" class="hidden" @change="onFilesSelected($event.target.files); $event.target.value = ''">
                         </label>
                     </div>
+
+                    @if($pickableContactDocuments->isNotEmpty())
+                        {{-- AT-392 "pull from contact" — Johan: "the agent can
+                             attach documents ALREADY ON FILE against the contact
+                             to a new application, without the applicant
+                             re-sending them." A plain disclosure, not a modal —
+                             this list is usually short and doesn't warrant one. --}}
+                        <details class="mt-2" x-data="attachExistingDocument()">
+                            <summary class="text-xs font-medium cursor-pointer" style="color: var(--brand-icon, #2563eb);">
+                                + Attach from contact's file ({{ $pickableContactDocuments->count() }})
+                            </summary>
+                            <p class="text-xs mt-2" x-show="status" x-text="status" :style="error ? 'color: var(--ds-red, #dc2626);' : 'color: var(--ds-emerald, #059669);'"></p>
+                            <div class="mt-2 space-y-1">
+                                @foreach($pickableContactDocuments as $existing)
+                                    <div class="flex items-center justify-between text-xs py-1">
+                                        <span>
+                                            {{ $existing->original_name }}
+                                            <span style="color: var(--text-muted);" title="{{ $existing->created_at->format('d M Y H:i') }}">— {{ $existing->created_at->diffForHumans() }}</span>
+                                            @if($existing->documentType)
+                                                <span class="ds-badge ds-badge-default">{{ $existing->documentType->label }}</span>
+                                            @endif
+                                        </span>
+                                        <button type="button" style="color: var(--brand-icon, #2563eb); font-weight: 600;"
+                                                :disabled="submittingId === {{ $existing->id }}"
+                                                @click="attach({{ $existing->id }})"
+                                                x-text="submittingId === {{ $existing->id }} ? 'Attaching…' : 'Attach'"></button>
+                                    </div>
+                                @endforeach
+                            </div>
+                        </details>
+                    @endif
                 @endif
             </div>
 
@@ -1548,6 +1600,44 @@ function agentDocumentUploadReview() {
             }
         },
         async onFilesSelected(fileList) { await Promise.all(Array.from(fileList).map(file => this.uploadFile(file))); },
+    };
+}
+
+// AT-392 "pull from contact" — attach a document already on file against
+// this application's contact. Same reload-on-success shape as
+// agentDocumentUploadReview() above.
+function attachExistingDocument() {
+    return {
+        submittingId: null,
+        status: '',
+        error: false,
+        async attach(documentId) {
+            if (this.submittingId) return;
+            this.submittingId = documentId;
+            this.status = '';
+            try {
+                const res = await fetch('{{ route('corex.rental-applications.documents.attach-existing', $rentalApplication) }}', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content ?? '',
+                        'Accept': 'application/json',
+                    },
+                    body: JSON.stringify({ document_id: documentId }),
+                });
+                const data = await res.json().catch(() => ({}));
+                if (res.ok && data.ok) {
+                    window.location.reload();
+                    return;
+                }
+                this.error = true;
+                this.status = data.error || 'Could not attach — try again.';
+            } catch (e) {
+                this.error = true;
+                this.status = 'Could not attach — check your connection.';
+            }
+            this.submittingId = null;
+        },
     };
 }
 

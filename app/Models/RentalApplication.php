@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Models\Concerns\BelongsToAgency;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -356,6 +357,19 @@ class RentalApplication extends Model
     public function documents(): HasMany
     {
         return $this->hasMany(Document::class, 'source_id')->where('source_type', 'rental_application');
+    }
+
+    /**
+     * AT-392 — "pull from contact": a document already on file against the
+     * applicant's contact (FICA, a prior application) attached here WITHOUT
+     * re-filing it — source_type/source_id stays wherever the document was
+     * originally filed. Mirrors Document::contacts()/properties() exactly.
+     */
+    public function referencedDocuments(): BelongsToMany
+    {
+        return $this->belongsToMany(Document::class, 'rental_application_document')
+            ->withPivot('attached_by')
+            ->withTimestamps();
     }
 
     /** AT-392 — the status change trail, newest first. */
