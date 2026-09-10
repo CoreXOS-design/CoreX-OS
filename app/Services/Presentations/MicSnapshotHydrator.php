@@ -52,6 +52,16 @@ final class MicSnapshotHydrator
     public const SOURCE_TAG_DEAL  = 'deal_register_v1';
 
     /**
+     * AT-405 (Johan, 2026-09-10) — comps genuinely excluded by the title-type
+     * gate in collectMatchedRows(), this hydration run only. Reset at the top
+     * of hydrateForPresentation() and surfaced in its returned summary so the
+     * review screen can tell an agent WHY a section is thin instead of
+     * pointing them at "upload a CMA report" when reports already exist and
+     * the real reason is a type mismatch.
+     */
+    private int $excludedByTypeCount = 0;
+
+    /**
      * @return array{
      *   sold_comps_inserted: int,
      *   active_listings_inserted: int,
@@ -63,10 +73,12 @@ final class MicSnapshotHydrator
      *   period_months: int,
      *   n_deals_added: int,
      *   n_deals_dedup_skipped: int,
+     *   excluded_by_type: int,
      * }
      */
     public function hydrateForPresentation(Presentation $presentation): array
     {
+        $this->excludedByTypeCount = 0;
         $cfg = $this->resolveConfig($presentation);
 
         // Wipe previous MIC + deal-source rows for this presentation.
@@ -267,6 +279,7 @@ final class MicSnapshotHydrator
             'period_months'              => $cfg['period_months'],
             'n_deals_added'              => $dealsAdded,
             'n_deals_dedup_skipped'      => $dealsDeduped,
+            'excluded_by_type'           => $this->excludedByTypeCount,
         ];
     }
 
@@ -708,12 +721,43 @@ final class MicSnapshotHydrator
                     // scheme_name/section_number. deriveCompTitleType reads
                     // those signals first and only falls back to
                     // fromPropertyType (→ null on blank) when no signal is
-                    // present. Coerce null → TITLE_OTHER to preserve Build 1's
-                    // strict-drop semantic on a genuinely typeless comp.
-                    $compTitleType = $this->deriveCompTitleType($row)
-                        ?? \App\Services\TitleTypeClassifier::TITLE_OTHER;
-                    if ($compTitleType !== $titleType) {
-                        return false;
+                    // present.
+                    $compTitleType = $this->deriveCompTitleType($row);
+
+                    // AT-405 (Johan, 2026-09-10) — an UNDETERMINABLE title
+                    // type must stop meaning "discard". The 2026-08-25 fix
+                    // (TitleTypeClassifier::fromPropertyType()) correctly
+                    // made "Residence"/"Residential" resolve to null instead
+                    // of guessing full_title — that classifier is untouched,
+                    // it is right to be honest about the ambiguity. The bug
+                    // is here: this filter then coerced that honest null into
+                    // TITLE_OTHER, which can never equal a real subject
+                    // title_type, so every comp whose ONLY signal is that one
+                    // ambiguous word was silently dropped regardless of the
+                    // subject's own type — proven on live-testing property
+                    // 6061 (20 otherwise-eligible Trafalgar comps, all
+                    // rejected here, none via a genuine sectional signal).
+                    //
+                    // Scoped narrowly to the specific ambiguous words the
+                    // classifier's own docblock names as the source of the
+                    // null (Property_Type::fromPropertyType()'s "Residence"/
+                    // "Residential" case) — NOT to every null. A null caused
+                    // by a genuinely different asset class ("Commercial",
+                    // "Industrial", "Business" — also null per that same
+                    // classifier, but for an unrelated reason: wrong asset
+                    // class, not ambiguous tenure) must keep being rejected;
+                    // widening this to "any null passes" would admit
+                    // commercial stock into a residential subject's comp
+                    // pool, a regression this fix must not introduce.
+                    $isAmbiguousResidentialWord = $compTitleType === null
+                        && in_array(strtolower(trim((string) ($row->property_type ?? ''))), ['residence', 'residential'], true);
+
+                    if (!$isAmbiguousResidentialWord) {
+                        $compTitleType ??= \App\Services\TitleTypeClassifier::TITLE_OTHER;
+                        if ($compTitleType !== $titleType) {
+                            $this->excludedByTypeCount++;
+                            return false;
+                        }
                     }
                 }
             }

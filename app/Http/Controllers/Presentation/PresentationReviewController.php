@@ -187,6 +187,14 @@ final class PresentationReviewController extends Controller
         $importSummary = app(\App\Services\Presentations\PresentationImportSummaryService::class)
             ->build($presentation);
 
+        // AT-405 (Johan, 2026-09-10) — how many comps this generation actually
+        // found and then excluded for a title-type mismatch, persisted at
+        // hydration time on the version's own hydration_summary_json (the
+        // durable record of that run — MicSnapshotHydrator itself is
+        // stateless across requests, so this cannot be recomputed from a live
+        // counter on a fresh page load). Read from source, not re-derived.
+        $importSummary['excluded_by_type'] = (int) ($version->hydration_summary_json['excluded_by_type'] ?? 0);
+
         // AT-214 — the "N of M comps used" denominator M is the CANONICAL count of
         // comparable sales AVAILABLE for the subject property (same source as the
         // property-page Intelligence card + the CMA coverage badge), not the size

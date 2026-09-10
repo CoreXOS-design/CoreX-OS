@@ -174,6 +174,13 @@
             <span style="flex-basis:100%; font-size:11px; color:var(--ds-text-muted, #64748b);">
                 {{ $_s['unmapped'] }} could not be placed on the map (no location resolved) — they are still counted in the analysis.
             </span>
+        @elseif($_totalHydrated === 0 && ($_s['excluded_by_type'] ?? 0) > 0)
+            {{-- AT-405 (Johan, 2026-09-10) — comps existed and were found, but every one was
+                 excluded because its title type could not be matched to this property. Telling
+                 the agent to upload a CMA report they already uploaded was the actual bug. --}}
+            <span style="flex-basis:100%; font-size:11px; color:var(--ds-amber, #f59e0b);">
+                {{ $_s['excluded_by_type'] }} comparable {{ \Illuminate\Support\Str::plural('sale', $_s['excluded_by_type']) }} found nearby but excluded — their title type (sectional/full title) did not match this property. Nothing to upload; widen the comp scope or check the property's title type, then regenerate.
+            </span>
         @elseif($_totalHydrated === 0)
             <span style="flex-basis:100%; font-size:11px; color:var(--ds-amber, #f59e0b);">
                 No comparable sales hydrated yet — upload a CMA report or widen the comp scope, then regenerate.
