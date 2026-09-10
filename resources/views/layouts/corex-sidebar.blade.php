@@ -1021,6 +1021,14 @@
                 @if($user->isRentalApplicationAuthoriser())
                 <a href="{{ route('corex.rental-applications.authorisation.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rental-applications.authorisation.*') ? 'active' : '' }}">Rental Application Authorisation</a>
                 @endif
+
+                {{-- AT-401 — entry point into the SAME Properties screen as
+                     Real Estate → Properties, listing_type locked to rental
+                     server-side (PropertyController::index(), by route name).
+                     Reuses properties.view — no new permission, same screen. --}}
+                @permission('properties.view')
+                <a href="{{ route('corex.rentals.properties.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rentals.properties.index') ? 'active' : '' }}">Properties</a>
+                @endpermission
             </div>
         </div>
         @endif

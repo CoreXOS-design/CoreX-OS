@@ -295,7 +295,7 @@
          }"
          class="rounded-md px-4 py-3" style="background:var(--surface);border:1px solid var(--border);">
 
-        <form method="GET" action="{{ route('corex.properties.index') }}" x-ref="filterForm" class="flex flex-wrap items-center gap-3">
+        <form method="GET" action="{{ route($indexRouteName ?? 'corex.properties.index') }}" x-ref="filterForm" class="flex flex-wrap items-center gap-3">
 
             {{-- Search --}}
             <div class="relative flex-1 min-w-[180px] max-w-xs" data-tour="re-properties-search">
@@ -316,8 +316,8 @@
                 $pcIsAll    = empty($filterAgentIds);
                 $pcIsMine   = count($filterAgentIds) === 1 && (string) $filterAgentIds[0] === $pcuId;
                 $pcCarry    = request()->except(['agent_id', 'agent_ids', 'page']);
-                $pcMineUrl  = route('corex.properties.index', array_merge($pcCarry, ['agent_ids' => $pcuId]));
-                $pcAllUrl   = route('corex.properties.index', array_merge($pcCarry, ['agent_ids' => 'all']));
+                $pcMineUrl  = route($indexRouteName ?? 'corex.properties.index', array_merge($pcCarry, ['agent_ids' => $pcuId]));
+                $pcAllUrl   = route($indexRouteName ?? 'corex.properties.index', array_merge($pcCarry, ['agent_ids' => 'all']));
                 $pcAllLabel = $dataScope === 'branch' ? 'branch' : 'agency';
             @endphp
             <div class="inline-flex rounded-md overflow-hidden" style="border:1px solid var(--border);">
@@ -351,12 +351,20 @@
                 <option value="withdrawn" {{ $status === 'withdrawn' ? 'selected' : '' }}>Withdrawn</option>
             </select>
 
-            {{-- Listing Type --}}
-            <select name="listing_type" onchange="this.form.submit()" class="list-header-filter">
-                <option value="" {{ ($filters['listingType'] ?? '') === '' ? 'selected' : '' }}>Sale &amp; Rental</option>
-                <option value="sale"   {{ ($filters['listingType'] ?? '') === 'sale'   ? 'selected' : '' }}>For Sale</option>
-                <option value="rental" {{ ($filters['listingType'] ?? '') === 'rental' ? 'selected' : '' }}>For Rental</option>
-            </select>
+            {{-- Listing Type — AT-401: locked on the Rentals entry point, not
+                 just hidden. PropertyController::index() forces listing_type
+                 server-side whenever isRentalEntry is true, regardless of
+                 what this control (or a hand-edited URL) says, so a static
+                 label here is honest, not merely decorative. --}}
+            @if($isRentalEntry ?? false)
+                <span class="list-header-filter" style="cursor:default;" title="This entry point always shows rentals only">Rentals only</span>
+            @else
+                <select name="listing_type" onchange="this.form.submit()" class="list-header-filter">
+                    <option value="" {{ ($filters['listingType'] ?? '') === '' ? 'selected' : '' }}>Sale &amp; Rental</option>
+                    <option value="sale"   {{ ($filters['listingType'] ?? '') === 'sale'   ? 'selected' : '' }}>For Sale</option>
+                    <option value="rental" {{ ($filters['listingType'] ?? '') === 'rental' ? 'selected' : '' }}>For Rental</option>
+                </select>
+            @endif
 
             {{-- Sort --}}
             <select name="sort" onchange="this.form.submit()" class="list-header-filter">
@@ -384,7 +392,7 @@
             </button>
 
             @if(collect(request()->except(['direction','page']))->filter(fn($v) => $v !== null && $v !== '')->isNotEmpty())
-            <a href="{{ route('corex.properties.index', ['clear' => 1]) }}" class="text-xs underline transition-all duration-300" style="color:var(--text-muted);">Clear all</a>
+            <a href="{{ route($indexRouteName ?? 'corex.properties.index', ['clear' => 1]) }}" class="text-xs underline transition-all duration-300" style="color:var(--text-muted);">Clear all</a>
             @endif
 
             {{-- Agent picker (admin/bm only) — right-aligned modal, multi-select --}}
@@ -655,7 +663,7 @@
                     $chips[] = [
                         'label' => $agentChipLabel,
                         'key'   => 'agent_ids',
-                        'url'   => route('corex.properties.index', array_merge(collect($chipBase)->except(['agent_id', 'agent_ids'])->toArray(), ['agent_ids' => 'all'])),
+                        'url'   => route($indexRouteName ?? 'corex.properties.index', array_merge(collect($chipBase)->except(['agent_id', 'agent_ids'])->toArray(), ['agent_ids' => 'all'])),
                     ];
                 }
             }
@@ -666,7 +674,7 @@
             @foreach($chips as $chip)
                 @php
                     if (isset($chip['url'])) { $chipHref = $chip['url']; }
-                    else { $params = $chipBase; unset($params[$chip['key']]); $chipHref = route('corex.properties.index', $params); }
+                    else { $params = $chipBase; unset($params[$chip['key']]); $chipHref = route($indexRouteName ?? 'corex.properties.index', $params); }
                 @endphp
                 <a href="{{ $chipHref }}"
                    class="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all duration-300"
@@ -713,7 +721,7 @@
                 Create my first listing
             </a>
             @if(collect(request()->except(['direction','page']))->filter(fn($v) => $v !== null && $v !== '')->isNotEmpty())
-            <a href="{{ route('corex.properties.index', ['clear' => 1]) }}" class="text-sm font-medium" style="color:var(--text-muted);">Clear filters</a>
+            <a href="{{ route($indexRouteName ?? 'corex.properties.index', ['clear' => 1]) }}" class="text-sm font-medium" style="color:var(--text-muted);">Clear filters</a>
             @endif
         </div>
     </div>

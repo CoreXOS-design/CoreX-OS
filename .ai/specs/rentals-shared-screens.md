@@ -60,6 +60,27 @@ five-state board with the rental lens applied — no new states are introduced f
 
 ## 2. Screen A — Rentals → Properties
 
+**BUILT AND LANDED ON QA1, 2026-09-10.** Exactly as specced below, with one
+implementation refinement: the lock is detected by **route name**
+(`$request->route()->getName() === 'corex.rentals.properties.index'`), not a route
+default/closure — simpler, equally uneditable by the client (a route name is never
+client-supplied). Every self-referencing `route('corex.properties.index', ...)` call in
+`index.blade.php` (filter form action, Clear links, pagination/chip URLs — 7 call
+sites) was changed to `route($indexRouteName ?? 'corex.properties.index', ...)`, where
+`$indexRouteName` is the controller's own route name, so "Clear filters" and every
+other self-link on the Rentals entry point stays on the Rentals entry point instead of
+bouncing to the unlocked screen. Session-persisted filters use a separate key
+(`corex.rentals.properties.filters` vs `corex.properties.filters`) so a saved filter
+set never leaks between the two entry points. No new permission — reuses
+`properties.view`. Nav entry added to the existing Rentals panel in
+`corex-sidebar.blade.php`, directly under Real Estate (placement unchanged).
+
+Verified in a real browser on QA1: the entry shows only `For Rent` listings, editing
+the URL to `?listing_type=sale` does not escape the lock (still only rentals), and
+`/corex/properties` (Real Estate → Properties) is unchanged — still has the editable
+Sale/Rental toggle.
+
+
 **Entry point, not a screen.** Same route family, same controller
 (`App\Http\Controllers\CoreX\PropertyController`), same view
 (`resources/views/corex/properties/index.blade.php` / `show.blade.php`), same model

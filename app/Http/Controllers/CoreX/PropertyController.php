@@ -44,6 +44,18 @@ class PropertyController extends Controller
         $agencySortMode  = $agency?->properties_sort_mode ?? 'created';
         $defaultSort     = $agencySortMode === 'status_priority' ? 'status_priority' : 'newest';
 
+        // AT-401 — Rentals → Properties is the SAME controller action reached
+        // by a second route, detected by NAME (never client-supplied — the
+        // client cannot set request()->route()). Every self-referencing
+        // route() call below uses $indexRouteName instead of a hardcoded
+        // 'corex.properties.index' so "Clear filters", the saved-filter
+        // redirect, and the filter form's own action all stay on whichever
+        // entry point the user is actually on, rather than bouncing them
+        // back to the unlocked screen. The lock itself is applied further
+        // down, AFTER the query string is read — see $listingType below.
+        $indexRouteName = $request->route()->getName();
+        $isRentalEntry  = $indexRouteName === 'corex.rentals.properties.index';
+
         // ── Filter persistence ────────────────────────────────────────────
         // The whole active filter set (agents, status, search, every advanced
         // filter) survives navigation for the life of the browser session —
@@ -52,7 +64,9 @@ class PropertyController extends Controller
         // redirected to the canonical URL so links, chips and pagination all
         // carry the state. This replaces the previous behaviour that silently
         // reset to "my listings" on any nav that dropped ?agent_id=.
-        $SESSION_KEY = 'corex.properties.filters';
+        // Rentals gets its own key so a sale-side saved filter set (or vice
+        // versa) never leaks across the two entry points.
+        $SESSION_KEY = $isRentalEntry ? 'corex.rentals.properties.filters' : 'corex.properties.filters';
         $FILTER_KEYS = [
             'status', 'search', 'listing_type', 'property_type', 'category',
             'mandate_type', 'branch_id', 'price_min', 'price_max',
@@ -62,7 +76,7 @@ class PropertyController extends Controller
         // Explicit reset — "Clear all" / "Clear filters" hit ?clear=1.
         if ($request->boolean('clear')) {
             $request->session()->forget($SESSION_KEY);
-            return redirect()->route('corex.properties.index');
+            return redirect()->route($indexRouteName);
         }
 
         // Did this request carry any filter signal? (incl. the legacy single
@@ -75,7 +89,7 @@ class PropertyController extends Controller
         if (! $hasFilterParam) {
             $saved = (array) $request->session()->get($SESSION_KEY, []);
             if (! empty($saved)) {
-                return redirect()->route('corex.properties.index', $saved);
+                return redirect()->route($indexRouteName, $saved);
             }
         }
 
@@ -85,6 +99,15 @@ class PropertyController extends Controller
 
         // Extended filters
         $listingType    = $request->query('listing_type', '');   // '' | sale | rental
+        // THE LOCK — applied after the query string is read, so a
+        // hand-edited ?listing_type=sale on this entry point is simply
+        // overridden, not trusted. This is the only place the lock lives;
+        // everything else on this screen (search, sort, pagination, the
+        // scope toggle) works exactly as it does for Real Estate → Properties,
+        // because it is the same code.
+        if ($isRentalEntry) {
+            $listingType = 'rental';
+        }
         $propertyType   = $request->query('property_type', '');
         $category       = $request->query('category', '');
         $mandateType    = $request->query('mandate_type', '');
@@ -435,7 +458,7 @@ class PropertyController extends Controller
             'properties', 'stats', 'scope', 'status', 'search',
             'filterAgentIds', 'agentList', 'selectedAgents', 'canPickAgent',
             'filterOptions', 'filters', 'currentSort', 'currentDir', 'agencySortMode',
-            'myDrafts', 'hasWebsiteStats'
+            'myDrafts', 'hasWebsiteStats', 'isRentalEntry', 'indexRouteName'
         ));
     }
 

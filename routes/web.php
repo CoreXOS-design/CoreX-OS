@@ -3814,6 +3814,16 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/{property}/website-syndication/{apiKey}/refresh',    [\App\Http\Controllers\Website\WebsiteSyndicationController::class, 'refresh'])->name('website-syndication.refresh');
     });
 
+    // AT-401 — Rentals → Properties. Deliberately the SAME controller action
+    // as corex.properties.index above, not a copy — PropertyController::index()
+    // detects this route by NAME (request()->route()->getName(), never
+    // user-editable) and forces listing_type='rental' unconditionally, after
+    // the query string is read, so it cannot be escaped by editing the URL.
+    // See .ai/specs/rentals-shared-screens.md §2.
+    Route::get('/rentals/properties', [\App\Http\Controllers\CoreX\PropertyController::class, 'index'])
+        ->middleware(['permission:access_properties', 'agency.required'])
+        ->name('corex.rentals.properties.index');
+
     // Phase 3g — Map module (standalone page + JSON pin + detail endpoints).
     // Same permission as Properties; agency scoping enforced inside the service.
     Route::prefix('map')->middleware(['permission:access_properties', 'agency.required'])->name('corex.map.')->group(function () {
