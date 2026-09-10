@@ -111,6 +111,16 @@ return [
         ['key' => 'rental_applications.view_returned',   'label' => 'View Returned Applications',          'section' => 'agency-tracker', 'type' => 'access', 'module' => 'rental_applications', 'sort_order' => 3],
         ['key' => 'rental_applications.manage_settings', 'label' => 'Manage Rental Application Settings',  'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_applications', 'sort_order' => 4],
 
+        // AT-392 — Contact rental-history visibility, its own scope independent of
+        // rental_applications.view's own ceiling (a plain agent's list-screen scope
+        // must never floor what they see on a Contact they're working with). Own
+        // module so it gets its own Data Scope row in Role Manager, not sharing
+        // rental_applications' $fActionMap['view'] slot. Johan: "agency wide so
+        // that any user working with a contact can see the history" — unconfigured
+        // defaults to 'all' via PermissionService::contactRentalHistoryScope(),
+        // never the role-manager screen's own 'own' fallback.
+        ['key' => 'contact_rental_history.view', 'label' => 'View Rental History on Contact', 'section' => 'contacts', 'type' => 'action', 'module' => 'contact_rental_history', 'sort_order' => 1],
+
         // ── Daily Activity — Granular Actions ──
         ['key' => 'daily_activity.view',     'label' => 'View',                            'section' => 'agency-tracker',   'type' => 'action',  'module' => 'daily_activity',   'sort_order' => 42],
         ['key' => 'daily_activity.create',   'label' => 'Create',                          'section' => 'agency-tracker',   'type' => 'action',  'module' => 'daily_activity',   'sort_order' => 43],

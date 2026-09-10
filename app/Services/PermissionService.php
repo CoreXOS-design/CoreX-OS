@@ -337,6 +337,25 @@ class PermissionService
     }
 
     /**
+     * AT-392 — the Contact page's Rental History tab. Johan, verbatim:
+     * "my instincts are telling me agency wide so that any user working
+     * with a contact can see the history... add to role manager where
+     * this can be set by agency to own / branch / agency." Reads
+     * contact_rental_history.view's own scope grant — deliberately its
+     * own permission module, independent of rental_applications.view's
+     * ceiling (a plain agent's own/branch cap on the rental-applications
+     * LIST screen must never floor what they see on a Contact they're
+     * working with). Defaults to 'all' — NOT this class's usual 'own'
+     * fallback (see calendarScope()/taskScope() above) — because Johan's
+     * explicit default is agency-wide until an agency configures
+     * otherwise, the opposite of every sibling scope here.
+     */
+    public static function contactRentalHistoryScope(User $user): string
+    {
+        return static::getDataScope($user, 'contact_rental_history') ?? 'all';
+    }
+
+    /**
      * Market Intelligence canvassing-pool data-visibility scope for a user
      * (own | branch | all). Reads market_intelligence.view's scope; defaults
      * to 'own' so a user who reaches the page never accidentally sees the

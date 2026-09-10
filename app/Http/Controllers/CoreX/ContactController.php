@@ -918,6 +918,17 @@ class ContactController extends Controller
             ->appends(array_filter(['tab' => 'history', 'include_system' => $includeSystem ? 1 : null]));
         $historyCount = $historyService->count($contact, $includeSystem);
 
+        // AT-392 — Rental History tab. ONE query for both the badge count
+        // and the tab body (Johan's standing rule, same reasoning as
+        // $historyCount above) — scoped to the viewer via
+        // Contact::visibleRentalApplicationsFor(), never a bare
+        // $contact->rentalApplications access from the view.
+        // $hasAnyRentalApplications is the UNSCOPED existence check, used
+        // only to tell "genuinely none" apart from "some exist but scoping
+        // hides them" in the tab's empty state — never to decide what's shown.
+        $visibleRentalApplications = $contact->visibleRentalApplicationsFor($request->user())->get();
+        $hasAnyRentalApplications = $contact->rentalApplications()->exists();
+
         // AT-267 — may the current user EDIT this contact? An assistant may VIEW a colleague's
         // contact but only EDIT the agent's own — OR an unowned contact (no linked agent). The view
         // renders read-only when false so no edit affordance is shown that would only 403 on save.
@@ -939,7 +950,7 @@ class ContactController extends Controller
         // Contact-details Phase 2 adds $contactIdentifierLabels; Phase 4 adds the
         // Recent-Sends panel vars ($recentSends, $sendAuditLog, $sendAuditActors);
         // AT-321 audit adds $includeSystem (History-tab system-trail toggle).
-        return view('corex.contacts.show', compact('contact', 'contactTypes', 'contactIdentifierLabels', 'contactTags', 'matchCategories', 'matchTypes', 'featureOptions', 'documentTypes', 'driveLinkedGroups', 'driveUnlinkedDocs', 'drivePropertyMap', 'buyerViewings', 'sellerViewings', 'buyerUpcoming', 'buyerPast', 'sellerUpcoming', 'sellerPast', 'viewingsCount', 'outreachSends', 'outreachClickCounts', 'outreachOutcomeOptions', 'agencyAgents', 'canViewComms', 'contactComms', 'contactThreads', 'commsViaGrant', 'canRequestComms', 'pendingCommsRequest', 'myCaptureStatus', 'waSent', 'emailSent', 'fullAuditLog', 'includeSystem', 'historyCount', 'recentSends', 'sendAuditLog', 'sendAuditActors', 'canEdit', 'linkedDeals'));
+        return view('corex.contacts.show', compact('contact', 'contactTypes', 'contactIdentifierLabels', 'contactTags', 'matchCategories', 'matchTypes', 'featureOptions', 'documentTypes', 'driveLinkedGroups', 'driveUnlinkedDocs', 'drivePropertyMap', 'buyerViewings', 'sellerViewings', 'buyerUpcoming', 'buyerPast', 'sellerUpcoming', 'sellerPast', 'viewingsCount', 'outreachSends', 'outreachClickCounts', 'outreachOutcomeOptions', 'agencyAgents', 'canViewComms', 'contactComms', 'contactThreads', 'commsViaGrant', 'canRequestComms', 'pendingCommsRequest', 'myCaptureStatus', 'waSent', 'emailSent', 'fullAuditLog', 'includeSystem', 'historyCount', 'recentSends', 'sendAuditLog', 'sendAuditActors', 'canEdit', 'linkedDeals', 'visibleRentalApplications', 'hasAnyRentalApplications'));
     }
 
     public function checkDuplicate(Request $request)

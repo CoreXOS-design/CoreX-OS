@@ -462,6 +462,34 @@ class RentalApplication extends Model
     {
         $scope = self::clampScope($requestedScope, \App\Services\PermissionService::getDataScope($user, 'rental_applications'));
 
+        return self::applyVisibilityScope($query, $scope, $user);
+    }
+
+    /**
+     * AT-392 — the Contact page's Rental History tab. Johan: "agency
+     * wide... add to role manager where this can be set." A genuinely
+     * independent scope from scopeVisibleTo()'s own rental_applications.view
+     * ceiling (see PermissionService::contactRentalHistoryScope()'s own
+     * docblock for why they must not share a ceiling), reusing the exact
+     * SAME filtering branches via applyVisibilityScope() below — never a
+     * parallel filtering implementation.
+     */
+    public function scopeVisibleForContactHistory($query, User $user)
+    {
+        $scope = \App\Services\PermissionService::contactRentalHistoryScope($user);
+
+        return self::applyVisibilityScope($query, $scope, $user);
+    }
+
+    /**
+     * The three own/branch/all branches shared by every visibility scope
+     * on this model — extracted out of scopeVisibleTo() so
+     * scopeVisibleForContactHistory() reuses the identical filtering
+     * logic rather than a second copy that could drift. Behaviour of
+     * scopeVisibleTo() itself is unchanged by this extraction.
+     */
+    private static function applyVisibilityScope($query, string $scope, User $user)
+    {
         if ($scope === 'all') {
             return $query;
         }

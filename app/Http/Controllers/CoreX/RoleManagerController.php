@@ -114,6 +114,7 @@ class RoleManagerController extends Controller
             'sales_docs'       => 'Sales Documents',
             'properties'       => 'Properties',
             'contacts'         => 'Contacts',
+            'contact_rental_history' => 'Contact Rental History',
             'core_matches'     => 'Core Matches',
             'calculators'      => 'Calculators & Tools',
             'ad_manager'       => 'Ad Manager',

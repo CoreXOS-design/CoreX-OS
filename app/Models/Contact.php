@@ -294,10 +294,36 @@ class Contact extends Model
      * derived cache (kept in sync by App\Listeners\Contact\
      * RecomputeRentalApplicationStatus); this is the real, permanent
      * record — every application this contact has ever had.
+     *
+     * UNSCOPED by viewer — for internal/system use only (e.g. deriving
+     * rental_application_status, which must see every application on this
+     * contact regardless of who's currently looking). The Contact page's
+     * Rental History tab and its badge count do NOT use this directly —
+     * see visibleRentalApplicationsFor() below, which is what a viewer
+     * actually sees.
      */
     public function rentalApplications(): HasMany
     {
         return $this->hasMany(\App\Models\RentalApplication::class)->latest();
+    }
+
+    /**
+     * AT-392 — the viewer-scoped read the Contact page's Rental History
+     * tab and its badge count both use. Johan: "agency wide... any user
+     * working with a contact can see the history... add to role manager
+     * where this can be set." Routes through RentalApplication's own
+     * scopeVisibleForContactHistory() (the SAME own/branch/all filtering
+     * scopeVisibleTo() uses on the list screens, via a shared private
+     * helper — never a parallel implementation), driven by its own
+     * independent role-manager grant
+     * (PermissionService::contactRentalHistoryScope()), not
+     * rental_applications.view's ceiling.
+     */
+    public function visibleRentalApplicationsFor(\App\Models\User $viewer): \Illuminate\Database\Eloquent\Builder
+    {
+        return \App\Models\RentalApplication::where('contact_id', $this->id)
+            ->visibleForContactHistory($viewer)
+            ->latest();
     }
 
     /**

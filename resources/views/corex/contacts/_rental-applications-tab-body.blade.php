@@ -18,7 +18,15 @@
         'withdrawn' => ['label' => 'Withdrawn', 'bg' => 'var(--surface-2)', 'fg' => 'var(--text-muted)'],
     ];
     $currentStatus = $rentalStatusLabels[$contact->rental_application_status] ?? $rentalStatusLabels['none'];
-    $rentalApps = $contact->rentalApplications;
+    // AT-392 — viewer-scoped (own/branch/agency, agency-configurable in
+    // Role Manager, default agency-wide). $visibleRentalApplications and
+    // $hasAnyRentalApplications both come from the controller — ONE query
+    // drives both this list and the tab badge (show.blade.php:90), so
+    // they can never disagree. $hasAnyRentalApplications is the unscoped
+    // existence check, used ONLY to tell "genuinely none" apart from
+    // "some exist but your access level doesn't show them" below — never
+    // to decide what's actually listed.
+    $rentalApps = $visibleRentalApplications;
 @endphp
 
 <div class="flex items-center gap-3 flex-wrap">
@@ -33,8 +41,16 @@
 
 @if($rentalApps->isEmpty())
     <div class="rounded-md p-6 text-center" style="background:var(--surface-2); border:1px dashed var(--border);">
-        <p class="text-sm font-medium" style="color:var(--text-secondary);">No rental applications yet</p>
-        <p class="text-xs mt-1" style="color:var(--text-muted);">Every application this contact ever has will show up here, with its outcome and date.</p>
+        @if($hasAnyRentalApplications)
+            {{-- Scoping legitimately hid everything — never say "no
+                 applications" when some genuinely exist; that would be
+                 a false statement about the contact, not just an empty list. --}}
+            <p class="text-sm font-medium" style="color:var(--text-secondary);">No rental applications visible at your access level</p>
+            <p class="text-xs mt-1" style="color:var(--text-muted);">This contact has rental application history, but your current Rental History access (set in Role Manager) doesn't include it. Ask an admin to widen it if you need to see it.</p>
+        @else
+            <p class="text-sm font-medium" style="color:var(--text-secondary);">No rental applications yet</p>
+            <p class="text-xs mt-1" style="color:var(--text-muted);">Every application this contact ever has will show up here, with its outcome and date.</p>
+        @endif
     </div>
 @else
     <div x-data="{

@@ -6377,3 +6377,145 @@ Tinker proof that `RentalApplicationPropertyMatcher::forApproval()`
 actually clips its output to a lowered limit; a real browser pass on
 QA1 confirming the field renders, saves, and is found by the settings
 hub's search box.
+
+## Contact Rental History — own/branch/agency scope, Role Manager (AT-392, 2026-09-10)
+
+Johan answered the scoping question left open in the Contact status
+section above. Verbatim: *"my instincts are telling me agency wide so
+that any user working with a contact can see the history - the corex
+build scope will always be - add to role manager where this can be set
+by agency to own / branch / agency."*
+
+**Default: agency-wide (`all`).** Configurable per role, in Role Manager,
+down to `branch` or `own` if an agency wants to.
+
+### Where this lives — the existing pattern, not a new one
+
+Investigated before building: `PermissionService::getDataScope($user,
+$module)` (`app/Services/PermissionService.php:202`) is the canonical
+per-role, per-agency scope resolver, reading `role_permissions` rows
+keyed `{module}.view` — configured today in the Role Manager UI
+(`resources/views/corex/role-manager.blade.php`) for any permission
+whose key ends in `.view` **and** is `'type' => 'action'` (never
+`'access'` — that type is excluded from the `$fActionMap`/`$fViewKey`
+computation the Data Scope selector depends on,
+`role-manager.blade.php:169-180`). Sibling wrappers already exist for
+exactly this "resolve, then apply a sensible default" shape:
+`calendarScope()`/`taskScope()` (`PermissionService.php:325-337`), both
+defaulting unset to `'own'`.
+
+**New permission:** `contact_rental_history.view`
+(`config/corex-permissions.php`, module `contact_rental_history`,
+section `contacts`, type `action`) — deliberately its **own** module,
+not folded into `rental_applications.view` or `contacts.view`. Folding
+it into either would collide: `rental_applications.view` is itself
+`type => 'access'` (no scope selector today at all), and `contacts.view`
+already owns the `contacts` module's `$fActionMap['view']` slot with its
+own special-cased on/off-toggle behaviour
+(`PermissionService.php:216-224` — properties/contacts scope is a simple
+toggle whose effective breadth then depends on the agency's
+`split_branches_enabled` setting, not the 4-way own/branch/all/none
+radio Johan asked for here). A new module was the only way to get an
+independent, full own/branch/all/none control without touching either
+existing one.
+
+**New resolver:** `PermissionService::contactRentalHistoryScope(User
+$user): string` (`PermissionService.php`, next to `calendarScope()`/
+`taskScope()`) — `getDataScope($user, 'contact_rental_history') ??
+'all'`. The **only** wrapper in this class defaulting to `'all'` instead
+of `'own'` — every sibling defaults the OTHER way; this one is
+deliberately the exception, per Johan's explicit instruction.
+
+**Synced, not seeded:** `php artisan corex:sync-permissions` (no
+`--seed-defaults`, no `--prune`) was run to create the permission
+*definition* row only — confirmed via its own output ("`1 created`...
+not yet assigned to any role"). No `role_permissions` grant was seeded
+for any role, which is exactly what makes the `?? 'all'` default take
+effect for every role until an agency admin explicitly configures
+otherwise in Role Manager.
+
+### The query layer — same mechanism as the list screens, not a parallel one
+
+`RentalApplication::scopeVisibleTo()` (`app/Models/RentalApplication.php:461`
+— the mechanism `RentalApplicationController::index()`/`returned()` use)
+resolves its ceiling from `PermissionService::getDataScope($user,
+'rental_applications')` — a **different, independent** permission from
+`contact_rental_history`. Calling `scopeVisibleTo()` as-is for the
+Contact tab would wrongly floor an agent's agency-wide contact-history
+view down to whatever narrower scope their `rental_applications.view`
+list-screen ceiling happens to be — the opposite of Johan's ask (an
+`own`-scoped agent must still see the FULL history on a contact they're
+working with, if the agency's `contact_rental_history` setting says
+`all`).
+
+Fixed by extraction, not duplication: the three own/branch/all SQL
+branches inside `scopeVisibleTo()` were pulled into a private
+`applyVisibilityScope($query, $scope, $user)` (`RentalApplication.php`).
+`scopeVisibleTo()` calls it with its existing `rental_applications`-
+sourced scope — **zero behaviour change**, confirmed by Tinker
+(`RentalApplication::visibleTo($admin)->count()` unchanged, matches the
+plain agency-scoped count both before and after). A new
+`scopeVisibleForContactHistory($query, $user)` calls the identical
+helper with `contactRentalHistoryScope($user)` instead — same filtering
+logic, independent ceiling source.
+
+`Contact::rentalApplications()` (`app/Models/Contact.php:298-301`) is
+now documented as **unscoped, internal-use only** — the domain-event
+listener (`RecomputeRentalApplicationStatus`) queries `RentalApplication`
+directly and never touched this relation anyway, so it's unaffected. The
+two real call sites that used to read `$contact->rentalApplications`
+directly — the tab badge (`show.blade.php:90`) and the tab body
+(`_rental-applications-tab-body.blade.php:21`) — were the *only* two
+callers of that relation anywhere in the codebase (grepped to confirm).
+Both now read a new `Contact::visibleRentalApplicationsFor(User
+$viewer): Builder` method instead.
+
+**One query drives both, same standing rule as the History tab's own
+`$historyCount`** (`ContactController.php:912-919`, "so the tab badge
+can never disagree with the list under it"): `ContactController::show()`
+computes `$visibleRentalApplications = $contact
+->visibleRentalApplicationsFor($request->user())->get()` exactly once;
+the badge count and the tab body both read that same collection. A
+second, unscoped `$hasAnyRentalApplications = $contact
+->rentalApplications()->exists()` is computed alongside — used **only**
+to distinguish the empty state's two real cases, never to decide what's
+shown.
+
+**Empty state, two distinct messages:**
+- Genuinely zero applications on the contact → "No rental applications
+  yet."
+- Applications exist but scoping hid all of them (e.g. an `own`-scoped
+  role looking at a contact worked by someone else) → "No rental
+  applications visible at your access level" + a note that Role Manager
+  controls this and to ask an admin to widen it. Never the "yet" message
+  when applications genuinely exist — that would be a false statement
+  about the contact.
+
+### Verified
+
+- `php -l` on every changed file — clean.
+- `php artisan view:clear` — clean.
+- `scripts/dev-check.ps1` cannot run on this box (no PowerShell).
+  Substituted the two most relevant existing suites:
+  `RoleManagerFunctionalTest` (exercises the same controller/config this
+  build touches) and `RentalApplicationAuthorisationQueueSearchSortTest`
+  (exercises `scopeVisibleTo()`, the method this build refactors) — see
+  the landing commit for pass/fail counts.
+- Tinker, throwaway fixture (a fresh test contact, three rental
+  applications: one created by the viewing agent in their own branch,
+  one created by a different agent in the SAME branch, one created by a
+  different agent in a DIFFERENT branch) — soft-deleted afterward:
+  - Unconfigured (no role_permissions row) → `all` → all three visible.
+    Confirms Johan's default.
+  - Role scope set to `own` → only the viewer's own application visible;
+    both others (different creator) disappear, regardless of branch.
+  - Role scope set to `branch` → the viewer's own application AND the
+    same-branch one from a different agent are visible; the
+    different-branch one is not.
+  - Role scope set to `all` (explicit) → all three visible again.
+  - Confirmed `scopeVisibleTo()` (the list-screen mechanism) is
+    unaffected by the refactor — identical count before/after for an
+    agency-wide-scoped viewer.
+- Real browser, live on QA1: the new Data Scope control appears in Role
+  Manager under Contacts → Contact Rental History, saves, and the
+  Contact page's Rental History tab honours whatever is set.
