@@ -2227,6 +2227,8 @@
                     ['key' => 'mandate_type',    'label' => 'Mandate Types',     'items' => $propMandateTypes, 'placeholder' => 'e.g. Sole, Joint, Open'],
                     // Build 3 — condition levels with adjustment_pct.
                     ['key' => 'condition_level', 'label' => 'Condition Levels',  'items' => $propConditionLevels ?? collect(), 'placeholder' => 'e.g. To Renovate, Excellent'],
+                    // AT-402 — Rental tab's Furnished Status list.
+                    ['key' => 'furnished_status', 'label' => 'Furnished Status', 'items' => $propFurnishedStatuses ?? collect(), 'placeholder' => 'e.g. Unfurnished, Furnished, Part-Furnished'],
                 ];
                 $conditionBaselineName = \App\Models\PropertySettingItem::CONDITION_BASELINE_NAME;
                 $reorderUrl  = route('corex.settings.property-items.reorder');

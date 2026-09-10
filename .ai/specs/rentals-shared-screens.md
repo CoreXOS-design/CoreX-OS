@@ -551,18 +551,23 @@ are reused unchanged, not renamed.
   module — it is unrelated and untouched by this work.
 - §6.3 (sales-side scoping retrofit) does not ship as part of this spec's build unless
   and until Johan separately approves it.
-- No change to the property creation **wizard** (§11.1 items 15-16) — its rental fields
-  and its shared sale/rental price field stay exactly as they are; this spec's
-  consolidation is scoped to the tabbed edit screen only.
+- No change to the property creation **wizard** (`wizard.blade.php`'s own "Rental-only
+  fields" block, and its shared sale/rental price field at step 1) — they stay exactly
+  as they are across all five Rental tab landings; the tab's consolidation is scoped to
+  the tabbed edit screen (`show.blade.php`) only.
 - No fix to the pre-existing gap where `rental_price_type`/`lease_period`/`lease_type`
-  aren't cleared by the sale/rental type-switch clone logic (§11.1) — flagged for the
-  record, not remediated here.
+  aren't cleared by the sale/rental type-switch clone logic (`PropertyController::
+  makeClone()`) — flagged for the record across every landing, not remediated in any
+  of them.
 
 ---
 
 ## 11. Property Rental tab (AT-402)
 
-**Status: Part 1 BUILT AND LANDED ON QA1, 2026-09-10. Part 2 not started.**
+**Status: COMPLETE — Parts 1-5 all built and landed on QA1, 2026-09-10.** The
+Rental tab now holds every field in the inventory below marked DONE — 17 fields
+across five landings, one dedicated save action, one new agency-configurable
+setting, one new agency-managed settings list.
 
 Johan, verbatim: *"the part that was discussed was having seperate screens for rentals
 and sales. we went for same screen, well not different code so the properties under
@@ -595,20 +600,21 @@ views — the two do not fully overlap, and the gap between them is part of the
 |---|---|---|---|---|
 | 1 | **Rental Images** tab | `show.blade.php` tab def + body, `rental_images_json`/`rental_upload_keys` | **STAYS its own tab** — media-management concern, not a data-form field | Unchanged |
 | 2 | "Rental Details" section — `rental_amount`, `deposit_amount`, `rental_price_type`, `lease_start_date`, `lease_end_date` | Was buried inside the Info tab | **MOVED** into the new Rental tab | **DONE (Part 1)** |
-| 3 | `lease_period` input | Orphaned elsewhere in the Info tab's "Pricing Details" popup | **MOVES** into the Rental tab | **Part 2** |
-| 4 | `lease_type` input | Same popup | **MOVES** | **Part 2** |
-| 5 | `has_deposit` toggle | Same popup | **MOVES** | **Part 2** |
-| 6 | `price_per_day`/`price_per_week`/`price_per_year` | Same popup | **MOVE** | **Part 2** |
-| 7 | `pet_friendly` | Column exists, no `<input>` anywhere today | First-ever input, in the Rental tab | **Awaiting Johan's confirm** — not built |
-| 8 | `commission_percent`, `admin_fee`, `marketing_fee` | Columns exist, validated, mobile-app-only today (`Api/MobilePropertyController.php`) | First-ever desktop input, in the Rental tab | **Awaiting Johan's confirm** — not built (business question sent 2026-09-10) |
+| 3 | `lease_period` input | Orphaned elsewhere in the Info tab's "Pricing Details" popup | **MOVED** into the Rental tab | **DONE (Part 2)** |
+| 4 | `lease_type` input | Same popup | **MOVED** | **DONE (Part 2)** |
+| 5 | `has_deposit` toggle | Same popup | **MOVED** | **DONE (Part 2)** |
+| 6 | `price_per_day`/`price_per_week`/`price_per_year` | Same popup | **MOVED** | **DONE (Part 2)** |
+| 7 | `pet_friendly` | Column exists, no `<input>` anywhere today | First-ever input | **Deliberately not built** — Johan's answer covered items 8 and the three new fields (§11.5) but did not name `pet_friendly`; not assumed |
+| 8 | `commission_percent`, `admin_fee`, `marketing_fee` | Columns exist, validated, mobile-app-only (`Api/MobilePropertyController.php`) | First-ever desktop input, in the Rental tab | **DONE (Part 3)** |
 | 9 | Page-header / list / portal price display (`formattedPrice()`) | Everywhere a property is glanced at | **STAYS exactly where each is** | Confirmed unaffected — accessor-based, never reads tab position |
 | 10 | "Change listing type" toggle/action + `listing_type` field itself | Info tab | **STAYS in Info tab** | Unchanged — controls whether the Rental tab even renders; can't live inside the tab it controls |
-| 11 | Tenant link (who currently leases it) | `PropertyContactController` (`LINK_ROLES` includes `tenant`), via the Contacts tab | Read-only summary could surface in the Rental tab; linking mechanism stays on Contacts tab | **Not built** — Part 1 scope was the data fields only |
+| 11 | Tenant link (who currently leases it) | `PropertyContactController` (`LINK_ROLES` includes `tenant`), via the Contacts tab | Read-only summary could surface in the Rental tab; linking mechanism stays on Contacts tab | **Not built** — never in scope for any of Parts 1-5; would need its own approval |
+| 12 | Furnished Status | Did not exist | New column + new agency-managed `PropertySettingItem` list | **DONE (Part 5)** |
+| 13 | Move-in Availability date | `occupation_date` already existed (P24-import-populated, doc-generation-read, no UI) | Reused the existing column — no new column | **DONE (Part 5)** |
+| 14 | Utilities Included | Did not exist | Three new itemised boolean columns (Water/Electricity/Levies) — not a single yes/no | **DONE (Part 5)** |
 
-Three genuinely **new** fields were proposed in the earlier draft (Furnished status,
-Availability date, Utilities included) — **not approved, not built.** They would need a
-small additive migration (three new nullable columns). Sent to Johan as a business
-question alongside the Part 1 report; no default assumed either way.
+`pet_friendly` (item 7) remains genuinely open — flagged again here so it is not
+mistaken for a decision either way.
 
 ### 11.2 Part 1 — what was built
 
@@ -643,10 +649,109 @@ unchanged; a direct POST of rental fields at a sale property's new route 403s; t
 appears live, mid-creation, the instant Rental is picked as the listing type, with no
 page reload.
 
-### 11.3 Part 2 — not started
+### 11.3 Part 2 — Lease Period, Lease Type, Has Deposit, Price per Day/Week/Year
 
-Move items 3-6 above out of the still-live "Pricing Details" popup (visible to every
-property today, sale included) into the Rental tab alongside items already there.
-Gated on Johan's response to items 7-8 (whether to build those two first-ever desktop
-inputs at the same time) and the three-new-fields question — none of that blocks moving
-3-6, which need no new decision.
+Moved items 3-6 out of the still-live "Pricing Details" popup (which showed them to
+every property, sale included) into the Rental tab, alongside the fields already there.
+
+Checked every consumer of the six fields before moving anything — full-repo search,
+not a guess: `lease_period` is the only one read by a portal mapper
+(`Property24ListingMapper.php:108`, the P24 `rentalInfo.leasePeriod` payload) and the
+only one in `PropertyObserver`'s P24 re-submit trigger list; both read the model
+attribute directly, unaffected by where the `<input>` renders. All six are serialised
+in the public Website API (`ListingResource.php`), also attribute-based. `has_deposit`
+and the three price-per-X fields have no consumer beyond this screen's own validation
+and the Website API. `lease_type` has zero programmatic consumers at all — a
+pre-existing, already-documented gap in the syndication audits, not created or
+worsened by this move.
+
+Found and fixed one real gap surfaced by re-checking Part 1 byte-for-byte, not by
+these six fields specifically: the Rental tab's whole content panel — including Part
+1's five fields and its own dedicated `<form action="...rental-details...">` — was
+rendering into **every** property's raw HTML, sale included; `x-show` only hides it
+with CSS, it does not remove it from the page source. Fixed by wrapping the whole
+panel (and the tab button) in a PHP-level `@if`, mirroring the Rental Images tab's own
+`@if` — a settled sale property now ships zero bytes of rental-only markup. Confirmed
+via raw HTML fetch, not computed styles.
+
+**Verified live:** a real, pre-existing rental property's `lease_period` value
+("3 months and a mo...", never touched by this work) reads back identically in its
+new home; the sale property's raw HTML has zero occurrences of any of the six fields;
+a direct POST at the sale property's route still 403s.
+
+### 11.4 Part 3 — Commission %, Admin Fee, Marketing Fee
+
+Johan approved bringing these three onto the desktop Rental tab — today only the
+mobile app can set them.
+
+**Mobile-app cross-check, done before building anything (per Johan's explicit
+instruction):** the mobile app stores/sends `commission_percent` as a plain percent
+number (7.5 = 7.5%, bounded 0-100) and `admin_fee`/`marketing_fee` as plain Rand
+amounts, no `*100`/`/100` conversion anywhere. The web-side `PropertyController::
+store()`/`update()` already carry byte-for-byte identical validation rules for all
+three — they've been sitting unused since these fields never had a desktop input.
+Every other consumer found (`WebTemplateDataService`'s commission-amount
+calculations, the eSign wizard) treats `commission_percent` the same way. **No
+format/unit disagreement found** between mobile and any other consumer.
+
+**One real gap, pre-existing:** `admin_fee`/`marketing_fee` have a floor (`min:0`) but
+no ceiling anywhere in the codebase, mobile or web, and no DB constraint. Not
+retrofitted into the old mobile/web validation (outside this task) — closed instead
+in the new dedicated action:
+
+- `updateRentalDetails()` validates `commission_percent` 0-100 (matching mobile
+  exactly) and `admin_fee`/`marketing_fee` against a new agency-configurable ceiling —
+  `PerformanceSetting` key `rental_fee_max_amount`, default R50,000 — reusing the
+  existing generic agency-settings mechanism, not a new table. A value outside these
+  bounds fails validation outright and is never saved; no silent clamping.
+- New `SettingsController::updateRentalFeeCeiling()` saver + a control on
+  Settings → Properties & Listings + a Setup Wizard entry (`config/
+  agency-onboarding-copy.php`, `properties` step) — non-negotiable #10a.
+
+**Verified live:** saved 7.5% / R850 / R1200 on a real rental property, confirmed in
+the database directly; `commission_percent=150` and `admin_fee=999999` (above the
+configured ceiling) were both rejected and never touched stored data; the sale
+property's raw HTML has zero occurrences of any of the three fields; a direct POST at
+the sale property's route still 403s.
+
+### 11.5 Parts 4-5 — Furnished Status, Availability Date, Utilities Included
+
+Johan approved: additive migration, agency-configurable, no hardcoded business rule.
+
+**Migration is two new columns' worth, not three.** "Move-in Availability date"
+reuses the existing `occupation_date` column (already populated by the P24 CSV
+importer, already read by document generation, never had a desktop input) rather than
+adding a second, differently-named column for the same concept.
+
+**Furnished Status reasoning:** neither portal can represent more than a binary today
+(P24 has a third `Optional` enum value that isn't really "part-furnished"; Private
+Property is pure yes/no) — this is a CoreX-only capability for now, portal wiring is
+explicitly future work, not built here. Per Johan's own framing ("a small controlled
+set an agency can work with"), built as an agency-managed `PropertySettingItem` list
+(`GROUP_FURNISHED_STATUS`), not a hardcoded enum — same pattern as `property_type`/
+`category`/`mandate_type`. Seeded via the exact AT-352 `provisionDefaultsFor()`
+pattern: a companion migration backfills every existing agency (24 rows across 8
+agencies on QA1), and `AgencyObserver` already calls `provisionDefaultsFor()` with no
+group filter, so every agency created from now on receives it automatically — zero
+observer changes needed. Manageable via the existing generic property-setting-item
+CRUD on Settings → Properties & Listings (add/edit/reorder/soft-delete/batch-toggle).
+
+**Utilities Included reasoning — itemised, not a single yes/no, delivered to Johan
+before building:** Private Property's own API already has separate `WaterIncluded`
+and `ElectricityIncluded` attributes, and CoreX's syndication mapper already has the
+code wired to send them — permanently `false` today only because no screen ever sets
+the underlying feature flags. A single boolean would be a worse fit than what's
+half-built already, and can't express the ordinary case of "water's included,
+electricity isn't." Property24 has no equivalent concept at all. Built as three
+separate boolean columns — `water_included`, `electricity_included`,
+`levies_included` — matching exactly the three things Johan named, consistent with
+every other rental flag on this table (e.g. `has_deposit`).
+
+None of this is wired to either portal — confirmed not doing that, per instruction.
+
+**Verified live:** ran both migrations against the shared database directly (migration
+state lives in the DB, not per-checkout); confirmed the three new columns exist and
+24 default Furnished Status items seeded across 8 real agencies; saved Furnished /
+2026-11-01 / water+levies-included-but-not-electricity on a real rental property,
+confirmed in the database directly; the sale property's raw HTML has zero occurrences
+of any of the three fields; a direct POST at the sale property's route still 403s.

@@ -117,6 +117,8 @@ class SettingsController extends Controller
         $data['propMandateTypes']   = PropertySettingItem::group('mandate_type')->get();
         // Build 3 — agency-configurable condition levels with adjustment_pct.
         $data['propConditionLevels'] = PropertySettingItem::group('condition_level')->get();
+        // AT-402 — Rental tab's Furnished Status list.
+        $data['propFurnishedStatuses'] = PropertySettingItem::group('furnished_status')->get();
 
         // Feature Settings tab: Properties — marketing toggle
         $data['marketingEnabled'] = (bool) PerformanceSetting::get('marketing_enabled', 1);
@@ -355,7 +357,8 @@ class SettingsController extends Controller
     public function storePropertySettingItem(Request $request)
     {
         $data = $request->validate([
-            'group'          => 'required|in:category,property_type,property_status,mandate_type,condition_level',
+            // AT-402 — furnished_status added; an agency-managed list, same as the others.
+            'group'          => 'required|in:category,property_type,property_status,mandate_type,condition_level,furnished_status',
             'name'           => 'required|string|max:100',
             'sort_order'     => 'nullable|integer|min:0',
             // title_type only meaningful on group='category'; for any other
@@ -422,7 +425,11 @@ class SettingsController extends Controller
 
     public function batchToggleDefaultItems(Request $request, string $group)
     {
-        $allowed = ['category', 'property_type', 'property_status', 'mandate_type', 'condition_level'];
+        // AT-402 — furnished_status added; the settings view builds this
+        // batch-toggle URL generically for every $propGroups entry, so a
+        // group missing here would 404/error the button rather than the
+        // control never rendering.
+        $allowed = ['category', 'property_type', 'property_status', 'mandate_type', 'condition_level', 'furnished_status'];
         if (! in_array($group, $allowed)) {
             return redirect()->route('corex.settings', ['tab' => 'feature', 'fsec' => 'properties'])->with('error', 'Invalid group.');
         }
