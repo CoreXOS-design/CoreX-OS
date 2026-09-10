@@ -4,6 +4,7 @@ namespace App\Services\RentalApplications;
 
 use App\Models\Document;
 use App\Models\RentalApplicationDocumentHighlight;
+use App\Models\RentalApplicationDocumentMark;
 use App\Models\RentalApplicationHighlighter;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Support\Facades\Storage;
@@ -141,7 +142,11 @@ class RentalApplicationDocumentHighlightService
         return [
             'page' => ['index' => 0, 'width' => $w, 'height' => $h, 'data_uri' => 'data:image/png;base64,' . base64_encode(file_get_contents($path))],
             'total_pages' => $totalPages,
-            'marks' => $existing->marks_json ?? [],
+            // AT-401 — marks are now rows (rental_application_document_marks),
+            // not a JSON column; loadMarksByPage() returns the exact same
+            // page-indexed, snake_case array shape marks_json always did, so
+            // the client needs no changes.
+            'marks' => $this->loadMarksByPage($document->id),
             // 2026-09-08 — the client must echo this back as `base_version`
             // on its next save; a mismatch means someone else's save landed
             // first (see RentalApplicationMarkVersionConflictException).
@@ -245,13 +250,18 @@ class RentalApplicationDocumentHighlightService
             ->filter(fn ($h) => in_array($h->role_scope, [$authorRole, RentalApplicationHighlighter::ROLE_BOTH], true))
             ->pluck('id')->flip()->all();
 
-        $existingByPage = (array) ($highlight->marks_json ?? []);
-        $normalized = $this->normalizeForStorage($marksByPage, $existingByPage, $userId, $userName, $authorRole, $validHighlighterIds);
+        // AT-401 — persists directly to rental_application_document_marks
+        // (create new rows, soft-delete removed ones, ownership enforced
+        // PER ROW — see persistMarks()'s own docblock), then reloads the
+        // authoritative current state from those rows for burning/counting.
+        // marks_json is no longer written; the column stays on the table,
+        // frozen, as the pre-migration historical record.
+        $this->persistMarks($document, $agencyId, $userId, $userName, $authorRole, $marksByPage, $validHighlighterIds);
+        $normalized = $this->loadMarksByPage($document->id);
         $flatCount = array_sum(array_map('count', $normalized));
 
         $highlight->agency_id = $agencyId;
         $highlight->updated_by_user_id = $userId;
-        $highlight->marks_json = $normalized;
         $highlight->marks_version = $currentVersion + 1;
 
         if ($flatCount === 0) {
@@ -618,75 +628,52 @@ class RentalApplicationDocumentHighlightService
     }
 
     /**
-     * Keep only well-shaped mark data in storage — never trust the raw
-     * request payload verbatim into a JSON column. Also where ownership is
-     * enforced (2026-09-08, Johan): every mark id already present in
-     * $existingByPage is matched against the incoming payload —
-     *   - present in both → pass through the STORED copy untouched (there is
-     *     no in-place edit of an existing mark's shape/text, only draw-new
-     *     and remove, so the incoming copy is never trusted over storage);
-     *   - missing from incoming but present in storage → being removed;
-     *     only allowed if its author is $userId or unattributed (null);
-     *   - present in incoming with no matching id → a genuinely new mark,
-     *     always stamped with the CURRENT caller as author, never a
-     *     client-supplied one.
+     * AT-401 — every mark is now its own row (rental_application_document_
+     * marks), so ownership is enforced per row at the database layer
+     * instead of depending on a JSON blob's merge logic being correct on
+     * every single save. Same shape of rule as before ("no in-place edit,
+     * only draw-new and remove"), widened for the governance requirement:
+     *   - present in both incoming and storage (matched by mark_uid) →
+     *     nothing to do, the stored row is never overwritten — there is no
+     *     in-place edit of an existing mark;
+     *   - present in incoming with no matching mark_uid → a genuinely new
+     *     mark, always stamped with the CURRENT caller as author, never a
+     *     client-supplied one;
+     *   - present in storage but NOT echoed back → being removed. Refused
+     *     (RentalApplicationMarkOwnershipException) unless: the mark has no
+     *     author at all (legacy/unattributed — nothing to protect), OR the
+     *     current caller is the mark's own author (same user id) AND is not
+     *     an authoriser removing an agent's mark. An authoriser can NEVER
+     *     remove a mark whose author_role is 'agent', regardless of user id
+     *     — the same person acting as authoriser on a different application
+     *     must not be able to erase their own past agent-side work either,
+     *     which is exactly how an agent's mark was destroyed on application
+     *     66 under the old per-user-only check.
      *
      * @param  array<int,bool>  $validHighlighterIds  highlighter id => true — active, belongs to this agency, visible to $authorRole (own scope or 'both'). A genuinely new mark referencing anything else is dropped, not guessed at.
      * @throws \App\Exceptions\RentalApplicationMarkOwnershipException
      */
-    private function normalizeForStorage(array $marksByPage, array $existingByPage, int $userId, string $userName, string $authorRole, array $validHighlighterIds): array
+    private function persistMarks(Document $document, int $agencyId, int $userId, string $userName, string $authorRole, array $marksByPage, array $validHighlighterIds): void
     {
-        $out = [];
-        $pages = array_unique(array_merge(
-            array_map('intval', array_keys($marksByPage)),
-            array_map('intval', array_keys($existingByPage)),
-        ));
+        $existing = RentalApplicationDocumentMark::where('document_id', $document->id)->get()->keyBy('mark_uid');
+        $claimedUids = [];
 
-        foreach ($pages as $pageIndex) {
-            $incoming = (array) ($marksByPage[$pageIndex] ?? $marksByPage[(string) $pageIndex] ?? []);
-
-            // Marks saved before the category/id/author scheme have no id at
-            // all — kept in a separate pool matched by CONTENT below, so an
-            // unchanged legacy mark round-trips exactly instead of being
-            // silently "claimed" by whoever happens to save next (Johan:
-            // legacy marks stay honestly unattributed, never guessed).
-            $existingById = [];
-            $legacyPool = [];
-            foreach ((array) ($existingByPage[$pageIndex] ?? $existingByPage[(string) $pageIndex] ?? []) as $idx => $m) {
-                if (isset($m['id']) && is_string($m['id']) && $m['id'] !== '') {
-                    $existingById[$m['id']] = $m;
-                } else {
-                    $legacyPool[$idx] = $m;
-                }
-            }
-
-            $claimedIds = [];
-            $normalizedPage = [];
-
-            foreach ($incoming as $m) {
+        foreach ($marksByPage as $pageIndex => $incoming) {
+            $pageIndex = (int) $pageIndex;
+            foreach ((array) $incoming as $m) {
                 if (! is_array($m)) {
                     continue;
                 }
-                $id = isset($m['id']) && is_string($m['id']) && $m['id'] !== '' ? $m['id'] : null;
+                $uid = isset($m['id']) && is_string($m['id']) && $m['id'] !== '' ? mb_substr($m['id'], 0, 64) : null;
 
-                if ($id !== null && isset($existingById[$id])) {
-                    // Existing mark, echoed back — pass through storage's own
-                    // copy verbatim. Never trust the client's copy of a mark
-                    // it doesn't necessarily own (see docblock above).
-                    $claimedIds[$id] = true;
-                    $normalizedPage[] = $existingById[$id];
+                if ($uid !== null && $existing->has($uid)) {
+                    // Existing mark, echoed back — never trust the client's
+                    // copy of a mark it doesn't necessarily own; the stored
+                    // row is untouched. No in-place edit exists, only
+                    // draw-new and remove.
+                    $claimedUids[$uid] = true;
 
                     continue;
-                }
-
-                if ($id === null) {
-                    $legacyIdx = $this->findLegacyMatch($m, $legacyPool);
-                    if ($legacyIdx !== null) {
-                        $normalizedPage[] = $legacyPool[$legacyIdx];
-                        unset($legacyPool[$legacyIdx]);
-
-                        continue;
-                    }
                 }
 
                 // A genuinely new mark.
@@ -694,77 +681,65 @@ class RentalApplicationDocumentHighlightService
                 if ($normalized === null) {
                     continue;
                 }
-                if ($id !== null) {
-                    $claimedIds[$id] = true;
-                }
-                $normalizedPage[] = $normalized;
-            }
+                $finalUid = $uid ?? (string) \Illuminate\Support\Str::uuid();
+                $claimedUids[$finalUid] = true;
 
-            // Anything in storage but NOT echoed back is being removed —
-            // only the mark's own author (or nobody, if unattributed) may do
-            // that. Unmatched legacy-pool marks are always removable
-            // (nothing to protect — no author).
-            foreach ($existingById as $id => $existingMark) {
-                if (isset($claimedIds[$id])) {
-                    continue;
-                }
-                $author = $existingMark['author_user_id'] ?? null;
-                if ($author !== null && (int) $author !== $userId) {
-                    throw new \App\Exceptions\RentalApplicationMarkOwnershipException($id);
-                }
-                // else: legitimately removed (own mark, or unattributed legacy mark).
-            }
-
-            if (! empty($normalizedPage)) {
-                $out[$pageIndex] = $normalizedPage;
+                RentalApplicationDocumentMark::create([
+                    'agency_id' => $agencyId,
+                    'document_id' => $document->id,
+                    'mark_uid' => $finalUid,
+                    'type' => $normalized['type'],
+                    'page' => $pageIndex,
+                    'points' => $normalized['points'] ?? null,
+                    'width' => $normalized['width'] ?? null,
+                    'x' => $normalized['x'] ?? null,
+                    'y' => $normalized['y'] ?? null,
+                    'text' => $normalized['text'] ?? null,
+                    'highlighter_id' => $normalized['highlighter_id'],
+                    'author_user_id' => $normalized['author_user_id'],
+                    'author_name' => $normalized['author_name'],
+                    'author_role' => $normalized['author_role'],
+                    'source' => 'human',
+                ]);
             }
         }
 
-        return $out;
+        // Anything in storage but NOT echoed back is being removed.
+        foreach ($existing as $uid => $mark) {
+            if (isset($claimedUids[$uid])) {
+                continue;
+            }
+
+            if ($mark->author_role !== null) {
+                $blockedByRole = $mark->author_role === 'agent' && $authorRole === 'authoriser';
+                $blockedByUser = (int) $mark->author_user_id !== $userId;
+                if ($blockedByRole || $blockedByUser) {
+                    throw new \App\Exceptions\RentalApplicationMarkOwnershipException($uid);
+                }
+            }
+            // else: unattributed legacy mark — nothing to protect.
+
+            $mark->delete(); // soft delete — AT-401, no hard deletes anywhere
+        }
     }
 
     /**
-     * Legacy marks (saved before the id/category/author scheme) have
-     * nothing to match on except their own shape — finds an existing
-     * legacy-pool mark that is the SAME mark as $incoming (same type, same
-     * geometry/text, small float tolerance for the raster<->display px
-     * round trip), so it can pass through unchanged rather than being
-     * treated as newly created.
+     * The exact page-indexed, snake_case array shape marks_json always had
+     * — read from rental_application_document_marks instead, so the burn
+     * step (which only cares about this shape, never its storage origin)
+     * and the client (which parses this same JSON on every load) need no
+     * changes. Ordered by id (creation order), which is what already made
+     * "authoriser marks paint over agent marks" true before this change —
+     * new marks are always appended, never reordered.
      */
-    private function findLegacyMatch(array $incoming, array $pool): ?int
+    private function loadMarksByPage(int $documentId): array
     {
-        foreach ($pool as $idx => $existing) {
-            if (($existing['type'] ?? null) !== ($incoming['type'] ?? null)) {
-                continue;
-            }
-            if (($existing['type'] ?? null) === 'note') {
-                if (abs((float) ($existing['x'] ?? 0) - (float) ($incoming['x'] ?? 0)) < 1.5
-                    && abs((float) ($existing['y'] ?? 0) - (float) ($incoming['y'] ?? 0)) < 1.5
-                    && (string) ($existing['text'] ?? '') === (string) ($incoming['text'] ?? '')) {
-                    return $idx;
-                }
-
-                continue;
-            }
-
-            $ep = (array) ($existing['points'] ?? []);
-            $ip = (array) ($incoming['points'] ?? []);
-            if (count($ep) !== count($ip)) {
-                continue;
-            }
-            $match = true;
-            foreach ($ep as $i => $pt) {
-                if (! isset($ip[$i]) || abs((float) ($pt['x'] ?? 0) - (float) ($ip[$i]['x'] ?? 0)) > 1.5 || abs((float) ($pt['y'] ?? 0) - (float) ($ip[$i]['y'] ?? 0)) > 1.5) {
-                    $match = false;
-                    break;
-                }
-            }
-            if ($match) {
-                return $idx;
-            }
+        $out = [];
+        foreach (RentalApplicationDocumentMark::where('document_id', $documentId)->orderBy('id')->get() as $mark) {
+            $out[$mark->page][] = $mark->toMarkArray();
         }
 
-        return null;
+        return $out;
     }
 
     /**
