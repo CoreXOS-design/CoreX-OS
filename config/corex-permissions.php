@@ -105,6 +105,12 @@ return [
         ['key' => 'rentals.edit',            'label' => 'Edit',                            'section' => 'agency-tracker',   'type' => 'action',  'module' => 'rentals',          'sort_order' => 40],
         ['key' => 'rentals.archive',         'label' => 'Archive',                         'section' => 'agency-tracker',   'type' => 'action',  'module' => 'rentals',          'sort_order' => 41],
 
+        // ── Rental Applications (AT-392) ──
+        ['key' => 'rental_applications.view',            'label' => 'View Rental Applications',            'section' => 'agency-tracker', 'type' => 'access', 'module' => 'rental_applications', 'sort_order' => 1],
+        ['key' => 'rental_applications.create',          'label' => 'Create & Send Rental Applications',   'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_applications', 'sort_order' => 2],
+        ['key' => 'rental_applications.view_returned',   'label' => 'View Returned Applications',          'section' => 'agency-tracker', 'type' => 'access', 'module' => 'rental_applications', 'sort_order' => 3],
+        ['key' => 'rental_applications.manage_settings', 'label' => 'Manage Rental Application Settings',  'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_applications', 'sort_order' => 4],
+
         // ── Daily Activity — Granular Actions ──
         ['key' => 'daily_activity.view',     'label' => 'View',                            'section' => 'agency-tracker',   'type' => 'action',  'module' => 'daily_activity',   'sort_order' => 42],
         ['key' => 'daily_activity.create',   'label' => 'Create',                          'section' => 'agency-tracker',   'type' => 'action',  'module' => 'daily_activity',   'sort_order' => 43],
