@@ -3857,6 +3857,8 @@ CREATE TABLE `contact_matches` (
   `property_types` json DEFAULT NULL,
   `price_min` int unsigned DEFAULT NULL,
   `price_max` int unsigned DEFAULT NULL,
+  `move_in_date` date DEFAULT NULL,
+  `rental_term_months` smallint unsigned DEFAULT NULL,
   `beds_min` tinyint unsigned DEFAULT NULL,
   `bedrooms_max` tinyint unsigned DEFAULT NULL,
   `baths_min` tinyint unsigned DEFAULT NULL,
@@ -4887,6 +4889,26 @@ CREATE TABLE `deal_pipeline_templates` (
   CONSTRAINT `deal_pipeline_templates_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
   CONSTRAINT `deal_pipeline_templates_branch_id_foreign` FOREIGN KEY (`branch_id`) REFERENCES `branches` (`id`) ON DELETE SET NULL,
   CONSTRAINT `deal_pipeline_templates_created_by_id_foreign` FOREIGN KEY (`created_by_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `deal_properties`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `deal_properties` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `deal_id` bigint unsigned NOT NULL,
+  `property_id` bigint unsigned NOT NULL,
+  `is_primary` tinyint(1) NOT NULL DEFAULT '0',
+  `allocated_price` decimal(12,2) DEFAULT NULL,
+  `allocated_commission` decimal(12,2) DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `deal_properties_deal_id_index` (`deal_id`),
+  KEY `deal_properties_property_id_index` (`property_id`),
+  CONSTRAINT `deal_properties_deal_id_foreign` FOREIGN KEY (`deal_id`) REFERENCES `deals` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `deal_properties_property_id_foreign` FOREIGN KEY (`property_id`) REFERENCES `properties` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `deal_settlements`;
@@ -11874,6 +11896,8 @@ CREATE TABLE `rental_application_assessments` (
   `agency_id` bigint unsigned NOT NULL,
   `rental_application_id` bigint unsigned NOT NULL,
   `statement_months` tinyint unsigned DEFAULT NULL,
+  `statement_period_from` date DEFAULT NULL,
+  `statement_period_to` date DEFAULT NULL,
   `has_unpaid_transactions` tinyint(1) NOT NULL DEFAULT '0',
   `notes` text COLLATE utf8mb4_unicode_ci,
   `updated_by_user_id` bigint unsigned DEFAULT NULL,
@@ -11951,6 +11975,25 @@ CREATE TABLE `rental_application_decline_email_settings` (
   CONSTRAINT `rental_application_decline_email_settings_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `rental_application_document`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `rental_application_document` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `document_id` bigint unsigned NOT NULL,
+  `rental_application_id` bigint unsigned NOT NULL,
+  `attached_by` bigint unsigned DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `rental_app_document_unique` (`document_id`,`rental_application_id`),
+  KEY `rental_application_document_rental_application_id_foreign` (`rental_application_id`),
+  KEY `rental_application_document_attached_by_foreign` (`attached_by`),
+  CONSTRAINT `rental_application_document_attached_by_foreign` FOREIGN KEY (`attached_by`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `rental_application_document_document_id_foreign` FOREIGN KEY (`document_id`) REFERENCES `documents` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `rental_application_document_rental_application_id_foreign` FOREIGN KEY (`rental_application_id`) REFERENCES `rental_applications` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `rental_application_document_highlights`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -11972,6 +12015,43 @@ CREATE TABLE `rental_application_document_highlights` (
   CONSTRAINT `ra_doc_highlights_updated_by_fk` FOREIGN KEY (`updated_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
   CONSTRAINT `rental_application_document_highlights_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
   CONSTRAINT `rental_application_document_highlights_document_id_foreign` FOREIGN KEY (`document_id`) REFERENCES `documents` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `rental_application_document_marks`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `rental_application_document_marks` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `document_id` bigint unsigned NOT NULL,
+  `mark_uid` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `type` enum('highlight','note') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `page` int unsigned NOT NULL,
+  `points` json DEFAULT NULL,
+  `width` smallint unsigned DEFAULT NULL,
+  `x` decimal(10,3) DEFAULT NULL,
+  `y` decimal(10,3) DEFAULT NULL,
+  `text` text COLLATE utf8mb4_unicode_ci,
+  `highlighter_id` bigint unsigned DEFAULT NULL,
+  `author_user_id` bigint unsigned DEFAULT NULL,
+  `author_name` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `author_role` enum('agent','authoriser') COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `source` enum('human','ocr') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'human',
+  `confidence` decimal(5,4) DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `rental_application_document_marks_document_id_mark_uid_unique` (`document_id`,`mark_uid`),
+  KEY `rental_application_document_marks_agency_id_foreign` (`agency_id`),
+  KEY `rental_application_document_marks_highlighter_id_foreign` (`highlighter_id`),
+  KEY `rental_application_document_marks_author_user_id_foreign` (`author_user_id`),
+  KEY `rental_application_document_marks_document_id_page_index` (`document_id`,`page`),
+  KEY `rental_application_document_marks_document_id_deleted_at_index` (`document_id`,`deleted_at`),
+  CONSTRAINT `rental_application_document_marks_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `rental_application_document_marks_author_user_id_foreign` FOREIGN KEY (`author_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `rental_application_document_marks_document_id_foreign` FOREIGN KEY (`document_id`) REFERENCES `documents` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `rental_application_document_marks_highlighter_id_foreign` FOREIGN KEY (`highlighter_id`) REFERENCES `rental_application_highlighters` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `rental_application_document_requirements`;
@@ -12002,6 +12082,7 @@ CREATE TABLE `rental_application_expense_items` (
   `rental_application_assessment_id` bigint unsigned NOT NULL,
   `description` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `amount` decimal(12,2) DEFAULT NULL,
+  `entry_date` date DEFAULT NULL,
   `sort_order` int unsigned NOT NULL DEFAULT '0',
   `struck_out_at` timestamp NULL DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
@@ -12075,6 +12156,7 @@ CREATE TABLE `rental_application_income_items` (
   `rental_application_assessment_id` bigint unsigned NOT NULL,
   `description` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `amount` decimal(12,2) DEFAULT NULL,
+  `entry_date` date DEFAULT NULL,
   `sort_order` int unsigned NOT NULL DEFAULT '0',
   `struck_out_at` timestamp NULL DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
@@ -12194,6 +12276,7 @@ CREATE TABLE `rental_applications` (
   `current_rental_from` date DEFAULT NULL,
   `current_rental_to` date DEFAULT NULL,
   `current_rental_still_living` tinyint(1) DEFAULT '0',
+  `current_rental_due_day` tinyint unsigned DEFAULT NULL,
   `employer_name` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `employer_position` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `employer_address` text COLLATE utf8mb4_unicode_ci,
@@ -16302,3 +16385,15 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1292,'2026_09_07_1
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1293,'2026_09_10_020000_add_applicant_notified_at_to_rental_applications',276);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1294,'2026_09_10_030000_create_rental_application_approval_email_settings_table',277);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1295,'2026_09_10_040000_grant_contact_rental_history_view_alongside_contacts_view',278);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1296,'2026_09_10_070000_restore_agency_1_admin_rental_applications_view_scope',279);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1297,'2026_09_10_100000_create_deal_properties_table',280);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1298,'2026_09_10_120000_add_rental_term_fields_to_contact_matches',281);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1299,'2026_09_10_090000_backfill_contact_rental_application_status',282);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1300,'2026_09_10_110000_change_allocated_price_to_decimal_on_deal_properties',283);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1301,'2026_09_10_080000_create_rental_application_document_marks_table',284);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1302,'2026_09_10_080100_backfill_rental_application_document_marks_from_json',284);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1303,'2026_09_10_140000_add_entry_date_to_rental_application_items',285);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1304,'2026_09_10_150000_add_statement_period_dates_to_rental_application_assessments',286);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1305,'2026_09_10_100000_grant_buyer_pipeline_view_alongside_core_matches_view',287);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1306,'2026_09_10_160000_add_current_rental_due_day_to_rental_applications',288);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1307,'2026_09_10_150000_create_rental_application_document_table',289);

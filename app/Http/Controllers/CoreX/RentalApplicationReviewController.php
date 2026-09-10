@@ -116,7 +116,7 @@ class RentalApplicationReviewController extends Controller
     public function show(Request $request, RentalApplication $rentalApplication): View
     {
         $this->guardRentalApplication($rentalApplication);
-        $rentalApplication->load(['contact', 'property', 'signatures', 'documents.documentType', 'generations']);
+        $rentalApplication->load(['contact', 'property', 'signatures', 'documents.documentType', 'referencedDocuments.documentType', 'generations']);
 
         $assessment = RentalApplicationAssessment::firstOrNew(
             ['rental_application_id' => $rentalApplication->id],
@@ -128,7 +128,8 @@ class RentalApplicationReviewController extends Controller
         $maxRentPercent = RentalApplicationQualifyingSetting::maxRentPercentFor((int) $rentalApplication->agency_id);
         $result = $assessment->exists ? $assessment->qualifyingResult($maxRentPercent) : null;
 
-        $highlightedByDocId = RentalApplicationDocumentHighlight::whereIn('document_id', $rentalApplication->documents->pluck('id'))
+        $allDocIds = $rentalApplication->documents->pluck('id')->merge($rentalApplication->referencedDocuments->pluck('id'));
+        $highlightedByDocId = RentalApplicationDocumentHighlight::whereIn('document_id', $allDocIds)
             ->whereNotNull('highlighted_file_path')
             ->pluck('id', 'document_id');
 
@@ -137,8 +138,22 @@ class RentalApplicationReviewController extends Controller
                 'document' => $document,
                 'inline_viewable' => $this->isInlineViewable($document->mime_type),
                 'has_highlights' => $highlightedByDocId->has($document->id),
+                'pulled_from_contact' => false,
             ];
-        });
+        })->concat($rentalApplication->referencedDocuments->map(function (Document $document) use ($highlightedByDocId) {
+            // AT-392 "pull from contact" — filed elsewhere (source_type/
+            // source_id untouched), only REFERENCED here. Never eligible for
+            // Split (that would archive a document another context owns)
+            // and never counted toward THIS application's unsplit-completeness
+            // gate — its typing/splitting was already this application's
+            // business at its original home, not here.
+            return [
+                'document' => $document,
+                'inline_viewable' => $this->isInlineViewable($document->mime_type),
+                'has_highlights' => $highlightedByDocId->has($document->id),
+                'pulled_from_contact' => true,
+            ];
+        }));
 
         // Conductor, 2026-09-08 (night run) — "Request more information" on
         // the authoriser screen promises "Sends this back to the agent, not
@@ -238,10 +253,24 @@ class RentalApplicationReviewController extends Controller
             'rental_term_months' => $rentalApplication->rental_term_months,
         ];
 
+        // AT-392 "pull from contact" — Johan: "the agent can attach
+        // documents ALREADY ON FILE against the contact to a new
+        // application, without the applicant re-sending them." Anything
+        // already owned or referenced here is excluded from the picker —
+        // no point offering what's already on the application.
+        $attachedDocIds = $allDocIds->all();
+        $pickableContactDocuments = $rentalApplication->contact
+            ? $rentalApplication->contact->documents()
+                ->whereNotIn('documents.id', $attachedDocIds)
+                ->with('documentType')
+                ->latest('documents.created_at')
+                ->get()
+            : collect();
+
         return view('corex.rental-applications.review', compact(
             'rentalApplication', 'assessment', 'maxRentPercent', 'result', 'documents', 'moreInfoRequestedNote', 'declineInfo', 'highlighters',
             'viewerRole', 'auditLog', 'auditLogTotal', 'existingWishlist', 'matchCategories', 'matchTypes', 'featureOptions',
-            'rentalPropertyTypeNames', 'wishlistPrefill'
+            'rentalPropertyTypeNames', 'wishlistPrefill', 'pickableContactDocuments'
         ))->with('isPendingAuthorisation', $rentalApplication->isPendingAuthorisation());
     }
 
@@ -546,6 +575,70 @@ class RentalApplicationReviewController extends Controller
     }
 
     /**
+     * AT-392 "pull from contact" — download for a REFERENCED document only.
+     * Deliberately a separate route/method from
+     * RentalApplicationController::downloadDocument() rather than editing
+     * that file — it's owned by another lane and actively being edited
+     * concurrently (see this file's own class docblock). An owned document
+     * keeps using the original route untouched; only a pulled-from-contact
+     * document needs this one, since the original route's guard checks
+     * source_type/source_id ownership only.
+     */
+    public function downloadReferencedDocument(RentalApplication $rentalApplication, Document $document)
+    {
+        $this->guardRentalApplication($rentalApplication);
+        $this->guardDocumentBelongsToApplication($rentalApplication, $document);
+
+        return $document->downloadResponse();
+    }
+
+    /**
+     * AT-392 "pull from contact" — Johan: "the agent can attach documents
+     * ALREADY ON FILE against the contact to a new application, without the
+     * applicant re-sending them." Attaches via the rental_application_document
+     * pivot only — the document's own source_type/source_id (its filing
+     * home) is never touched, so it stays correctly filed wherever it
+     * originally landed while also becoming visible/usable here.
+     */
+    public function attachExistingDocument(Request $request, RentalApplication $rentalApplication)
+    {
+        $this->guardRentalApplication($rentalApplication);
+
+        $validated = $request->validate([
+            'document_id' => ['required', 'integer'],
+        ]);
+
+        $document = Document::findOrFail($validated['document_id']);
+
+        // Must genuinely belong to this application's own contact — this is
+        // an attach action, not a way to pull an arbitrary document by ID.
+        abort_unless(
+            $rentalApplication->contact_id && $document->contacts()->where('contact_id', $rentalApplication->contact_id)->exists(),
+            403,
+            'That document is not on file for this application\'s contact.'
+        );
+
+        // Already owned outright — nothing to do, and re-referencing your
+        // own owned document would be a confusing no-op state.
+        if ($document->source_type === 'rental_application' && (int) $document->source_id === $rentalApplication->id) {
+            return response()->json(['error' => 'That document is already on this application.'], 422);
+        }
+
+        $rentalApplication->referencedDocuments()->syncWithoutDetaching([
+            $document->id => ['attached_by' => $request->user()->id],
+        ]);
+
+        return response()->json([
+            'ok' => true,
+            'document' => [
+                'id' => $document->id,
+                'original_name' => $document->original_name,
+                'document_type' => $document->documentType?->label,
+            ],
+        ]);
+    }
+
+    /**
      * Autosave — called on every field blur/change from the right panel, not
      * a single final submit. "Nothing the agent types may ever be lost" —
      * this has bitten the feature three times today on other screens, so
@@ -772,12 +865,17 @@ class RentalApplicationReviewController extends Controller
         );
     }
 
+    /**
+     * AT-392 "pull from contact" — a document can belong here two ways: it
+     * OWNS this application (source_type/source_id), or it's REFERENCED via
+     * the rental_application_document pivot (attached from the contact's
+     * file history, filed elsewhere). Either way it's legitimately viewable
+     * here; only Split/archive actions care about the distinction.
+     */
     private function guardDocumentBelongsToApplication(RentalApplication $rentalApplication, Document $document): void
     {
-        abort_unless(
-            $document->source_type === 'rental_application' && (int) $document->source_id === $rentalApplication->id,
-            404
-        );
+        $owned = $document->source_type === 'rental_application' && (int) $document->source_id === $rentalApplication->id;
+        abort_unless($owned || $rentalApplication->referencedDocuments()->where('documents.id', $document->id)->exists(), 404);
     }
 
     /**

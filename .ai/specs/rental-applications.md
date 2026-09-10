@@ -6811,3 +6811,36 @@ Second landable slice, immediately following split-at-intake above. Johan's ruli
 
 - `app/Http/Controllers/CoreX/RentalApplicationReviewController.php` — completeness check in `submitForApproval()`
 - `resources/views/corex/rental-applications/review.blade.php` — shared `$unsplitCount`, two visible badges
+
+---
+
+## PDF Splitter Integration — pull from contact, and document age (AT-392, 2026-09-10, cc5) — BUILT
+
+Third landable slice. Johan, verbatim: *"Also build the other direction: the agent can attach documents ALREADY ON FILE against the contact to a new application, without the applicant re-sending them. Document age shows wherever an agent picks or reviews a document."* Bundled together deliberately — the age display is tightly coupled to the picker itself (the whole point is letting the agent judge which existing document to reuse), not a separate piece.
+
+**Architecture, researched before building (not assumed)**: a `Document` has exactly ONE filing home (`source_type`/`source_id`). Reusing a filed document on a second application without duplicating the file needed a reference mechanism distinct from ownership — this codebase already has exactly that shape twice (`Document::contacts()`/`document_contacts`, `Document::properties()`/`document_properties`), so a third, identically-shaped pivot was added rather than inventing something new:
+
+- **New migration**: `rental_application_document` (`document_id`, `rental_application_id`, `attached_by`, timestamps, unique on the pair) — mirrors `document_contacts`/`document_properties` exactly. `schema:dump` re-run and `DEFINER` clauses stripped per standing rule (4 pre-existing trigger clauses found and stripped, unrelated to this migration).
+- **New relations**: `RentalApplication::referencedDocuments()` / `Document::rentalApplications()` — `BelongsToMany` via the new pivot, symmetric with the contacts/properties pattern.
+- **`Contact::documents()`** already existed (`BelongsToMany(Document::class, 'document_contacts')`) — exactly what "browse this contact's existing documents" needed, zero new relation required there.
+
+**What shipped**:
+- Both `RentalApplicationReviewController::show()` and `RentalApplicationAuthorisationController::show()` (the unified screen serves both roles) now merge `documents` (owned) with `referencedDocuments` (pulled), tagging each row `pulled_from_contact`. A referenced document is filed unchanged at its original home — never eligible for Split (that would archive a document this application doesn't own) and never counted toward the submit-gate's unsplit count (its typing was already resolved wherever it actually lives).
+- **Picker**: agent-only, a plain `<details>` disclosure ("+ Attach from contact's file (N)") below the existing "+ Add document" upload trigger, listing the contact's `documents()` not already owned or referenced here, each with its document type and age. Click Attach → `RentalApplicationReviewController::attachExistingDocument()` → guarded on (a) the standard `guardRentalApplication()` scope and (b) the document genuinely belonging to this application's own contact (403 otherwise — this is an attach action, not an arbitrary-ID pull) → `syncWithoutDetaching()` (idempotent — re-attaching is a no-op, not a duplicate pivot row).
+- **Document age**: every document in the Supporting Documents list, both roles, both owned and referenced, now shows `created_at->diffForHumans()` (title carries the exact timestamp) — plain text, not yet gated behind any validity-window logic (that's the next, separate slice).
+- **Referenced document is genuinely usable, not just visible**: view/highlight endpoints' `guardDocumentBelongsToApplication()` (duplicated in both controllers — fixed in both) now accepts EITHER ownership OR the pivot reference. Download needed a NEW route/method (`downloadReferencedDocument()`/`referenced-download`) rather than editing `RentalApplicationController::downloadDocument()` — that file is explicitly flagged elsewhere in this codebase as owned by another lane and actively being edited concurrently; the original owned-document download route is untouched.
+
+**Verified end-to-end** via the same `agentDispatch()` technique against QA1's real application 15 (non-protected): a FICA-filed document for the same contact appears in the picker → attaching a document NOT on file for this contact is correctly rejected (403) → attaching the real one succeeds and it appears in Supporting Documents with the "From contact's file" badge, age, no Split button → its dedicated download route returns 200 → re-attaching the same document is idempotent (pivot count stays 1, not 2) → the submit-gate's unsplit count correctly ignores it. Test artifacts (synthetic FICA document, pivot row) soft-deleted afterward — one piece of leftover test data from an earlier interrupted script run was also found and soft-deleted, confirmed genuinely orphaned (not referenced by the pivot) before deleting.
+
+**Not yet built**: agency-configurable, per-document-type-per-purpose validity windows (2 months rental application default, 3 months FICA including ID, per Johan) with a plain-language staleness warning naming the purpose and the margin — the age display above is the plain groundwork this needs, not the windows/warning themselves.
+
+### Files changed
+
+- `database/migrations/2026_09_10_150000_create_rental_application_document_table.php` — new
+- `database/schema/mysql-schema.sql` — re-dumped, `DEFINER` stripped
+- `app/Models/RentalApplication.php` — `referencedDocuments()`
+- `app/Models/Document.php` — `rentalApplications()`
+- `app/Http/Controllers/CoreX/RentalApplicationReviewController.php` — `attachExistingDocument()`, `downloadReferencedDocument()`, `show()` merges referenced documents + picker data, `guardDocumentBelongsToApplication()` accepts referenced docs
+- `app/Http/Controllers/CoreX/RentalApplicationAuthorisationController.php` — `show()` merges referenced documents (mirrors the agent controller), `guardDocumentBelongsToApplication()` accepts referenced docs
+- `routes/web.php` — `corex.rental-applications.documents.attach-existing`, `corex.rental-applications.documents.referenced-download`
+- `resources/views/corex/rental-applications/review.blade.php` — age display, "From contact's file" badge, pull-from-contact picker + JS, Split/download gated on ownership
