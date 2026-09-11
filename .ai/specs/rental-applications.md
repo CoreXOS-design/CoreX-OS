@@ -7898,3 +7898,133 @@ Both are pure client-side additions to the shared splitter review screen — no 
 new backend surface, so this in no way changes how a rental-application-sourced batch is
 authorised, filed, or FICA-triggered; only how fast an agent can get through typing 20 pages
 before any of that happens.
+
+## Design-standard audit fixes — RO/CO cross-agency escalation, and the first-invite-link expiry hardcode (2026-09-11, cc1)
+
+Two fixes actioned from Johan's own worst-to-least-severe design-standard audit of this
+module (report-only pass, same day). Everything else on that audit's list was explicitly
+parked or routed to other lanes (cc3: stale review-screen door + the authorisation-screen
+500; cc6: the Tenant/Seller badge display issue; Rental History pagination and the
+archive/restore permission naming left parked) — **not touched here.**
+
+### FIX 1 — RO/CO settings: the same `exists:` bug class, a second occurrence
+
+`RentalApplicationSettingsController::updateRO()`/`updateCO()` validated submitted user ids
+with `exists:users,id` — true for ANY user on the whole platform, not just the acting admin's
+own agency, because Laravel's `exists:` rule runs a raw query against the literal `users`
+table and never goes through `User`'s own `AgencyScope`. The resolved ids were then written
+straight onto `Agency::rental_application_ro_user_ids`/`co_user_ids` with no further check.
+
+**Why this was exploitable, not just untidy.** `RentalApplicationAuthorisationController::
+guardCanView()`/`guardCanDecide()` check RO/CO tier membership against **the application's
+own** `agency_id` (`$user->isRentalApplicationRO((int) $rentalApplication->agency_id)`), not
+the viewing user's own agency — `User::inRentalApplicationTier()` then does
+`Agency::find($agencyId)->{$column}` and checks `in_array($this->id, ...)`. A user id planted
+into Agency A's RO/CO list — via a tampered POST; the settings screen's own checkbox list is
+correctly scoped to `$agencyUsers` and would never produce this by itself — would grant that
+outside user real view+decide access to Agency A's specific applications (ID documents,
+payslips, bank statements) by direct URL, regardless of which agency that user actually
+belongs to. This is the same bug class as the branch-scoping leak found and fixed on this
+module's authorisation screen on 2026-09-10 (AT-392) — a second, independent occurrence, not
+a recurrence of the same one.
+
+**Fixed the same way `Property::findLinkableForRentalApplication()` resolves `property_id`:
+through the model, never a raw `exists:` rule.** New `resolveAgencyScopedUserIds()` private
+method resolves every submitted id via `User::where('agency_id', $agencyId)->whereIn('id',
+$ids)->pluck('id')` — the identical shape `$agencyUsers` above already uses to build this
+screen's own checkbox list (and FICA's MLRO section uses for the same purpose), so a
+resolved/rejected id can never disagree with what the picker itself showed. Any id that
+doesn't resolve — genuinely nonexistent or real-but-other-agency, treated identically, same
+reasoning as the `property_id`/`contact_id` refusals elsewhere in this controller — aborts
+the WHOLE save with a `403` and logs the attempt (`Log::warning`, `'AT-392 rental application
+settings: refused cross-agency/out-of-scope user id(s)'`, carrying the acting user, acting
+agency, and the rejected ids) rather than silently saving a partial list.
+
+**Full `exists:` sweep across the rental-applications module, as instructed** — every
+occurrence found and its resolution:
+- `RentalApplicationController.php:415` `exists:contacts,id` — safe: `Contact::findOrFail()`
+  three lines below goes through the model, so `AgencyScope` already 404s a cross-agency
+  `contact_id` before anything is created. Already checked and left alone once before
+  (2026-09-10); re-confirmed here, not re-fixed.
+- `RentalApplicationSettingsController.php` (x2), `RentalApplicationReviewController.php`,
+  `RentalApplicationSigningController.php` — all `exists:document_types,id` /
+  `exists:p24_suburbs,id`. Both tables are genuinely global reference data — no `agency_id`,
+  no `BelongsToAgency` — so there is no scope for a raw `exists:` rule to bypass. Confirmed by
+  reading both models, not assumed from the table name.
+- No FormRequest classes exist for rental applications — all validation is inline in
+  controllers (confirmed: `find app/Http/Requests -iname "*rental*"` returns nothing).
+- **No other occurrence of the bug class found.** The two `users,id` checks above were the
+  only ones.
+
+**Verified — real HTTP proof against the running QA1 site (`qatesting1.corexos.co.za`), not
+a unit test alone:**
+- Two throwaway agencies + three throwaway users created directly in the QA1 DB (Agency A/B,
+  an admin in A, an ordinary agent in A, an ordinary agent in B) — left in place per the
+  standing no-hard-delete rule (orphaned test data costs nothing; a forced delete costs the
+  rule).
+- Logged in as Agency A's real admin via a real `/login` POST (real session cookie).
+- POSTed `rental_application_ro_user_ids[]=<Agency B's user id>` to the real `/corex/settings/
+  rental-applications/ro` endpoint → **`403`**. `agencies.rental_application_ro_user_ids` for
+  Agency A confirmed unchanged (`null`) afterward — the refused save persisted nothing.
+- `storage/logs/laravel.log` confirmed the exact entry: `AT-392 rental application settings:
+  refused cross-agency/out-of-scope user id(s) {"setting":"Reviewer","acting_user_id":204,
+  "acting_agency_id":36,"rejected_user_ids":[206]}`.
+- Same session, POSTed `rental_application_ro_user_ids[]=<Agency A's own other user id>` →
+  `302` success redirect, and `agencies.rental_application_ro_user_ids` for Agency A confirmed
+  as `[205]` — proving the fix narrows, it doesn't lock out legitimate same-agency saves.
+- `tests/Feature/RentalApplications/RentalApplicationRoCoAgencySettingsScopeTest.php` (new, 5
+  tests) pins all of the above as a permanent regression test: cross-agency refused with 403
+  on both RO and CO, nothing persisted; a genuine same-agency id still saves; a MIXED
+  valid+cross-agency list refuses the whole save (never silently drops just the bad id); an
+  empty list still clears the setting.
+
+### Files changed (FIX 1)
+
+- `app/Http/Controllers/CoreX/RentalApplicationSettingsController.php` — `updateRO()`/
+  `updateCO()` no longer use `exists:users,id`; new `resolveAgencyScopedUserIds()`.
+- `tests/Feature/RentalApplications/RentalApplicationRoCoAgencySettingsScopeTest.php` — new.
+
+Committed as its own commit immediately once FIX 1 was verified, per instruction not to hold
+it for FIX 2 — FIX 2 lands as its own follow-up commit, below.
+
+Not touched, per the conductor's explicit routing: `review.blade.php`, the
+document-highlighter partials, `pdf_splitter_review.blade.php`,
+`RentalApplicationAuthorisationController.php` (cc3 is actively editing all of these right
+now).
+
+### FIX 2 — first applicant invite link: hardcoded 14-day expiry, now the same agency setting the reopen link already used
+
+`RentalApplicationController::store()` (creating the very first invite link) and `send()`
+(self-healing a token-less legacy record) both hardcoded `now()->addDays(14)`. The REOPEN
+link on this same model already had a working, agency-configurable equivalent
+(`RentalApplicationQualifyingSetting::reopenLinkExpiryDaysFor()`, same 14-day default) — the
+first-invite path was simply never connected to it. Per instruction, connected both call
+sites to the existing setting rather than adding a second one — an agency that changes its
+reopen-link expiry window now gets the same window on the very first link too, and there is
+now exactly one place this number lives.
+
+**Verified, real HTTP proof against QA1, not just Tinker:** set agency 36's
+`reopen_link_expiry_days` to a distinguishable 30 (default is 14 — a value equal to the
+default wouldn't prove the setting was actually being read), then POSTed a real
+`store()` call for that agency via the live site. The created row's `token_expires_at` was
+exactly 30 days after its `created_at` — the setting, not the old hardcoded 14, drove the
+real save. `reopenLinkExpiryDaysFor()` also re-confirmed directly for both a configured and
+an unconfigured agency.
+
+**A hard-delete mistake made during this verification, disclosed rather than buried:**
+cleaning up a throwaway `RentalApplicationQualifyingSetting` row created for this proof,
+`->delete()` was called without first checking the model for `SoftDeletes` — it doesn't carry
+the trait, so that one row was genuinely hard-deleted. Caught on the SECOND throwaway row
+(created for the live HTTP proof), which was correctly left in place once the gap was
+noticed. All other throwaway fixtures from both FIX 1 and FIX 2 verification (2 agencies, 2
+non-admin users, 1 branch, 1 contact, 1 rental application) were soft-deleted after use,
+confirmed via `onlyTrashed()`. One throwaway admin user (the only admin of a now-soft-deleted
+throwaway agency) was deliberately left NOT deleted — `LastAdminException` correctly refused
+the delete, and bypassing a real safety guard to tidy up test data would be a worse mistake
+than leaving one harmless orphaned row.
+
+### Files changed (FIX 2)
+
+- `app/Http/Controllers/CoreX/RentalApplicationController.php` — `store()`'s and `send()`'s
+  hardcoded `addDays(14)` replaced with `RentalApplicationQualifyingSetting::
+  reopenLinkExpiryDaysFor()`.

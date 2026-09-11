@@ -181,13 +181,13 @@ class RentalApplicationSettingsController extends Controller
 
         $validated = $request->validate([
             'rental_application_ro_user_ids' => ['nullable', 'array'],
-            'rental_application_ro_user_ids.*' => ['integer', 'exists:users,id'],
+            'rental_application_ro_user_ids.*' => ['integer'],
         ]);
 
-        $ids = $validated['rental_application_ro_user_ids'] ?? [];
+        $ids = $this->resolveAgencyScopedUserIds($validated['rental_application_ro_user_ids'] ?? [], $agencyId, $request, 'Reviewer');
 
         Agency::whereKey($agencyId)->update([
-            'rental_application_ro_user_ids' => ! empty($ids) ? array_map('intval', $ids) : null,
+            'rental_application_ro_user_ids' => ! empty($ids) ? $ids : null,
         ]);
 
         return redirect()->route('corex.settings.rental-applications.edit')
@@ -203,17 +203,66 @@ class RentalApplicationSettingsController extends Controller
 
         $validated = $request->validate([
             'rental_application_co_user_ids' => ['nullable', 'array'],
-            'rental_application_co_user_ids.*' => ['integer', 'exists:users,id'],
+            'rental_application_co_user_ids.*' => ['integer'],
         ]);
 
-        $ids = $validated['rental_application_co_user_ids'] ?? [];
+        $ids = $this->resolveAgencyScopedUserIds($validated['rental_application_co_user_ids'] ?? [], $agencyId, $request, 'Override');
 
         Agency::whereKey($agencyId)->update([
-            'rental_application_co_user_ids' => ! empty($ids) ? array_map('intval', $ids) : null,
+            'rental_application_co_user_ids' => ! empty($ids) ? $ids : null,
         ]);
 
         return redirect()->route('corex.settings.rental-applications.edit')
             ->with('success', 'Overrides saved.');
+    }
+
+    /**
+     * QA1 design-standard audit, 2026-09-11 — updateRO()/updateCO() used to
+     * validate submitted user ids with `exists:users,id`, a raw query
+     * against the whole `users` table that bypasses `User`'s own
+     * `AgencyScope` entirely (the exact bug class already found and fixed
+     * once on this module's authoriser-scoping gap, AT-392 2026-09-10). The
+     * settings screen's own checkbox list only ever renders this agency's
+     * own users, but a tampered POST could plant ANY platform user's id
+     * into rental_application_ro_user_ids/co_user_ids — and
+     * guardCanView()/guardCanDecide() check tier membership against the
+     * APPLICATION's agency_id, so a planted foreign id becomes a real,
+     * working Reviewer/Override for THIS agency's applications.
+     *
+     * Fixed the same way Property::findLinkableForRentalApplication()
+     * resolves property_id — through the model, never a raw exists: rule.
+     * Uses the identical `User::where('agency_id', $agencyId)` shape
+     * $agencyUsers above already uses to build this screen's own checkbox
+     * list (and FICA's own MLRO section uses for the same purpose) so a
+     * resolved id can never disagree with what the picker itself showed.
+     * Any submitted id that doesn't resolve — genuinely nonexistent or
+     * real but belonging to another agency, treated identically, same
+     * reasoning as the property_id/contact_id refusals elsewhere in this
+     * controller — aborts the whole save with a 403 and logs the attempt,
+     * rather than silently dropping just that id.
+     */
+    private function resolveAgencyScopedUserIds(array $ids, ?int $agencyId, Request $request, string $label): array
+    {
+        $ids = array_values(array_unique(array_map('intval', $ids)));
+        if (empty($ids)) {
+            return [];
+        }
+
+        $resolved = User::where('agency_id', $agencyId)->whereIn('id', $ids)->pluck('id')->all();
+
+        $rejected = array_values(array_diff($ids, $resolved));
+        if (! empty($rejected)) {
+            \Illuminate\Support\Facades\Log::warning('AT-392 rental application settings: refused cross-agency/out-of-scope user id(s)', [
+                'setting' => $label,
+                'acting_user_id' => $request->user()->id,
+                'acting_agency_id' => $agencyId,
+                'rejected_user_ids' => $rejected,
+            ]);
+
+            abort(403, "One or more selected {$label} users aren't available to this agency.");
+        }
+
+        return array_values($resolved);
     }
 
     /**
