@@ -850,3 +850,49 @@ The Kanban board ran one unbounded query per load — `Contact::buyers()...get()
 - `resources/views/corex/contacts/show.blade.php` — Saved date, suburb fix
 - `resources/views/corex/core-matches/all.blade.php` — Saved date, suburb fix
 - `resources/views/corex/core-matches/index.blade.php` — Saved date, suburb fix (badge + empty-state)
+
+## 13. Screen D — Rentals → Contacts (AT-403, 2026-09-11, cc4)
+
+Johan, verbatim, raised mid-way through the AT-402 control-centre round: "rental menu - wheres my rental contacts?" Confirmed: Rentals had Core Matches, Properties, Rental Applications, Rental Application Authorisation, and Rental Pipeline — no way to find tenants/landlords without leaving the module. Explicitly NOT a second contact store — one more entry point into the SAME `ContactController`/`corex_contacts` table, following the identical §2/§3/§4 pattern (route-name lock, session lens flag) rather than inventing a new one.
+
+### Menu entry vs. tile — decided: separate menu entry
+
+Johan's own instinct, confirmed correct by the code: contacts are people, not application states, and the FICA/e-sign tile pattern (built for AT-402) exists to filter ONE table's WORKFLOW STATUS, not to browse a different table's records. `ContactController::index()` is a full existing CRUD screen (search/sort/filter/pagination/own-branch-agency all already built) being reused with a locked lens — structurally identical to §2 (Properties) and §3 (Core Matches), not to FICA. Built as `corex.rentals.contacts.index`, same pattern, same file.
+
+### Which contacts count — INCLUSIVE, established from data and code, not guessed
+
+Investigated before writing any filter: `Contact::parentTypes()` (`belongsToMany` via the `contact_contact_type` pivot, AT-79) is the real multi-type store — a contact can hold several types at once today, and `Contact::syncTypeAssignments()` is the one write path (re-derives `contacts.contact_type_id`, the single-value mirror, as the lowest-`sort_order` assigned parent). **The mirror column is therefore NOT a safe filter basis** — a contact whose primary mirror shows "Seller" (lower sort_order) can still genuinely hold "Tenant" as a secondary type via the pivot, and Johan's own scenario (a seller who starts renting in the meantime) is exactly that case. `Contact::scopeRentalRelevant()` filters on the pivot instead, matched on `esign_role` — the same semantic key `ContactController::index()`'s own existing `?type=` filter already uses for its Seller/Buyer/Lessor branches:
+```
+esign_role IN ('lessor','lessee') via parentTypes()
+  OR contact_property.role IN ('landlord','lessor') via properties()
+```
+The second half is required, not optional: `esign_role='lessor'` contacts are undercounted via the type pivot alone (13 vs 66 real matches, measured live) because most landlords are linked via the property pivot, never actually assigned the Lessor/Landlord type — the exact same gap the existing Seller/Lessor `?type=` filter branches already document and correct for. Real taxonomy confirmed live on QA1: `esign_role='lessor'` → id 6 "Lessor", id 43 "Landlord"; `esign_role='lessee'` → id 10 "Lessee", id 11 "Tenant", id 12 "Prospective Tenant", id 44 "Lead, Tenant" (legacy dup). The filter is INCLUSIVE by construction (an `orWhere`, never a replacement of the sale-side view) — a contact matching it never disappears from the plain Contacts screen.
+
+**Coordination note, on the record**: cc6 is reportedly building "rental approval adds Tenant, doesn't replace" on the approval path. Checked (not assumed) before building: no trace of that work exists anywhere in this checkout at build time — not in `/corex-qa1`'s git status/diff, not in any recent commit or merged branch, not in the currently-merged approval flow. Either not yet started or not yet pushed. `scopeRentalRelevant()`'s basis (the `contact_contact_type` pivot, `esign_role='lessee'`) is the best-evidenced answer available — it's the SAME pivot `Contact::syncTypeAssignments()` (the one write path for type assignment) already writes to, not an invented parallel signal — but it has not been cross-checked against cc6's actual code, because that code was not visible. Flagging this explicitly rather than silently assuming agreement; reconcile if cc6's real write path differs once it lands.
+
+### The lock
+
+`corex.rentals.contacts.index` → `ContactController::index()` (same action as `corex.contacts.index`), detected by route name exactly like §2/§3/§4, `session(['corex.lens.contacts' => $isRentalEntry])` set on every visit. Applied AFTER the query string is read (`$query->rentalRelevant()`), so a hand-edited `?type=<buyer-id>` on this entry point narrows WITHIN the rental set (ANDs with it) rather than escaping it — proved live: `?type=4` (Buyer) on the rentals entry returned exactly the 15 contacts who are BOTH a buyer AND rental-relevant (verified independently via `Contact::where('is_buyer',1)->rentalRelevant()->count()` = 15), never the full 469 plain buyers. The top filter `<select>` is separately narrowed to just Lessor/Lessee (`$typeFilterOptions`) so the dropdown never offers a type the lock would silently reject anyway — verified live, exactly two options render on this entry point.
+
+### Scoping — proven live, all four surfaces Johan named
+
+- **List**: Kym Pollard (agent, ceiling 'all' on contacts, but the screen's own default narrows to "mine" first) — default view on the rentals lens shows exactly her one rental-relevant contact (id 16414); widening to "All" reveals the full agency set, still rental-relevant only.
+- **Detail**: unchanged — `Contact`'s existing global `ContactScope` already gates route-model binding on `show()`/`update()`/`destroy()`; this build added no new route parameter and no bypass, so the existing guarantee is untouched, not re-proven from scratch.
+- **Export**: `ContactExportController` is a SEPARATE route with no shared name to detect the lens by, so the lens travels as an explicit `?rental=1` the export link itself sets only when rendered from the Rentals lens; applied unconditionally in `buildQuery()`, including under `?all=1` ("export everything in my scope" must still mean "everything rental-relevant"). Verified via direct query: `?rental=1` for Kym (own-narrowed) returns exactly 3 — the real count of contacts she created that are rental-relevant, out of 804 she's created in total.
+- **Document download**: `ContactDocumentController::download()` was not modified — it already 404s unless the requested `Document` is actually linked to the requested `Contact`, on top of `Contact`'s own global scope on route-model binding. Nothing in this build touches that path or weakens it.
+
+### What was surfaced, per Johan's ask
+
+- **"What the contact IS in rental terms"**: `Contact::rentalRoleLabels()` reads both signals `scopeRentalRelevant()` filters on (from already-eager-loaded `parentTypes`/`properties`, no N+1) and renders Tenant/Landlord badges per row on this entry point — both, if a contact holds both, same inclusive rule as the list filter itself.
+- **Rental history**: the Contact page's existing Rental History tab (`_rental-applications-tab-body.blade.php`, built under AT-392) already exists and needed no change — confirmed present and reachable, not rebuilt.
+- **Real empty states**: distinct copy for "no rental contacts yet" vs. "none match this filter," on this entry point only — the plain Contacts screen's own empty state is untouched.
+- **Nav context**: sidebar collapses to one "Contacts" subitem inside Rentals (same permission, `access_contacts`, no new grant), highlighted via `session('corex.lens.contacts')` exactly like Properties/Core Matches/Pipeline, with a matching exclusion added to the MAIN "Contacts" nav item so only one "Contacts" link is ever active at a time. Proved live: visiting contact 16414 after entering via the Rentals lens keeps the Rentals → Contacts sidebar item (not the main Contacts item) highlighted `active`.
+
+### Files changed
+
+- `routes/web.php` — `corex.rentals.contacts.index` route, same pattern as §2/§3/§4
+- `app/Models/Contact.php` — `scopeRentalRelevant()`, `rentalRoleLabels()`
+- `app/Http/Controllers/CoreX/ContactController.php` — `$isRentalEntry` detection + session lens flag, lock applied post-query-string, `$typeFilterOptions` (dropdown narrowed on this entry point), conditional `properties` eager-load
+- `app/Http/Controllers/CoreX/ContactExportController.php` — `?rental=1` lock in `buildQuery()`
+- `resources/views/corex/contacts/index.blade.php` — lens-aware title/subtitle, narrowed type dropdown, rental-role badges per row, `?rental=1` on the export links, lens-aware empty state
+- `resources/views/layouts/corex-sidebar.blade.php` — new Contacts subitem inside Rentals, top-level Rentals group active-check extended, main Contacts nav item's mutual-exclusion extended

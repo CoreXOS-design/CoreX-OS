@@ -195,19 +195,21 @@
         // active/inactive class (below) means nothing if the panel itself
         // isn't the one auto-opening. Three cases open this panel:
         // (1) the pre-existing rental-applications.* pages themselves;
-        // (2) landing directly on any of the three Rentals entry points
+        // (2) landing directly on any of the FOUR Rentals entry points
         //     (their own route names, e.g. corex.rentals.properties.index,
         //     never match corex.properties.* etc. below — different prefix);
         // (3) a SHARED secondary screen (a property's show/edit, a match's
-        //     Edit/Results, a buyer/tenant's detail page) reached FROM one of
-        //     those entry points, detected the same way the nav links below
-        //     detect it — session('corex.lens.*'), set by the owning
-        //     controller's index()/allView() action on the way in.
+        //     Edit/Results, a buyer/tenant's detail page, a rental contact's
+        //     show page) reached FROM one of those entry points, detected
+        //     the same way the nav links below detect it —
+        //     session('corex.lens.*'), set by the owning controller's
+        //     index()/allView() action on the way in.
         request()->routeIs('corex.rental-applications.*')
-        || request()->routeIs('corex.rentals.properties.index', 'corex.rentals.pipeline.index', 'corex.rentals.core-matches.*')
+        || request()->routeIs('corex.rentals.properties.index', 'corex.rentals.pipeline.index', 'corex.rentals.core-matches.*', 'corex.rentals.contacts.index')
         || (request()->routeIs('corex.properties.*') && session('corex.lens.properties', false))
         || ((request()->routeIs('corex.core-matches.*') || request()->routeIs('corex.contacts.matches.*')) && session('corex.lens.core_matches', false))
         || (request()->routeIs('command-center.buyers.*') && session('corex.lens.pipeline', false))
+        || (request()->routeIs('corex.contacts.show') && session('corex.lens.contacts', false))
     ) {
         $activeGroup = 'rental-applications';
     } elseif (request()->routeIs(
@@ -845,7 +847,11 @@
 
                 @permission('access_contacts')
                 @if(\Illuminate\Support\Facades\Route::has('corex.contacts.index'))
-                <a href="{{ route('corex.contacts.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.contacts.*') && !request()->routeIs('corex.core-matches.*') && !request()->routeIs('corex.contacts.matches.*') ? 'active' : '' }}">Contacts</a>
+                {{-- AT-403 — excludes a contact's show() page reached via the
+                     Rentals → Contacts lens (session('corex.lens.contacts')),
+                     same mutual-exclusivity pattern as Core Matches above,
+                     so only ONE "Contacts" nav item ever lights up at a time. --}}
+                <a href="{{ route('corex.contacts.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.contacts.*') && !request()->routeIs('corex.core-matches.*') && !request()->routeIs('corex.contacts.matches.*') && !(request()->routeIs('corex.contacts.show') && session('corex.lens.contacts', false)) ? 'active' : '' }}">Contacts</a>
                 @endif
                 @endpermission
 
@@ -1058,26 +1064,41 @@
                 </button>
                 <div class="corex-nav-panel-title">Rentals</div>
 
+                {{-- AT-402 — Johan: "3 menus... you have to sit and click
+                     through it to find where your application is at."
+                     Rental Applications + Returned Applications collapse
+                     into ONE link — RentalApplicationController::index() is
+                     now the tile-based control centre both old screens
+                     redirect into (routes/web.php is unchanged; only the
+                     controller bodies changed, so no old URL 404s).
+                     Highlighted for the whole rental-applications.* family
+                     except .authorisation.* — that keeps its own subitem
+                     just below, RO/CO-only, since it's a structurally
+                     distinct screen (its own decision workflow, its own
+                     scoping) that was never meant to merge into the shared
+                     list — see RentalApplicationController::index()'s own
+                     docblock on why. --}}
                 @permission('rental_applications.view')
-                {{-- 2026-09-10 (design-standard audit, cc3) — Johan's "navigation
-                     losing the Rentals context" pattern: this subitem only lit up
-                     for index/create/show, so an agent on the review screen, mid-
-                     send, or on any other single-application action saw the
-                     Rentals panel still open (that part was already fixed, AT-401)
-                     but NOTHING highlighted inside it — no "you are here" at all.
-                     Broadened to the full rental-applications.* family, explicitly
-                     excluding .returned and .authorisation.* — those have their
-                     own subitems just below and must keep winning over this one. --}}
-                <a href="{{ route('corex.rental-applications.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rental-applications.*') && !request()->routeIs('corex.rental-applications.returned') && !request()->routeIs('corex.rental-applications.authorisation.*') ? 'active' : '' }}">Rental Applications</a>
-                @endpermission
-
-                @permission('rental_applications.view_returned')
-                <a href="{{ route('corex.rental-applications.returned') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rental-applications.returned') ? 'active' : '' }}">Returned Applications</a>
+                <a href="{{ route('corex.rental-applications.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rental-applications.*') && !request()->routeIs('corex.rental-applications.authorisation.*') ? 'active' : '' }}">Rental Applications</a>
                 @endpermission
 
                 @if($user->isRentalApplicationAuthoriser())
                 <a href="{{ route('corex.rental-applications.authorisation.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rental-applications.authorisation.*') ? 'active' : '' }}">Rental Application Authorisation</a>
                 @endif
+
+                {{-- AT-403 — Johan: "rental menu - wheres my rental contacts?"
+                     Entry point into the SAME Contacts screen as the main
+                     Contacts nav item, locked to contacts holding a rental-
+                     relevant type (tenant/prospective tenant/landlord) server-
+                     side (ContactController::index(), by route name) —
+                     INCLUSIVE, never hides a contact from the sale-side
+                     screen. Reuses access_contacts — no new permission, same
+                     screen. Stays highlighted on a contact's show/edit screen
+                     opened from this list (session('corex.lens.contacts') —
+                     same pattern as Properties/Core Matches/Pipeline above). --}}
+                @permission('access_contacts')
+                <a href="{{ route('corex.rentals.contacts.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rentals.contacts.index') || (request()->routeIs('corex.contacts.show') && session('corex.lens.contacts', false)) ? 'active' : '' }}">Contacts</a>
+                @endpermission
 
                 {{-- AT-401 — entry point into the SAME Properties screen as
                      Real Estate → Properties, listing_type locked to rental

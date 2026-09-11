@@ -28,84 +28,199 @@ class RentalApplicationController extends Controller
     use \App\Http\Controllers\Concerns\FiltersRentalApplicationList;
 
     /**
-     * 2026-09-08 — Johan's permanent CRUD standard: "search / sort / own /
-     * branch / agency levels... not me asking for it once we get to that
-     * stage... design and build correctly from the word go." The scope
-     * TOGGLE (as opposed to the ceiling scopeVisibleTo() already enforced)
-     * defaults to the NARROWEST level ('own'), never the user's ceiling —
-     * an admin or branch manager sees only their own applications until
-     * they explicitly widen it, every time. Clamped server-side in
-     * RentalApplication::clampScope() — a user cannot see past their own
-     * PermissionService ceiling by editing ?scope= in the URL; requesting
-     * wider than permitted silently clamps down rather than erroring, same
-     * as DealV2's identical pattern.
+     * AT-402 — Rental Application Control Centre. Johan, verbatim: "the way
+     * fica works is a lot better than having 3 menus here... fica carries
+     * all the work and you can click the tiles to select which you want to
+     * work with... so it becomes more of a rental application control
+     * centre than having 3 menus and you have to sit and click through it
+     * to find where your application is at." Replaces the old three-screen
+     * split (this index, returned(), and the separate Authorisation list)
+     * with ONE tile-filtered list, copying FICA's proven pattern
+     * (Compliance\FicaController::index()) rather than e-sign's — e-sign's
+     * "tiles" are same-page scroll anchors with no real filter, no
+     * pagination, no own/branch/agency tiers; FICA's are real ?tab=-style
+     * links whose counts and list share one scoped base query.
+     *
+     * TILE COUNTS ARE A SCOPING SURFACE (Johan, explicit ruling): every
+     * count below is computed from `clone $countBase`, which is itself
+     * `clone $baseQuery` — the SAME scoped query the filtered list uses,
+     * before either branches. A tile can never report a count the viewer
+     * couldn't open, because count and list share one scoped ancestor.
+     *
+     * The scope TOGGLE (as opposed to the ceiling scopeVisibleTo() already
+     * enforced) still defaults to the NARROWEST level ('own'), never the
+     * user's ceiling — unchanged from the pre-402 behaviour. Clamped
+     * server-side in RentalApplication::clampScope().
      */
     public function index(Request $request): View
     {
+        $user = $request->user();
         $requestedScope = $request->get('scope', 'own');
-        $maxScope = \App\Services\PermissionService::getDataScope($request->user(), 'rental_applications');
+        $maxScope = \App\Services\PermissionService::getDataScope($user, 'rental_applications');
         $canSeeBranch = in_array($maxScope, ['branch', 'all'], true);
         $canSeeAgency = $maxScope === 'all';
 
         $perPage = $this->resolvePerPage($request);
 
-        $query = RentalApplication::visibleTo($request->user(), $requestedScope)
-            ->with(['contact', 'property', 'createdBy'])
-            // Reopen/resubmit, 2026-09-08 — 'reopened' excluded here too, to
-            // stay the exact complement of returned()'s own inclusion list
-            // below: an application belongs on ONE of these two screens,
-            // never both, never neither. A reopened application is
-            // conceptually still "with the applicant for review" (same
-            // bucket as returned/under_assessment), not back in the
-            // draft/sent/in_progress working set.
-            ->whereNotIn('rental_applications.status', ['returned', 'reopened', 'under_assessment', 'approved', 'declined']);
+        // Legacy-link fallback: a bare `?status=` with no `?tile=` at all
+        // (the exact shape of a bookmarked pre-402 index.blade.php filter
+        // URL — that screen's URI never changes, so it never redirects)
+        // resolves the ACTIVE tile from the same table returned()'s
+        // redirect uses, so the highlighted tile matches the (already-
+        // correctly-narrowed, via applySearchSortAndDateRange's own
+        // `status` handling) list instead of falling back to a stale 'All'.
+        if ($request->filled('tile')) {
+            $tile = (string) $request->query('tile');
+        } elseif ($request->filled('status') && array_key_exists($request->query('status'), self::TILE_FOR_LEGACY_STATUS)) {
+            $tile = self::TILE_FOR_LEGACY_STATUS[$request->query('status')];
+        } else {
+            $tile = 'all';
+        }
+        if (!array_key_exists($tile, self::TILES)) {
+            $tile = 'all';
+        }
 
+        // AT-402 — PERMISSION REGRESSION GUARD, not a UI nicety. Pre-402,
+        // 'returned'/'under_assessment'/'approved'/'declined'/'reopened'
+        // were reachable ONLY through the separate /returned route, gated
+        // by rental_applications.view_returned via route middleware — a
+        // role with plain rental_applications.view (this screen's own
+        // gate) but WITHOUT view_returned could never see those statuses
+        // at all. Merging the two screens must not silently widen that: a
+        // user lacking view_returned gets those statuses excluded from the
+        // BASE query itself (not just the tile buttons hidden), so 'All'
+        // and search results can't leak them either, and requesting a
+        // restricted tile by hand-edited URL returns an honestly-empty
+        // list rather than a 403 — 'draft'/'sent'/'in_progress'/'withdrawn'
+        // were always visible on the plain index() regardless of this
+        // permission and stay visible here unchanged.
+        $canViewReturned = $user->hasPermission('rental_applications.view_returned');
+        if (!$canViewReturned && in_array($tile, self::VIEW_RETURNED_TILES, true)) {
+            $tile = 'not_yet_submitted';
+        }
+
+        // Base query — own/branch/agency ceiling, identical mechanism FICA's
+        // own $baseQuery uses. Every tile count AND the filtered list itself
+        // both descend from this SAME scoped query, cloned before either
+        // branches — see the class docblock above.
+        $baseQuery = RentalApplication::visibleTo($user, $requestedScope);
+        if (!$canViewReturned) {
+            $baseQuery->whereNotIn('rental_applications.status', self::RETURNED_STATUSES);
+        }
+
+        $countBase = clone $baseQuery;
+        $counts = [];
+        foreach (self::TILES as $key => $def) {
+            $tileQuery = clone $countBase;
+            $this->applyTileFilter($tileQuery, $key);
+            $counts[$key] = $tileQuery->count();
+        }
+
+        $query = (clone $baseQuery)->with(['contact', 'property', 'createdBy']);
+        $this->applyTileFilter($query, $tile);
         $this->applySearchSortAndDateRange($query, $request, 'created_at', 'created_at');
 
         $applications = $query->paginate($perPage)->withQueryString();
 
         $archived = null;
         if ($request->boolean('archived')) {
-            $archived = RentalApplication::visibleTo($request->user(), $requestedScope)
+            $archivedQuery = RentalApplication::visibleTo($user, $requestedScope)
                 ->onlyTrashed()
-                ->with(['contact', 'property', 'createdBy'])
+                ->with(['contact', 'property', 'createdBy']);
+            $this->applyTileFilter($archivedQuery, $tile);
+            $archived = $archivedQuery
                 ->orderByDesc('deleted_at')
                 ->paginate($perPage, ['*'], 'archived_page')
                 ->withQueryString();
         }
 
-        // AT-392, Johan (2026-09-08) — the two-screen split (this list =
-        // pre-submission pipeline, Returned Applications = everything the
-        // tenant has actually sent back) is deliberate and documented in
-        // the spec — NOT changed here, per his explicit instruction. What
-        // was missing was discoverability: "I create a rental application
-        // — it will sit under rental applications until the application
-        // has been returned. He expects it to move on return. The split
-        // is right; he just could not find the second screen." A dead end
-        // for an agent who sends an application and comes back later.
-        //
-        // Deliberately counts ONLY the statuses this list itself excludes
-        // (index()'s own whereNotIn above) — NOT in_progress/withdrawn,
-        // which already show right here too (see returned()'s own
-        // comment: those two are intentionally visible on both screens).
-        // Counting them here would tell an agent "N things live over
-        // there" when some of those N are already in the table in front
-        // of them — a number that lies is worse than no number. Gated on
-        // the same permission as the sidebar link and the screen itself,
-        // so this never advertises a screen the user cannot open.
-        $returnedCount = 0;
-        if ($request->user()->hasPermission('rental_applications.view_returned')) {
-            // Reopen/resubmit, 2026-09-08 — 'reopened' added. Without it, an
-            // agent who reopens an application loses it from this count
-            // (and from returned()'s own list below) the instant they act —
-            // exactly the applicant is mid-edit window an agent most needs
-            // to still see it in.
-            $returnedCount = RentalApplication::visibleTo($request->user())
-                ->whereIn('rental_applications.status', ['returned', 'reopened', 'under_assessment', 'approved', 'declined'])
+        // AT-402 — advertises the SEPARATE, structurally distinct
+        // Authorisation decision queue (RentalApplicationAuthorisationController)
+        // to RO/CO users only. This is NOT one of the shared tiles above:
+        // that controller's own query uses the RO/CO's full granted ceiling
+        // (not narrowed to $requestedScope — an authoriser's queue is
+        // everything they're allowed to decide on, same as it was on the
+        // dedicated screen), and its show/decide route carries the
+        // self-approval block, the CO-override rule, and the status-history
+        // audit trail — logic that stays in that one controller, not
+        // reachable through this shared list. A plain agent gets no
+        // equivalent count and this block never renders for them; their own
+        // "sent for authorisation" applications remain visible read-only
+        // through the ordinary 'sent_for_authorisation' TILE above, scoped
+        // like every other tile on this screen.
+        $isAuthoriser = $user->isRentalApplicationRO() || $user->isRentalApplicationCO();
+        $authorisationQueueCount = 0;
+        if ($isAuthoriser) {
+            $authorisationQueueCount = RentalApplication::whereNotNull('submitted_for_approval_at')
+                ->where('status', 'under_assessment')
+                ->visibleTo($user)
                 ->count();
         }
 
-        return view('corex.rental-applications.index', compact('applications', 'archived', 'canSeeBranch', 'canSeeAgency', 'perPage', 'returnedCount'));
+        return view('corex.rental-applications.index', compact(
+            'applications', 'archived', 'canSeeBranch', 'canSeeAgency', 'perPage',
+            'tile', 'counts', 'isAuthoriser', 'authorisationQueueCount', 'canViewReturned',
+        ));
+    }
+
+    /**
+     * AT-402 tile set. Derived from the real status enum (RentalApplication::
+     * STATUSES) and the real live-data split Johan asked for, not the
+     * shorthand he sketched it with:
+     *   - draft/sent/in_progress grouped as "Not yet submitted" — nobody
+     *     hunts these by state, they hunt by applicant name (Johan).
+     *   - under_assessment is NOT one bucket. submitted_for_approval_at
+     *     (set only by RentalApplicationReviewController when the agent
+     *     submits to the authoriser) splits "with agent" from "with
+     *     authoriser" — the exact distinction Johan called out as the
+     *     precise question an agent wastes clicks on. Never collapse
+     *     these back into one tile.
+     *   - withdrawn/reopened kept as real, individually reachable tiles
+     *     (Johan: "a real state is never unreachable... zero live rows
+     *     today is not a reason to hide a state") but rendered with lower
+     *     visual prominence in the view — see SECONDARY_TILES below.
+     *   - 'all' always present so an agent who doesn't know the state can
+     *     still search everything, exactly as FICA's own 'all' tab works.
+     *
+     * @var array<string,array{label:string,statuses:?array<int,string>,submitted_for_approval:?bool}>
+     */
+    public const TILES = [
+        'all' => ['label' => 'All', 'statuses' => null, 'submitted_for_approval' => null],
+        'not_yet_submitted' => ['label' => 'Not Yet Submitted', 'statuses' => ['draft', 'sent', 'in_progress'], 'submitted_for_approval' => null],
+        'returned' => ['label' => 'Returned', 'statuses' => ['returned'], 'submitted_for_approval' => null],
+        'under_assessment' => ['label' => 'Under Assessment', 'statuses' => ['under_assessment'], 'submitted_for_approval' => false],
+        'sent_for_authorisation' => ['label' => 'Sent for Authorisation', 'statuses' => ['under_assessment'], 'submitted_for_approval' => true],
+        'approved' => ['label' => 'Approved', 'statuses' => ['approved'], 'submitted_for_approval' => null],
+        'declined' => ['label' => 'Declined', 'statuses' => ['declined'], 'submitted_for_approval' => null],
+        'withdrawn' => ['label' => 'Withdrawn', 'statuses' => ['withdrawn'], 'submitted_for_approval' => null],
+        'reopened' => ['label' => 'Reopened', 'statuses' => ['reopened'], 'submitted_for_approval' => null],
+    ];
+
+    /** Rendered as small, muted links below the main tile row — reachable, not prominent (Johan's ruling). */
+    public const SECONDARY_TILES = ['withdrawn', 'reopened'];
+
+    /**
+     * The statuses formerly gated behind the dedicated /returned route's
+     * rental_applications.view_returned permission. See the permission
+     * regression guard in index() above — these must stay excluded from a
+     * user lacking that permission, exactly as they were pre-402.
+     */
+    public const RETURNED_STATUSES = ['returned', 'reopened', 'under_assessment', 'approved', 'declined'];
+
+    /** Tile keys that surface any of RETURNED_STATUSES — hidden/redirected away for a user lacking view_returned. */
+    public const VIEW_RETURNED_TILES = ['returned', 'under_assessment', 'sent_for_authorisation', 'approved', 'declined', 'reopened'];
+
+    private function applyTileFilter($query, string $tile): void
+    {
+        $def = self::TILES[$tile] ?? self::TILES['all'];
+        if ($def['statuses'] !== null) {
+            $query->whereIn('rental_applications.status', $def['statuses']);
+        }
+        if ($def['submitted_for_approval'] === true) {
+            $query->whereNotNull('rental_applications.submitted_for_approval_at');
+        } elseif ($def['submitted_for_approval'] === false) {
+            $query->whereNull('rental_applications.submitted_for_approval_at');
+        }
     }
 
     /**
@@ -122,71 +237,70 @@ class RentalApplicationController extends Controller
      * left there too rather than removed, so nothing an agent currently
      * relies on seeing disappears as a side effect of this fix.
      */
-    public function returned(Request $request): View
+    /**
+     * AT-402 — "Returned Applications" is retired as a screen but its route
+     * NAME and URI both stay registered exactly as before (routes/web.php
+     * is unchanged) so nothing bookmarked, emailed, or written into an
+     * audit trail 404s. Redirects into the control centre with the
+     * equivalent tile pre-selected — see TILE_FOR_LEGACY_STATUS below for
+     * the exact old-status → new-tile mapping. Every other query param
+     * (q, date_from/to, per_page, sort, direction, scope, archived) is
+     * preserved verbatim, so a bookmarked filtered/sorted/paginated old URL
+     * lands on the equivalent filtered/sorted/paginated new one, not just
+     * the bare screen.
+     */
+    public function returned(Request $request): \Illuminate\Http\RedirectResponse
     {
-        // 2026-09-09 (conductor, cc6's regression walk) — Johan's standing
-        // CRUD standard applies to every list, no exceptions: "search /
-        // sort / own / branch / agency levels... that should be the design
-        // standard, not me asking for it once we get to that stage." This
-        // screen had none of it — not even reading ?scope= — while index()
-        // right next to it has had the full toggle since 2026-09-08. Wired
-        // identically: same $requestedScope resolution, same
-        // canSeeBranch/canSeeAgency ceiling, same visibleTo($user,
-        // $requestedScope) call. Enforced at the query layer via
-        // scopeVisibleTo() itself (clampScope() cannot be bypassed by
-        // editing the URL), not just by hiding the toggle for a user who
-        // doesn't have the higher tier.
-        $requestedScope = $request->get('scope', 'own');
-        $maxScope = \App\Services\PermissionService::getDataScope($request->user(), 'rental_applications');
-        $canSeeBranch = in_array($maxScope, ['branch', 'all'], true);
-        $canSeeAgency = $maxScope === 'all';
+        $params = $request->query();
+        $oldStatus = $params['status'] ?? null;
+        unset($params['status']);
 
-        // 2026-09-09 (design-standard audit) — Johan: "per-page control,
-        // matching the index screen's 10-100 range sitting right next to
-        // it." Same options, same default (25), as index()'s own $perPage.
-        $perPage = $this->resolvePerPage($request);
-
-        $query = RentalApplication::visibleTo($request->user(), $requestedScope)
-            ->with(['contact', 'property', 'signatures'])
-            // Table-qualified — see applySearchSortAndDateRange()'s own
-            // 2026-09-08 comment: this screen's sort=contact/property links
-            // (returned.blade.php) hit the exact same ambiguous-column
-            // SQLSTATE 1052 this shares that method with index() to fix.
-            // Reopen/resubmit, 2026-09-08 — 'reopened' added; same reasoning
-            // as $returnedCount above in index(). Without it, a reopened
-            // application vanishes from the one screen named for reviewing
-            // incoming applicant activity the moment an agent reopens it.
-            ->whereIn('rental_applications.status', ['in_progress', 'returned', 'reopened', 'under_assessment', 'approved', 'declined', 'withdrawn']);
-
-        // Status filtering is centralised in applySearchSortAndDateRange()
-        // now that index() needs it too — removed the duplicate here.
-        $this->applySearchSortAndDateRange($query, $request, 'submitted_at', 'submitted_at');
-
-        $applications = $query->paginate($perPage)->withQueryString();
-
-        // 2026-09-10 (design-standard audit, cc3) — BUILD_STANDARD §1, full
-        // CRUD is the floor: archive/restore existed on index() but were
-        // entirely unreachable from this screen — a withdrawn or declined
-        // application (both live only here, never on index()) had no way to
-        // be archived at all, and nothing archived from here could ever be
-        // seen again. Mirrors index()'s own archived sub-list exactly (same
-        // $requestedScope, same onlyTrashed(), same destroy()/restore()
-        // routes — both are already screen-agnostic). Filtered to this
-        // screen's OWN status set so an archived draft/sent/in_progress
-        // application (index()'s territory) never leaks in here.
-        $archived = null;
-        if ($request->boolean('archived')) {
-            $archived = RentalApplication::visibleTo($request->user(), $requestedScope)
-                ->onlyTrashed()
-                ->whereIn('rental_applications.status', ['in_progress', 'returned', 'reopened', 'under_assessment', 'approved', 'declined', 'withdrawn'])
-                ->with(['contact', 'property'])
-                ->orderByDesc('deleted_at')
-                ->paginate($perPage, ['*'], 'archived_page')
-                ->withQueryString();
+        if ($oldStatus !== null && array_key_exists($oldStatus, self::TILE_FOR_LEGACY_STATUS)) {
+            $params['tile'] = self::TILE_FOR_LEGACY_STATUS[$oldStatus];
+            // under_assessment is now split into two tiles (with-agent vs
+            // with-authoriser) — a bare old ?status=under_assessment can't
+            // honestly map to just one of them without hiding half of what
+            // it used to show, so it keeps its literal status filter (still
+            // respected by applySearchSortAndDateRange()) under the 'all'
+            // tile rather than picking one arbitrarily.
+            if ($oldStatus === 'under_assessment') {
+                $params['status'] = $oldStatus;
+            }
+        } else {
+            // Bare /returned (no ?status= at all) used to show a specific
+            // union of statuses (in_progress/returned/reopened/
+            // under_assessment/approved/declined/withdrawn — everything
+            // except draft/sent). No single tile matches that exact union;
+            // 'all' is the honest choice — a strict superset, so nothing
+            // that was visible before is hidden now.
+            $params['tile'] = 'all';
         }
 
-        return view('corex.rental-applications.returned', compact('applications', 'archived', 'canSeeBranch', 'canSeeAgency', 'perPage'));
+        return redirect()->route('corex.rental-applications.index', $params);
     }
+
+    /**
+     * Maps every old ?status= value either screen's own filter form/tab bar
+     * could send (index.blade.php's <select>: draft/sent/in_progress/
+     * withdrawn; returned.blade.php's tab bar: in_progress/returned/
+     * reopened/under_assessment/approved/declined/withdrawn) onto the new
+     * control centre's tile keys — used by returned()'s redirect above AND
+     * by index() itself, so a bookmarked `/rental-applications?status=draft`
+     * (which never needed a redirect — the URI is unchanged) still lands on
+     * the right ACTIVE tile, not just a correctly-narrowed-but-mislabelled
+     * list under a stale 'All' highlight.
+     */
+    private const TILE_FOR_LEGACY_STATUS = [
+        'draft' => 'not_yet_submitted',
+        'sent' => 'not_yet_submitted',
+        'in_progress' => 'not_yet_submitted',
+        'returned' => 'returned',
+        'reopened' => 'reopened',
+        'under_assessment' => 'all', // see returned() above — deliberately not split here
+        'approved' => 'approved',
+        'declined' => 'declined',
+        'withdrawn' => 'withdrawn',
+    ];
 
     /**
      * AT-392 — Johan, QA1: "no user action... may EVER discard typed
@@ -627,22 +741,29 @@ class RentalApplicationController extends Controller
 
         $rentalApplication->delete();
 
-        // 2026-09-10 (design-standard audit, cc3) — Archive is now also
-        // reachable from Returned Applications, whose own status set
-        // (returned/under_assessment/approved/declined/reopened) never
-        // shows on index(). Redirecting there unconditionally would bounce
-        // the agent to a screen where the record they just acted on was
-        // never visible. The originating screen names itself explicitly
-        // (a hidden field on its own form) rather than this method
-        // re-deriving it from status — one source of truth, no risk of
-        // drifting out of sync with either screen's own status filter.
-        $returnTo = $request->input('return_to') === 'returned'
-            ? 'corex.rental-applications.returned'
-            : 'corex.rental-applications.index';
-
+        // AT-402 — now ONE screen, so "where do I land" is just "the tile
+        // this application actually belongs to," derived from its own
+        // status rather than a hidden return_to field naming a now-retired
+        // second screen. Same reasoning as before (an archived returned/
+        // approved/etc. application landing on a tile that never shows it
+        // would look like Archive did nothing) — just one source of truth
+        // instead of two routes to keep in sync.
         return redirect()
-            ->route($returnTo)
+            ->route('corex.rental-applications.index', ['tile' => $this->tileForApplication($rentalApplication)])
             ->with('success', 'Rental application archived.');
+    }
+
+    /** AT-402 — the tile a given application's CURRENT status belongs to. Mirrors TILES's own split. */
+    private function tileForApplication(RentalApplication $application): string
+    {
+        if (in_array($application->status, ['draft', 'sent', 'in_progress'], true)) {
+            return 'not_yet_submitted';
+        }
+        if ($application->status === 'under_assessment') {
+            return $application->submitted_for_approval_at ? 'sent_for_authorisation' : 'under_assessment';
+        }
+
+        return $application->status;
     }
 
     /**
@@ -658,18 +779,10 @@ class RentalApplicationController extends Controller
 
         $application->restore();
 
-        // 2026-09-10 (design-standard audit, cc3) — same reasoning as
-        // destroy()'s own $returnTo above: a restored 'returned'/
-        // 'under_assessment'/etc. application never shows on index(), so
-        // always landing there after restoring one from the Returned
-        // Applications' own archived view would look like restore did
-        // nothing.
-        $returnTo = $request->input('return_to') === 'returned'
-            ? 'corex.rental-applications.returned'
-            : 'corex.rental-applications.index';
-
+        // AT-402 — same reasoning as destroy() above: land on the tile the
+        // restored application's own status actually belongs to.
         return redirect()
-            ->route($returnTo, ['archived' => 1])
+            ->route('corex.rental-applications.index', ['tile' => $this->tileForApplication($application), 'archived' => 1])
             ->with('success', 'Rental application restored.');
     }
 
