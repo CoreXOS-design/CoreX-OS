@@ -619,6 +619,17 @@
                              same as every other applicant-facing field on this summary). --}}
                         <dt style="color: var(--text-muted);">Current rent due day</dt><dd>{{ $rentalApplication->current_rental_due_day ?? '—' }}</dd>
                         <dt style="color: var(--text-muted);">Current landlord</dt><dd>{{ $rentalApplication->current_landlord_name ?? '—' }}</dd>
+                        {{-- "Current living situation" (2026-09-11) — the old form
+                             assumed a landlord always exists; not every applicant is
+                             currently renting. Kept alongside "Current landlord" above
+                             rather than folded together — different facts (who they
+                             rent from vs. whether they're renting at all). Fallback
+                             covers pre-existing applications that have landlord data
+                             but never answered this newer field. --}}
+                        <dt style="color: var(--text-muted);">Current living situation</dt><dd>{{ \App\Models\RentalApplication::currentLivingSituationLabel($rentalApplication->current_living_situation) ?? ($rentalApplication->current_landlord_name ? 'Currently renting' : '—') }}</dd>
+                        @if($rentalApplication->current_living_situation_notes)
+                            <dt style="color: var(--text-muted);">In their own words</dt><dd>{{ $rentalApplication->current_living_situation_notes }}</dd>
+                        @endif
                         <dt style="color: var(--text-muted);">Adults / Children</dt><dd>{{ $rentalApplication->adults ?? '—' }} / {{ $rentalApplication->children ?? '—' }}</dd>
                     </dl>
                     @if($viewerRole === 'agent')
