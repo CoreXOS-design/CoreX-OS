@@ -21,6 +21,7 @@ use App\Models\RentalApplicationStatusHistory;
 use App\Services\RentalApplications\RentalApplicationAuditService;
 use App\Services\RentalApplications\RentalApplicationDocumentHighlightService;
 use App\Services\RentalApplications\RentalApplicationMailer;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
 
@@ -166,9 +167,39 @@ class RentalApplicationReviewController extends Controller
         return back()->with('success', $newProperty ? 'Property linked.' : 'Property link cleared.');
     }
 
-    public function show(Request $request, RentalApplication $rentalApplication): View
+    public function show(Request $request, RentalApplication $rentalApplication): View|RedirectResponse
     {
         $this->guardRentalApplication($rentalApplication);
+
+        // Stale review door, 2026-09-11 — cc2: "clicking Review is correctly
+        // hidden once an application is approved or declined, but the
+        // review screen itself has no status check of its own, so a
+        // bookmarked or copied link still opens the full working editor on
+        // an already-decided application." The list already hides the
+        // Review button outside RentalApplicationController::REVIEWABLE_STATUSES
+        // (see index.blade.php's own "REGRESSION FIX" comment on the exact
+        // same class of bug, Johan: "an approved or declined application
+        // opening into a working review screen is its own bug") — this is
+        // the same rule enforced at the ROUTE, so a stale/copied URL can't
+        // reach what the list already refuses to link to.
+        //
+        // Two genuine exceptions, not a blanket "not reviewable = redirect"
+        // — this SAME screen is also where the agent takes their one
+        // remaining action AFTER a decision, for exactly two statuses:
+        // approved-but-not-yet-notified (the wishlist-confirm-then-send
+        // step below, AT-392) and declined-with-override-tier (the reopen
+        // button, $canReopenNow — see RentalApplication::REOPENABLE_STATUSES'
+        // own docblock on why declined can be reopened by a CO/admin). A
+        // blanket redirect on REVIEWABLE_STATUSES alone would silently
+        // break both of those — confirmed by reading how each is actually
+        // reached, not assumed from the status name alone.
+        $canStillActHere = ($rentalApplication->status === 'approved' && $rentalApplication->applicant_notified_at === null)
+            || ($rentalApplication->status === 'declined' && $request->user()->isRentalApplicationOverrideTier((int) $rentalApplication->agency_id));
+
+        if (! in_array($rentalApplication->status, RentalApplicationController::REVIEWABLE_STATUSES, true) && ! $canStillActHere) {
+            return redirect()->route('corex.rental-applications.show', $rentalApplication);
+        }
+
         $rentalApplication->load(['contact', 'property', 'signatures', 'documents.documentType', 'referencedDocuments.documentType', 'generations']);
 
         $assessment = RentalApplicationAssessment::firstOrNew(
