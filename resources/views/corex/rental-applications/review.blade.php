@@ -83,6 +83,18 @@
 @endphp
 
 @section('corex-content')
+@php
+    // ROUND 6, 2026-09-11 — computed once, up here, so both the x-data init
+    // below (which action the merged "Send back to applicant" button takes)
+    // and Zone 4's own button visibility (further down the page) read the
+    // exact same gate — see RentalApplicationReviewController::reopen()/
+    // requestMoreInfoFromApplicant() for what each path actually does.
+    $canReopenNow = $viewerRole === 'agent'
+        && in_array($rentalApplication->status, \App\Models\RentalApplication::REOPENABLE_STATUSES, true)
+        && ($rentalApplication->status !== 'declined' || auth()->user()->isRentalApplicationOverrideTier((int) $rentalApplication->agency_id));
+    $canSendBackToApplicant = $viewerRole === 'agent'
+        && ($canReopenNow || !in_array($rentalApplication->status, ['approved', 'declined'], true));
+@endphp
 <div class="w-full"
      @if($viewerRole === 'agent')
      x-data="rentalReview({
@@ -107,6 +119,8 @@
          submitForApprovalUrl: '{{ route('corex.rental-applications.review.submit-for-approval', $rentalApplication) }}',
          reopenUrl: '{{ route('corex.rental-applications.review.reopen', $rentalApplication) }}',
          expectedGeneration: {{ Js::from($rentalApplication->current_generation) }},
+         canReopenNow: {{ Js::from($canReopenNow) }},
+         documentChecklist: {{ Js::from($documentChecklist) }},
      })"
      @else
      x-data="rentalAuthorisationViewer({
@@ -483,31 +497,91 @@
          ceiling shifted the same -60px the default moved: 340–600. That
          -60px goes straight to `.rental-review-main` (the PDF column) —
          the entire point, per Johan: "do not save 60px inside the panel
-         and leave the panel 440px wide." --}}
+         and leave the panel 440px wide."
+
+         ROUND 6, 2026-09-11 — Johan, after Round 4 landed and cc1 verified
+         it: "not going to work. too little width left to properly see the
+         pdf. Bank statements especially are printed small." Width alone
+         could never fix this — the panel moves out of the right-hand
+         column entirely and becomes a strip along the BOTTOM, full width,
+         at every viewport size (no more side-by-side breakpoint at all).
+         `.rental-review-columns` is now always a vertical flex stack —
+         main on top (full width, flexible remaining height), aside below
+         (full width, fixed HEIGHT instead of fixed WIDTH). The resizer now
+         drags VERTICALLY (`cursor: row-resize`, a horizontal bar) — Johan's
+         own new requirement: "make the bar movable the agent can move it
+         up and down to see more or less. their choice." Persisted exactly
+         like the old width was (same RA_ASIDE_*-pattern localStorage
+         mechanism, renamed RA_STRIP_* in the script below — "follow the
+         pattern you already know rather than inventing a second one").
+         Floor (260px) still shows the strip's own header row plus the
+         ledger's input row — verified live, not assumed; ceiling (560px)
+         still leaves a genuinely readable document on a normal viewport.
+         Default (320px) matches Johan's own approved mockup: all four
+         zones' content with three ledger rows visible before it scrolls. --}}
     <style>
-        .rental-review-columns { display: flex; flex-direction: column; gap: 20px; }
-        .rental-review-main    { flex: 1 1 auto; min-width: 0; }
-        .rental-review-aside   { width: 100%; }
-        .rental-review-resizer { display: none; }
-        @media (min-width: 1280px) {
-            .rental-review-columns { flex-direction: row; gap: 0; align-items: stretch; }
-            .rental-review-main    { height: var(--rr-panel-h, calc(100vh - 160px)); max-height: var(--rr-panel-h, calc(100vh - 160px)); overflow-y: auto; margin-right: 16px; }
-            .rental-review-aside   { flex: 0 0 var(--rr-aside-w, 400px); width: var(--rr-aside-w, 400px); align-self: stretch; position: sticky; top: 72px; height: var(--rr-panel-h, calc(100vh - 160px)); max-height: var(--rr-panel-h, calc(100vh - 160px)); overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable; }
-            /* ROUND 4, 2026-09-11 — @tailwindcss/forms' own global default
-               (12px/8px, confirmed via getComputedStyle, never set by this
-               file before) tightened to fit the text rather than float in
-               it. Scoped exactly like .dr2-distribute/.dr2-pipeline's own
-               .corex-input overrides elsewhere in this codebase — never a
-               global forms-plugin change. */
-            .rental-review-aside .corex-input { padding: 4px 6px; }
-            .rental-review-resizer {
-                display: block; flex: 0 0 6px; width: 6px; cursor: col-resize;
-                align-self: stretch; position: sticky; top: 72px;
-                height: var(--rr-panel-h, calc(100vh - 160px));
-                background: var(--border); border-radius: 3px; margin: 0 5px;
-            }
-            .rental-review-resizer:hover, .rental-review-resizer.is-dragging { background: var(--ds-blue, #2563eb); }
+        .rental-review-columns { display: flex; flex-direction: column; gap: 0; }
+        .rental-review-main {
+            flex: 1 1 auto; min-width: 0; width: 100%;
+            height: calc(var(--rr-panel-h, calc(100vh - 160px)) - var(--rr-strip-h, 320px) - 14px);
+            max-height: calc(var(--rr-panel-h, calc(100vh - 160px)) - var(--rr-strip-h, 320px) - 14px);
+            overflow-y: auto;
         }
+        .rental-review-resizer {
+            display: block; height: 6px; width: 100%; cursor: row-resize;
+            background: var(--border); border-radius: 3px; margin: 8px 0;
+            flex-shrink: 0;
+        }
+        .rental-review-resizer:hover, .rental-review-resizer.is-dragging { background: var(--ds-blue, #2563eb); }
+        .rental-review-aside {
+            width: 100%; flex: 0 0 var(--rr-strip-h, 320px); height: var(--rr-strip-h, 320px);
+            overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable;
+            padding: 10px 12px;
+        }
+        /* ROUND 4, 2026-09-11 — @tailwindcss/forms' own global default
+           (12px/8px, confirmed via getComputedStyle, never set by this
+           file before) tightened to fit the text rather than float in
+           it. Scoped exactly like .dr2-distribute/.dr2-pipeline's own
+           .corex-input overrides elsewhere in this codebase — never a
+           global forms-plugin change. */
+        .rental-review-aside .corex-input { padding: 4px 6px; }
+
+        /* ROUND 6, 2026-09-11 — the four zones, side by side, per Johan's
+           approved mockup. Widths are the mockup's own named figures
+           (~150 / flexible / ~196 / ~128), not re-derived from measured
+           content the way earlier rounds' column widths were — there was
+           no existing content to measure against for a layout this new;
+           these are a first pass, checked and adjusted live against a
+           real record (application 76) rather than assumed correct. */
+        .rr-strip-zones { display: flex; align-items: stretch; gap: 14px; height: 100%; }
+        .rr-zone-period  { flex: 0 0 150px; width: 150px; overflow-y: auto; }
+        .rr-zone-ledger  { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+        .rr-zone-totals  { flex: 0 0 196px; width: 196px; overflow-y: auto; border-left: 1px solid var(--border); padding-left: 14px; }
+        .rr-zone-actions { flex: 0 0 128px; width: 128px; border-left: 1px solid var(--border); padding-left: 14px; display: flex; flex-direction: column; justify-content: flex-start; }
+
+        /* The ledger — DATE | DESCRIPTION | INCOME | EXPENSE, shared column
+           template for the header, the input row, and every captured row,
+           so all four always line up. Authoriser rows add a 5th narrow
+           column for the strike/restore control. */
+        {{-- Date column is 118px, not a round 100 — the same figure Round
+             2/4's own live-verified measurement established for a native
+             `<input type="date">` (full "06/24/2026" plus the picker icon,
+             confirmed by screenshot: 100px clipped the year's last digit
+             the instant real data — application 76's own entries — was
+             checked live, not assumed from a clean round number). --}}
+        .rr-ledger-header, .rr-zone-ledger .rr-ledger-row {
+            display: grid; grid-template-columns: 118px minmax(0,1fr) 90px 90px; gap: 6px; align-items: center;
+        }
+        @if($viewerRole !== 'agent')
+        .rr-ledger-header, .rr-zone-ledger .rr-ledger-row { grid-template-columns: 118px minmax(0,1fr) 90px 90px auto; }
+        @endif
+        .rr-ledger-header {
+            font-size: 10px; text-transform: uppercase; letter-spacing: 0.03em;
+            color: var(--text-muted); padding: 0 0 4px 0; border-bottom: 1px solid var(--border); margin-bottom: 4px;
+        }
+        .rr-ledger-input-row { padding-bottom: 6px; margin-bottom: 4px; border-bottom: 1px dashed var(--border); }
+        .rr-zone-ledger .rr-ledger-rows { flex: 1 1 auto; overflow-y: auto; }
+        .rr-zone-ledger .rr-ledger-rows > div + div { margin-top: 2px; }
     </style>
 
     <div class="rental-review-columns mt-5" x-data="rentalReviewLayout()">
@@ -800,16 +874,16 @@
             </div>
         </div>
 
-        {{-- Draggable resizer, 2026-09-10 — see the "DRAGGABLE WIDTH" note on
-             the layout <style> block above for why. Hidden below 1280px
-             (the aside stacks full-width there, nothing to drag). --}}
-        <div class="rental-review-resizer" :class="{ 'is-dragging': resizingAside }"
-             @mousedown.prevent="startAsideResize($event)"
+        {{-- Draggable resizer, 2026-09-11 (ROUND 6 — bottom strip) — see the
+             "ROUND 6" note on the layout <style> block above for why. Drags
+             the strip's HEIGHT now, not the old side panel's width. --}}
+        <div class="rental-review-resizer" :class="{ 'is-dragging': resizingStrip }"
+             @mousedown.prevent="startStripResize($event)"
              title="Drag to resize this panel"></div>
 
         {{-- ASIDE — the assessment panel (role-gated: agent captures inline;
              authoriser strikes-and-adds, never edits) plus the role's own
-             actions block at the bottom. Narrow working column, width
+             actions block at the bottom. Bottom strip, full width, HEIGHT
              draggable (see resizer above) — never covered by anything, see
              the in-place-annotation note above the layout <style> block.
 
@@ -830,439 +904,376 @@
              this aside's own pre-existing "Qualifies for up to" box already
              use. This is "put big boxes on there" read literally: boxes
              sized to what they actually hold, not a wall of small text. --}}
-        <div class="rental-review-aside space-y-3">
-            <div class="flex items-center gap-1.5">
+        <div class="rental-review-aside">
+            <div class="flex items-center gap-1.5 mb-2">
                 <h2 class="text-sm font-semibold" style="color: var(--text-primary);">{{ $viewerRole === 'agent' ? 'Affordability Assessment' : "Agent's Assessment" }}</h2>
                 @if($viewerRole === 'agent')
                     <span class="ds-badge ds-badge-muted" style="cursor: help; padding: 0 5px;"
                           title="You type these — nothing here is pre-filled from the application, and nothing here is sent to the applicant or shown anywhere else.">?</span>
-                    <span class="ds-badge ds-badge-info flex-shrink-0 ml-auto" title="Every field below saves the moment you click away from it — no button needed.">Autosaves</span>
                 @else
                     <span class="ds-badge ds-badge-muted" style="cursor: help; padding: 0 5px;"
                           title="Captured by the agent. You can add your own lines. If you disagree with a figure, strike it out — that opens a box to add the correct one right there. The struck line stays visible with what replaced it, never edited in place.">?</span>
                 @endif
             </div>
 
+            {{-- ROUND 6, 2026-09-11 — status banners that used to live inside
+                 the ACTIONS card (bottom of the old right-hand column) moved
+                 up here, next to the declined-reason banner that already
+                 lived at the top of the page (see above, "$declineInfo").
+                 Zone 4 below is action BUTTONS only now — 128px has no room
+                 for prose, and these are outcomes the agent needs to see
+                 the moment the strip is visible, not buried behind a click. --}}
             @if($viewerRole === 'agent')
-                {{-- AGENT — inline edit + autosave. "Dates on entries" (Johan,
-                     2026-09-10) — "the agent picks a from-date and a
-                     to-date; the month count is calculated from them, not
-                     typed." Replaces the old raw number input; the derived
-                     count is shown read-only right below the two pickers so
-                     the agent can see what the range works out to without
-                     doing the arithmetic. --}}
-                <div class="rounded-md p-3" style="background: var(--surface); border: 1px solid var(--border);">
-                    <div class="flex items-center gap-1.5 mb-1">
-                        <label class="text-xs font-medium" style="color: var(--text-secondary);">Statement period</label>
-                        <span class="ds-badge ds-badge-muted" style="cursor: help; padding: 0 5px;"
-                              title="The from/to dates this bank statement covers. The number of months is worked out from these — required to turn the totals below into the MONTHLY figure the affordability guideline actually runs against.">?</span>
+                @if($moreInfoRequestedNote)
+                    <div class="rounded-md px-3 py-1.5 text-xs mb-2" style="background: var(--surface-2); color: var(--ds-amber); border: 1px solid var(--ds-amber);">
+                        <strong>The authoriser sent this back for more information:</strong>
+                        <span class="whitespace-pre-wrap" style="color: var(--text-primary);"> {{ $moreInfoRequestedNote }}</span>
                     </div>
-                    <div class="grid grid-cols-2 gap-1.5">
-                        <input type="date" class="corex-input text-sm w-full" x-model="statementPeriodFrom" @change="save()" aria-label="Statement period from">
-                        <input type="date" class="corex-input text-sm w-full" x-model="statementPeriodTo" @change="save()" aria-label="Statement period to">
+                @endif
+                @if($rentalApplication->status === 'approved' && $rentalApplication->applicant_notified_at)
+                    <div class="rounded-md px-3 py-1.5 text-xs mb-2" style="background: var(--ds-emerald-soft, #ecfdf5); color: var(--ds-emerald, #059669);">
+                        &check; Approved for R{{ number_format($rentalApplication->approved_rental_amount, 2) }} a month. Sent to the applicant on {{ $rentalApplication->applicant_notified_at->format('d M Y, H:i') }}.
                     </div>
-                    <p class="text-xs mt-1.5" style="color: var(--text-secondary);">
-                        <template x-if="statementPeriodFrom && statementPeriodTo">
-                            <span>Covers <strong x-text="calculatedStatementMonths()"></strong> month<span x-show="calculatedStatementMonths() !== 1">s</span></span>
-                        </template>
-                        <template x-if="!(statementPeriodFrom && statementPeriodTo) && statementMonths">
-                            <span>Currently <strong x-text="statementMonths"></strong> month<span x-show="statementMonths !== 1">s</span> — pick a period above to set it from dates instead.</span>
-                        </template>
-                        <template x-if="!(statementPeriodFrom && statementPeriodTo) && !statementMonths">
-                            <span>Pick both dates to work out how many months this statement covers.</span>
-                        </template>
-                    </p>
-                </div>
-
-                {{-- Income/expense rows — description 1.5fr, date a fixed
-                     130px (enough for a full "06/24/2026" plus the native
-                     picker icon, verified live — 118px still clipped the
-                     last digit of the year), amount a REAL 100px floor
-                     (raised from 78px, ROUND 3, 2026-09-10 below).
-                     ROUND 3 correction — Johan, after round 2 fixed
-                     description: "the AMOUNT column is now the clipped
-                     one... a rand value silently missing its last digit is
-                     the kind of thing that gets trusted and shouldn't be."
-                     Round 2's own comment here previously called an
-                     amount clipping its last digit an "accepted tradeoff"
-                     — that was wrong, full stop, not a judgement call that
-                     held up: a number an agent/authoriser reads as money
-                     must never render incomplete, at any width this row
-                     is asked to hold. 78px was contingent on leftover
-                     flex space (not a real minimum); 100px is a hard floor,
-                     checked against application 76's own largest captured
-                     figures (R29,340.99 / R28,863.00, both 8 characters)
-                     with headroom to 9 (R999,999.99). Description trimmed
-                     1.6fr → 1.5fr to make room for amount's new floor
-                     without re-widening the whole row — still comfortably
-                     fits real single/double words at every width this row
-                     is asked to hold. --}}
-                <div class="rounded-md p-3" style="background: var(--surface); border: 1px solid var(--border);">
-                    <div class="flex items-center gap-1.5 mb-1">
-                        <span class="rounded-full flex-shrink-0" style="width: 9px; height: 9px; background: var(--ra-income-agent); border: 1px solid var(--ra-income-underline);"></span>
-                        <label class="text-xs font-medium" style="color: var(--text-secondary);">Income (gross)</label>
-                        <span class="ds-badge ds-badge-muted" style="cursor: help; padding: 0 5px;"
-                              title="What's on the payslip / bank statement BEFORE tax and other deductions — not take-home pay. One line per deposit; pressing Enter in the amount field adds the next line.">?</span>
-                    </div>
-                    <div class="space-y-1.5" x-ref="incomeRows">
-                        <template x-for="(item, index) in incomeItems" :key="index">
-                            <div class="grid gap-1.5" style="grid-template-columns: minmax(0,1.5fr) 118px minmax(90px,1fr);">
-                                <input type="text" class="corex-input text-sm w-full" placeholder="e.g. Salary"
-                                       x-model="item.description" :title="item.description" @input="onIncomeRowInput()" @blur="save()">
-                                <input type="date" class="corex-input text-sm w-full" title="Date this deposit happened"
-                                       x-model="item.entry_date" @change="onIncomeRowInput(); save()">
-                                <input type="text" inputmode="decimal" class="corex-input text-sm w-full" placeholder="0.00"
-                                       data-role="amount" x-model="item.amount" :title="item.amount" @input="onIncomeRowInput()" @blur="save()"
-                                       @keydown.enter.prevent="focusNextAmountRow('incomeRows', index)">
-                            </div>
-                        </template>
-                    </div>
-                    <p class="text-xs mt-1.5" style="color: var(--text-secondary);">
-                        Total captured: <strong x-text="formatR(incomeTotal())"></strong>
-                    </p>
-                </div>
-
-                <div class="rounded-md p-3" style="background: var(--surface); border: 1px solid var(--border);">
-                    <div class="flex items-center gap-1.5 mb-1">
-                        <span class="rounded-full flex-shrink-0" style="width: 9px; height: 9px; background: var(--ra-expense-agent); border: 1px solid var(--ra-expense-underline);"></span>
-                        <label class="text-xs font-medium" style="color: var(--text-secondary);">Expenses / existing debt</label>
-                        <span class="ds-badge ds-badge-muted" style="cursor: help; padding: 0 5px;"
-                              title="Recurring debt/expense lines off the same bank statement — car payment, store account, and so on. For reference only; does not affect the qualifying figure below.">?</span>
-                    </div>
-                    <div class="space-y-1.5" x-ref="expenseRows">
-                        <template x-for="(item, index) in expenseItems" :key="index">
-                            <div class="grid gap-1.5" style="grid-template-columns: minmax(0,1.5fr) 118px minmax(90px,1fr);">
-                                <input type="text" class="corex-input text-sm w-full" placeholder="e.g. Car payment"
-                                       x-model="item.description" :title="item.description" @input="onExpenseRowInput()" @blur="save()">
-                                <input type="date" class="corex-input text-sm w-full" title="Date this debit happened"
-                                       x-model="item.entry_date" @change="onExpenseRowInput(); save()">
-                                <input type="text" inputmode="decimal" class="corex-input text-sm w-full" placeholder="0.00"
-                                       data-role="amount" x-model="item.amount" :title="item.amount" @input="onExpenseRowInput()" @blur="save()"
-                                       @keydown.enter.prevent="focusNextAmountRow('expenseRows', index)">
-                            </div>
-                        </template>
-                    </div>
-                    <p class="text-xs mt-1.5" style="color: var(--text-secondary);">
-                        Total captured: <strong x-text="formatR(expenseTotal())"></strong>
-                    </p>
-                </div>
-
-                <div class="rounded-md p-3" style="background: var(--surface); border: 1px solid var(--border);">
-                    <div class="flex items-center gap-1.5 mb-1">
-                        <span class="rounded-full flex-shrink-0" style="width: 9px; height: 9px; background: var(--ra-unpaid-agent); border: 1px solid var(--ra-unpaid-underline);"></span>
-                        <label class="text-xs font-medium" style="color: var(--text-secondary);">Unpaid transactions</label>
-                        <span class="ds-badge ds-badge-muted" style="cursor: help; padding: 0 5px;"
-                              title="Tick this if the bank statement shows any declined, unpaid, or returned transactions. An applicant with declined transactions is generally an immediate decline — this is the one-glance red flag the authoriser sees.">?</span>
-                    </div>
-                    <label class="flex items-center gap-2 text-sm cursor-pointer" style="color: var(--text-secondary);">
-                        <input type="checkbox" x-model="hasUnpaidTransactions" @change="save()">
-                        Unpaid transactions on statement
-                    </label>
-                </div>
-
-                <div class="rounded-md p-3" style="background: var(--surface-2, #f9fafb); border: 1px solid var(--border);">
-                    <template x-if="result.label === 'incomplete'">
-                        <p class="text-xs" style="color: var(--text-muted);">Capture income above and the number of months covered to see what the applicant qualifies for.</p>
-                    </template>
-                    <template x-if="result.label !== 'incomplete'">
-                        <div>
-                            <p class="text-[11px] uppercase tracking-wide font-semibold" style="color: var(--text-muted);">Qualifies for up to</p>
-                            <p class="text-2xl font-bold" style="color: var(--text-primary);" x-text="formatR(result.max_affordable_rent)"></p>
-                            <p class="text-[11px] mt-0.5" style="color: var(--text-muted);">
-                                Monthly gross income — from figures the agent captured off the bank statement, ÷ <span x-text="result.statement_months"></span> months —
-                                × <span x-text="result.max_rent_percent"></span>%
-                            </p>
-                            <p class="text-xs mt-1.5" x-show="result.applicant_reported_income !== null" style="color: var(--text-muted);">
-                                Applicant's stated income — as entered by them on their application: <span x-text="formatR(result.applicant_reported_income)"></span>
-                            </p>
-                            <template x-if="result.label === 'no_property'">
-                                <p class="text-xs mt-2 font-medium" style="color: var(--ds-amber, #b45309);">Link a property to check against its rent.</p>
-                            </template>
-                            <template x-if="result.label === 'sufficient' || result.label === 'insufficient'">
-                                <x-rental-application-affordability-verdict
-                                    met-expr="result.label === 'sufficient'"
-                                    detail-expr="'Property rent: <strong>' + formatR(result.rent) + '</strong>'" />
-                            </template>
+                @elseif($rentalApplication->status === 'approved')
+                    {{-- AT-392 — Johan: "agent gets back and upon them being happy
+                         it gets sent out." Approved but not yet sent: the agent
+                         confirms/refines the tenant's wishlist (reusing the SAME
+                         Core Matches form + drawer as the Buyer Pipeline detail
+                         page — command-center/buyers/detail.blade.php:580-615,
+                         not a second editor), then sends. --}}
+                    <div class="rounded-md px-3 py-2 text-xs mb-2" style="background: var(--ds-amber-soft, #fffbeb); color: var(--ds-amber, #b45309); border: 1px solid var(--ds-amber, #f59e0b);">
+                        <p class="font-semibold mb-1.5">&check; Approved for R{{ number_format($rentalApplication->approved_rental_amount, 2) }} a month — not yet sent.</p>
+                        <p class="mb-2">Confirm what the tenant is looking for, then send the approval. If you skip this, the email still goes out with a general list of available rentals under their approved amount.</p>
+                        <div class="flex flex-wrap gap-2">
+                            <button type="button" @click="wishlistDrawerOpen = true" class="corex-btn-outline text-xs">
+                                {{ $existingWishlist ? 'Review tenant wishlist' : 'Add tenant wishlist' }}
+                            </button>
+                            <form method="POST" action="{{ route('corex.rental-applications.review.send', $rentalApplication) }}">
+                                @csrf
+                                <button type="submit" class="corex-btn-primary text-xs">Send approval to applicant</button>
+                            </form>
                         </div>
-                    </template>
-                </div>
-
-                <div class="rounded-md p-3" style="background: var(--surface); border: 1px solid var(--border);">
-                    <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Notes</label>
-                    <textarea rows="5" class="corex-input text-sm w-full" style="resize: none; overflow-y: auto;"
-                              x-model="fields.notes" x-init="autoGrowTextarea($el)" @input="autoGrowTextarea($el)" @blur="save()"></textarea>
-                </div>
-
-                <div class="flex items-center gap-1.5 text-xs px-2 py-1 rounded-md" x-show="saveStatus"
+                    </div>
+                @elseif($rentalApplication->status === 'declined')
+                    <div class="rounded-md px-3 py-1.5 text-xs mb-2" style="background: var(--ds-red-soft, #fef2f2); color: var(--ds-red, #dc2626);">
+                        Declined. The applicant has been notified.
+                    </div>
+                @elseif($isPendingAuthorisation)
+                    <div class="rounded-md px-3 py-1.5 text-xs mb-2" style="background: var(--ds-blue-soft, #eff6ff); color: var(--ds-blue, #2563eb);">
+                        Submitted for approval {{ $rentalApplication->submitted_for_approval_at->format('d M Y H:i') }} — awaiting the authoriser's decision.
+                    </div>
+                @endif
+                <div class="flex items-center gap-1.5 text-xs px-2 py-1 rounded-md mb-2" x-show="saveStatus"
                      :style="saveError ? 'background: var(--ds-red-soft, #fef2f2); color: var(--ds-red, #dc2626);' : 'background: var(--ds-emerald-soft, #ecfdf5); color: var(--ds-emerald, #059669);'">
                     <span x-show="!saveError && saveStatus !== 'Saving…'">&check;</span>
                     <span x-text="saveStatus"></span>
                 </div>
-            @else
-                {{-- AUTHORISER — read-only agent values, strike-and-add only, never
-                     edit. Nested x-data scope (rentalAssessmentEditor), independent
-                     of the root rentalAuthorisationViewer() component, exactly as
-                     before the merge — the highlighter's marks are the root
-                     component's concern; the assessment items are this nested
-                     scope's. Unchanged from before the merge except its position
-                     on the page (now the shared aside, not a second blade's own
-                     main column). Boxed 2026-09-10 ("Item 6") — same
-                     rationale as the agent variant above: every section its
-                     own card, matching .rental-review-main's existing
-                     pattern instead of one continuous unbroken column. --}}
-                <div x-data="rentalAssessmentEditor({
-                         currentUserId: {{ Js::from(auth()->id()) }},
-                         incomeItems: {{ Js::from($serializedIncomeItems) }},
-                         expenseItems: {{ Js::from($serializedExpenseItems) }},
-                         addIncomeUrl: {{ Js::from(route('corex.rental-applications.authorisation.assessment.income-items.store', $rentalApplication)) }},
-                         addExpenseUrl: {{ Js::from(route('corex.rental-applications.authorisation.assessment.expense-items.store', $rentalApplication)) }},
-                         incomeItemUrl: {{ Js::from(url('corex/rental-applications/authorisation/' . $rentalApplication->id . '/assessment/income-items')) }},
-                         expenseItemUrl: {{ Js::from(url('corex/rental-applications/authorisation/' . $rentalApplication->id . '/assessment/expense-items')) }},
-                         statementMonths: {{ Js::from($assessment->statement_months) }},
-                         maxRentPercent: {{ Js::from($maxRentPercent) }},
-                         rent: {{ Js::from($result['rent'] ?? null) }},
-                         propertyLinked: {{ Js::from((bool) ($result['property_linked'] ?? false)) }},
-                         hasUnpaidTransactions: {{ Js::from((bool) $assessment->has_unpaid_transactions) }},
-                     })" class="space-y-3">
-                    <div class="text-xs rounded-md p-3" style="background: var(--surface); border: 1px solid var(--border);">
-                        <p style="color: var(--text-muted);">Number of months this bank statement covers</p>
-                        <p class="font-semibold" style="color: var(--text-primary);">{{ $assessment->statement_months ?? '—' }}</p>
-                        @if($assessment->statement_period_from && $assessment->statement_period_to)
-                            <p style="color: var(--text-muted);">{{ $assessment->statement_period_from->format('d M Y') }} &ndash; {{ $assessment->statement_period_to->format('d M Y') }}</p>
-                        @endif
-                    </div>
+                <p class="text-xs mb-2" x-show="agentActionStatus" x-text="agentActionStatus" :style="agentActionError ? 'color: var(--ds-red, #dc2626);' : 'color: var(--ds-emerald, #059669);'"></p>
+            @endif
 
-                    <div class="text-xs rounded-md p-3" style="background: var(--surface); border: 1px solid var(--border);">
-                        <div class="flex items-center gap-1.5 mb-1">
-                            <span class="rounded-full flex-shrink-0" style="width: 9px; height: 9px; background: var(--ra-income-authoriser); border: 1px solid var(--ra-income-underline);"></span>
-                            <p class="font-medium" style="color: var(--text-secondary);">Income (gross, before deductions)</p>
+            {{-- ROUND 6, 2026-09-11 — FOUR ZONES, side by side, per Johan's
+                 approved mockup ("there is no ways the right panel is
+                 allowing this to work but the bottom panel can make it
+                 work"). PERIOD (~150px) — ENTRIES, the merged income/expense
+                 ledger (flexible, the important part) — TOTALS (~196px) —
+                 ACTIONS (~128px). Each zone is independently role-gated
+                 rather than the whole strip being one big if/else, since
+                 every zone's CONTENT differs by role but its POSITION and
+                 width do not. --}}
+            <div class="rr-strip-zones"
+                 @if($viewerRole !== 'agent')
+                 x-data="rentalAssessmentEditor({
+                     currentUserId: {{ Js::from(auth()->id()) }},
+                     incomeItems: {{ Js::from($serializedIncomeItems) }},
+                     expenseItems: {{ Js::from($serializedExpenseItems) }},
+                     addIncomeUrl: {{ Js::from(route('corex.rental-applications.authorisation.assessment.income-items.store', $rentalApplication)) }},
+                     addExpenseUrl: {{ Js::from(route('corex.rental-applications.authorisation.assessment.expense-items.store', $rentalApplication)) }},
+                     incomeItemUrl: {{ Js::from(url('corex/rental-applications/authorisation/' . $rentalApplication->id . '/assessment/income-items')) }},
+                     expenseItemUrl: {{ Js::from(url('corex/rental-applications/authorisation/' . $rentalApplication->id . '/assessment/expense-items')) }},
+                     statementMonths: {{ Js::from($assessment->statement_months) }},
+                     maxRentPercent: {{ Js::from($maxRentPercent) }},
+                     rent: {{ Js::from($result['rent'] ?? null) }},
+                     propertyLinked: {{ Js::from((bool) ($result['property_linked'] ?? false)) }},
+                     hasUnpaidTransactions: {{ Js::from((bool) $assessment->has_unpaid_transactions) }},
+                 })"
+                 @endif
+            >
+                {{-- ZONE 1 — PERIOD. Dates stacked vertically per Johan's own
+                     instruction ("costs nothing because the strip has height
+                     to spare where it never had width") — the two-column
+                     grid this used to be (aside was a narrow column, height
+                     was cheap) is now backwards: the strip is short and wide,
+                     so the two dates each get their own full-width row instead
+                     of fighting for horizontal room next to entries/totals/
+                     actions. --}}
+                <div class="rr-zone-period">
+                    @if($viewerRole === 'agent')
+                        <div class="flex items-center justify-between gap-1 mb-1">
+                            <label class="text-xs font-medium" style="color: var(--text-secondary);">Statement period</label>
+                            <span class="ds-badge ds-badge-info flex-shrink-0" style="font-size: 9px; padding: 1px 4px;" title="Every field on this strip saves the moment you click away from it — no button needed.">Autosaves</span>
                         </div>
-                        <template x-if="incomeItems.length === 0"><p style="color: var(--text-muted);">Nothing captured yet.</p></template>
-                        <template x-for="item in incomeItems" :key="item.id">
-                            <div>
-                                {{--
-                                    2026-09-10 (cc5's finding, real data proof) — this row was
-                                    `grid grid-cols-2` (a bare 50/50 split) squeezing dot + the
-                                    conditional "Auth" badge + description + the entry date all
-                                    into ONE flex-packed half, so a perfectly realistic
-                                    description ("Monthly Salary Payment", "Vehicle Finance
-                                    Instalment" — cc5's own repro, not edge-case-long) truncated
-                                    to a fragment at the panel's default AND floor width. Same
-                                    class of defect Johan already made us fix once on the agent
-                                    side, in a file this fix never touched (it lives in the
-                                    read-only authoriser display, not the agent's editable
-                                    input rows).
-
-                                    Fixed the same way, not by cranking the panel wider again:
-                                    derived from what the row's OWN content needs. The entry
-                                    date moved to its own line below (matching the struck-out
-                                    reason's existing sub-line pattern) — it's supplementary
-                                    metadata, not something description and amount should have
-                                    to compete with for space on one line. `grid-cols-2` (fixed
-                                    50/50) replaced with an explicit `minmax(0,1fr)` description
-                                    column against a REAL 155px minimum for amount+button —
-                                    sized off this row's own worst case (R999,999.99 ≈ 77px +
-                                    "Strike out", the longer of Strike out/Restore, ≈ 54px +
-                                    gap-2 + margin), not picked and checked.
-
-                                    Verified at the default (460px): even with the "Auth" badge
-                                    showing (the worst case — badge + description sharing the
-                                    same line), both cc5's test descriptions render as full
-                                    words. At the floor (400px): the common case (no badge)
-                                    renders full words with room to spare; the compound edge
-                                    case (badge shown AND cc5's longest description AND the
-                                    absolute floor, all three at once) can still clip — the
-                                    existing `:title` tooltip on the description span already
-                                    covers that, the same "degrade legibly" fallback the agent
-                                    side's own extremes rely on. Not chasing the panel wider a
-                                    third time for a three-way-compound edge case at the floor.
-                                --}}
-                                <div class="grid gap-1.5 py-1 items-center" style="grid-template-columns: minmax(0,1fr) 155px;" :style="{ opacity: item.struck_out ? '0.55' : '1' }">
-                                    <span class="flex items-center gap-1.5 min-w-0">
-                                        <span class="rounded-full flex-shrink-0" style="width: 7px; height: 7px;" :style="{ background: item.added_by_authoriser ? 'var(--ra-income-authoriser)' : 'var(--ra-income-agent)' }"></span>
-                                        <span x-show="item.added_by_authoriser" class="ds-badge ds-badge-info flex-shrink-0" style="font-size:9px; padding:1px 4px;" title="Added by a reviewer/authoriser, not the agent">Auth</span>
-                                        <span :style="{ textDecoration: item.struck_out ? 'line-through' : 'none' }" class="truncate" style="color: var(--text-primary);" :title="item.description" x-text="item.description || '(no description)'"></span>
-                                    </span>
-                                    <span class="flex items-center justify-end gap-2 flex-shrink-0">
-                                        <span :style="{ textDecoration: item.struck_out ? 'line-through' : 'none' }" style="color: var(--text-primary);" x-text="'R ' + formatAmount(item.amount)"></span>
-                                        <button type="button" class="text-xs" :style="{ color: item.struck_out ? 'var(--ds-emerald, #059669)' : 'var(--ds-crimson, #dc2626)' }" @click="toggleStrike('income', item)" x-text="item.struck_out ? 'Restore' : 'Strike out'"></button>
-                                    </span>
-                                </div>
-                                <p class="text-[11px] pl-3" style="color: var(--text-muted);" x-show="item.entry_date" x-text="item.entry_date"></p>
-                                <p class="text-[11px] pl-3" style="color: var(--text-muted);" x-show="item.struck_out" x-text="struckLine(item)"></p>
-                                <div class="flex items-center gap-2 pl-3 py-1.5" x-show="replacingItem === ('income-' + item.id)" x-cloak>
-                                    <input type="text" x-model="replaceDescription" placeholder="Description" class="corex-input text-xs" style="flex:1;" :data-replace-focus="'income-' + item.id">
-                                    <input type="date" x-model="replaceDate" class="corex-input text-xs" style="width:120px;" title="Date this deposit happened">
-                                    <input type="text" inputmode="decimal" x-model="replaceAmount" placeholder="0.00" class="corex-input text-xs" style="width:80px;">
-                                    <button type="button" class="text-xs font-semibold flex-shrink-0" style="color: var(--ds-blue, #2563eb);" :disabled="!replaceAmount" @click="addItem('income', item.id)">Add replacement</button>
-                                    <button type="button" class="text-xs" style="color: var(--text-muted);" @click="replacingItem = null">Cancel</button>
-                                </div>
-                            </div>
-                        </template>
-                        <div class="flex items-center gap-2 pt-2 mt-1" style="border-top: 1px dashed var(--border);">
-                            <input type="text" x-model="newIncomeDescription" placeholder="Description" class="corex-input text-xs" style="flex:1;">
-                            <input type="date" x-model="newIncomeDate" class="corex-input text-xs" style="width:120px;" title="Date this deposit happened">
-                            <input type="text" inputmode="decimal" x-model="newIncomeAmount" placeholder="0.00" class="corex-input text-xs" style="width:80px;">
-                            <button type="button" class="text-xs font-semibold flex-shrink-0" style="color: var(--ds-blue, #2563eb);" :disabled="!newIncomeAmount" @click="addItem('income')">+ Add</button>
+                        <div class="flex flex-col gap-1">
+                            <input type="date" class="corex-input text-xs w-full" x-model="statementPeriodFrom" @change="save()" aria-label="Statement period from">
+                            <input type="date" class="corex-input text-xs w-full" x-model="statementPeriodTo" @change="save()" aria-label="Statement period to">
                         </div>
-                        <p class="mt-2" style="color: var(--text-secondary);">Total (struck-out lines excluded): <strong x-text="'R ' + formatAmount(incomeTotal())"></strong></p>
-                        <p style="color: var(--text-secondary);" x-show="statementMonths">Monthly average (÷ <span x-text="statementMonths"></span> months — used in the affordability check below): <strong x-text="'R ' + formatAmount(grossIncome())"></strong></p>
-                    </div>
-
-                    <div class="text-xs rounded-md p-3" style="background: var(--surface); border: 1px solid var(--border);">
-                        <div class="flex items-center gap-1.5 mb-1">
-                            <span class="rounded-full flex-shrink-0" style="width: 9px; height: 9px; background: var(--ra-expense-authoriser); border: 1px solid var(--ra-expense-underline);"></span>
-                            <p class="font-medium" style="color: var(--text-secondary);">Expenses / existing debt</p>
-                        </div>
-                        <template x-if="expenseItems.length === 0"><p style="color: var(--text-muted);">Nothing captured.</p></template>
-                        <template x-for="item in expenseItems" :key="item.id">
-                            <div>
-                                {{-- 2026-09-10 — same fix as the income row above: entry date
-                                     moved to its own line, grid-cols-2 replaced with a real
-                                     minmax(0,1fr)/155px split. See the income row's own comment
-                                     for the full derivation and verification. --}}
-                                <div class="grid gap-1.5 py-1 items-center" style="grid-template-columns: minmax(0,1fr) 155px;" :style="{ opacity: item.struck_out ? '0.55' : '1' }">
-                                    <span class="flex items-center gap-1.5 min-w-0">
-                                        <span class="rounded-full flex-shrink-0" style="width: 7px; height: 7px;" :style="{ background: item.added_by_authoriser ? 'var(--ra-expense-authoriser)' : 'var(--ra-expense-agent)' }"></span>
-                                        <span x-show="item.added_by_authoriser" class="ds-badge ds-badge-info flex-shrink-0" style="font-size:9px; padding:1px 4px;" title="Added by a reviewer/authoriser, not the agent">Auth</span>
-                                        <span :style="{ textDecoration: item.struck_out ? 'line-through' : 'none' }" class="truncate" style="color: var(--text-primary);" :title="item.description" x-text="item.description || '(no description)'"></span>
-                                    </span>
-                                    <span class="flex items-center justify-end gap-2 flex-shrink-0">
-                                        <span :style="{ textDecoration: item.struck_out ? 'line-through' : 'none' }" style="color: var(--text-primary);" x-text="'R ' + formatAmount(item.amount)"></span>
-                                        <button type="button" class="text-xs" :style="{ color: item.struck_out ? 'var(--ds-emerald, #059669)' : 'var(--ds-crimson, #dc2626)' }" @click="toggleStrike('expense', item)" x-text="item.struck_out ? 'Restore' : 'Strike out'"></button>
-                                    </span>
-                                </div>
-                                <p class="text-[11px] pl-3" style="color: var(--text-muted);" x-show="item.entry_date" x-text="item.entry_date"></p>
-                                <p class="text-[11px] pl-3" style="color: var(--text-muted);" x-show="item.struck_out" x-text="struckLine(item)"></p>
-                                <div class="flex items-center gap-2 pl-3 py-1.5" x-show="replacingItem === ('expense-' + item.id)" x-cloak>
-                                    <input type="text" x-model="replaceDescription" placeholder="Description" class="corex-input text-xs" style="flex:1;" :data-replace-focus="'expense-' + item.id">
-                                    <input type="date" x-model="replaceDate" class="corex-input text-xs" style="width:120px;" title="Date this debit happened">
-                                    <input type="text" inputmode="decimal" x-model="replaceAmount" placeholder="0.00" class="corex-input text-xs" style="width:80px;">
-                                    <button type="button" class="text-xs font-semibold flex-shrink-0" style="color: var(--ds-blue, #2563eb);" :disabled="!replaceAmount" @click="addItem('expense', item.id)">Add replacement</button>
-                                    <button type="button" class="text-xs" style="color: var(--text-muted);" @click="replacingItem = null">Cancel</button>
-                                </div>
-                            </div>
-                        </template>
-                        <div class="flex items-center gap-2 pt-2 mt-1" style="border-top: 1px dashed var(--border);">
-                            <input type="text" x-model="newExpenseDescription" placeholder="Description" class="corex-input text-xs" style="flex:1;">
-                            <input type="date" x-model="newExpenseDate" class="corex-input text-xs" style="width:120px;" title="Date this debit happened">
-                            <input type="text" inputmode="decimal" x-model="newExpenseAmount" placeholder="0.00" class="corex-input text-xs" style="width:80px;">
-                            <button type="button" class="text-xs font-semibold flex-shrink-0" style="color: var(--ds-blue, #2563eb);" :disabled="!newExpenseAmount" @click="addItem('expense')">+ Add</button>
-                        </div>
-                        <p class="mt-2" style="color: var(--text-secondary);">Total (struck-out lines excluded): <strong x-text="'R ' + formatAmount(expenseTotal())"></strong></p>
-                    </div>
-
-                    <div class="flex items-center gap-1.5 rounded-md p-3" x-show="hasUnpaidTransactions" style="background: var(--ds-crimson-soft, #fef2f2); border: 1px solid var(--ds-crimson, #dc2626);">
-                        <span class="rounded-full flex-shrink-0" style="width: 9px; height: 9px; background: var(--ra-unpaid-authoriser); border: 1px solid var(--ra-unpaid-underline);"></span>
-                        <span class="text-xs font-semibold" style="color: var(--ds-crimson, #dc2626);">Agent flagged unpaid/declined transactions on the bank statement</span>
-                    </div>
-
-                    <div x-show="itemError" x-cloak class="text-xs rounded-md px-2 py-1.5" style="background: var(--ds-crimson-soft, #fef2f2); color: var(--ds-crimson, #dc2626);" x-text="itemError"></div>
-
-                    <template x-if="statementMonths && incomeTotal() > 0">
-                        <div class="rounded-md p-3" style="background: var(--surface-2, #f9fafb); border: 1px solid var(--border);">
-                            <p class="text-[11px] font-semibold uppercase tracking-wide mb-1" style="color: var(--text-muted);">Suggested check — not a rule</p>
-                            <p class="text-sm">
-                                Gross income <span x-text="'R' + formatAmount(grossIncome())"></span> — rent must not exceed <span x-text="trimPercent(maxRentPercent)"></span>% of this (<span x-text="'R' + formatAmount(maxAffordableRent())"></span>).
-                                <template x-if="!propertyLinked">
-                                    <span class="font-medium" style="color: var(--ds-amber, #b45309);"> Link a property to check against its rent.</span>
-                                </template>
-                            </p>
-                            <template x-if="propertyLinked && rent !== null">
-                                <x-rental-application-affordability-verdict
-                                    met-expr="meetsThreshold()"
-                                    detail-expr="'Actual rent (' + 'R' + formatAmount(rent) + ') is ' + rentAsPercent() + '% of gross income.'" />
+                        <p class="text-[11px] mt-1" style="color: var(--text-secondary);">
+                            <template x-if="statementPeriodFrom && statementPeriodTo">
+                                <span>Covers <strong x-text="calculatedStatementMonths()"></strong> month<span x-show="calculatedStatementMonths() !== 1">s</span></span>
                             </template>
-                        </div>
-                    </template>
-                    <template x-if="!(statementMonths && incomeTotal() > 0)">
-                        <div class="rounded-md p-3 text-xs" style="background: var(--surface-2, #f9fafb); border: 1px solid var(--border); color: var(--text-muted);">
-                            Not enough captured yet to run the affordability guideline (needs both income and the number of months).
-                        </div>
-                    </template>
-                    @if($assessment->notes)
-                        <div class="rounded-md p-3" style="background: var(--surface); border: 1px solid var(--border);">
-                            <p class="text-xs font-medium mb-1" style="color: var(--text-secondary);">Agent's notes</p>
-                            <p class="text-xs whitespace-pre-wrap" style="color: var(--text-primary);">{{ $assessment->notes }}</p>
+                            <template x-if="!(statementPeriodFrom && statementPeriodTo) && statementMonths">
+                                <span>Currently <strong x-text="statementMonths"></strong> month<span x-show="statementMonths !== 1">s</span></span>
+                            </template>
+                            <template x-if="!(statementPeriodFrom && statementPeriodTo) && !statementMonths">
+                                <span>Pick both dates to work out the number of months.</span>
+                            </template>
+                        </p>
+                        <p class="text-[11px]" style="color: var(--text-muted);"><span x-text="ledgerRows().length"></span> entr<span x-text="ledgerRows().length === 1 ? 'y' : 'ies'"></span> captured</p>
+                        <label class="flex items-start gap-1.5 text-[11px] mt-2 cursor-pointer" style="color: var(--text-secondary);">
+                            <input type="checkbox" x-model="hasUnpaidTransactions" @change="save()" class="mt-0.5">
+                            <span>Unpaid transactions on statement</span>
+                        </label>
+                    @else
+                        <p class="text-xs font-medium mb-1" style="color: var(--text-secondary);">Statement period</p>
+                        <p class="text-[11px]" style="color: var(--text-muted);">From</p>
+                        <p class="text-xs mb-1" style="color: var(--text-primary);">{{ $assessment->statement_period_from?->format('d M Y') ?? '—' }}</p>
+                        <p class="text-[11px]" style="color: var(--text-muted);">To</p>
+                        <p class="text-xs" style="color: var(--text-primary);">{{ $assessment->statement_period_to?->format('d M Y') ?? '—' }}</p>
+                        <p class="text-[11px] mt-1" style="color: var(--text-secondary);">Covers <strong>{{ $assessment->statement_months ?? '—' }}</strong> month<span>{{ ($assessment->statement_months ?? 0) === 1 ? '' : 's' }}</span></p>
+                        <p class="text-[11px]" style="color: var(--text-muted);"><span x-text="ledgerRows().length"></span> entr<span x-text="ledgerRows().length === 1 ? 'y' : 'ies'"></span> captured</p>
+                        <div class="flex items-start gap-1 mt-2" x-show="hasUnpaidTransactions">
+                            <span class="rounded-full flex-shrink-0 mt-0.5" style="width: 7px; height: 7px; background: var(--ra-unpaid-authoriser);"></span>
+                            <span class="text-[11px] font-semibold" style="color: var(--ds-crimson, #dc2626);">Unpaid transactions flagged</span>
                         </div>
                     @endif
                 </div>
-            @endif
 
-            {{-- ACTIONS — role-gated, at the bottom of the shared aside per
-                 Johan's instruction ("belongs at the bottom of the right panel").
-                 Agent: submit/reopen/request-info-to-applicant, unchanged.
-                 Authoriser: self-approval explanation or Approve/Decline/
-                 Request-More-Info, unchanged. --}}
-            <div class="rounded-md p-3" style="background: var(--surface); border: 1px solid var(--border);">
-                @if($viewerRole === 'agent')
-                    @if($moreInfoRequestedNote)
-                        <div class="rounded-md px-3 py-2 text-xs mb-3" style="background: var(--surface-2); color: var(--ds-amber); border: 1px solid var(--ds-amber);">
-                            <strong>The authoriser sent this back for more information:</strong>
-                            <div class="mt-1 whitespace-pre-wrap" style="color: var(--text-primary);">{{ $moreInfoRequestedNote }}</div>
+                {{-- ZONE 2 — ENTRIES. Johan: "the agent must see income and
+                     expenses at the same time, the way they read on a bank
+                     statement" — one ledger, DATE | DESCRIPTION | INCOME |
+                     EXPENSE, not tabs. A row is income OR expense, never
+                     both: typing an amount into one column DISABLES the
+                     other (not a validation error after the fact) — the
+                     "obvious affordance" Johan asked for, chosen over
+                     silently clearing whatever the agent already typed.
+                     Top row is the always-visible input row; captured rows
+                     scroll below it, three visible by default (the strip's
+                     own default height). Underlying incomeItems/expenseItems
+                     stay two separate arrays — same save/audit/CRUD
+                     plumbing as before the merge, untouched — this is a
+                     display-layer merge only: `newEntry` is new client
+                     state, decoupled from the old "trailing blank row"
+                     mechanic (compactAndEnsureTrailing, kept as-is below,
+                     still runs against whichever array a committed row
+                     lands in). --}}
+                <div class="rr-zone-ledger">
+                    <div class="rr-ledger-header">
+                        <span>Date</span><span>Description</span><span class="text-right">Income</span><span class="text-right">Expense</span>
+                    </div>
+                    @if($viewerRole === 'agent')
+                        <div class="rr-ledger-row rr-ledger-input-row">
+                            <input type="date" class="corex-input text-xs w-full" x-model="newEntry.entry_date" title="Date this transaction happened">
+                            <input type="text" class="corex-input text-xs w-full" placeholder="e.g. Salary" x-model="newEntry.description" @keydown.enter.prevent="commitNewEntry()">
+                            <input type="text" inputmode="decimal" class="corex-input text-xs w-full text-right" placeholder="0.00"
+                                   x-model="newEntry.incomeAmount" :disabled="!!newEntry.expenseAmount"
+                                   :style="newEntry.expenseAmount ? 'opacity:0.45;' : ''"
+                                   @keydown.enter.prevent="commitNewEntry()" @blur="commitNewEntry()">
+                            <input type="text" inputmode="decimal" class="corex-input text-xs w-full text-right" placeholder="0.00"
+                                   x-model="newEntry.expenseAmount" :disabled="!!newEntry.incomeAmount"
+                                   :style="newEntry.incomeAmount ? 'opacity:0.45;' : ''"
+                                   @keydown.enter.prevent="commitNewEntry()" @blur="commitNewEntry()">
                         </div>
+                        <div class="rr-ledger-rows">
+                            <template x-for="row in ledgerRows()" :key="row.type + '-' + (row.item.id ?? row.item._tempKey)">
+                                <div class="rr-ledger-row">
+                                    <input type="date" class="corex-input text-xs w-full" x-model="row.item.entry_date"
+                                           @change="row.type === 'income' ? onIncomeRowInput() : onExpenseRowInput()">
+                                    <input type="text" class="corex-input text-xs w-full" :title="row.item.description" x-model="row.item.description" @blur="save()">
+                                    <input type="text" inputmode="decimal" class="corex-input text-xs w-full text-right" :title="row.item.amount"
+                                           x-show="row.type === 'income'" x-model="row.item.amount" @blur="save()">
+                                    <input type="text" inputmode="decimal" class="corex-input text-xs w-full text-right" :title="row.item.amount"
+                                           x-show="row.type === 'expense'" x-model="row.item.amount" @blur="save()">
+                                </div>
+                            </template>
+                        </div>
+                    @else
+                        <div class="rr-ledger-row rr-ledger-input-row">
+                            <input type="date" class="corex-input text-xs w-full" x-model="newEntry.entry_date" title="Date this transaction happened">
+                            <input type="text" class="corex-input text-xs w-full" placeholder="Description" x-model="newEntry.description">
+                            <input type="text" inputmode="decimal" class="corex-input text-xs w-full text-right" placeholder="0.00"
+                                   x-model="newEntry.incomeAmount" :disabled="!!newEntry.expenseAmount"
+                                   :style="newEntry.expenseAmount ? 'opacity:0.45;' : ''">
+                            <input type="text" inputmode="decimal" class="corex-input text-xs w-full text-right" placeholder="0.00"
+                                   x-model="newEntry.expenseAmount" :disabled="!!newEntry.incomeAmount"
+                                   :style="newEntry.incomeAmount ? 'opacity:0.45;' : ''">
+                            <button type="button" class="text-[10px] font-semibold flex-shrink-0 ml-1" style="color: var(--ds-blue, #2563eb);"
+                                    :disabled="!newEntry.incomeAmount && !newEntry.expenseAmount" @click="commitNewEntry()">+ Add</button>
+                        </div>
+                        <div class="rr-ledger-rows">
+                            <template x-for="row in ledgerRows()" :key="row.type + '-' + row.item.id">
+                                <div>
+                                    {{-- Authoriser rows never edit in place — strike-and-add
+                                         only, same rule as before the merge. Status dot + Auth
+                                         badge live inside the description cell (matching the
+                                         pre-merge card's own layout); struck-out sub-line and
+                                         the replace mini-form render as their own full-width
+                                         rows underneath, same as before. --}}
+                                    <div class="rr-ledger-row" :style="{ opacity: row.item.struck_out ? '0.55' : '1' }">
+                                        <span class="text-[11px]" style="color: var(--text-muted);" x-text="row.item.entry_date || '—'"></span>
+                                        <span class="flex items-center gap-1 min-w-0 text-xs" style="color: var(--text-primary);">
+                                            <span class="rounded-full flex-shrink-0" style="width: 7px; height: 7px;"
+                                                  :style="{ background: row.item.added_by_authoriser ? (row.type === 'income' ? 'var(--ra-income-authoriser)' : 'var(--ra-expense-authoriser)') : (row.type === 'income' ? 'var(--ra-income-agent)' : 'var(--ra-expense-agent)') }"></span>
+                                            <span x-show="row.item.added_by_authoriser" class="ds-badge ds-badge-info flex-shrink-0" style="font-size:9px; padding:1px 4px;" title="Added by a reviewer/authoriser, not the agent">Auth</span>
+                                            <span class="truncate" :title="row.item.description" :style="{ textDecoration: row.item.struck_out ? 'line-through' : 'none' }" x-text="row.item.description || '(no description)'"></span>
+                                        </span>
+                                        <span class="text-xs text-right" x-show="row.type === 'income'" :style="{ textDecoration: row.item.struck_out ? 'line-through' : 'none' }" x-text="'R ' + formatAmount(row.item.amount)"></span>
+                                        <span class="text-xs text-right" x-show="row.type === 'expense'" :style="{ textDecoration: row.item.struck_out ? 'line-through' : 'none' }" x-text="'R ' + formatAmount(row.item.amount)"></span>
+                                        <button type="button" class="text-[10px] flex-shrink-0 ml-1" :style="{ color: row.item.struck_out ? 'var(--ds-emerald, #059669)' : 'var(--ds-crimson, #dc2626)' }"
+                                                @click="toggleStrike(row.type, row.item)" x-text="row.item.struck_out ? 'Restore' : 'Strike'"></button>
+                                    </div>
+                                    <p class="text-[10px] pl-1" style="color: var(--text-muted);" x-show="row.item.struck_out" x-text="struckLine(row.item)"></p>
+                                    <div class="flex items-center gap-1 pl-1 py-1" x-show="replacingItem === (row.type + '-' + row.item.id)" x-cloak>
+                                        <input type="text" x-model="replaceDescription" placeholder="Description" class="corex-input text-[11px]" style="flex:1;" :data-replace-focus="row.type + '-' + row.item.id">
+                                        <input type="date" x-model="replaceDate" class="corex-input text-[11px]" style="width:90px;">
+                                        <input type="text" inputmode="decimal" x-model="replaceAmount" placeholder="0.00" class="corex-input text-[11px]" style="width:64px;">
+                                        <button type="button" class="text-[10px] font-semibold flex-shrink-0" style="color: var(--ds-blue, #2563eb);" :disabled="!replaceAmount" @click="addItem(row.type, row.item.id)">Add</button>
+                                        <button type="button" class="text-[10px]" style="color: var(--text-muted);" @click="replacingItem = null">Cancel</button>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+                        <div x-show="itemError" x-cloak class="text-[11px] rounded-md px-2 py-1 mt-1" style="background: var(--ds-crimson-soft, #fef2f2); color: var(--ds-crimson, #dc2626);" x-text="itemError"></div>
                     @endif
-                    @if($rentalApplication->status === 'approved' && $rentalApplication->applicant_notified_at)
-                        <div class="rounded-md px-3 py-2 text-xs mb-3" style="background: var(--ds-emerald-soft, #ecfdf5); color: var(--ds-emerald, #059669);">
-                            &check; Approved for R{{ number_format($rentalApplication->approved_rental_amount, 2) }} a month. Sent to the applicant on {{ $rentalApplication->applicant_notified_at->format('d M Y, H:i') }}.
-                        </div>
-                    @elseif($rentalApplication->status === 'approved')
-                        {{-- AT-392 — Johan: "agent gets back and upon them being happy
-                             it gets sent out." Approved but not yet sent: the agent
-                             confirms/refines the tenant's wishlist (reusing the SAME
-                             Core Matches form + drawer as the Buyer Pipeline detail
-                             page — command-center/buyers/detail.blade.php:580-615,
-                             not a second editor), then sends. --}}
-                        <div class="rounded-md px-3 py-3 text-xs mb-3" style="background: var(--ds-amber-soft, #fffbeb); color: var(--ds-amber, #b45309); border: 1px solid var(--ds-amber, #f59e0b);">
-                            <p class="font-semibold mb-2">&check; Approved for R{{ number_format($rentalApplication->approved_rental_amount, 2) }} a month — not yet sent.</p>
-                            <p class="mb-3">Confirm what the tenant is looking for, then send the approval. If you skip this, the email still goes out with a general list of available rentals under their approved amount.</p>
-                            <div class="flex flex-wrap gap-2">
-                                <button type="button" @click="wishlistDrawerOpen = true" class="corex-btn-outline text-xs">
-                                    {{ $existingWishlist ? 'Review tenant wishlist' : 'Add tenant wishlist' }}
-                                </button>
-                                <form method="POST" action="{{ route('corex.rental-applications.review.send', $rentalApplication) }}">
-                                    @csrf
-                                    <button type="submit" class="corex-btn-primary text-xs">Send approval to applicant</button>
-                                </form>
+                </div>
+
+                {{-- ZONE 3 — TOTALS. Income/Expenses totals, monthly figures,
+                     and the qualifying line. The Max-rent line is Johan's OWN
+                     addition to the mockup he approved, not something he
+                     asked for outright — kept as one cleanly removable block
+                     (a single @if/template) per his own note. The 30% ratio
+                     is never hardcoded — reuses RentalApplicationQualifyingSetting::
+                     maxRentPercentFor(), the same agency-configurable value
+                     already computed server-side for this screen before the
+                     merge. --}}
+                <div class="rr-zone-totals">
+                    @if($viewerRole === 'agent')
+                        <p class="text-xs" style="color: var(--text-secondary);">Income total <strong class="block" style="color: var(--text-primary);" x-text="formatR(incomeTotal())"></strong></p>
+                        <p class="text-xs" style="color: var(--text-secondary);">Expenses total <strong class="block" style="color: var(--text-primary);" x-text="formatR(expenseTotal())"></strong></p>
+                        <p class="text-xs" style="color: var(--text-secondary);">Income / month <strong class="block" style="color: var(--text-primary);" x-text="statementMonths ? formatR(monthlyAverage(incomeTotal())) : '—'"></strong></p>
+                        <p class="text-xs" style="color: var(--text-secondary);">Net / month <strong class="block" style="color: var(--text-primary);" x-text="statementMonths ? formatR(monthlyAverage(incomeTotal() - expenseTotal())) : '—'"></strong></p>
+                        {{-- Johan's own addition to the mockup, not his original request — kept cleanly removable. --}}
+                        <template x-if="result.label !== 'incomplete' && result.max_affordable_rent !== undefined">
+                            <p class="text-xs pt-1" style="color: var(--text-secondary); border-top: 1px dashed var(--border);">Max rent &middot; <span x-text="result.max_rent_percent"></span>% <strong class="block" style="color: var(--text-primary);" x-text="formatR(result.max_affordable_rent)"></strong></p>
+                        </template>
+                    @else
+                        <p class="text-xs" style="color: var(--text-secondary);">Income total <strong class="block" style="color: var(--text-primary);" x-text="'R ' + formatAmount(incomeTotal())"></strong></p>
+                        <p class="text-xs" style="color: var(--text-secondary);">Expenses total <strong class="block" style="color: var(--text-primary);" x-text="'R ' + formatAmount(expenseTotal())"></strong></p>
+                        <p class="text-xs" style="color: var(--text-secondary);">Income / month <strong class="block" style="color: var(--text-primary);" x-text="statementMonths ? ('R ' + formatAmount(grossIncome())) : '—'"></strong></p>
+                        <p class="text-xs" style="color: var(--text-secondary);">Net / month <strong class="block" style="color: var(--text-primary);" x-text="statementMonths ? ('R ' + formatAmount((incomeTotal() - expenseTotal()) / statementMonths)) : '—'"></strong></p>
+                        {{-- Johan's own addition to the mockup, not his original request — kept cleanly removable. --}}
+                        <template x-if="statementMonths && incomeTotal() > 0">
+                            <p class="text-xs pt-1" style="color: var(--text-secondary); border-top: 1px dashed var(--border);">Max rent &middot; <span x-text="trimPercent(maxRentPercent)"></span>% <strong class="block" style="color: var(--text-primary);" x-text="'R ' + formatAmount(maxAffordableRent())"></strong></p>
+                        </template>
+                        <template x-if="propertyLinked && rent !== null && statementMonths && incomeTotal() > 0">
+                            <x-rental-application-affordability-verdict
+                                met-expr="meetsThreshold()"
+                                detail-expr="'Rent R' + formatAmount(rent) + ' is ' + rentAsPercent() + '% of gross income.'" />
+                        </template>
+                    @endif
+                </div>
+
+                {{-- ZONE 4 — ACTIONS. Buttons only — every reason/note/amount
+                     field that used to sit permanently in the old right-hand
+                     column now lives behind these buttons, in a modal (see
+                     the modals rendered as page-level siblings below, same
+                     "never covered, never clipped" pattern already used for
+                     the Tenant Wishlist drawer). --}}
+                <div class="rr-zone-actions">
+                    @if($viewerRole === 'agent')
+                        @if($canSendBackToApplicant)
+                            <button type="button" class="corex-btn-outline text-xs w-full mb-1.5" @click="sendBackModalOpen = true">Send back to applicant</button>
+                        @endif
+                        @unless(in_array($rentalApplication->status, ['submitted_for_approval', 'approved', 'declined'], true) || $isPendingAuthorisation)
+                            <button type="button" class="corex-btn-primary text-xs w-full mb-1.5" :disabled="submittingForApproval" @click="submitForApproval()" x-text="submittingForApproval ? 'Submitting…' : 'Submit for approval'"></button>
+                        @endunless
+                        @if($rentalApplication->generations->count() > 1)
+                            <button type="button" class="text-[11px] underline w-full text-left" style="color: var(--ds-blue, #2563eb);" @click="submissionHistoryOpen = true">Submission history</button>
+                        @endif
+                    @else
+                        @if($blockedBySelfApproval)
+                            <p class="text-[11px]" style="color: var(--text-muted);">You created this application — only another authoriser may act on it.</p>
+                        @else
+                            <button type="button" class="corex-btn-outline text-xs w-full mb-1.5" @click="sendBackToAgentModalOpen = true">Send back</button>
+                            <button type="button" class="corex-btn-primary text-xs w-full mb-1.5" @click="approveModalOpen = true">Approve &amp; continue</button>
+                            <button type="button" class="text-[11px] underline w-full text-left" style="color: var(--ds-crimson, #dc2626);" @click="declineModalOpen = true">Decline</button>
+                        @endif
+                    @endif
+                </div>
+            </div>
+        </div>
+
+        {{-- ROUND 6, 2026-09-11 — decision/send-back modals. Zone 4 in the
+             strip above is buttons only (128px) — every field that used to
+             sit permanently visible in the old right-hand column now opens
+             here instead. Page-level siblings of the aside, same reason the
+             Tenant Wishlist drawer already is one (see its own comment just
+             below): never covered, never clipped by the strip's own
+             overflow/scroll. --}}
+        @if($viewerRole === 'agent')
+            {{-- Send back to applicant — Johan: "I also dont see the need
+                 for 2 section - send back for more info and reopen and send
+                 back. does the same function - send it back and ask for
+                 what you need." Merged into one button/modal; which real
+                 server action fires is decided by canReopenNow (see
+                 sendBackToApplicant() in the script below) — nothing the
+                 old two-button screen could do is lost. Checklist is
+                 DERIVED from RentalApplicationDocumentRequirement::
+                 checklistFor() — the same agency-configurable, per-
+                 employment-type mechanism the original application form's
+                 own printed checklist already runs on — never Johan's own
+                 mockup list verbatim, so it stays true as an agency
+                 customises its own requirements. --}}
+            <div x-show="sendBackModalOpen" x-cloak class="fixed inset-0 z-[100] flex items-center justify-center p-4" style="background: rgba(0,0,0,0.5);" @keydown.escape.window="sendBackModalOpen = false">
+                <div class="w-full max-w-md rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);" @click.outside="sendBackModalOpen = false">
+                    <h3 class="text-sm font-semibold mb-1" style="color: var(--text-primary);">Send back to applicant</h3>
+                    <p class="text-xs mb-3" style="color: var(--text-muted);">
+                        {{-- Alpine's x-if clone mechanism needs a single root
+                             ELEMENT inside the template, not bare text — a
+                             text-only template's content has no
+                             firstElementChild, which crashes Alpine's
+                             internal clone/scope-attach step the instant a
+                             second x-if template sits next to it. Wrap in a
+                             <span>, same as every other x-if on this page
+                             already does. --}}
+                        <template x-if="canReopenNow"><span>They'll be emailed a link to fix what's wrong and re-sign — their previous answers stay pre-filled.</span></template>
+                        <template x-if="!canReopenNow"><span>They'll be emailed what you type below. Everything they've already sent stays on file.</span></template>
+                    </p>
+                    <template x-if="documentChecklist.length">
+                        <div class="mb-3">
+                            <p class="text-xs font-medium mb-1" style="color: var(--text-secondary);">Ask for any of these documents</p>
+                            <div class="space-y-1">
+                                <template x-for="doc in documentChecklist" :key="doc.slug">
+                                    <label class="flex items-center gap-2 text-xs cursor-pointer" style="color: var(--text-secondary);">
+                                        <input type="checkbox" x-model="doc.checked">
+                                        <span x-text="doc.label"></span>
+                                    </label>
+                                </template>
                             </div>
                         </div>
-                    @elseif($rentalApplication->status === 'declined')
-                        <div class="rounded-md px-3 py-2 text-xs mb-3" style="background: var(--ds-red-soft, #fef2f2); color: var(--ds-red, #dc2626);">
-                            Declined. The applicant has been notified.
-                        </div>
-                    @elseif($isPendingAuthorisation)
-                        <div class="rounded-md px-3 py-2 text-xs mb-3" style="background: var(--ds-blue-soft, #eff6ff); color: var(--ds-blue, #2563eb);">
-                            Submitted for approval {{ $rentalApplication->submitted_for_approval_at->format('d M Y H:i') }} — awaiting the authoriser's decision.
-                        </div>
-                    @endif
+                    </template>
+                    <textarea x-model="sendBackNote" rows="4" class="corex-input text-xs w-full mb-3" style="resize: none;"
+                              placeholder="What do they need to fix or provide? e.g. ID number was typed incorrectly"></textarea>
+                    <div class="flex justify-end gap-2">
+                        <button type="button" class="corex-btn-outline text-xs" @click="sendBackModalOpen = false">Cancel</button>
+                        <button type="button" class="corex-btn-primary text-xs" :disabled="sendBackSending || !sendBackNote.trim()" @click="sendBackToApplicant()" x-text="sendBackSending ? 'Sending…' : 'Confirm and send'"></button>
+                    </div>
+                </div>
+            </div>
 
-                    {{-- 2026-09-09 — Johan approved reopening a DECLINED
-                         application too, but only for the rental-application
-                         override tier (a configured CO, or admin/super_admin
-                         — User::isRentalApplicationOverrideTier(), the real
-                         gate enforced server-side in reopen() itself). This
-                         is a courtesy hide only: an ordinary agent viewing a
-                         declined application simply doesn't see the control,
-                         rather than seeing it and hitting a 403 — the button
-                         being absent here changes nothing about what the
-                         server will accept from a crafted request. --}}
-                    @php
-                        $canReopenNow = in_array($rentalApplication->status, \App\Models\RentalApplication::REOPENABLE_STATUSES, true)
-                            && ($rentalApplication->status !== 'declined' || auth()->user()->isRentalApplicationOverrideTier((int) $rentalApplication->agency_id));
-                    @endphp
-                    @if($canReopenNow)
-                        <p class="text-xs font-semibold uppercase tracking-wide mb-2 mt-4" style="color: var(--text-muted);">Reopen for the applicant</p>
-                        <p class="text-xs mb-2" style="color: var(--text-muted);">
-                            Sends the applicant a link to fix an answer and re-sign. Their previous answers stay pre-filled — they only edit what's wrong. The signed submission on file now is kept, unchanged, as a separate record.
-                        </p>
-                        <textarea x-model="reopenNote" rows="3" class="corex-input text-xs w-full mb-2" style="resize: none;"
-                                  placeholder="What do they need to fix? e.g. ID number was typed incorrectly"></textarea>
-                        <button type="button" class="corex-btn-outline text-xs w-full" :disabled="reopenSending || !reopenNote.trim()" @click="reopenApplication()" x-text="reopenSending ? 'Sending…' : 'Reopen for applicant'"></button>
-                    @endif
-
-                    @if($rentalApplication->generations->count() > 1)
-                        <p class="text-xs font-semibold uppercase tracking-wide mb-2 mt-4" style="color: var(--text-muted);">Submission history</p>
-                        <div class="space-y-1 mb-2">
+            @if($rentalApplication->generations->count() > 1)
+                <div x-show="submissionHistoryOpen" x-cloak class="fixed inset-0 z-[100] flex items-center justify-center p-4" style="background: rgba(0,0,0,0.5);" @keydown.escape.window="submissionHistoryOpen = false">
+                    <div class="w-full max-w-md rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);" @click.outside="submissionHistoryOpen = false">
+                        <h3 class="text-sm font-semibold mb-2" style="color: var(--text-primary);">Submission history</h3>
+                        <div class="space-y-1 mb-3">
                             @foreach($rentalApplication->generations as $gen)
                                 <a href="{{ route('corex.rental-applications.generations.show', [$rentalApplication, $gen->generation]) }}" class="block text-xs underline" style="color: var(--ds-blue, #2563eb);">
                                     Submission {{ $gen->generation }} — {{ $gen->submitted_at->format('d M Y, H:i') }}
@@ -1270,92 +1281,82 @@
                                 </a>
                             @endforeach
                         </div>
-                    @endif
-
-                    @unless(in_array($rentalApplication->status, ['approved', 'declined'], true))
-                        <p class="text-xs font-semibold uppercase tracking-wide mb-2" style="color: var(--text-muted);">Request more information</p>
-                        <textarea x-model="moreInfoNote" rows="7" class="corex-input text-xs w-full mb-2" style="resize: none; overflow-y: auto;"
-                                  x-init="autoGrowTextarea($el)" @input="autoGrowTextarea($el)"
-                                  placeholder="What do you need from the applicant? e.g.&#10;1. Three months' bank statements&#10;2. Payslip for August&#10;3. Proof of the R12,000 deposit on 14 August"></textarea>
-                        <button type="button" class="corex-btn-outline text-xs w-full" :disabled="moreInfoSending || !moreInfoNote.trim()" @click="requestMoreInfo()" x-text="moreInfoSending ? 'Sending…' : 'Send to applicant'"></button>
-                        <p class="text-xs mt-2" x-show="agentActionStatus" x-text="agentActionStatus" :style="agentActionError ? 'color: var(--ds-red, #dc2626);' : 'color: var(--ds-emerald, #059669);'"></p>
-                    @endunless
-                @else
-                    <h2 class="text-sm font-semibold mb-1" style="color: var(--text-primary);">Decision</h2>
-                    @if($blockedBySelfApproval)
-                        <div class="rounded-md p-3 text-xs" style="background: var(--surface-2); color: var(--text-primary); border: 1px solid var(--ds-amber, #f59e0b);">
-                            <strong>You created this application, so it needs another authoriser.</strong>
-                            <p class="mt-1" style="color: var(--text-muted);">Only a CO (Override) user or an administrator may approve, decline, or request more information on an application they created themselves. Ask another authoriser to act on this one.</p>
+                        <div class="flex justify-end">
+                            <button type="button" class="corex-btn-outline text-xs" @click="submissionHistoryOpen = false">Close</button>
                         </div>
-                    @else
-                        <p class="text-xs mb-3" style="color: var(--text-muted);">
-                            @if($alreadyDecided && $canOverride)
-                                Acting below overrides the existing decision — a reason is required.
-                            @else
-                                Approve, decline, or ask the agent for more information.
-                            @endif
-                        </p>
-
-                        <div class="rounded-md p-3 mb-3" style="border: 1px solid var(--border);">
-                            <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Approve — monthly amount</label>
-                            <input type="text" inputmode="decimal" x-model="approveAmount" class="corex-input text-sm w-full mb-2" placeholder="0.00">
-                            <textarea x-model="approveReason" rows="2" class="corex-input text-xs w-full mb-2" placeholder="{{ $alreadyDecided ? 'Reason for override (required)' : 'Notes (optional)' }}"></textarea>
-                            {{-- AT-401 — Johan: "the decision buttons should save the
-                                 work and the only modal here is a confirmation."
-                                 One plain-language confirm naming the decision and
-                                 the amount; Cancel stops the submit entirely. On
-                                 confirm, __raSuppressUnloadGuard is set BEFORE the
-                                 POST goes through so the highlighter's own unsaved-
-                                 marks warning (document-highlighter-script.blade.php)
-                                 never fires on this deliberate navigation. --}}
-                            <form method="POST" action="{{ route('corex.rental-applications.authorisation.approve', $rentalApplication) }}"
-                                  @submit="if (!confirm('Approve this tenant for R' + Number(approveAmount || 0).toLocaleString('en-ZA', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + '?')) { $event.preventDefault(); return; } window.__raSuppressUnloadGuard = true; $refs.approveAmountField.value = approveAmount; $refs.approveReasonField.value = approveReason">
-                                @csrf
-                                <input type="hidden" name="approved_rental_amount" x-ref="approveAmountField">
-                                <input type="hidden" name="reason" x-ref="approveReasonField">
-                                <button type="submit" class="corex-btn-primary text-xs w-full" :disabled="!approveAmount">Approve</button>
-                            </form>
-                        </div>
-
-                        <div class="rounded-md p-3 mb-3" style="border: 1px solid var(--border);">
-                            <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Decline</label>
-                            {{-- Johan, 2026-09-09, verbatim: "the auth needs to report
-                                 back to the agent why the application has been
-                                 rejected." A decline with no reason tells the agent
-                                 nothing — required on every decline now, not just an
-                                 override, server-enforced (guardCanDecide()'s caller
-                                 now validates 'reason' => 'required' unconditionally)
-                                 and reflected here so the button can't even be
-                                 clicked without one. --}}
-                            <textarea x-model="declineReason" rows="2" class="corex-input text-xs w-full mb-2" placeholder="Reason for decline (required) — the agent will see this"></textarea>
-                            {{-- AT-401 — same plain-confirm + unload-guard-suppress
-                                 pattern as the Approve form above. --}}
-                            <form method="POST" action="{{ route('corex.rental-applications.authorisation.decline', $rentalApplication) }}"
-                                  @submit="if (!confirm('Decline this application?')) { $event.preventDefault(); return; } window.__raSuppressUnloadGuard = true; $refs.declineReasonField.value = declineReason">
-                                @csrf
-                                <input type="hidden" name="reason" x-ref="declineReasonField">
-                                <button type="submit" class="corex-btn-outline text-xs w-full" style="color: var(--ds-red, #dc2626); border-color: var(--ds-red, #dc2626);" :disabled="!declineReason.trim()">Decline</button>
-                            </form>
-                        </div>
-
-                        @unless($alreadyDecided)
-                            <div class="rounded-md p-3" style="border: 1px solid var(--border);">
-                                <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Request more information</label>
-                                <p class="text-xs mb-2" style="color: var(--text-muted);">Sends this back to the agent, not the applicant.</p>
-                                <textarea x-model="moreInfoReason" rows="2" class="corex-input text-xs w-full mb-2" placeholder="What's missing? (required)"></textarea>
-                                {{-- AT-401 — same pattern; this is a decision button too. --}}
-                                <form method="POST" action="{{ route('corex.rental-applications.authorisation.request-more-info', $rentalApplication) }}"
-                                      @submit="if (!confirm('Send this back to the agent for more information?')) { $event.preventDefault(); return; } window.__raSuppressUnloadGuard = true; $refs.moreInfoReasonField.value = moreInfoReason">
-                                    @csrf
-                                    <input type="hidden" name="reason" x-ref="moreInfoReasonField">
-                                    <button type="submit" class="corex-btn-outline text-xs w-full" :disabled="!moreInfoReason.trim()">Request More Information</button>
-                                </form>
+                    </div>
+                </div>
+            @endif
+        @else
+            @unless($blockedBySelfApproval)
+                {{-- Approve — same fields, same form/action/CSRF, same AT-401
+                     confirm()+unload-guard-suppress @submit pattern as
+                     before this round; only the surrounding chrome (now a
+                     modal instead of an always-visible card) changed. --}}
+                <div x-show="approveModalOpen" x-cloak class="fixed inset-0 z-[100] flex items-center justify-center p-4" style="background: rgba(0,0,0,0.5);" @keydown.escape.window="approveModalOpen = false">
+                    <div class="w-full max-w-md rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);" @click.outside="approveModalOpen = false">
+                        <h3 class="text-sm font-semibold mb-2" style="color: var(--text-primary);">Approve</h3>
+                        @if($alreadyDecided && $canOverride)
+                            <p class="text-xs mb-2" style="color: var(--ds-amber, #b45309);">This overrides the existing decision — a reason is required.</p>
+                        @endif
+                        <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Monthly amount</label>
+                        <input type="text" inputmode="decimal" x-model="approveAmount" class="corex-input text-sm w-full mb-2" placeholder="0.00">
+                        <textarea x-model="approveReason" rows="2" class="corex-input text-xs w-full mb-3" placeholder="{{ $alreadyDecided ? 'Reason for override (required)' : 'Notes (optional)' }}"></textarea>
+                        <form method="POST" action="{{ route('corex.rental-applications.authorisation.approve', $rentalApplication) }}"
+                              @submit="if (!confirm('Approve this tenant for R' + Number(approveAmount || 0).toLocaleString('en-ZA', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + '?')) { $event.preventDefault(); return; } window.__raSuppressUnloadGuard = true; $refs.approveAmountField.value = approveAmount; $refs.approveReasonField.value = approveReason">
+                            @csrf
+                            <input type="hidden" name="approved_rental_amount" x-ref="approveAmountField">
+                            <input type="hidden" name="reason" x-ref="approveReasonField">
+                            <div class="flex justify-end gap-2">
+                                <button type="button" class="corex-btn-outline text-xs" @click="approveModalOpen = false">Cancel</button>
+                                <button type="submit" class="corex-btn-primary text-xs" :disabled="!approveAmount">Approve</button>
                             </div>
-                        @endunless
-                    @endif
-                @endif
-            </div>
-        </div>
+                        </form>
+                    </div>
+                </div>
+
+                {{-- Decline — same fields/form/pattern as before. --}}
+                <div x-show="declineModalOpen" x-cloak class="fixed inset-0 z-[100] flex items-center justify-center p-4" style="background: rgba(0,0,0,0.5);" @keydown.escape.window="declineModalOpen = false">
+                    <div class="w-full max-w-md rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);" @click.outside="declineModalOpen = false">
+                        <h3 class="text-sm font-semibold mb-2" style="color: var(--text-primary);">Decline</h3>
+                        <textarea x-model="declineReason" rows="3" class="corex-input text-xs w-full mb-3" placeholder="Reason for decline (required) — the agent will see this"></textarea>
+                        <form method="POST" action="{{ route('corex.rental-applications.authorisation.decline', $rentalApplication) }}"
+                              @submit="if (!confirm('Decline this application?')) { $event.preventDefault(); return; } window.__raSuppressUnloadGuard = true; $refs.declineReasonField.value = declineReason">
+                            @csrf
+                            <input type="hidden" name="reason" x-ref="declineReasonField">
+                            <div class="flex justify-end gap-2">
+                                <button type="button" class="corex-btn-outline text-xs" @click="declineModalOpen = false">Cancel</button>
+                                <button type="submit" class="corex-btn-outline text-xs" style="color: var(--ds-red, #dc2626); border-color: var(--ds-red, #dc2626);" :disabled="!declineReason.trim()">Decline</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                {{-- Send back — this is the AUTHORISER's own "Request more
+                     information," unchanged: sends this back to the AGENT,
+                     never the applicant. Not part of the two-actions-to-
+                     the-applicant merge above — a genuinely separate flow,
+                     kept separate. --}}
+                @unless($alreadyDecided)
+                    <div x-show="sendBackToAgentModalOpen" x-cloak class="fixed inset-0 z-[100] flex items-center justify-center p-4" style="background: rgba(0,0,0,0.5);" @keydown.escape.window="sendBackToAgentModalOpen = false">
+                        <div class="w-full max-w-md rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);" @click.outside="sendBackToAgentModalOpen = false">
+                            <h3 class="text-sm font-semibold mb-1" style="color: var(--text-primary);">Send back</h3>
+                            <p class="text-xs mb-2" style="color: var(--text-muted);">Sends this back to the agent, not the applicant.</p>
+                            <textarea x-model="moreInfoReason" rows="3" class="corex-input text-xs w-full mb-3" placeholder="What's missing? (required)"></textarea>
+                            <form method="POST" action="{{ route('corex.rental-applications.authorisation.request-more-info', $rentalApplication) }}"
+                                  @submit="if (!confirm('Send this back to the agent for more information?')) { $event.preventDefault(); return; } window.__raSuppressUnloadGuard = true; $refs.moreInfoReasonField.value = moreInfoReason">
+                                @csrf
+                                <input type="hidden" name="reason" x-ref="moreInfoReasonField">
+                                <div class="flex justify-end gap-2">
+                                    <button type="button" class="corex-btn-outline text-xs" @click="sendBackToAgentModalOpen = false">Cancel</button>
+                                    <button type="submit" class="corex-btn-outline text-xs" :disabled="!moreInfoReason.trim()">Send</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                @endunless
+            @endunless
+        @endif
 
         {{-- AT-392 — Tenant Wishlist drawer, relocated here (root cause of the
              cut-off/sliced-behind-the-header bug reported on QA1: this drawer
@@ -1408,7 +1409,7 @@
 @include('corex.rental-applications.partials.document-highlighter-script')
 
 <script>
-function rentalReview({ saveUrl, initial, initialIncomeItems, initialExpenseItems, initialResult, initialSavedAt, initialMarkedUpDocIds, currentUserId, currentUserName, currentUserRole, highlighters, requestMoreInfoUrl, submitForApprovalUrl, reopenUrl, expectedGeneration }) {
+function rentalReview({ saveUrl, initial, initialIncomeItems, initialExpenseItems, initialResult, initialSavedAt, initialMarkedUpDocIds, currentUserId, currentUserName, currentUserRole, highlighters, requestMoreInfoUrl, submitForApprovalUrl, reopenUrl, expectedGeneration, canReopenNow, documentChecklist }) {
     return {
         // 2026-09-08 — the highlight/note viewer state+methods (activeDocId,
         // pages, marks, openHighlighter()/applyHighlights()/etc.) now live in
@@ -1463,6 +1464,96 @@ function rentalReview({ saveUrl, initial, initialIncomeItems, initialExpenseItem
             this.compactAndEnsureTrailing(this.expenseItems);
             this.save();
         },
+        // ROUND 6, 2026-09-11 — the merged income/expense ledger. Johan: "the
+        // agent must see income and expenses at the same time, the way they
+        // read on a bank statement" — one 4-column table, not two cards/tabs.
+        // incomeItems/expenseItems (above) stay exactly as they were — same
+        // two arrays, same save()/compactAndEnsureTrailing() plumbing, same
+        // server round-trip — this is a DISPLAY-layer merge only. newEntry is
+        // new, separate state for the strip's always-visible top input row,
+        // decoupled from the old "the array's own trailing blank row IS the
+        // input" mechanic: a row is income OR expense, never both — the
+        // opposite amount field DISABLES (not clears) the instant one has a
+        // value, so nothing typed is ever silently discarded.
+        newEntry: { description: '', entry_date: '', incomeAmount: '', expenseAmount: '' },
+        commitNewEntry() {
+            const amount = this.newEntry.incomeAmount || this.newEntry.expenseAmount;
+            if (!amount) return;
+            const list = this.newEntry.incomeAmount ? this.incomeItems : this.expenseItems;
+            list.push({ id: null, description: this.newEntry.description, entry_date: this.newEntry.entry_date, amount, _tempKey: 'n' + list.length + Math.random() });
+            this.compactAndEnsureTrailing(list);
+            this.newEntry = { description: '', entry_date: '', incomeAmount: '', expenseAmount: '' };
+            this.save();
+        },
+        // Merged for DISPLAY only — each row wraps a REFERENCE to the real
+        // incomeItems/expenseItems object (never a copy), so x-model bindings
+        // on a captured row still mutate the real array item directly and
+        // save() still sends the real thing. Newest first, matching how a
+        // bank statement / banking app itself is read.
+        ledgerRows() {
+            const income = this.incomeItems.filter(r => !this.rowIsBlank(r)).map(item => ({ type: 'income', item }));
+            const expense = this.expenseItems.filter(r => !this.rowIsBlank(r)).map(item => ({ type: 'expense', item }));
+            return income.concat(expense).sort((a, b) => (b.item.entry_date || '').localeCompare(a.item.entry_date || ''));
+        },
+        // ROUND 6, 2026-09-11 — Johan: "I also dont see the need for 2
+        // section - send back for more info and reopen and send back. does
+        // the same function - send it back and ask for what you need."
+        // Investigation found the two ORIGINAL actions genuinely differ —
+        // reopen() (below, via reopenUrl) changes status, unlocks the
+        // applicant's own typed fields for editing, and requires
+        // re-signature; requestMoreInfo() (further below, via
+        // requestMoreInfoUrl) is notify-only, no unlock. Nothing is dropped
+        // by merging the BUTTON: canReopenNow (computed server-side, same
+        // gate as the original Reopen button) decides which real action
+        // fires, always preferring the fuller one (reopen) when it's legally
+        // available for this application's current status, falling back to
+        // the notify-only path otherwise — the applicant never gets LESS
+        // than the old two-button screen could do, and the agent never has
+        // to choose between two buttons that looked like they did the same
+        // thing but didn't.
+        sendBackModalOpen: false,
+        sendBackNote: '',
+        sendBackSending: false,
+        documentChecklist: (documentChecklist || []).map(d => ({ ...d, checked: false })),
+        canReopenNow: !!canReopenNow,
+        async sendBackToApplicant() {
+            if (this.sendBackSending || !this.sendBackNote.trim()) return;
+            const requested = this.documentChecklist.filter(d => d.checked).map(d => d.label);
+            const note = requested.length ? (this.sendBackNote.trim() + '\n\nPlease also send: ' + requested.join(', ')) : this.sendBackNote.trim();
+            this.sendBackSending = true;
+            this.agentActionStatus = '';
+            try {
+                const url = this.canReopenNow ? reopenUrl : requestMoreInfoUrl;
+                const res = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content ?? '',
+                        'Accept': 'application/json',
+                    },
+                    body: JSON.stringify({ note }),
+                });
+                const data = await res.json().catch(() => ({}));
+                if (res.ok && data.ok) {
+                    this.agentActionError = false;
+                    this.agentActionStatus = data.mail_sent
+                        ? (this.canReopenNow ? 'Reopened — the applicant has been emailed.' : 'Sent to the applicant.')
+                        : 'Logged, but the email could not be sent — check their email address.';
+                    this.sendBackModalOpen = false;
+                    this.sendBackNote = '';
+                    this.documentChecklist.forEach(d => d.checked = false);
+                    if (this.canReopenNow) setTimeout(() => window.location.reload(), 900);
+                } else {
+                    this.agentActionError = true;
+                    this.agentActionStatus = data.error || 'Could not send — try again.';
+                }
+            } catch (e) {
+                this.agentActionError = true;
+                this.agentActionStatus = 'Could not send — check your connection.';
+            }
+            this.sendBackSending = false;
+        },
+        submissionHistoryOpen: false,
         // 2026-09-08 — Johan, live on QA1: "added values in right hand
         // panel totals do not populate." Root cause found on the real
         // record: typed amounts had landed in the DESCRIPTION column,
@@ -1550,9 +1641,7 @@ function rentalReview({ saveUrl, initial, initialIncomeItems, initialExpenseItem
         // ── Affordability assessment (unchanged) ──────────────────────────
         fields: initial,
         result: initialResult ?? { label: 'incomplete' },
-        // ── Authoriser flow — the agent's two actions ─────────────────────
-        moreInfoNote: '',
-        moreInfoSending: false,
+        // ── Authoriser flow — the agent's action ──────────────────────────
         submittingForApproval: false,
         agentActionStatus: '',
         agentActionError: false,
@@ -1563,38 +1652,10 @@ function rentalReview({ saveUrl, initial, initialIncomeItems, initialExpenseItem
         // silently acting on content it hasn't actually seen (Johan: reuse
         // the exact 409 pattern already shipped for document marks).
         expectedGeneration: expectedGeneration,
-        reopenNote: '',
-        reopenSending: false,
-        async reopenApplication() {
-            if (this.reopenSending || !this.reopenNote.trim()) return;
-            if (!confirm('Send this application back to the applicant to fix and re-sign? They will be emailed a link, pre-filled with what they already entered.')) return;
-            this.reopenSending = true;
-            this.agentActionStatus = '';
-            try {
-                const res = await fetch(reopenUrl, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content ?? '',
-                        'Accept': 'application/json',
-                    },
-                    body: JSON.stringify({ note: this.reopenNote }),
-                });
-                const data = await res.json().catch(() => ({}));
-                if (res.ok && data.ok) {
-                    this.agentActionStatus = data.mail_sent ? 'Reopened — the applicant has been emailed.' : 'Reopened, but the email could not be sent — check their email address.';
-                    this.agentActionError = false;
-                    setTimeout(() => window.location.reload(), 900);
-                } else {
-                    this.agentActionError = true;
-                    this.agentActionStatus = data.error || 'Could not reopen — try again.';
-                }
-            } catch (e) {
-                this.agentActionError = true;
-                this.agentActionStatus = 'Could not reopen — check your connection.';
-            }
-            this.reopenSending = false;
-        },
+        // reopenApplication()/requestMoreInfo() (the two separate actions
+        // this used to be) are merged into sendBackToApplicant() above,
+        // 2026-09-11 — see that method's own comment for why neither one
+        // was simply deleted.
         // A generation-conflict response (409) means the applicant resubmitted
         // since this page loaded — every write action's error handling calls
         // this instead of a generic "try again" so the agent knows to reload
@@ -1602,35 +1663,6 @@ function rentalReview({ saveUrl, initial, initialIncomeItems, initialExpenseItem
         handleGenerationConflict(data) {
             this.agentActionError = true;
             this.agentActionStatus = 'This application changed since you opened it — the applicant resubmitted. Reload the page to see the new version.';
-        },
-        async requestMoreInfo() {
-            if (this.moreInfoSending || !this.moreInfoNote.trim()) return;
-            this.moreInfoSending = true;
-            this.agentActionStatus = '';
-            try {
-                const res = await fetch(requestMoreInfoUrl, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content ?? '',
-                        'Accept': 'application/json',
-                    },
-                    body: JSON.stringify({ note: this.moreInfoNote }),
-                });
-                const data = await res.json().catch(() => ({}));
-                if (res.ok && data.ok) {
-                    this.agentActionError = false;
-                    this.agentActionStatus = data.mail_sent ? 'Sent to the applicant.' : 'Logged, but the email could not be sent — check their email address.';
-                    this.moreInfoNote = '';
-                } else {
-                    this.agentActionError = true;
-                    this.agentActionStatus = data.error || 'Could not send — try again.';
-                }
-            } catch (e) {
-                this.agentActionError = true;
-                this.agentActionStatus = 'Could not send — check your connection.';
-            }
-            this.moreInfoSending = false;
         },
         async submitForApproval() {
             if (this.submittingForApproval) return;
@@ -1798,55 +1830,65 @@ function rentalReviewLayout() {
         // block's own note for the full arithmetic and ROUND 3 (amount
         // column's own floor + scrollbar-gutter reservation, 440→460).
         //
-        // ROUND 4, 2026-09-11 — Johan: "the pdf showing is too small... the
-        // savings moves the splitter back to the right." Tightened input
-        // padding (-10px amount, -12px date, both re-verified live at the
-        // new floors) + a 20% description cut (-34px, Johan's own number)
-        // = 56px off the row's real requirement. Recomputed default the
-        // same way as every prior round — see the layout <style> block's
-        // own note for the full arithmetic — 460→400. Floor/ceiling shifted
-        // the same -60px: 400→340, 660→600.
-        RA_ASIDE_DEFAULT_PX: 400,
-        RA_ASIDE_MIN_PX: 340,
-        RA_ASIDE_MAX_PX: 600,
-        // Persisted per-browser so a drag survives a reload; Math.max/min
-        // below re-clamp a value ALREADY in localStorage from a PRIOR
-        // floor/ceiling (260/320, 320/480, 380/640, or 400/660 — this
-        // build's own three prior passes) — a browser that dragged to one
-        // of those old numbers must not stay stuck outside the current
-        // range forever. Repeats the RA_ASIDE_* numbers as literals rather
-        // than referencing them — a plain object literal can't read a
-        // sibling property via `this` while it's still being constructed.
-        // startAsideResize()'s own clamp below (evaluated later, as a real
-        // method call) uses the named constants directly.
-        resizingAside: false,
-        asideWidth: Math.min(600, Math.max(340, parseInt(localStorage.getItem('rentalReviewAsideWidth'), 10) || 400)),
-        startAsideResize(e) {
-            this.resizingAside = true;
-            const startX = e.clientX;
-            const startWidth = this.asideWidth;
-            // Plain DOM lookup, not Alpine's $el magic — found live under a
-            // REAL mouse drag (not a synthetic dispatched event) that
-            // `this.$el` read from inside this method resolves to
-            // something that silently fails to affect the real node's
-            // inline style: asideWidth updated correctly on every drag, the
-            // CSS variable never did. e.target is the resizer handle itself
-            // (a genuine native event, always reliable); walking up to its
-            // one fixed ancestor sidesteps whatever Alpine-context quirk
-            // caused that.
+        // ROUND 6, 2026-09-11 — Johan, after cc1 verified Round 4's tighter
+        // layout: "not going to work. too little width left to properly
+        // see the pdf." The panel is no longer a side column at all — it's
+        // a bottom strip, and the drag is now VERTICAL (height), not
+        // horizontal (width). Same mechanism, same constant-naming
+        // convention, renamed RA_STRIP_*: floor (260px) still shows the
+        // strip's own header row plus the ledger's input row — verified
+        // live; ceiling (560px) still leaves a genuinely readable document
+        // on a normal viewport; default (320px) matches Johan's own
+        // approved mockup — four zones, three ledger rows visible.
+        RA_STRIP_DEFAULT_PX: 320,
+        RA_STRIP_MIN_PX: 260,
+        RA_STRIP_MAX_PX: 560,
+        // Persisted per-browser so a drag survives a reload. A browser that
+        // dragged the OLD width-based control (rentalReviewAsideWidth) has
+        // no bearing on this new height control — separate localStorage
+        // key, separate axis, starts fresh at the default. Repeats the
+        // RA_STRIP_* numbers as literals rather than referencing them — a
+        // plain object literal can't read a sibling property via `this`
+        // while it's still being constructed. startStripResize()'s own
+        // clamp below (evaluated later, as a real method call) uses the
+        // named constants directly.
+        resizingStrip: false,
+        stripHeight: Math.min(560, Math.max(260, parseInt(localStorage.getItem('rentalReviewStripHeight'), 10) || 320)),
+        startStripResize(e) {
+            this.resizingStrip = true;
+            const startY = e.clientY;
+            const startHeight = this.stripHeight;
+            // Plain DOM lookup, not Alpine's $el magic — the width-drag
+            // above already found (under a REAL mouse drag, not a
+            // synthetic dispatched event) that `this.$el` read from inside
+            // this method resolves to something that silently fails to
+            // affect the real node's inline style. e.target is the
+            // resizer handle itself (a genuine native event, always
+            // reliable); walking up to its one fixed ancestor sidesteps
+            // whatever Alpine-context quirk caused that.
             const columnsEl = e.target.closest('.rental-review-columns');
             const onMove = (ev) => {
-                if (!this.resizingAside) return;
-                // Dragging the handle LEFT (negative delta) widens the
-                // aside — the aside sits to the RIGHT of the handle.
-                const next = startWidth - (ev.clientX - startX);
-                this.asideWidth = Math.min(this.RA_ASIDE_MAX_PX, Math.max(this.RA_ASIDE_MIN_PX, next));
-                columnsEl.style.setProperty('--rr-aside-w', this.asideWidth + 'px');
+                if (!this.resizingStrip) return;
+                // Dragging the handle UP (negative delta) grows the strip —
+                // the strip sits BELOW the handle.
+                const next = startHeight - (ev.clientY - startY);
+                this.stripHeight = Math.min(this.RA_STRIP_MAX_PX, Math.max(this.RA_STRIP_MIN_PX, next));
+                columnsEl.style.setProperty('--rr-strip-h', this.stripHeight + 'px');
+                // Mark re-projection (RoleBlockNormalizer's toDisplayX/Y
+                // helpers, fed by the ResizeObserver on each page <img>)
+                // must hold THROUGHOUT the drag, not just once it settles —
+                // the PDF's rendered box genuinely changes size on every
+                // single mousemove now that the strip height eats directly
+                // into .rental-review-main's available height. That
+                // ResizeObserver already fires on every layout change with
+                // no extra wiring needed here; this comment documents WHY
+                // that existing mechanism is now load-bearing mid-drag, not
+                // just at rest.
             };
             const onUp = () => {
-                if (!this.resizingAside) return;
-                this.resizingAside = false;
-                localStorage.setItem('rentalReviewAsideWidth', String(this.asideWidth));
+                if (!this.resizingStrip) return;
+                this.resizingStrip = false;
+                localStorage.setItem('rentalReviewStripHeight', String(this.stripHeight));
                 document.removeEventListener('mousemove', onMove);
                 document.removeEventListener('mouseup', onUp);
             };
@@ -1854,7 +1896,7 @@ function rentalReviewLayout() {
             document.addEventListener('mouseup', onUp);
         },
         init() {
-            this.$el.style.setProperty('--rr-aside-w', this.asideWidth + 'px');
+            this.$el.style.setProperty('--rr-strip-h', this.stripHeight + 'px');
 
             const recalc = () => {
                 const scrollEl = document.getElementById('appScroll');
@@ -1984,6 +2026,15 @@ function rentalAuthorisationViewer({ initialMarkedUpDocIds, currentUserId, curre
         approveReason: '',
         declineReason: '',
         moreInfoReason: '',
+        // ROUND 6, 2026-09-11 — these fields used to sit permanently visible
+        // in the old right-hand column; Zone 4 is buttons only now (128px),
+        // so each opens the same fields in a modal instead. The fields, the
+        // forms, the @submit confirm()+unload-guard-suppress pattern (AT-401)
+        // and the server endpoints are all unchanged — only where the agent
+        // types is different.
+        approveModalOpen: false,
+        declineModalOpen: false,
+        sendBackToAgentModalOpen: false,
 
         init() {
             this.initHighlighterPrefs();
@@ -2006,10 +2057,34 @@ function rentalAuthorisationViewer({ initialMarkedUpDocIds, currentUserId, curre
 function rentalAssessmentEditor({ currentUserId, incomeItems, expenseItems, addIncomeUrl, addExpenseUrl, incomeItemUrl, expenseItemUrl, statementMonths, maxRentPercent, rent, propertyLinked, hasUnpaidTransactions }) {
     return {
         currentUserId, incomeItems, expenseItems, statementMonths, maxRentPercent, rent, propertyLinked, hasUnpaidTransactions,
-        newIncomeDescription: '', newIncomeAmount: '', newIncomeDate: '',
-        newExpenseDescription: '', newExpenseAmount: '', newExpenseDate: '',
+        // ROUND 6, 2026-09-11 — merged ledger top input row, replacing the
+        // old newIncomeDescription/newIncomeAmount/.../newExpenseDate sextet
+        // (two separate "+Add" mini-forms, one per old card). Mutual
+        // exclusion matches the agent side's own newEntry: an amount typed
+        // into one column disables the other rather than clearing it.
+        newEntry: { description: '', entry_date: '', incomeAmount: '', expenseAmount: '' },
         replacingItem: null, replaceDescription: '', replaceAmount: '', replaceDate: '',
         itemError: '',
+        // Merged for DISPLAY only, same shape as the agent side's own
+        // ledgerRows() — each row wraps a REFERENCE to the real incomeItems/
+        // expenseItems entry, never a copy, so toggleStrike()/addItem()
+        // above keep working against the real objects unchanged.
+        ledgerRows() {
+            const income = this.incomeItems.map(item => ({ type: 'income', item }));
+            const expense = this.expenseItems.map(item => ({ type: 'expense', item }));
+            return income.concat(expense).sort((a, b) => (b.item.entry_date || '').localeCompare(a.item.entry_date || ''));
+        },
+        async commitNewEntry() {
+            const isIncome = !!this.newEntry.incomeAmount;
+            const amount = this.newEntry.incomeAmount || this.newEntry.expenseAmount;
+            if (!amount) return;
+            const body = { description: this.newEntry.description, amount, entry_date: this.newEntry.entry_date || null };
+            const item = await this.postJson(isIncome ? addIncomeUrl : addExpenseUrl, 'POST', body);
+            if (!item) return;
+            (isIncome ? this.incomeItems : this.expenseItems).push(item);
+            this.newEntry = { description: '', entry_date: '', incomeAmount: '', expenseAmount: '' };
+        },
+        netTotal() { return this.incomeTotal() - this.expenseTotal(); },
 
         // Johan: "the result should read clearly as 'this figure was
         // replaced by that one, by this person, at this time'."
@@ -2085,32 +2160,26 @@ function rentalAssessmentEditor({ currentUserId, incomeItems, expenseItems, addI
             }
         },
 
-        // replacesId: present when this add follows a strike in the same
-        // flow — the row it replaces. Absent for a plain "+ Add" at the
-        // bottom of the list.
-        async addItem(kind, replacesId = null) {
+        // ROUND 6, 2026-09-11 — was also reachable with replacesId=null (a
+        // plain "+ Add" at the bottom of each old card); that path is now
+        // commitNewEntry() above. This one only ever runs as a strike's
+        // replacement now — replacesId is always present.
+        async addItem(kind, replacesId) {
             const isIncome = kind === 'income';
-            const description = replacesId ? this.replaceDescription : (isIncome ? this.newIncomeDescription : this.newExpenseDescription);
-            const amount = replacesId ? this.replaceAmount : (isIncome ? this.newIncomeAmount : this.newExpenseAmount);
-            const entry_date = replacesId ? this.replaceDate : (isIncome ? this.newIncomeDate : this.newExpenseDate);
-            if (!amount) return;
-            const body = { description, amount, entry_date: entry_date || null };
-            if (replacesId) body.replaces_item_id = replacesId;
+            const body = { description: this.replaceDescription, amount: this.replaceAmount, entry_date: this.replaceDate || null, replaces_item_id: replacesId };
+            if (!this.replaceAmount) return;
             const item = await this.postJson(isIncome ? addIncomeUrl : addExpenseUrl, 'POST', body);
             if (!item) return;
             (isIncome ? this.incomeItems : this.expenseItems).push(item);
-            if (replacesId) {
-                const struckRow = (isIncome ? this.incomeItems : this.expenseItems).find(i => i.id === replacesId);
-                if (struckRow) {
-                    struckRow.replaced_by_item_id = item.id;
-                    struckRow.replaced_by_amount = item.amount;
-                    struckRow.replaced_by_description = item.description;
-                    struckRow.replaced_by_user = item.added_by;
-                    struckRow.replaced_by_at = item.added_at;
-                }
-                this.replacingItem = null; this.replaceDescription = ''; this.replaceAmount = ''; this.replaceDate = '';
-            } else if (isIncome) { this.newIncomeDescription = ''; this.newIncomeAmount = ''; this.newIncomeDate = ''; }
-            else { this.newExpenseDescription = ''; this.newExpenseAmount = ''; this.newExpenseDate = ''; }
+            const struckRow = (isIncome ? this.incomeItems : this.expenseItems).find(i => i.id === replacesId);
+            if (struckRow) {
+                struckRow.replaced_by_item_id = item.id;
+                struckRow.replaced_by_amount = item.amount;
+                struckRow.replaced_by_description = item.description;
+                struckRow.replaced_by_user = item.added_by;
+                struckRow.replaced_by_at = item.added_at;
+            }
+            this.replacingItem = null; this.replaceDescription = ''; this.replaceAmount = ''; this.replaceDate = '';
         },
 
         // Johan: strike-and-re-add, not edit. Striking a row that isn't
