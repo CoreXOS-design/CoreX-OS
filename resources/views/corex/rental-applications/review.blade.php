@@ -266,7 +266,6 @@
             </div>
         </x-slot>
         <x-slot name="right">
-            <template x-if="activeDocId === null">
                 <div class="flex items-center gap-2 flex-wrap justify-end">
                     @if($viewerRole === 'agent')
                         {{-- 2026-09-08 — Johan, three times now: "same fight with placement
@@ -288,34 +287,6 @@
                         <a href="{{ route('corex.rental-applications.authorisation.index') }}" class="corex-btn-outline text-xs">Back to list</a>
                     @endif
                 </div>
-            </template>
-            <template x-if="activeDocId !== null">
-                {{-- 2026-09-10 (cc5, AT-392, Johan's "desk with highlighters"
-                     principle) — this used to hold the full tool set
-                     (Highlight/Note toggle, a colour dropdown that changed
-                     meaning depending on which was picked last, stroke
-                     size, undo/redo) in one reflowing header row: Johan,
-                     verbatim, "some shows, some goes away? ... not click
-                     buttons change, etc." Every drawing/marking tool moved
-                     to the new fixed left panel inside the document viewer
-                     (document-highlighter-pages.blade.php) — one place,
-                     always visible, nothing here changes shape depending on
-                     what's selected. This header keeps only what genuinely
-                     needs to stay reachable regardless of scroll position
-                     (Johan, 2026-09-08: "place them in a header... always
-                     visible") — the document label and the page-level
-                     Save/Done actions, not the tools themselves. --}}
-                <div class="flex items-center gap-3 flex-wrap justify-end">
-                    <span class="text-xs font-medium truncate max-w-[160px]" style="color: var(--text-secondary);" x-text="label"></span>
-                    <span class="text-xs font-semibold hidden sm:inline" style="color: var(--text-secondary);" x-show="!loading">
-                        <span x-text="markCount()"></span> mark<span x-show="markCount() !== 1">s</span>
-                    </span>
-                    <button type="button" class="corex-btn-primary text-xs" x-show="!loading && !loadError"
-                            :disabled="applying || pagesLoading" :title="pagesLoading ? 'Still loading the rest of this document' : ''"
-                            x-text="applying ? 'Saving…' : (pagesLoading ? 'Loading…' : 'Save')" @click="applyHighlights()"></button>
-                    <button type="button" class="corex-btn-outline text-xs" @click="closeHighlighter()">Done</button>
-                </div>
-            </template>
         </x-slot>
     </x-sticky-action-bar>
 
@@ -638,25 +609,99 @@
                 </div>
             </div>
 
-            {{-- Supporting Documents + in-place highlighter — shared markup for
-                 both roles now (unified screen, 2026-09-09). Route names differ
-                 by role (agent: corex.rental-applications.documents.*;
-                 authoriser: corex.rental-applications.authorisation.documents.*)
-                 — resolved per-document below via $viewerRole rather than
-                 duplicating this whole block. --}}
-            <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
-                <h2 class="text-sm font-semibold mb-3" style="color: var(--text-primary);">
-                    Supporting Documents
-                    <span class="ds-badge ds-badge-default">{{ $documents->count() }}</span>
-                    @if($unsplitCount > 0)
-                        <span class="ds-badge ds-badge-warning" title="These documents must be split into typed, filed pieces before this application can be submitted for authorisation.">{{ $unsplitCount }} not yet sorted</span>
-                    @endif
-                </h2>
+            {{-- Supporting Documents — shared markup for both roles now
+                 (unified screen, 2026-09-09). Route names differ by role
+                 (agent: corex.rental-applications.documents.*; authoriser:
+                 corex.rental-applications.authorisation.documents.*) —
+                 resolved per-document below via $viewerRole rather than
+                 duplicating this whole block.
 
+                 ROUND 7, 2026-09-11 — Johan, measuring his own screen at
+                 1522px: "from supporting documents 5 we have like 7 lines
+                 of which only 2 is the actual document... you keep building
+                 screens where the real estate is lost to nice parts instead
+                 of functional parts." His own worked example (application
+                 107's 5 split documents) named exactly what was wrong: the
+                 uploader name, the exact timestamp, and the "Added after
+                 submission" badge were IDENTICAL on every row (all five
+                 came from the same split operation) — repeated five times
+                 instead of stated once. And the relative age + the exact
+                 date were the same fact printed twice on every row
+                 regardless.
+
+                 $allSameOrigin below checks whether EVERY document in this
+                 list genuinely shares the same uploader + same "added after
+                 submission" outcome — computed fresh each render, never
+                 assumed, because it will legitimately be false for a mixed
+                 batch (some from the applicant, some added later by the
+                 agent). Johan's own second pass, after re-measuring and
+                 finding the first attempt barely moved the needle, made the
+                 real call explicit: don't hoist the uniform fact to a
+                 still-separate summary line — DROP it, full stop, since the
+                 Audit Trail section below already carries this exact
+                 history ("the audit trail already holds the full history,
+                 so this list does not need to be a second one"). $allSameOrigin
+                 is used for exactly one purpose now: a row's own uploader/
+                 date/badge only render when the set is genuinely MIXED
+                 (the fact is then actually distinguishing that one row),
+                 never when it's uniform. --}}
+            @php
+                $ownedRows = $documents->filter(fn ($r) => !$r['pulled_from_contact']);
+                $firstOwned = $ownedRows->first();
+                $allSameOrigin = $ownedRows->count() > 1 && $firstOwned && $ownedRows->every(function ($r) use ($firstOwned, $rentalApplication) {
+                    // "Same batch" — within 5 minutes of each other, not
+                    // literally the same second: a real split/upload
+                    // processes documents one at a time, a few seconds
+                    // apart. Carbon's diffInMinutes() also returns a float
+                    // in this version — found live, not assumed, comparing
+                    // === 0 against 0.0 silently failed for every document
+                    // (0.0 === 0 is false in PHP's strict comparison).
+                    return $r['document']->uploaded_by === $firstOwned['document']->uploaded_by
+                        && $r['document']->created_at->diffInMinutes($firstOwned['document']->created_at) <= 5
+                        && ($rentalApplication->submitted_at && $r['document']->created_at->greaterThanOrEqualTo($rentalApplication->submitted_at))
+                            === ($rentalApplication->submitted_at && $firstOwned['document']->created_at->greaterThanOrEqualTo($rentalApplication->submitted_at));
+                });
+            @endphp
+            {{-- ROUND 7, 2026-09-11, second pass — Johan re-measured after the
+                 first pass and found it barely moved: "0 entries captured
+                 increases the space by like 3 lines." Trimming the FACTS
+                 inside an already-single-line row saves nothing when the
+                 row's own height was never governed by how much text sat
+                 in it — a readable row has a floor height regardless. The
+                 real levers are the ones that change the LINE COUNT: drop
+                 the added-by/date facts outright rather than hoisting them
+                 to a still-separate summary line (Johan's own reasoning —
+                 "the audit trail already holds the full history, so this
+                 list does not need to be a second one" — applies just as
+                 much to one shared line as it did to five repeated ones);
+                 put the one primary action (View & Mark Up all) INLINE in
+                 the always-visible heading instead of its own line below
+                 it; and default the whole block COLLAPSED — "the agent
+                 needs it while marking up and rarely afterwards" is
+                 satisfied better by starting closed than by starting open
+                 and hoping the agent closes it. --}}
+            <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);" x-data="{ docsOpen: false }">
+                <div class="flex items-center justify-between">
+                    <button type="button" class="flex items-center gap-2 text-left" @click="docsOpen = !docsOpen">
+                        <h2 class="text-sm font-semibold" style="color: var(--text-primary);">
+                            Supporting Documents
+                            <span class="ds-badge ds-badge-default">{{ $documents->count() }}</span>
+                            @if($unsplitCount > 0)
+                                <span class="ds-badge ds-badge-warning" title="These documents must be split into typed, filed pieces before this application can be submitted for authorisation.">{{ $unsplitCount }} not yet sorted</span>
+                            @endif
+                        </h2>
+                        <span class="text-xs" style="color: var(--ds-blue, #2563eb);" x-text="docsOpen ? 'Hide' : 'Show'"></span>
+                    </button>
+                    @if($documents->filter(fn ($r) => $r['inline_viewable'])->isNotEmpty())
+                        <button type="button" class="text-xs font-semibold" style="color: var(--ds-blue, #2563eb);" @click="openContinuousView()">View &amp; Mark Up all &rarr;</button>
+                    @endif
+                </div>
+
+                <div x-show="docsOpen" x-cloak class="mt-3">
                 @if($documents->isEmpty())
                     <p class="text-xs" style="color: var(--text-muted);">No supporting documents have been uploaded yet.</p>
                 @else
-                    <div class="space-y-2">
+                    <div class="space-y-1">
                         @foreach($documents as $row)
                             @php
                                 $document = $row['document'];
@@ -670,92 +715,58 @@
                                     ? route('corex.rental-applications.documents.highlight', [$rentalApplication, $document])
                                     : route('corex.rental-applications.authorisation.documents.highlight', [$rentalApplication, $document]);
                             @endphp
-                            <div class="rounded-md border" style="border-color: var(--border);">
-                                <div class="flex items-center justify-between px-3 py-2 text-xs">
-                                    <span>{{ $document->original_name }}
-                                        {{-- AT-392 — Johan: "document age shows wherever an agent
-                                             picks or reviews a document." Plain age, every document,
-                                             both roles — title carries the exact timestamp. --}}
-                                        <span style="color: var(--text-muted); font-size: 11px;" title="{{ $document->created_at->format('d M Y H:i') }}">— {{ $document->created_at->diffForHumans() }}</span>
-                                        @if($row['staleness_warning'])
-                                            {{-- AT-392 — Johan: "a stale document warns naming the
-                                                 purpose it fails and by how long, in plain language."
-                                                 RentalApplicationDocumentValidityWindow::stalenessWarning()
-                                                 already composed the exact sentence — shown verbatim. --}}
-                                            <span class="ds-badge ds-badge-warning" title="{{ $row['staleness_warning'] }}">{{ $row['staleness_warning'] }}</span>
+                            <div class="flex items-center justify-between px-3 py-1.5 text-xs rounded-md" style="border: 1px solid var(--border);">
+                                <span class="truncate min-w-0" style="color: var(--text-primary);">
+                                    {{ $document->original_name }}
+                                    <span style="color: var(--text-muted);">&middot; {{ $document->documentType->label ?? 'Untyped' }}</span>
+                                    {{-- Per-row facts stay ONLY where they genuinely
+                                         distinguish this document from the others in
+                                         the set — a staleness warning or a "from
+                                         contact's file" tag is never uniform across a
+                                         batch by its own nature, so it never qualifies
+                                         for the single hoisted line above. --}}
+                                    @if($row['staleness_warning'])
+                                        <span class="ds-badge ds-badge-warning" title="{{ $row['staleness_warning'] }}">{{ $row['staleness_warning'] }}</span>
+                                    @endif
+                                    @if($row['pulled_from_contact'])
+                                        <span class="ds-badge ds-badge-default" title="Already on file for this contact — attached here without the applicant re-sending it.">From contact's file</span>
+                                    @endif
+                                    @if(!$allSameOrigin && $viewerRole === 'agent' && !$row['pulled_from_contact'])
+                                        <span style="color: var(--text-muted); font-size: 11px;" title="{{ $document->created_at->format('d M Y H:i') }}">— {{ $document->uploaded_by ? 'added by ' . ($document->uploader->name ?? 'an agent') : 'from applicant' }}, {{ $document->created_at->diffForHumans() }}</span>
+                                        @if($rentalApplication->submitted_at && $document->created_at->greaterThanOrEqualTo($rentalApplication->submitted_at))
+                                            <span class="ds-badge ds-badge-warning" title="This document was added after the application was submitted">Added after submission</span>
                                         @endif
-                                        @if($row['pulled_from_contact'])
-                                            {{-- AT-392 "pull from contact" — filed elsewhere, only
-                                                 referenced here (rental_application_document pivot);
-                                                 source_type/source_id untouched. --}}
-                                            <span class="ds-badge ds-badge-default" title="Already on file for this contact — attached here without the applicant re-sending it.">From contact's file</span>
-                                        @endif
-                                        @if($viewerRole === 'agent' && !$row['pulled_from_contact'])
-                                            {{-- Agent-added-documents, 2026-09-08 — cc4's backend
-                                                 (RentalApplicationController::uploadDocument()). --}}
-                                            <span style="color: var(--text-muted); font-size: 11px;">— {{ $document->uploaded_by ? 'added by ' . ($document->uploader->name ?? 'an agent') : 'from applicant' }}</span>
-                                            @if($rentalApplication->submitted_at && $document->created_at->greaterThanOrEqualTo($rentalApplication->submitted_at))
-                                                <span class="ds-badge ds-badge-warning" title="This document was added after the application was submitted">Added after submission</span>
-                                                <span style="color: var(--text-muted); font-size: 11px;">{{ $document->created_at->format('d M Y H:i') }}</span>
-                                            @endif
-                                        @endif
-                                    </span>
-                                    <span class="flex items-center gap-2">
-                                        <span class="ds-badge ds-badge-success" x-show="markedUpDocIds.includes({{ $document->id }})" x-cloak title="This document has saved marks — visible to anyone who opens it next.">Marked up</span>
-                                        @if($row['inline_viewable'])
-                                            <button type="button" style="color: var(--ds-blue, #2563eb); font-weight: 600;"
-                                                    @click="openHighlighter({
-                                                        documentId: {{ $document->id }},
-                                                        firstPageUrl: {{ Js::from($highlightFirstUrl) }},
-                                                        remainingPagesUrl: {{ Js::from($highlightRemainingUrl) }},
-                                                        postUrl: {{ Js::from($highlightPostUrl) }},
-                                                        label: {{ Js::from($document->original_name) }},
-                                                    })"
-                                                    x-text="activeDocId === {{ $document->id }} ? 'Close' : 'View & Mark Up'"></button>
-                                        @else
-                                            <span class="ds-badge ds-badge-default" title="This file type cannot be previewed on screen — download it to view it.">No preview</span>
-                                        @endif
-                                        @if($viewerRole === 'agent')
-                                            {{-- AT-392 "pull from contact" — a referenced document
-                                                 isn't owned by this application's own download route
-                                                 (that route checks source_type/source_id ownership),
-                                                 so it needs the separate referenced-download route. --}}
-                                            <a href="{{ $row['pulled_from_contact'] ? route('corex.rental-applications.documents.referenced-download', [$rentalApplication, $document]) : route('corex.rental-applications.documents.download', [$rentalApplication, $document]) }}" style="color: var(--text-muted);">Download</a>
-                                        @endif
-                                        {{-- AT-392 — an untyped, unsplit PDF is exactly the
-                                             "17-page scan with a bank statement buried in it"
-                                             Johan described: worthless once it's filed. Split
-                                             is offered per-document, at intake, so the agent can
-                                             sort it the moment it lands rather than leaving it
-                                             for submit time. Gated to PDFs only — the splitter
-                                             engine rasterizes pages and has nothing to do with
-                                             an already-single-purpose image/doc upload. Never
-                                             offered on a referenced (pulled-from-contact) document
-                                             — splitting it would archive a document this
-                                             application doesn't own, filed against another context. --}}
-                                        @if($viewerRole === 'agent' && !$row['pulled_from_contact'] && $document->document_type_id === null && $document->mime_type === 'application/pdf')
-                                            {{-- Styled as a text button, matching "View & Mark Up" /
-                                                 "Download" above — NOT ds-badge, which this row
-                                                 already uses for genuine non-interactive status
-                                                 ("Added after submission"). A clickable action must
-                                                 look clickable; reusing badge styling here would
-                                                 make a real action read as inert status text. --}}
-                                            <form method="POST" action="{{ route('tools.pdf_splitter.intake_rental_application', [$rentalApplication, $document]) }}" style="display:inline;">
-                                                @csrf
-                                                <button type="submit" style="color: var(--ds-amber, #b45309); font-weight: 600; cursor: pointer; border: none; background: none; padding: 0;" title="This document hasn't been sorted into document types yet — split it into separate, filed documents before submitting for authorisation.">Split &amp; File</button>
-                                            </form>
-                                        @endif
-                                    </span>
-                                </div>
-
-                                {{-- IN-PLACE viewer — a plain in-flow block inside this row,
-                                     inside review-main's own independently-scrolling column.
-                                     review-aside is a flex sibling that's never covered. The
-                                     toolbar itself now lives in the sticky header above
-                                     (x-if="activeDocId !== null") — shared for both roles. --}}
-                                <div x-show="activeDocId === {{ $document->id }}" x-cloak class="px-3 pb-3 border-t" style="border-color: var(--border);">
-                                    @include('corex.rental-applications.partials.document-highlighter-pages')
-                                </div>
+                                    @endif
+                                    <span class="ds-badge ds-badge-success" x-show="markedUpDocIds.includes({{ $document->id }})" x-cloak title="This document has saved marks — visible to anyone who opens it next.">Marked up</span>
+                                </span>
+                                <span class="flex items-center gap-2 flex-shrink-0 ml-2">
+                                    @if($row['inline_viewable'])
+                                        <button type="button" style="color: var(--ds-blue, #2563eb); font-weight: 600;"
+                                                @click="openContinuousView({{ $document->id }})">View &amp; Mark Up</button>
+                                    @else
+                                        <span class="ds-badge ds-badge-default" title="This file type cannot be previewed on screen — download it to view it.">No preview</span>
+                                    @endif
+                                    @if($viewerRole === 'agent')
+                                        {{-- AT-392 "pull from contact" — a referenced document
+                                             isn't owned by this application's own download route
+                                             (that route checks source_type/source_id ownership),
+                                             so it needs the separate referenced-download route. --}}
+                                        <a href="{{ $row['pulled_from_contact'] ? route('corex.rental-applications.documents.referenced-download', [$rentalApplication, $document]) : route('corex.rental-applications.documents.download', [$rentalApplication, $document]) }}" style="color: var(--text-muted);">Download</a>
+                                    @endif
+                                    {{-- AT-392 — an untyped, unsplit PDF is exactly the
+                                         "17-page scan with a bank statement buried in it"
+                                         Johan described: worthless once it's filed. A
+                                         genuinely exceptional third action, present only
+                                         on the rare not-yet-sorted row — never in
+                                         conflict with "the two actions" for every
+                                         ordinary, already-typed document. --}}
+                                    @if($viewerRole === 'agent' && !$row['pulled_from_contact'] && $document->document_type_id === null && $document->mime_type === 'application/pdf')
+                                        <form method="POST" action="{{ route('tools.pdf_splitter.intake_rental_application', [$rentalApplication, $document]) }}" style="display:inline;">
+                                            @csrf
+                                            <button type="submit" style="color: var(--ds-amber, #b45309); font-weight: 600; cursor: pointer; border: none; background: none; padding: 0;" title="This document hasn't been sorted into document types yet — split it into separate, filed documents before submitting for authorisation.">Split &amp; File</button>
+                                        </form>
+                                    @endif
+                                </span>
                             </div>
                         @endforeach
                     </div>
@@ -812,6 +823,7 @@
                         </details>
                     @endif
                 @endif
+                </div>
             </div>
 
             {{-- Audit Trail — conductor, 2026-09-08 (night run): moved here from
@@ -1027,30 +1039,46 @@
                             <input type="date" class="corex-input text-xs w-full" x-model="statementPeriodFrom" @change="save()" aria-label="Statement period from">
                             <input type="date" class="corex-input text-xs w-full" x-model="statementPeriodTo" @change="save()" aria-label="Statement period to">
                         </div>
-                        <p class="text-[11px] mt-1" style="color: var(--text-secondary);">
+                        {{-- ROUND 7, 2026-09-11 — Johan: "0 entries captured
+                             increases the space by like 3 lines... you keep
+                             building screens where the real estate is lost
+                             to nice parts instead of functional parts." The
+                             "pick both dates" instruction was dead weight
+                             both before AND after being read once — the
+                             From/To labels already say what to do, and the
+                             months count already appears the moment both
+                             are picked; removed outright rather than folded
+                             in, since there was nothing left worth keeping.
+                             The "pick a period above" tail on the fallback
+                             line was the same kind of restatement, cut for
+                             the same reason. --}}
+                        <p class="text-[11px] mt-1" style="color: var(--text-secondary);" x-show="(statementPeriodFrom && statementPeriodTo) || statementMonths">
                             <template x-if="statementPeriodFrom && statementPeriodTo">
                                 <span>Covers <strong x-text="calculatedStatementMonths()"></strong> month<span x-show="calculatedStatementMonths() !== 1">s</span></span>
                             </template>
                             <template x-if="!(statementPeriodFrom && statementPeriodTo) && statementMonths">
                                 <span>Currently <strong x-text="statementMonths"></strong> month<span x-show="statementMonths !== 1">s</span></span>
                             </template>
-                            <template x-if="!(statementPeriodFrom && statementPeriodTo) && !statementMonths">
-                                <span>Pick both dates to work out the number of months.</span>
-                            </template>
                         </p>
-                        <p class="text-[11px]" style="color: var(--text-muted);"><span x-text="ledgerRows().length"></span> entr<span x-text="ledgerRows().length === 1 ? 'y' : 'ies'"></span> captured</p>
+                        {{-- An empty ledger is visibly empty — a count only
+                             earns its line once there's something to count. --}}
+                        <p class="text-[11px]" style="color: var(--text-muted);" x-show="ledgerRows().length"><span x-text="ledgerRows().length"></span> entr<span x-text="ledgerRows().length === 1 ? 'y' : 'ies'"></span> captured</p>
                         <label class="flex items-start gap-1.5 text-[11px] mt-2 cursor-pointer" style="color: var(--text-secondary);">
                             <input type="checkbox" x-model="hasUnpaidTransactions" @change="save()" class="mt-0.5">
                             <span>Unpaid transactions on statement</span>
                         </label>
                     @else
+                        {{-- ROUND 7, 2026-09-11 — same standing rule applied to
+                             the authoriser's read-only side: From/To used to
+                             each cost two lines (a label, then the value)
+                             for no reason a read-only fact needs — folded
+                             onto one line each, same as every other label:value
+                             pair on this screen. --}}
                         <p class="text-xs font-medium mb-1" style="color: var(--text-secondary);">Statement period</p>
-                        <p class="text-[11px]" style="color: var(--text-muted);">From</p>
-                        <p class="text-xs mb-1" style="color: var(--text-primary);">{{ $assessment->statement_period_from?->format('d M Y') ?? '—' }}</p>
-                        <p class="text-[11px]" style="color: var(--text-muted);">To</p>
-                        <p class="text-xs" style="color: var(--text-primary);">{{ $assessment->statement_period_to?->format('d M Y') ?? '—' }}</p>
-                        <p class="text-[11px] mt-1" style="color: var(--text-secondary);">Covers <strong>{{ $assessment->statement_months ?? '—' }}</strong> month<span>{{ ($assessment->statement_months ?? 0) === 1 ? '' : 's' }}</span></p>
-                        <p class="text-[11px]" style="color: var(--text-muted);"><span x-text="ledgerRows().length"></span> entr<span x-text="ledgerRows().length === 1 ? 'y' : 'ies'"></span> captured</p>
+                        <p class="text-[11px]" style="color: var(--text-muted);">From <span style="color: var(--text-primary);">{{ $assessment->statement_period_from?->format('d M Y') ?? '—' }}</span></p>
+                        <p class="text-[11px] mb-1" style="color: var(--text-muted);">To <span style="color: var(--text-primary);">{{ $assessment->statement_period_to?->format('d M Y') ?? '—' }}</span></p>
+                        <p class="text-[11px]" style="color: var(--text-secondary);" x-show="{{ $assessment->statement_months ? 'true' : 'false' }}">Covers <strong>{{ $assessment->statement_months ?? '—' }}</strong> month<span>{{ ($assessment->statement_months ?? 0) === 1 ? '' : 's' }}</span></p>
+                        <p class="text-[11px]" style="color: var(--text-muted);" x-show="ledgerRows().length"><span x-text="ledgerRows().length"></span> entr<span x-text="ledgerRows().length === 1 ? 'y' : 'ies'"></span> captured</p>
                         <div class="flex items-start gap-1 mt-2" x-show="hasUnpaidTransactions">
                             <span class="rounded-full flex-shrink-0 mt-0.5" style="width: 7px; height: 7px; background: var(--ra-unpaid-authoriser);"></span>
                             <span class="text-[11px] font-semibold" style="color: var(--ds-crimson, #dc2626);">Unpaid transactions flagged</span>
@@ -1368,6 +1396,139 @@
                 @endunless
             @endunless
         @endif
+
+        {{-- ROUND 7, 2026-09-11 — continuous multi-document mark-up view.
+             Johan, verbatim, on application 107 after the splitter turned
+             one 17-page upload into five separate documents: "split the
+             document, now it gives me all the pages to view and mark up.
+             Can we still load this as 1 view and mark." Marking up a
+             bundle is ONE continuous job (bank statement, then the
+             payslip, then the ID) — splitting is for FILING, not for how
+             the agent reads. Investigated FICA first, per his own
+             instruction ("Fica I think has the same scenario"):
+             compliance/fica/show.blade.php renders EVERY uploaded
+             document inline, stacked, in one page — never one-at-a-time
+             behind a click. That is the structural lesson copied here
+             (all documents together, not a click-through) — NOT FICA's
+             rendering mechanism itself (a plain `<iframe>` per document,
+             delegating to the browser's own native PDF viewer), which
+             has no way to draw a highlight/note overlay on top and — more
+             importantly for Johan's own explicit loading requirement —
+             no progressive per-page loading at all; it would fetch each
+             whole PDF up front, exactly what he separately warned against
+             ("a real bundle will be worse").
+
+             Architecture: EVERY inline-viewable document gets its OWN,
+             fully independent `rentalDocumentHighlighter()` instance
+             (the exact same factory a single click-to-view used before —
+             its internals are untouched, this reuses it rather than
+             forking a second copy of logic the file's own docblock calls
+             "hard-won, easy-to-reintroduce"). Because each instance owns
+             its own pages/marks/renderedPageSize, a mark in one document
+             cannot leak into another's coordinate space — the 0–1
+             fraction system is completely unchanged, per document, per
+             page, exactly as it already was.
+
+             Loading stays progressive at the DOCUMENT level too, not just
+             the page level: each section only starts fetching once it's
+             scrolled within ~1000px of view (IntersectionObserver against
+             the scroll container, not the browser viewport, since this
+             runs inside its own overlay), then loads page 1 immediately
+             and the rest behind it exactly like the single-document
+             viewer already did — the same "page 1 now, N more loading"
+             banner from document-highlighter-pages.blade.php applies
+             per-section, unchanged. A 5-document bundle mostly loads at
+             once because 5 sections all sit within that margin on open;
+             a much larger bundle would only load the first few until the
+             agent scrolls further — this is the part Johan named
+             specifically as needing to survive scale.
+
+             The old single-document "View & Mark Up" toggle (one shared
+             activeDocId on the root component, the sticky header's
+             toolbar swapping to a Save/Done pair) is retired, not kept
+             alongside this — Johan's own words framed the click-through
+             experience itself as the defect ("opens a viewer, marks,
+             closes it, opens the next, five times over"), so a second
+             surviving way to do the same job one document at a time would
+             just reintroduce the thing being fixed. The shared factory
+             function itself is unchanged; only ITS ROOT-LEVEL SPREAD's
+             now-dead activeDocId/pages/marks are unused at the root
+             (markedUpDocIds, also from that same spread, stays — the
+             per-row "Marked up" badge still reads it). --}}
+        <div x-show="continuousViewOpen" x-cloak class="fixed inset-0 z-[110]" style="background: var(--surface);">
+            <div class="flex h-full">
+                <div class="flex-shrink-0 overflow-y-auto" style="width: 220px; border-right: 1px solid var(--border); padding: 12px; background: var(--surface-2, #f9fafb);">
+                    <div class="flex items-center justify-between mb-3">
+                        <h3 class="text-sm font-semibold" style="color: var(--text-primary);">Documents</h3>
+                        <button type="button" class="text-xs" style="color: var(--text-muted);" @click="continuousViewOpen = false">Close</button>
+                    </div>
+                    <nav class="space-y-1">
+                        @foreach($documents as $row)
+                            <a href="#cv-doc-{{ $row['document']->id }}" class="block text-xs truncate px-1 py-1 rounded" style="color: var(--ds-blue, #2563eb);" title="{{ $row['document']->original_name }}">{{ $row['document']->original_name }}</a>
+                        @endforeach
+                    </nav>
+                </div>
+                <div class="flex-1 overflow-y-auto" id="continuousViewScroll" style="scroll-behavior: smooth;">
+                    <div class="max-w-4xl mx-auto p-4 space-y-6">
+                        @foreach($documents as $row)
+                            @php
+                                $document = $row['document'];
+                                $highlightFirstUrl = $viewerRole === 'agent'
+                                    ? route('corex.rental-applications.documents.highlight-data.first', [$rentalApplication, $document])
+                                    : route('corex.rental-applications.authorisation.documents.highlight-data.first', [$rentalApplication, $document]);
+                                $highlightRemainingUrl = $viewerRole === 'agent'
+                                    ? route('corex.rental-applications.documents.highlight-data.remaining', [$rentalApplication, $document])
+                                    : route('corex.rental-applications.authorisation.documents.highlight-data.remaining', [$rentalApplication, $document]);
+                                $highlightPostUrl = $viewerRole === 'agent'
+                                    ? route('corex.rental-applications.documents.highlight', [$rentalApplication, $document])
+                                    : route('corex.rental-applications.authorisation.documents.highlight', [$rentalApplication, $document]);
+                            @endphp
+                            <section id="cv-doc-{{ $document->id }}">
+                                <h2 class="text-sm font-semibold pb-1 mb-2" style="color: var(--text-primary); border-bottom: 1px solid var(--border);">
+                                    {{ $document->original_name }}
+                                    <span class="text-xs font-normal" style="color: var(--text-muted);">&middot; {{ $document->documentType->label ?? 'Untyped' }}</span>
+                                </h2>
+                                @if($row['inline_viewable'])
+                                    <div x-data="rentalDocumentHighlighter({
+                                            initialMarkedUpDocIds: {{ Js::from($initialMarkedUpDocIds) }},
+                                            currentUserId: {{ Js::from(auth()->id()) }},
+                                            currentUserName: {{ Js::from(auth()->user()->name) }},
+                                            currentUserRole: {{ Js::from($viewerRole) }},
+                                            highlighters: {{ Js::from($highlighters) }},
+                                         })"
+                                         x-init="
+                                            initHighlighterPrefs();
+                                            activeDocId = {{ $document->id }};
+                                            firstPageUrl = {{ Js::from($highlightFirstUrl) }};
+                                            remainingPagesUrl = {{ Js::from($highlightRemainingUrl) }};
+                                            postUrl = {{ Js::from($highlightPostUrl) }};
+                                            label = {{ Js::from($document->original_name) }};
+                                            const cvScroll = $el.closest('#continuousViewScroll');
+                                            const cvIo = new IntersectionObserver((entries) => {
+                                                if (entries[0].isIntersecting) { loadDocument(); cvIo.disconnect(); }
+                                            }, { root: cvScroll, rootMargin: '1000px 0px' });
+                                            cvIo.observe($el);
+                                         ">
+                                        <div class="flex items-center gap-3 mb-2">
+                                            <span class="text-xs font-semibold" style="color: var(--text-secondary);" x-show="!loading">
+                                                <span x-text="markCount()"></span> mark<span x-show="markCount() !== 1">s</span>
+                                            </span>
+                                            <button type="button" class="corex-btn-primary text-xs" x-show="!loading && !loadError"
+                                                    :disabled="applying || pagesLoading" :title="pagesLoading ? 'Still loading the rest of this document' : ''"
+                                                    x-text="applying ? 'Saving…' : (pagesLoading ? 'Loading…' : 'Save')" @click="applyHighlights()"></button>
+                                            <span class="text-xs" x-show="justSaved" x-cloak style="color: var(--ds-emerald, #059669);">&check; Saved</span>
+                                        </div>
+                                        @include('corex.rental-applications.partials.document-highlighter-pages')
+                                    </div>
+                                @else
+                                    <p class="text-xs" style="color: var(--text-muted);">This file type cannot be previewed on screen — use Download on the Supporting Documents list to view it.</p>
+                                @endif
+                            </section>
+                        @endforeach
+                    </div>
+                </div>
+            </div>
+        </div>
 
         {{-- AT-392 — Tenant Wishlist drawer, relocated here (root cause of the
              cut-off/sliced-behind-the-header bug reported on QA1: this drawer
@@ -1825,6 +1986,23 @@ function rentalReviewLayout() {
         // that panel to fix the cut-off/z-index bug — see the drawer's own
         // comment) can share one toggle despite no longer being DOM-nested.
         wishlistDrawerOpen: false,
+        // ROUND 7, 2026-09-11 — the continuous multi-document mark-up view.
+        // Lives here (not on rentalReview()/rentalAuthorisationViewer()
+        // separately) for the same reason wishlistDrawerOpen does: the
+        // trigger buttons (Supporting Documents rows) and the overlay
+        // itself are both descendants of .rental-review-columns regardless
+        // of role, so one shared toggle here works for both without
+        // duplicating it per role.
+        continuousViewOpen: false,
+        openContinuousView(scrollToDocId) {
+            this.continuousViewOpen = true;
+            if (scrollToDocId) {
+                this.$nextTick(() => {
+                    const el = document.getElementById('cv-doc-' + scrollToDocId);
+                    if (el) el.scrollIntoView({ block: 'start' });
+                });
+            }
+        },
         // DRAGGABLE WIDTH, 2026-09-10 — see the layout <style> block's own
         // comment for why. Reuses the exact drag pattern already shipped in
         // resources/views/docuperfect/templates/edit-web.blade.php
