@@ -67,7 +67,17 @@
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">
                     Branch Dashboard — {{ $branchName ?? 'Branch' }}
                 </h1>
-                <p class="text-xs" style="color: var(--text-muted);">Branch Manager view (TV-ready) — {{ \Carbon\Carbon::createFromFormat('Y-m', $r['period'])->format('F Y') }}</p>
+                <p class="text-xs" style="color: var(--text-muted);">
+                    Branch Manager view (TV-ready) — {{ \Carbon\Carbon::createFromFormat('Y-m', $r['period'])->format('F Y') }}
+                    {{-- AT-410 — which calculator produced these figures: the routine
+                         per-deal Finance Engine (normal case), or a one-off recompute
+                         used only when the Engine has no data yet for this period. --}}
+                    @if(($r['data_source'] ?? 'engine') === 'fallback')
+                        <span class="ds-badge ds-badge-warning ml-1" title="The Finance Engine has not rolled up this period yet — these figures were recomputed on the fly and may not match the Engine's numbers once it catches up.">Recomputed (Engine pending for this period)</span>
+                    @else
+                        <span class="ml-1" style="color: var(--text-faint);">· Finance Engine</span>
+                    @endif
+                </p>
             </div>
             <div class="flex flex-wrap items-center gap-2">
                 <form method="GET" action="{{ route('bm.performance') }}" class="flex flex-wrap items-center gap-2">

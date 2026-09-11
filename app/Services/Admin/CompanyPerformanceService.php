@@ -554,6 +554,14 @@ foreach ($rows as &$r) {
             'period' => $period,
             'start' => $start,
             'end' => $end,
+            // DR2 financial audit F4 (AT-410) — this screen can be built from
+            // finance_computed_values (the Finance Engine, kept correct by the
+            // routine per-deal rollup) OR, when that cache has no rows yet for
+            // this period, a separate inline recomputation with its own,
+            // different bucketing rule (deals.deal_date, not deals.period —
+            // see AT-411/F5). Previously nothing on screen said which one ran;
+            // 'engine' is preferred whenever it has data.
+            'data_source' => $useEngine ? 'engine' : 'fallback',
             'totals' => $tot,
             'branches' => $branchTotals,
             'rows' => $rows,
@@ -698,6 +706,10 @@ foreach ($rows as &$r) {
         $readModel = app(FinanceReadModel::class);
         $branchMapResult = $readModel->getBranchPeriodMap($branchId, $period, $agencyId);
         $useBranchEngine = !empty($branchMapResult['data']);
+        // AT-410 — this is the branch-specific source, distinct from (and more
+        // accurate for this screen than) the company-level one $rollup already
+        // carries from getPeriodRollup() above.
+        $rollup['data_source'] = $useBranchEngine ? 'engine' : 'fallback';
 
         if ($useBranchEngine) {
             // ENGINE PATH: Read ledger values from Finance Engine
