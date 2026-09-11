@@ -872,7 +872,23 @@
                         </div>
                     </div>
                     <div class="flex-1 overflow-y-auto" id="continuousViewScroll" style="scroll-behavior: smooth;">
-                        <div class="max-w-4xl mx-auto p-4 space-y-6">
+                        {{-- CRITICAL BUG FOUND WHILE VERIFYING TODAY'S WIDTH
+                             RECLAMATION, 2026-09-11 — `max-w-4xl` (896px) on
+                             this wrapper predates every fold/slim change made
+                             today (Round 7's original build, a plain
+                             readability constraint, never revisited). It
+                             capped EVERY document section's width at ~896px
+                             regardless of how much space the sidebar/
+                             Documents-column/pen-rail folds freed up —
+                             silently defeating the entire point of today's
+                             work before it even reached the document. Found
+                             by actually computing the pixel budget end to
+                             end while verifying Johan's ~1390px target,
+                             not by assumption. Removed — the document now
+                             gets whatever width `flex-1` actually leaves it,
+                             which is the whole reason today's other changes
+                             exist. --}}
+                        <div class="p-4 space-y-6">
                             @foreach($documents as $row)
                                 @php
                                     $document = $row['document'];
@@ -1938,6 +1954,16 @@ function rentalReviewLayout({ initialCvDocs } = {}) {
         docsPanelHovered: false,
         docsRevealTimer: null,
         docsCloseTimer: null,
+        // Rule 3b (Johan): "suppressed while the mouse is down... re-enable
+        // on mouseup." Suppressing on mousedown alone leaves a gap: a drag
+        // that STARTED elsewhere and passed over this strip while the
+        // button was held never fires a fresh mouseenter after release, so
+        // nothing would re-check whether a reveal should now happen.
+        // isOverDocsPanel tracks "cursor is currently inside this panel's
+        // bounds" independent of the reveal delay, so the global mouseup
+        // listener below can re-run the same enter logic the moment the
+        // button lifts, exactly as if the cursor had just arrived.
+        isOverDocsPanel: false,
         _cvScrollSpyObserver: null,
         initDocsFold() {
             try { this.docsPanelPinned = localStorage.getItem('rentalMarkupDocsPinned') === '1'; } catch (_) {}
@@ -1947,14 +1973,17 @@ function rentalReviewLayout({ initialCvDocs } = {}) {
                 window.addEventListener('mousedown', () => { window.__rentalMouseDown = true; });
                 window.addEventListener('mouseup', () => { window.__rentalMouseDown = false; });
             }
+            window.addEventListener('mouseup', () => { if (this.isOverDocsPanel) this.onDocsPanelEnter(); });
         },
         get docsPanelRevealed() { return this.docsPanelPinned || this.docsPanelHovered; },
         onDocsPanelEnter() {
+            this.isOverDocsPanel = true;
             if (this.docsPanelPinned || window.__rentalMouseDown) return;
             clearTimeout(this.docsCloseTimer);
             this.docsRevealTimer = setTimeout(() => { if (!window.__rentalMouseDown) this.docsPanelHovered = true; }, 180);
         },
         onDocsPanelLeave() {
+            this.isOverDocsPanel = false;
             clearTimeout(this.docsRevealTimer);
             this.docsCloseTimer = setTimeout(() => { this.docsPanelHovered = false; }, 250);
         },

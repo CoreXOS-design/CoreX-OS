@@ -110,6 +110,13 @@
                 markupSidebarPinned: false,
                 revealTimer: null,
                 closeTimer: null,
+                // Rule 3b (Johan): "suppressed while the mouse is down...
+                // re-enable on mouseup" — see review.blade.php's matching
+                // isOverDocsPanel comment for why mousedown-suppression
+                // alone isn't enough; the mouseup listener below re-runs
+                // the enter check the instant the button lifts, for a
+                // cursor that never actually left this zone.
+                isOverSidebarZone: false,
                 initHoverFold() {
                     try { this.markupSidebarPinned = localStorage.getItem('rentalMarkupSidebarPinned') === '1'; } catch (_) {}
                     // Shared with the Documents-column fold panel inside the
@@ -122,13 +129,16 @@
                         window.addEventListener('mousedown', () => { window.__rentalMouseDown = true; });
                         window.addEventListener('mouseup', () => { window.__rentalMouseDown = false; });
                     }
+                    window.addEventListener('mouseup', () => { if (this.isOverSidebarZone) this.onSidebarZoneEnter(); });
                 },
                 onSidebarZoneEnter() {
+                    this.isOverSidebarZone = true;
                     if (!this.markupModeActive || this.markupSidebarPinned || window.__rentalMouseDown) return;
                     clearTimeout(this.closeTimer);
                     this.revealTimer = setTimeout(() => { if (!window.__rentalMouseDown) this.sidebarOpen = true; }, 180);
                 },
                 onSidebarZoneLeave() {
+                    this.isOverSidebarZone = false;
                     clearTimeout(this.revealTimer);
                     if (!this.markupModeActive || this.markupSidebarPinned) return;
                     this.closeTimer = setTimeout(() => { this.sidebarOpen = false; }, 250);
