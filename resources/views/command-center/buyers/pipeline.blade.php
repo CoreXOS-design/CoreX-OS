@@ -162,10 +162,15 @@
                             @php
                                 $buyerRisk = $riskScores[$buyer->id] ?? null;
                                 $buyerPrimaryWishlist = $buyer->matches->firstWhere('is_primary', true) ?? $buyer->matches->first();
+                                // Same rental-lead test as applyLeadTypeFilter() above — the PERSON's
+                                // own wishlist decides tenant vs buyer, not which board/entry point
+                                // rendered them. A mixed "All" board can show both in one column, so
+                                // this must be evaluated per card, never fixed page-wide.
+                                $buyerIsRental = in_array(strtolower((string) ($buyerPrimaryWishlist->listing_type ?? '')), ['rental', 'rent', 'to_let', 'to let', 'letting'], true);
                             @endphp
                             <a href="{{ route('command-center.buyers.show', $buyer) }}"
                                draggable="true"
-                               @dragstart="startDrag({{ $buyer->id }}, '{{ $stateKey }}')"
+                               @dragstart="startDrag({{ $buyer->id }}, '{{ $stateKey }}', {{ $buyerIsRental ? 'true' : 'false' }})"
                                @dragend="endDrag()"
                                class="block p-3 rounded-md transition hover:opacity-80 no-underline relative cursor-grab active:cursor-grabbing"
                                style="background: var(--surface-2); border: 1px solid var(--border);">
@@ -357,15 +362,18 @@ function kanbanDrag() {
     return {
         draggingId: null,
         draggingFrom: null,
+        draggingIsRental: false,
         dragTarget: null,
 
-        startDrag(buyerId, fromState) {
+        startDrag(buyerId, fromState, isRental) {
             this.draggingId = buyerId;
             this.draggingFrom = fromState;
+            this.draggingIsRental = !!isRental;
         },
         endDrag() {
             this.draggingId = null;
             this.draggingFrom = null;
+            this.draggingIsRental = false;
             this.dragTarget = null;
         },
         dragOverColumn(stateKey) {
@@ -397,7 +405,11 @@ function kanbanDrag() {
                 if (r.ok) {
                     window.location.reload();
                 } else {
-                    (window.showToast || alert)('Could not transition buyer state.', 'error');
+                    const noun = this.draggingIsRental ? 'tenant' : 'buyer';
+                    const message = r.status === 404
+                        ? `This ${noun} is no longer on the board — someone may have archived or moved them. Refresh to see the current list.`
+                        : `Could not transition ${noun} state.`;
+                    (window.showToast || alert)(message, 'error');
                 }
             } catch (e) {
                 (window.showToast || alert)('Network error.', 'error');
