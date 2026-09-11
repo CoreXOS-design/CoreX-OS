@@ -258,6 +258,10 @@
                             <a href="{{ route('corex.rental-applications.review', $application) }}" class="corex-btn-outline text-xs">Review</a>
                         @endif
                         <a href="{{ route('corex.rental-applications.show', $application) }}" class="corex-btn-outline text-xs">Open</a>
+                        {{-- REGRESSION FIX (2026-09-11) — declined's own explicit
+                             door back, since Review is deliberately never offered
+                             on a declined row. See _reopen-declined.blade.php. --}}
+                        @include('corex.rental-applications._reopen-declined', ['application' => $application])
                         @permission('rental_applications.create')
                             @if($application->recipientEmail())
                                 <form method="POST" action="{{ route('corex.rental-applications.send', $application) }}" class="inline">

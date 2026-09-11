@@ -33,6 +33,10 @@
         <x-slot name="right">
             <a href="{{ route('corex.rental-applications.index') }}" class="corex-btn-outline text-xs">&larr; Back to list</a>
             <a href="{{ route('corex.rental-applications.pdf', $rentalApplication) }}" class="corex-btn-outline text-xs">Download PDF</a>
+            {{-- REGRESSION FIX (2026-09-11) — declined's own explicit door
+                 back, since Review is deliberately never offered for a
+                 declined application. See _reopen-declined.blade.php. --}}
+            @include('corex.rental-applications._reopen-declined', ['application' => $rentalApplication])
 
             @permission('rental_applications.create')
             <form method="POST" action="{{ route('corex.rental-applications.destroy', $rentalApplication) }}"

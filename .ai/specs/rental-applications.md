@@ -8028,3 +8028,86 @@ than leaving one harmless orphaned row.
 - `app/Http/Controllers/CoreX/RentalApplicationController.php` — `store()`'s and `send()`'s
   hardcoded `addDays(14)` replaced with `RentalApplicationQualifyingSetting::
   reopenLinkExpiryDaysFor()`.
+
+## REGRESSION FIX (2026-09-11) — declined applications had no way back at all
+
+Found during the full end-to-end journey walkthrough (see below) and confirmed as a genuine
+dead end: the AT-402 hotfix earlier the same day correctly removed the Review link from
+declined rows ("an approved or declined application opening into a working review screen is
+its own bug" — Johan) — but the ONLY door to `RentalApplicationReviewController::reopen()`
+was a button INSIDE the Review screen itself. Removing Review from declined rows silently
+removed the only reachable path to a real, already-built, already-audited capability Johan
+had explicitly asked for earlier ("co should be able to reopen... declined and more evidence
+given"). The capability still worked — hand-typing `/rental-applications/{id}/review` loaded
+it — but nothing in the UI pointed there.
+
+**The fix is not to put Review back on declined rows.** A new, dedicated `Reopen` action
+lives directly on the declined row (control centre list) and on the declined detail screen
+(`view-readonly.blade.php`, the "Open" destination) — a small Alpine-only inline form
+(button → reveals a required note field → "Confirm reopen") that calls the SAME, already-
+correct `corex.rental-applications.review.reopen` endpoint, with the identical request shape
+`review.blade.php`'s own `sendBackToApplicant()` already uses (`fetch()`, JSON body
+`{note}`, `X-CSRF-TOKEN`, checks `res.ok && data.ok`, reloads on success). **No backend
+changed at all** — the endpoint already validated the required note, enforced the
+override-tier guard for a declined→reopened transition, recorded
+`RentalApplicationStatusHistory` (who + when + note), logged to the audit service, and
+emailed the applicant. This build is pure UI wiring onto existing, correct logic — "fix the
+class, not the instance" in reverse: the class was never broken, only its one door was.
+
+Gated identically to the underlying guard, not just cosmetically: the button only renders for
+`$application->status === 'declined' && auth()->user()->isRentalApplicationOverrideTier(...)`
+— a plain agent viewing a declined row sees no Reopen button at all (verified live), rather
+than a button that would 403 on click ("No Silent Locks" — STANDARDS.md).
+
+**Withdrawn, checked as instructed, not decided by this lane**: `REOPENABLE_STATUSES` does
+not include `withdrawn`, and no other status-transition path in the codebase (agent-settable
+statuses, the authoriser's own actions, or any other method) offers a way back from it either.
+The model's own existing comment explains the reasoning: "withdrawn is the applicant's own
+choice to walk away, not something the agency reopens on their behalf." Confirmed by reading
+every status-transition path in `RentalApplicationController`, `RentalApplicationReviewController`,
+and `RentalApplicationAuthorisationController` — nothing writes `withdrawn` as a `from_status`
+anywhere. Reporting this as found, not building a policy Johan hasn't set.
+
+### Also built this round — a real `in_progress` application, verified live
+
+The walkthrough's own finding 6 was honest about its limit: `in_progress`'s Review+Open pair
+was verified by reading `REVIEWABLE_STATUSES`, not by clicking a real record, because none
+existed on QA1. Created one for real (create → send → applicant uploads one document without
+finishing signing — the exact `sent → in_progress` trigger already documented in
+`RentalApplicationSigningController` fires on first upload) and confirmed live: the Not Yet
+Submitted tile's count matched (1), the row carried both Review and Open, and Review opened
+with no errors.
+
+### Verified live (real QA1 database, via a local worktree server — the same verification
+method used for every build in this file; no code was promoted anywhere)
+
+- Declined a real application (id 130) as an override-tier user, with a real reason — status
+  history recorded correctly (who, when, note).
+- From the Declined tile, clicked the new **Reopen** button on that exact row, filled the
+  required note, confirmed — status became `reopened`; a SECOND status-history entry recorded
+  (who, when, note), visually distinguished with an "OVERRIDE" badge on the resulting Review
+  screen's own Audit Trail. **Screenshotted**: both audit entries, correctly labelled, correctly
+  timestamped, on a Review screen that is fully functional again (Affordability Assessment
+  panel live, Send-back-to-applicant available) — not a dead end.
+- Confirmed a plain (non-override-tier) agent viewing the same Declined tile sees no Reopen
+  button at all.
+- Confirmed the Reopened tile now carries app 130 with a real, working Review link.
+- Created and walked a genuine `in_progress` application (id 129) — control centre tile count
+  correct, Review+Open pair present, Review screen loads cleanly.
+
+**dev-check.ps1 was not run — it is PowerShell and this box has no `pwsh` installed; it has
+never run on this host for any build in this file, and this entry says so plainly rather than
+reporting a step that did not happen.** Linux equivalents run instead: `php -l` on every
+changed file (none are PHP this round — see Files changed below), `php artisan view:clear`,
+and the live-database Tinker + browser verification above.
+
+### Files changed
+
+- `resources/views/corex/rental-applications/_reopen-declined.blade.php` — new partial, the
+  Reopen button + inline note form, calling the existing `review.reopen` endpoint
+- `resources/views/corex/rental-applications/index.blade.php` — includes the partial in the
+  action cell, alongside Open (no Review, unchanged)
+- `resources/views/corex/rental-applications/view-readonly.blade.php` — includes the partial
+  in the sticky action bar
+- No PHP files changed — `RentalApplicationReviewController::reopen()` was already correct
+  and is reused as-is
