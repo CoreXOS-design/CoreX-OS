@@ -526,15 +526,21 @@ public function listingPool()
     
                 public static function statusSummaryForBranch(int $branchId, string $period): array
     {
-        $start = \Carbon\Carbon::createFromFormat('Y-m', $period)->startOfMonth();
-        $end   = (clone $start)->endOfMonth();
+        // DR2 financial audit F5 (AT-411) — the canonical rule for "what
+        // period a deal belongs to" is deals.period, matching RollupService
+        // (the audited Finance Engine, AT-408/F3) and every Legacy reader.
+        // This method used to bucket by deals.deal_date instead — a second,
+        // independent instance of the same period-vs-deal_date confusion,
+        // meaning this card and marketAveragesForBranch() (which already
+        // used deals.period correctly for its single-month view) could
+        // legitimately disagree on the same screen.
 
         // DISTINCT deal IDs touching this branch via agents in the period
         $dealIds = \DB::table('deal_user')
             ->join('users', 'users.id', '=', 'deal_user.user_id')
             ->join('deals', 'deals.id', '=', 'deal_user.deal_id')
             ->where('users.branch_id', $branchId)
-            ->whereBetween('deals.deal_date', [$start->toDateString(), $end->toDateString()])
+            ->where('deals.period', $period)
             ->distinct()
             ->pluck('deals.id');
 

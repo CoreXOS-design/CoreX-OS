@@ -87,8 +87,11 @@ final class CompanyPerformanceDataSourceIndicatorTest extends TestCase
             'created_at' => now(), 'updated_at' => now(),
         ]);
         DB::table('finance_computed_values')->insert([
+            // entity_id is a fixed sentinel (1) for company-level rows — the
+            // real agency scoping is the separate agency_id column below (see
+            // FinanceReadModel::getCompanyPeriodMap()'s hardcoded entity_id=1).
             'definition_id' => $definitionId, 'definition_key' => 'company_period.money.total_nondeclined.ledger_company_income_ex_vat',
-            'definition_version' => 1, 'entity_type' => 'company_period', 'entity_id' => $this->agencyId,
+            'definition_version' => 1, 'entity_type' => 'company_period', 'entity_id' => 1,
             'period' => '2026-06', 'value_numeric' => 50000, 'engine_version' => 'v0', 'agency_id' => $this->agencyId,
             'created_at' => now(), 'updated_at' => now(),
         ]);
