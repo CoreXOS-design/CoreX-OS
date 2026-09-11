@@ -1270,8 +1270,30 @@
              any overflow/sticky ancestor, and z-[100] sits unambiguously above
              both the sticky header (z-50) and the app shell's own persistent
              chrome (z-40/z-50). Same pattern as
-             command-center/buyers/detail.blade.php:583-616 otherwise. --}}
-        @if($rentalApplication->status === 'approved' && !$rentalApplication->applicant_notified_at)
+             command-center/buyers/detail.blade.php:583-616 otherwise.
+
+             BLOCKER FIX, 2026-09-11 — this block referenced $existingWishlist/
+             $wishlistPrefill (only computed by RentalApplicationReviewController
+             ::show(), never by RentalApplicationAuthorisationController::show())
+             with no $viewerRole guard of its own, so an authoriser opening ANY
+             approved-not-yet-notified application 500'd on an undefined
+             variable — application 76 is exactly that state and is what Johan
+             is testing on next. Not gating this as a null-safe fallback: the
+             wishlist-add/update routes it posts to
+             (corex.rental-applications.review.wishlist.*) only exist under the
+             AGENT controller — there is no authoriser equivalent — and the only
+             way to OPEN this drawer at all is the trigger button a few hundred
+             lines up, which already sits behind its own
+             `@if($viewerRole === 'agent')` (see that block's own comment,
+             "AT-392 — Johan: agent gets back and upon them being happy it gets
+             sent out"). This is genuinely an agent-only step in the approval
+             workflow, not a shared one the authoriser has any action to take
+             in — the authoriser's job ends at the decision; confirming the
+             tenant's wishlist and sending the approval email is the agent's
+             follow-up, from their own screen. Gating the whole block (not just
+             patching the undefined variable) matches that reality instead of
+             rendering dead markup an authoriser can never reach anyway. --}}
+        @if($viewerRole === 'agent' && $rentalApplication->status === 'approved' && !$rentalApplication->applicant_notified_at)
             <div x-show="wishlistDrawerOpen" x-cloak
                  class="fixed inset-0 z-[100] flex justify-end"
                  style="background: rgba(0,0,0,0.5);"
