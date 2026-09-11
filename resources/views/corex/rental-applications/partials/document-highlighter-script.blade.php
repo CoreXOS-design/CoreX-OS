@@ -487,13 +487,34 @@ function rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, curre
             // because the panel row lives in a DIFFERENT x-data scope
             // (rentalCaptureLedger(), spread into the ROOT) with no direct
             // reference to whichever per-document instance owns the mark.
+            //
+            // BUG FIX, 2026-09-11 — Johan, live on QA1: "I waited 18
+            // seconds — it never scrolled and never flashed." Root cause:
+            // this used to only WAIT for this.loading/this.pagesLoading to
+            // be true and then go false — but for a document scrolled to
+            // for the first time, the IntersectionObserver that starts its
+            // load hadn't necessarily fired YET at the moment this ran, so
+            // both flags could still read their false DEFAULT (never
+            // started), and the wait loop exited immediately, before the
+            // document had loaded at all. Fixed by explicitly scrolling
+            // this document's own <section> into view AND force-starting
+            // loadDocument() when nothing has loaded yet, rather than
+            // passively hoping the observer already fired first — the
+            // observer doing it first (a real document, scrolled to
+            // normally) is a harmless no-op race against this, never a
+            // dependency.
             window.addEventListener('rental-jump-to-mark', async (e) => {
                 if (e.detail.documentId !== this.activeDocId) return;
+                const section = this.$el.closest('section');
+                if (section) section.scrollIntoView({ block: 'start' });
+                if (this.pages.length === 0 && !this.loading) {
+                    await this.loadDocument();
+                }
                 await this.waitUntilPagesReady();
                 this.scrollToAndFlashMark(e.detail.markId);
             });
         },
-        /** Waits out whatever load is already in flight (triggered by openContinuousView()'s own scrollIntoView bringing this document's section within the IntersectionObserver's margin) rather than starting a second one — loadDocument() is never safe to call twice concurrently. Bounded so a document that genuinely fails to load doesn't hang the jump forever. */
+        /** Waits out whatever load is in flight (started either by the IntersectionObserver or, for a jump, force-started above) — loadDocument() is never safe to call twice concurrently. Bounded so a document that genuinely fails to load doesn't hang the jump forever. */
         async waitUntilPagesReady() {
             let guard = 0;
             while ((this.loading || this.pagesLoading) && guard < 100) {

@@ -237,7 +237,8 @@
                 </p>
                 <div>
                     <label class="text-[11px] font-medium block mb-0.5" style="color: var(--text-secondary);">Date</label>
-                    <input type="date" class="corex-input text-xs w-full" x-model="captureChip.date">
+                    {{-- .lazy — see review.blade.php's statement-period date fields for why. --}}
+                    <input type="date" class="corex-input text-xs w-full" x-model.lazy="captureChip.date">
                 </div>
                 <div>
                     <label class="text-[11px] font-medium block mb-0.5" style="color: var(--text-secondary);">Description</label>
@@ -261,35 +262,17 @@
     </form>
 
     <div class="flex-1 min-w-0">
-        {{-- Legend — Johan asked for this explicitly ("a map key"). Driven by
-             legendHighlighters() — every currently-choosable highlighter, plus
-             any archived one that still has a mark on THIS open document (an old
-             mark's colour is never left unexplained just because someone tidied
-             the settings screen). Each row carries its own role tag now that role
-             is a per-highlighter property, not a fixed second axis.
-
-             2026-09-08, night sweep at 1522px — --ds-slate-soft was never actually
-             defined in corex.css, so its hardcoded #f1f5f9 fallback always won
-             regardless of theme, against theme-aware (light-in-dark-mode) text —
-             unreadable in dark mode. --surface-2 is the real, theme-aware token. --}}
-        <div class="flex flex-wrap items-center gap-3 py-2 px-3 rounded-md text-xs mb-2"
-             style="background: var(--surface-2, #f9fafb); border: 1px solid var(--border);">
-            <span class="font-semibold" style="color: var(--text-secondary);">Legend</span>
-            <template x-for="h in legendHighlighters()" :key="h.id">
-                <span class="flex items-center gap-1">
-                    <span :style="{ display:'inline-block', width:'20px', height:'14px', borderRadius:'3px', background: h.color, opacity: h.archived ? '0.5' : '1' }"></span>
-                    <span style="color: var(--text-muted);" x-text="h.label"></span>
-                    <span style="color: var(--text-muted); font-size: 10px;" x-text="'(' + (h.role_scope === 'both' ? 'agent + authoriser' : h.role_scope) + (h.archived ? ', archived' : '') + ')'"></span>
-                </span>
-            </template>
-            <span class="flex items-center gap-1">
-                <span class="rounded-full flex items-center justify-center" :style="{ width:'14px', height:'14px', flexShrink:'0', background: NOTE_COLOR }">
-                    <span style="color:#fff; font-size:7px; font-weight:800; line-height:1;">N</span>
-                </span>
-                <span style="color: var(--text-muted);">Note</span>
-            </span>
-            <span class="text-[11px]" style="color: var(--text-muted);" x-show="legendHighlighters().length === 0">No highlighters configured yet.</span>
-        </div>
+        {{-- Legend removed, 2026-09-11 — Johan, live on QA1: "the legend is
+             eating the document... two lines of the agent's screen spent
+             explaining colours that are already shown, selected and
+             labelled in the pen rail immediately to its left." Standing
+             rule: every line of space is either data the agent needs or a
+             control they act on — the rail already carries the colours
+             and labels, so this was pure duplication, not a second source
+             of information. legendHighlighters() (the helper that drove
+             this) is left in the shared script unused rather than removed
+             — it has no other caller, but touching document-highlighter-
+             script.blade.php's own logic wasn't asked for here. --}}
 
         {{-- Instructional copy removed, 2026-09-11 — Johan's standing rule:
              "every line of space is either data the agent needs or a

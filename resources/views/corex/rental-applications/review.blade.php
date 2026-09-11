@@ -416,8 +416,18 @@
             font-size: 10px; text-transform: uppercase; letter-spacing: 0.03em;
             color: var(--text-muted); margin: 10px 0 4px 0;
         }
+        /* BUG FIX, 2026-09-11 — Johan, live on QA1: "every amount in the
+           panel wraps onto two lines... 'R' on one line and the figure on
+           the next." formatR() (R + a space + a locale-formatted number)
+           is all ordinary breakable spaces, and the old 56px date column
+           left the amount column too narrow to fit a real figure like
+           "R 18 139,05" — the browser wrapped at the first space it found.
+           Narrowed date (56px was oversized for an 8-char yy/mm/dd string)
+           and the badge/arrow columns to give amount the room, and gave
+           amount an explicit floor via minmax() rather than a bare 1fr,
+           which can still shrink below its content's natural width. */
         .rr-ledger-row {
-            display: grid; grid-template-columns: 18px 56px 1fr 14px; gap: 6px; align-items: center;
+            display: grid; grid-template-columns: 15px 44px minmax(72px, 1fr) 12px; gap: 6px; align-items: center;
             padding: 2px 0;
         }
         .rr-ledger-badge {
@@ -425,7 +435,7 @@
             font-size: 9px; font-weight: 700; line-height: 15px; text-align: center;
             flex-shrink: 0;
         }
-        .rr-ledger-amount { text-align: right; font-variant-numeric: tabular-nums; }
+        .rr-ledger-amount { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
     </style>
 
     <div class="rental-review-columns mt-5" x-data="rentalReviewLayout()">
@@ -996,9 +1006,27 @@
                         <label class="text-[11px] font-medium" style="color: var(--text-secondary);">Statement period</label>
                         <span class="ds-badge ds-badge-info flex-shrink-0" style="font-size: 9px; padding: 1px 4px;" title="Every field here saves the moment you click away from it — no button needed.">Autosaves</span>
                     </div>
+                    {{-- BUG FIX, 2026-09-11 — Johan, live on QA1: "typing a
+                         date straight through (20260901) produces
+                         '202609/01/dd'... the year segment keeps consuming
+                         digits past four." Plain x-model re-writes the
+                         input's .value from Alpine's own reactive effect on
+                         EVERY keystroke (it fires on the 'input' event) —
+                         even reassigning a native date input to the value
+                         it already holds resets the browser's OWN internal
+                         per-segment editing state, which is exactly what
+                         breaks its native auto-advance-after-4-digits
+                         behaviour. `.lazy` defers the read to the 'change'
+                         event (blur/commit) instead, so nothing writes back
+                         to the element while the browser is still handling
+                         the user's own keystrokes — the native segment
+                         behaviour is never interrupted mid-edit. Cannot
+                         force the browser's own segment format (Johan's own
+                         words — correct, there is no cross-browser API for
+                         that); this removes OUR interference with it. --}}
                     <div class="grid grid-cols-2 gap-1">
-                        <input type="date" class="corex-input text-xs w-full" x-model="statementPeriodFrom" @change="save()" aria-label="Statement period from">
-                        <input type="date" class="corex-input text-xs w-full" x-model="statementPeriodTo" @change="save()" aria-label="Statement period to">
+                        <input type="date" class="corex-input text-xs w-full" x-model.lazy="statementPeriodFrom" @change="save()" aria-label="Statement period from">
+                        <input type="date" class="corex-input text-xs w-full" x-model.lazy="statementPeriodTo" @change="save()" aria-label="Statement period to">
                     </div>
                     <p class="text-[11px] mt-1" style="color: var(--text-muted);" x-show="calculatedStatementMonths() || statementMonths">
                         <template x-if="calculatedStatementMonths()"><span>Covers <strong x-text="calculatedStatementMonths()"></strong> mo</span></template>
@@ -1086,7 +1114,8 @@
                             <button type="button" class="text-xs rounded-md py-1" :style="{ border: '1px solid var(--border)', background: manualEntry.entry_type === 'income' ? 'var(--ds-purple-soft, #f3e8ff)' : 'transparent', color: manualEntry.entry_type === 'income' ? 'var(--ds-purple, #7c3aed)' : 'var(--text-secondary)' }" @click="manualEntry.entry_type = 'income'">Income</button>
                             <button type="button" class="text-xs rounded-md py-1" :style="{ border: '1px solid var(--border)', background: manualEntry.entry_type === 'expense' ? 'var(--ds-amber-soft, #fffbeb)' : 'transparent', color: manualEntry.entry_type === 'expense' ? 'var(--ds-amber, #b45309)' : 'var(--text-secondary)' }" @click="manualEntry.entry_type = 'expense'">Expense</button>
                         </div>
-                        <input type="date" class="corex-input text-xs w-full mb-1" x-model="manualEntry.entry_date" aria-label="Date">
+                        {{-- .lazy — see the statement-period date fields' own comment above. --}}
+                        <input type="date" class="corex-input text-xs w-full mb-1" x-model.lazy="manualEntry.entry_date" aria-label="Date">
                         <input type="text" class="corex-input text-xs w-full mb-1" x-model="manualEntry.entry_description" maxlength="255" placeholder="Description" aria-label="Description">
                         <input type="number" step="0.01" data-manual-entry-amount class="corex-input text-xs w-full mb-1" x-model="manualEntry.entry_amount" placeholder="Amount" aria-label="Amount" @keydown.enter.prevent="saveManualEntry()">
                         <p class="text-[11px] mb-1" style="color: var(--ds-crimson, #dc2626);" x-show="manualEntryError" x-text="manualEntryError"></p>
@@ -1881,10 +1910,26 @@ function rentalReviewLayout() {
         // per document, inside the continuous view) — a window event
         // bridges that, the same pattern the capture chip already uses in
         // the other direction (see rentalCaptureLedger()'s own comment).
+        //
+        // BUG FIX, 2026-09-11 — Johan, live on QA1: "clicking panel row 8
+        // opens the mark-up view but lands at the top of the list... never
+        // scrolled and never flashed." Two real bugs, not one:
+        // (1) this used to call openContinuousView(row.document_id), which
+        //     ALSO scrolls to the document's own section — a second,
+        //     competing scroll racing the mark-level one below with no
+        //     ordering between them. Dropped; the listener's own section-
+        //     scroll (below) replaces it.
+        // (2) the event used to fire SYNCHRONOUSLY, in the same tick as
+        //     `continuousViewOpen = true` — before Alpine had even
+        //     re-rendered the overlay from display:none, so the mark's own
+        //     scrollIntoView() ran against a container with zero layout
+        //     and did nothing. $nextTick() waits for that render first.
         jumpToMark(row) {
             if (!row.document_id) return; // migrated/manual entry — nothing to jump to, the row's own inert glyph already says so
-            this.openContinuousView(row.document_id);
-            this.$dispatch('rental-jump-to-mark', { documentId: row.document_id, markId: row.id });
+            this.continuousViewOpen = true;
+            this.$nextTick(() => {
+                this.$dispatch('rental-jump-to-mark', { documentId: row.document_id, markId: row.id });
+            });
         },
         // DRAGGABLE WIDTH, 2026-09-10 — see the layout <style> block's own
         // comment for why. Reuses the exact drag pattern already shipped in
