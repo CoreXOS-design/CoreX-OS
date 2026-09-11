@@ -81,26 +81,125 @@
         <div class="h-screen flex flex-col overflow-hidden">
         @include('partials._env-banner')
         <x-outbound-mail-banner />
-        {{-- Mobile sidebar toggle --}}
-        <div x-data="{ sidebarOpen: false }" class="flex flex-1 min-h-0 overflow-hidden" style="background:var(--bg)">
+        {{-- Mobile sidebar toggle.
 
-            {{-- Mobile overlay --}}
-            <div x-show="sidebarOpen" x-transition:enter="transition-opacity ease-linear duration-200"
+             Hover-fold, 2026-09-11 — Johan, rental-applications mark-up
+             screen: "make BOTH the CoreX app sidebar and the Documents
+             column fold away to a thin strip, and reveal on hover... same
+             ~560px handed back to the document, far less restructuring,
+             and it is reversible." `markupModeActive` is a plain, inert-
+             by-default flag: no page dispatches `rental-markup-view-
+             toggled` except the rental-applications review screen, so
+             every other screen's sidebar is 100% unchanged. Deliberately
+             NOT a genuine "shrink to a 44px icon strip" — corex-
+             sidebar.blade.php is a large, business-critical nav partial
+             (agency switcher, branch switcher, impersonation, admin
+             multi-branch manager) never audited for how it degrades at
+             44px, and hand-clipping it under time pressure risked shipping
+             something cosmetically broken. Reuses the EXISTING mobile
+             off-canvas mechanism instead (already exactly "hidden by
+             default, slides in as a z-50 overlay, closes on
+             mouseleave/click-away") at desktop widths too, when
+             markupModeActive — same aside, same markup, zero changes to
+             corex-sidebar.blade.php's own content. Pin/hover/drag-
+             suppression logic lives here since it also drives the reveal-
+             zone strip and pin button below, both new to this file only. --}}
+        <div x-data="{
+                sidebarOpen: false,
+                markupModeActive: false,
+                markupSidebarPinned: false,
+                revealTimer: null,
+                closeTimer: null,
+                initHoverFold() {
+                    try { this.markupSidebarPinned = localStorage.getItem('rentalMarkupSidebarPinned') === '1'; } catch (_) {}
+                    // Shared with the Documents-column fold panel inside the
+                    // rental review screen (review.blade.php) — tracked once,
+                    // globally, so a drag started on the document also
+                    // suppresses THIS panel's reveal, and vice versa.
+                    if (!window.__rentalMouseDownTracked) {
+                        window.__rentalMouseDownTracked = true;
+                        window.__rentalMouseDown = false;
+                        window.addEventListener('mousedown', () => { window.__rentalMouseDown = true; });
+                        window.addEventListener('mouseup', () => { window.__rentalMouseDown = false; });
+                    }
+                },
+                onSidebarZoneEnter() {
+                    if (!this.markupModeActive || this.markupSidebarPinned || window.__rentalMouseDown) return;
+                    clearTimeout(this.closeTimer);
+                    this.revealTimer = setTimeout(() => { if (!window.__rentalMouseDown) this.sidebarOpen = true; }, 180);
+                },
+                onSidebarZoneLeave() {
+                    clearTimeout(this.revealTimer);
+                    if (!this.markupModeActive || this.markupSidebarPinned) return;
+                    this.closeTimer = setTimeout(() => { this.sidebarOpen = false; }, 250);
+                },
+                toggleSidebarPin() {
+                    this.markupSidebarPinned = !this.markupSidebarPinned;
+                    try { localStorage.setItem('rentalMarkupSidebarPinned', this.markupSidebarPinned ? '1' : '0'); } catch (_) {}
+                    if (this.markupSidebarPinned) this.sidebarOpen = true;
+                },
+             }"
+             x-init="initHoverFold()"
+             @rental-markup-view-toggled.window="markupModeActive = $event.detail.open; if (!$event.detail.open) sidebarOpen = false"
+             class="flex flex-1 min-h-0 overflow-hidden" style="background:var(--bg)">
+
+            {{-- Mobile overlay — unchanged for the plain mobile case (dark,
+                 click anywhere to close). Skipped entirely in markup-fold
+                 mode: a dark 50%-opacity scrim over the document would
+                 defeat the entire point of reclaiming the space — closing
+                 there is mouseleave (onSidebarZoneLeave, above) or the pin
+                 toggle, never a click-away backdrop. --}}
+            <div x-show="sidebarOpen && !markupModeActive" x-transition:enter="transition-opacity ease-linear duration-200"
                  x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100"
                  x-transition:leave="transition-opacity ease-linear duration-200"
                  x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0"
                  @click="sidebarOpen = false"
                  class="fixed inset-0 bg-black/50 z-40 lg:hidden" x-cloak></div>
 
+            {{-- Reveal zone — a slim, invisible hover target pinned to the
+                 left edge. Only present in markup-fold mode; the sidebar's
+                 own normal lg:flex-shrink-0 behaviour is completely
+                 untouched otherwise. --}}
+            <div x-show="markupModeActive && !sidebarOpen" x-cloak
+                 @mouseenter="onSidebarZoneEnter()" @mouseleave="onSidebarZoneLeave()"
+                 class="hidden lg:block fixed inset-y-0 left-0 z-40" style="width: 10px;"></div>
+
             {{-- Sidebar — fixed 240px (w-60) to match layouts.corex-app. NOTE: an
                  element may only carry ONE :class attribute; a second is dropped by
                  the HTML parser. The previous markup had two, so the width binding
                  (lg:w-60) was silently discarded and the sidebar rendered at content
-                 width (wider). Width is now in the static class so it always applies. --}}
-            <aside :class="sidebarOpen ? 'translate-x-0' : '-translate-x-full'"
-                   class="fixed inset-y-0 left-0 z-50 w-60 transform transition-transform duration-200 ease-in-out lg:relative lg:translate-x-0 lg:flex-shrink-0">
+                 width (wider). Width is now in the static class so it always applies.
+
+                 Hover-fold — lg:relative/lg:flex-shrink-0/lg:translate-x-0 (which
+                 force the sidebar to always occupy real flex space and stay
+                 visible at desktop widths) are now CONDITIONAL on
+                 markupModeActive: present exactly as before for every other
+                 screen; omitted while marking up (unless pinned), so the
+                 EXISTING mobile off-canvas behaviour — fixed position, zero
+                 reserved space, transform-controlled visibility — applies at
+                 desktop widths too. Nothing here changes corex-sidebar's own
+                 markup or CSS. --}}
+            <aside :class="[
+                       sidebarOpen ? 'translate-x-0' : '-translate-x-full',
+                       (markupModeActive && !markupSidebarPinned) ? '' : 'lg:relative lg:translate-x-0 lg:flex-shrink-0',
+                   ]"
+                   @mouseenter="markupModeActive ? onSidebarZoneEnter() : null" @mouseleave="onSidebarZoneLeave()"
+                   class="fixed inset-y-0 left-0 z-50 w-60 transform transition-transform duration-200 ease-in-out">
                 @include('layouts.corex-sidebar')
             </aside>
+
+            {{-- Pin — the one control Johan asked for explicitly ("give
+                 each panel a PIN control... remember their choice for the
+                 session"). Floats over the sidebar's own top-right corner
+                 rather than living inside corex-sidebar.blade.php, for the
+                 same "don't touch that partial" reason as above. --}}
+            <button type="button" x-show="markupModeActive && sidebarOpen" x-cloak
+                    @click="toggleSidebarPin()"
+                    class="hidden lg:flex fixed z-[60] items-center justify-center rounded-md"
+                    style="left: 220px; top: 8px; width: 22px; height: 22px; background: var(--surface); border: 1px solid var(--border); color: var(--text-secondary);"
+                    :title="markupSidebarPinned ? 'Unpin sidebar — back to hover-to-reveal' : 'Pin sidebar open'">
+                <span x-text="markupSidebarPinned ? '📌' : '📍'" style="font-size: 11px;"></span>
+            </button>
 
             {{-- Main area --}}
             <div class="flex-1 flex flex-col overflow-hidden min-w-0">

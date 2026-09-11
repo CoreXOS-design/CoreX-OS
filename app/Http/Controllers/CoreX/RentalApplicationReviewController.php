@@ -216,6 +216,17 @@ class RentalApplicationReviewController extends Controller
         $highlightedByDocId = RentalApplicationDocumentHighlight::whereIn('document_id', $allDocIds)
             ->whereNotNull('highlighted_file_path')
             ->pluck('id', 'document_id');
+        // Hover-fold, 2026-09-11 — the folded Documents strip shows a mark
+        // count per document (Johan: "a short indicator per document with
+        // its mark count where it has marks") without needing that
+        // document loaded client-side first — a per-document highlighter
+        // instance only knows its own mark count AFTER it's been lazy-
+        // loaded, which defeats the point of a strip that's useful while
+        // folded and nothing has loaded yet.
+        $markCountByDocId = RentalApplicationDocumentMark::whereIn('document_id', $allDocIds)
+            ->selectRaw('document_id, count(*) as cnt')
+            ->groupBy('document_id')
+            ->pluck('cnt', 'document_id');
 
         // AT-392 — Johan: "a stale document warns naming the purpose it
         // fails and by how long, in plain language." This screen's purpose
@@ -223,17 +234,18 @@ class RentalApplicationReviewController extends Controller
         // document was originally filed — that's what it's being used FOR
         // here, not where it came from.
         $agencyId = (int) $rentalApplication->agency_id;
-        $documents = $rentalApplication->documents->map(function (Document $document) use ($highlightedByDocId, $agencyId) {
+        $documents = $rentalApplication->documents->map(function (Document $document) use ($highlightedByDocId, $markCountByDocId, $agencyId) {
             return [
                 'document' => $document,
                 'inline_viewable' => $this->isInlineViewable($document->mime_type),
                 'has_highlights' => $highlightedByDocId->has($document->id),
+                'mark_count' => (int) ($markCountByDocId[$document->id] ?? 0),
                 'pulled_from_contact' => false,
                 'staleness_warning' => RentalApplicationDocumentValidityWindow::stalenessWarning(
                     $document->created_at, $agencyId, 'rental_application', $document->document_type_id
                 ),
             ];
-        })->concat($rentalApplication->referencedDocuments->map(function (Document $document) use ($highlightedByDocId, $agencyId) {
+        })->concat($rentalApplication->referencedDocuments->map(function (Document $document) use ($highlightedByDocId, $markCountByDocId, $agencyId) {
             // AT-392 "pull from contact" — filed elsewhere (source_type/
             // source_id untouched), only REFERENCED here. Never eligible for
             // Split (that would archive a document another context owns)
@@ -244,6 +256,7 @@ class RentalApplicationReviewController extends Controller
                 'document' => $document,
                 'inline_viewable' => $this->isInlineViewable($document->mime_type),
                 'has_highlights' => $highlightedByDocId->has($document->id),
+                'mark_count' => (int) ($markCountByDocId[$document->id] ?? 0),
                 'pulled_from_contact' => true,
                 'staleness_warning' => RentalApplicationDocumentValidityWindow::stalenessWarning(
                     $document->created_at, $agencyId, 'rental_application', $document->document_type_id

@@ -226,23 +226,30 @@ class RentalApplicationAuthorisationController extends Controller
         $highlightedByDocId = RentalApplicationDocumentHighlight::whereIn('document_id', $allDocIds)
             ->whereNotNull('highlighted_file_path')
             ->pluck('id', 'document_id');
+        // Hover-fold, 2026-09-11 — same reasoning as RentalApplicationReviewController::show().
+        $markCountByDocId = RentalApplicationDocumentMark::whereIn('document_id', $allDocIds)
+            ->selectRaw('document_id, count(*) as cnt')
+            ->groupBy('document_id')
+            ->pluck('cnt', 'document_id');
 
         $agencyId = (int) $rentalApplication->agency_id;
-        $documents = $rentalApplication->documents->map(function (Document $document) use ($highlightedByDocId, $agencyId) {
+        $documents = $rentalApplication->documents->map(function (Document $document) use ($highlightedByDocId, $markCountByDocId, $agencyId) {
             return [
                 'document' => $document,
                 'inline_viewable' => $this->isInlineViewable($document->mime_type),
                 'has_highlights' => $highlightedByDocId->has($document->id),
+                'mark_count' => (int) ($markCountByDocId[$document->id] ?? 0),
                 'pulled_from_contact' => false,
                 'staleness_warning' => RentalApplicationDocumentValidityWindow::stalenessWarning(
                     $document->created_at, $agencyId, 'rental_application', $document->document_type_id
                 ),
             ];
-        })->concat($rentalApplication->referencedDocuments->map(function (Document $document) use ($highlightedByDocId, $agencyId) {
+        })->concat($rentalApplication->referencedDocuments->map(function (Document $document) use ($highlightedByDocId, $markCountByDocId, $agencyId) {
             return [
                 'document' => $document,
                 'inline_viewable' => $this->isInlineViewable($document->mime_type),
                 'has_highlights' => $highlightedByDocId->has($document->id),
+                'mark_count' => (int) ($markCountByDocId[$document->id] ?? 0),
                 'pulled_from_contact' => true,
                 'staleness_warning' => RentalApplicationDocumentValidityWindow::stalenessWarning(
                     $document->created_at, $agencyId, 'rental_application', $document->document_type_id

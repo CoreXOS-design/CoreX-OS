@@ -438,7 +438,13 @@
         .rr-ledger-amount { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
     </style>
 
-    <div class="rental-review-columns mt-5" x-data="rentalReviewLayout()">
+    <div class="rental-review-columns mt-5" x-data="rentalReviewLayout({
+         initialCvDocs: {{ Js::from($documents->map(fn ($row) => [
+             'id' => $row['document']->id,
+             'label' => $row['document']->documentType->label ?? $row['document']->original_name,
+             'mark_count' => $row['mark_count'],
+         ])->values()) }},
+     })">
 
         {{-- MAIN — the submitted application, supporting documents, and audit
              trail. Dominant column, shared for both roles. --}}
@@ -807,16 +813,63 @@
                      at all. --}}
                 <div x-show="continuousViewOpen" x-cloak class="h-full" style="background: var(--surface);">
                     <div class="flex h-full">
-                    <div class="flex-shrink-0 overflow-y-auto" style="width: 220px; border-right: 1px solid var(--border); padding: 12px; background: var(--surface-2, #f9fafb);">
-                        <div class="flex items-center justify-between mb-3">
-                            <h3 class="text-sm font-semibold" style="color: var(--text-primary);">Documents</h3>
-                            <button type="button" class="text-xs" style="color: var(--text-muted);" @click="continuousViewOpen = false">Close</button>
+                    {{-- Hover-fold, 2026-09-11 — Johan: "make BOTH the CoreX
+                         app sidebar and the Documents column fold away to a
+                         thin strip, and reveal on hover... same ~560px
+                         handed back to the document." Default folded
+                         (~44px, ALWAYS reserved — the flex-shrink-0 shell
+                         below never changes width); the full panel expands
+                         as an ABSOLUTELY-POSITIONED overlay on hover/pin/
+                         click, never reflowing the document scroll area
+                         next to it — Johan's rule (a): "the page must
+                         never shift under the cursor." Reveal/close run on
+                         a delay (rule 4) and are suppressed while any
+                         mouse button is down anywhere on the page (rule
+                         3b — window.__rentalMouseDown, shared with the app
+                         sidebar's own fold in layouts/corex.blade.php) so
+                         a highlight drag started near this edge can never
+                         trigger or be interrupted by a flyout. Folded
+                         markers show a mark count per document (rule 5) so
+                         the common "where am I / jump to another document"
+                         case needs no flyout at all; the currently-visible
+                         document is highlighted via a scroll-spy
+                         (startCvScrollSpy(), init() above). Clicking a
+                         folded marker toggles the panel open too (rule 6
+                         — hover doesn't exist on a tablet). --}}
+                    <div class="flex-shrink-0 h-full" style="width: 44px; position: relative;"
+                         @mouseenter="onDocsPanelEnter()" @mouseleave="onDocsPanelLeave()">
+                        <div class="h-full overflow-y-auto flex flex-col items-center gap-1.5 py-2"
+                             style="width: 44px; border-right: 1px solid var(--border); background: var(--surface-2, #f9fafb);">
+                            <button type="button" title="Close" @click="continuousViewOpen = false"
+                                    class="flex-shrink-0 flex items-center justify-center rounded-md"
+                                    style="width: 22px; height: 22px; color: var(--text-muted); font-size: 14px;">&times;</button>
+                            <template x-for="d in cvDocs" :key="d.id">
+                                <button type="button" @click="scrollToDoc(d.id); docsPanelClickToggle();" :title="d.label + (d.mark_count ? ' — ' + d.mark_count + ' mark' + (d.mark_count === 1 ? '' : 's') : '')"
+                                        class="flex-shrink-0 flex items-center justify-center rounded-full"
+                                        :style="{ width: '26px', height: '26px', fontSize: '10px', fontWeight: '700', border: (activeCvDocId === d.id) ? '2px solid var(--ds-blue, #2563eb)' : '1px solid var(--border)', color: (activeCvDocId === d.id) ? 'var(--ds-blue, #2563eb)' : 'var(--text-secondary)', background: 'var(--surface)' }">
+                                    <span x-text="d.mark_count || ''"></span>
+                                </button>
+                            </template>
                         </div>
-                        <nav class="space-y-1">
-                            @foreach($documents as $row)
-                                <a href="#cv-doc-{{ $row['document']->id }}" class="block text-xs truncate px-1 py-1 rounded" style="color: var(--ds-blue, #2563eb);" title="{{ $row['document']->original_name }}">{{ $row['document']->original_name }}</a>
-                            @endforeach
-                        </nav>
+
+                        <div x-show="docsPanelRevealed" x-cloak
+                             class="absolute inset-y-0 left-0 overflow-y-auto"
+                             style="width: 220px; z-index: 30; border-right: 1px solid var(--border); padding: 12px; background: var(--surface-2, #f9fafb); box-shadow: 6px 0 16px rgba(0,0,0,0.18);">
+                            <div class="flex items-center justify-between mb-3">
+                                <h3 class="text-sm font-semibold" style="color: var(--text-primary);">Documents</h3>
+                                <span class="flex items-center gap-1.5">
+                                    <button type="button" @click="toggleDocsPin()" :title="docsPanelPinned ? 'Unpin — back to hover-to-reveal' : 'Pin panel open'" style="font-size: 12px;">
+                                        <span x-text="docsPanelPinned ? '📌' : '📍'"></span>
+                                    </button>
+                                    <button type="button" class="text-xs" style="color: var(--text-muted);" @click="continuousViewOpen = false">Close</button>
+                                </span>
+                            </div>
+                            <nav class="space-y-1">
+                                @foreach($documents as $row)
+                                    <a href="#cv-doc-{{ $row['document']->id }}" class="block text-xs truncate px-1 py-1 rounded" style="color: var(--ds-blue, #2563eb);" title="{{ $row['document']->original_name }}" @click="docsPanelHovered = false">{{ $row['document']->original_name }}</a>
+                                @endforeach
+                            </nav>
+                        </div>
                     </div>
                     <div class="flex-1 overflow-y-auto" id="continuousViewScroll" style="scroll-behavior: smooth;">
                         <div class="max-w-4xl mx-auto p-4 space-y-6">
@@ -1870,8 +1923,75 @@ function formatTime(iso) {
 // both roles now (unified screen, 2026-09-09) — the authoriser's screen
 // didn't measure this at all before the merge; its columns just grew
 // unbounded.
-function rentalReviewLayout() {
+function rentalReviewLayout({ initialCvDocs } = {}) {
     return {
+        // Hover-fold, 2026-09-11 — the Documents column. Same pattern as
+        // the app sidebar's own fold in layouts/corex.blade.php (pin
+        // persisted in localStorage, reveal/close on a delay, suppressed
+        // while a mouse button is down anywhere — shared global flag, see
+        // that file's own comment), but entirely local to THIS component
+        // since both the folded strip and the full panel it expands into
+        // live in the same place — no window-event bridge needed here.
+        cvDocs: initialCvDocs || [],
+        activeCvDocId: null,
+        docsPanelPinned: false,
+        docsPanelHovered: false,
+        docsRevealTimer: null,
+        docsCloseTimer: null,
+        _cvScrollSpyObserver: null,
+        initDocsFold() {
+            try { this.docsPanelPinned = localStorage.getItem('rentalMarkupDocsPinned') === '1'; } catch (_) {}
+            if (!window.__rentalMouseDownTracked) {
+                window.__rentalMouseDownTracked = true;
+                window.__rentalMouseDown = false;
+                window.addEventListener('mousedown', () => { window.__rentalMouseDown = true; });
+                window.addEventListener('mouseup', () => { window.__rentalMouseDown = false; });
+            }
+        },
+        get docsPanelRevealed() { return this.docsPanelPinned || this.docsPanelHovered; },
+        onDocsPanelEnter() {
+            if (this.docsPanelPinned || window.__rentalMouseDown) return;
+            clearTimeout(this.docsCloseTimer);
+            this.docsRevealTimer = setTimeout(() => { if (!window.__rentalMouseDown) this.docsPanelHovered = true; }, 180);
+        },
+        onDocsPanelLeave() {
+            clearTimeout(this.docsRevealTimer);
+            this.docsCloseTimer = setTimeout(() => { this.docsPanelHovered = false; }, 250);
+        },
+        toggleDocsPin() {
+            this.docsPanelPinned = !this.docsPanelPinned;
+            try { localStorage.setItem('rentalMarkupDocsPinned', this.docsPanelPinned ? '1' : '0'); } catch (_) {}
+        },
+        // Rule 6 (Johan): "hover does not exist on a tablet... clicking a
+        // folded strip must also open it." A tap on a folded marker both
+        // scrolls to that document AND toggles the panel open, so touch
+        // users reach the same information hover would have shown them.
+        docsPanelClickToggle() {
+            this.docsPanelHovered = !this.docsPanelHovered;
+        },
+        scrollToDoc(docId) {
+            const el = document.getElementById('cv-doc-' + docId);
+            if (el) el.scrollIntoView({ block: 'start' });
+        },
+        /** Scroll-spy for "the active one highlighted" (Johan) — set up once per continuous-view open, torn down on close so it never watches detached sections. */
+        startCvScrollSpy() {
+            this.stopCvScrollSpy();
+            this.$nextTick(() => {
+                const root = document.getElementById('continuousViewScroll');
+                if (!root) return;
+                this._cvScrollSpyObserver = new IntersectionObserver((entries) => {
+                    const visible = entries.filter(e => e.isIntersecting).sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
+                    if (visible.length) this.activeCvDocId = parseInt(visible[0].target.id.replace('cv-doc-', ''), 10);
+                }, { root, threshold: 0, rootMargin: '0px 0px -70% 0px' });
+                this.cvDocs.forEach(d => {
+                    const section = document.getElementById('cv-doc-' + d.id);
+                    if (section) this._cvScrollSpyObserver.observe(section);
+                });
+            });
+        },
+        stopCvScrollSpy() {
+            if (this._cvScrollSpyObserver) { this._cvScrollSpyObserver.disconnect(); this._cvScrollSpyObserver = null; }
+        },
         // AT-392 — lifted here from a local x-data on the amber "approved,
         // not yet sent" box so the drawer trigger button (still nested deep
         // in .rental-review-aside) and the drawer itself (relocated OUTSIDE
@@ -2013,6 +2133,19 @@ function rentalReviewLayout() {
             document.addEventListener('mouseup', onUp);
         },
         init() {
+            // Hover-fold, 2026-09-11 — see layouts/corex.blade.php's own
+            // comment on why the app sidebar's fold is driven by this
+            // window event rather than the layout reaching down into
+            // rental-applications-specific state. $watch (not the toggle
+            // call sites themselves) is what guarantees this fires
+            // regardless of WHICH of openContinuousView()/jumpToMark()/the
+            // Close button's own inline @click actually flipped the flag.
+            this.$watch('continuousViewOpen', (value) => {
+                this.$dispatch('rental-markup-view-toggled', { open: value });
+                if (value) { this.startCvScrollSpy(); } else { this.stopCvScrollSpy(); this.docsPanelHovered = false; }
+            });
+            this.initDocsFold();
+
             this.$el.style.setProperty('--rr-strip-h', this.stripHeight + 'px');
 
             const recalc = () => {
