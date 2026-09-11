@@ -9,8 +9,10 @@
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Contacts</h1>
-                <p class="text-xs" style="color: var(--text-muted);">Manage your contacts and leads.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">{{ $isRentalEntry ? 'Rental Contacts' : 'Contacts' }}</h1>
+                <p class="text-xs" style="color: var(--text-muted);">
+                    {{ $isRentalEntry ? 'Tenants, prospective tenants, and landlords — anyone rental-relevant, even if they hold other roles too.' : 'Manage your contacts and leads.' }}
+                </p>
             </div>
             <div class="flex flex-wrap items-center gap-2">
             @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
@@ -33,15 +35,19 @@
                 <div x-show="exportOpen" x-cloak x-transition.opacity
                      class="absolute right-0 mt-1 w-56 rounded-md py-1 z-20 shadow-lg"
                      style="background:var(--surface); border:1px solid var(--border);">
-                    <a href="{{ route('corex.contacts.export', request()->only(['search', 'type', 'agent_id'])) }}"
+                    {{-- AT-403 — ?rental=1 travels the lens into the export
+                         (a separate route/name from this list, so it can't
+                         detect the lens by route name the way the list
+                         itself does — see ContactExportController::buildQuery()). --}}
+                    <a href="{{ route('corex.contacts.export', array_merge(request()->only(['search', 'type', 'agent_id']), $isRentalEntry ? ['rental' => 1] : [])) }}"
                        class="block px-4 py-2 text-sm transition-colors" style="color:var(--text-primary);"
                        onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">
                         Export current view
                     </a>
-                    <a href="{{ route('corex.contacts.export', ['all' => 1]) }}"
+                    <a href="{{ route('corex.contacts.export', array_merge(['all' => 1], $isRentalEntry ? ['rental' => 1] : [])) }}"
                        class="block px-4 py-2 text-sm transition-colors" style="color:var(--text-primary);"
                        onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">
-                        Export all contacts
+                        Export all {{ $isRentalEntry ? 'rental ' : '' }}contacts
                     </a>
                 </div>
             </div>
@@ -475,10 +481,14 @@
             <input type="hidden" name="agent_id" value="{{ $filterAgentId }}">
             @endif
 
-            {{-- Type filter --}}
+            {{-- Type filter — AT-403: on the Rentals lens, $typeFilterOptions is
+                 already narrowed to Lessor/Lessee (the rental-relevant
+                 canonical parents); "All Types" here means "all rental
+                 types", the lock in the controller keeps it from ever
+                 escaping to Buyer/Seller/Owner regardless. --}}
             <select name="type" onchange="this.form.submit()" class="list-header-filter">
-                <option value="">All Types</option>
-                @foreach($contactTypes as $type)
+                <option value="">{{ $isRentalEntry ? 'All Rental Types' : 'All Types' }}</option>
+                @foreach($typeFilterOptions as $type)
                     <option value="{{ $type->id }}" {{ request('type') == $type->id ? 'selected' : '' }}>{{ $type->name }}</option>
                 @endforeach
             </select>
@@ -681,6 +691,19 @@
                                 {{ $contact->type->name }}
                             </span>
                             @endif
+                            {{-- AT-403 — "what the contact IS in rental terms" (Johan),
+                                 read from BOTH signals scopeRentalRelevant() matched on,
+                                 not just the primary type mirror above (which can show a
+                                 DIFFERENT type, e.g. "Seller", for a contact who is also
+                                 a tenant — the inclusive rule this whole lens exists for). --}}
+                            @if($isRentalEntry && !$isRestricted && !$isOtherAgent)
+                                @foreach($contact->rentalRoleLabels() as $rentalRole)
+                                <span class="text-xs px-2 py-0.5 rounded-md font-medium whitespace-nowrap"
+                                      style="background:color-mix(in srgb, var(--ds-amber, #f59e0b) 14%, transparent); color:var(--ds-amber, #f59e0b); border:1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 30%, transparent);">
+                                    {{ $rentalRole }}
+                                </span>
+                                @endforeach
+                            @endif
                         </div>
                         <div class="mt-1 flex flex-wrap gap-x-4 gap-y-1">
                             <span class="text-xs flex items-center gap-1" style="color:var(--text-secondary);">
@@ -790,8 +813,19 @@
                  style="background: color-mix(in srgb, var(--brand-icon,#0ea5e9) 12%, transparent); color: var(--brand-icon,#0ea5e9);">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 0 1 8.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0 1 11.964-3.07M12 6.375a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0Zm8.25 2.25a2.625 2.625 0 1 1-5.25 0 2.625 2.625 0 0 1 5.25 0Z" /></svg>
             </div>
-            <h3 class="text-base font-semibold mb-1" style="color: var(--text-primary);">No contacts yet</h3>
-            <p class="text-sm mb-4" style="color: var(--text-muted);">Add your first contact to start tracking relationships.</p>
+            @if($isRentalEntry)
+                <h3 class="text-base font-semibold mb-1" style="color: var(--text-primary);">No rental contacts {{ request()->hasAny(['search', 'type']) ? 'match this filter' : 'yet' }}</h3>
+                <p class="text-sm mb-4" style="color: var(--text-muted);">
+                    @if(request()->hasAny(['search', 'type']))
+                        Try clearing the search or type filter above.
+                    @else
+                        Tenants, prospective tenants, and landlords show up here automatically once they're typed on the Contacts screen, or once a rental application is approved.
+                    @endif
+                </p>
+            @else
+                <h3 class="text-base font-semibold mb-1" style="color: var(--text-primary);">No contacts yet</h3>
+                <p class="text-sm mb-4" style="color: var(--text-muted);">Add your first contact to start tracking relationships.</p>
+            @endif
             <button type="button" @click="showAdd = true" class="corex-btn-primary text-sm">Add Contact</button>
         </div>
         @endforelse

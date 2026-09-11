@@ -3943,6 +3943,21 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->middleware('permission:core_matches.all_view')
         ->name('corex.rentals.core-matches.all');
 
+    // AT-403 — Rentals → Contacts. Johan: "rental menu - wheres my rental
+    // contacts?" Same ContactController::index() as corex.contacts.index
+    // above, detected by route NAME, locking the list to contacts holding a
+    // rental-relevant type (tenant/prospective tenant/landlord) after the
+    // query string is read — same lock mechanism as every other Rentals
+    // entry point. INCLUSIVE filter, never exclusive: a contact can be a
+    // seller AND a tenant simultaneously (Johan's explicit ruling), so this
+    // never hides a contact from the sale-side Contacts screen, it only
+    // ADDS a second door into the same record. No new permission: reuses
+    // access_contacts — the shared screen already gates access, the rentals
+    // lens is a lock, not a new capability. See .ai/specs/rentals-shared-screens.md §13.
+    Route::get('/rentals/contacts', [\App\Http\Controllers\CoreX\ContactController::class, 'index'])
+        ->middleware(['permission:access_contacts', 'agency.required'])
+        ->name('corex.rentals.contacts.index');
+
     // Portal Leads (P24 + PP unified). Spec: .ai/specs/portal-leads.md
     Route::prefix('real-estate/portal-leads')
         ->middleware(['permission:access_portal_leads', 'agency.required', 'feature:portal-leads'])
