@@ -886,21 +886,28 @@
                  whichever agency-configurable highlighter colour was used
                  to actually draw the mark on the document). Number is
                  POSITIONAL (index+1 within the group), never stored — see
-                 rentalCaptureLedger()'s own docblock. Jump glyph present,
-                 inert this stage — Stage 2 wires it to scroll/flash the
-                 mark on its document; rendering it now (rather than
-                 omitting it) keeps every row's shape stable when that
-                 lands, and is honest about what's coming rather than a
-                 dead click target with no visual cue at all. --}}
+                 rentalCaptureLedger()'s own docblock.
+
+                 Stage 2, 2026-09-11 — the whole row (not just the jump
+                 glyph — Johan's own spec) opens the document the line came
+                 from, on the right page, scrolls the mark into view, and
+                 flashes it (jumpToMark(), on rentalReviewLayout() and this
+                 shared script respectively — see their own comments). Only
+                 an ANCHORED entry (a real drawn mark, row.document_id set)
+                 is clickable; a migrated/manually-entered row with nothing
+                 to jump to renders the same shape with an inert glyph
+                 rather than a dead click target, per the panel's own
+                 stated design ("shows without a mark number and with no
+                 jump target"). --}}
             <div>
                 <p class="rr-ledger-group-label">Income</p>
                 <template x-if="incomeEntries().length === 0"><p class="text-[11px]" style="color: var(--text-muted);">None captured.</p></template>
                 <template x-for="(row, idx) in incomeEntries()" :key="row.id">
-                    <div class="rr-ledger-row">
+                    <div class="rr-ledger-row" :style="{ cursor: row.document_id ? 'pointer' : 'default' }" :title="row.document_id ? 'Jump to this mark on the document' : ''" @click="jumpToMark(row)">
                         <span class="rr-ledger-badge" style="background: var(--ds-purple, #7c3aed);" x-text="idx + 1"></span>
                         <span class="text-[11px]" style="color: var(--text-secondary);" x-text="shortDate(row.entry_date)"></span>
                         <span class="rr-ledger-amount text-xs" style="color: var(--text-primary);" :title="row.entry_description" x-text="formatR(row.entry_amount)"></span>
-                        <span class="text-[11px] text-right" style="color: var(--text-muted);" title="Jump to this mark — coming soon">&rarr;</span>
+                        <span class="text-[11px] text-right" :style="{ color: row.document_id ? 'var(--ds-blue, #2563eb)' : 'var(--text-muted)' }">&rarr;</span>
                     </div>
                 </template>
             </div>
@@ -908,11 +915,11 @@
                 <p class="rr-ledger-group-label">Expenses</p>
                 <template x-if="expenseEntries().length === 0"><p class="text-[11px]" style="color: var(--text-muted);">None captured.</p></template>
                 <template x-for="(row, idx) in expenseEntries()" :key="row.id">
-                    <div class="rr-ledger-row">
+                    <div class="rr-ledger-row" :style="{ cursor: row.document_id ? 'pointer' : 'default' }" :title="row.document_id ? 'Jump to this mark on the document' : ''" @click="jumpToMark(row)">
                         <span class="rr-ledger-badge" style="background: var(--ds-amber, #f59e0b);" x-text="idx + 1"></span>
                         <span class="text-[11px]" style="color: var(--text-secondary);" x-text="shortDate(row.entry_date)"></span>
                         <span class="rr-ledger-amount text-xs" style="color: var(--text-primary);" :title="row.entry_description" x-text="formatR(row.entry_amount)"></span>
-                        <span class="text-[11px] text-right" style="color: var(--text-muted);" title="Jump to this mark — coming soon">&rarr;</span>
+                        <span class="text-[11px] text-right" :style="{ color: row.document_id ? 'var(--ds-blue, #2563eb)' : 'var(--text-muted)' }">&rarr;</span>
                     </div>
                 </template>
             </div>
@@ -1717,6 +1724,26 @@ function rentalReviewLayout() {
                     if (el) el.scrollIntoView({ block: 'start' });
                 });
             }
+        },
+        // Stage 2, 2026-09-11 — the capture panel's row-click-to-jump.
+        // Lives here (not on rentalCaptureLedger(), which owns the row/
+        // captureEntries data this reads) for the same reason
+        // openContinuousView() does: it needs to open/scroll the
+        // continuous view, which only exists on THIS scope. A row's
+        // @click="jumpToMark(row)" resolves here via Alpine's normal
+        // ancestor-scope walk (.rental-review-aside is a descendant of
+        // this x-data, same as the drawer trigger button already was) —
+        // no cross-scope plumbing needed for the CALL itself. Reaching the
+        // right per-document rentalDocumentHighlighter() instance to
+        // actually scroll/flash the mark DOES need one, since those are
+        // genuinely separate x-data instances one level further down (one
+        // per document, inside the continuous view) — a window event
+        // bridges that, the same pattern the capture chip already uses in
+        // the other direction (see rentalCaptureLedger()'s own comment).
+        jumpToMark(row) {
+            if (!row.document_id) return; // migrated/manual entry — nothing to jump to, the row's own inert glyph already says so
+            this.openContinuousView(row.document_id);
+            this.$dispatch('rental-jump-to-mark', { documentId: row.document_id, markId: row.id });
         },
         // DRAGGABLE WIDTH, 2026-09-10 — see the layout <style> block's own
         // comment for why. Reuses the exact drag pattern already shipped in

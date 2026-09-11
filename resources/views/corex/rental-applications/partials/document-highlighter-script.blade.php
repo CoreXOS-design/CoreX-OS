@@ -476,6 +476,40 @@ function rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, curre
                     this.strokeWidth = this.strokeSizes.find(s => s.key === saved).px;
                 }
             } catch (_) {} // localStorage unavailable (private browsing etc.) — default size is fine
+
+            // Stage 2, 2026-09-11 — the capture panel's row-click-to-jump.
+            // This listens on EVERY rentalDocumentHighlighter() instance
+            // (there is one per document in the continuous view, plus the
+            // root's own dead spread — see that spread's own comment on why
+            // it's inert) and only the one whose activeDocId matches the
+            // event actually does anything; the others no-op on the
+            // comparison below. A window event, not a direct method call,
+            // because the panel row lives in a DIFFERENT x-data scope
+            // (rentalCaptureLedger(), spread into the ROOT) with no direct
+            // reference to whichever per-document instance owns the mark.
+            window.addEventListener('rental-jump-to-mark', async (e) => {
+                if (e.detail.documentId !== this.activeDocId) return;
+                await this.waitUntilPagesReady();
+                this.scrollToAndFlashMark(e.detail.markId);
+            });
+        },
+        /** Waits out whatever load is already in flight (triggered by openContinuousView()'s own scrollIntoView bringing this document's section within the IntersectionObserver's margin) rather than starting a second one — loadDocument() is never safe to call twice concurrently. Bounded so a document that genuinely fails to load doesn't hang the jump forever. */
+        async waitUntilPagesReady() {
+            let guard = 0;
+            while ((this.loading || this.pagesLoading) && guard < 100) {
+                await new Promise(resolve => setTimeout(resolve, 100));
+                guard++;
+            }
+        },
+        flashMarkId: null,
+        scrollToAndFlashMark(markId) {
+            this.$nextTick(() => {
+                const el = document.querySelector('[data-mark-id="' + markId + '"]');
+                if (!el) return; // the mark's own document/page failed to load — nothing to scroll to
+                el.scrollIntoView({ block: 'center' });
+                this.flashMarkId = markId;
+                setTimeout(() => { if (this.flashMarkId === markId) this.flashMarkId = null; }, 1300);
+            });
         },
 
         async openHighlighter(detail) {
@@ -835,10 +869,21 @@ function rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, curre
             // it — other strokes AND the page image — which is what makes
             // two overlapping strokes genuinely compound and darken further,
             // not just darken once as a flattened group.
-            const poly = (points, color, width, opacity, markId) =>
+            // Stage 2, 2026-09-11 — the row-click-to-jump "flash" (Johan's
+            // spec: "respect prefers-reduced-motion — outline instead of
+            // animation"). A CSS class, not an imperative DOM mutation —
+            // this whole <svg> is regenerated from this STRING on every
+            // x-html re-evaluation (any reactive dependency changing, not
+            // just a jump), so anything set directly on the DOM node would
+            // get silently wiped the next time something else re-renders it.
+            // flashMarkId itself is read here, which is what makes THIS
+            // function re-run (and add/drop the class) when it changes,
+            // exactly like renderedPageSize already does for a resize.
+            const poly = (points, color, width, opacity, markId, flashing) =>
                 '<polyline points="' + points.map(pt => Number(pt.x) + ',' + Number(pt.y)).join(' ') + '"'
                 + ' fill="none" stroke="' + color + '" stroke-opacity="' + opacity + '" stroke-width="' + Number(width) + '"'
                 + ' stroke-linecap="round" stroke-linejoin="round"'
+                + (flashing ? ' class="rah-mark-flash"' : '')
                 + ' style="mix-blend-mode:multiply;' + (markId ? ' cursor:pointer;' : '') + '"'
                 + (markId ? ' pointer-events="stroke" data-mark-id="' + markId + '"' : '')
                 + '></polyline>';
@@ -863,7 +908,7 @@ function rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, curre
                 // by eye against a real dense document (multiply blend
                 // already darkens more assertively than plain alpha ever
                 // did, so this is a small nudge, not a big compensation).
-                svg += poly(dispPoints, this.fillFor(m), fillWidth, 0.55, m.id);
+                svg += poly(dispPoints, this.fillFor(m), fillWidth, 0.55, m.id, m.id === this.flashMarkId);
             });
             // Capture-ledger rework, 2026-09-11 — a capture pen's stroke is
             // held here (not in this.marks) while its chip is open; render
@@ -874,7 +919,7 @@ function rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, curre
                 const pm = this.captureChip.pendingMark;
                 const dispPoints = pm.points.map(pt => ({ x: this.toDisplayX(pt.x, p), y: this.toDisplayY(pt.y, p) }));
                 const fillWidth = Math.max(this.toDisplayX(pm.width, p), 8);
-                svg += poly(dispPoints, this.fillFor(pm), fillWidth, 0.55, null);
+                svg += poly(dispPoints, this.fillFor(pm), fillWidth, 0.55, null, false);
             }
             if (this.drag.active && this.drag.page === p && this.activeTool === 'highlight') {
                 const preview = { highlighterId: this.activeHighlighterId };

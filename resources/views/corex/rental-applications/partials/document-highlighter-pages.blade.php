@@ -22,6 +22,26 @@
      shared JS factory, reading `highlighters` (passed in from the
      controller) — never CSS custom properties, never hardcoded here. --}}
 
+{{-- Stage 2, 2026-09-11 — the capture panel's row-click-to-jump "flash."
+     Normal motion: a brief pulsing stroke-width (rah-mark-flash, applied by
+     strokesSvgFor() in the shared script — see its own comment on why a CSS
+     class, not an imperative DOM mutation, is the only safe way to do this
+     against an x-html-regenerated SVG). Reduced motion: Johan's spec
+     verbatim, "respect prefers-reduced-motion — outline instead of
+     animation" — no @keyframes at all, just an immediate, static, high-
+     contrast outline stroke for the same duration, then it clears (a single
+     state change is not the "motion" prefers-reduced-motion opts out of). --}}
+<style>
+    .rah-mark-flash { animation: rahMarkFlashPulse 0.4s ease-in-out 3; }
+    @keyframes rahMarkFlashPulse {
+        0%, 100% { filter: brightness(1); }
+        50% { filter: brightness(0.6); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+        .rah-mark-flash { animation: none; stroke: #000 !important; stroke-opacity: 0.85 !important; }
+    }
+</style>
+
 <template x-if="loading">
     <p class="text-sm py-4" style="color: var(--text-secondary);">Loading document…</p>
 </template>

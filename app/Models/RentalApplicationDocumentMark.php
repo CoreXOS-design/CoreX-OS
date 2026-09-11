@@ -107,6 +107,14 @@ class RentalApplicationDocumentMark extends Model
             'author_name' => $this->author_name,
             'author_role' => $this->author_role,
             'document_id' => $this->document_id,
+            // Stage 2, 2026-09-11 — the capture panel's row-click-to-jump
+            // needs a mark's page to scroll it into view; every other
+            // existing consumer already gets page from the OUTER key of the
+            // {pageIndex: [...marks]} shape firstPagePreview()/
+            // remainingPagePreviews() return (see
+            // RentalApplicationDocumentHighlightService::firstPagePreview()),
+            // so this is a purely additive field, never read by them.
+            'page' => $this->page,
             // Capture-ledger rework — carried on every mark (default
             // 'annotation') so the client can tell a plain highlight/note
             // apart from a ledger entry without a second lookup.
