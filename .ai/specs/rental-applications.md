@@ -7460,6 +7460,10 @@ Johan, after cc1 verified Round 5's tighter side-by-side layout: "not going to w
 - `resources/views/corex/rental-applications/review.blade.php` — `.rental-review-columns`/`.rental-review-aside`/`.rental-review-resizer` restructured from side-by-side to always-stacked; `rentalReviewLayout()`'s width-drag renamed to a height-drag (`RA_STRIP_*`); the entire affordability panel rebuilt as four role-gated zones (`.rr-strip-zones`); `rentalReview()` gained `newEntry`/`commitNewEntry()`/`ledgerRows()`/`sendBackToApplicant()` and lost the now-merged `reopenApplication()`/`requestMoreInfo()`; `rentalAssessmentEditor()` gained its own `newEntry`/`commitNewEntry()`/`ledgerRows()` and lost the old per-kind `newIncomeDescription`/etc. six-field state; `rentalAuthorisationViewer()` gained `approveModalOpen`/`declineModalOpen`/`sendBackToAgentModalOpen`; new page-level modals for send-back-to-applicant (with the document checklist), approve, decline, and send-back-to-agent.
 - `app/Http/Controllers/CoreX/RentalApplicationReviewController.php` — `show()` now computes `$documentChecklist` via `RentalApplicationDocumentRequirement::checklistFor()` for the send-back modal.
 
+## Rentals → Contacts coordination CLOSED — cc6's actual mechanism confirmed to match (2026-09-11, cc4)
+
+At AT-403 build time, cc6's "add Tenant on approval" work was searched for and not found anywhere in this checkout; `Contact::scopeRentalRelevant()` was built against the best-evidenced available signal (the `contact_contact_type` pivot, `esign_role='lessee'`) and flagged for reconciliation once cc6's real code landed. It has now landed (see "Approval adds 'Tenant' to the contact's types — never replaces" above) — **confirmed to match exactly**: `AddTenantTypeOnRentalApproval` writes via `Contact::syncTypeAssignments()` to the identical `contact_contact_type` pivot, resolving the "Tenant" `ContactType` row (id 11, `esign_role='lessee'`) by exact name. No change needed to `scopeRentalRelevant()`. Coordination item closed.
+
 ## Rental Application Control Centre — three menus become one (AT-402, 2026-09-11, cc4) — BUILT
 
 Johan, verbatim: "the way fica works is a lot better than having 3 menus here... fica carries all the work and you can click the tiles to select which you want to work with... so it becomes more of a rental application control centre than having 3 menus and you have to sit and click through it to find where your application is at." Investigated FICA (`Compliance\FicaController::index()`, `compliance/fica/index.blade.php`) and e-sign (`ESignWizardController::myDocuments()`) side by side before writing anything — reported both, with a verdict, before building (full investigation report delivered separately; summarised here for the record).
@@ -7709,3 +7713,25 @@ untouched, still a real 403.
 - `tests/Feature/RentalApplications/RentalApplicationCurrentLivingSituationTest.php` — new test file
 - `tests/Feature/RentalApplications/RentalApplicationPropertyLinkTenancyTest.php` — two assertions updated for the refusal-shape fix
 - **Not in this branch, coordinated separately**: `resources/views/corex/rental-applications/review.blade.php` — the two-line "Submitted Application" summary addition, cc3's file, snippet given above, landing once this branch is in QA1
+
+---
+
+### REGRESSION FIX (2026-09-11) — Review action orphaned, redirect landed on the wrong tile
+
+Johan reproduced live at the office, demo-blocking: clicking a returned application's only action ("Open") landed on the read-only view, not the working Review screen (mark up documents, run the affordability assessment, submit for authorisation) — the entire working surface of the module was unreachable from the list. Root cause: merging `index()` (which only ever had "Open" — nothing to review pre-submission) and `returned()` (which showed "Open" AND "Review" together, unconditionally, on every row) into one list kept only `index()`'s action row, silently dropping Review for every status that had ever had it.
+
+Fixed with a per-status action, not a universal rename (explicit instruction: an approved/declined row must never open into a working review screen — `RentalApplicationReviewController::show()` has no status guard of its own, so the list is the only thing standing between a terminal-status row and a live review screen). `RentalApplicationController::REVIEWABLE_STATUSES = ['in_progress', 'returned', 'reopened', 'under_assessment']` — exactly the statuses where an agent still has real work to do on the file; these rows get Review AND Open (mirroring old `returned.blade.php`'s own unconditional pair exactly). Everything else (draft/sent — nothing uploaded yet to review; approved/declined/withdrawn — terminal, nothing left to review) gets Open only.
+
+Second fault, same report: `returned()`'s bare-link redirect (no `?status=` at all) landed on `tile=all`, reasoned at build time as the "honest superset" of the old screen's exact 7-status union. In practice this meant a bookmark for "Returned Applications" landed on a mixed list of everything, indistinguishable from the screen being gone. Fixed to redirect to `tile=returned` — the screen's own name is what a bookmark represents, not its exact old status union.
+
+**Verified live, in a browser, by actually clicking through** (not read off the Blade, per explicit instruction) as an RO/CO user (agency-wide scope) and a plain agent:
+- Returned tile, real application (Andre Roets, id 107, the conductor's own repro case): both Review and Open render; clicking Review loads the real working screen — Supporting Documents, Audit Trail, Affordability Assessment, "Submit to authoriser" — screenshotted.
+- Approved tile, real application (id 12): Open only, no Review link anywhere in that row.
+- A plain agent's own Declined application: Open only, same as an RO/CO sees on the same tile.
+- Withdrawn and Not Yet Submitted tiles: no Review link anywhere on either (confirmed by exact route-string grep, not a loose text search — an unrelated sidebar link to `/communications/capture/review` produced a false positive on a naive `includes('review')` check during this same verification pass, corrected before relying on it).
+- Bare `/rental-applications/returned` → `?tile=returned`; `/rental-applications/returned?status=declined` → `?tile=declined`; bare `/rental-applications` (not a redirect — same URI serves the control centre directly, unaffected by this class of bug) still 200s; `?status=draft` still resolves the correct active tile.
+- RO/CO's dedicated Authorisation screen still 403s for a plain agent, unchanged.
+
+No live `in_progress` application exists on QA1 at fix time to click through directly; verified via the same `REVIEWABLE_STATUSES` constant instead — no such row exists to hide a Review link that should have rendered.
+
+Files changed: `app/Http/Controllers/CoreX/RentalApplicationController.php` (`REVIEWABLE_STATUSES` constant, `returned()`'s bare-link fallback), `resources/views/corex/rental-applications/index.blade.php` (conditional Review action).

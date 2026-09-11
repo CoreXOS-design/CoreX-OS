@@ -210,6 +210,30 @@ class RentalApplicationController extends Controller
     /** Tile keys that surface any of RETURNED_STATUSES — hidden/redirected away for a user lacking view_returned. */
     public const VIEW_RETURNED_TILES = ['returned', 'under_assessment', 'sent_for_authorisation', 'approved', 'declined', 'reopened'];
 
+    /**
+     * REGRESSION FIX (2026-09-11) — merging index()/returned() into one list
+     * dropped the Review action entirely; every row got the old index()'s
+     * single "Open" (read-only/edit-form) action, orphaning the review
+     * screen (mark up documents, run the affordability assessment, submit
+     * for authorisation) from the list for every application, including the
+     * ones actively being worked. Johan, verbatim: "returned applications
+     * has no review any more?"
+     *
+     * These are the statuses where an agent has real work to do on the
+     * FILE — the old returned.blade.php showed Open AND Review together,
+     * unconditionally, for exactly this status set (it also included
+     * approved/declined/withdrawn, but those are terminal decisions with
+     * nothing left to review — Johan's explicit instruction: "an approved
+     * or declined application opening into a working review screen is its
+     * own bug"). draft/sent never had a Review button either (nothing
+     * uploaded yet to review) — Open there opens the editable capture form.
+     * RentalApplicationReviewController::show() itself has no status guard
+     * of its own, so this list is the only thing standing between an
+     * approved/declined row and a working review screen — get this wrong
+     * here and it's wrong everywhere.
+     */
+    public const REVIEWABLE_STATUSES = ['in_progress', 'returned', 'reopened', 'under_assessment'];
+
     private function applyTileFilter($query, string $tile): void
     {
         $def = self::TILES[$tile] ?? self::TILES['all'];
@@ -267,13 +291,17 @@ class RentalApplicationController extends Controller
                 $params['status'] = $oldStatus;
             }
         } else {
-            // Bare /returned (no ?status= at all) used to show a specific
-            // union of statuses (in_progress/returned/reopened/
-            // under_assessment/approved/declined/withdrawn — everything
-            // except draft/sent). No single tile matches that exact union;
-            // 'all' is the honest choice — a strict superset, so nothing
-            // that was visible before is hidden now.
-            $params['tile'] = 'all';
+            // REGRESSION FIX (2026-09-11) — bare /returned (no ?status= at
+            // all) was landing on 'all', not 'returned'. Reasoned at build
+            // time that 'all' was the technically-honest superset of the
+            // old screen's exact status union; in practice it meant an old
+            // bookmark for "Returned Applications" landed on a mixed list
+            // of EVERYTHING (drafts included) with no obvious connection to
+            // what was bookmarked — indistinguishable from "the screen is
+            // gone" (Johan/conductor, reproduced live). The screen's own
+            // NAME is what a bookmark represents, not its exact old status
+            // union — 'returned' is what "Returned Applications" means.
+            $params['tile'] = 'returned';
         }
 
         return redirect()->route('corex.rental-applications.index', $params);

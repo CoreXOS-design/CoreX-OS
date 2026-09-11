@@ -244,6 +244,19 @@
                     <td class="px-4 py-2">{{ $application->created_at->format('d M Y') }}</td>
                     <td class="px-4 py-2">{{ $application->updated_at->format('d M Y H:i') }}</td>
                     <td class="px-4 py-2 text-right whitespace-nowrap">
+                        {{-- REGRESSION FIX (2026-09-11) — Open alone orphaned the review
+                             screen for every application actively being worked.
+                             Review shows for the statuses an agent still has real
+                             work to do on (mark up docs, run the assessment, submit
+                             for authorisation); a terminal/pre-submission row gets
+                             Open only, matching Johan's explicit "an approved or
+                             declined application opening into a working review
+                             screen is its own bug." Mirrors old returned.blade.php's
+                             own unconditional Open+Review pair exactly, for exactly
+                             the statuses that had it. --}}
+                        @if(in_array($application->status, \App\Http\Controllers\CoreX\RentalApplicationController::REVIEWABLE_STATUSES, true))
+                            <a href="{{ route('corex.rental-applications.review', $application) }}" class="corex-btn-outline text-xs">Review</a>
+                        @endif
                         <a href="{{ route('corex.rental-applications.show', $application) }}" class="corex-btn-outline text-xs">Open</a>
                         @permission('rental_applications.create')
                             @if($application->recipientEmail())
