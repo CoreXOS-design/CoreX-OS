@@ -104,20 +104,34 @@ class AgentPerformanceService
         // --- Actuals from deals (safe) ---
           // Split-aware: each deal_user row contributes property_value × side split %.
           // If agent is on both sides of a deal, both contributions are summed.
+          //
+          // DR2 financial audit F6 (AT-412) — the shared splitAwareSalesValueExpr()
+          // (also used by CompanyPerformanceService/AgentPerformanceController for
+          // TEAM-level totals, deliberately NOT touched here — see this finding's
+          // report) only applies the SIDE split (deals.listing/selling_split_percent),
+          // never the AGENT's own share of that side (deal_user.agent_split_percent).
+          // Two agents co-listing the same side 50/50 each saw the FULL side's
+          // property value/commission credited to them individually — a real,
+          // provable double-count on the agent's own rand figures (deals_count is
+          // unaffected: DISTINCT deal_id already counts a co-listed deal once,
+          // correctly). $agentSplitFactor applies it locally, matching how
+          // FinanceComputeService::dealAgentIncomeByAgentExVat() already treats a
+          // NULL split (defensively as 0%, never invented as 100%).
           $splitExpr = self::splitAwareSalesValueExpr();
+          $agentSplitFactor = '(COALESCE(deal_user.agent_split_percent, 0) / 100.0)';
 
           $q = DB::table('deal_user')
               ->join('deals', 'deals.id', '=', 'deal_user.deal_id')
               ->where('deal_user.user_id', $user->id)
-              ->whereBetween('deals.deal_date', [$start->toDateString(), $end->toDateString()])
+              ->where('deals.period', $month->format('Y-m'))
               ->whereRaw("COALESCE(deals.accepted_status,'') != 'D'")
               ->selectRaw('COUNT(DISTINCT deal_user.deal_id) as deals_count')
-              ->selectRaw("COALESCE(SUM({$splitExpr}), 0) as sales_value")
+              ->selectRaw("COALESCE(SUM(({$splitExpr}) * {$agentSplitFactor}), 0) as sales_value")
               ->selectRaw("COALESCE(SUM(
-                  CASE deal_user.side
+                  (CASE deal_user.side
                       WHEN 'listing' THEN deals.total_commission * deals.listing_split_percent / 100.0
                       WHEN 'selling' THEN deals.total_commission * deals.selling_split_percent / 100.0
-                      ELSE 0 END
+                      ELSE 0 END) * {$agentSplitFactor}
               ), 0) as total_commission")
               ->first();
 
@@ -139,12 +153,12 @@ class AgentPerformanceService
               ->where('deal_user.user_id', $user->id)
               ->whereRaw("COALESCE(deals.accepted_status,'') != 'D'")
               ->selectRaw('COUNT(DISTINCT deal_user.deal_id) as deals_count')
-              ->selectRaw("COALESCE(SUM({$splitExpr}), 0) as sales_value")
+              ->selectRaw("COALESCE(SUM(({$splitExpr}) * {$agentSplitFactor}), 0) as sales_value")
               ->selectRaw("COALESCE(SUM(
-                  CASE deal_user.side
+                  (CASE deal_user.side
                       WHEN 'listing' THEN deals.total_commission * deals.listing_split_percent / 100.0
                       WHEN 'selling' THEN deals.total_commission * deals.selling_split_percent / 100.0
-                      ELSE 0 END
+                      ELSE 0 END) * {$agentSplitFactor}
               ), 0) as total_commission")
               ->first();
 
