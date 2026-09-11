@@ -8,7 +8,7 @@
 
 ## Read this part first — the four things that matter most
 
-1. **The Commission Overview / Commission Management screens (admin & owner only) show wrong numbers, and have for weeks.** They calculate commission a second, independent way — not the way the real Deal Register does — and checked against real deals, every figure on them is inflated (one real deal paid an agent ~R21,320; the screen showed R41,200 for the same deal, doubled to ~R82,400 by a duplicate-entry bug). Worse, only 5 of your 82 real "paid" deals have ever appeared on these screens at all — the mechanism was only switched on about three weeks ago and nothing was ever backfilled. "Year to Date" on this screen is a small, wrong fraction of the real year, with nothing on screen warning you of that. **cc2's commission corrections will not fix this** — this is a separate calculation path.
+1. **The Commission Overview / Commission Management screens (owner or super_admin role only — a plain admin cannot open them) show wrong numbers, and have for weeks.** They calculate commission a second, independent way — not the way the real Deal Register does — and checked against a real deal, the gap is large: one real sale actually paid the agent R10,660 net; the ledger these screens read shows R41,200 for that same agent on that same deal (roughly 3.9x), and because the row was written twice by the same bug, the screens actually sum it as R82,400 — about 7.7x the real figure. Worse, only 5 of your 82 real "paid" deals have ever appeared on these screens at all — the mechanism was only switched on about three weeks ago (2026-08-19) and nothing was ever backfilled. "Year to Date" on this screen is a small, wrong fraction of the real year, with nothing on screen warning you of that. **cc2's commission corrections will not fix this** — this is a separate calculation path. Confirmed display-only: the real Payroll module in this codebase does not read this table anywhere, so nothing is actually paid out on these wrong figures — but the *personal* "My Earnings" view of the same wrong data (see below) is open to every agent, branch manager, and admin, not just owner/super_admin.
 
 2. **The Listing Stock screens (used inside both the Admin and Branch Manager performance dashboards, not just their own pages) are showing data that is over six months stale.** All 213 listings were a one-time import from an outside system in February–March 2026. The screen that would let anyone refresh this data has been removed from the menu (correctly labelled "legacy" by you, Johan, back in August) — but nothing else in the app can put new data in behind it. The "days on market," "stale," and "expiring soon" figures look freshly calculated because the date math runs today — but the underlying listing facts they're measuring from are frozen. Anyone glancing at those tiles is looking at March data believing it's current.
 
@@ -20,7 +20,7 @@
 
 ## How the Agency Tracker menu is organised
 
-Everything below sits under the one "Agency Tracker" panel in the sidebar, split into sections by role: a common item everyone with access sees (Worksheet), an Agent section ("My Performance"), a Branch Manager section, an Admin section, a Commission section (admin/owner only, separately switched on), and a Tools section (calculators, available to everyone in this area). The inventory below follows that same grouping.
+Everything below sits under the one "Agency Tracker" panel in the sidebar, split into sections by role: a common item everyone with access sees (Worksheet), an Agent section ("My Performance"), a Branch Manager section, an Admin section, a Commission section (owner/super_admin only for the company-wide views, separately switched on — see Section 6 for the exact gate on each individual screen), and a Tools section (calculators, available to everyone in this area). The inventory below follows that same grouping.
 
 ---
 
@@ -148,18 +148,21 @@ Covered in the "read this first" summary above. In short: three view-only screen
 
 ---
 
-## Section 6 — Commission (admin/owner only, separately switched on)
+## Section 6 — Commission (separately switched on; access varies by screen — see below)
 
-Covered in detail in the "read this first" summary above — this is the most serious finding in the whole inventory. To restate the facts plainly:
+Covered in detail in the "read this first" summary above — this is the most serious finding in the whole inventory. To restate the facts plainly, with the access gates stated exactly (checked directly in the code, not assumed):
 
-- **Confirmed switched ON** for your real agency today (checked the live feature-flag data directly — no agency has it turned off).
-- **Commission Overview**: agency-wide totals, a 12-month trend chart, an agent leaderboard with "cap" progress, a sponsorship/mentor tree, and a year-to-date profit summary.
-- **Commission Management**: a line-by-line list of individual commission entries with a Pending → Confirmed → Paid → Cancelled status an admin can click through.
+- **Confirmed switched ON** for your real agency today (checked the feature-flag data directly — no agency has it turned off).
+- **Commission Overview** and **Commission Management**: gated to **owner role or super_admin only** — confirmed directly in the controller code. A plain `admin` role, despite being able to see everything else in this document, is correctly blocked from these two screens (I proved this by testing with a plain-admin account and having it rejected).
+  - Commission Overview shows agency-wide totals, a 12-month trend chart, an agent leaderboard with "cap" progress, a sponsorship/mentor tree, and a year-to-date profit summary.
+  - Commission Management is a line-by-line list of individual commission entries with a Pending → Confirmed → Paid → Cancelled status an owner/super_admin can click through.
 - **Commission & Revenue Share Settings**: split percentage, annual cap, post-cap fees, a monthly per-agent platform fee, and an optional 7-tier revenue-share scheme — seeded with default values in April and, per the system's own change log, never edited by anyone since.
-- These figures are generated **once**, automatically, the moment a deal is first marked "Paid" in the Deal Register — using the agency's generic default split, not that specific deal's actual agreed split. It does not ever recalculate if the deal or the settings change afterward.
-- Real-data check: only 5 of 82 real "paid" deals have ever produced an entry here (the mechanism only started working ~3 weeks ago, never backfilled). Every one of those 5 overstates the agent's real payout — by roughly 13% up to nearly 3x — because it re-splits an amount that was already split once. One specific deal is also duplicated in the data (a safeguard against exactly that failed once), doubling the shown figure.
-- "Confirm" / "Mark Paid" on this screen are just status labels — they don't check or connect to whether the agent was actually paid in the real Deal Register settlement.
-- **Separately, a "My Earnings" personal view** (same underlying, currently-wrong data) is visible to every ordinary agent for their own numbers — not just admins.
+- These figures are generated **once**, automatically, the moment a deal is first marked "Paid" in the Deal Register — using the agency's one generic default split percentage, not that specific deal's actual agreed split. It does not ever recalculate if the deal or the settings change afterward.
+- **Worked example, one real deal (Deal #161, a real closed sale):** the actual settlement that governs what the agent was really paid shows a net amount of **R10,660**. The commission ledger these screens read shows **R41,200** for the same agent on the same deal — about 3.9x — because it re-applies the agency's generic 80% default split to an amount that had already been through that deal's own real split. That row was then written twice, one second apart, by a bug in the write-once logic (there is no database safeguard against this — I checked the table structure directly and confirmed there is no rule stopping a duplicate) — so the screens actually total **R82,400** for this one deal, about **7.7x** the real figure. This is the only duplicated row in the whole table (6 rows total, 5 real deals), but nothing prevents it happening again on any other deal.
+- Real-data check: only 5 of your 82 real "paid" deals have ever produced an entry here at all — the mechanism only started working on 2026-08-19, never backfilled for anything before that.
+- **Confirmed display-only:** I checked the codebase's real Payroll module (payslips, payroll runs) specifically, and it does not read this commission ledger anywhere — so this wrong number is not paying anyone the wrong amount. It is, however, shown to people as a real figure.
+- "Confirm" / "Mark Paid" on Commission Management are just status labels — they don't check or connect to whether the agent was actually paid in the real Deal Register settlement.
+- **Separately, a "My Earnings" personal view** (same underlying, currently-wrong data) has a much wider gate — **any agent, branch manager, admin, owner, or super_admin** can see their own figure there, not just owner/super_admin. This is the one screen where an individual agent could personally be looking at a wrong number about their own money.
 - **A fourth, completely dead commission calculator** exists in the code (an unreachable "Agent Commission" report using worksheet data) — no link, no screen, orphaned.
 - **The Commission Calculator tool** (under Tools, available to any agent) is unrelated to all of the above — a simple client-facing "what would the seller pocket" estimator. It uses a fixed 15% VAT rate and generic 50/60/70% split examples regardless of your agency's real configured split (80/20) — it was never meant to reflect real figures, but worth knowing agents may be showing clients numbers that don't match your actual commission structure.
 
@@ -173,7 +176,7 @@ Across everything above, "commission/deal money" is calculated in **four separat
 3. The dead "Agent Commission" worksheet-based report — unreachable, a third formula nobody sees.
 4. The Commission Calculator pitch tool — a rough client-facing estimate, not tied to real settings at all.
 
-Everything else in this document (Worksheet, Targets, the Admin/BM Performance dashboards, the Performance & ROI Report) reads its money figures from #1, the real settlement — that part is consistent. Only Commission Overview/Management (#2) is the odd one out, and it's the one being presented to admins and owners as an authoritative company-wide commission view.
+Everything else in this document (Worksheet, Targets, the Admin/BM Performance dashboards, the Performance & ROI Report) reads its money figures from #1, the real settlement — that part is consistent. Only Commission Overview/Management (#2) is the odd one out, and it's the one being presented to owners/super_admins as an authoritative company-wide commission view — with the same wrong underlying figures also visible to every ordinary agent on their own "My Earnings" page.
 
 ---
 
