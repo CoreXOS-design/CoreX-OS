@@ -7984,10 +7984,47 @@ a unit test alone:**
   `updateCO()` no longer use `exists:users,id`; new `resolveAgencyScopedUserIds()`.
 - `tests/Feature/RentalApplications/RentalApplicationRoCoAgencySettingsScopeTest.php` — new.
 
-Pushed to origin/QA1 immediately once FIX 1 was verified, per instruction not to hold it for
-FIX 2 — FIX 2 lands as its own follow-up commit, appended below once done.
+Committed as its own commit immediately once FIX 1 was verified, per instruction not to hold
+it for FIX 2 — FIX 2 lands as its own follow-up commit, below.
 
 Not touched, per the conductor's explicit routing: `review.blade.php`, the
 document-highlighter partials, `pdf_splitter_review.blade.php`,
 `RentalApplicationAuthorisationController.php` (cc3 is actively editing all of these right
 now).
+
+### FIX 2 — first applicant invite link: hardcoded 14-day expiry, now the same agency setting the reopen link already used
+
+`RentalApplicationController::store()` (creating the very first invite link) and `send()`
+(self-healing a token-less legacy record) both hardcoded `now()->addDays(14)`. The REOPEN
+link on this same model already had a working, agency-configurable equivalent
+(`RentalApplicationQualifyingSetting::reopenLinkExpiryDaysFor()`, same 14-day default) — the
+first-invite path was simply never connected to it. Per instruction, connected both call
+sites to the existing setting rather than adding a second one — an agency that changes its
+reopen-link expiry window now gets the same window on the very first link too, and there is
+now exactly one place this number lives.
+
+**Verified, real HTTP proof against QA1, not just Tinker:** set agency 36's
+`reopen_link_expiry_days` to a distinguishable 30 (default is 14 — a value equal to the
+default wouldn't prove the setting was actually being read), then POSTed a real
+`store()` call for that agency via the live site. The created row's `token_expires_at` was
+exactly 30 days after its `created_at` — the setting, not the old hardcoded 14, drove the
+real save. `reopenLinkExpiryDaysFor()` also re-confirmed directly for both a configured and
+an unconfigured agency.
+
+**A hard-delete mistake made during this verification, disclosed rather than buried:**
+cleaning up a throwaway `RentalApplicationQualifyingSetting` row created for this proof,
+`->delete()` was called without first checking the model for `SoftDeletes` — it doesn't carry
+the trait, so that one row was genuinely hard-deleted. Caught on the SECOND throwaway row
+(created for the live HTTP proof), which was correctly left in place once the gap was
+noticed. All other throwaway fixtures from both FIX 1 and FIX 2 verification (2 agencies, 2
+non-admin users, 1 branch, 1 contact, 1 rental application) were soft-deleted after use,
+confirmed via `onlyTrashed()`. One throwaway admin user (the only admin of a now-soft-deleted
+throwaway agency) was deliberately left NOT deleted — `LastAdminException` correctly refused
+the delete, and bypassing a real safety guard to tidy up test data would be a worse mistake
+than leaving one harmless orphaned row.
+
+### Files changed (FIX 2)
+
+- `app/Http/Controllers/CoreX/RentalApplicationController.php` — `store()`'s and `send()`'s
+  hardcoded `addDays(14)` replaced with `RentalApplicationQualifyingSetting::
+  reopenLinkExpiryDaysFor()`.

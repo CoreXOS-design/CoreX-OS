@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Contact;
 use App\Models\Document;
 use App\Models\Property;
+use App\Models\RentalApplicationQualifyingSetting;
 use App\Models\RentalApplication;
 use App\Models\RentalApplicationStatusHistory;
 use App\Services\RentalApplications\RentalApplicationMailer;
@@ -448,7 +449,16 @@ class RentalApplicationController extends Controller
                 'created_by_user_id' => $request->user()->id,
                 'status' => 'draft',
                 'token' => $this->generateToken(),
-                'token_expires_at' => now()->addDays(14),
+                // QA1 design-standard audit, 2026-09-11 — was hardcoded
+                // addDays(14) while the reopen link on this same model
+                // already had a working agency-configurable equivalent
+                // (RentalApplicationQualifyingSetting::reopenLinkExpiryDaysFor(),
+                // same 14-day default) that this first link was simply
+                // never wired to. Reusing that setting rather than adding
+                // a second one, per instruction.
+                'token_expires_at' => now()->addDays(
+                    RentalApplicationQualifyingSetting::reopenLinkExpiryDaysFor($request->user()->effectiveAgencyId())
+                ),
             ],
         ));
 
@@ -738,7 +748,11 @@ class RentalApplicationController extends Controller
 
         if (! $rentalApplication->token) {
             $rentalApplication->token = $this->generateToken();
-            $rentalApplication->token_expires_at = now()->addDays(14);
+            // Same agency-configurable setting as store() above — see that
+            // comment for why this is no longer hardcoded.
+            $rentalApplication->token_expires_at = now()->addDays(
+                RentalApplicationQualifyingSetting::reopenLinkExpiryDaysFor($rentalApplication->agency_id)
+            );
             $rentalApplication->save();
         }
 
