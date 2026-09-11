@@ -717,3 +717,139 @@ owns subscribing and stamping `SignedDocumentVersion::filed_at` /
 - EDIT `routes/web.php` — new `tools.pdf_splitter.intake_supporting`.
 - EDIT `resources/views/tools/pdf_splitter_review.blade.php` — `property`
   seeded from `$prefillProperty`; new Alpine `init()`.
+
+# SAME-AS-PREVIOUS / SAME-AS-NEXT PER-PAGE BUTTONS (2026-09-11)
+
+## Business requirement
+
+Johan, on the tedium of typing a document type on every page of a scanned
+bundle: *"I have 20 pages. if I mark page 1 it should auto change down...
+The part that we have to be clear about here is that if a user selected that
+it doesnt get overriden."* — then, after thinking it through further, he
+rejected the cascade model himself and specified the actual build:
+
+*"we tried ocr and it doesnt really work as page scans are not readable. And
+the start and stop part can work, but we still have to cater for the scan
+thats scattered. so pg1 is fica, pg2 fica, pg3 id, pg4 fica - now the marker
+will go pg1 to pg4 fica and override the id. I think for now Im happy with 2
+buttons - same as previous page, same as next page?"*
+
+**Why a cascade/auto-detect was explicitly rejected, on the record, so it is
+never reintroduced:** a cascade from a document's first page sweeping forward
+correctly handles a NEATLY sequential bundle, but real scanned bundles are
+scattered — Johan's own example is pg1/pg2/pg4 FICA with pg3 an ID sandwiched
+in between. A "mark the start of each document" cascade model would sweep
+straight over pg3's ID. OCR-based auto-detection was tried separately and
+rejected on its own merits — real page scans aren't reliably readable, so
+nothing in this feature depends on reading page content to guess its type.
+**The two buttons are the whole feature.** No cascade, no auto-detect, not
+even as an opt-in — both were tried in some form and both were rejected by
+the business owner for a stated, sound reason.
+
+## Design
+
+Two buttons per page row, "↑ Same as prev" / "↓ Same as next", each doing
+exactly one explicit, one-shot copy: the CURRENT value of exactly one
+same-file neighbour onto this page. Nothing else changes, no other page is
+touched, and clicking one is never triggered by clicking another — this is
+strictly per-page, agent-driven, same as the existing per-page contact
+assignment model on this screen (`pg.touched` / `forwardFill`) already is.
+
+**Edge pages:** the first page of a file has no "Same as prev" button; the
+last page of a file has no "Same as next" button — `x-show` on each button
+individually (`prevPage(file, pg)` / `nextPage(file, pg)`, same-file only via
+`file.pages.indexOf(pg)`), so the button is ABSENT, not merely disabled.
+Proven live: page 1 of a 17-page bundle shows only "Same as next", page 17
+shows only "Same as prev", and a middle page shows both.
+
+**"Neighbour has no type set yet":** every page always carries SOME label —
+auto-detected, or the `other` fallback when nothing was recognised — there is
+no blank/null state in the data model. Given Johan's own stated distrust of
+the auto-detector, an auto-detected/default guess is deliberately never
+treated as a confirmed choice. A new per-page flag, `labelTouched` (seeded
+`false`), flips to `true` only on a genuine human action: the dropdown's own
+`@change` (`onLabelChange`), a successful same-as-* copy, or the existing
+bulk "Set ALL pages" action (which — being an explicit, deliberate bulk
+action — marks every page touched too). "Reset to auto-detected" flips every
+page's `labelTouched` back to `false`, since it's explicitly reverting to
+unconfirmed guesses. Attempting to copy FROM an untouched neighbour refuses
+silently-copying-a-blank by refusing outright: a toast — *"Page N hasn't had
+its document type set yet — set that page first, then copy from it."* — and
+the target page is left completely unchanged. Proven live.
+
+**Chaining is not a cascade.** Once page N has been explicitly set — by
+hand, or by a prior same-as-* click — it becomes a valid source for a LATER,
+separately-clicked same-as-* on an adjacent page. This is not automatic
+propagation: each page still requires its own explicit button click. Proven
+live (page 10 set manually → page 9 "same as next" copies it → page 11 "same
+as prev" then also copies it, each a distinct click).
+
+**Keyboard-reachable:** plain `<button type="button">` elements, real
+`disabled`-equivalent behaviour via `x-show` (removed from the tab order
+entirely at an edge, not merely visually dimmed) — no custom click-only
+affordance.
+
+## Robustness (input space)
+
+- File boundary: `prevPage`/`nextPage` index within `file.pages` only — a
+  "previous/next page" never crosses into a different uploaded PDF in the
+  same batch.
+- Untouched neighbour → refused with a toast, target page provably
+  unchanged (verified via Alpine's own reactive state, not just the visible
+  `<select>`).
+- Scattered-bundle proof (Johan's own example, walked live on a real 17-page
+  bundle): pg1 FICA (manual) → pg2 "same as prev" (copies FICA) → pg3 ID
+  (manual, deliberately breaking the run) → pg4 FICA (manual) → pg3 checked
+  AFTER pg4 is set and confirmed still ID, untouched by anything.
+- Existing contact-assignment behaviour on doc-type change (`onLabelChange`
+  dropping contacts no longer valid for the new type) is preserved
+  identically when the type changes via same-as-* — `copyNeighbourLabel`
+  runs the same `allCandidateIds` filter the manual-select path already used.
+- No server round-trip: this is pure client-side Alpine state, mirrored into
+  the existing hidden `labels[...]` inputs on submit exactly as before —
+  no new backend route, no new validation surface.
+
+## Manual-QA proof (2026-09-11, QA1)
+
+Real login (throwaway QA account, soft-deleted after), real browser
+(Puppeteer + system Chromium), a real 17-page PDF uploaded through the actual
+upload form (no lag beyond the pre-existing OCR/thumbnail pass, ~11s for 17
+pages — unrelated to this change, the review screen itself is instant):
+
+- Page 1: only "Same as next" visible. Page 17 (last): only "Same as prev"
+  visible. Page 8 (middle): both visible.
+- pg1→FICA (manual), pg2 "same as prev"→FICA, pg3→ID (manual), pg4→FICA
+  (manual) — pg3 re-checked after pg4 and still reads ID.
+- pg6 "same as prev" against untouched pg5 → refused, toast shown verbatim,
+  pg6 unchanged.
+- pg9 "same as next" against manually-set pg10 (FICA) → copies correctly.
+  pg11 "same as prev" against pg10 (now itself a confirmed source, not
+  auto-cascaded) → also copies correctly — proves chaining works without
+  being a cascade.
+- Every untouched page (5, 6, 7, 8, 12–17) remained on the default/auto label
+  throughout — nothing spread anywhere it wasn't explicitly sent.
+- Download ZIP remained enabled/functional after all of the above — the
+  existing submission path is untouched.
+
+## Multi-select — investigated, NOT built (pending Johan's decision)
+
+The conductor asked for an assessment of whether ticking multiple pages
+(e.g. pages 1, 2, 4) and setting their type in one action would handle a
+scattered bundle even better than the two buttons — same mental model as
+selecting files in a folder. **Two buttons ship regardless; this is a
+possible follow-on, not a dependency.**
+
+Scope of the change, based on reading the current screen: the page-loop
+already has a natural per-page checkbox anchor point (the same `<tr>` used
+for the doc-type `<select>`); would need (a) a `pg.selected` boolean per
+page, (b) a lightweight "N pages selected" toolbar with a doc-type picker +
+"Apply" button — same shape as the EXISTING "Bulk (all files): Set ALL
+pages →" toolbar already on this screen, just scoped to the ticked set
+instead of every page, (c) a "select all in this file" / "clear selection"
+affordance for convenience, (d) `labelTouched` set `true` for every page in
+the applied selection, matching the same-as-* and Set-ALL semantics already
+built. No new backend route, no new data model beyond one boolean field —
+this reuses the exact bulk-apply pattern (`setAll()`) that already exists,
+narrowed to a ticked subset instead of every page. Estimate: small — a
+half-day-scale addition on top of what's already shipped, not a rebuild.
+Deliberately not built without Johan's go-ahead, per the instruction.
