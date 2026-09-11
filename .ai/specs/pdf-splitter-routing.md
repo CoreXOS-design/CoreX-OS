@@ -831,25 +831,77 @@ pages — unrelated to this change, the review screen itself is instant):
 - Download ZIP remained enabled/functional after all of the above — the
   existing submission path is untouched.
 
-## Multi-select — investigated, NOT built (pending Johan's decision)
+## PAGE MULTI-SELECT — BUILT (2026-09-11, greenlit by Johan)
 
-The conductor asked for an assessment of whether ticking multiple pages
-(e.g. pages 1, 2, 4) and setting their type in one action would handle a
-scattered bundle even better than the two buttons — same mental model as
-selecting files in a folder. **Two buttons ship regardless; this is a
-possible follow-on, not a dependency.**
+First investigated and estimated (small — reuses the existing bulk-apply
+pattern, not a rebuild), then greenlit: *"GREENLIT — build the page
+multi-select you proposed for the PDF splitter. This is Johan's original ask
+and the two buttons alone don't answer it."*
 
-Scope of the change, based on reading the current screen: the page-loop
-already has a natural per-page checkbox anchor point (the same `<tr>` used
-for the doc-type `<select>`); would need (a) a `pg.selected` boolean per
-page, (b) a lightweight "N pages selected" toolbar with a doc-type picker +
-"Apply" button — same shape as the EXISTING "Bulk (all files): Set ALL
-pages →" toolbar already on this screen, just scoped to the ticked set
-instead of every page, (c) a "select all in this file" / "clear selection"
-affordance for convenience, (d) `labelTouched` set `true` for every page in
-the applied selection, matching the same-as-* and Set-ALL semantics already
-built. No new backend route, no new data model beyond one boolean field —
-this reuses the exact bulk-apply pattern (`setAll()`) that already exists,
-narrowed to a ticked subset instead of every page. Estimate: small — a
-half-day-scale addition on top of what's already shipped, not a rebuild.
-Deliberately not built without Johan's go-ahead, per the instruction.
+Johan's original ask, restated for the record: *"I have 20 pages. if I mark
+page 1 it should auto change down... if I select pg1 as rental application,
+and everything down changes to this, and then on pg5 I select fica and it
+changes down same."* — and the non-negotiable protection: *"if a user
+selected that it doesnt get overriden... User changes pg 16-20. then for
+some stupid reason goes and changes pg1 and the whole thing changes again"*
+must never happen.
+
+### Design (matches the estimate exactly)
+
+- `pg.selected` — a new per-page boolean (seeded `false`, PHP `$fileSeed`),
+  a tick box on each page's thumbnail cell ("Select"), no server persistence
+  — it's a working-selection flag, cleared once acted on.
+- `selectedCount` getter + a toolbar (doc-type picker + "Apply to selected" +
+  "Clear selection") that only appears once at least one page is ticked —
+  same visual shape as the existing "Bulk (all files)" toolbar, scoped to the
+  ticked set instead of every page.
+- "Select all pages" / "Clear selection" toggle link per file, in the
+  file-divider header (`toggleSelectAllInFile`) — ticks/un-ticks every page
+  in THAT file only, not across files in a multi-file batch.
+- `applyToSelected()`: for every ticked page — sets the chosen type, marks
+  `labelTouched = true` (an explicit choice from here on, same protection
+  same-as-*/Set-ALL already use), re-filters `contactIds` through
+  `allCandidateIds` exactly like every other type-change path, then clears
+  that page's own `selected` flag. Pages NOT ticked are never touched,
+  regardless of what page number they sit at relative to the ticked set.
+
+### Why "16-20 survive a page-1 change" is a structural property, not a check
+
+There is no cascade anywhere in this screen for multi-select to have
+inherited. `applyToSelected()` iterates `allPages().filter(p => p.selected)`
+— its target set is exactly and only the pages the agent ticked in THIS
+action. Ticking page 1 and applying does not walk "down" the document in any
+sense; it has no notion of "down." Pages 16-20 being touched or untouched by
+a page-1 apply depends entirely on whether 16-20 were ALSO ticked in that
+same action — nothing else. `labelTouched` is the same flag same-as-*/Set-ALL
+already respect, so a page set via multi-select is equally protected from
+being silently re-swept by anything else on the screen afterward. No new
+protection mechanism was needed — the existing one already covers this
+apply path because it was designed to be path-agnostic.
+
+### Manual-QA proof (2026-09-11, QA1, real 20-page bundle)
+
+Real login (throwaway QA account, soft-deleted after), real browser
+(Puppeteer + system Chromium), a real 20-page PDF through the actual upload
+form:
+
+- Ticked pages 16-20, applied "IDs / Identity" via multi-select — all five
+  changed correctly, ticks cleared after apply.
+- Ticked ONLY page 1, applied "FICA" — page 1 changed; pages 16-20 (and
+  every other untouched page) re-checked immediately after and **confirmed
+  still "IDs / Identity", exactly as set, untouched by the page-1 apply.**
+  Screenshots taken of both the page-1 row and the pages-16-20 rows,
+  confirming the same visually.
+- Separately walked Johan's own scattered example via multi-select instead
+  of the two buttons: ticked pages 2, 3, 5 (deliberately skipping 4),
+  applied "Rental Agreements" once — pages 2/3/5 changed, page 4 (never
+  ticked) remained on its prior value throughout.
+- "Select all pages" ticked all 20 pages in the file; "Clear selection"
+  (same link, now retitled) un-ticked all 20.
+- Regression-checked the existing "Same as previous/next" buttons alongside
+  multi-select in the same session — both still work correctly, unaffected.
+- Download ZIP remained enabled/functional throughout.
+
+Pure client-side change, same as same-as-*/Set-ALL before it — no new
+route, no new query, no new data model beyond the one `selected` boolean, so
+OWN/BRANCH/AGENCY scoping is unaffected by construction.

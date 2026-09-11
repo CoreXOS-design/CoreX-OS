@@ -7734,6 +7734,32 @@ Second fault, same report: `returned()`'s bare-link redirect (no `?status=` at a
 
 No live `in_progress` application exists on QA1 at fix time to click through directly; verified via the same `REVIEWABLE_STATUSES` constant instead — no such row exists to hide a Review link that should have rendered.
 
+---
+
+### Browser-proof + applicant-form hardening audit (2026-09-11, cc6) — VERIFICATION PASS, NO CODE CHANGED
+
+Johan required the three previously-landed fixes (Current Living Situation, the `abort(403)`-discarding-input fix, Tenant-on-approval) shown working in a real browser on QA1 — a lane's own test-suite result was explicitly not accepted as proof — plus a fresh end-to-end walk of the applicant form looking for input-loss, blocked-submission, reopen, and signature-versioning defects. All testing used throwaway hardcoded contacts (`QA Proof*`), never a real database address, and applications 114–120 plus their 7 contacts (18740–18746) were soft-deleted at the end of this pass. Application 76 was never touched. Screenshots referenced below are in the session scratchpad, not committed to the repo.
+
+**PART 1 — browser proof of prior work, all three confirmed:**
+1. Current Living Situation: all three paths (current landlord, first-time renter, free-text) driven via a real Puppeteer browser session against a live applicant link, submitted, and confirmed saved (`1a_renting_filled.png`, `1b_sold_filled.png`); a pre-existing record (id 4, predating the feature) still opens and renders correctly.
+2. `abort(403)`-discarding-input fix: proven on both halves. Agent-side — a forged cross-tenant `property_id` POST to the store endpoint redirects with the contact preserved and a friendly inline error, not a blank form (`2_permission_failure_redirect.png`). Applicant-side — a deliberate date-ordering validation failure on the public form preserves every typed field AND both already-drawn signatures on redisplay (`2b_validation_failure_preserved.png`).
+3. Tenant-on-approval: a contact holding only "Seller" before approval held "Seller, Tenant" after a real HTTP `approve()` call — added, not replaced, exactly per Johan's rule.
+
+**PART 2 — applicant form audit, walked end to end including phone-width viewport. Result: no new in-scope defect found; the form already satisfies every item Johan asked to be checked.**
+- Partial completion left and resumed: confirmed there is still no autosave/localStorage on the public form (grepped for it, found none) — typed progress is lost on a hard refresh or an abandoned tab. This is the same pre-existing gap already reported in an earlier phase's audit, not a new finding, and was not rebuilt here (a persistence mechanism is a feature decision, not a hardening fix, and out of this task's scope without Johan's go-ahead).
+- Required fields blocking submission: `RentalApplication::fieldValidationRules()` and the signing controller have no unexpected `required` rules on the public path (only the two signature pads and file-upload endpoints, all intentional) — grepped, clean.
+- Back button / refresh / failed submit: browser back-navigation restores typed values (browser bfcache, not app state — not guaranteed on every device/browser); hard reload loses data (same root cause as the autosave gap above, not a new defect); a failed submission (validation error) preserves 100% of input including signatures, per Proof 2 above.
+- Reopen path pre-fill: proven on application 120 — reopening produced the amber banner with the agent's exact note, and full_name, id_number, current_living_situation, and the landlord section all pre-filled from the original submission; both signature canvases were genuinely blank (pixel-level `getImageData` check, not just an empty hidden input) awaiting a fresh signature (`4_reopen_prefilled.png`).
+- Signature versioning: proven definitively — application 120's first submission created generation-1 signature rows (declaration id 67, tpn_consent id 68); reopening, re-signing, and resubmitting created NEW generation-2 rows (69, 70) and bumped `current_generation` to 2, while rows 67/68 were re-queried afterward and confirmed byte-for-byte unchanged (same `created_at`, same `signature_path`) — the original signature survives every re-signature.
+
+**Out-of-scope finding, reported per this task's explicit rule ("outside the applicant form: report, do not fix") — NOT FIXED:**
+
+The Contact multi-type-picker silently strips the "Tenant" type added by the approval listener on ANY unrelated save of that contact through the standard Contacts edit form (e.g. editing a phone number), independent of and unknown to the rental-approval feature. Root cause: `ContactType::CANONICAL` (`app/Models/ContactType.php` ~line 23: Seller/Buyer/Lessor/Lessee) plus `EXTRA_PARENTS` (~line 35: Owner/Other) define the only 6 parent types `scopeParents()` (~lines 87-97) will surface; "Tenant" (a distinct ContactType row, `esign_role='lessee'`, name `Tenant` — not `Lessee`) isn't in that set. `resources/views/corex/contacts/_type_picker.blade.php` seeds its hidden `parent_type_ids[]` inputs only from the canonical list, silently skipping any pivot row (like Tenant) whose parent isn't canonical. `ContactController::applyTypeAssignments()` (~line 1313+, shared by `store()`/`update()`) validates against the same canonical-only list, then calls `Contact::syncTypeAssignments()`, which does a full-replace `sync()` — so whatever the picker submitted becomes the complete new type set. Net effect: the picker never "sees" Tenant, so it never submits it, so any save through that form erases it. Proven empirically end-to-end on a throwaway contact (before-state "Seller, Tenant" → real Save-button click via Puppeteer, touching nothing but an unrelated field → after-state "Seller" only, Tenant silently gone). This directly undermines Johan's "contact type is added, never changed" rule via a code path that has nothing to do with rental applications — it will strip Tenant from any tenant-contact the moment an agent edits their phone number, email, or any other field on the Contacts screen. Needs a decision from Johan on how Tenant (and any other non-canonical type) should be represented in the picker; not touched in this pass.
+
+**Also found, out of scope on two counts (not the applicant form, and the file is off-limits per this task's own rules — cc3's active rebuild) — reported, not touched:** `resources/views/corex/rental-applications/review.blade.php` throws `Undefined variable $existingWishlist` (confirmed via `storage/logs/laravel.log`, most recently 2026-09-11 11:52:59 and 11:53:21, userId 132; also seen 2026-09-10 for userId 22) — recurring, not a one-off. None of this phase's testing touched `review.blade.php` or triggered these errors; they predate and are contemporaneous with this pass, consistent with cc3's in-progress rebuild of that file.
+
+**Finish-checklist note:** no application code was changed in this pass — it was pure verification plus one out-of-scope discovery — so there were no changed PHP/Blade files to run `php -l`/`view:clear`/`dev-check.ps1` against. This spec update is the only change made, and nothing was pushed to origin/QA1 beyond it.
+
 Files changed: `app/Http/Controllers/CoreX/RentalApplicationController.php` (`REVIEWABLE_STATUSES` constant, `returned()`'s bare-link fallback), `resources/views/corex/rental-applications/index.blade.php` (conditional Review action).
 
 ## Round 7 — continuous multi-document mark-up view, and a chrome-trim pass on Supporting Documents + the bottom strip (2026-09-11, cc3)
@@ -7827,3 +7853,26 @@ Johan rejected Round 6's bottom strip outright — verbatim: "it stays split and
 - `resources/views/corex/rental-applications/review.blade.php` — bottom strip removed; `.rental-review-aside` reverted to a fixed 196px column; new panel markup; `rentalCaptureLedger()` factory; `rentalAssessmentEditor()` (166 lines, fully superseded) deleted; dead `$initialIncomeItems`/`$initialExpenseItems` removed; `.window` capture-entry event bridge on the root element; per-document capture-entries URLs added to the continuous view's `x-init`.
 - `resources/views/corex/rental-applications/partials/document-highlighter-pages.blade.php` — rail split into Capture/Highlight/Note groups; capture-chip markup; `@click` on the stroke SVG for click-to-edit.
 - `resources/views/corex/rental-applications/partials/document-highlighter-script.blade.php` — `captureEntryTypeFor()`/`isCapturePen()`/picker-group helpers; capture-chip state and `openCaptureChipForCreate/Edit`/`confirmCaptureChip`/`deleteCaptureChip`/`cancelCaptureChip`/`onStrokeClick`; `endDraw()` branches capture pens into the chip flow instead of committing straight to `this.marks`; the pending (unsaved) stroke renders live in `strokesSvgFor()` while its chip is open.
+
+## PDF Splitter intake — page-typing tools (2026-09-11)
+
+The rental-application intake path (a bundle split via `intakeRentalApplicationDocument()`
+→ `tools.pdf_splitter.review` with `session('splitter_context.rental_application_id')` set,
+"Filing to: {applicant}") uses the SAME review screen — `pdf_splitter_review.blade.php` — as
+every other splitter entry point. Two page-typing tools shipped there today, both fully
+documented in `.ai/specs/pdf-splitter-routing.md` (full design/proof, not duplicated here):
+
+- **"Same as previous/next page" buttons** — one-shot, per-page, no cascade. Answers Johan's
+  tedium complaint without the auto-cascade he explicitly rejected once he thought through a
+  real scattered bundle (a rental applicant's own FICA/ID pages are rarely in a neat run).
+- **Page multi-select** — tick pages (e.g. every FICA page in an applicant's bundle, wherever
+  they sit), pick a type once, "Apply to selected." Greenlit after the two buttons alone were
+  judged not to fully answer Johan's original ask. A page an agent already set — by hand or by
+  either tool — is protected (`labelTouched`) from ever being re-swept by a later action on a
+  DIFFERENT page or selection, proven live on a real 20-page bundle: pages 16-20 set by hand
+  survived a same-session bulk-apply that started from page 1, untouched.
+
+Both are pure client-side additions to the shared splitter review screen — no new route, no
+new backend surface, so this in no way changes how a rental-application-sourced batch is
+authorised, filed, or FICA-triggered; only how fast an agent can get through typing 20 pages
+before any of that happens.
