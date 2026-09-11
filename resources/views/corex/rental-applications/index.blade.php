@@ -1,18 +1,69 @@
 {{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex')
 
+{{--
+    AT-402 — Rental Application Control Centre. Johan, verbatim: "the way
+    fica works is a lot better than having 3 menus here... fica carries all
+    the work and you can click the tiles to select which you want to work
+    with... so it becomes more of a rental application control centre than
+    having 3 menus and you have to sit and click through it to find where
+    your application is at." Replaces the old Rental Applications / Returned
+    Applications split — see RentalApplicationController::index() for the
+    tile definitions and the scoping/counts mechanism (copied from FICA,
+    compliance/fica/index.blade.php, the pattern Johan named as the better
+    of the two examples he gave — e-sign's own "tiles" are same-page scroll
+    anchors with no real filter and no own/branch/agency scoping at all).
+--}}
+
 @php
-    // 2026-09-08 — sort indicator: which column is ACTUALLY driving the
-    // current order, including the implicit default (no ?sort= at all
-    // still sorts by 'date' server-side — see applySearchSortAndDateRange's
-    // $defaultSort) so the arrow is never missing on first load.
     $activeSort = request('sort', 'date');
     $activeDirection = request('direction', 'desc');
+    $tileLink = fn ($key) => route('corex.rental-applications.index', array_merge(
+        request()->except(['page', 'tile', 'status']),
+        ['tile' => $key]
+    ));
     $sortLink = fn ($col) => route('corex.rental-applications.index', array_merge(
         request()->except('page'),
         ['sort' => $col, 'direction' => ($activeSort === $col && $activeDirection === 'desc') ? 'asc' : 'desc']
     ));
     $sortIndicator = fn ($col) => $activeSort === $col ? ($activeDirection === 'asc' ? ' ▲' : ' ▼') : '';
+
+    $tileLabels = [
+        'all' => 'All',
+        'not_yet_submitted' => 'Not Yet Submitted',
+        'returned' => 'Returned',
+        'under_assessment' => 'Under Assessment',
+        'sent_for_authorisation' => 'Sent for Authorisation',
+        'approved' => 'Approved',
+        'declined' => 'Declined',
+        'withdrawn' => 'Withdrawn',
+        'reopened' => 'Reopened',
+    ];
+    // AT-402 — permission regression guard: 'returned'/'under_assessment'/
+    // 'sent_for_authorisation'/'approved'/'declined'/'reopened' were only
+    // ever reachable via the old /returned route's own
+    // rental_applications.view_returned gate. A user lacking it never gets
+    // these tile BUTTONS rendered at all (the controller's own base query
+    // also excludes the underlying rows — this is belt-and-braces, not the
+    // only guard).
+    $primaryTiles = $canViewReturned
+        ? ['all', 'not_yet_submitted', 'returned', 'under_assessment', 'sent_for_authorisation', 'approved', 'declined']
+        : ['all', 'not_yet_submitted'];
+    $secondaryTiles = $canViewReturned ? ['withdrawn', 'reopened'] : ['withdrawn'];
+
+    // Empty-state copy per tile — "what the agent is looking at and what to
+    // do," not a blank panel (Johan's design standard).
+    $emptyStateCopy = [
+        'all' => 'No rental applications yet.',
+        'not_yet_submitted' => 'Nothing waiting to be sent right now. New applications start here as a draft.',
+        'returned' => 'Nothing the tenant has sent back yet.',
+        'under_assessment' => 'Nothing currently with an agent for assessment.',
+        'sent_for_authorisation' => 'Nothing currently sitting with the authoriser.',
+        'approved' => 'No approved applications yet.',
+        'declined' => 'No declined applications.',
+        'withdrawn' => 'No withdrawn applications.',
+        'reopened' => 'No reopened applications right now.',
+    ][$tile] ?? 'Nothing here yet.';
 @endphp
 
 @section('corex-content')
@@ -21,7 +72,7 @@
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Rental Applications</h1>
-                <p class="text-xs" style="color: var(--text-muted);">Send a rental application to a prospective tenant.</p>
+                <p class="text-xs" style="color: var(--text-muted);">Send a rental application to a prospective tenant, and track where every application actually is.</p>
             </div>
             @permission('rental_applications.create')
             <a href="{{ route('corex.rental-applications.create') }}" class="corex-btn-primary text-xs">New Rental Application</a>
@@ -33,30 +84,21 @@
         <div class="rounded-md px-4 py-3 text-sm" style="background: var(--ds-emerald-soft, #ecfdf5); color: var(--ds-emerald, #059669);">{{ session('success') }}</div>
     @endif
 
-    {{--
-        AT-392, Johan (2026-09-08): "I create a rental application — it
-        will sit under rental applications until the application has been
-        returned." The two-screen split is deliberate and stays — this is
-        the discoverability fix, not a redesign. Always visible (not just
-        in the empty state) so an agent who sends an application and comes
-        back later never hits a dead end wondering where it went once the
-        tenant replies.
-    --}}
-    @if($returnedCount > 0)
-        <div class="rounded-md px-4 py-3 text-sm flex items-center justify-between flex-wrap gap-2" style="background: var(--ds-blue-soft, #eff6ff); border: 1px solid var(--ds-blue, #2563eb); color: var(--text-primary);">
-            <span>
-                {{ $returnedCount }} {{ Str::plural('application', $returnedCount) }} the tenant has sent back {{ $returnedCount === 1 ? "isn't" : "aren't" }} shown here — they move to Returned Applications once the tenant replies.
-            </span>
-            <a href="{{ route('corex.rental-applications.returned') }}" class="corex-btn-primary text-xs shrink-0">Go to Returned Applications ({{ $returnedCount }}) &rarr;</a>
+    {{-- AT-402 — advertises the SEPARATE Authorisation decision queue to
+         RO/CO users only (RentalApplicationController::index()'s own
+         docblock explains why this stays a distinct screen/route rather
+         than a shared tile). Never renders, and its count is never even
+         queried, for a non-RO/CO user — see $isAuthoriser in the controller. --}}
+    @if($isAuthoriser && $authorisationQueueCount > 0)
+        <div class="rounded-md px-4 py-3 text-sm flex items-center justify-between flex-wrap gap-2" style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 12%, transparent); border: 1px solid var(--ds-amber, #f59e0b); color: var(--text-primary);">
+            <span><strong>{{ $authorisationQueueCount }}</strong> {{ Str::plural('application', $authorisationQueueCount) }} awaiting your authorisation decision.</span>
+            <a href="{{ route('corex.rental-applications.authorisation.index') }}" class="corex-btn-primary text-xs shrink-0">Go to Rental Application Authorisation &rarr;</a>
         </div>
     @endif
 
-    {{-- 2026-09-08 — Johan's permanent CRUD standard: own/branch/agency
-         scope TOGGLE, same segmented-link pattern as the buyer pipeline
-         board (command-center/buyers/pipeline.blade.php's "Layer 3" toggle)
-         — options above the user's own permission ceiling are not shown at
-         all (RentalApplication::clampScope() also enforces this server-side
-         regardless, so hiding here is UX, not the security boundary). --}}
+    {{-- Own/branch/agency scope TOGGLE — unchanged mechanism from before
+         AT-402 (RentalApplication::clampScope() enforces the ceiling
+         server-side regardless of this UI). --}}
     <div class="flex items-center gap-2">
         <span class="text-xs font-medium" style="color: var(--text-secondary);">Showing:</span>
         <div class="inline-flex rounded-md overflow-hidden" style="border: 1px solid var(--border);">
@@ -76,29 +118,48 @@
         </div>
     </div>
 
+    {{-- AT-402 — the tiles. FICA's own pattern exactly: real server-rendered
+         links (?tile=key), each count computed from the SAME scoped base
+         query as the filtered list below (see the controller's
+         $countBase/$counts) — a tile can never show a count of rows the
+         viewer can't open. --}}
+    <div class="flex flex-wrap gap-1 text-sm font-medium" style="border-bottom: 1px solid var(--border);">
+        @foreach($primaryTiles as $key)
+            @php $active = $tile === $key; @endphp
+            <a href="{{ $tileLink($key) }}"
+               class="px-4 py-2 transition-colors"
+               style="{{ $active
+                    ? 'color: var(--brand-icon, #0ea5e9); border-bottom: 2px solid var(--brand-icon, #0ea5e9); font-weight:600;'
+                    : 'color: var(--text-secondary); border-bottom: 2px solid transparent;' }}">
+                {{ $tileLabels[$key] }}
+                <span class="ml-1 text-xs px-1.5 py-0.5 rounded-full" style="background: var(--surface-2); color: var(--text-secondary);">{{ number_format($counts[$key] ?? 0) }}</span>
+            </a>
+        @endforeach
+    </div>
+
+    {{-- Withdrawn/Reopened — real, reachable tiles per Johan's ruling
+         ("a real state is never unreachable... zero live rows today is not
+         a reason to hide a state"), rendered with lower visual prominence
+         than the primary row above rather than hidden. --}}
+    <div class="flex flex-wrap items-center gap-3 text-xs" style="color: var(--text-muted);">
+        <span>Also:</span>
+        @foreach($secondaryTiles as $key)
+            <a href="{{ $tileLink($key) }}"
+               class="no-underline"
+               style="{{ $tile === $key ? 'color: var(--brand-icon, #0ea5e9); font-weight:600;' : 'color: var(--text-muted);' }}">
+                {{ $tileLabels[$key] }} ({{ number_format($counts[$key] ?? 0) }})
+            </a>
+        @endforeach
+    </div>
+
     <form method="GET" action="{{ route('corex.rental-applications.index') }}" class="rounded-md p-4 flex flex-wrap items-end gap-3" style="background: var(--surface); border: 1px solid var(--border);">
         <input type="hidden" name="scope" value="{{ request('scope', 'own') }}">
+        <input type="hidden" name="tile" value="{{ $tile }}">
         <div>
             <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Search</label>
             <input type="text" name="q" value="{{ request('q') }}" placeholder="Applicant name, phone, email, ID number, property, or #id"
                    class="rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border); min-width: 260px;">
         </div>
-        <div>
-            <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Status</label>
-            <select name="status" class="rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
-                <option value="">All</option>
-                @foreach(['draft', 'sent', 'in_progress', 'withdrawn'] as $statusOption)
-                    <option value="{{ $statusOption }}" @selected(request('status') === $statusOption)>{{ str_replace('_', ' ', ucfirst($statusOption)) }}</option>
-                @endforeach
-            </select>
-        </div>
-        {{-- 2026-09-10 (design-standard audit, cc3) — was labelled "Sent
-             from"/"Sent to" but has always filtered created_at (see
-             index()'s applySearchSortAndDateRange call) — there is no
-             sent_at column at all, so a draft never sent could still match
-             a "sent" date range. Relabelled to match what the field
-             actually does, and the "Created" column header already used
-             in the table below, rather than inventing a new column. --}}
         <div>
             <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Created from</label>
             <input type="date" name="date_from" value="{{ request('date_from') }}" class="rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
@@ -116,8 +177,8 @@
             </select>
         </div>
         <button type="submit" class="corex-btn-outline text-xs">Filter</button>
-        @if(request()->hasAny(['q', 'status', 'date_from', 'date_to', 'per_page']))
-            <a href="{{ route('corex.rental-applications.index', request()->only('scope')) }}" class="corex-btn-outline text-xs">Clear</a>
+        @if(request()->hasAny(['q', 'date_from', 'date_to', 'per_page']))
+            <a href="{{ route('corex.rental-applications.index', array_merge(request()->only('scope'), ['tile' => $tile])) }}" class="corex-btn-outline text-xs">Clear</a>
         @endif
         <a href="{{ route('corex.rental-applications.index', array_merge(request()->except('page'), ['archived' => request()->boolean('archived') ? null : 1])) }}"
            class="corex-btn-outline text-xs {{ request()->boolean('archived') ? 'corex-tab-active' : '' }}">
@@ -143,7 +204,42 @@
                 <tr style="border-bottom: 1px solid var(--border);">
                     <td class="px-4 py-2">{{ $application->contact->full_name ?? $application->full_name ?? '—' }}</td>
                     <td class="px-4 py-2">{{ $application->property?->buildDisplayAddress() ?? $application->property_address_override ?? '—' }}</td>
-                    <td class="px-4 py-2"><span class="ds-badge {{ $application->status === 'draft' ? 'ds-badge-muted' : 'ds-badge-info' }}">{{ str_replace('_', ' ', $application->status) }}</span></td>
+                    <td class="px-4 py-2">
+                        @permission('rental_applications.create')
+                            @if(in_array($application->status, array_merge(['returned'], \App\Models\RentalApplication::AGENT_SETTABLE_STATUSES), true))
+                                <form method="POST" action="{{ route('corex.rental-applications.update-status', $application) }}" class="inline">
+                                    @csrf
+                                    <select name="status" onchange="this.form.submit()" class="ds-badge ds-badge-info text-xs" style="border: 1px solid var(--border); cursor: pointer;">
+                                        <option value="returned" disabled @selected($application->status === 'returned')>Returned</option>
+                                        @foreach(\App\Models\RentalApplication::AGENT_SETTABLE_STATUSES as $s)
+                                            <option value="{{ $s }}" @selected($application->status === $s)>{{ str_replace('_', ' ', ucfirst($s)) }}</option>
+                                        @endforeach
+                                    </select>
+                                </form>
+                            @elseif($application->status === 'approved' && ! $application->applicant_notified_at)
+                                <span class="ds-badge" style="background:color-mix(in srgb, var(--ds-amber, #f59e0b) 16%, transparent); color:var(--ds-amber, #f59e0b); font-weight:600;">Approved — ready to send</span>
+                            @else
+                                <span class="ds-badge {{ $application->status === 'draft' ? 'ds-badge-muted' : 'ds-badge-info' }}">{{ str_replace('_', ' ', $application->status) }}</span>
+                            @endif
+                        @else
+                            @if($application->status === 'approved' && ! $application->applicant_notified_at)
+                                <span class="ds-badge" style="background:color-mix(in srgb, var(--ds-amber, #f59e0b) 16%, transparent); color:var(--ds-amber, #f59e0b); font-weight:600;">Approved — ready to send</span>
+                            @else
+                                <span class="ds-badge {{ $application->status === 'draft' ? 'ds-badge-muted' : 'ds-badge-info' }}">{{ str_replace('_', ' ', $application->status) }}</span>
+                            @endif
+                        @endpermission
+                        {{-- AT-402 — the under_assessment split, visible even in
+                             the 'All' tile or a search result: without this, two
+                             rows both reading "under assessment" look identical
+                             even though one is with the agent and the other is
+                             out of their hands entirely. Never collapse the
+                             distinction back to invisible (Johan's ruling). --}}
+                        @if($application->status === 'under_assessment')
+                            <div class="text-[10px] mt-0.5" style="color: var(--text-muted);">
+                                {{ $application->submitted_for_approval_at ? '→ with authoriser' : '→ with agent' }}
+                            </div>
+                        @endif
+                    </td>
                     <td class="px-4 py-2">{{ $application->createdBy->name ?? '—' }}</td>
                     <td class="px-4 py-2">{{ $application->created_at->format('d M Y') }}</td>
                     <td class="px-4 py-2">{{ $application->updated_at->format('d M Y H:i') }}</td>
@@ -167,18 +263,12 @@
                 </tr>
                 @empty
                 <tr><td colspan="7" class="px-4 py-8 text-center text-sm" style="color: var(--text-muted);">
-                    @if(request()->hasAny(['q', 'status', 'date_from', 'date_to']))
-                        No rental applications match this search. Try clearing a filter{{ ($canSeeBranch || $canSeeAgency) && request('scope', 'own') === 'own' ? ', or widen the scope above' : '' }}.
+                    @if(request()->hasAny(['q', 'date_from', 'date_to']))
+                        No rental applications match this search in {{ $tileLabels[$tile] }}. Try clearing a filter{{ ($canSeeBranch || $canSeeAgency) && request('scope', 'own') === 'own' ? ', or widen the scope above' : '' }}.
                     @elseif(request('scope', 'own') === 'own' && ($canSeeBranch || $canSeeAgency))
-                        You have no rental applications of your own yet. Try {{ $canSeeAgency ? 'Agency' : 'Branch' }} above if you're expecting to see a colleague's.
-                        @if($returnedCount > 0)
-                            <br>Applications the tenant has sent back don't show here — see <a href="{{ route('corex.rental-applications.returned') }}" style="color: var(--brand-icon, #2563eb);">Returned Applications ({{ $returnedCount }})</a>.
-                        @endif
+                        {{ $emptyStateCopy }} Try {{ $canSeeAgency ? 'Agency' : 'Branch' }} above if you're expecting to see a colleague's.
                     @else
-                        No rental applications yet.
-                        @if($returnedCount > 0)
-                            <br>Applications the tenant has sent back don't show here — see <a href="{{ route('corex.rental-applications.returned') }}" style="color: var(--brand-icon, #2563eb);">Returned Applications ({{ $returnedCount }})</a>.
-                        @endif
+                        {{ $emptyStateCopy }}
                     @endif
                 </td></tr>
                 @endforelse
@@ -190,7 +280,7 @@
 
     @if($archived !== null)
     <div class="rounded-md" style="background: var(--surface); border: 1px solid var(--border);">
-        <div class="px-4 py-3 text-sm font-semibold" style="color: var(--text-primary); border-bottom: 1px solid var(--border);">Archived</div>
+        <div class="px-4 py-3 text-sm font-semibold" style="color: var(--text-primary); border-bottom: 1px solid var(--border);">Archived — {{ $tileLabels[$tile] }}</div>
         <table class="w-full text-sm">
             <thead>
                 <tr style="border-bottom: 1px solid var(--border);">
@@ -216,7 +306,7 @@
                     </td>
                 </tr>
                 @empty
-                <tr><td colspan="4" class="px-4 py-8 text-center text-sm" style="color: var(--text-muted);">Nothing archived.</td></tr>
+                <tr><td colspan="4" class="px-4 py-8 text-center text-sm" style="color: var(--text-muted);">Nothing archived in {{ $tileLabels[$tile] }}.</td></tr>
                 @endforelse
             </tbody>
         </table>

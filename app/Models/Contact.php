@@ -185,6 +185,60 @@ class Contact extends Model
     }
 
     /**
+     * AT-403 — Rentals → Contacts lens. INCLUSIVE by design (Johan's explicit
+     * ruling): a seller whose unit hasn't sold and decides to rent in the
+     * meantime is a seller AND a tenant simultaneously — this must never
+     * become an "is only a tenant" filter, and a contact matching this scope
+     * is never hidden from the sale-side Contacts screen either.
+     *
+     * Two signals, matched to ContactController::index()'s own existing
+     * 'lessor' type-filter branch rather than inventing a second one:
+     *   - parentTypes() (AT-79's multi-type pivot), esign_role IN
+     *     (lessor, lessee) — the live, uncontested signal for tenant/
+     *     prospective tenant, and the same pivot Contact::syncTypeAssignments()
+     *     writes to (the mechanism a rental-application approval's
+     *     "add Tenant, don't replace" step uses).
+     *   - the contact_property pivot's own 'landlord'/'lessor' role —
+     *     REQUIRED for landlords specifically: esign_role='lessor' contacts
+     *     are undercounted via the type pivot alone (13 vs 66 real matches,
+     *     measured live on QA1) because most landlords are linked via the
+     *     property pivot, never actually assigned the Lessor/Landlord type.
+     *     Skipping this half would silently drop most real landlords.
+     */
+    public function scopeRentalRelevant($query)
+    {
+        return $query->where(function ($q) {
+            $q->whereHas('parentTypes', fn ($t) => $t->whereIn('esign_role', ['lessor', 'lessee']))
+              ->orWhereHas('properties', fn ($p) => $p->whereIn('contact_property.role', ['landlord', 'lessor']));
+        });
+    }
+
+    /**
+     * AT-403 — "what the contact IS in rental terms" (Johan), for the
+     * Rentals → Contacts list. Reads the SAME two signals scopeRentalRelevant()
+     * filters on, from already-eager-loaded relations (parentTypes, properties)
+     * — never a fresh query per row. Returns BOTH roles when a contact holds
+     * both (e.g. a landlord on one unit who is also renting elsewhere) —
+     * the inclusive rule applies here too, not just at the list-filter level.
+     *
+     * @return string[] e.g. ['Tenant'], ['Landlord'], ['Tenant', 'Landlord'], or [] if neither relation is loaded/matches
+     */
+    public function rentalRoleLabels(): array
+    {
+        $labels = [];
+        if ($this->relationLoaded('parentTypes') && $this->parentTypes->contains(fn ($t) => $t->esign_role === 'lessee')) {
+            $labels[] = 'Tenant';
+        }
+        $isLandlord = ($this->relationLoaded('parentTypes') && $this->parentTypes->contains(fn ($t) => $t->esign_role === 'lessor'))
+            || ($this->relationLoaded('properties') && $this->properties->contains(fn ($p) => in_array($p->pivot->role ?? null, ['landlord', 'lessor'], true)));
+        if ($isLandlord) {
+            $labels[] = 'Landlord';
+        }
+
+        return $labels;
+    }
+
+    /**
      * Single source of truth for writing a contact's type/tag assignments.
      * Syncs the multi-parent pivot and the sub-tag pivot, then re-derives the
      * primary-parent mirror (contacts.contact_type_id = lowest-sort assigned

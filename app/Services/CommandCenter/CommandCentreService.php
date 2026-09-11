@@ -1588,7 +1588,10 @@ class CommandCentreService
                 'label' => 'Approved for',
                 'value' => 'R' . number_format((float) $a->approved_rental_amount, 0),
             ])->toArray(),
-            'view_all_url' => route('corex.rental-applications.returned'),
+            // AT-402 — links straight into the Approved tile on the merged
+            // control centre rather than the retired Returned Applications
+            // screen (which now just redirects here anyway).
+            'view_all_url' => route('corex.rental-applications.index', ['tile' => 'approved']),
         ];
     }
 

@@ -27,6 +27,16 @@ class ContactController extends Controller
         $dataScope    = PermissionService::getDataScope($user, 'contacts');
         $canPickAgent = in_array($dataScope, ['all', 'branch']);
 
+        // AT-403 — Rentals → Contacts is the SAME action as corex.contacts.index,
+        // reached by a second route, detected by NAME (never client-supplied,
+        // same mechanism as every other Rentals entry point — Properties,
+        // Core Matches, Rental Pipeline). session('corex.lens.contacts') lets
+        // the sidebar and the contact detail page's own nav keep highlighting
+        // "Rentals → Contacts" after navigating into a contact's show() page,
+        // which shares its route name regardless of entry point.
+        $isRentalEntry = $request->route()->getName() === 'corex.rentals.contacts.index';
+        session(['corex.lens.contacts' => $isRentalEntry]);
+
         // AT-267 — an assistant owns NO contacts of their own; every list defaults to the agent
         // they work under. $ownerId is the assigned agent for an assistant, and the user
         // themselves for everyone else, so the page loads the agent's book rather than an empty
@@ -160,12 +170,27 @@ class ContactController extends Controller
             }
         }
 
+        // AT-403 — THE LOCK, applied after the query string is read so a
+        // hand-edited ?type= on this entry point narrows WITHIN the rental
+        // set (e.g. just landlords) rather than escaping it. Same mechanism
+        // as every other Rentals entry point's lock (listing_type on
+        // Properties, lead_type on the Pipeline) — checked server-side by
+        // route name, never trusted from client input.
+        if ($isRentalEntry) {
+            $query->rentalRelevant();
+        }
+
         // Page size is agency-configurable (Settings → Contacts). Clamp the
         // stored value to a sane range so a missing/invalid value can't break paging.
         $perPage = (int) PerformanceSetting::get('contacts_per_page', 25);
         $perPage = $perPage > 0 ? min($perPage, 200) : 25;
         // Eager-load picker relations so the inline edit-row pickers don't N+1.
-        $contacts     = $query->with(['tags', 'parentTypes'])->paginate($perPage)->withQueryString();
+        // AT-403 — 'properties' also eager-loaded on the Rentals lens only:
+        // Contact::rentalRoleLabels() reads it (landlord signal lives on the
+        // contact_property pivot, not the type pivot) to show "what the
+        // contact IS in rental terms" per row without a per-row query.
+        $contacts     = $query->with($isRentalEntry ? ['tags', 'parentTypes', 'properties'] : ['tags', 'parentTypes'])
+            ->paginate($perPage)->withQueryString();
 
         // AT-394 — of THIS page's widened-search results, which ones fall outside the user's
         // normal breadth (own/branch/selected-agent, admin/owner included)? Re-run the untouched
@@ -183,8 +208,18 @@ class ContactController extends Controller
             }
         }
         // The four fixed parents, each with its agency-scoped sub-tags — feeds
-        // the type/tag pop-up picker on the contact forms (AT-79).
+        // the type/tag pop-up picker on the contact forms (AT-79). Always the
+        // FULL list regardless of entry point — assigning a contact's actual
+        // types is never lens-scoped, only the list's own filter dropdown is
+        // (see $typeFilterOptions below).
         $contactTypes = ContactType::parents()->with('subTags')->get()->unique('name')->values();
+        // AT-403 — the top filter <select> only, restricted to the two
+        // rental-relevant canonical parents on this entry point (matching
+        // the existing dropdown's own granularity — it already only offers
+        // the 6 canonical parents, never the messy legacy rows underneath).
+        $typeFilterOptions = $isRentalEntry
+            ? $contactTypes->whereIn('esign_role', ['lessor', 'lessee'])->values()
+            : $contactTypes;
         // Contact-details Phase 2 — the label list for the phone/email repeaters.
         $contactIdentifierLabels = \App\Models\ContactIdentifierLabel::where('is_active', true)
             ->orderBy('sort_order')->orderBy('name')->get();
@@ -195,8 +230,8 @@ class ContactController extends Controller
             : null;
 
         return view('corex.contacts.index', compact(
-            'contacts', 'contactTypes', 'contactIdentifierLabels', 'filterAgentId', 'agentList', 'selectedAgent', 'canPickAgent',
-            'restrictedContactIds'
+            'contacts', 'contactTypes', 'typeFilterOptions', 'contactIdentifierLabels', 'filterAgentId', 'agentList', 'selectedAgent', 'canPickAgent',
+            'restrictedContactIds', 'isRentalEntry'
         ));
     }
 

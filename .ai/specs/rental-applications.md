@@ -7286,3 +7286,66 @@ Johan, real browser, 1522px viewport, in one sitting: "theres no ways anyone can
 
 - `resources/views/corex/rental-applications/review.blade.php` — header consolidated to one row with a single `$propertyLabel` computation; affordability row grid narrowed (description/date/amount), `.corex-input` padding scoped down; `RA_ASIDE_DEFAULT_PX`/`MIN_PX`/`MAX_PX` and the CSS default all reduced by 60px
 - `resources/views/corex/rental-applications/partials/document-highlighter-pages.blade.php` — mark-up tools panel narrowed 190px→90px, highlighter swatches/stroke-weight bars/icon Undo-Redo replacing the old full-width labelled rows
+
+## Rental Application Control Centre — three menus become one (AT-402, 2026-09-11, cc4) — BUILT
+
+Johan, verbatim: "the way fica works is a lot better than having 3 menus here... fica carries all the work and you can click the tiles to select which you want to work with... so it becomes more of a rental application control centre than having 3 menus and you have to sit and click through it to find where your application is at." Investigated FICA (`Compliance\FicaController::index()`, `compliance/fica/index.blade.php`) and e-sign (`ESignWizardController::myDocuments()`) side by side before writing anything — reported both, with a verdict, before building (full investigation report delivered separately; summarised here for the record).
+
+**FICA vs e-sign — FICA is the pattern copied, and it wasn't close.** FICA: real `?tab=`-style tile links, every tile count computed from `clone $countBase` (itself `clone $baseQuery` — the SAME scoped query the filtered list uses), real `paginate(20)->withQueryString()` composing cleanly with search. E-sign: its "tiles" are same-page scroll anchors with no real filter at all, one unconditional `->get()` with no pagination, no search, no sort, and a single hardcoded `created_by = $user->id` scope — no own/branch/agency tier exists. E-sign's one genuine contribution was UX, not mechanism: priority-ordering exception states ahead of routine ones informed this screen's tile order, nothing more.
+
+### The real tile set — derived from data, not the shorthand
+
+`RentalApplication::STATUSES`: `draft, sent, in_progress, returned, reopened, under_assessment, approved, declined, withdrawn`. No `archived`/`expired` status exists — `token_expires_at` is a link-expiry timestamp, not a status.
+
+**The under_assessment split is the headline finding, and the one Johan explicitly ruled must never collapse back into one bucket.** `submitted_for_approval_at` (set only when `RentalApplicationReviewController` submits to the authoriser — cc3's file, not touched here) splits `under_assessment` into "with agent" (`submitted_for_approval_at` NULL) and "with authoriser" (NOT NULL) — live split on QA1 at build time: 2 with-agent, 3 with-authoriser, out of 5 total `under_assessment` rows. This is the exact "where is my application actually sitting" question Johan named.
+
+Tile set built exactly as approved:
+- Primary tiles: All, Not Yet Submitted (draft+sent+in_progress — "nobody hunts these by state, they hunt by applicant name"), Returned, Under Assessment, Sent for Authorisation, Approved, Declined.
+- Secondary (reachable, low-prominence — Johan: "a real state is never unreachable... zero live rows today is not a reason to hide a state"): Withdrawn, Reopened.
+
+### Tile counts are a scoping surface — built and proven, not asserted
+
+`RentalApplicationController::index()` builds one `$baseQuery = RentalApplication::visibleTo($user, $requestedScope)`; every tile's count is `clone $countBase` (itself `clone $baseQuery`) with `applyTileFilter()` applied, and the filtered list descends from the identical clone — count and list can never disagree because they share one scoped ancestor, exactly FICA's own mechanism.
+
+**Proved live, not read off the code**, using real QA1 sessions:
+- User 141 (Test Agent Persona, own scope, exactly one real application — id 32, declined): `/rental-applications` shows All=1, Declined=1, every other tile=0 — the tile counts and the filtered list agree exactly, and no other agent's data leaks in.
+- User 132 (HFC Demo Agent, admin/all scope, RO tier), `?scope=agency&tile=sent_for_authorisation`: count=3, three real rows render, each carrying the "→ with authoriser" sub-label, three "Open" buttons — count and list agree exactly at agency scope too.
+- The same user's Under Assessment tile at agency scope correctly shows 0 — the two live "with agent" rows (ids 5, 6) belong to OTHER agencies entirely; `BelongsToAgency` excludes them before scopeVisibleTo() is ever reached, confirmed by direct inspection, not assumed.
+
+### PERMISSION REGRESSION GUARD — found during build, not after
+
+Pre-402, `returned/under_assessment/approved/declined/reopened` were reachable ONLY through the separate `/returned` route, gated by `rental_applications.view_returned` via route middleware — a role with plain `rental_applications.view` (this screen's own gate) but WITHOUT `view_returned` could never see those statuses at all. Simply merging the two screens' queries would have silently WIDENED that role's access. Fixed by excluding `RentalApplication::RETURNED_STATUSES` from the base query itself (not just hiding the tile buttons) whenever `$user->hasPermission('rental_applications.view_returned')` is false — `draft/sent/in_progress/withdrawn` were always visible on the old plain `index()` regardless of this permission and stay visible here unchanged. Verified at the query layer (no QA1 role currently lacks this permission to prove it over HTTP): with the guard applied, user 141's own declined application (their only row) correctly drops from 1 to 0.
+
+### Old menu entries — redirect, not duplicate
+
+routes/web.php is **unchanged** — same URIs, same route names, same middleware. Only the controller method BODIES changed:
+- `corex.rental-applications.index` (`/rental-applications`) — its own URI never needed to change, so it IS the control centre directly; no redirect hop for the most commonly bookmarked URL. A bare legacy `?status=draft` (the old screen's own `<select>`, never removed from the trait) resolves the ACTIVE tile via `TILE_FOR_LEGACY_STATUS` so the highlighted tile matches the already-correctly-narrowed list, not a stale "All".
+- `corex.rental-applications.returned` (`/rental-applications/returned`) — becomes a thin redirect into `.index`, preserving every query param and mapping its old `?status=` tab values onto the new tile keys. A bare old `?status=under_assessment` (which used to show BOTH sub-buckets combined) deliberately resolves to `tile=all&status=under_assessment` rather than picking one of the two new split tiles arbitrarily — a strict superset, nothing hidden. A bare `/returned` with no params at all (which used to show a specific 7-status union with no draft/sent) resolves to `tile=all` for the same reason — no single tile matches that exact union, and "All" never hides anything that was visible before.
+- `destroy()`/`restore()` no longer need a `return_to` hidden field naming a second screen — both now compute the correct tile directly from the application's own current status (`tileForApplication()`), one source of truth instead of two routes to keep in sync.
+- **Proved live**: `/rental-applications/returned` (bare) → 302 → `?tile=all`; `/rental-applications/returned?status=declined` → 302 → `?tile=declined`; `/rental-applications?status=draft` (never redirects, same URI) renders with "Not Yet Submitted" correctly highlighted as active. Nothing 404s.
+
+### Authorisation — stays a distinct screen, by design, not by omission
+
+Investigated whether `RentalApplicationAuthorisationController` could become just another tile. Verdict: the LIST already is, structurally, "the applications list filtered to one status" — it already reuses the identical `FiltersRentalApplicationList` trait for search/sort/pagination, same model, same `visibleTo()`. But `guardCanDecide()` carries the self-approval block, the already-decided→CO-override-only rule, and the full `RentalApplicationStatusHistory` audit trail — real per-action authorization logic that belongs in one controller that owns it end to end, not spread across a generic shared-list component. Left **completely unchanged** — zero edits to `RentalApplicationAuthorisationController.php`.
+
+**Reconciling two rulings that could be read as in tension**: "never collapse the under_assessment split" (for everyone) vs. "the Sent-for-Authorisation tile is gated so it neither renders nor loads for non-RO/CO users." Resolved as two distinct things wearing a similar name:
+1. The **shared control centre's "Sent for Authorisation" tile** — visible to EVERY user (not RO/CO-gated), scoped through the SAME per-viewer `$baseQuery` as every other tile on the screen (own/branch/agency, exactly like Returned/Approved/etc). A plain agent sees only their OWN applications currently with the authoriser — directly answering "where is my application," leaking nothing since it's bounded by the same ceiling as the rest of their screen. Links to the ordinary read-only `show()` route — no decide buttons anywhere on this screen, for anyone.
+2. The **RO/CO's decision queue** — the unchanged `RentalApplicationAuthorisationController::index()`, reached via its own secondary sidebar link, using the RO/CO's full granted ceiling (not narrowed to `own`, since an authoriser's queue is everything they're allowed to decide on) and leading into the decide actions. This is what stays RO/CO-gated and structurally separate, per the investigation's verdict. `index()` shows a small banner ("N applications awaiting your authorisation decision") advertising this queue to RO/CO users only, using the exact same count query as the authorisation controller's own for consistency; the banner and its underlying count query never render/run at all for a non-RO/CO user.
+
+Commit-hash note: the conductor's own record cited cc5's authoriser-scoping fix as `a4e5ab67f`; that hash is an unrelated merge commit touching one line of this spec file. The real fix is `9b211f7e1` ("authoriser screen now enforces own/branch/agency scoping") — verified via `git show` before citing it above.
+
+### Sidebar — three subitems become one, plus one RO/CO-only secondary link
+
+`Rental Applications` and `Returned Applications` collapse into a single `Rental Applications` link (pointing at `.index`, now the control centre). `Rental Application Authorisation` stays as its own subitem, unchanged condition (`$user->isRentalApplicationAuthoriser()`). Active-highlighting broadened to the whole `rental-applications.*` family minus `.authorisation.*` (the `.returned` exclusion is gone — that route now redirects INTO `.index`, so `routeIs('corex.rental-applications.index')` is simply true after the hop). Proved live: opening a specific application (`show()`, id 32) still highlights the collapsed "Rental Applications" sidebar item — nav context holds through list → detail, unchanged from AT-401.
+
+### No new agency-configurable threshold needed
+
+Unlike the Buyer Pipeline kanban (which had a genuine unbounded-query problem), this screen already paginated properly pre-402 (`resolvePerPage()`, 10/25/50/100, user-selectable) — no new setting was needed to satisfy "design standard from the word go." Tile order/prominence is a fixed information-architecture decision, not a business policy an agency would configure, so it wasn't made agency-configurable either.
+
+### Files changed
+
+- `app/Http/Controllers/CoreX/RentalApplicationController.php` — `index()` rebuilt into the tile-based control centre (TILES/SECONDARY_TILES/RETURNED_STATUSES/VIEW_RETURNED_TILES/TILE_FOR_LEGACY_STATUS constants, `applyTileFilter()`, `tileForApplication()`); `returned()` reduced to a thin legacy redirect; `destroy()`/`restore()` simplified to derive their landing tile from the application's own status
+- `app/Services/CommandCenter/CommandCentreService.php` — dashboard "Ready to Send" widget links straight to `?tile=approved` instead of the retired `/returned` route
+- `resources/views/corex/rental-applications/index.blade.php` — rebuilt as the control centre (tiles, scope toggle retained, search/date/per-page filter form, table with the under_assessment sub-label, per-tile archived section, per-tile empty states)
+- `resources/views/corex/rental-applications/returned.blade.php` — deleted (dead; `returned()` no longer renders a view)
+- `resources/views/layouts/corex-sidebar.blade.php` — three Rentals subitems collapsed to one + the unchanged RO/CO-only Authorisation subitem
