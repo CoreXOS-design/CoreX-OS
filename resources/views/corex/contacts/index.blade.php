@@ -657,6 +657,34 @@
             // since every row there is already known to be the viewer's own.
             $contactOwnerId = $contact->agent_id ?? $contact->created_by_user_id;
             $isOtherAgent   = request()->filled('search') && $contactOwnerId && (int) $contactOwnerId !== (int) auth()->id();
+
+            // AT-392, 2026-09-11 (cc4's end-to-end walk, same root cause as the
+            // contact-type picker fix) — a contact holds a SET of types, not
+            // one. This used to show only $contact->type (the primary-type
+            // mirror) here, plus — in the rental lens only — a second,
+            // separately-sourced rentalRoleLabels() badge for Tenant/Landlord.
+            // That produced two bugs: (a) a contact whose PRIMARY type was
+            // Tenant showed "Tenant" twice (once from each source), and (b) a
+            // Seller+Tenant contact showed only "Tenant" on this row — Seller
+            // never appeared, defeating the whole point of add-don't-replace.
+            // $typeBadges is now the single, deduped source for every badge
+            // this row shows: every real parentTypes name, plus — in the
+            // rental lens only — "Landlord" when the contact is linked to a
+            // property with a landlord/lessor role but holds no Lessor TYPE
+            // (the property-pivot-only signal scopeRentalRelevant() also
+            // matches on; skipping it would silently drop most real landlords
+            // — AT-403's own finding, 13 vs 66 real matches from the pivot
+            // alone). No duplication: if the contact already holds the Lessor
+            // type, "Landlord" is not added a second time.
+            $typeBadges = $contact->parentTypes->pluck('name')->all();
+            if ($isRentalEntry && !$isRestricted && !$isOtherAgent) {
+                $hasLessorType = $contact->parentTypes->contains(fn ($t) => $t->esign_role === 'lessor');
+                $isPropertyLandlord = $contact->relationLoaded('properties')
+                    && $contact->properties->contains(fn ($p) => in_array($p->pivot->role ?? null, ['landlord', 'lessor'], true));
+                if ($isPropertyLandlord && !$hasLessorType) {
+                    $typeBadges[] = 'Landlord';
+                }
+            }
         @endphp
         <div class="px-5 py-4 transition-all duration-300" style="border-bottom:1px solid var(--border);"
              onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background=''">
@@ -685,22 +713,11 @@
                                   title="{{ $isRestricted ? 'Found elsewhere in the agency — not in your own contacts' : 'This contact belongs to a different agent' }}">
                                 Agent: {{ $contact->agent->name ?? $contact->createdBy->name ?? 'Unassigned' }}
                             </span>
-                            @elseif($contact->type)
-                            <span class="text-xs px-2 py-0.5 rounded-md font-medium whitespace-nowrap"
-                                  style="background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 12%, transparent); color:var(--brand-icon,#0ea5e9); border:1px solid color-mix(in srgb, var(--brand-icon,#0ea5e9) 25%, transparent);">
-                                {{ $contact->type->name }}
-                            </span>
-                            @endif
-                            {{-- AT-403 — "what the contact IS in rental terms" (Johan),
-                                 read from BOTH signals scopeRentalRelevant() matched on,
-                                 not just the primary type mirror above (which can show a
-                                 DIFFERENT type, e.g. "Seller", for a contact who is also
-                                 a tenant — the inclusive rule this whole lens exists for). --}}
-                            @if($isRentalEntry && !$isRestricted && !$isOtherAgent)
-                                @foreach($contact->rentalRoleLabels() as $rentalRole)
+                            @else
+                                @foreach($typeBadges as $badgeName)
                                 <span class="text-xs px-2 py-0.5 rounded-md font-medium whitespace-nowrap"
-                                      style="background:color-mix(in srgb, var(--ds-amber, #f59e0b) 14%, transparent); color:var(--ds-amber, #f59e0b); border:1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 30%, transparent);">
-                                    {{ $rentalRole }}
+                                      style="background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 12%, transparent); color:var(--brand-icon,#0ea5e9); border:1px solid color-mix(in srgb, var(--brand-icon,#0ea5e9) 25%, transparent);">
+                                    {{ $badgeName }}
                                 </span>
                                 @endforeach
                             @endif

@@ -1335,6 +1335,27 @@ class ContactController extends Controller
         $parentIds = array_map('intval', $validated['parent_type_ids'] ?? []);
         $tagIds    = array_map('intval', $validated['tag_ids'] ?? []);
 
+        // Defence-in-depth (AT-392, 2026-09-11): a contact-type save must
+        // never silently remove a type the picker didn't offer as a choice.
+        // This is exactly how "Tenant" got stripped from a contact on an
+        // unrelated save before it was added to ContactType::ADDITIONAL_PARENTS
+        // — the picker only ever submits $parentIdsAllowed, and
+        // syncTypeAssignments() does a full-replace sync(), so anything held
+        // outside that set vanished with no user action to explain it.
+        // Johan's rule is standing: a type is added, never removed or
+        // replaced by a save the user never saw as a decision. This guard is
+        // type-agnostic on purpose — it protects whatever the contact
+        // currently holds that isn't in $parentIdsAllowed, so a future type
+        // added to a contact by some other mechanism is safe here too,
+        // without this method needing to know its name.
+        if ($contact->exists) {
+            $currentlyHeldParentIds = $contact->parentTypes()->pluck('contact_types.id')->map(fn ($id) => (int) $id)->all();
+            $unofferedHeldParentIds = array_diff($currentlyHeldParentIds, $parentIdsAllowed);
+            if (!empty($unofferedHeldParentIds)) {
+                $parentIds = array_values(array_unique(array_merge($parentIds, $unofferedHeldParentIds)));
+            }
+        }
+
         // Inline-created sub-tags: reuse an existing same-name tag under the same
         // parent (agency-scoped, case-insensitive) if present, otherwise create.
         foreach ($validated['new_tags'] ?? [] as $nt) {

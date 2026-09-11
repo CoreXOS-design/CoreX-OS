@@ -35,6 +35,25 @@ class ContactType extends Model
     public const EXTRA_PARENTS = ['Owner', 'Other'];
 
     /**
+     * Selectable parent types that fall OUTSIDE the strict 1:1 esign_role
+     * mapping CANONICAL guarantees — added by name, not by esign_role, so
+     * CANONICAL's one-name-per-role invariant (the e-sign wizard's own
+     * dependency) is never touched. 'Tenant' is a pre-existing, live,
+     * esign_role='lessee' type (id 11, predates this ruling, ~78 contacts
+     * already carry it) distinct from the canonical 'Lessee' row — it was
+     * invisible to the contact-type picker (2026-09-11 AT-392 finding: any
+     * unrelated save through the normal Contacts edit form silently
+     * stripped Tenant from a contact, because the picker never offered it
+     * as an option to keep). Johan's ruling is explicit and standing:
+     * contact type is added, never removed or replaced — a contact must be
+     * able to be BOTH Seller and Tenant at once. Making it selectable here
+     * is the fix; applyTypeAssignments()'s own hardening (see
+     * ContactController) is the structural guard against this happening
+     * again for any future type this list hasn't caught up with yet.
+     */
+    public const ADDITIONAL_PARENTS = ['Tenant'];
+
+    /**
      * Primary-type mirror relation (contacts.contact_type_id). Retained for the
      * many existing readers + the e-sign reverse-mapping. Parent membership for
      * NEW work lives in the contact_contact_type pivot (see Contact::parentTypes).
@@ -79,10 +98,13 @@ class ContactType extends Model
     }
 
     /**
-     * All SIX fixed parent types, in display order: the 4 e-sign roles
-     * (Seller/Buyer/Lessor/Lessee) plus the non-e-sign Owner/Other. This is the
-     * set shown in Settings + the contact-type picker, and the only valid
-     * parents a sub-tag or a contact assignment may reference.
+     * All SEVEN fixed parent types, in display order: the 4 e-sign roles
+     * (Seller/Buyer/Lessor/Lessee), the non-e-sign Owner/Other, plus
+     * ADDITIONAL_PARENTS (Tenant — matched by name only, deliberately NOT
+     * folded into CANONICAL, so the e-sign wizard's 1:1 esign_role mapping
+     * is untouched). This is the set shown in Settings + the contact-type
+     * picker, and the only valid parents a sub-tag or a contact assignment
+     * may reference.
      */
     public function scopeParents($query)
     {
@@ -92,7 +114,7 @@ class ContactType extends Model
                   ->whereIn('name', array_values(self::CANONICAL));
             })->orWhere(function ($x) {
                 $x->whereNull('esign_role')->whereIn('name', self::EXTRA_PARENTS);
-            });
+            })->orWhereIn('name', self::ADDITIONAL_PARENTS);
         })->orderBy('sort_order')->orderBy('id');
     }
 
