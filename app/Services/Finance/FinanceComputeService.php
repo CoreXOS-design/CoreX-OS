@@ -25,6 +25,18 @@ class FinanceComputeService
     /**
      * Compute deal.total_commission_ex_vat
      * Uses same formula as Deal::commissionExVat() — centralised here for audit isolation.
+     *
+     * DR2 financial audit F7 (AT-413) — the audit's own recommendation was to
+     * collapse every duplicate of this formula onto Deal::commissionExVat().
+     * Deliberately NOT done here: this method is the "new engine" side of
+     * AuditService's shadow-compare (see legacy() below and compute()'s
+     * dispatch), checked against Deal::commissionExVat() via legacy() as the
+     * "actual"/existing side. Making this call Deal::commissionExVat()
+     * directly would make the audit compare that method against itself —
+     * permanently silent, never able to catch a future regression in the
+     * canonical formula. The R0.10-portfolio-wide/R0.03-period rounding-order
+     * difference the audit measured comes from exactly this pair computing
+     * independently — that is this pair's job, not a bug to remove.
      */
     public static function dealTotalCommissionExVat(Deal $deal): float
     {

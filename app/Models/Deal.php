@@ -383,14 +383,27 @@ class Deal extends Model
      */
     public function commissionExVat(): float
     {
+        return self::stripVat((float) $this->total_commission);
+    }
+
+    /**
+     * DR2 financial audit F9 (AT-415) — the same Incl-VAT-to-Ex-VAT strip
+     * commissionExVat() does, extracted so callers working with a raw
+     * commission figure from a non-hydrated query row (WorksheetController's
+     * reporting loops select plain stdClass rows, not Deal models, for
+     * performance over many deals) can share the exact same formula instead
+     * of re-typing it. Confirmed byte-identical to the three inline copies
+     * it replaces before this change.
+     */
+    public static function stripVat(float $incAmount): float
+    {
         $vatRatePercent = (float) \App\Models\PerformanceSetting::get('vat_rate', 15);
         $vatRate = $vatRatePercent / 100.0;
 
-        $inc = (float) $this->total_commission;
-        if ($inc <= 0) return 0.0;
-        if ($vatRate <= 0) return $inc;
+        if ($incAmount <= 0) return 0.0;
+        if ($vatRate <= 0) return $incAmount;
 
-        return $inc / (1.0 + $vatRate);
+        return $incAmount / (1.0 + $vatRate);
     }
 
     private function calculateInternalPool(string $side): float

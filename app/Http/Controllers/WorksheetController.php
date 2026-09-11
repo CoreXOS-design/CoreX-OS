@@ -339,11 +339,6 @@ class WorksheetController extends Controller
         $start = Carbon::createFromFormat('Y-m', $period)->startOfMonth();
         $end   = (clone $start)->endOfMonth();
 
-        // VAT (admin setting)
-        $vatRatePercent = (float) \App\Models\PerformanceSetting::get('vat_rate', 15);
-        $vatRate = $vatRatePercent / 100.0;
-        $vatDiv = (1.0 + $vatRate);
-
         // ---- Deals scope: distinct deals for this agent (avoid double counting deal when agent is on both sides) ----
         $dealIdsSub = DB::table('deal_user')
             ->where('user_id', $userId)
@@ -401,7 +396,9 @@ class WorksheetController extends Controller
 
             // Assume stored commission is INCL VAT, derive EXCL VAT for calc
             $cInc = (float)($d->total_commission ?? 0);
-            $cEx  = $vatDiv > 0 ? ($cInc / $vatDiv) : 0.0;
+            // DR2 financial audit F9 (AT-415) — was an inline re-type of
+            // Deal::commissionExVat()'s own VAT-strip; now the shared source.
+            $cEx  = \App\Models\Deal::stripVat($cInc);
 
             // Per-stage breakdown (includes declined for visibility)
             $stageSalesInc[$stage] += $pvInc;
@@ -558,7 +555,9 @@ class WorksheetController extends Controller
             $pvEx = $pvInc;
 
             $cInc = (float)($d->total_commission ?? 0);
-            $cEx  = $vatDiv > 0 ? ($cInc / $vatDiv) : 0.0;
+            // DR2 financial audit F9 (AT-415) — was an inline re-type of
+            // Deal::commissionExVat()'s own VAT-strip; now the shared source.
+            $cEx  = \App\Models\Deal::stripVat($cInc);
 
             $stageSalesIncAll[$stage] += $pvInc;
             $stageSalesExAll[$stage]  += $pvEx;
@@ -656,7 +655,9 @@ class WorksheetController extends Controller
             $pvEx = $pvInc;
 
             $cInc = (float)($d->total_commission ?? 0);
-            $cEx  = $vatDiv > 0 ? ($cInc / $vatDiv) : 0.0;
+            // DR2 financial audit F9 (AT-415) — was an inline re-type of
+            // Deal::commissionExVat()'s own VAT-strip; now the shared source.
+            $cEx  = \App\Models\Deal::stripVat($cInc);
 
             $stageSalesIncAll[$stage] += $pvInc;
             $stageSalesExAll[$stage]  += $pvEx;
