@@ -11,6 +11,7 @@ use App\Models\Document;
 use App\Models\RentalApplication;
 use App\Models\RentalApplicationAssessment;
 use App\Models\RentalApplicationDocumentHighlight;
+use App\Models\RentalApplicationDocumentRequirement;
 use App\Models\RentalApplicationDocumentValidityWindow;
 use App\Models\RentalApplicationExpenseItem;
 use App\Models\RentalApplicationIncomeItem;
@@ -339,10 +340,28 @@ class RentalApplicationReviewController extends Controller
             $d->id => RentalApplicationDocumentValidityWindow::stalenessWarning($d->created_at, $agencyId, 'rental_application', $d->document_type_id),
         ]);
 
+        // ROUND 6, 2026-09-11 — Johan collapsed "Reopen for the applicant"
+        // and "Request more information" (to the applicant) into one "Send
+        // back to applicant" action with a checklist of what's outstanding.
+        // Per his own instruction, the checklist is DERIVED from the
+        // document types CoreX already holds for this application's
+        // employment type — reusing RentalApplicationDocumentRequirement,
+        // the same agency-configurable mechanism the original application
+        // form's own printed checklist already runs on — never a hardcoded
+        // list, so it stays true as an agency customises its own
+        // requirements. No employment type on file yet (application never
+        // reached that step) means nothing to check off — an empty list,
+        // not a guess.
+        $documentChecklist = $rentalApplication->employment_type
+            ? RentalApplicationDocumentRequirement::checklistFor($agencyId, $rentalApplication->employment_type)
+                ->map(fn ($documentType) => ['slug' => $documentType->slug, 'label' => $documentType->label])
+                ->values()
+            : collect();
+
         return view('corex.rental-applications.review', compact(
             'rentalApplication', 'assessment', 'maxRentPercent', 'result', 'documents', 'moreInfoRequestedNote', 'declineInfo', 'highlighters',
             'viewerRole', 'propertyLinkLocked', 'auditLog', 'auditLogTotal', 'existingWishlist', 'matchCategories', 'matchTypes', 'featureOptions',
-            'rentalPropertyTypeNames', 'wishlistPrefill', 'pickableContactDocuments', 'pickableStaleness'
+            'rentalPropertyTypeNames', 'wishlistPrefill', 'pickableContactDocuments', 'pickableStaleness', 'documentChecklist'
         ))->with('isPendingAuthorisation', $rentalApplication->isPendingAuthorisation());
     }
 
