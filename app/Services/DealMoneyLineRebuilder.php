@@ -31,8 +31,7 @@ class DealMoneyLineRebuilder
 
         $vatAmt = (float)$totalCommissionIncVat - (float)$totalCommissionExVat;
 
-        $listingSplitPct = max(0.0, min(100.0, (float)($deal->listing_split_percent ?? 50)));
-        $sellingSplitPct = max(0.0, min(100.0, (float)($deal->selling_split_percent ?? 50)));
+        [$listingSplitPct, $sellingSplitPct] = self::resolveSplitPercents($deal);
 
         $listingSideInc = (float)$totalCommissionIncVat * ($listingSplitPct / 100.0);
         $sellingSideInc = (float)$totalCommissionIncVat * ($sellingSplitPct / 100.0);
@@ -111,15 +110,7 @@ class DealMoneyLineRebuilder
         $totalIncl = (float)($deal->total_commission ?? 0);
         $totalEx = ($totalIncl > 0) ? round($totalIncl / (1 + $vat), 2) : 0.0;
 
-        $listingSplit = self::clampPct($deal->listing_split_percent ?? 50);
-        $sellingSplit = self::clampPct($deal->selling_split_percent ?? 50);
-
-        $splitSum = $listingSplit + $sellingSplit;
-        if ($splitSum <= 0) { $listingSplit = 50; $sellingSplit = 50; $splitSum = 100; }
-        if (abs($splitSum - 100.0) > 0.01) {
-            $listingSplit = round(($listingSplit / $splitSum) * 100.0, 2);
-            $sellingSplit = round(($sellingSplit / $splitSum) * 100.0, 2);
-        }
+        [$listingSplit, $sellingSplit] = self::resolveSplitPercents($deal);
 
         $listingExternal = (int)($deal->listing_external ?? 0) === 1;
         $sellingExternal = (int)($deal->selling_external ?? 0) === 1;
@@ -271,5 +262,66 @@ class DealMoneyLineRebuilder
         if ($v < $min) return $min;
         if ($v > $max) return $max;
         return $v;
+    }
+
+    /**
+     * DR2 financial audit F8 (AT-414) — computeDealPools() (the settlement
+     * SCREEN's own calculation) only clamped each side's split to [0,100]
+     * independently; rebuildSingleDeal() (what actually gets STORED and feeds
+     * printAgentPayslip) additionally normalized the pair to sum to exactly
+     * 100 when they didn't. A deal whose stored splits don't sum to 100 —
+     * confirmed zero of them do, on real QA1 data, as of this fix — would
+     * have shown genuinely DIFFERENT numbers on the settlement screen than
+     * what actually got paid. Both call sites now share this one resolution,
+     * so they can never again silently disagree.
+     *
+     * The tolerance for "close enough to 100, leave it alone" is an
+     * agency-configurable PerformanceSetting (split_sum_tolerance_percent,
+     * default 0.01 — matching the pre-existing hardcoded value exactly, so
+     * this change is a no-op for every deal that was already fine) rather
+     * than a hardcoded constant, per the standing rule that a business
+     * threshold is never hardcoded. This is a narrow, rarely-touched
+     * data-quality knob (how forgiving the safety net is), not a
+     * customer-facing preference — deliberately not added to the Setup
+     * Wizard, matching how vat_rate (the other PerformanceSetting this same
+     * calculation reads) is also not there. Flagged for Johan to override if
+     * he disagrees with that call.
+     *
+     * What happens when a mismatch IS found: normalize (proportionally
+     * rescale both sides to sum to 100, preserving their relative weight)
+     * AND log a warning naming the deal — so a bad data-entry is absorbed
+     * without blocking the agent's workflow, but is never silent. This
+     * matches the established "P24 REFRESH COST REGRESSION"-style pattern
+     * elsewhere in this codebase: warn loudly, never hard-fail a screen over
+     * a data-quality issue the system can safely route around.
+     */
+    public static function resolveSplitPercents(Deal $deal): array
+    {
+        $listing = self::clampPct($deal->listing_split_percent ?? 50);
+        $selling = self::clampPct($deal->selling_split_percent ?? 50);
+
+        $sum = $listing + $selling;
+        if ($sum <= 0) {
+            return [50.0, 50.0];
+        }
+
+        // Scoped explicitly to the DEAL's own agency, not whichever user (if
+        // any) happens to be authenticated when this runs — this also runs
+        // from queued jobs and cross-agency admin views with no reliable
+        // "current" agency context.
+        $tolerance = max(0.0, (float) \App\Models\PerformanceSetting::get('split_sum_tolerance_percent', 0.01, $deal->agency_id));
+        if (abs($sum - 100.0) > $tolerance) {
+            \Log::warning('DEAL SPLIT PERCENT MISMATCH — normalized', [
+                'deal_id' => $deal->id,
+                'deal_no' => $deal->deal_no ?? null,
+                'listing_split_percent' => $listing,
+                'selling_split_percent' => $selling,
+                'sum' => $sum,
+            ]);
+            $listing = round(($listing / $sum) * 100.0, 2);
+            $selling = round(($selling / $sum) * 100.0, 2);
+        }
+
+        return [$listing, $selling];
     }
 }
