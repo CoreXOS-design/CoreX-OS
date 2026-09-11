@@ -7286,3 +7286,143 @@ Johan, real browser, 1522px viewport, in one sitting: "theres no ways anyone can
 
 - `resources/views/corex/rental-applications/review.blade.php` — header consolidated to one row with a single `$propertyLabel` computation; affordability row grid narrowed (description/date/amount), `.corex-input` padding scoped down; `RA_ASIDE_DEFAULT_PX`/`MIN_PX`/`MAX_PX` and the CSS default all reduced by 60px
 - `resources/views/corex/rental-applications/partials/document-highlighter-pages.blade.php` — mark-up tools panel narrowed 190px→90px, highlighter swatches/stroke-weight bars/icon Undo-Redo replacing the old full-width labelled rows
+
+---
+
+## Approval adds "Tenant" to the contact's types — never replaces (2026-09-11, cc6)
+
+Johan's own investigation finding (this applicant-surface audit, earlier): approving a rental
+application never changed the contact's *type* at all — only the separate `rental_application_status`
+cache. Reported, not fixed, per instruction. Johan's ruling on the report, verbatim:
+
+> "contact type can be added, not changed. the scenario exists where a seller or any contact type
+> can become a tenant. the scenario exists that the seller of unit a decides to rent but their
+> property has not sold yet. so that contact will be dealt with as a seller on their property but
+> also as a tenant inside rentals."
+
+**The rule.** On approval, the linked contact gets "Tenant" ADDED to whatever types it already
+holds. Never removed, never replaced — not on approval, not on decline, not on withdrawal. This is
+not a new rule invented for rentals — it is CoreX's existing multi-type doctrine (a contact linked
+to a property is auto-tagged with the type implied by that link; a person can legitimately hold
+several types at once, e.g. landlord AND seller) applied to a new trigger.
+
+**Mechanism — the SAME one CoreX already uses, not a parallel one.** Johan's explicit instruction:
+"find how the existing auto-tag-on-link behaviour does it and follow that mechanism." That mechanism
+is `App\Listeners\Contact\PromoteOwnerToSellerOnPropertyLink` (AT-79) — it computes a contact's
+*effective* parent-type set (`parentTypes()`'s multi-parent pivot `contact_contact_type`, plus the
+legacy single-value mirror `contacts.contact_type_id` for writer-created contacts whose type is
+mirror-only), edits that set, then calls `Contact::syncTypeAssignments($parentIds, $tagIds)` — the
+one method that writes both the pivot and re-derives the mirror. That listener uses this mechanism
+as a **swap** (Owner → Seller). The new listener, `App\Listeners\Contact\AddTenantTypeOnRentalApproval`,
+uses the identical mechanism as a pure **add**: compute the effective set, append Tenant's id if
+absent, keep every existing sub-tag untouched, sync. Idempotent by construction — if Tenant is
+already in the effective set, the listener returns immediately; approving twice (or the event firing
+twice for any reason) changes nothing the second time, and never creates a duplicate pivot row
+because `syncTypeAssignments()`'s `sync()` call is itself idempotent on an unchanged id list.
+
+**The ContactType row.** Exactly one "Tenant" row already exists (`contact_types.name = 'Tenant'`,
+id 11 on QA1, `esign_role = 'lessee'`) — the same row Property24/website lead capture already
+resolves via `ContactType::query()->where('name', 'Tenant')->value('id')`. The listener resolves it
+the identical way. No second "Tenant"-meaning row was created. (`esign_role = 'lessee'` is shared by
+several rows — "Lessee", "Tenant", "Prospective Tenant", "Lead, Tenant" — so resolution is
+deliberately by exact `name`, never by `esign_role`, matching the existing lead-capture services.)
+
+**Wiring.** `App\Listeners\Contact\AddTenantTypeOnRentalApproval::handle(RentalApplicationApproved $event)`
+— concrete-typed, so Laravel's automatic listener discovery wires it (same as
+`PromoteOwnerToSellerOnPropertyLink`); it is NOT also registered in `AppServiceProvider`, which would
+double-fire it. Failure-isolated (try/catch + `Log::warning`) — a problem here must never break an
+approval. Only `RentalApplicationApproved` triggers it; `RentalApplicationDeclined`,
+`RentalApplicationSubmitted`, and `RentalApplicationReopened` do not have a listener for this at all —
+decline/withdrawal never tag anything, because a declined or withdrawn applicant never became a
+tenant. Johan: "my read is that only approval tags" — confirmed against the code; nothing in the
+existing auto-tag-on-link pattern ties a type to an outcome that didn't happen.
+
+**Agency-configurable, default on.** New nullable boolean
+`rental_application_qualifying_settings.tag_contact_as_tenant_on_approval`
+(`RentalApplicationQualifyingSetting::DEFAULT_TAG_CONTACT_AS_TENANT_ON_APPROVAL = true`,
+`tagContactAsTenantOnApprovalFor(?int $agencyId)`), same `forAgency()`-safe pattern as every sibling
+setting on this table (never writes a row on read). Settings screen: Settings → Rental Applications
+→ "Tag Contact as Tenant on Approval" (same form pattern as "Property Link Lock" immediately above
+it: hidden `0` + checkbox `1`, `updateOrCreate`, `$request->has()`-guarded so an absent checkbox on a
+form that only ever renders this one field can never be misread as "not submitted"). Deliberately
+left OUT of the Agency Onboarding Setup Wizard — `.ai/specs/agency-onboarding-setup.md` §5.1, same
+reasoning as "Property Link Lock": a fine-tuning toggle on an already-running feature, not a
+signup-time decision.
+
+### Audited before building — screens that assume a single type (reported, NOT patched)
+
+Johan's instruction: "make sure a contact holding several types still displays and filters sensibly
+everywhere it appears. If adding a second type breaks a screen that assumed one, that is a finding —
+report it, don't quietly patch around it." A dedicated read-only sweep (research agent, this build)
+found the following. None of these were touched — reported here for whoever picks them up, exactly
+as instructed:
+
+- **Genuinely NOT at risk — the screens that actually matter for "does the sale side lose this
+  contact" are already safe.** `ContactController::index()`'s and `ContactExportController`'s
+  Seller/Buyer/Lessor filters do NOT use `contact_type_id` — they already resolve via
+  `whereHas('properties', fn($q) => $q->where('contact_property.role', 'seller'))` (and the buyer/
+  lessor equivalents), explicitly moved off the mirror for exactly this accuracy reason, per comments
+  already in that code. Every property-linked-contact / "who is the seller on this property" screen
+  (`PropertyContactController`, the FICA/compliance gates in `DealPropertyOwnerGate`,
+  `PropertyHealthCalculator`, `PropertyIntelligenceService`) resolves seller/owner identity from the
+  `contact_property` pivot's own `role` column — a completely separate system from
+  `contact_type_id`/`parentTypes`, unaffected by the mirror moving. `ESignWizardController` already
+  ORs `whereHas('parentTypes', ...)` alongside the mirror fallback (tagged "AT-79" in its own
+  comments) — it already went through this exact fix once and treats the pivot as authoritative.
+  **A Seller who also becomes a Tenant does not disappear from any Seller-facing list, filter, or
+  compliance gate that was checked.**
+
+- **A real functional risk, one narrow spot — NOT fixed here.**
+  `ContactPropertyController::link()` (and its mobile twin, `Api\MobilePropertyController`) derive
+  the `contact_property.role` pivot value from `$contact->type?->esign_role` (the volatile mirror)
+  **only when no role is explicitly passed** to a property-link action. If a Seller-turned-Tenant
+  contact (Tenant now has the lower `sort_order`, so it becomes the new mirror) is linked to a
+  *different* property afterward with no explicit role chosen, this would write `role='tenant'`
+  instead of `role='owner'`/`'seller'` into that pivot — silently wrong going forward, on a
+  completely different property than the one this feature touches. Pre-existing behaviour of
+  `ContactPropertyController`, not something this build's listener causes on its own, but this
+  build's listener is what first makes a Seller's mirror flip in ordinary usage. Flagged to Johan/the
+  lane owning that controller, not patched here — outside this task's scope (STAY OUT of files
+  outside the rental-applications/contact-type area was the explicit instruction for this build).
+
+- **Cosmetic mislabeling, widespread — NOT patched.** These read `$contact->type->name` (the single
+  mirror) for a DISPLAY badge/label, with no fallback to `parentTypes`/`tags`: the main Contacts list
+  badge (`corex/contacts/index.blade.php`), the contact detail header badge
+  (`corex/contacts/_header-badges.blade.php`), `corex/contacts/match-results.blade.php`,
+  `corex/core-matches/index.blade.php`, the street/complex search views and their PDF export, the
+  Contacts CSV export's "Type" column (`ContactExportController`), and the mobile app's contact type
+  display (`Api\MobileCoreMatchController`). None of these exclude or hide a multi-type contact from
+  a list — they only mislabel it: a Seller who becomes a Tenant will show as "Tenant" on these badges
+  going forward, with no visual cue that they're also still a Seller. Not a new problem this build
+  introduces (any multi-type contact via the existing Owner→Seller promotion already has this
+  exposure) but this build measurably widens how often it happens. Reported, not patched — fixing 8
+  display surfaces to iterate `parentTypes` instead of the mirror is its own task with its own
+  review, not an incidental fix inside a contact-type-on-approval build.
+
+### Verification
+
+- `php -l` clean on every changed PHP file.
+- New table column via migration, nullable, matching the sibling-column pattern exactly (see
+  `2026_09_11_000000_add_tag_contact_as_tenant_on_approval_to_rental_application_qualifying_settings.php`).
+- `RentalApplicationTenantTypeOnApprovalTest` — [count] tests, all passing: a type-less contact
+  gets Tenant on approval; a Seller-typed contact ends up with BOTH after approval (exact count
+  check, nothing lost, nothing extra); the seller's own `contact_property.role='seller'` pivot on
+  their own property is completely unaffected by them also becoming a Tenant elsewhere; approving
+  twice (via a direct second event fire, since the real endpoint cannot literally re-approve an
+  already-approved application) does not duplicate the pivot row; an existing sub-tag survives;
+  decline never tags; the agency setting defaults on and, when turned off, genuinely stops the
+  tagging; the settings screen itself saves the toggle.
+- [Live QA1 browser proof — appended below once run: a real no-type contact tagged Tenant on
+  approval, a real Seller-typed contact ending up with both types with the seller side still intact
+  and working, and a second approval attempt changing nothing.]
+
+### Files changed
+
+- `database/migrations/2026_09_11_000000_add_tag_contact_as_tenant_on_approval_to_rental_application_qualifying_settings.php` — new column
+- `app/Models/RentalApplicationQualifyingSetting.php` — default constant, fillable/cast, resolver
+- `app/Listeners/Contact/AddTenantTypeOnRentalApproval.php` — new listener, auto-discovered
+- `app/Http/Controllers/CoreX/RentalApplicationSettingsController.php` — `updateTenantTagging()`, `edit()` view data
+- `resources/views/corex/settings/rental-applications.blade.php` — new settings toggle block
+- `routes/web.php` — new settings save route
+- `.ai/specs/agency-onboarding-setup.md` §5.1 — new "deliberately not in the wizard" entry
+- `tests/Feature/RentalApplications/RentalApplicationTenantTypeOnApprovalTest.php` — new test file

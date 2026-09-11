@@ -295,6 +295,12 @@ by oversight — do not reinstate them without asking:
   whole rental-applications settings category shares this gap, not just this one setting.
   Configured on Settings → Rental Applications → "Property Link Lock".
 
+- **Rental application "Tag Contact as Tenant on Approval"** (`rental_application_qualifying_settings.
+  tag_contact_as_tenant_on_approval`, added 2026-09-11). Same reasoning and same category as the
+  Property Link Lock entry immediately above: a fine-tuning toggle on an already-running feature
+  (whether approving a rental application adds "Tenant" to the contact's types), not a signup-time
+  decision. Configured on Settings → Rental Applications → "Tag Contact as Tenant on Approval".
+
 **From the feature switchboard (spec `.ai/specs/agency-onboarding-feature-switchboard.md` §3.5):**
 
 - **P24 / Private Property portal *credentials* and the `p24_enabled` / `pp_enabled` /

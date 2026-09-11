@@ -2840,6 +2840,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // Item 2 follow-up, 2026-09-10 — lock the property link once submitted for authorisation.
     Route::post('/settings/rental-applications/property-lock', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updatePropertyLock'])
         ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.property-lock');
+    // Contact-type ruling, 2026-09-11 — tag the contact "Tenant" on approval.
+    Route::post('/settings/rental-applications/tenant-tagging', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateTenantTagging'])
+        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.tenant-tagging');
     // AT-392 approval-leg, 2026-09-10 — max matched properties per approval email.
     Route::post('/settings/rental-applications/approval-email', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateApprovalEmailSettings'])
         ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.approval-email');

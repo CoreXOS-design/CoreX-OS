@@ -218,6 +218,33 @@
         </form>
     </div>
 
+    {{-- Contact-type ruling, 2026-09-11 — Johan, verbatim: "contact type
+         can be added, not changed... the seller of unit a decides to rent
+         but their property has not sold yet. so that contact will be
+         dealt with as a seller on their property but also as a tenant
+         inside rentals." Approval ADDS Tenant to whatever the contact
+         already is — it never replaces or clears an existing type. --}}
+    <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+        <h2 class="text-sm font-semibold mb-1" style="color: var(--text-primary);">Tag Contact as Tenant on Approval</h2>
+        <p class="text-xs mb-3" style="color: var(--text-muted);">
+            When a rental application is approved, add "Tenant" to the applicant's contact record —
+            alongside any type they already have, never instead of it. A seller whose own property
+            hasn't sold yet, for example, is correctly shown as both once they're approved to rent
+            elsewhere. Turn this off if you don't want approval to change contact types at all.
+        </p>
+
+        <form method="POST" action="{{ route('corex.settings.rental-applications.tenant-tagging') }}" class="flex items-center gap-3">
+            @csrf
+            <input type="hidden" name="tag_contact_as_tenant_on_approval" value="0">
+            <label class="flex items-center gap-2 text-xs" style="color: var(--text-secondary);">
+                <input type="checkbox" name="tag_contact_as_tenant_on_approval" value="1"
+                       @checked(old('tag_contact_as_tenant_on_approval', $tenantTaggingEnabled))>
+                Add "Tenant" to the contact when their application is approved
+            </label>
+            <button type="submit" class="corex-btn-primary text-xs">Save</button>
+        </form>
+    </div>
+
     {{-- AT-392 approval-leg, 2026-09-10 — Johan's standing rule: "any
          threshold, window or business rule must be an agency-configurable
          setting with a sensible default, never hardcoded." How many

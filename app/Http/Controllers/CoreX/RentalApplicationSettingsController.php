@@ -61,6 +61,10 @@ class RentalApplicationSettingsController extends Controller
         // RentalApplicationQualifyingSetting::PROPERTY_LOCKED_STATUSES).
         $propertyLockEnabled = RentalApplicationQualifyingSetting::lockPropertyAfterSubmissionFor($agencyId);
 
+        // Contact-type ruling, 2026-09-11 — whether approval tags the
+        // contact "Tenant" (added, never replacing an existing type).
+        $tenantTaggingEnabled = RentalApplicationQualifyingSetting::tagContactAsTenantOnApprovalFor($agencyId);
+
         // AT-392 approval-leg — Johan's standing rule: "any threshold, window
         // or business rule must be an agency-configurable setting with a
         // sensible default, never hardcoded." How many matched properties
@@ -138,7 +142,7 @@ class RentalApplicationSettingsController extends Controller
             ->get();
 
         return view('corex.settings.rental-applications', compact(
-            'documentTypes', 'checklists', 'isConfigured', 'qualifyingMaxRentPercent', 'qualifyingExceedsLegalCeiling', 'agencyUsers', 'roUserIds', 'coUserIds', 'declineEmail', 'reopenLinkExpiryDays', 'propertyLockEnabled', 'maxPropertiesInEmail', 'activeHighlighters', 'archivedHighlighters', 'highlighterQuery', 'highlighterArchivedSort', 'validityDefaults', 'validityOverrides'
+            'documentTypes', 'checklists', 'isConfigured', 'qualifyingMaxRentPercent', 'qualifyingExceedsLegalCeiling', 'agencyUsers', 'roUserIds', 'coUserIds', 'declineEmail', 'reopenLinkExpiryDays', 'propertyLockEnabled', 'tenantTaggingEnabled', 'maxPropertiesInEmail', 'activeHighlighters', 'archivedHighlighters', 'highlighterQuery', 'highlighterArchivedSort', 'validityDefaults', 'validityOverrides'
         ));
     }
 
@@ -315,6 +319,31 @@ class RentalApplicationSettingsController extends Controller
 
         return redirect()->route('corex.settings.rental-applications.edit')
             ->with('success', 'Property link setting saved.');
+    }
+
+    /**
+     * Contact-type ruling, 2026-09-11 — whether approving a rental
+     * application tags the contact "Tenant" (App\Listeners\Contact\
+     * AddTenantTypeOnRentalApproval). Same absent-checkbox guard as
+     * updatePropertyLock() immediately above — this form only ever renders
+     * the one field, so has() on it is exactly "was this form submitted."
+     */
+    public function updateTenantTagging(Request $request)
+    {
+        $agencyId = $request->user()->effectiveAgencyId();
+
+        if (! $request->has('tag_contact_as_tenant_on_approval')) {
+            return redirect()->route('corex.settings.rental-applications.edit')
+                ->withErrors(['tag_contact_as_tenant_on_approval' => 'That did not save — please try again.']);
+        }
+
+        RentalApplicationQualifyingSetting::updateOrCreate(
+            ['agency_id' => $agencyId],
+            ['tag_contact_as_tenant_on_approval' => $request->boolean('tag_contact_as_tenant_on_approval')],
+        );
+
+        return redirect()->route('corex.settings.rental-applications.edit')
+            ->with('success', 'Tenant-tagging setting saved.');
     }
 
     /**

@@ -57,12 +57,28 @@ class RentalApplicationQualifyingSetting extends Model
     /** Statuses at/after which the property link is treated as load-bearing for a decision already made or in progress. */
     public const PROPERTY_LOCKED_STATUSES = ['under_assessment', 'approved', 'declined', 'withdrawn'];
 
-    protected $fillable = ['agency_id', 'max_rent_percent_of_gross_income', 'reopen_link_expiry_days', 'lock_property_after_submission'];
+    /**
+     * Johan, contact-type ruling, 2026-09-11, verbatim: "contact type can be
+     * added, not changed... the seller of unit a decides to rent but their
+     * property has not sold yet. so that contact will be dealt with as a
+     * seller on their property but also as a tenant inside rentals." Default
+     * on: this is the behaviour he asked for; an agency that genuinely does
+     * not want automatic tagging can turn it off. Only APPROVAL tags —
+     * decline/withdrawal never do (nothing in this codebase's existing
+     * auto-tag-on-link pattern ties a type to an outcome that didn't happen).
+     */
+    public const DEFAULT_TAG_CONTACT_AS_TENANT_ON_APPROVAL = true;
+
+    protected $fillable = [
+        'agency_id', 'max_rent_percent_of_gross_income', 'reopen_link_expiry_days',
+        'lock_property_after_submission', 'tag_contact_as_tenant_on_approval',
+    ];
 
     protected $casts = [
         'max_rent_percent_of_gross_income' => 'decimal:2',
         'reopen_link_expiry_days' => 'integer',
         'lock_property_after_submission' => 'boolean',
+        'tag_contact_as_tenant_on_approval' => 'boolean',
     ];
 
     public static function maxRentPercentFor(?int $agencyId): float
@@ -113,5 +129,18 @@ class RentalApplicationQualifyingSetting extends Model
     {
         return self::lockPropertyAfterSubmissionFor((int) $rentalApplication->agency_id)
             && in_array($rentalApplication->status, self::PROPERTY_LOCKED_STATUSES, true);
+    }
+
+    public static function tagContactAsTenantOnApprovalFor(?int $agencyId): bool
+    {
+        if ($agencyId === null || $agencyId <= 0) {
+            return self::DEFAULT_TAG_CONTACT_AS_TENANT_ON_APPROVAL;
+        }
+
+        $row = static::where('agency_id', $agencyId)->first();
+
+        return $row && $row->tag_contact_as_tenant_on_approval !== null
+            ? (bool) $row->tag_contact_as_tenant_on_approval
+            : self::DEFAULT_TAG_CONTACT_AS_TENANT_ON_APPROVAL;
     }
 }

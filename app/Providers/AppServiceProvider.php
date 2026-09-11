@@ -703,6 +703,18 @@ class AppServiceProvider extends ServiceProvider
             Event::listen($rentalApplicationEvent, \App\Listeners\Contact\RecomputeRentalApplicationStatus::class);
         }
 
+        // Contact-type ruling, 2026-09-11 — Johan: "contact type can be
+        // added, not changed... the seller of unit a decides to rent but
+        // their property has not sold yet." Approval ADDS "Tenant" to the
+        // contact's existing types (never replaces). Only Approved — see
+        // the listener's own docblock for why decline/withdrawal don't.
+        // AT-261: discovery is OFF, this explicit registration is the only
+        // thing that wires this listener up at all.
+        Event::listen(
+            \App\Events\RentalApplication\RentalApplicationApproved::class,
+            \App\Listeners\Contact\AddTenantTypeOnRentalApproval::class,
+        );
+
         // 2026-08-24 (Johan) — public-link resilience: a SECOND listener on
         // AgentDeactivated (already logged via the wave6 map above through
         // LogAgentEvent). NOT added as a second key in $wave6 above — that

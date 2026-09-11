@@ -13,11 +13,16 @@ use Illuminate\Support\Facades\Log;
  * property is acting as that property's seller, so promote Owner -> Seller
  * automatically.
  *
- * Wired by Laravel's AUTOMATIC listener discovery (handle() type-hints the
- * concrete event) — do NOT also register it explicitly in AppServiceProvider or
- * it double-registers and fires twice (same trap as DesyndicateExpiredMandate;
- * see the note in AppServiceProvider). Failure-isolated: a problem here must
- * never break the property link.
+ * Wired by an EXPLICIT `Event::listen()` in AppServiceProvider::register()
+ * (the "AT-261 — listeners that ONLY auto-discovery was registering" block).
+ * This comment used to say automatic discovery wires it — stale since
+ * AT-261 turned discovery off agency-wide (every listener was firing
+ * twice in production; see that block's own comment in AppServiceProvider
+ * for the incident). Corrected 2026-09-11 after the stale claim here led
+ * a new listener (AddTenantTypeOnRentalApproval) to be built with no
+ * registration at all on its first pass — check the actual code, not this
+ * kind of comment. Failure-isolated: a problem here must never break the
+ * property link.
  */
 class PromoteOwnerToSellerOnPropertyLink
 {
