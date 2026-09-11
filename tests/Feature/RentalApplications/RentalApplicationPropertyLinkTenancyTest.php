@@ -253,7 +253,12 @@ final class RentalApplicationPropertyLinkTenancyTest extends TestCase
             'property_id' => $foreignProperty->id,
         ]);
 
-        $response->assertStatus(403);
+        // 2026-09-11 — redirect-with-input, not a bare 403: a stale/foreign
+        // property_id refusal must never discard the rest of what the agent
+        // typed (this form's own contact_id selection). Same refusal, same
+        // security guarantee, friendlier failure shape.
+        $response->assertSessionHasErrors('property_id');
+        $response->assertRedirect();
         $this->assertSame(0, RentalApplication::where('contact_id', $contact->id)->count(), 'the application must never be created with the foreign property attached');
     }
 
@@ -283,7 +288,11 @@ final class RentalApplicationPropertyLinkTenancyTest extends TestCase
             'property_id' => $foreignProperty->id,
         ]);
 
-        $response->assertStatus(403);
+        // 2026-09-11 — same redirect-with-input fix as store(): update() is
+        // a FULL FORM SAVE, so a bare 403 here used to discard every other
+        // field the agent had typed, not just the property.
+        $response->assertSessionHasErrors('property_id');
+        $response->assertRedirect();
         $this->assertNull($application->fresh()->property_id);
     }
 

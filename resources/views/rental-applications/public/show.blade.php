@@ -108,11 +108,47 @@
                 </div>
             </section>
 
-            <section>
-                <h2 class="font-semibold text-slate-700 mb-3">Current Landlord</h2>
+            @php
+                // Backward compatibility — an application from before this
+                // field existed has current_living_situation = null but may
+                // already carry real landlord data (typed under the old
+                // "Current Landlord" section). Defaulting an unanswered
+                // situation to 'renting' whenever that's true means an
+                // existing applicant reopening/resubmitting still sees
+                // their own answer, not a blank selector hiding real data.
+                $situationDefault = $application->current_living_situation
+                    ?? ($application->current_landlord_name ? 'renting' : '');
+            @endphp
+            <section x-data="{ situation: {{ Js::from(old('current_living_situation', $situationDefault)) }} }">
+                <h2 class="font-semibold text-slate-700 mb-3">Current Living Situation</h2>
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <x-rental-application-field name="current_landlord_name" label="Name" :value="$application->current_landlord_name" />
-                    <x-rental-application-field name="current_landlord_tel" label="Tel" :value="$application->current_landlord_tel" />
+                    <div class="sm:col-span-2">
+                        <label class="block text-xs text-slate-500 mb-1">Which best describes your situation right now?</label>
+                        <select name="current_living_situation" x-model="situation"
+                                class="w-full rounded-lg border px-3 py-2 text-sm {{ $errors->has('current_living_situation') ? 'border-red-400' : 'border-slate-300' }}">
+                            <option value="">— Select —</option>
+                            @foreach(\App\Models\RentalApplication::CURRENT_LIVING_SITUATION_LABELS as $value => $label)
+                                <option value="{{ $value }}">{{ $label }}</option>
+                            @endforeach
+                        </select>
+                        @error('current_living_situation') <p class="text-xs text-red-600 mt-1">{{ $message }}</p> @enderror
+                    </div>
+                </div>
+
+                {{--
+                    Johan: "we need to include a part here for a person who
+                    has sold his house and is going to rent for the first
+                    time now." The landlord fields only apply when the
+                    applicant is actually renting from someone right now —
+                    shown/hidden by the answer above, never demanded of
+                    someone they don't apply to. x-show (not x-if) so
+                    anything already typed here is never lost by toggling
+                    the answer back and forth, and every field stays
+                    genuinely optional server-side either way.
+                --}}
+                <div x-show="situation === 'renting'" x-cloak class="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
+                    <x-rental-application-field name="current_landlord_name" label="Landlord name" :value="$application->current_landlord_name" />
+                    <x-rental-application-field name="current_landlord_tel" label="Landlord tel" :value="$application->current_landlord_tel" />
                     <x-rental-application-field name="current_rental_amount" label="Current rental amount (R)" type="text" inputmode="decimal" :value="$application->current_rental_amount" />
                     <x-rental-application-field name="current_rental_due_day" label="Rent due on which day of the month?" type="number" min="1" max="31" :value="$application->current_rental_due_day"
                         hint="e.g. 1 if your rent is due on the 1st of every month." />
@@ -131,6 +167,21 @@
                             Still living here — no end date
                         </label>
                     </div>
+                </div>
+
+                {{--
+                    Johan: "a free text section where the applicant can
+                    capture their own explanation of where they live /
+                    lived." Deliberately open and always available — not
+                    gated behind any particular answer above, since a
+                    person's housing history doesn't always fit a box.
+                --}}
+                <div class="mt-3">
+                    <label class="block text-xs text-slate-500 mb-1">Tell us more about where you live or have lived, in your own words (optional)</label>
+                    <textarea name="current_living_situation_notes" rows="4"
+                              class="w-full rounded-lg border px-3 py-2 text-sm {{ $errors->has('current_living_situation_notes') ? 'border-red-400' : 'border-slate-300' }}"
+                              placeholder="Anything you'd like your agent to know about your living situation.">{{ old('current_living_situation_notes', $application->current_living_situation_notes) }}</textarea>
+                    @error('current_living_situation_notes') <p class="text-xs text-red-600 mt-1">{{ $message }}</p> @enderror
                 </div>
             </section>
 

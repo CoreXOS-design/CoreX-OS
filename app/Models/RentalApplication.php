@@ -105,6 +105,34 @@ class RentalApplication extends Model
     ];
 
     /**
+     * Johan, verbatim: "rental application - current landlord - we need to
+     * include a part here for a person who has sold his house and is going
+     * to rent for the first time now." The "Current Landlord" section
+     * assumed a landlord always exists — a real, common applicant (someone
+     * who just sold, or is selling, their own home) had nowhere honest to
+     * answer. `renting` is the pre-existing path (landlord fields apply);
+     * every other value means the landlord fields don't apply to this
+     * applicant at all. Wording is provisional — Johan's to approve, this
+     * is HFC's voice to a prospective tenant.
+     */
+    public const CURRENT_LIVING_SITUATIONS = [
+        'renting', 'owns_or_selling', 'living_with_family', 'other',
+    ];
+
+    public const CURRENT_LIVING_SITUATION_LABELS = [
+        'renting' => 'Currently renting',
+        'owns_or_selling' => 'Own my current home (selling or recently sold)',
+        'living_with_family' => 'Living with family or friends',
+        'other' => 'Other',
+    ];
+
+    /** Human label for a stored current_living_situation value — shared by the review screen (cc3's dl) and the PDF, so the two can never say something different. Null/unknown values return null, never a blank guess. */
+    public static function currentLivingSituationLabel(?string $value): ?string
+    {
+        return self::CURRENT_LIVING_SITUATION_LABELS[$value] ?? null;
+    }
+
+    /**
      * ONE set of format rules for the V8 field list — shared by the agent-side
      * update (RentalApplicationController) and the public submit
      * (RentalApplicationSigningController), so the two never drift (BUILD_STANDARD
@@ -230,6 +258,15 @@ class RentalApplication extends Model
             'emergency_contact_name' => ['nullable', 'string', 'max:255'],
             'emergency_contact_cell' => ['nullable', 'string', 'max:50'],
             'emergency_contact_work' => ['nullable', 'string', 'max:50'],
+            // Current-living-situation ruling, 2026-09-11 — "renting" is the
+            // only value that makes the landlord fields below relevant; the
+            // form hides them for every other value, but this rule is what
+            // actually stops a bad/tampered value from reaching save(), same
+            // "nullable, reject only malformed" posture as every other field
+            // on this form (BUILD_STANDARD §2 — nothing here may block a
+            // save on its own absence).
+            'current_living_situation' => ['nullable', 'string', 'in:' . implode(',', self::CURRENT_LIVING_SITUATIONS)],
+            'current_living_situation_notes' => ['nullable', 'string', 'max:4000'],
             'current_landlord_name' => ['nullable', 'string', 'max:255'],
             'current_landlord_tel' => ['nullable', 'string', 'max:50'],
             'current_rental_amount' => ['nullable', 'numeric', 'min:0', 'max:99999999.99'],
@@ -271,6 +308,7 @@ class RentalApplication extends Model
         'full_name', 'id_number', 'marital_status', 'spouse_name', 'spouse_id', 'citizenship',
         'current_residential_address', 'email', 'cell', 'work_number',
         'emergency_contact_name', 'emergency_contact_cell', 'emergency_contact_work',
+        'current_living_situation', 'current_living_situation_notes',
         'current_landlord_name', 'current_landlord_tel', 'current_rental_amount',
         'current_rental_from', 'current_rental_to', 'current_rental_still_living', 'current_rental_due_day',
         'employer_name', 'employer_position', 'employer_address', 'employer_tel',

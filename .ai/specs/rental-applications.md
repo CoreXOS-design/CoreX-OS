@@ -7522,3 +7522,190 @@ Unlike the Buyer Pipeline kanban (which had a genuine unbounded-query problem), 
 - `resources/views/corex/rental-applications/index.blade.php` — rebuilt as the control centre (tiles, scope toggle retained, search/date/per-page filter form, table with the under_assessment sub-label, per-tile archived section, per-tile empty states)
 - `resources/views/corex/rental-applications/returned.blade.php` — deleted (dead; `returned()` no longer renders a view)
 - `resources/views/layouts/corex-sidebar.blade.php` — three Rentals subitems collapsed to one + the unchanged RO/CO-only Authorisation subitem
+
+---
+
+## "Current Living Situation" replaces the landlord-always-exists assumption (2026-09-11, cc6)
+
+Johan, verbatim, at the office with the rental team: "rental application -
+current landlord - we need to include a part here for a person who has sold
+his house and is going to rent for the first time now. and a free text
+section where the applicant can capture their own explanation of where
+they live / lived."
+
+**The gap.** The form's "Current Landlord" section assumed the applicant is
+currently renting from someone. A seller who just sold — commercially
+exactly the applicant an agency most wants, and often HFC's own listing —
+had nowhere honest to answer; the section either sat blank (reads as an
+incomplete application) or invited a made-up answer.
+
+### What was built
+
+**One section, not two parallel ones** (Johan: "work out the cleanest way
+to fit this into it — do not bolt a second parallel section"). The
+"Current Landlord" section became "Current Living Situation": a new
+`current_living_situation` selector — `renting` (the pre-existing path),
+`owns_or_selling`, `living_with_family`, `other` — followed by the
+existing landlord fields, now shown/relevant ONLY when the answer is
+`renting` (Alpine `x-show`, not `x-if` — nothing typed in a hidden field
+is ever lost by toggling the answer back and forth), followed by the new
+free-text `current_living_situation_notes` (Johan: "a free text section...
+where they live / lived" — deliberately open, always available regardless
+of the selected situation, genuinely optional).
+
+**Validation follows the answer, not the field** (Johan's explicit
+instruction). In practice this required no NEW blocking rule: every field
+on this form, landlord fields included, was already `nullable`
+(BUILD_STANDARD §2 — nothing here may block a save on its own absence) —
+what changes is the UI no longer visually demands landlord fields of an
+applicant they don't apply to. `current_living_situation` itself validates
+as `nullable, in:<the four values>` — malformed values are rejected, an
+absent answer is not.
+
+**Investigated before adding fields**, per instruction ("check the
+employment-type pattern cc3 used for the document checklist... one answer
+changes which fields follow"): confirmed no existing field already
+captured this — `current_residential_address` is a free-text current
+address, unrelated to WHY the applicant is moving. The employment-type
+precedent is architectural (one enum answer governs downstream behaviour),
+not a literal UI pattern to copy — this form already had its own working
+precedent for "answer toggles visibility" in the same section (the
+`current_rental_still_living` checkbox hiding the "To" date), which the
+new selector's `x-show` directly extends.
+
+**Shared validation rules, one place.** `RentalApplication::
+fieldValidationRules()` is already the single source both the public
+submit and the agent-side update share (documented in its own header
+comment) — adding the two new fields there covers both entry points with
+no separate controller change needed.
+
+**Only approval-adjacent question Johan flagged was ruled, not asked
+twice**: whether decline/withdrawal should ever be treated as changing
+someone's situation. Not applicable here — this is applicant-INPUT, not an
+outcome-driven tag (contrast the separate contact-type-on-approval feature
+above), so there is no agency-configurable toggle for this field; it is
+simply what the applicant typed, same posture as every other form field.
+
+### Displayed everywhere the record is shown
+
+- **Public applicant form** (`rental-applications/public/show.blade.php`) —
+  the rebuilt section, described above.
+- **Agent-side editable form** (`corex/rental-applications/show.blade.php`)
+  — the same selector/conditional-fields/notes structure, agent-facing
+  copy ("their situation" not "your situation").
+- **PDF** (`corex/rental-applications/pdf.blade.php`) — "Current Living
+  Situation" heading, the situation label, the landlord lines ONLY when
+  `renting`, the free-text notes when present. This is the filed record —
+  required by the instruction ("the PDF is what gets filed as the
+  record"), not optional polish.
+- **Agent review screen** (`review.blade.php`'s "Submitted Application"
+  summary `<dl>`) — cc3 owns this file (mid-rebuild, bottom-strip
+  redesign) per this build's explicit stay-out instruction. Coordinated
+  directly: cc3 confirmed the two-line addition, correctly held off adding
+  it until this branch's model changes (the label helper it calls) were
+  actually pushed, to avoid landing a dangling reference. Two lines, given
+  verbatim, ready to land once this branch is in QA1:
+  ```blade
+  <dt style="color: var(--text-muted);">Current living situation</dt><dd>{{ \App\Models\RentalApplication::currentLivingSituationLabel($rentalApplication->current_living_situation) ?? ($rentalApplication->current_landlord_name ? 'Currently renting' : '—') }}</dd>
+  @if($rentalApplication->current_living_situation_notes)
+  <dt style="color: var(--text-muted);">In their own words</dt><dd>{{ $rentalApplication->current_living_situation_notes }}</dd>
+  @endif
+  ```
+
+### Existing applications must not break
+
+Both columns nullable; every pre-feature application has
+`current_living_situation = null`. Every display surface falls back the
+same way: `current_living_situation ?? ($current_landlord_name ? 'renting'
+: null)` — a record that already has real landlord data (the only kind of
+data that could exist before this field did) shows "Currently renting"
+and its landlord section exactly as before; a record with neither shows
+no situation line at all, never a blank/wrong one. Same fallback used
+identically in the public form, the agent form, and the PDF, via one
+label helper (`RentalApplication::currentLivingSituationLabel()`) so the
+three can never say something different from each other. Verified live
+against real pre-existing QA1 records (see Verification below), not just
+reasoned about.
+
+### A real Blade compiler trap, found and fixed mid-build
+
+Adding a SECOND `@php ... @endphp` block partway down
+`corex/rental-applications/show.blade.php` (a long file, ~20+ anonymous
+`<x-rental-application-field>` component tags, several custom
+`Blade::if()`-registered conditionals like `@permission`/`@endpermission`)
+broke Blade compilation outright — `syntax error, unexpected end of file,
+expecting "elseif" or "else" or "endif"`, with the reported line number
+pointing at the very end of the compiled output, nowhere near the actual
+cause. Confirmed by direct bisection on the LIVE file (not assumption):
+a trivial one-line `@php $x = 'x'; @endphp` block at that exact position
+reproduces it in isolation; the SAME content, compiled as its own
+standalone snippet, or moved into this file's ALREADY-EXISTING single
+top-level `@php` block (lines 4-9), compiles clean. Root cause not fully
+chased into Blade's compiler internals (out of scope for this build) —
+worked around, not worked around blindly: the fix (computing
+`$situationDefault` in the existing top-level block instead of a new one)
+is the same "one computed-values block at the top" pattern this file
+already used for `$checklist`/`$onFileTypeIds`, not a hack. Flagging here
+because it is exactly the shape of gotcha `document-highlighter-pages
+.blade.php`'s own `@php`-as-literal-text trap (Round 5, cc3) already
+documents in this same spec file — a second entry for anyone who hits a
+mysterious Blade EOF error on THIS file specifically.
+
+### A pre-existing regression found and fixed along the way
+
+Running the full regression pass surfaced a real defect from the
+cross-tenant property-link fix (this session, earlier): `store()`/
+`update()`'s refusal of an invalid/foreign `property_id` used
+`abort(403)` — correct for `linkProperty()` (an action on an
+already-saved application, nothing typed at risk) but wrong for these two
+FORMS: a bare 403 is a dead-end page that discarded every other field the
+agent had typed, for the entirely ordinary, non-malicious case this was
+also catching — a property genuinely deleted between search and submit
+(the exact scenario `RentalApplicationInputPreservationTest`'s own
+docblock names, and the test that caught this by going red). Fixed to the
+same `back()->withInput()->withErrors()` shape every other field on these
+forms already uses. Security posture is unchanged — the refusal is
+identical either way (a nonexistent id and an out-of-scope id still can't
+be told apart from the response), only the FAILURE RESPONSE shape
+changed. `RentalApplicationPropertyLinkTenancyTest`'s two `store()`/
+`update()` refusal assertions updated to match (`assertSessionHasErrors`
+instead of `assertStatus(403)`); `linkProperty()`'s own refusal is
+untouched, still a real 403.
+
+### Verification
+
+- `php -l` clean on every changed PHP file.
+- New migration, nullable columns, matching the sibling-column pattern.
+- `RentalApplicationCurrentLivingSituationTest` — 9 tests: an applicant
+  who just sold (`owns_or_selling`) completes without any landlord field
+  ever being demanded; an applicant currently renting completes the old
+  path unchanged; `living_with_family` also completes cleanly; an invalid
+  situation value is rejected with a plain message and nothing saved; the
+  free-text notes are never required; no answer at all still doesn't
+  block submission; a validation failure on an unrelated field preserves
+  the situation answer AND the free-text notes; the agent-side `update()`
+  accepts both new fields; a simulated pre-feature record (landlord data,
+  no situation answer) renders correctly on the public link, the agent
+  form, AND the PDF's own Blade content.
+- Pre-existing `RentalApplicationInputPreservationTest` (10 tests) and
+  `RentalApplicationPropertyLinkTenancyTest` (13 tests, 2 updated for the
+  refusal-shape fix above) both re-run clean — no regression, and the one
+  the regression pass actually found is the fix documented above, not a
+  false negative.
+- Live QA1 browser proof — appended below once run: currently-renting
+  path unchanged; just-sold path completes with no landlord fields
+  shown/required; free-text notes save and appear on the agent review
+  screen and in the generated PDF; a genuinely pre-existing application
+  still opens, reviews, and produces a PDF without error.
+
+### Files changed
+
+- `database/migrations/2026_09_11_010000_add_current_living_situation_to_rental_applications.php` — new columns
+- `app/Models/RentalApplication.php` — `CURRENT_LIVING_SITUATIONS`/`CURRENT_LIVING_SITUATION_LABELS` constants, `currentLivingSituationLabel()`, validation rules, `$fillable`
+- `resources/views/rental-applications/public/show.blade.php` — "Current Landlord" section rebuilt as "Current Living Situation"
+- `resources/views/corex/rental-applications/show.blade.php` — same rebuild, agent-facing copy; `$situationDefault` computed in the file's existing top-level `@php` block (see the Blade-compiler-trap note above)
+- `resources/views/corex/rental-applications/pdf.blade.php` — "Current Landlord / Agent / Owner" section rebuilt as "Current Living Situation", backward-compatible fallback, free-text line
+- `app/Http/Controllers/CoreX/RentalApplicationController.php` — `store()`/`update()`'s property_id refusal changed from `abort(403)` to `back()->withInput()->withErrors()` (see the pre-existing-regression note above) — unrelated to the new fields themselves, found while regression-testing them
+- `tests/Feature/RentalApplications/RentalApplicationCurrentLivingSituationTest.php` — new test file
+- `tests/Feature/RentalApplications/RentalApplicationPropertyLinkTenancyTest.php` — two assertions updated for the refusal-shape fix
+- **Not in this branch, coordinated separately**: `resources/views/corex/rental-applications/review.blade.php` — the two-line "Submitted Application" summary addition, cc3's file, snippet given above, landing once this branch is in QA1

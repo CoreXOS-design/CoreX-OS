@@ -6,6 +6,17 @@
         ? \App\Models\RentalApplicationDocumentRequirement::checklistFor($rentalApplication->agency_id, $rentalApplication->employment_type)
         : collect();
     $onFileTypeIds = $rentalApplication->documents->pluck('document_type_id')->filter()->all();
+    // Current-living-situation ruling, 2026-09-11 — same backward-compatibility
+    // default as the public form: an application from before this field
+    // existed may already carry real landlord data with no
+    // current_living_situation answer. Computed here (this file's one
+    // top-level @php block) rather than a second @php block further down —
+    // a second block at that position broke Blade compilation outright
+    // (confirmed by direct bisection: reproduces with a trivial one-line
+    // @php block, unrelated to its content), a real compiler quirk on this
+    // file, not a mistake in the added logic itself.
+    $situationDefault = $rentalApplication->current_living_situation
+        ?? ($rentalApplication->current_landlord_name ? 'renting' : '');
 @endphp
 
 @section('corex-content')
@@ -277,11 +288,27 @@
             </div>
         </div>
 
-        <div>
-            <h2 class="text-sm font-semibold mb-3" style="color: var(--text-primary);">Current Landlord / Agent / Owner</h2>
+        <div x-data="{ situation: {{ \Illuminate\Support\Js::from(old('current_living_situation', $situationDefault)) }} }">
+            <h2 class="text-sm font-semibold mb-3" style="color: var(--text-primary);">Current Living Situation</h2>
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <x-rental-application-field name="current_landlord_name" label="Name" :value="$rentalApplication->current_landlord_name" />
-                <x-rental-application-field name="current_landlord_tel" label="Tel number" :value="$rentalApplication->current_landlord_tel" />
+                <div class="sm:col-span-2">
+                    <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Which best describes their situation right now?</label>
+                    <select name="current_living_situation" x-model="situation"
+                            class="w-full rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                        <option value="">— Select —</option>
+                        @foreach(\App\Models\RentalApplication::CURRENT_LIVING_SITUATION_LABELS as $value => $label)
+                            <option value="{{ $value }}">{{ $label }}</option>
+                        @endforeach
+                    </select>
+                    @error('current_living_situation')
+                        <p class="text-xs mt-1" style="color: var(--ds-red, #dc2626);">{{ $message }}</p>
+                    @enderror
+                </div>
+            </div>
+
+            <div x-show="situation === 'renting'" x-cloak class="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
+                <x-rental-application-field name="current_landlord_name" label="Landlord name" :value="$rentalApplication->current_landlord_name" />
+                <x-rental-application-field name="current_landlord_tel" label="Landlord tel number" :value="$rentalApplication->current_landlord_tel" />
                 <x-rental-application-field name="current_rental_amount" label="Current rental amount (R)" type="text" inputmode="decimal" :value="$rentalApplication->current_rental_amount" />
                 <x-rental-application-field name="current_rental_due_day" label="Rent due on which day of the month?" type="number" min="1" max="31" :value="$rentalApplication->current_rental_due_day"
                     hint="e.g. 1 if their rent is due on the 1st of every month." />
@@ -302,6 +329,15 @@
                         Still living here — no end date
                     </label>
                 </div>
+            </div>
+
+            <div class="mt-3">
+                <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Living situation — applicant's own words (optional)</label>
+                <textarea name="current_living_situation_notes" rows="4"
+                          class="w-full rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">{{ old('current_living_situation_notes', $rentalApplication->current_living_situation_notes) }}</textarea>
+                @error('current_living_situation_notes')
+                    <p class="text-xs mt-1" style="color: var(--ds-red, #dc2626);">{{ $message }}</p>
+                @enderror
             </div>
         </div>
 

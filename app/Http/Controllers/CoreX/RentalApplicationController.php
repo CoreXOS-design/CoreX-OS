@@ -363,6 +363,23 @@ class RentalApplicationController extends Controller
      * three lines below goes through the model, so AgencyScope already
      * 404s a cross-agency contact_id before RentalApplication::create() is
      * ever reached — checked, not assumed, before leaving it untouched.
+     *
+     * property_id refusal, 2026-09-11 — Johan's own standing rule for this
+     * whole feature: "no user action may EVER discard typed input." The
+     * cross-tenant fix's first pass used abort(403) here, which is right
+     * for link-property (an AJAX-style action on an ALREADY-SAVED
+     * application — nothing typed is at risk) but wrong for this FORM: a
+     * bare 403 is a dead-end page with no explanation and it discarded the
+     * contact the agent had already picked, for the ordinary, non-malicious
+     * case this was meant to also catch — a property genuinely deleted
+     * between search and submit (the exact scenario
+     * RentalApplicationInputPreservationTest's own docblock names). Fixed
+     * to the same validation-redirect shape every other field on this form
+     * already uses: back()->withInput()->withErrors(), contact selection
+     * preserved, one plain-language message. Security posture UNCHANGED —
+     * still refuses identically whether the id is genuinely nonexistent or
+     * just not this user's, same as before; only the FAILURE RESPONSE
+     * shape changed, not what's allowed through.
      */
     public function store(Request $request)
     {
@@ -381,7 +398,10 @@ class RentalApplicationController extends Controller
                 'agency_id' => $request->user()->effectiveAgencyId(),
                 'requested_property_id' => $requestedPropertyId,
             ]);
-            abort(403, "You don't have access to that property, so it can't be linked to this application. Search for it above rather than entering an id directly.");
+
+            return back()->withInput()->withErrors([
+                'property_id' => "That property isn't available to link — it may have been removed, or you may not have access to it. Search for it again above.",
+            ]);
         }
 
         // Johan, QA1 — "have not even sent anything, yet top left shows
@@ -523,6 +543,13 @@ class RentalApplicationController extends Controller
         // re-resolve when the field was actually sent — same "absent means
         // keep the existing value" contract line 406 already had, so a form
         // post that never touches property_id can't be misread as "clear it."
+        //
+        // Refusal shape, 2026-09-11 — same fix as store(): a bare abort(403)
+        // here discarded EVERY OTHER field on this full-form save, not just
+        // the property — worse than store()'s version of the same mistake.
+        // Redirect-with-input instead, same security guarantee (still
+        // refused identically either way), just not a data-destroying
+        // dead end for the ordinary "property deleted meanwhile" case.
         if ($request->has('property_id')) {
             $requestedPropertyId = $validated['property_id'] ?? null;
             $property = \App\Models\Property::findLinkableForRentalApplication($requestedPropertyId, $request->user());
@@ -535,7 +562,10 @@ class RentalApplicationController extends Controller
                     newValues: ['requested_property_id' => $requestedPropertyId],
                     humanSummary: "Refused: property #{$requestedPropertyId} isn't visible to this user (wrong agency, branch, or book).",
                 );
-                abort(403, "You don't have access to that property, so it can't be linked to this application. Search for it above rather than entering an id directly.");
+
+                return back()->withInput()->withErrors([
+                    'property_id' => "That property isn't available to link — it may have been removed, or you may not have access to it. Search for it again above.",
+                ]);
             }
             $validated['property_id'] = $property?->id;
         }

@@ -36,10 +36,28 @@
 <div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">Name: <span class="corex-field-value">{{ $application->emergency_contact_name }}</span></span></div>
 <div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">Contact Numbers: (Cell) <span class="corex-field-value">{{ $application->emergency_contact_cell }}</span> (Work): <span class="corex-field-value">{{ $application->emergency_contact_work }}</span></span></div>
 
-<div class="corex-h2">Current Landlord / Agent / Owner</div>
-<div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">Name: <span class="corex-field-value">{{ $application->current_landlord_name }}</span> &nbsp; Tel No: <span class="corex-field-value">{{ $application->current_landlord_tel }}</span></span></div>
+<?php
+    // Current-living-situation ruling, 2026-09-11 — an application from
+    // before this field existed has current_living_situation = null but
+    // may already carry real landlord data; falling back to 'renting'
+    // whenever that's true means an old application's PDF still shows its
+    // real landlord section instead of a blank "situation" line.
+    $situationValue = $application->current_living_situation
+        ?? ($application->current_landlord_name ? 'renting' : null);
+    $situationLabel = \App\Models\RentalApplication::currentLivingSituationLabel($situationValue);
+?>
+<div class="corex-h2">Current Living Situation</div>
+@if($situationLabel)
+<div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">{{ $situationLabel }}</span></div>
+@endif
+@if($situationValue === 'renting')
+<div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">Landlord / Agent / Owner Name: <span class="corex-field-value">{{ $application->current_landlord_name }}</span> &nbsp; Tel No: <span class="corex-field-value">{{ $application->current_landlord_tel }}</span></span></div>
 <div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">Current Rental Amount: R<span class="corex-field-value">{{ $application->current_rental_amount }}</span> &nbsp; Due Day: <span class="corex-field-value">{{ $application->current_rental_due_day ?? '—' }}</span></span></div>
 <div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">From: <span class="corex-field-value">{{ optional($application->current_rental_from)->format('d/m/Y') }}</span> &nbsp; To: <span class="corex-field-value">{{ $application->current_rental_still_living ? 'Still living there' : optional($application->current_rental_to)->format('d/m/Y') }}</span></span></div>
+@endif
+@if($application->current_living_situation_notes)
+<div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">In their own words: <span class="corex-field-value">{{ $application->current_living_situation_notes }}</span></span></div>
+@endif
 
 <div class="corex-h2">Employment Details</div>
 <div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">Name of Employer: <span class="corex-field-value">{{ $application->employer_name }}</span></span></div>
