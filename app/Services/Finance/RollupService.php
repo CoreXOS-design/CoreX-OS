@@ -1043,15 +1043,28 @@ class RollupService
         $diff    = $actual !== null ? round($expected - $actual, 6) : null;
         $absDiff = $diff !== null ? abs($diff) : null;
 
+        // DR2 financial audit F3 (AT-409) — both messages below used to name a
+        // specific root cause ("engine uses period field; legacy uses
+        // deal_date") that does not correspond to any code that currently
+        // exists: RollupService (here) and all three Legacy readers bucket by
+        // deals.period alike, confirmed by reading each one directly. That
+        // claim described an earlier version of this logic and was never
+        // updated when it changed — it sat on 109 real error rows since
+        // 2026-03-27 and pointed anyone investigating at the wrong file. Both
+        // messages now state only what was actually measured (the numbers
+        // themselves), never a presumed cause that can go stale again
+        // silently. The 109 pre-existing rows are NOT rewritten — an audit
+        // trail records what the tool said at the time; correcting it going
+        // forward is the fix, not editing history.
         if ($absDiff === null) {
             $severity = 'warn';
-            $message  = 'entity not in legacy (deal_date range may differ from period)';
+            $message  = 'entity not in legacy for this period — investigate directly, do not assume a cause';
         } elseif ($absDiff <= self::MATCH_TOLERANCE) {
             $severity = 'info';
             $message  = 'match';
         } else {
             $severity = 'error';
-            $message  = "diff={$diff} (engine uses period field; legacy uses deal_date)";
+            $message  = "diff={$diff} — engine(expected)={$expected}, legacy(actual)={$actual} for {$definitionKey} — investigate directly, do not assume a cause";
         }
 
         FinanceAuditItem::create([
