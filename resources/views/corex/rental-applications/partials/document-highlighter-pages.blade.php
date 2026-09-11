@@ -46,73 +46,109 @@
      inside .rental-review-main's own scroll box, never position:fixed,
      so it has no viewport-escape/stacking-context risk to begin with. --}}
 <div class="flex gap-4 items-start" x-show="!loading && !loadError">
-    <div class="flex-shrink-0 space-y-3" style="width: 190px; position: sticky; top: 0;">
-        <p class="text-[11px] font-bold uppercase tracking-wide" style="color: var(--text-muted);">Mark-Up Tools</p>
+    {{-- ROUND 4, 2026-09-11 — Johan, real browser, 1522px viewport: "theres
+         no ways anyone can read that... left marker panel first... cut
+         that panel at least into half its size... top to bottom we are
+         only using half the screen." Measured: 190px wide, content ending
+         ~295px down a ~630px-tall column — half the height genuinely
+         empty. "Be clever about it" — his word: the old shape (a full-
+         width labelled row PER highlighter, PER stroke size) is what
+         forced the width, not the number of tools. Reworked so a narrow
+         column is the natural fit rather than a squashed version of the
+         wide one:
+         - Highlighters are a colour choice — now a wrapping grid of small
+           swatches (colour IS the identity), not a label+swatch+check row
+           each. Scales to however many an agency configures (2026-09-09:
+           "an agency can have 10 highlighters"), never hardcoded to 3.
+         - Stroke is a size choice — now three small buttons each showing
+           an actual line AT that stroke's own thickness (s.px, already
+           the real drawn weight), not three text buttons "Thin"/"Medium"/
+           "Thick" that never fit 3-across this narrow.
+         - Undo/Redo are an icon pair, not two text buttons.
+         - The full label never disappears — every control keeps its real
+           name as a `:title` tooltip, the same degrade-legibly fallback
+           already used elsewhere on this screen.
+         - The active-state tick and the currently-selected stroke/colour
+           both survive, just restyled to fit (a border ring + check badge
+           instead of a bold label row).
+         190px → 90px (more than half, by design — round number with
+         margin, not a value picked to exactly clear the "at least half"
+         bar). All of it goes to `.flex-1 min-w-0` below (the PDF column),
+         which was already flex — no change needed there for the freed
+         space to reach it. --}}
+    <div class="flex-shrink-0 space-y-2" style="width: 90px; position: sticky; top: 0;">
+        <p class="text-[10px] font-bold uppercase tracking-wide" style="color: var(--text-muted);">Mark-Up</p>
 
-        {{-- HIGHLIGHTER — Johan: "heading - highlighter - income / expense /
-             unpaid ... separate buttons that can easily be clicked and used." --}}
         <div>
-            <p class="text-[10px] font-semibold uppercase tracking-wide mb-1" style="color: var(--text-muted);">Highlighter</p>
-            <div class="space-y-1">
+            <p class="text-[9px] font-semibold uppercase tracking-wide mb-1" style="color: var(--text-muted);">Highlight</p>
+            <div class="flex flex-wrap gap-1">
                 <template x-for="h in pickerHighlighters()" :key="h.id">
-                    <button type="button" class="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-xs text-left transition-all duration-100"
+                    <button type="button" class="relative flex items-center justify-center rounded-md transition-all duration-100"
+                            :title="h.label"
                             @click="pickHighlighter(h.id)"
                             :style="{
-                                background: (activeTool === 'highlight' && activeHighlighterId === h.id) ? ('color-mix(in srgb, ' + h.color + ' 15%, var(--surface))') : 'var(--surface)',
-                                border: (activeTool === 'highlight' && activeHighlighterId === h.id) ? ('2px solid ' + h.color) : '1px solid var(--border)',
-                                fontWeight: (activeTool === 'highlight' && activeHighlighterId === h.id) ? '700' : '400',
+                                width: '26px', height: '26px',
+                                background: h.color,
+                                border: (activeTool === 'highlight' && activeHighlighterId === h.id) ? '2px solid var(--text-primary)' : '1px solid var(--border)',
                             }">
-                        <span :style="{ display:'inline-block', width:'12px', height:'12px', borderRadius:'3px', flexShrink:'0', background: h.color }"></span>
-                        <span class="flex-1 truncate" x-text="h.label"></span>
-                        <span x-show="activeTool === 'highlight' && activeHighlighterId === h.id" style="font-weight:800;">&check;</span>
+                        <span x-show="activeTool === 'highlight' && activeHighlighterId === h.id" style="color:#fff; font-weight:800; font-size:12px; text-shadow: 0 0 2px rgba(0,0,0,0.65);">&check;</span>
                     </button>
                 </template>
-                <template x-if="pickerHighlighters().length === 0">
-                    <p class="text-[10px] leading-snug" style="color: var(--text-muted);">No highlighters are configured for your role yet — add one under Settings → Rental Applications.</p>
-                </template>
             </div>
+            <template x-if="pickerHighlighters().length === 0">
+                <p class="text-[9px] leading-snug mt-1" style="color: var(--text-muted);">None configured — see Settings.</p>
+            </template>
         </div>
 
-        {{-- NOTE — its own section, its own fixed identity, never sharing
-             the highlighter colour palette (see pickNoteTool()). --}}
+        {{-- NOTE — same swatch rhythm as the highlighters above, its own
+             fixed identity (NOTE_COLOR), never sharing the highlighter
+             palette (see pickNoteTool()). --}}
         <div>
-            <p class="text-[10px] font-semibold uppercase tracking-wide mb-1" style="color: var(--text-muted);">Note</p>
-            <button type="button" class="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-xs text-left transition-all duration-100"
+            <p class="text-[9px] font-semibold uppercase tracking-wide mb-1" style="color: var(--text-muted);">Note</p>
+            <button type="button" class="relative flex items-center justify-center rounded-md transition-all duration-100"
+                    title="Add a note"
                     @click="pickNoteTool()"
                     :style="{
-                        background: activeTool === 'note' ? 'color-mix(in srgb, ' + NOTE_COLOR + ' 15%, var(--surface))' : 'var(--surface)',
-                        border: activeTool === 'note' ? ('2px solid ' + NOTE_COLOR) : '1px solid var(--border)',
-                        fontWeight: activeTool === 'note' ? '700' : '400',
+                        width: '26px', height: '26px',
+                        background: NOTE_COLOR,
+                        border: activeTool === 'note' ? '2px solid var(--text-primary)' : '1px solid var(--border)',
                     }">
-                <span class="rounded-full flex items-center justify-center" :style="{ width:'12px', height:'12px', flexShrink:'0', background: NOTE_COLOR }">
-                    <span style="color:#fff; font-size:7px; font-weight:800; line-height:1;">N</span>
-                </span>
-                <span class="flex-1">Add a note</span>
-                <span x-show="activeTool === 'note'" style="font-weight:800;">&check;</span>
+                <span style="color:#fff; font-weight:800; font-size:11px; line-height:1;">N</span>
+                <span x-show="activeTool === 'note'" style="position:absolute; top:-4px; right:-4px; color:#fff; background:var(--text-primary); border-radius:9999px; width:12px; height:12px; font-size:8px; font-weight:800; line-height:12px; text-align:center;">&check;</span>
             </button>
         </div>
 
-        {{-- Stroke width — Johan: "not click buttons change" — always
-             rendered, never removed from the layout; dimmed and inert
-             (not hidden) when Note is the active tool, so nothing here
-             ever shifts position depending on which tool is selected. --}}
+        {{-- Stroke width — always rendered, dimmed+inert (not hidden) when
+             Note is active, unchanged from before ("not click buttons
+             change"). Each button now draws the real stroke weight
+             (s.px) instead of showing its text label — a glance tells you
+             which is active by looking, same as the colour swatches. --}}
         <div :style="{ opacity: activeTool === 'highlight' ? '1' : '0.4', pointerEvents: activeTool === 'highlight' ? 'auto' : 'none' }">
-            <p class="text-[10px] font-semibold uppercase tracking-wide mb-1" style="color: var(--text-muted);">Stroke</p>
+            <p class="text-[9px] font-semibold uppercase tracking-wide mb-1" style="color: var(--text-muted);">Stroke</p>
             <div class="flex items-center gap-1">
                 <template x-for="s in strokeSizes" :key="s.key">
-                    <button type="button" class="flex-1 text-[11px] px-1 py-1 rounded-md" :title="s.label" @click="setStrokeSize(s.key)"
-                            :style="{ border:'1px solid var(--border)', background: strokeSizeKey === s.key ? 'var(--ds-blue-soft, #eff6ff)' : 'transparent', fontWeight: strokeSizeKey === s.key ? '700' : '400' }" x-text="s.label"></button>
+                    <button type="button" class="flex-1 flex items-center justify-center rounded-md" :title="s.label" @click="setStrokeSize(s.key)"
+                            :style="{ height:'22px', border:'1px solid var(--border)', background: strokeSizeKey === s.key ? 'var(--ds-blue-soft, #eff6ff)' : 'transparent' }">
+                        <span :style="{ display:'block', width:'14px', height: (s.px/3) + 'px', minHeight:'2px', borderRadius:'2px', background: strokeSizeKey === s.key ? 'var(--ds-blue, #2563eb)' : 'var(--text-secondary)' }"></span>
+                    </button>
                 </template>
             </div>
         </div>
 
+        {{-- Undo/Redo — an icon pair, not two text buttons ("Undo"/"Redo"
+             never fit side by side this narrow). Same disabled/enabled
+             logic as before, unchanged. --}}
         <div class="flex items-center gap-1 pt-1" style="border-top: 1px solid var(--border);">
-            <button type="button" class="flex-1 text-xs px-2 py-1 rounded-md" title="Undo (Ctrl+Z)"
+            <button type="button" class="flex-1 flex items-center justify-center rounded-md" title="Undo (Ctrl+Z)"
                     @click="undo()" :disabled="!canUndo()"
-                    :style="{ border:'1px solid var(--border)', color: canUndo() ? 'var(--text-secondary)' : 'var(--text-muted)', opacity: canUndo() ? '1' : '0.5', cursor: canUndo() ? 'pointer' : 'default' }">Undo</button>
-            <button type="button" class="flex-1 text-xs px-2 py-1 rounded-md" title="Redo (Ctrl+Shift+Z)"
+                    :style="{ height:'24px', border:'1px solid var(--border)', color: canUndo() ? 'var(--text-secondary)' : 'var(--text-muted)', opacity: canUndo() ? '1' : '0.5', cursor: canUndo() ? 'pointer' : 'default' }">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>
+            </button>
+            <button type="button" class="flex-1 flex items-center justify-center rounded-md" title="Redo (Ctrl+Shift+Z)"
                     @click="redo()" :disabled="!canRedo()"
-                    :style="{ border:'1px solid var(--border)', color: canRedo() ? 'var(--text-secondary)' : 'var(--text-muted)', opacity: canRedo() ? '1' : '0.5', cursor: canRedo() ? 'pointer' : 'default' }">Redo</button>
+                    :style="{ height:'24px', border:'1px solid var(--border)', color: canRedo() ? 'var(--text-secondary)' : 'var(--text-muted)', opacity: canRedo() ? '1' : '0.5', cursor: canRedo() ? 'pointer' : 'default' }">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m15 14 5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/></svg>
+            </button>
         </div>
     </div>
 

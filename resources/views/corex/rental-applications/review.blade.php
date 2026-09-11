@@ -55,6 +55,31 @@
     // original filing home, not here (see guardDocumentBelongsToApplication
     // and submitForApproval()'s matching server-side count).
     $unsplitCount = $documents->filter(fn ($row) => !$row['pulled_from_contact'] && $row['document']->document_type_id === null && $row['document']->mime_type === 'application/pdf')->count();
+
+    // ROUND 4, 2026-09-11 — Johan: "'No property linked' appears TWICE...
+    // work out which one is the intended one, and remove the duplication."
+    // Two independent computations existed: the plain header subtitle
+    // (property_address_override ?? property->address ?? fallback — never
+    // considered the property's own title) and the locked-state property
+    // widget (property->title ?: buildDisplayAddress() — never considered
+    // property_address_override). Neither was complete on its own. ONE
+    // computation now, folding in everything either version knew about,
+    // used everywhere on this header instead of two separately-maintained
+    // English strings that happened to agree by luck.
+    $propertyLabel = $rentalApplication->property
+        ? (optional($rentalApplication->property)->title ?: optional($rentalApplication->property)->buildDisplayAddress())
+        : $rentalApplication->property_address_override;
+    $headerContactName = $rentalApplication->contact->full_name
+        ?? trim(($rentalApplication->contact->first_name ?? '') . ' ' . ($rentalApplication->contact->last_name ?? ''));
+    $headerTitleText = ($viewerRole === 'agent' ? 'Application Review' : 'Authorise') . ' — ' . $headerContactName;
+    $headerPropertyFact = $propertyLabel ? ('Property: ' . $propertyLabel) : 'No property linked';
+    $headerExtraFact = null;
+    if ($viewerRole === 'agent' && ($propertyLinkLocked ?? false)) {
+        $headerExtraFact = 'locked — submitted for authorisation.';
+    } elseif ($viewerRole === 'authoriser') {
+        $headerExtraFact = 'Submitted for approval ' . $rentalApplication->submitted_for_approval_at?->format('d M Y H:i');
+    }
+    $headerFullText = $headerTitleText . ' · ' . $headerPropertyFact . ($headerExtraFact ? ' · ' . $headerExtraFact : '');
 @endphp
 
 @section('corex-content')
@@ -110,15 +135,29 @@
     <x-sticky-action-bar>
         <x-slot name="left">
             <div class="min-w-0">
-                <h1 class="text-sm font-bold leading-tight truncate" style="color: var(--text-primary);">
-                    {{ $viewerRole === 'agent' ? 'Application Review' : 'Authorise' }} — {{ $rentalApplication->contact->full_name ?? $rentalApplication->contact->first_name . ' ' . $rentalApplication->contact->last_name }}
+                {{--
+                    ROUND 4, 2026-09-11 — Johan: "this at the top... cut it
+                    down to 1 row. lots of wasted screen there as well."
+                    Was three stacked elements (h1 title, a plain subtitle
+                    <p>, and — agent-only — the property-link widget's own
+                    <p>/<div>) with "No property linked" independently
+                    computed and rendered by TWO of them. Now one flex row:
+                    bold title truncates on its own (a genuinely unbounded
+                    contact name is the only unbounded content here), the
+                    property/lock/submitted facts are flex-shrink-0 so they
+                    never get clipped, and the whole row carries a `title`
+                    with the full untruncated text — the same degrade-
+                    legibly fallback already used on the affordability rows,
+                    chosen deliberately over letting this wrap to a second
+                    row (which would just recreate the "lots of wasted
+                    screen" complaint one row lower).
+                --}}
+                <h1 class="flex items-center gap-1.5 text-sm leading-tight" style="color: var(--text-primary);" title="{{ $headerFullText }}">
+                    <span class="truncate font-bold" style="min-width:0;">{{ $headerTitleText }}</span>
+                    <span class="text-xs font-normal flex-shrink-0 whitespace-nowrap" style="color: var(--text-muted);">
+                        &middot; {{ $headerPropertyFact }}@if($headerExtraFact) &middot; {{ $headerExtraFact }}@endif
+                    </span>
                 </h1>
-                <p class="text-xs truncate" style="color: var(--text-muted);">
-                    {{ $rentalApplication->property_address_override ?? optional($rentalApplication->property)->address ?? 'No property linked' }}
-                    @if($viewerRole === 'authoriser')
-                        &middot; Submitted for approval {{ $rentalApplication->submitted_for_approval_at?->format('d M Y H:i') }}
-                    @endif
-                </p>
 
                 @if($viewerRole === 'agent')
                     {{--
@@ -162,40 +201,33 @@
                         underneath (search-properties/link-property, agent-only,
                         unconditional on status) is unchanged.
                     --}}
-                    @if($propertyLinkLocked ?? false)
-                        {{--
-                            Locked, 2026-09-10 (Johan, QA1 item 2 follow-up) —
-                            server-side gate lives in linkProperty() itself
-                            (a POST straight at the route 403s); this is just
-                            the honest UI reflection of that, not the
-                            enforcement. Never rendered as a disabled version
-                            of the interactive control — a genuinely
-                            different, read-only state, so there's nothing
-                            here that LOOKS clickable but silently no-ops.
-                        --}}
-                        <p class="text-xs" style="color: var(--text-muted);">
-                            {{ $rentalApplication->property ? 'Property: ' . (optional($rentalApplication->property)->title ?: optional($rentalApplication->property)->buildDisplayAddress()) : 'No property linked.' }}
-                            <span style="color: var(--text-muted);">&middot; locked — submitted for authorisation.</span>
-                        </p>
-                    @else
-                    <div class="mt-1" x-data="rentalReviewPropertyLink({{ Js::from([
+                    @if(!($propertyLinkLocked ?? false))
+                    {{--
+                        ROUND 4, 2026-09-11 — the locked branch's own copy of
+                        this fact was removed entirely (the h1 above already
+                        carries it — see this file's top PHP setup block). This
+                        unlocked branch's own "Property: X"/"No property
+                        linked yet." text is ALSO removed here for the same
+                        reason (the h1's fact covers it too, always, not just
+                        when locked) — only the interactive buttons remain,
+                        appended inline onto the same header row rather than
+                        a separate stacked line.
+                    --}}
+                    <div class="inline-flex items-center gap-1.5 flex-shrink-0" x-data="rentalReviewPropertyLink({{ Js::from([
                         'searchUrl' => route('corex.rental-applications.search-properties'),
                         'linkUrl' => route('corex.rental-applications.review.link-property', $rentalApplication),
-                        'currentLabel' => optional($rentalApplication->property)->title
-                            ?: optional($rentalApplication->property)?->buildDisplayAddress(),
+                        'currentLabel' => $propertyLabel,
                     ]) }})">
                         <template x-if="!searching">
-                            <p class="text-xs flex items-center flex-wrap gap-1.5">
-                                <span style="color: var(--text-muted);" x-show="currentLabel" x-text="'Property: ' + currentLabel"></span>
-                                <span style="color: var(--text-muted);" x-show="!currentLabel">No property linked yet.</span>
+                            <span class="inline-flex items-center gap-1.5">
                                 <button type="button"
                                         class="corex-btn-outline"
                                         style="padding: 0.15rem 0.6rem; font-size: 0.7rem; line-height: 1.2;"
                                         @click="searching = true">
                                     <span x-text="currentLabel ? 'Change property' : 'Link a property'"></span>
                                 </button>
-                                <button type="button" class="underline" style="color: var(--ds-red, #dc2626);" x-show="currentLabel" @click="clear()">Clear</button>
-                            </p>
+                                <button type="button" class="underline text-xs" style="color: var(--ds-red, #dc2626);" x-show="currentLabel" @click="clear()">Clear</button>
+                            </span>
                         </template>
                         <template x-if="searching">
                             <div class="relative" style="max-width: 22rem;">
@@ -414,7 +446,44 @@
          100 (amount, now a real floor not a lower bound) + 12 (gaps) + 24
          (card padding) + 17 (scrollbar-gutter reservation) = 453, rounded
          to 460. Floor/ceiling shifted the same +20px the default moved:
-         400–660. --}}
+         400–660.
+
+         ROUND 4, 2026-09-11 — Johan, real browser, 1522px viewport: "theres
+         no ways anyone can read that... the pdf showing is too small."
+         Three concrete, measured reductions, not a guess-and-shrink:
+         (1) `.corex-input`'s padding on this screen was never set by this
+         file at all — it was `@tailwindcss/forms`' own global default
+         (12px/8px), confirmed via getComputedStyle, not assumed. Tightened
+         to 6px/4px via a scoped override below (same pattern already used
+         by `.dr2-distribute .corex-input`/`.dr2-pipeline .corex-input`
+         elsewhere in this codebase — never a global forms-plugin change).
+         (2) Amount's floor re-verified at the tighter padding against the
+         SAME 9-character ceiling (R999,999.99) — renders complete at 90px
+         (was 100px): -10px. (3) Date column re-verified the same way —
+         Round 2's own "118px still clipped the last digit of the year"
+         finding was true at the OLD 12px padding; at 6px padding the full
+         native date (confirmed via screenshot, not inference) renders
+         complete at 118px (was 130px): -12px. Description cut ~20% per
+         Johan's explicit instruction (170 → 136px: -34px), verified against
+         this application's own real values ("salary"/"wages"/"utils" all
+         still read as full words) — the existing `:title` tooltip fallback
+         is the documented, accepted backstop for values that don't, same
+         as it already was at the old width.
+         Native `<input type="date">` display format (Johan asked for
+         yy/mm/dd) is NOT page-controllable — it's the browser/OS locale's
+         own rendering, not something HTML/CSS/JS on this page can
+         override, and forcing it would mean replacing the native control
+         entirely (losing the native picker, native validation, and the
+         mobile date-wheel keyboard for two characters of width). Reported,
+         not attempted — contributes 0 to this round's savings.
+         Total: 34 (desc) + 12 (date) + 10 (amount) = 56px off the row's own
+         width requirement. Default recomputed the same way as every prior
+         round: 136 (desc) + 118 (date) + 90 (amount) + 12 (gaps) + 24 (card
+         padding) + 17 (scrollbar-gutter) = 397, rounded to 400. Floor/
+         ceiling shifted the same -60px the default moved: 340–600. That
+         -60px goes straight to `.rental-review-main` (the PDF column) —
+         the entire point, per Johan: "do not save 60px inside the panel
+         and leave the panel 440px wide." --}}
     <style>
         .rental-review-columns { display: flex; flex-direction: column; gap: 20px; }
         .rental-review-main    { flex: 1 1 auto; min-width: 0; }
@@ -423,7 +492,14 @@
         @media (min-width: 1280px) {
             .rental-review-columns { flex-direction: row; gap: 0; align-items: stretch; }
             .rental-review-main    { height: var(--rr-panel-h, calc(100vh - 160px)); max-height: var(--rr-panel-h, calc(100vh - 160px)); overflow-y: auto; margin-right: 16px; }
-            .rental-review-aside   { flex: 0 0 var(--rr-aside-w, 460px); width: var(--rr-aside-w, 460px); align-self: stretch; position: sticky; top: 72px; height: var(--rr-panel-h, calc(100vh - 160px)); max-height: var(--rr-panel-h, calc(100vh - 160px)); overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable; }
+            .rental-review-aside   { flex: 0 0 var(--rr-aside-w, 400px); width: var(--rr-aside-w, 400px); align-self: stretch; position: sticky; top: 72px; height: var(--rr-panel-h, calc(100vh - 160px)); max-height: var(--rr-panel-h, calc(100vh - 160px)); overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable; }
+            /* ROUND 4, 2026-09-11 — @tailwindcss/forms' own global default
+               (12px/8px, confirmed via getComputedStyle, never set by this
+               file before) tightened to fit the text rather than float in
+               it. Scoped exactly like .dr2-distribute/.dr2-pipeline's own
+               .corex-input overrides elsewhere in this codebase — never a
+               global forms-plugin change. */
+            .rental-review-aside .corex-input { padding: 4px 6px; }
             .rental-review-resizer {
                 display: block; flex: 0 0 6px; width: 6px; cursor: col-resize;
                 align-self: stretch; position: sticky; top: 72px;
@@ -830,7 +906,7 @@
                     </div>
                     <div class="space-y-1.5" x-ref="incomeRows">
                         <template x-for="(item, index) in incomeItems" :key="index">
-                            <div class="grid gap-1.5" style="grid-template-columns: minmax(0,1.5fr) 130px minmax(100px,1fr);">
+                            <div class="grid gap-1.5" style="grid-template-columns: minmax(0,1.5fr) 118px minmax(90px,1fr);">
                                 <input type="text" class="corex-input text-sm w-full" placeholder="e.g. Salary"
                                        x-model="item.description" :title="item.description" @input="onIncomeRowInput()" @blur="save()">
                                 <input type="date" class="corex-input text-sm w-full" title="Date this deposit happened"
@@ -855,7 +931,7 @@
                     </div>
                     <div class="space-y-1.5" x-ref="expenseRows">
                         <template x-for="(item, index) in expenseItems" :key="index">
-                            <div class="grid gap-1.5" style="grid-template-columns: minmax(0,1.5fr) 130px minmax(100px,1fr);">
+                            <div class="grid gap-1.5" style="grid-template-columns: minmax(0,1.5fr) 118px minmax(90px,1fr);">
                                 <input type="text" class="corex-input text-sm w-full" placeholder="e.g. Car payment"
                                        x-model="item.description" :title="item.description" @input="onExpenseRowInput()" @blur="save()">
                                 <input type="date" class="corex-input text-sm w-full" title="Date this debit happened"
@@ -1721,21 +1797,30 @@ function rentalReviewLayout() {
         // here rather than picked as a bare number — see the layout <style>
         // block's own note for the full arithmetic and ROUND 3 (amount
         // column's own floor + scrollbar-gutter reservation, 440→460).
-        RA_ASIDE_DEFAULT_PX: 460,
-        RA_ASIDE_MIN_PX: 400,
-        RA_ASIDE_MAX_PX: 660,
+        //
+        // ROUND 4, 2026-09-11 — Johan: "the pdf showing is too small... the
+        // savings moves the splitter back to the right." Tightened input
+        // padding (-10px amount, -12px date, both re-verified live at the
+        // new floors) + a 20% description cut (-34px, Johan's own number)
+        // = 56px off the row's real requirement. Recomputed default the
+        // same way as every prior round — see the layout <style> block's
+        // own note for the full arithmetic — 460→400. Floor/ceiling shifted
+        // the same -60px: 400→340, 660→600.
+        RA_ASIDE_DEFAULT_PX: 400,
+        RA_ASIDE_MIN_PX: 340,
+        RA_ASIDE_MAX_PX: 600,
         // Persisted per-browser so a drag survives a reload; Math.max/min
         // below re-clamp a value ALREADY in localStorage from a PRIOR
-        // floor/ceiling (260/320, 320/480, or 380/640 — this build's own
-        // two prior passes) — a browser that dragged to one of those old
-        // numbers must not stay stuck outside the current range forever.
-        // Repeats the RA_ASIDE_* numbers as literals rather than referencing
-        // them — a plain object literal can't read a sibling property via
-        // `this` while it's still being constructed. startAsideResize()'s
-        // own clamp below (evaluated later, as a real method call) uses the
-        // named constants directly.
+        // floor/ceiling (260/320, 320/480, 380/640, or 400/660 — this
+        // build's own three prior passes) — a browser that dragged to one
+        // of those old numbers must not stay stuck outside the current
+        // range forever. Repeats the RA_ASIDE_* numbers as literals rather
+        // than referencing them — a plain object literal can't read a
+        // sibling property via `this` while it's still being constructed.
+        // startAsideResize()'s own clamp below (evaluated later, as a real
+        // method call) uses the named constants directly.
         resizingAside: false,
-        asideWidth: Math.min(660, Math.max(400, parseInt(localStorage.getItem('rentalReviewAsideWidth'), 10) || 460)),
+        asideWidth: Math.min(600, Math.max(340, parseInt(localStorage.getItem('rentalReviewAsideWidth'), 10) || 400)),
         startAsideResize(e) {
             this.resizingAside = true;
             const startX = e.clientX;
