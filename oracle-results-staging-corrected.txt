@@ -1,0 +1,75 @@
+mysql: [Warning] Using a password on the command line interface can be insecure.
+check_name	val
+sanity_distinct_agencies_with_buyers	1
+metric	agent_id	n
+held_per_agent	NULL	7
+held_per_agent	24	3
+held_per_agent	26	3
+held_per_agent	29	8
+held_per_agent	33	1
+held_per_agent	34	7
+held_per_agent	35	1
+held_per_agent	38	2
+held_per_agent	39	2
+held_per_agent	46	1
+held_per_agent	47	1
+metric	branch_id	n
+held_per_branch	1	36
+metric	n
+held_agency_total	36
+metric	n
+held_sum_per_agent_rows	29
+metric	n
+held_unassigned_agent_null	7
+metric	agent_id	n
+added_per_agent	NULL	7
+added_per_agent	24	3
+added_per_agent	26	3
+added_per_agent	29	8
+added_per_agent	33	1
+added_per_agent	34	7
+added_per_agent	35	1
+added_per_agent	38	2
+added_per_agent	39	2
+added_per_agent	46	1
+added_per_agent	47	1
+metric	branch_id	n
+added_per_branch	1	36
+metric	n
+added_agency_total	36
+metric	n
+won_agency_total	0
+metric	n
+won_duplicate_contacts	0
+metric	agent_id	n	value_lost
+lost_per_agent	24	1	0.00
+lost_per_agent	26	1	0.00
+lost_per_agent	34	2	0.00
+lost_per_agent	46	1	0.00
+lost_per_agent	47	1	0.00
+metric	branch_id	n	value_lost
+lost_per_branch	1	6	0.00
+metric	n	value_lost
+lost_agency_total	6	0.00
+metric	n
+lost_recovered_within_period	0
+metric	n
+appts_agent_vs_event_user_mismatch	0
+metric	n
+appts_agency_total	0
+metric	n
+appts_agency_total_via_category_list	1
+metric	n
+retha_held	3
+metric	branch_id
+retha_branch_id	1
+metric	n
+retha_branch_held_total	36
+metric	n
+boundary_events_at_p_start	13
+metric	n
+boundary_events_at_p_end	0
+metric	n
+boundary_added_at_p_start	0
+metric	n
+boundary_won_at_p_end	0

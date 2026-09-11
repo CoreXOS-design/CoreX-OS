@@ -1,0 +1,101 @@
+mysql: [Warning] Using a password on the command line interface can be insecure.
+check_name	val
+sanity_distinct_agencies_with_buyers	1
+metric	agent_id	n
+held_per_agent	NULL	51
+held_per_agent	23	7
+held_per_agent	24	14
+held_per_agent	25	9
+held_per_agent	26	26
+held_per_agent	29	22
+held_per_agent	31	1
+held_per_agent	34	15
+held_per_agent	35	5
+held_per_agent	36	6
+held_per_agent	38	16
+held_per_agent	39	3
+held_per_agent	40	7
+held_per_agent	43	1
+held_per_agent	44	3
+held_per_agent	47	6
+metric	branch_id	n
+held_per_branch	1	167
+held_per_branch	2	2
+held_per_branch	3	23
+metric	n
+held_agency_total	192
+metric	n
+held_sum_per_agent_rows	141
+metric	n
+held_unassigned_agent_null	51
+metric	agent_id	n
+added_per_agent	NULL	49
+added_per_agent	23	7
+added_per_agent	24	13
+added_per_agent	25	9
+added_per_agent	26	24
+added_per_agent	29	22
+added_per_agent	34	14
+added_per_agent	35	5
+added_per_agent	36	5
+added_per_agent	38	16
+added_per_agent	39	3
+added_per_agent	40	6
+added_per_agent	43	1
+added_per_agent	44	3
+added_per_agent	47	6
+metric	branch_id	n
+added_per_branch	1	160
+added_per_branch	2	1
+added_per_branch	3	22
+metric	n
+added_agency_total	183
+metric	agent_id	n
+won_per_agent	NULL	6
+won_per_agent	25	1
+won_per_agent	26	2
+won_per_agent	34	2
+won_per_agent	38	1
+won_per_agent	43	1
+won_per_agent	44	1
+won_per_agent	47	1
+metric	branch_id	n
+won_per_branch	1	10
+won_per_branch	3	5
+metric	n
+won_agency_total	15
+metric	n
+won_duplicate_contacts	0
+metric	agent_id	n	value_lost
+lost_per_agent	23	2	0.00
+lost_per_agent	25	1	0.00
+metric	branch_id	n	value_lost
+lost_per_branch	1	3	0.00
+metric	n	value_lost
+lost_agency_total	3	0.00
+metric	n
+lost_recovered_within_period	0
+metric	agent_id	n
+appts_per_agent_via_contact	34	1
+metric	user_id	n
+appts_per_agent_via_event_user	34	1
+metric	n
+appts_agent_vs_event_user_mismatch	0
+metric	n
+appts_agency_total	1
+metric	n
+appts_agency_total_via_category_list	3
+metric	n
+retha_held	14
+metric	branch_id
+retha_branch_id	1
+metric	n
+retha_branch_held_total	167
+metric	n
+boundary_events_at_p_start	13
+metric	n
+boundary_events_at_p_end	15
+metric	n
+boundary_added_at_p_start	0
+metric	n
+boundary_won_at_p_end	0

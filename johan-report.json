@@ -1,0 +1,454 @@
+{
+    "metrics": [
+        {
+            "key": "buyers",
+            "label": "Buyers held",
+            "currency": false,
+            "direction": "higher_is_better"
+        },
+        {
+            "key": "appointments",
+            "label": "Appointments (buyers)",
+            "currency": false,
+            "direction": "higher_is_better"
+        },
+        {
+            "key": "comms_email",
+            "label": "Emails (buyers)",
+            "currency": false,
+            "direction": "higher_is_better"
+        },
+        {
+            "key": "comms_whatsapp",
+            "label": "WhatsApps (buyers)",
+            "currency": false,
+            "direction": "higher_is_better"
+        },
+        {
+            "key": "lost",
+            "label": "Buyers lost",
+            "currency": false,
+            "direction": "lower_is_better"
+        },
+        {
+            "key": "lost_value",
+            "label": "Lost value (R)",
+            "currency": true,
+            "direction": "lower_is_better"
+        },
+        {
+            "key": "buyers_won",
+            "label": "Buyers won",
+            "currency": false,
+            "direction": "higher_is_better"
+        },
+        {
+            "key": "buyers_added",
+            "label": "Buyers added",
+            "currency": false,
+            "direction": "higher_is_better"
+        }
+    ],
+    "company": {
+        "buyers": 28,
+        "appointments": 0,
+        "comms_email": 0,
+        "comms_whatsapp": 0,
+        "lost": 5,
+        "lost_value": 0,
+        "buyers_won": 0,
+        "buyers_added": 28
+    },
+    "branches": {
+        "unassigned": {
+            "label": "Unassigned",
+            "metrics": {
+                "buyers": 0,
+                "appointments": 0,
+                "comms_email": 0,
+                "comms_whatsapp": 0,
+                "lost": 0,
+                "lost_value": 0,
+                "buyers_won": 0,
+                "buyers_added": 0
+            }
+        },
+        "3": {
+            "label": "Southbroom",
+            "metrics": {
+                "buyers": 10,
+                "appointments": 0,
+                "comms_email": 0,
+                "comms_whatsapp": 0,
+                "lost": 2,
+                "lost_value": 0,
+                "buyers_won": 0,
+                "buyers_added": 10
+            }
+        },
+        "2": {
+            "label": "Ballito",
+            "metrics": {
+                "buyers": 1,
+                "appointments": 0,
+                "comms_email": 0,
+                "comms_whatsapp": 0,
+                "lost": 0,
+                "lost_value": 0,
+                "buyers_won": 0,
+                "buyers_added": 1
+            }
+        },
+        "1": {
+            "label": "Shelly Beach",
+            "metrics": {
+                "buyers": 17,
+                "appointments": 0,
+                "comms_email": 0,
+                "comms_whatsapp": 0,
+                "lost": 3,
+                "lost_value": 0,
+                "buyers_won": 0,
+                "buyers_added": 17
+            }
+        }
+    },
+    "agents": [
+        {
+            "user_id": 43,
+            "name": "Andre Roets",
+            "branch_id": null,
+            "branch_label": "Unassigned",
+            "metrics": {
+                "buyers": 0,
+                "appointments": 0,
+                "comms_email": 0,
+                "comms_whatsapp": 0,
+                "lost": 0,
+                "lost_value": 0,
+                "buyers_won": 0,
+                "buyers_added": 0
+            }
+        },
+        {
+            "user_id": 44,
+            "name": "Angelique Venter",
+            "branch_id": 3,
+            "branch_label": "Southbroom",
+            "metrics": {
+                "buyers": 0,
+                "appointments": 0,
+                "comms_email": 0,
+                "comms_whatsapp": 0,
+                "lost": 0,
+                "lost_value": 0,
+                "buyers_won": 0,
+                "buyers_added": 0
+            }
+        },
+        {
+            "user_id": 36,
+            "name": "Barbara Jackson",
+            "branch_id": 3,
+            "branch_label": "Southbroom",
+            "metrics": {
+                "buyers": 0,
+                "appointments": 0,
+                "comms_email": 0,
+                "comms_whatsapp": 0,
+                "lost": 0,
+                "lost_value": 0,
+                "buyers_won": 0,
+                "buyers_added": 0
+            }
+        },
+        {
+            "user_id": 67,
+            "name": "Benita Medeiros",
+            "branch_id": 2,
+            "branch_label": "Ballito",
+            "metrics": {
+                "buyers": 0,
+                "appointments": 0,
+                "comms_email": 0,
+                "comms_whatsapp": 0,
+                "lost": 0,
+                "lost_value": 0,
+                "buyers_won": 0,
+                "buyers_added": 0
+            }
+        },
+        {
+            "user_id": 118,
+            "name": "CC5 CopyID Verify (scratch)",
+            "branch_id": 1,
+            "branch_label": "Shelly Beach",
+            "metrics": {
+                "buyers": 0,
+                "appointments": 0,
+                "comms_email": 0,
+                "comms_whatsapp": 0,
+                "lost": 0,
+                "lost_value": 0,
+                "buyers_won": 0,
+                "buyers_added": 0
+            }
+        },
+        {
+            "user_id": 33,
+            "name": "Cindy Pietersen",
+            "branch_id": 2,
+            "branch_label": "Ballito",
+            "metrics": {
+                "buyers": 1,
+                "appointments": 0,
+                "comms_email": 0,
+                "comms_whatsapp": 0,
+                "lost": 0,
+                "lost_value": 0,
+                "buyers_won": 0,
+                "buyers_added": 1
+            }
+        },
+        {
+            "user_id": 68,
+            "name": "Diva Blank",
+            "branch_id": 2,
+            "branch_label": "Ballito",
+            "metrics": {
+                "buyers": 0,
+                "appointments": 0,
+                "comms_email": 0,
+                "comms_whatsapp": 0,
+                "lost": 0,
+                "lost_value": 0,
+                "buyers_won": 0,
+                "buyers_added": 0
+            }
+        },
+        {
+            "user_id": 35,
+            "name": "Dru De Bruyn",
+            "branch_id": 3,
+            "branch_label": "Southbroom",
+            "metrics": {
+                "buyers": 1,
+                "appointments": 0,
+                "comms_email": 0,
+                "comms_whatsapp": 0,
+                "lost": 0,
+                "lost_value": 0,
+                "buyers_won": 0,
+                "buyers_added": 1
+            }
+        },
+        {
+            "user_id": 39,
+            "name": "Elise McFarlane",
+            "branch_id": 3,
+            "branch_label": "Southbroom",
+            "metrics": {
+                "buyers": 2,
+                "appointments": 0,
+                "comms_email": 0,
+                "comms_whatsapp": 0,
+                "lost": 0,
+                "lost_value": 0,
+                "buyers_won": 0,
+                "buyers_added": 2
+            }
+        },
+        {
+            "user_id": 23,
+            "name": "Elize Reichel",
+            "branch_id": null,
+            "branch_label": "Unassigned",
+            "metrics": {
+                "buyers": 0,
+                "appointments": 0,
+                "comms_email": 0,
+                "comms_whatsapp": 0,
+                "lost": 0,
+                "lost_value": 0,
+                "buyers_won": 0,
+                "buyers_added": 0
+            }
+        },
+        {
+            "user_id": 25,
+            "name": "Falan Du Bois",
+            "branch_id": 1,
+            "branch_label": "Shelly Beach",
+            "metrics": {
+                "buyers": 0,
+                "appointments": 0,
+                "comms_email": 0,
+                "comms_whatsapp": 0,
+                "lost": 0,
+                "lost_value": 0,
+                "buyers_won": 0,
+                "buyers_added": 0
+            }
+        },
+        {
+            "user_id": 31,
+            "name": "Gerda Baard",
+            "branch_id": 1,
+            "branch_label": "Shelly Beach",
+            "metrics": {
+                "buyers": 0,
+                "appointments": 0,
+                "comms_email": 0,
+                "comms_whatsapp": 0,
+                "lost": 0,
+                "lost_value": 0,
+                "buyers_won": 0,
+                "buyers_added": 0
+            }
+        },
+        {
+            "user_id": 40,
+            "name": "Jenny Joubert",
+            "branch_id": 2,
+            "branch_label": "Ballito",
+            "metrics": {
+                "buyers": 0,
+                "appointments": 0,
+                "comms_email": 0,
+                "comms_whatsapp": 0,
+                "lost": 0,
+                "lost_value": 0,
+                "buyers_won": 0,
+                "buyers_added": 0
+            }
+        },
+        {
+            "user_id": 22,
+            "name": "Johan Reichel",
+            "branch_id": 1,
+            "branch_label": "Shelly Beach",
+            "metrics": {
+                "buyers": 0,
+                "appointments": 0,
+                "comms_email": 0,
+                "comms_whatsapp": 0,
+                "lost": 0,
+                "lost_value": 0,
+                "buyers_won": 0,
+                "buyers_added": 0
+            }
+        },
+        {
+            "user_id": 34,
+            "name": "Kym Pollard",
+            "branch_id": 3,
+            "branch_label": "Southbroom",
+            "metrics": {
+                "buyers": 7,
+                "appointments": 0,
+                "comms_email": 0,
+                "comms_whatsapp": 0,
+                "lost": 2,
+                "lost_value": 0,
+                "buyers_won": 0,
+                "buyers_added": 7
+            }
+        },
+        {
+            "user_id": 29,
+            "name": "Maggie Venter",
+            "branch_id": 1,
+            "branch_label": "Shelly Beach",
+            "metrics": {
+                "buyers": 8,
+                "appointments": 0,
+                "comms_email": 0,
+                "comms_whatsapp": 0,
+                "lost": 0,
+                "lost_value": 0,
+                "buyers_won": 0,
+                "buyers_added": 8
+            }
+        },
+        {
+            "user_id": 24,
+            "name": "Retha Kelly",
+            "branch_id": 1,
+            "branch_label": "Shelly Beach",
+            "metrics": {
+                "buyers": 3,
+                "appointments": 0,
+                "comms_email": 0,
+                "comms_whatsapp": 0,
+                "lost": 1,
+                "lost_value": 0,
+                "buyers_won": 0,
+                "buyers_added": 3
+            }
+        },
+        {
+            "user_id": 38,
+            "name": "Rochelle Combrink",
+            "branch_id": 1,
+            "branch_label": "Shelly Beach",
+            "metrics": {
+                "buyers": 2,
+                "appointments": 0,
+                "comms_email": 0,
+                "comms_whatsapp": 0,
+                "lost": 0,
+                "lost_value": 0,
+                "buyers_won": 0,
+                "buyers_added": 2
+            }
+        },
+        {
+            "user_id": 45,
+            "name": "Ronel Botha",
+            "branch_id": null,
+            "branch_label": "Unassigned",
+            "metrics": {
+                "buyers": 0,
+                "appointments": 0,
+                "comms_email": 0,
+                "comms_whatsapp": 0,
+                "lost": 0,
+                "lost_value": 0,
+                "buyers_won": 0,
+                "buyers_added": 0
+            }
+        },
+        {
+            "user_id": 47,
+            "name": "Shalan Du Bois",
+            "branch_id": 1,
+            "branch_label": "Shelly Beach",
+            "metrics": {
+                "buyers": 1,
+                "appointments": 0,
+                "comms_email": 0,
+                "comms_whatsapp": 0,
+                "lost": 1,
+                "lost_value": 0,
+                "buyers_won": 0,
+                "buyers_added": 1
+            }
+        },
+        {
+            "user_id": 26,
+            "name": "Shawn Du Bois",
+            "branch_id": 1,
+            "branch_label": "Shelly Beach",
+            "metrics": {
+                "buyers": 3,
+                "appointments": 0,
+                "comms_email": 0,
+                "comms_whatsapp": 0,
+                "lost": 1,
+                "lost_value": 0,
+                "buyers_won": 0,
+                "buyers_added": 3
+            }
+        }
+    ]
+}
