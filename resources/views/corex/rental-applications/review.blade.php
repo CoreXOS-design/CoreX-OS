@@ -433,6 +433,7 @@
         {{-- MAIN — the submitted application, supporting documents, and audit
              trail. Dominant column, shared for both roles. --}}
         <div class="rental-review-main space-y-4">
+            <div x-show="!continuousViewOpen">
             {{-- Collapsed by default, 2026-09-07 — Johan: "collapse on the submitted
                  application section to get extra screen to view on [for the PDF]."
                  Shared for both roles, 2026-09-09 — was a plain always-open dl on
@@ -767,6 +768,124 @@
                         <p class="mt-2 text-xs" style="color: var(--text-muted);">Showing the {{ $auditLog->count() }} most recent of {{ $auditLogTotal }} total entries.</p>
                     @endif
                 @endif
+            </div>
+            </div>
+                {{-- ROUND 9, 2026-09-11 — Johan, live on QA1 while testing: "the
+                     Affordability Assessment panel is NOT VISIBLE while the
+                     documents are open... marking up is not a separate mode that
+                     takes over the screen — it is the screen." This used to be a
+                     `position:fixed inset-0 z-[110]` full-viewport takeover — a
+                     DOM SIBLING of .rental-review-main/.rental-review-aside, so it
+                     visually covered BOTH regardless of DOM adjacency (fixed
+                     positioning ignores where an element actually sits in the
+                     tree), including the capture-ledger panel this whole rework is
+                     built around keeping visible, and — because it also covered
+                     the app chrome without actually outranking its own stacking
+                     context — the CoreX sidebar still rendered on top of parts of
+                     it, cutting off the pen rail and floating the page's own
+                     header bar over the document. Fixed by moving this block
+                     INSIDE .rental-review-main (no longer `fixed` at all — normal
+                     in-flow content filling the box .rental-review-main already
+                     had) and showing it in place of that box's normal content
+                     rather than over the whole page. .rental-review-aside is a
+                     SIBLING of .rental-review-main, never touched by this toggle,
+                     so it stays pinned at its own fixed 196px the entire time
+                     documents are open — exactly Johan's own words: "the panel
+                     stays pinned on the right... the document taking the
+                     remaining width." No more competing with the app chrome's own
+                     stacking context either, since this is no longer position:fixed
+                     at all. --}}
+                <div x-show="continuousViewOpen" x-cloak class="h-full" style="background: var(--surface);">
+                    <div class="flex h-full">
+                    <div class="flex-shrink-0 overflow-y-auto" style="width: 220px; border-right: 1px solid var(--border); padding: 12px; background: var(--surface-2, #f9fafb);">
+                        <div class="flex items-center justify-between mb-3">
+                            <h3 class="text-sm font-semibold" style="color: var(--text-primary);">Documents</h3>
+                            <button type="button" class="text-xs" style="color: var(--text-muted);" @click="continuousViewOpen = false">Close</button>
+                        </div>
+                        <nav class="space-y-1">
+                            @foreach($documents as $row)
+                                <a href="#cv-doc-{{ $row['document']->id }}" class="block text-xs truncate px-1 py-1 rounded" style="color: var(--ds-blue, #2563eb);" title="{{ $row['document']->original_name }}">{{ $row['document']->original_name }}</a>
+                            @endforeach
+                        </nav>
+                    </div>
+                    <div class="flex-1 overflow-y-auto" id="continuousViewScroll" style="scroll-behavior: smooth;">
+                        <div class="max-w-4xl mx-auto p-4 space-y-6">
+                            @foreach($documents as $row)
+                                @php
+                                    $document = $row['document'];
+                                    $highlightFirstUrl = $viewerRole === 'agent'
+                                        ? route('corex.rental-applications.documents.highlight-data.first', [$rentalApplication, $document])
+                                        : route('corex.rental-applications.authorisation.documents.highlight-data.first', [$rentalApplication, $document]);
+                                    $highlightRemainingUrl = $viewerRole === 'agent'
+                                        ? route('corex.rental-applications.documents.highlight-data.remaining', [$rentalApplication, $document])
+                                        : route('corex.rental-applications.authorisation.documents.highlight-data.remaining', [$rentalApplication, $document]);
+                                    $highlightPostUrl = $viewerRole === 'agent'
+                                        ? route('corex.rental-applications.documents.highlight', [$rentalApplication, $document])
+                                        : route('corex.rental-applications.authorisation.documents.highlight', [$rentalApplication, $document]);
+                                    // Capture-ledger rework, 2026-09-11 — create is per-document
+                                    // (a brand new mark needs one to attach to); update/delete act
+                                    // on the rental application directly (an entry outlives
+                                    // whichever document it was drawn on), so those two are a URL
+                                    // TEMPLATE with a literal placeholder, filled client-side by
+                                    // captureUrlFor().
+                                    $captureCreateUrl = $viewerRole === 'agent'
+                                        ? route('corex.rental-applications.documents.capture-entries.store', [$rentalApplication, $document])
+                                        : route('corex.rental-applications.authorisation.documents.capture-entries.store', [$rentalApplication, $document]);
+                                    $captureUpdateUrlTemplate = $viewerRole === 'agent'
+                                        ? route('corex.rental-applications.capture-entries.update', [$rentalApplication, '__MARK_UID__'])
+                                        : route('corex.rental-applications.authorisation.capture-entries.update', [$rentalApplication, '__MARK_UID__']);
+                                    $captureDeleteUrlTemplate = $viewerRole === 'agent'
+                                        ? route('corex.rental-applications.capture-entries.destroy', [$rentalApplication, '__MARK_UID__'])
+                                        : route('corex.rental-applications.authorisation.capture-entries.destroy', [$rentalApplication, '__MARK_UID__']);
+                                @endphp
+                                <section id="cv-doc-{{ $document->id }}">
+                                    <h2 class="text-sm font-semibold pb-1 mb-2" style="color: var(--text-primary); border-bottom: 1px solid var(--border);">
+                                        {{ $document->original_name }}
+                                        <span class="text-xs font-normal" style="color: var(--text-muted);">&middot; {{ $document->documentType->label ?? 'Untyped' }}</span>
+                                    </h2>
+                                    @if($row['inline_viewable'])
+                                        <div x-data="rentalDocumentHighlighter({
+                                                initialMarkedUpDocIds: {{ Js::from($initialMarkedUpDocIds) }},
+                                                currentUserId: {{ Js::from(auth()->id()) }},
+                                                currentUserName: {{ Js::from(auth()->user()->name) }},
+                                                currentUserRole: {{ Js::from($viewerRole) }},
+                                                highlighters: {{ Js::from($highlighters) }},
+                                             })"
+                                             x-init="
+                                                initHighlighterPrefs();
+                                                activeDocId = {{ $document->id }};
+                                                firstPageUrl = {{ Js::from($highlightFirstUrl) }};
+                                                remainingPagesUrl = {{ Js::from($highlightRemainingUrl) }};
+                                                postUrl = {{ Js::from($highlightPostUrl) }};
+                                                captureCreateUrl = {{ Js::from($captureCreateUrl) }};
+                                                captureUpdateUrlTemplate = {{ Js::from($captureUpdateUrlTemplate) }};
+                                                captureDeleteUrlTemplate = {{ Js::from($captureDeleteUrlTemplate) }};
+                                                label = {{ Js::from($document->original_name) }};
+                                                const cvScroll = $el.closest('#continuousViewScroll');
+                                                const cvIo = new IntersectionObserver((entries) => {
+                                                    if (entries[0].isIntersecting) { loadDocument(); cvIo.disconnect(); }
+                                                }, { root: cvScroll, rootMargin: '1000px 0px' });
+                                                cvIo.observe($el);
+                                             ">
+                                            <div class="flex items-center gap-3 mb-2">
+                                                <span class="text-xs font-semibold" style="color: var(--text-secondary);" x-show="!loading">
+                                                    <span x-text="markCount()"></span> mark<span x-show="markCount() !== 1">s</span>
+                                                </span>
+                                                <button type="button" class="corex-btn-primary text-xs" x-show="!loading && !loadError"
+                                                        :disabled="applying || pagesLoading" :title="pagesLoading ? 'Still loading the rest of this document' : ''"
+                                                        x-text="applying ? 'Saving…' : (pagesLoading ? 'Loading…' : 'Save')" @click="applyHighlights()"></button>
+                                                <span class="text-xs" x-show="justSaved" x-cloak style="color: var(--ds-emerald, #059669);">&check; Saved</span>
+                                            </div>
+                                            @include('corex.rental-applications.partials.document-highlighter-pages')
+                                        </div>
+                                    @else
+                                        <p class="text-xs" style="color: var(--text-muted);">This file type cannot be previewed on screen — use Download on the Supporting Documents list to view it.</p>
+                                    @endif
+                                </section>
+                            @endforeach
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -1202,98 +1321,6 @@
              now-dead activeDocId/pages/marks are unused at the root
              (markedUpDocIds, also from that same spread, stays — the
              per-row "Marked up" badge still reads it). --}}
-        <div x-show="continuousViewOpen" x-cloak class="fixed inset-0 z-[110]" style="background: var(--surface);">
-            <div class="flex h-full">
-                <div class="flex-shrink-0 overflow-y-auto" style="width: 220px; border-right: 1px solid var(--border); padding: 12px; background: var(--surface-2, #f9fafb);">
-                    <div class="flex items-center justify-between mb-3">
-                        <h3 class="text-sm font-semibold" style="color: var(--text-primary);">Documents</h3>
-                        <button type="button" class="text-xs" style="color: var(--text-muted);" @click="continuousViewOpen = false">Close</button>
-                    </div>
-                    <nav class="space-y-1">
-                        @foreach($documents as $row)
-                            <a href="#cv-doc-{{ $row['document']->id }}" class="block text-xs truncate px-1 py-1 rounded" style="color: var(--ds-blue, #2563eb);" title="{{ $row['document']->original_name }}">{{ $row['document']->original_name }}</a>
-                        @endforeach
-                    </nav>
-                </div>
-                <div class="flex-1 overflow-y-auto" id="continuousViewScroll" style="scroll-behavior: smooth;">
-                    <div class="max-w-4xl mx-auto p-4 space-y-6">
-                        @foreach($documents as $row)
-                            @php
-                                $document = $row['document'];
-                                $highlightFirstUrl = $viewerRole === 'agent'
-                                    ? route('corex.rental-applications.documents.highlight-data.first', [$rentalApplication, $document])
-                                    : route('corex.rental-applications.authorisation.documents.highlight-data.first', [$rentalApplication, $document]);
-                                $highlightRemainingUrl = $viewerRole === 'agent'
-                                    ? route('corex.rental-applications.documents.highlight-data.remaining', [$rentalApplication, $document])
-                                    : route('corex.rental-applications.authorisation.documents.highlight-data.remaining', [$rentalApplication, $document]);
-                                $highlightPostUrl = $viewerRole === 'agent'
-                                    ? route('corex.rental-applications.documents.highlight', [$rentalApplication, $document])
-                                    : route('corex.rental-applications.authorisation.documents.highlight', [$rentalApplication, $document]);
-                                // Capture-ledger rework, 2026-09-11 — create is per-document
-                                // (a brand new mark needs one to attach to); update/delete act
-                                // on the rental application directly (an entry outlives
-                                // whichever document it was drawn on), so those two are a URL
-                                // TEMPLATE with a literal placeholder, filled client-side by
-                                // captureUrlFor().
-                                $captureCreateUrl = $viewerRole === 'agent'
-                                    ? route('corex.rental-applications.documents.capture-entries.store', [$rentalApplication, $document])
-                                    : route('corex.rental-applications.authorisation.documents.capture-entries.store', [$rentalApplication, $document]);
-                                $captureUpdateUrlTemplate = $viewerRole === 'agent'
-                                    ? route('corex.rental-applications.capture-entries.update', [$rentalApplication, '__MARK_UID__'])
-                                    : route('corex.rental-applications.authorisation.capture-entries.update', [$rentalApplication, '__MARK_UID__']);
-                                $captureDeleteUrlTemplate = $viewerRole === 'agent'
-                                    ? route('corex.rental-applications.capture-entries.destroy', [$rentalApplication, '__MARK_UID__'])
-                                    : route('corex.rental-applications.authorisation.capture-entries.destroy', [$rentalApplication, '__MARK_UID__']);
-                            @endphp
-                            <section id="cv-doc-{{ $document->id }}">
-                                <h2 class="text-sm font-semibold pb-1 mb-2" style="color: var(--text-primary); border-bottom: 1px solid var(--border);">
-                                    {{ $document->original_name }}
-                                    <span class="text-xs font-normal" style="color: var(--text-muted);">&middot; {{ $document->documentType->label ?? 'Untyped' }}</span>
-                                </h2>
-                                @if($row['inline_viewable'])
-                                    <div x-data="rentalDocumentHighlighter({
-                                            initialMarkedUpDocIds: {{ Js::from($initialMarkedUpDocIds) }},
-                                            currentUserId: {{ Js::from(auth()->id()) }},
-                                            currentUserName: {{ Js::from(auth()->user()->name) }},
-                                            currentUserRole: {{ Js::from($viewerRole) }},
-                                            highlighters: {{ Js::from($highlighters) }},
-                                         })"
-                                         x-init="
-                                            initHighlighterPrefs();
-                                            activeDocId = {{ $document->id }};
-                                            firstPageUrl = {{ Js::from($highlightFirstUrl) }};
-                                            remainingPagesUrl = {{ Js::from($highlightRemainingUrl) }};
-                                            postUrl = {{ Js::from($highlightPostUrl) }};
-                                            captureCreateUrl = {{ Js::from($captureCreateUrl) }};
-                                            captureUpdateUrlTemplate = {{ Js::from($captureUpdateUrlTemplate) }};
-                                            captureDeleteUrlTemplate = {{ Js::from($captureDeleteUrlTemplate) }};
-                                            label = {{ Js::from($document->original_name) }};
-                                            const cvScroll = $el.closest('#continuousViewScroll');
-                                            const cvIo = new IntersectionObserver((entries) => {
-                                                if (entries[0].isIntersecting) { loadDocument(); cvIo.disconnect(); }
-                                            }, { root: cvScroll, rootMargin: '1000px 0px' });
-                                            cvIo.observe($el);
-                                         ">
-                                        <div class="flex items-center gap-3 mb-2">
-                                            <span class="text-xs font-semibold" style="color: var(--text-secondary);" x-show="!loading">
-                                                <span x-text="markCount()"></span> mark<span x-show="markCount() !== 1">s</span>
-                                            </span>
-                                            <button type="button" class="corex-btn-primary text-xs" x-show="!loading && !loadError"
-                                                    :disabled="applying || pagesLoading" :title="pagesLoading ? 'Still loading the rest of this document' : ''"
-                                                    x-text="applying ? 'Saving…' : (pagesLoading ? 'Loading…' : 'Save')" @click="applyHighlights()"></button>
-                                            <span class="text-xs" x-show="justSaved" x-cloak style="color: var(--ds-emerald, #059669);">&check; Saved</span>
-                                        </div>
-                                        @include('corex.rental-applications.partials.document-highlighter-pages')
-                                    </div>
-                                @else
-                                    <p class="text-xs" style="color: var(--text-muted);">This file type cannot be previewed on screen — use Download on the Supporting Documents list to view it.</p>
-                                @endif
-                            </section>
-                        @endforeach
-                    </div>
-                </div>
-            </div>
-        </div>
 
         {{-- AT-392 — Tenant Wishlist drawer, relocated here (root cause of the
              cut-off/sliced-behind-the-header bug reported on QA1: this drawer
@@ -1630,9 +1657,28 @@ function rentalReview({ saveUrl, initial, initialCaptureEntries, manualCaptureCr
 
             return total / months;
         },
-        // ── Affordability assessment (unchanged) ──────────────────────────
+        // ── Affordability assessment ───────────────────────────────────────
+        // BUG FIX, 2026-09-11 — Johan, live on QA1: "ReferenceError:
+        // initialResult is not defined... the whole screen is decoration."
+        // `result: initialResult ?? {...}` referenced a constructor
+        // parameter the x-data call site never passed (and never has,
+        // since the capture-ledger rework: the old $result = $assessment->
+        // qualifyingResult(...) computation and its verdict-box UI were
+        // deliberately dropped from this screen in Round 8 — see that
+        // round's own "Panel" note, "deliberately WITHOUT the old property-
+        // rent/30%-threshold verdict box, dropped and flagged"). Nothing in
+        // this template reads `this.result` any more (confirmed by
+        // grepping the whole file, not assumed) — a genuinely dead
+        // property left behind when the verdict UI was removed, not a
+        // missing argument to restore. This ReferenceError during
+        // construction is what threw BEFORE Alpine ever finished building
+        // the component, which is why every other binding on the screen
+        // (formatR, incomeEntries, totals, the statement-period fields,
+        // Submit to authoriser) was also undefined — none of them are
+        // broken on their own; the whole object simply never finished
+        // being built. `fields` stays — `this.fields.notes` is read by
+        // performSave() below.
         fields: initial,
-        result: initialResult ?? { label: 'incomplete' },
         // ── Authoriser flow — the agent's action ──────────────────────────
         submittingForApproval: false,
         agentActionStatus: '',

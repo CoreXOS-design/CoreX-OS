@@ -215,9 +215,20 @@
          the wrapping form (not just the amount field) so Enter from
          Date/Description also saves, matching "Enter saves" without
          qualifying which field. --}}
+    {{-- BUG FIX, 2026-09-11 — Johan, live on QA1: "the capture popup is
+         transparent... the bank statement rows show straight through it."
+         Root cause: `corex-card` is not a real global class in this
+         codebase — it exists only scoped under two unrelated screens
+         (dr2/pipeline.blade.php, dr2/distribute-compose.blade.php) — so it
+         contributed literally nothing here; the chip had no background at
+         all. Every other floating panel on this same screen (the wishlist
+         drawer, the send-back/decline modals) uses this exact
+         rounded-md + explicit `background: var(--surface)` +
+         `border: 1px solid var(--border)` pattern, never a `.corex-card`
+         class — matched here instead of inventing a new convention. --}}
     <form x-show="captureChip" x-cloak :style="captureChipStyle()" @submit.prevent="confirmCaptureChip()"
           @keydown.escape.prevent="cancelCaptureChip()"
-          class="corex-card p-3" style="box-shadow: 0 8px 24px rgba(0,0,0,0.18);">
+          class="rounded-md p-3" style="background: var(--surface); border: 1px solid var(--border); box-shadow: 0 8px 24px rgba(0,0,0,0.18);">
         <template x-if="captureChip">
             <div class="space-y-2">
                 <p class="text-xs font-semibold" :style="{ color: captureChip.entryType === 'income' ? 'var(--ds-purple, #7c3aed)' : 'var(--ds-amber, #f59e0b)' }">
@@ -280,11 +291,10 @@
             <span class="text-[11px]" style="color: var(--text-muted);" x-show="legendHighlighters().length === 0">No highlighters configured yet.</span>
         </div>
 
-        <p class="text-xs py-2" style="color: var(--text-muted);">
-            <span x-show="activeTool === 'highlight'">Click and drag across the document, like a marker pen, to highlight.</span>
-            <span x-show="activeTool === 'note'">Click anywhere on the document to pin a note.</span>
-            Marks are saved for this document — anyone who opens it next sees the same marks. You can edit or remove your own marks; anyone else's are read-only to you.
-        </p>
+        {{-- Instructional copy removed, 2026-09-11 — Johan's standing rule:
+             "every line of space is either data the agent needs or a
+             control they act on." Three lines of how-to prose above the
+             document was neither — cut, not shortened. --}}
 
         {{-- Progressive load, 2026-09-08 — Johan: "the agent must be able to
              SEE that more pages are still coming, and roughly how many. A
