@@ -44,6 +44,10 @@
                 // work"). Copying from an untouched neighbour is refused with a
                 // toast rather than silently propagating an unconfirmed guess.
                 'labelTouched' => false,
+                // Johan, 2026-09-11 — page multi-select ("tick pg1/2/4, choose
+                // FICA once"). Purely a ticked/not-ticked UI flag, cleared after
+                // each "Apply to selected" — never persisted, never posted.
+                'selected' => false,
             ];
         }
 
@@ -116,6 +120,13 @@
     border-radius:6px; display:block; margin:0 auto; background:var(--surface-2, var(--surface));
 }
 #spr .thumb-cell .pg-num { font-weight:700; color:var(--brand-icon, #0ea5e9); font-size:.8rem; margin-top:2px; display:block; }
+#spr .pg-select-label {
+    display:flex; align-items:center; justify-content:center; gap:5px;
+    font-size:.72rem; color:var(--text-muted); cursor:pointer; margin-bottom:5px;
+    user-select:none;
+}
+#spr .pg-select-label input { accent-color: var(--brand-icon, #0ea5e9); width:14px; height:14px; cursor:pointer; }
+#spr .pg-select-label.checked { color:var(--brand-icon, #0ea5e9); font-weight:600; }
 #spr select.lbl-select {
     font-size:.82rem; padding:5px 7px; border:1px solid var(--border);
     border-radius:6px; background:var(--surface-2); color:var(--text-primary); cursor:pointer;
@@ -384,6 +395,26 @@
         </span>
     </div>
 
+    {{-- Johan, 2026-09-11 — page multi-select: "tick pg1/2/4, choose FICA
+         once" for a scattered bundle, same mental model as picking files in
+         a folder. Applies ONLY to the ticked pages, never cascades — a page
+         the agent already set (labelTouched) keeps its label regardless of
+         what's applied here or anywhere else (Johan: "if a user selected
+         that it doesnt get overriden... User changes pg 16-20. then for some
+         stupid reason goes and changes pg1 and the whole thing changes
+         again" — that must never happen). Only shown once at least one page
+         is ticked, so it never competes for attention on a normal pass. --}}
+    <div class="toolbar" x-show="selectedCount > 0" x-cloak data-tour="spr-multiselect">
+        <span class="tb-label"><span x-text="selectedCount"></span> page<span x-text="selectedCount === 1 ? '' : 's'"></span> selected:</span>
+        <select class="tb-select" x-model="selectedType">
+            @foreach($docTypes as $key => $label)
+                <option value="{{ $key }}">{{ $label }}</option>
+            @endforeach
+        </select>
+        <button type="button" class="tb-btn" @click="applyToSelected()">Apply to selected</button>
+        <button type="button" class="tb-btn" @click="clearSelection()">Clear selection</button>
+    </div>
+
     {{-- The form. Two distinct submit actions (formaction), covering every file.
          @submit disables both buttons so a double-click/double-tap can't fire
          two overlapping Link submissions (kickoffMultiFica's dedupe check runs
@@ -429,7 +460,11 @@
             <div>
                 <div class="file-divider">
                     <span class="name" x-text="file.originalName"></span>
-                    <span class="meta" x-text="file.pCount + ' page' + (file.pCount === 1 ? '' : 's')"></span>
+                    <span class="meta" style="display:flex; align-items:center; gap:10px;">
+                        <span x-text="file.pCount + ' page' + (file.pCount === 1 ? '' : 's')"></span>
+                        <button type="button" class="add-link" style="text-decoration:none;" @click="toggleSelectAllInFile(file)"
+                                x-text="fileAllSelected(file) ? 'Clear selection' : 'Select all pages'"></button>
+                    </span>
                 </div>
 
                 <div class="tbl-wrap">
@@ -447,6 +482,10 @@
                                 <tr>
                                     {{-- Thumbnail --}}
                                     <td class="thumb-cell">
+                                        <label class="pg-select-label" :class="pg.selected ? 'checked' : ''">
+                                            <input type="checkbox" x-model="pg.selected">
+                                            <span>Select</span>
+                                        </label>
                                         <img :src="thumbUrl(file.manifestId, pg.page)" :alt="`p${pg.page}`" loading="lazy">
                                         <span class="pg-num" x-text="`Page ${pg.page}`"></span>
                                     </td>
@@ -613,6 +652,9 @@ document.addEventListener('alpine:init', () => {
         // (nothing prevents deactivating it) and would otherwise leave
         // bulkType silently pointing at an option the <select> never offers.
         bulkType:   @json(array_key_first($docTypes) ?? 'other'),
+        // Johan, 2026-09-11 — multi-select "Apply to selected" doc type, same
+        // safe-default seeding as bulkType above.
+        selectedType: @json(array_key_first($docTypes) ?? 'other'),
         q: '', propResults: [],
         // ADDITIVE — property prefill. null for every existing flow (a normal
         // run() upload never sets $prefillProperty); when present it's shaped
@@ -769,6 +811,48 @@ document.addEventListener('alpine:init', () => {
                     p.labelTouched = false;  // back to an unconfirmed guess — same-as-* refuses to copy it again
                     p.contactIds = p.contactIds.filter(id => this.allCandidateIds(p.label).includes(id));
                 });
+            });
+        },
+
+        // ── page multi-select (Johan, 2026-09-11) ───────────────────────────
+        // "I select pg1 as rental application, and everything down changes to
+        // this, and then on pg5 I select fica and it changes down same" —
+        // rejected as an auto-cascade (a real bundle is scattered: pg1/2/4
+        // FICA, pg3 ID — a sweep would overwrite pg3). This is the same idea
+        // built safely instead: the agent TICKS exactly the pages they mean
+        // (pg1, pg2, pg4 — same mental model as selecting files in a folder),
+        // picks a type once, and ONLY those ticked pages change. Nothing
+        // cascades down the document; nothing outside the ticked set is ever
+        // touched by this action.
+        //
+        // labelTouched is the actual protection Johan asked for, and it's
+        // the SAME flag setAll()/same-as-*/onLabelChange() already use:
+        // "if a user selected that it doesnt get overriden... User changes pg
+        // 16-20. then for some stupid reason goes and changes pg1 and the
+        // whole thing changes again" — that specific failure is a property of
+        // a CASCADE model, and this feature has no cascade to have it. Ticking
+        // pages 16-20 and applying to a DIFFERENT selection (even one that
+        // includes page 1) can never reach pages 16-20, because "Apply to
+        // selected" only ever iterates pg.selected === true — page 1 being
+        // touched or untouched is irrelevant to whether pages 16-20 are in
+        // THIS action's ticked set. There is no later action, bulk or
+        // otherwise, that walks "down" from any page — every apply path
+        // (same-as-*, Set ALL, Apply to selected) enumerates its own explicit
+        // target set and nothing else.
+        get selectedCount() { return this.allPages().filter(p => p.selected).length; },
+        fileAllSelected(file) { return file.pages.length > 0 && file.pages.every(p => p.selected); },
+        toggleSelectAllInFile(file) {
+            const makeSelected = !this.fileAllSelected(file);
+            file.pages.forEach(p => { p.selected = makeSelected; });
+        },
+        clearSelection() { this.allPages().forEach(p => { p.selected = false; }); },
+        applyToSelected() {
+            const slug = this.selectedType;
+            this.allPages().filter(p => p.selected).forEach(p => {
+                p.label = slug;
+                p.labelTouched = true;  // an explicit choice — protected from every OTHER apply path from here on
+                p.contactIds = p.contactIds.filter(id => this.allCandidateIds(slug).includes(id));
+                p.selected = false;     // the action is done; ticks don't linger to avoid a stray re-apply
             });
         },
 

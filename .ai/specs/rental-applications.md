@@ -7784,3 +7784,26 @@ Johan's own words, the standing rule going forward: "on a working screen, every 
 ### Files changed
 
 - `resources/views/corex/rental-applications/review.blade.php` — Supporting Documents rebuilt (collapsible, one-line rows, uniform-origin facts dropped rather than hoisted); bottom strip's two instructional/empty-state lines gated behind `x-show`; the old single-document sticky-header toolbar (`activeDocId !== null` template) removed; new continuous multi-document view (`continuousViewOpen`/`openContinuousView()` on `rentalReviewLayout()`, one independent `rentalDocumentHighlighter()` instance per document, IntersectionObserver-gated progressive load, jump-to sidebar).
+
+## PDF Splitter intake — page-typing tools (2026-09-11)
+
+The rental-application intake path (a bundle split via `intakeRentalApplicationDocument()`
+→ `tools.pdf_splitter.review` with `session('splitter_context.rental_application_id')` set,
+"Filing to: {applicant}") uses the SAME review screen — `pdf_splitter_review.blade.php` — as
+every other splitter entry point. Two page-typing tools shipped there today, both fully
+documented in `.ai/specs/pdf-splitter-routing.md` (full design/proof, not duplicated here):
+
+- **"Same as previous/next page" buttons** — one-shot, per-page, no cascade. Answers Johan's
+  tedium complaint without the auto-cascade he explicitly rejected once he thought through a
+  real scattered bundle (a rental applicant's own FICA/ID pages are rarely in a neat run).
+- **Page multi-select** — tick pages (e.g. every FICA page in an applicant's bundle, wherever
+  they sit), pick a type once, "Apply to selected." Greenlit after the two buttons alone were
+  judged not to fully answer Johan's original ask. A page an agent already set — by hand or by
+  either tool — is protected (`labelTouched`) from ever being re-swept by a later action on a
+  DIFFERENT page or selection, proven live on a real 20-page bundle: pages 16-20 set by hand
+  survived a same-session bulk-apply that started from page 1, untouched.
+
+Both are pure client-side additions to the shared splitter review screen — no new route, no
+new backend surface, so this in no way changes how a rental-application-sourced batch is
+authorised, filed, or FICA-triggered; only how fast an agent can get through typing 20 pages
+before any of that happens.
