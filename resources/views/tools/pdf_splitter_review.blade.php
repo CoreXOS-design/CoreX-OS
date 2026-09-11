@@ -36,6 +36,14 @@
                     : 'no hits',
                 'contactIds' => [],
                 'touched'    => false,
+                // Johan, 2026-09-11 — "Same as previous/next page" buttons. False
+                // until a human sets this page's type (dropdown, same-as-*, or the
+                // bulk "Set ALL" action) — the auto-detected/'other' guess above is
+                // never treated as confirmed, since OCR detection on real scans is
+                // known-unreliable (Johan: "we tried ocr and it doesnt really
+                // work"). Copying from an untouched neighbour is refused with a
+                // toast rather than silently propagating an unconfirmed guess.
+                'labelTouched' => false,
             ];
         }
 
@@ -113,6 +121,15 @@
     border-radius:6px; background:var(--surface-2); color:var(--text-primary); cursor:pointer;
     width:100%; min-width:150px;
 }
+#spr .same-as-row { display:flex; gap:4px; margin-top:6px; }
+#spr button.same-as-btn {
+    flex:1; font-size:.68rem; font-weight:600; padding:4px 6px;
+    border-radius:5px; border:1px solid var(--border); cursor:pointer;
+    background:transparent; color:var(--text-secondary); white-space:nowrap;
+    transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease;
+}
+#spr button.same-as-btn:hover { background:var(--surface-2); border-color:var(--border-hover); color:var(--text-primary); }
+#spr button.same-as-btn:focus-visible { outline: 2px solid var(--brand-icon, #0ea5e9); outline-offset: 1px; }
 #spr .snippet { font-size:.74rem; color:var(--text-secondary); max-width:280px;
     overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
 #spr .snippet.empty { color:var(--text-muted); font-style:italic; }
@@ -420,7 +437,7 @@
                         <thead>
                             <tr>
                                 <th style="width:230px">Page</th>
-                                <th style="width:170px">Document type</th>
+                                <th style="width:190px">Document type</th>
                                 <th data-tour="spr-assign">Assign to contact(s)</th>
                                 <th style="width:230px">OCR snippet</th>
                             </tr>
@@ -441,6 +458,24 @@
                                                 <option value="{{ $key }}">{{ $dtLabel }}</option>
                                             @endforeach
                                         </select>
+                                        {{-- Johan, 2026-09-11 — two explicit per-page buttons, never a cascade.
+                                             Each copies exactly one neighbour's CURRENT type onto this page and
+                                             touches nothing else — handles a scattered bundle (pg1/2/4 FICA,
+                                             pg3 ID) correctly, because a sweep-forward-from-the-start model
+                                             would silently override pg3. Absent (not just disabled) at a file's
+                                             first/last page — there's nothing on that side to copy from. --}}
+                                        <div class="same-as-row" x-show="prevPage(file, pg) || nextPage(file, pg)">
+                                            <button type="button" class="same-as-btn" x-show="prevPage(file, pg)"
+                                                    @click="sameAsPrevious(file, pg)"
+                                                    title="Copy the document type from the page above (page N-1)">
+                                                &uarr;&nbsp;Same as prev
+                                            </button>
+                                            <button type="button" class="same-as-btn" x-show="nextPage(file, pg)"
+                                                    @click="sameAsNext(file, pg)"
+                                                    title="Copy the document type from the page below (page N+1)">
+                                                &darr;&nbsp;Same as next
+                                            </button>
+                                        </div>
                                     </td>
 
                                     {{-- Contact assignment (many-to-many across roles) --}}
@@ -719,10 +754,11 @@ document.addEventListener('alpine:init', () => {
         // Changing a page's doc-type drops only contacts no longer valid for the
         // new type; it never touches OTHER pages and never re-resolves.
         onLabelChange(pg) {
+            pg.labelTouched = true;   // the agent set this page directly — a valid source to copy FROM now
             pg.contactIds = pg.contactIds.filter(id => this.allCandidateIds(pg.label).includes(id));
         },
         setAll(slug) {
-            this.allPages().forEach(p => { p.label = slug; p.contactIds = p.contactIds.filter(id => this.allCandidateIds(slug).includes(id)); });
+            this.allPages().forEach(p => { p.label = slug; p.labelTouched = true; p.contactIds = p.contactIds.filter(id => this.allCandidateIds(slug).includes(id)); });
         },
         resetAuto() {
             const seedFiles = @json($fileSeed);
@@ -730,9 +766,41 @@ document.addEventListener('alpine:init', () => {
                 f.pages.forEach((p, pi) => {
                     const seedLabel = seedFiles[fi].pages[pi].label;
                     p.label = seedLabel;
+                    p.labelTouched = false;  // back to an unconfirmed guess — same-as-* refuses to copy it again
                     p.contactIds = p.contactIds.filter(id => this.allCandidateIds(p.label).includes(id));
                 });
             });
+        },
+
+        // ── same-as-previous / same-as-next (Johan, 2026-09-11) ─────────────
+        // Explicit, one-shot, per-page. NOT a cascade — each click sets exactly
+        // one page from exactly one neighbour's CURRENT value. Johan rejected an
+        // auto-cascade specifically because real bundles are scattered (his
+        // example: pg1/2/4 FICA, pg3 ID — a sweep from pg1 would silently
+        // override pg3's ID). Same-file only: a "previous/next page" never
+        // crosses into a different uploaded PDF.
+        prevPage(file, pg) {
+            const i = file.pages.indexOf(pg);
+            return i > 0 ? file.pages[i - 1] : null;
+        },
+        nextPage(file, pg) {
+            const i = file.pages.indexOf(pg);
+            return i >= 0 && i < file.pages.length - 1 ? file.pages[i + 1] : null;
+        },
+        sameAsPrevious(file, pg) { this.copyNeighbourLabel(pg, this.prevPage(file, pg)); },
+        sameAsNext(file, pg) { this.copyNeighbourLabel(pg, this.nextPage(file, pg)); },
+        copyNeighbourLabel(pg, neighbour) {
+            if (!neighbour) return; // belt-and-braces — the button is absent at a file's first/last page
+            if (!neighbour.labelTouched) {
+                (window.showToast || alert)(
+                    `Page ${neighbour.page} hasn't had its document type set yet — set that page first, then copy from it.`,
+                    'warning'
+                );
+                return;
+            }
+            pg.label = neighbour.label;
+            pg.labelTouched = true;   // this page is now a confirmed choice too — can itself be copied from next
+            pg.contactIds = pg.contactIds.filter(id => this.allCandidateIds(pg.label).includes(id));
         },
 
         // ── FICA toggle (reactive, across every file) ──────────────────────
