@@ -92,6 +92,17 @@ function rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, curre
         firstPageUrl: '',
         remainingPagesUrl: '',
         postUrl: '',
+        // Capture-ledger rework, 2026-09-11 — set via x-init alongside the
+        // three above (see document-highlighter-pages.blade.php's own
+        // caller). Update/delete are NOT per-document (an entry outlives
+        // whichever document it was drawn on — it lives on the rental
+        // application), so they arrive as a URL TEMPLATE with a literal
+        // '__MARK_UID__' placeholder Laravel's route() baked in, filled by
+        // captureUrlFor() at call time — create still needs a real
+        // document id, so it's a plain per-document URL like postUrl.
+        captureCreateUrl: '',
+        captureUpdateUrlTemplate: '',
+        captureDeleteUrlTemplate: '',
         pages: [],
         totalPages: 0,
         // Progressive load, 2026-09-08 (Johan's decision on the measured 9.2s
@@ -201,6 +212,188 @@ function rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, curre
             this.activeTool = 'note';
             this.activeHighlighterId = null;
         },
+        // Capture-ledger rework, 2026-09-11 — Income/Expense are the only
+        // two capture pens. RentalApplicationHighlighter carries no
+        // persisted category column (`legacy_category` is a one-time
+        // migration-seed convenience only — see that model's own
+        // docblock: "once seeded, a highlighter is just label+colour+
+        // role_scope+order, nothing else"), so a capture pen is identified
+        // by matching its LABEL — a pragmatic call, flagged as fragile: an
+        // agency renaming its default "Income"/"Expense" highlighters
+        // would stop them acting as capture pens. Adding a real category
+        // column was ruled out of this task's scope (touches a model/
+        // migration nothing else here needs to change).
+        captureEntryTypeFor(h) {
+            const label = String((h && h.label) || '').trim().toLowerCase();
+            if (label === 'income') return 'income';
+            if (label === 'expense') return 'expense';
+            return null;
+        },
+        isCapturePen(h) { return this.captureEntryTypeFor(h) !== null; },
+        /** Rail grouping — capture pens (Income/Expense) render under their own heading, separate from any other highlighter an agency has configured (e.g. the default "Unpaid" pen, which stays a plain highlight — never a ledger entry). */
+        capturePickerHighlighters() { return this.pickerHighlighters().filter(h => this.isCapturePen(h)); },
+        plainPickerHighlighters() { return this.pickerHighlighters().filter(h => !this.isCapturePen(h)); },
+
+        // The capture chip — Johan's spec verbatim: "~330px wide, anchored
+        // BESIDE the mark, never over it; above if no room below." Anchored
+        // off the raw pointer event's clientX/clientY (captured once, at
+        // open time) rather than the mark's own page-relative coordinates —
+        // this makes captureChipStyle() immune to scroll position and to
+        // which of the two rentalDocumentHighlighter() call sites is open
+        // (the merged root copy or the continuous-view's own nested
+        // instance per document), since a viewport-relative point means
+        // the same thing in both.
+        captureChip: null, // { mode:'create'|'edit', pendingMark, markId, page, entryType, clientX, clientY, date, description, amount, saving, error }
+        // Returns an OBJECT, deliberately — Alpine's :style merges individual
+        // properties when given an object, coexisting cleanly with x-show's
+        // own display:none toggling on the same element; a STRING value
+        // would replace the whole style attribute on every reactive
+        // re-evaluation and could clobber x-show's display:none.
+        captureChipStyle() {
+            if (!this.captureChip) return {};
+            const width = 330, estHeight = 240, margin = 8;
+            let left = this.captureChip.clientX + 16;
+            if (left + width > window.innerWidth - margin) left = Math.max(margin, this.captureChip.clientX - width - 16);
+            let top = this.captureChip.clientY;
+            if (top + estHeight > window.innerHeight - margin) top = Math.max(margin, top - estHeight);
+            return { position: 'fixed', left: left + 'px', top: top + 'px', width: width + 'px', zIndex: 60 };
+        },
+        openCaptureChipForCreate(pendingMark, entryType, clientX, clientY) {
+            this.captureChip = {
+                mode: 'create', pendingMark, markId: null, page: pendingMark.page, entryType,
+                clientX, clientY, date: '', description: '', amount: '', saving: false, error: '',
+            };
+            this.$nextTick(() => {
+                const el = document.querySelector('[data-capture-chip-amount]');
+                if (el) { el.focus(); el.select(); }
+            });
+        },
+        openCaptureChipForEdit(mark, clientX, clientY) {
+            this.captureChip = {
+                mode: 'edit', pendingMark: null, markId: mark.id, page: mark.page, entryType: mark.entry_type,
+                clientX, clientY, date: mark.entry_date || '', description: mark.entry_description || '',
+                amount: (mark.entry_amount === null || mark.entry_amount === undefined) ? '' : String(mark.entry_amount),
+                saving: false, error: '',
+            };
+            this.$nextTick(() => {
+                const el = document.querySelector('[data-capture-chip-amount]');
+                if (el) { el.focus(); el.select(); }
+            });
+        },
+        /** Esc "cancels AND drops the mark" (Johan's own spec) — a create-mode chip's pendingMark was never added to this.marks in the first place, so closing the chip here IS dropping it; nothing else to undo. */
+        cancelCaptureChip() {
+            this.captureChip = null;
+        },
+        captureUrlFor(kind, markUid) {
+            const template = kind === 'update' ? this.captureUpdateUrlTemplate : this.captureDeleteUrlTemplate;
+            return template.replace('__MARK_UID__', encodeURIComponent(markUid));
+        },
+        async confirmCaptureChip() {
+            if (!this.captureChip || this.captureChip.saving) return;
+            const amount = parseFloat(this.captureChip.amount);
+            if (this.captureChip.amount === '' || Number.isNaN(amount)) {
+                this.captureChip.error = 'Enter an amount.';
+                return;
+            }
+            this.captureChip.saving = true;
+            this.captureChip.error = '';
+            const headers = {
+                'Content-Type': 'application/json',
+                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content ?? '',
+                'Accept': 'application/json',
+                'X-Requested-With': 'XMLHttpRequest',
+            };
+            try {
+                if (this.captureChip.mode === 'create') {
+                    const pm = this.captureChip.pendingMark;
+                    const res = await fetch(this.captureCreateUrl, {
+                        method: 'POST', headers, credentials: 'same-origin',
+                        body: JSON.stringify({
+                            mark_uid: pm.id, page: pm.page, points: pm.points, width: pm.width,
+                            highlighter_id: pm.highlighterId, entry_type: this.captureChip.entryType,
+                            entry_date: this.captureChip.date || null, entry_description: this.captureChip.description || null,
+                            entry_amount: amount,
+                        }),
+                    });
+                    if (!res.ok) {
+                        const body = await res.json().catch(() => ({}));
+                        this.captureChip.error = body.error || 'Could not save this entry.';
+                        this.captureChip.saving = false;
+                        return;
+                    }
+                    const data = await res.json();
+                    this.pushHistory();
+                    this.marks.push({
+                        id: data.entry.id, type: 'highlight', page: pm.page, points: pm.points, width: pm.width,
+                        highlighterId: pm.highlighterId, authorUserId: this.currentUserId, authorName: this.currentUserName, authorRole: this.currentUserRole,
+                        entry_type: data.entry.entry_type, entry_date: data.entry.entry_date,
+                        entry_description: data.entry.entry_description, entry_amount: data.entry.entry_amount,
+                    });
+                    this.$dispatch('capture-entry-created', data.entry);
+                } else {
+                    const res = await fetch(this.captureUrlFor('update', this.captureChip.markId), {
+                        method: 'PUT', headers, credentials: 'same-origin',
+                        body: JSON.stringify({
+                            entry_date: this.captureChip.date || null, entry_description: this.captureChip.description || null,
+                            entry_amount: amount,
+                        }),
+                    });
+                    if (!res.ok) {
+                        const body = await res.json().catch(() => ({}));
+                        this.captureChip.error = body.error || 'Could not save this entry.';
+                        this.captureChip.saving = false;
+                        return;
+                    }
+                    const data = await res.json();
+                    const idx = this.marks.findIndex(m => m.id === this.captureChip.markId);
+                    if (idx !== -1) {
+                        this.marks[idx] = { ...this.marks[idx], entry_date: data.entry.entry_date, entry_description: data.entry.entry_description, entry_amount: data.entry.entry_amount };
+                    }
+                    this.$dispatch('capture-entry-updated', data.entry);
+                }
+                this.captureChip = null;
+            } catch (e) {
+                this.captureChip.error = 'Network error — this entry was not saved.';
+                this.captureChip.saving = false;
+            }
+        },
+        async deleteCaptureChip() {
+            if (!this.captureChip || this.captureChip.mode !== 'edit' || this.captureChip.saving) return;
+            if (!confirm('Remove this captured line? This also removes its mark from the document.')) return;
+            const markUid = this.captureChip.markId;
+            this.captureChip.saving = true;
+            try {
+                const res = await fetch(this.captureUrlFor('delete', markUid), {
+                    method: 'DELETE',
+                    headers: { 'Accept': 'application/json', 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content ?? '', 'X-Requested-With': 'XMLHttpRequest' },
+                    credentials: 'same-origin',
+                });
+                if (!res.ok) {
+                    const body = await res.json().catch(() => ({}));
+                    this.captureChip.error = body.error || 'Could not remove this entry.';
+                    this.captureChip.saving = false;
+                    return;
+                }
+                this.pushHistory();
+                const idx = this.marks.findIndex(m => m.id === markUid);
+                if (idx !== -1) this.marks.splice(idx, 1);
+                this.$dispatch('capture-entry-deleted', markUid);
+                this.captureChip = null;
+            } catch (e) {
+                this.captureChip.error = 'Network error — this entry was not removed.';
+                this.captureChip.saving = false;
+            }
+        },
+        /** Click-to-edit for an existing capture mark only — a plain highlight (or an annotation-typed mark) keeps its old click-does-nothing/hover-× behaviour unchanged. */
+        onStrokeClick(e, page) {
+            const markId = e.target && e.target.dataset ? e.target.dataset.markId : null;
+            if (!markId) return;
+            const mark = this.marks.find(m => m.id === markId && m.page === page);
+            if (!mark || !mark.entry_type || mark.entry_type === 'annotation') return;
+            if (!this.canEditMark(mark)) return;
+            this.openCaptureChipForEdit(mark, e.clientX, e.clientY);
+        },
+
         /** The legend's own list — every NON-archived highlighter (so it always explains what's currently choosable, for either role) PLUS any archived highlighter that still has at least one mark actually on THIS open document, so an old mark's colour is never left unexplained just because someone tidied the settings screen. */
         legendHighlighters() {
             const usedArchivedIds = new Set(
@@ -672,6 +865,17 @@ function rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, curre
                 // did, so this is a small nudge, not a big compensation).
                 svg += poly(dispPoints, this.fillFor(m), fillWidth, 0.55, m.id);
             });
+            // Capture-ledger rework, 2026-09-11 — a capture pen's stroke is
+            // held here (not in this.marks) while its chip is open; render
+            // it anyway so the agent still sees what they just drew. No
+            // markId — it isn't a real mark yet, so it gets no hover-×/
+            // click-to-edit affordance.
+            if (this.captureChip && this.captureChip.mode === 'create' && this.captureChip.pendingMark && this.captureChip.pendingMark.page === p) {
+                const pm = this.captureChip.pendingMark;
+                const dispPoints = pm.points.map(pt => ({ x: this.toDisplayX(pt.x, p), y: this.toDisplayY(pt.y, p) }));
+                const fillWidth = Math.max(this.toDisplayX(pm.width, p), 8);
+                svg += poly(dispPoints, this.fillFor(pm), fillWidth, 0.55, null);
+            }
             if (this.drag.active && this.drag.page === p && this.activeTool === 'highlight') {
                 const preview = { highlighterId: this.activeHighlighterId };
                 svg += poly(this.drag.points, this.fillFor(preview), Math.max(this.strokeWidth, 8), 0.55, null);
@@ -836,7 +1040,6 @@ function rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, curre
             // Deliberately NOT applied to notes (see commitNote() below) —
             // a stroke's entire meaning IS its colour; a note's isn't.
             if (this.drag.points.length >= 2 && this.activeHighlighterId !== null) {
-                this.pushHistory();
                 // "Item 7" — this.drag.points/strokeWidth are raw display px
                 // (captured live from the current mouse position/render, via
                 // startDraw()/moveDraw()'s getBoundingClientRect()) — a
@@ -850,11 +1053,27 @@ function rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, curre
                     ? this.drag.points.map(pt => ({ x: pt.x / size.width, y: pt.y / size.height }))
                     : this.drag.points;
                 const normWidth = size && size.width ? this.strokeWidth / size.width : this.strokeWidth;
-                this.marks.push({
+                const pendingMark = {
                     id: this.generateMarkId(), type: 'highlight', page, points: normPoints, width: normWidth,
                     highlighterId: this.activeHighlighterId, authorUserId: this.currentUserId, authorName: this.currentUserName, authorRole: this.currentUserRole,
-                });
-                this.dirty = true;
+                };
+                // Capture-ledger rework, 2026-09-11 — "the highlighter mark
+                // IS the ledger line." A capture pen (Income/Expense) never
+                // pushes straight to this.marks: the stroke opens a chip
+                // instead and stays PROVISIONAL (drawn live via
+                // strokesSvgFor()'s own pendingMark branch below, but absent
+                // from this.marks/this.dirty) until the chip is confirmed —
+                // Esc drops it with nothing to undo. A plain highlighter
+                // (e.g. the default "Unpaid" pen) keeps the old immediate-
+                // commit behaviour unchanged.
+                const entryType = this.captureEntryTypeFor(this.highlighters.find(h => h.id === this.activeHighlighterId));
+                if (entryType) {
+                    this.openCaptureChipForCreate(pendingMark, entryType, e.clientX, e.clientY);
+                } else {
+                    this.pushHistory();
+                    this.marks.push(pendingMark);
+                    this.dirty = true;
+                }
             }
             this.drag = { active: false, page: null, points: [] };
         },

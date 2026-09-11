@@ -4,8 +4,11 @@ namespace App\Http\Controllers\Concerns;
 
 use App\Models\Document;
 use App\Models\RentalApplication;
+use App\Models\RentalApplicationDocumentMark;
+use App\Models\RentalApplicationHighlighter;
 use App\Services\RentalApplications\RentalApplicationDocumentHighlightService;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 /**
  * AT-392, 2026-09-08 — shared between RentalApplicationReviewController
@@ -40,6 +43,17 @@ trait HandlesRentalApplicationDocumentMarks
 
     /** 'agent' for the review screen, 'authoriser' for the authorisation screen — stamped onto every NEW mark this controller's save creates. */
     abstract protected function markAuthorRole(): string;
+
+    /**
+     * Capture-ledger rework, 2026-09-11 — both consuming controllers
+     * (RentalApplicationReviewController, RentalApplicationAuthorisationController)
+     * already provide this via AuthorizesRentalApplicationAccess. Declared
+     * here explicitly (matching this trait's own existing style for its
+     * other two dependencies above) since captureEntryUpdate()/Delete()
+     * below act on the RENTAL APPLICATION directly, not a specific
+     * document — an unanchored entry has none to guard through.
+     */
+    abstract protected function guardRentalApplication(RentalApplication $rentalApplication): void;
 
     /**
      * Progressive load, 2026-09-08 — page 1 fast, total page count, and
@@ -162,5 +176,144 @@ trait HandlesRentalApplicationDocumentMarks
             'marks_version' => $highlight->marks_version,
             'saved_at' => $highlight->updated_at?->toIso8601String(),
         ]);
+    }
+
+    /**
+     * Capture-ledger rework, 2026-09-11 — Johan: "the highlighter mark IS
+     * the ledger line." A drag with a capture pen active creates the mark
+     * AND its ledger fields in ONE immediate save (not deferred to the
+     * existing bulk "Save" button above, which replaces a whole document's
+     * mark set and is built for freehand strokes, not a single committed
+     * entry) — the capture chip's Enter calls this the instant the agent
+     * confirms it. Points/width arrive already converted to RASTER px by
+     * the client, the same convention applyHighlight() above already uses.
+     *
+     * Deliberately bypasses RentalApplicationDocumentHighlightService::
+     * applyMarks() — that method's own job (regenerating the flattened/
+     * burned download image, bumping marks_version) is real but not worth
+     * paying on every single keystroke-speed capture save; the burned
+     * artifact catches up the next time the existing bulk Save runs (its
+     * own persistMarks() echoes this mark back unchanged and includes it
+     * in the burn). Known, accepted side effect: a document whose ONLY
+     * marks are capture entries won't show "Marked up" (that badge reads
+     * the burned-file column) until a plain highlight/note is also drawn
+     * and saved the old way — flagged in the build report, not silently
+     * left undocumented.
+     */
+    public function captureEntryCreate(Request $request, RentalApplication $rentalApplication, Document $document)
+    {
+        $this->guardDocumentMarkAccess($rentalApplication, $document);
+
+        $validHighlighterIds = RentalApplicationHighlighter::pickerFor((int) $rentalApplication->agency_id, $this->markAuthorRole())
+            ->pluck('id')->all();
+
+        $validated = $request->validate([
+            'mark_uid' => ['required', 'string', 'max:64'],
+            'page' => ['required', 'integer', 'min:0'],
+            'points' => ['required', 'array', 'min:2'],
+            'points.*.x' => ['required', 'numeric'],
+            'points.*.y' => ['required', 'numeric'],
+            'width' => ['required', 'numeric', 'min:0'],
+            'highlighter_id' => ['required', 'integer', Rule::in($validHighlighterIds)],
+            'entry_type' => ['required', Rule::in(RentalApplicationDocumentMark::LEDGER_ENTRY_TYPES)],
+            'entry_date' => ['nullable', 'date'],
+            'entry_description' => ['nullable', 'string', 'max:255'],
+            'entry_amount' => ['required', 'numeric'],
+        ]);
+
+        if (RentalApplicationDocumentMark::where('document_id', $document->id)->where('mark_uid', $validated['mark_uid'])->exists()) {
+            return response()->json(['error' => 'This mark has already been saved.'], 409);
+        }
+
+        $mark = RentalApplicationDocumentMark::create([
+            'agency_id' => $rentalApplication->agency_id,
+            'document_id' => $document->id,
+            'rental_application_id' => $rentalApplication->id,
+            'mark_uid' => $validated['mark_uid'],
+            'type' => 'highlight',
+            'page' => $validated['page'],
+            'points' => $validated['points'],
+            'width' => $validated['width'],
+            'highlighter_id' => $validated['highlighter_id'],
+            'author_user_id' => $request->user()->id,
+            'author_name' => (string) $request->user()->name,
+            'author_role' => $this->markAuthorRole(),
+            'source' => 'human',
+            'entry_type' => $validated['entry_type'],
+            'entry_date' => $validated['entry_date'] ?? null,
+            'entry_description' => $validated['entry_description'] ?? null,
+            'entry_amount' => $validated['entry_amount'],
+        ]);
+
+        return response()->json(['ok' => true, 'entry' => $mark->toMarkArray()]);
+    }
+
+    /**
+     * Ledger fields only — entry_date/entry_description/entry_amount.
+     * Geometry (points/width/highlighter_id/page) is never editable here,
+     * on purpose: the "no in-place edit of a drawn mark, only draw-new and
+     * remove" evidence-integrity rule this table was built for (AT-401)
+     * stays intact for what a mark visually IS on the document. What the
+     * agent typed about it is a different fact and is allowed to change —
+     * exactly as an ordinary ledger line always could.
+     */
+    public function captureEntryUpdate(Request $request, RentalApplication $rentalApplication, string $markUid)
+    {
+        $this->guardRentalApplication($rentalApplication);
+
+        $mark = RentalApplicationDocumentMark::where('rental_application_id', $rentalApplication->id)
+            ->where('mark_uid', $markUid)
+            ->whereIn('entry_type', RentalApplicationDocumentMark::LEDGER_ENTRY_TYPES)
+            ->firstOrFail();
+
+        $this->guardCaptureEntryOwnership($mark, $request->user());
+
+        $validated = $request->validate([
+            'entry_date' => ['nullable', 'date'],
+            'entry_description' => ['nullable', 'string', 'max:255'],
+            'entry_amount' => ['required', 'numeric'],
+        ]);
+
+        $mark->update($validated);
+
+        return response()->json(['ok' => true, 'entry' => $mark->toMarkArray()]);
+    }
+
+    /** Soft delete only (non-negotiable #1) — the mark AND its ledger line disappear together, since they are now the same row. */
+    public function captureEntryDelete(Request $request, RentalApplication $rentalApplication, string $markUid)
+    {
+        $this->guardRentalApplication($rentalApplication);
+
+        $mark = RentalApplicationDocumentMark::where('rental_application_id', $rentalApplication->id)
+            ->where('mark_uid', $markUid)
+            ->whereIn('entry_type', RentalApplicationDocumentMark::LEDGER_ENTRY_TYPES)
+            ->firstOrFail();
+
+        $this->guardCaptureEntryOwnership($mark, $request->user());
+
+        $mark->delete();
+
+        return response()->json(['ok' => true]);
+    }
+
+    /**
+     * Same ownership rule persistMarks() already enforces for removing a
+     * plain highlight/note (AT-401's own governance): an unattributed
+     * (legacy/migrated) entry has nothing to protect; otherwise only the
+     * entry's own author may change it, and an authoriser may never touch
+     * an agent's entry regardless of user id.
+     */
+    private function guardCaptureEntryOwnership(RentalApplicationDocumentMark $mark, $user): void
+    {
+        if ($mark->author_role === null) {
+            return;
+        }
+
+        $blockedByRole = $mark->author_role === 'agent' && $this->markAuthorRole() === 'authoriser';
+        $blockedByUser = (int) $mark->author_user_id !== (int) $user->id;
+
+        if ($blockedByRole || $blockedByUser) {
+            abort(403, 'This entry was captured by someone else and can\'t be changed here.');
+        }
     }
 }

@@ -35,14 +35,12 @@
     // (rental-applications/public/show.blade.php's @json() incident,
     // 2026-09-08) — never assume a closure inline in a Blade echo is safe
     // without proving the compiled output first.
-    if ($viewerRole === 'agent') {
-        $initialIncomeItems = $assessment->incomeItems->map(fn ($i) => [
-            'id' => $i->id, 'description' => $i->description, 'amount' => $i->amount, 'entry_date' => $i->entry_date?->format('Y-m-d'),
-        ])->values();
-        $initialExpenseItems = $assessment->expenseItems->map(fn ($i) => [
-            'id' => $i->id, 'description' => $i->description, 'amount' => $i->amount, 'entry_date' => $i->entry_date?->format('Y-m-d'),
-        ])->values();
-    }
+    //
+    // Capture-ledger rework, 2026-09-11 — $initialIncomeItems/
+    // $initialExpenseItems REMOVED (were computed here from
+    // $assessment->incomeItems/expenseItems). $captureEntries, computed in
+    // the controller from rental_application_document_marks, replaces them
+    // as this screen's source of truth for the ledger.
     $initialMarkedUpDocIds = $documents->filter(fn ($row) => $row['has_highlights'])->pluck('document.id')->values();
     // AT-392 — Johan: "unsplit shows as visibly incomplete on the
     // application, never silently accepted." Shared by the Submit button
@@ -106,9 +104,7 @@
              statement_period_to: {{ Js::from($assessment->statement_period_to?->format('Y-m-d')) }},
              has_unpaid_transactions: {{ Js::from((bool) $assessment->has_unpaid_transactions) }},
          },
-         initialIncomeItems: {{ Js::from($initialIncomeItems) }},
-         initialExpenseItems: {{ Js::from($initialExpenseItems) }},
-         initialResult: {{ Js::from($result) }},
+         initialCaptureEntries: {{ Js::from($captureEntries) }},
          initialSavedAt: {{ $assessment->exists ? Js::from($assessment->updated_at->toIso8601String()) : 'null' }},
          initialMarkedUpDocIds: {{ Js::from($initialMarkedUpDocIds) }},
          currentUserId: {{ Js::from(auth()->id()) }},
@@ -129,8 +125,21 @@
          currentUserName: {{ Js::from(auth()->user()->name) }},
          currentUserRole: 'authoriser',
          highlighters: {{ Js::from($highlighters) }},
+         initialCaptureEntries: {{ Js::from($captureEntries) }},
+         initialStatementMonths: {{ Js::from($assessment->statement_months) }},
      })"
      @endif
+     {{-- Capture-ledger rework, 2026-09-11 — the chip lives inside
+          rentalDocumentHighlighter(), which is a genuinely SEPARATE
+          x-data component per document inside the continuous view (see
+          that block's own comment on why the root-level spread's
+          marks/activeDocId are dead there) — it has no direct reference
+          to this root's captureEntries/addCaptureEntry(). .window listeners
+          here bridge the two regardless of DOM nesting depth, the same way
+          $dispatch()'d events always do. --}}
+     @capture-entry-created.window="addCaptureEntry($event.detail)"
+     @capture-entry-updated.window="updateCaptureEntry($event.detail)"
+     @capture-entry-deleted.window="removeCaptureEntry($event.detail)"
 >
 
     {{-- Sticky header, 2026-09-08 — second time today the same fault: controls
@@ -327,156 +336,30 @@
         &check; Marks saved — the next person to open this document sees them.
     </div>
 
-    {{-- Layout — one shared shape for both roles now, 2026-09-09. Was
-         .rental-review-* (agent) and .rah-auth-* (authoriser) — two class
-         families for the identical two-region shape, exactly the kind of
-         drift Johan flagged ("we have been bitten repeatedly today by two
-         versions of the same thing"). One family now; the authoriser's
-         320px aside became 260px (the agent's original) — the Decision
-         panel's inputs are w-full and adapt fine; if Johan wants it wider
-         later, that's a one-line change, not a rebuild.
+    {{-- ROUND 8, 2026-09-11 — capture-ledger rework. Johan, on the bottom
+         strip Rounds 6/7 built: "it stays split and disconnected." The
+         fix is structural, not another resize: the highlighter mark IS
+         the ledger line now (see document-highlighter-script.blade.php
+         and app/Http/Controllers/Concerns/HandlesRentalApplicationDocumentMarks.php's
+         captureEntry* methods). Because the panel no longer holds any
+         input fields — it is a READ-ONLY tally now, capture happens on
+         the document itself via a capture pen + an anchored chip — it no
+         longer needs the width six earlier rounds fought over. It
+         RETURNS to a fixed 196px side column, side-by-side with the
+         document at ≥1280px, exactly the two-region shape this screen
+         used before the bottom-strip detour, minus the drag entirely:
+         a fixed-width read-only tally has nothing to negotiate for.
+         Full round-by-round history (widths measured and re-derived
+         seven times over, the bottom-strip build, the reasons it was
+         rejected) lives in .ai/specs/rental-applications.md — kept there
+         now rather than repeated inline, since none of it describes the
+         layout actually shipping any more.
 
-         2026-09-07/08 — Johan rejected the original 50/50 grid ("makes the
-         document unreadable, defeats the purpose"). Same two-region shape
-         CoreX already uses twice elsewhere (Docuperfect's signature
-         review/sign screens): review-main (dominant, application +
-         documents) and review-aside (fixed 260px, the role's own working
-         panel). Stacks below 1280px.
-
-         IN-PLACE ANNOTATION — Johan: "you lose the right hand panel to
-         capture income etc. until you have finished the highlighting...
-         think thats a problem as you have both but on separate screens."
-         Fixed by removing the modal: the highlighter renders INLINE inside
-         review-main's own document row, so review-aside is a plain flex
-         SIBLING that's never covered.
-
-         Independent scrolling — the original fixed "100vh - 88px" guess
-         didn't account for the QA/env banner or the sticky header's real
-         margins. Fixed by MEASURING the real available space at runtime
-         (rentalReviewLayout() below) instead of guessing it.
-
-         DRAGGABLE WIDTH, 2026-09-10 ("Dates on entries", Johan) — the aside
-         was a fixed 260px, tight enough already per the "one-line change,
-         not a rebuild" note above; adding a date column to every income/
-         expense row (and a two-date "statement period" row) would have
-         meant cramming three fields into that width. Johan's own call:
-         "if the dates do not fit cleanly, build the draggable panel width
-         as part of this rather than cramming them in." Reuses the exact
-         drag pattern already shipped for DocuPerfect's web-template editor
-         (resources/views/docuperfect/templates/edit-web.blade.php
-         startDrag/onDrag) rather than inventing a second one — a plain
-         mousedown/mousemove/mouseup drag on a 6px handle, clamped to a
-         sensible min/max, width read from and written to a CSS custom
-         property so the existing sticky/independent-scroll rules above
-         keep working unchanged. Persisted per-browser via localStorage
-         (rentalReviewAsideWidth) so a drag survives a reload.
-
-         DEFAULT WIDTH RE-DERIVED FROM CONTENT, 2026-09-10, ROUND 2 ("Item 6",
-         Johan, rejecting the first pass after checking application 76
-         himself: "the description field on every row is so narrow it
-         truncates to about five characters... You solved it INSIDE the
-         panel's existing width — and the width is the problem. Going
-         260 → 320 does not make a 5-character field readable... Work out
-         the width the affordability rows genuinely need... then give the
-         panel that, taking the space from the main column, which plainly
-         has it to spare."
-         He was right and the first pass was wrong: raising the floor by
-         60px was an increment off the OLD number, not a figure derived
-         from what a description/date/amount row actually needs — and
-         .rental-review-main genuinely has width to spare (its own cards —
-         Submitted Application, Supporting Documents, Audit Trail — are
-         short, list-shaped content that was never using the wide column
-         it was given; there is no reason the aside should stay narrow so
-         that column can sit under-used).
-         The new default is SUMMED from the row's own real requirements,
-         not picked and then checked: a description column comfortable for
-         a real word (~170px — "Salary deposit" fits with room),
-         + the date column's already-proven 130px, + an amount column
-         comfortable to R999,999.99 (~100px), + two 6px grid gaps (12px),
-         + each card's own p-3 padding (24px) = 436px, rounded to 440.
-         Floor (drag-to-narrowest) raised 320 → 380 — still narrower than
-         the default, for a user who genuinely wants less panel, but with
-         the "degrade legibly" rule below covering it rather than an
-         unreadable stump. Ceiling raised 480 → 640, since a description
-         column is exactly the kind of field worth giving real extra room
-         to on a wide monitor.
-
-         ROUND 3, 2026-09-10, SAME DAY — Johan accepted the description fix
-         but found the AMOUNT column now clipping its last digit on
-         application 76's real larger figures ("28861.3", "29340.9",
-         "28863.0" instead of the full 8-character value) at the very
-         default width just fixed. Root cause, found by measuring — not
-         guessing again: this headless test browser renders NO native
-         scrollbar (Linux/Chromium default is an overlay scrollbar that
-         takes zero layout width), but `.rental-review-aside` genuinely
-         overflows vertically on a real 6-row+ record and `overflow-y:auto`
-         WILL show a real, space-consuming scrollbar in an ordinary desktop
-         Chrome/Edge on Windows — commonly ~17px wide. That 17px was never
-         accounted for in the row's width budget, so every column
-         (including amount) had slightly less real room than this test
-         environment showed. Fixed at the root with `scrollbar-gutter:
-         stable` below — the browser reserves that space in the layout
-         WHETHER OR NOT a scrollbar is currently drawn, so the content
-         width this test environment measures now matches what a real
-         scrollbar-showing browser actually has, instead of silently
-         disagreeing by ~17px.
-         Amount column's own floor also raised 78px → 100px (a hard
-         minimum now, not contingent on leftover flex space) — checked
-         against this application's own real data (largest captured
-         figures: R29,340.99 / R28,863.00, both 8 characters) plus headroom
-         to a realistic 9-character ceiling (R999,999.99). Description's
-         ratio trimmed 1.6fr → 1.5fr to make room for amount's new floor
-         without re-widening the whole row. Default recomputed with the
-         scrollbar now included in the budget: 170 (desc) + 130 (date) +
-         100 (amount, now a real floor not a lower bound) + 12 (gaps) + 24
-         (card padding) + 17 (scrollbar-gutter reservation) = 453, rounded
-         to 460. Floor/ceiling shifted the same +20px the default moved:
-         400–660.
-
-         ROUND 4, 2026-09-11 — Johan, real browser, 1522px viewport: "theres
-         no ways anyone can read that... the pdf showing is too small."
-         Three concrete, measured reductions, not a guess-and-shrink:
-         (1) `.corex-input`'s padding on this screen was never set by this
-         file at all — it was `@tailwindcss/forms`' own global default
-         (12px/8px), confirmed via getComputedStyle, not assumed. Tightened
-         to 6px/4px via a scoped override below (same pattern already used
-         by `.dr2-distribute .corex-input`/`.dr2-pipeline .corex-input`
-         elsewhere in this codebase — never a global forms-plugin change).
-         (2) Amount's floor re-verified at the tighter padding against the
-         SAME 9-character ceiling (R999,999.99) — renders complete at 90px
-         (was 100px): -10px. (3) Date column re-verified the same way —
-         Round 2's own "118px still clipped the last digit of the year"
-         finding was true at the OLD 12px padding; at 6px padding the full
-         native date (confirmed via screenshot, not inference) renders
-         complete at 118px (was 130px): -12px. Description cut ~20% per
-         Johan's explicit instruction (170 → 136px: -34px), verified against
-         this application's own real values ("salary"/"wages"/"utils" all
-         still read as full words) — the existing `:title` tooltip fallback
-         is the documented, accepted backstop for values that don't, same
-         as it already was at the old width.
-         Native `<input type="date">` display format (Johan asked for
-         yy/mm/dd) is NOT page-controllable — it's the browser/OS locale's
-         own rendering, not something HTML/CSS/JS on this page can
-         override, and forcing it would mean replacing the native control
-         entirely (losing the native picker, native validation, and the
-         mobile date-wheel keyboard for two characters of width). Reported,
-         not attempted — contributes 0 to this round's savings.
-         Total: 34 (desc) + 12 (date) + 10 (amount) = 56px off the row's own
-         width requirement. Default recomputed the same way as every prior
-         round: 136 (desc) + 118 (date) + 90 (amount) + 12 (gaps) + 24 (card
-         padding) + 17 (scrollbar-gutter) = 397, rounded to 400. Floor/
-         ceiling shifted the same -60px the default moved: 340–600. That
-         -60px goes straight to `.rental-review-main` (the PDF column) —
-         the entire point, per Johan: "do not save 60px inside the panel
-         and leave the panel 440px wide."
-
-         ROUND 6, 2026-09-11 — Johan, after Round 4 landed and cc1 verified
-         it: "not going to work. too little width left to properly see the
-         pdf. Bank statements especially are printed small." Width alone
-         could never fix this — the panel moves out of the right-hand
-         column entirely and becomes a strip along the BOTTOM, full width,
-         at every viewport size (no more side-by-side breakpoint at all).
-         `.rental-review-columns` is now always a vertical flex stack —
+         One still-true finding carried forward: native `<input
+         type="date">` display format is the browser/OS locale's own
+         rendering, not something this page's CSS/JS can override —
+         relevant again below, since the statement-period fields are
+         still native date inputs, just relocated.
          main on top (full width, flexible remaining height), aside below
          (full width, fixed HEIGHT instead of fixed WIDTH). The resizer now
          drags VERTICALLY (`cursor: row-resize`, a horizontal bar) — Johan's
@@ -491,68 +374,45 @@
          Default (320px) matches Johan's own approved mockup: all four
          zones' content with three ledger rows visible before it scrolls. --}}
     <style>
-        .rental-review-columns { display: flex; flex-direction: column; gap: 0; }
-        .rental-review-main {
-            flex: 1 1 auto; min-width: 0; width: 100%;
-            height: calc(var(--rr-panel-h, calc(100vh - 160px)) - var(--rr-strip-h, 320px) - 14px);
-            max-height: calc(var(--rr-panel-h, calc(100vh - 160px)) - var(--rr-strip-h, 320px) - 14px);
-            overflow-y: auto;
+        .rental-review-columns { display: flex; flex-direction: column; gap: 20px; }
+        .rental-review-main    { flex: 1 1 auto; min-width: 0; }
+        .rental-review-aside   { width: 100%; }
+        @media (min-width: 1280px) {
+            .rental-review-columns { flex-direction: row; gap: 16px; align-items: stretch; }
+            .rental-review-main    { height: var(--rr-panel-h, calc(100vh - 160px)); max-height: var(--rr-panel-h, calc(100vh - 160px)); overflow-y: auto; }
+            /* ROUND 8, 2026-09-11 — fixed 196px, no drag. A read-only tally
+               has nothing to negotiate for; every prior round's width fight
+               was about fitting INPUT fields, and there are none left in
+               this panel — capture happens on the document now. */
+            .rental-review-aside  {
+                flex: 0 0 196px; width: 196px; align-self: stretch;
+                position: sticky; top: 72px;
+                height: var(--rr-panel-h, calc(100vh - 160px)); max-height: var(--rr-panel-h, calc(100vh - 160px));
+                overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable;
+                padding: 10px 12px;
+            }
         }
-        .rental-review-resizer {
-            display: block; height: 6px; width: 100%; cursor: row-resize;
-            background: var(--border); border-radius: 3px; margin: 8px 0;
-            flex-shrink: 0;
-        }
-        .rental-review-resizer:hover, .rental-review-resizer.is-dragging { background: var(--ds-blue, #2563eb); }
-        .rental-review-aside {
-            width: 100%; flex: 0 0 var(--rr-strip-h, 320px); height: var(--rr-strip-h, 320px);
-            overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable;
-            padding: 10px 12px;
-        }
-        /* ROUND 4, 2026-09-11 — @tailwindcss/forms' own global default
-           (12px/8px, confirmed via getComputedStyle, never set by this
-           file before) tightened to fit the text rather than float in
-           it. Scoped exactly like .dr2-distribute/.dr2-pipeline's own
-           .corex-input overrides elsewhere in this codebase — never a
-           global forms-plugin change. */
+        /* @tailwindcss/forms' own global default (12px/8px) tightened to
+           fit a 196px column — same scoped-override pattern already used
+           by .dr2-distribute/.dr2-pipeline elsewhere in this codebase. */
         .rental-review-aside .corex-input { padding: 4px 6px; }
 
-        /* ROUND 6, 2026-09-11 — the four zones, side by side, per Johan's
-           approved mockup. Widths are the mockup's own named figures
-           (~150 / flexible / ~196 / ~128), not re-derived from measured
-           content the way earlier rounds' column widths were — there was
-           no existing content to measure against for a layout this new;
-           these are a first pass, checked and adjusted live against a
-           real record (application 76) rather than assumed correct. */
-        .rr-strip-zones { display: flex; align-items: stretch; gap: 14px; height: 100%; }
-        .rr-zone-period  { flex: 0 0 150px; width: 150px; overflow-y: auto; }
-        .rr-zone-ledger  { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
-        .rr-zone-totals  { flex: 0 0 196px; width: 196px; overflow-y: auto; border-left: 1px solid var(--border); padding-left: 14px; }
-        .rr-zone-actions { flex: 0 0 128px; width: 128px; border-left: 1px solid var(--border); padding-left: 14px; display: flex; flex-direction: column; justify-content: flex-start; }
-
-        /* The ledger — DATE | DESCRIPTION | INCOME | EXPENSE, shared column
-           template for the header, the input row, and every captured row,
-           so all four always line up. Authoriser rows add a 5th narrow
-           column for the strike/restore control. */
-        {{-- Date column is 118px, not a round 100 — the same figure Round
-             2/4's own live-verified measurement established for a native
-             `<input type="date">` (full "06/24/2026" plus the picker icon,
-             confirmed by screenshot: 100px clipped the year's last digit
-             the instant real data — application 76's own entries — was
-             checked live, not assumed from a clean round number). --}}
-        .rr-ledger-header, .rr-zone-ledger .rr-ledger-row {
-            display: grid; grid-template-columns: 118px minmax(0,1fr) 90px 90px; gap: 6px; align-items: center;
-        }
-        @if($viewerRole !== 'agent')
-        .rr-ledger-header, .rr-zone-ledger .rr-ledger-row { grid-template-columns: 118px minmax(0,1fr) 90px 90px auto; }
-        @endif
-        .rr-ledger-header {
+        /* The capture-ledger tally — numbered rows, INCOME then EXPENSES,
+           each a single grid line: badge | date | amount | jump glyph. */
+        .rr-ledger-group-label {
             font-size: 10px; text-transform: uppercase; letter-spacing: 0.03em;
-            color: var(--text-muted); padding: 0 0 4px 0; border-bottom: 1px solid var(--border); margin-bottom: 4px;
+            color: var(--text-muted); margin: 10px 0 4px 0;
         }
-        .rr-ledger-input-row { padding-bottom: 6px; margin-bottom: 4px; border-bottom: 1px dashed var(--border); }
-        .rr-zone-ledger .rr-ledger-rows { flex: 1 1 auto; overflow-y: auto; }
-        .rr-zone-ledger .rr-ledger-rows > div + div { margin-top: 2px; }
+        .rr-ledger-row {
+            display: grid; grid-template-columns: 18px 56px 1fr 14px; gap: 6px; align-items: center;
+            padding: 2px 0;
+        }
+        .rr-ledger-badge {
+            width: 15px; height: 15px; border-radius: 9999px; color: #fff;
+            font-size: 9px; font-weight: 700; line-height: 15px; text-align: center;
+            flex-shrink: 0;
+        }
+        .rr-ledger-amount { text-align: right; font-variant-numeric: tabular-nums; }
     </style>
 
     <div class="rental-review-columns mt-5" x-data="rentalReviewLayout()">
@@ -897,18 +757,11 @@
             </div>
         </div>
 
-        {{-- Draggable resizer, 2026-09-11 (ROUND 6 — bottom strip) — see the
-             "ROUND 6" note on the layout <style> block above for why. Drags
-             the strip's HEIGHT now, not the old side panel's width. --}}
-        <div class="rental-review-resizer" :class="{ 'is-dragging': resizingStrip }"
-             @mousedown.prevent="startStripResize($event)"
-             title="Drag to resize this panel"></div>
-
-        {{-- ASIDE — the assessment panel (role-gated: agent captures inline;
-             authoriser strikes-and-adds, never edits) plus the role's own
-             actions block at the bottom. Bottom strip, full width, HEIGHT
-             draggable (see resizer above) — never covered by anything, see
-             the in-place-annotation note above the layout <style> block.
+        {{-- ASIDE — read-only capture-ledger tally, fixed 196px (ROUND 8 —
+             see the layout <style> block's own comment). No drag, no
+             resizer element: nothing to negotiate for in a fixed-width
+             read-only panel. Never covered by anything, see the
+             in-place-annotation note above the layout <style> block.
 
              REDESIGNED 2026-09-10 ("Item 6", Johan, verbatim: "the right
              hand panel needs to be redesigned on rental for user and auth -
@@ -994,259 +847,114 @@
                 <p class="text-xs mb-2" x-show="agentActionStatus" x-text="agentActionStatus" :style="agentActionError ? 'color: var(--ds-red, #dc2626);' : 'color: var(--ds-emerald, #059669);'"></p>
             @endif
 
-            {{-- ROUND 6, 2026-09-11 — FOUR ZONES, side by side, per Johan's
-                 approved mockup ("there is no ways the right panel is
-                 allowing this to work but the bottom panel can make it
-                 work"). PERIOD (~150px) — ENTRIES, the merged income/expense
-                 ledger (flexible, the important part) — TOTALS (~196px) —
-                 ACTIONS (~128px). Each zone is independently role-gated
-                 rather than the whole strip being one big if/else, since
-                 every zone's CONTENT differs by role but its POSITION and
-                 width do not. --}}
-            <div class="rr-strip-zones"
-                 @if($viewerRole !== 'agent')
-                 x-data="rentalAssessmentEditor({
-                     currentUserId: {{ Js::from(auth()->id()) }},
-                     incomeItems: {{ Js::from($serializedIncomeItems) }},
-                     expenseItems: {{ Js::from($serializedExpenseItems) }},
-                     addIncomeUrl: {{ Js::from(route('corex.rental-applications.authorisation.assessment.income-items.store', $rentalApplication)) }},
-                     addExpenseUrl: {{ Js::from(route('corex.rental-applications.authorisation.assessment.expense-items.store', $rentalApplication)) }},
-                     incomeItemUrl: {{ Js::from(url('corex/rental-applications/authorisation/' . $rentalApplication->id . '/assessment/income-items')) }},
-                     expenseItemUrl: {{ Js::from(url('corex/rental-applications/authorisation/' . $rentalApplication->id . '/assessment/expense-items')) }},
-                     statementMonths: {{ Js::from($assessment->statement_months) }},
-                     maxRentPercent: {{ Js::from($maxRentPercent) }},
-                     rent: {{ Js::from($result['rent'] ?? null) }},
-                     propertyLinked: {{ Js::from((bool) ($result['property_linked'] ?? false)) }},
-                     hasUnpaidTransactions: {{ Js::from((bool) $assessment->has_unpaid_transactions) }},
-                 })"
-                 @endif
-            >
-                {{-- ZONE 1 — PERIOD. Dates stacked vertically per Johan's own
-                     instruction ("costs nothing because the strip has height
-                     to spare where it never had width") — the two-column
-                     grid this used to be (aside was a narrow column, height
-                     was cheap) is now backwards: the strip is short and wide,
-                     so the two dates each get their own full-width row instead
-                     of fighting for horizontal room next to entries/totals/
-                     actions. --}}
-                <div class="rr-zone-period">
-                    @if($viewerRole === 'agent')
-                        <div class="flex items-center justify-between gap-1 mb-1">
-                            <label class="text-xs font-medium" style="color: var(--text-secondary);">Statement period</label>
-                            <span class="ds-badge ds-badge-info flex-shrink-0" style="font-size: 9px; padding: 1px 4px;" title="Every field on this strip saves the moment you click away from it — no button needed.">Autosaves</span>
-                        </div>
-                        <div class="flex flex-col gap-1">
-                            <input type="date" class="corex-input text-xs w-full" x-model="statementPeriodFrom" @change="save()" aria-label="Statement period from">
-                            <input type="date" class="corex-input text-xs w-full" x-model="statementPeriodTo" @change="save()" aria-label="Statement period to">
-                        </div>
-                        {{-- ROUND 7, 2026-09-11 — Johan: "0 entries captured
-                             increases the space by like 3 lines... you keep
-                             building screens where the real estate is lost
-                             to nice parts instead of functional parts." The
-                             "pick both dates" instruction was dead weight
-                             both before AND after being read once — the
-                             From/To labels already say what to do, and the
-                             months count already appears the moment both
-                             are picked; removed outright rather than folded
-                             in, since there was nothing left worth keeping.
-                             The "pick a period above" tail on the fallback
-                             line was the same kind of restatement, cut for
-                             the same reason. --}}
-                        <p class="text-[11px] mt-1" style="color: var(--text-secondary);" x-show="(statementPeriodFrom && statementPeriodTo) || statementMonths">
-                            <template x-if="statementPeriodFrom && statementPeriodTo">
-                                <span>Covers <strong x-text="calculatedStatementMonths()"></strong> month<span x-show="calculatedStatementMonths() !== 1">s</span></span>
-                            </template>
-                            <template x-if="!(statementPeriodFrom && statementPeriodTo) && statementMonths">
-                                <span>Currently <strong x-text="statementMonths"></strong> month<span x-show="statementMonths !== 1">s</span></span>
-                            </template>
-                        </p>
-                        {{-- An empty ledger is visibly empty — a count only
-                             earns its line once there's something to count. --}}
-                        <p class="text-[11px]" style="color: var(--text-muted);" x-show="ledgerRows().length"><span x-text="ledgerRows().length"></span> entr<span x-text="ledgerRows().length === 1 ? 'y' : 'ies'"></span> captured</p>
-                        <label class="flex items-start gap-1.5 text-[11px] mt-2 cursor-pointer" style="color: var(--text-secondary);">
-                            <input type="checkbox" x-model="hasUnpaidTransactions" @change="save()" class="mt-0.5">
-                            <span>Unpaid transactions on statement</span>
-                        </label>
-                    @else
-                        {{-- ROUND 7, 2026-09-11 — same standing rule applied to
-                             the authoriser's read-only side: From/To used to
-                             each cost two lines (a label, then the value)
-                             for no reason a read-only fact needs — folded
-                             onto one line each, same as every other label:value
-                             pair on this screen. --}}
-                        <p class="text-xs font-medium mb-1" style="color: var(--text-secondary);">Statement period</p>
-                        <p class="text-[11px]" style="color: var(--text-muted);">From <span style="color: var(--text-primary);">{{ $assessment->statement_period_from?->format('d M Y') ?? '—' }}</span></p>
-                        <p class="text-[11px] mb-1" style="color: var(--text-muted);">To <span style="color: var(--text-primary);">{{ $assessment->statement_period_to?->format('d M Y') ?? '—' }}</span></p>
-                        <p class="text-[11px]" style="color: var(--text-secondary);" x-show="{{ $assessment->statement_months ? 'true' : 'false' }}">Covers <strong>{{ $assessment->statement_months ?? '—' }}</strong> month<span>{{ ($assessment->statement_months ?? 0) === 1 ? '' : 's' }}</span></p>
-                        <p class="text-[11px]" style="color: var(--text-muted);" x-show="ledgerRows().length"><span x-text="ledgerRows().length"></span> entr<span x-text="ledgerRows().length === 1 ? 'y' : 'ies'"></span> captured</p>
-                        <div class="flex items-start gap-1 mt-2" x-show="hasUnpaidTransactions">
-                            <span class="rounded-full flex-shrink-0 mt-0.5" style="width: 7px; height: 7px; background: var(--ra-unpaid-authoriser);"></span>
-                            <span class="text-[11px] font-semibold" style="color: var(--ds-crimson, #dc2626);">Unpaid transactions flagged</span>
-                        </div>
-                    @endif
-                </div>
-
-                {{-- ZONE 2 — ENTRIES. Johan: "the agent must see income and
-                     expenses at the same time, the way they read on a bank
-                     statement" — one ledger, DATE | DESCRIPTION | INCOME |
-                     EXPENSE, not tabs. A row is income OR expense, never
-                     both: typing an amount into one column DISABLES the
-                     other (not a validation error after the fact) — the
-                     "obvious affordance" Johan asked for, chosen over
-                     silently clearing whatever the agent already typed.
-                     Top row is the always-visible input row; captured rows
-                     scroll below it, three visible by default (the strip's
-                     own default height). Underlying incomeItems/expenseItems
-                     stay two separate arrays — same save/audit/CRUD
-                     plumbing as before the merge, untouched — this is a
-                     display-layer merge only: `newEntry` is new client
-                     state, decoupled from the old "trailing blank row"
-                     mechanic (compactAndEnsureTrailing, kept as-is below,
-                     still runs against whichever array a committed row
-                     lands in). --}}
-                <div class="rr-zone-ledger">
-                    <div class="rr-ledger-header">
-                        <span>Date</span><span>Description</span><span class="text-right">Income</span><span class="text-right">Expense</span>
+            {{-- ROUND 8, 2026-09-11 — capture-ledger rework. Johan: "the
+                 highlighter mark IS the ledger line." Read-only tally now
+                 (income/expense entries come from drawing on the document
+                 with a capture pen — document-highlighter-pages.blade.php
+                 — never typed here), which is what lets this stay a fixed
+                 196px column: see the layout <style> block's own comment.
+                 statementPeriodFrom/To stay editable here (agent only,
+                 authoriser reads the saved value) — they are per-DOCUMENT-
+                 SET (the whole bank statement's own date range), not
+                 per-line, so they were never part of what moved to the
+                 document. --}}
+            <div>
+                @if($viewerRole === 'agent')
+                    <div class="flex items-center justify-between gap-1 mb-1">
+                        <label class="text-[11px] font-medium" style="color: var(--text-secondary);">Statement period</label>
+                        <span class="ds-badge ds-badge-info flex-shrink-0" style="font-size: 9px; padding: 1px 4px;" title="Every field here saves the moment you click away from it — no button needed.">Autosaves</span>
                     </div>
-                    @if($viewerRole === 'agent')
-                        <div class="rr-ledger-row rr-ledger-input-row">
-                            <input type="date" class="corex-input text-xs w-full" x-model="newEntry.entry_date" title="Date this transaction happened">
-                            <input type="text" class="corex-input text-xs w-full" placeholder="e.g. Salary" x-model="newEntry.description" @keydown.enter.prevent="commitNewEntry()">
-                            <input type="text" inputmode="decimal" class="corex-input text-xs w-full text-right" placeholder="0.00"
-                                   x-model="newEntry.incomeAmount" :disabled="!!newEntry.expenseAmount"
-                                   :style="newEntry.expenseAmount ? 'opacity:0.45;' : ''"
-                                   @keydown.enter.prevent="commitNewEntry()" @blur="commitNewEntry()">
-                            <input type="text" inputmode="decimal" class="corex-input text-xs w-full text-right" placeholder="0.00"
-                                   x-model="newEntry.expenseAmount" :disabled="!!newEntry.incomeAmount"
-                                   :style="newEntry.incomeAmount ? 'opacity:0.45;' : ''"
-                                   @keydown.enter.prevent="commitNewEntry()" @blur="commitNewEntry()">
-                        </div>
-                        <div class="rr-ledger-rows">
-                            <template x-for="row in ledgerRows()" :key="row.type + '-' + (row.item.id ?? row.item._tempKey)">
-                                <div class="rr-ledger-row">
-                                    <input type="date" class="corex-input text-xs w-full" x-model="row.item.entry_date"
-                                           @change="row.type === 'income' ? onIncomeRowInput() : onExpenseRowInput()">
-                                    <input type="text" class="corex-input text-xs w-full" :title="row.item.description" x-model="row.item.description" @blur="save()">
-                                    <input type="text" inputmode="decimal" class="corex-input text-xs w-full text-right" :title="row.item.amount"
-                                           x-show="row.type === 'income'" x-model="row.item.amount" @blur="save()">
-                                    <input type="text" inputmode="decimal" class="corex-input text-xs w-full text-right" :title="row.item.amount"
-                                           x-show="row.type === 'expense'" x-model="row.item.amount" @blur="save()">
-                                </div>
-                            </template>
-                        </div>
-                    @else
-                        <div class="rr-ledger-row rr-ledger-input-row">
-                            <input type="date" class="corex-input text-xs w-full" x-model="newEntry.entry_date" title="Date this transaction happened">
-                            <input type="text" class="corex-input text-xs w-full" placeholder="Description" x-model="newEntry.description">
-                            <input type="text" inputmode="decimal" class="corex-input text-xs w-full text-right" placeholder="0.00"
-                                   x-model="newEntry.incomeAmount" :disabled="!!newEntry.expenseAmount"
-                                   :style="newEntry.expenseAmount ? 'opacity:0.45;' : ''">
-                            <input type="text" inputmode="decimal" class="corex-input text-xs w-full text-right" placeholder="0.00"
-                                   x-model="newEntry.expenseAmount" :disabled="!!newEntry.incomeAmount"
-                                   :style="newEntry.incomeAmount ? 'opacity:0.45;' : ''">
-                            <button type="button" class="text-[10px] font-semibold flex-shrink-0 ml-1" style="color: var(--ds-blue, #2563eb);"
-                                    :disabled="!newEntry.incomeAmount && !newEntry.expenseAmount" @click="commitNewEntry()">+ Add</button>
-                        </div>
-                        <div class="rr-ledger-rows">
-                            <template x-for="row in ledgerRows()" :key="row.type + '-' + row.item.id">
-                                <div>
-                                    {{-- Authoriser rows never edit in place — strike-and-add
-                                         only, same rule as before the merge. Status dot + Auth
-                                         badge live inside the description cell (matching the
-                                         pre-merge card's own layout); struck-out sub-line and
-                                         the replace mini-form render as their own full-width
-                                         rows underneath, same as before. --}}
-                                    <div class="rr-ledger-row" :style="{ opacity: row.item.struck_out ? '0.55' : '1' }">
-                                        <span class="text-[11px]" style="color: var(--text-muted);" x-text="row.item.entry_date || '—'"></span>
-                                        <span class="flex items-center gap-1 min-w-0 text-xs" style="color: var(--text-primary);">
-                                            <span class="rounded-full flex-shrink-0" style="width: 7px; height: 7px;"
-                                                  :style="{ background: row.item.added_by_authoriser ? (row.type === 'income' ? 'var(--ra-income-authoriser)' : 'var(--ra-expense-authoriser)') : (row.type === 'income' ? 'var(--ra-income-agent)' : 'var(--ra-expense-agent)') }"></span>
-                                            <span x-show="row.item.added_by_authoriser" class="ds-badge ds-badge-info flex-shrink-0" style="font-size:9px; padding:1px 4px;" title="Added by a reviewer/authoriser, not the agent">Auth</span>
-                                            <span class="truncate" :title="row.item.description" :style="{ textDecoration: row.item.struck_out ? 'line-through' : 'none' }" x-text="row.item.description || '(no description)'"></span>
-                                        </span>
-                                        <span class="text-xs text-right" x-show="row.type === 'income'" :style="{ textDecoration: row.item.struck_out ? 'line-through' : 'none' }" x-text="'R ' + formatAmount(row.item.amount)"></span>
-                                        <span class="text-xs text-right" x-show="row.type === 'expense'" :style="{ textDecoration: row.item.struck_out ? 'line-through' : 'none' }" x-text="'R ' + formatAmount(row.item.amount)"></span>
-                                        <button type="button" class="text-[10px] flex-shrink-0 ml-1" :style="{ color: row.item.struck_out ? 'var(--ds-emerald, #059669)' : 'var(--ds-crimson, #dc2626)' }"
-                                                @click="toggleStrike(row.type, row.item)" x-text="row.item.struck_out ? 'Restore' : 'Strike'"></button>
-                                    </div>
-                                    <p class="text-[10px] pl-1" style="color: var(--text-muted);" x-show="row.item.struck_out" x-text="struckLine(row.item)"></p>
-                                    <div class="flex items-center gap-1 pl-1 py-1" x-show="replacingItem === (row.type + '-' + row.item.id)" x-cloak>
-                                        <input type="text" x-model="replaceDescription" placeholder="Description" class="corex-input text-[11px]" style="flex:1;" :data-replace-focus="row.type + '-' + row.item.id">
-                                        <input type="date" x-model="replaceDate" class="corex-input text-[11px]" style="width:90px;">
-                                        <input type="text" inputmode="decimal" x-model="replaceAmount" placeholder="0.00" class="corex-input text-[11px]" style="width:64px;">
-                                        <button type="button" class="text-[10px] font-semibold flex-shrink-0" style="color: var(--ds-blue, #2563eb);" :disabled="!replaceAmount" @click="addItem(row.type, row.item.id)">Add</button>
-                                        <button type="button" class="text-[10px]" style="color: var(--text-muted);" @click="replacingItem = null">Cancel</button>
-                                    </div>
-                                </div>
-                            </template>
-                        </div>
-                        <div x-show="itemError" x-cloak class="text-[11px] rounded-md px-2 py-1 mt-1" style="background: var(--ds-crimson-soft, #fef2f2); color: var(--ds-crimson, #dc2626);" x-text="itemError"></div>
+                    <div class="grid grid-cols-2 gap-1">
+                        <input type="date" class="corex-input text-xs w-full" x-model="statementPeriodFrom" @change="save()" aria-label="Statement period from">
+                        <input type="date" class="corex-input text-xs w-full" x-model="statementPeriodTo" @change="save()" aria-label="Statement period to">
+                    </div>
+                    <p class="text-[11px] mt-1" style="color: var(--text-muted);" x-show="calculatedStatementMonths() || statementMonths">
+                        <template x-if="calculatedStatementMonths()"><span>Covers <strong x-text="calculatedStatementMonths()"></strong> mo</span></template>
+                        <template x-if="!calculatedStatementMonths() && statementMonths"><span>Currently <strong x-text="statementMonths"></strong> mo</span></template>
+                    </p>
+                @else
+                    <label class="text-[11px] font-medium block mb-1" style="color: var(--text-secondary);">Statement period</label>
+                    <p class="text-[11px]" style="color: var(--text-muted);">{{ $assessment->statement_period_from?->format('y/m/d') ?? '—' }} &ndash; {{ $assessment->statement_period_to?->format('y/m/d') ?? '—' }}</p>
+                    @if($assessment->statement_months)
+                        <p class="text-[11px]" style="color: var(--text-muted);">Covers {{ $assessment->statement_months }} mo</p>
                     @endif
-                </div>
+                @endif
+            </div>
 
-                {{-- ZONE 3 — TOTALS. Income/Expenses totals, monthly figures,
-                     and the qualifying line. The Max-rent line is Johan's OWN
-                     addition to the mockup he approved, not something he
-                     asked for outright — kept as one cleanly removable block
-                     (a single @if/template) per his own note. The 30% ratio
-                     is never hardcoded — reuses RentalApplicationQualifyingSetting::
-                     maxRentPercentFor(), the same agency-configurable value
-                     already computed server-side for this screen before the
-                     merge. --}}
-                <div class="rr-zone-totals">
-                    @if($viewerRole === 'agent')
-                        <p class="text-xs" style="color: var(--text-secondary);">Income total <strong class="block" style="color: var(--text-primary);" x-text="formatR(incomeTotal())"></strong></p>
-                        <p class="text-xs" style="color: var(--text-secondary);">Expenses total <strong class="block" style="color: var(--text-primary);" x-text="formatR(expenseTotal())"></strong></p>
-                        <p class="text-xs" style="color: var(--text-secondary);">Income / month <strong class="block" style="color: var(--text-primary);" x-text="statementMonths ? formatR(monthlyAverage(incomeTotal())) : '—'"></strong></p>
-                        <p class="text-xs" style="color: var(--text-secondary);">Net / month <strong class="block" style="color: var(--text-primary);" x-text="statementMonths ? formatR(monthlyAverage(incomeTotal() - expenseTotal())) : '—'"></strong></p>
-                        {{-- Johan's own addition to the mockup, not his original request — kept cleanly removable. --}}
-                        <template x-if="result.label !== 'incomplete' && result.max_affordable_rent !== undefined">
-                            <p class="text-xs pt-1" style="color: var(--text-secondary); border-top: 1px dashed var(--border);">Max rent &middot; <span x-text="result.max_rent_percent"></span>% <strong class="block" style="color: var(--text-primary);" x-text="formatR(result.max_affordable_rent)"></strong></p>
-                        </template>
-                    @else
-                        <p class="text-xs" style="color: var(--text-secondary);">Income total <strong class="block" style="color: var(--text-primary);" x-text="'R ' + formatAmount(incomeTotal())"></strong></p>
-                        <p class="text-xs" style="color: var(--text-secondary);">Expenses total <strong class="block" style="color: var(--text-primary);" x-text="'R ' + formatAmount(expenseTotal())"></strong></p>
-                        <p class="text-xs" style="color: var(--text-secondary);">Income / month <strong class="block" style="color: var(--text-primary);" x-text="statementMonths ? ('R ' + formatAmount(grossIncome())) : '—'"></strong></p>
-                        <p class="text-xs" style="color: var(--text-secondary);">Net / month <strong class="block" style="color: var(--text-primary);" x-text="statementMonths ? ('R ' + formatAmount((incomeTotal() - expenseTotal()) / statementMonths)) : '—'"></strong></p>
-                        {{-- Johan's own addition to the mockup, not his original request — kept cleanly removable. --}}
-                        <template x-if="statementMonths && incomeTotal() > 0">
-                            <p class="text-xs pt-1" style="color: var(--text-secondary); border-top: 1px dashed var(--border);">Max rent &middot; <span x-text="trimPercent(maxRentPercent)"></span>% <strong class="block" style="color: var(--text-primary);" x-text="'R ' + formatAmount(maxAffordableRent())"></strong></p>
-                        </template>
-                        <template x-if="propertyLinked && rent !== null && statementMonths && incomeTotal() > 0">
-                            <x-rental-application-affordability-verdict
-                                met-expr="meetsThreshold()"
-                                detail-expr="'Rent R' + formatAmount(rent) + ' is ' + rentAsPercent() + '% of gross income.'" />
-                        </template>
-                    @endif
-                </div>
+            {{-- INCOME / EXPENSES — numbered, purple/amber badges (Johan's
+                 own spec — a fixed panel-badge scheme, independent of
+                 whichever agency-configurable highlighter colour was used
+                 to actually draw the mark on the document). Number is
+                 POSITIONAL (index+1 within the group), never stored — see
+                 rentalCaptureLedger()'s own docblock. Jump glyph present,
+                 inert this stage — Stage 2 wires it to scroll/flash the
+                 mark on its document; rendering it now (rather than
+                 omitting it) keeps every row's shape stable when that
+                 lands, and is honest about what's coming rather than a
+                 dead click target with no visual cue at all. --}}
+            <div>
+                <p class="rr-ledger-group-label">Income</p>
+                <template x-if="incomeEntries().length === 0"><p class="text-[11px]" style="color: var(--text-muted);">None captured.</p></template>
+                <template x-for="(row, idx) in incomeEntries()" :key="row.id">
+                    <div class="rr-ledger-row">
+                        <span class="rr-ledger-badge" style="background: var(--ds-purple, #7c3aed);" x-text="idx + 1"></span>
+                        <span class="text-[11px]" style="color: var(--text-secondary);" x-text="shortDate(row.entry_date)"></span>
+                        <span class="rr-ledger-amount text-xs" style="color: var(--text-primary);" :title="row.entry_description" x-text="formatR(row.entry_amount)"></span>
+                        <span class="text-[11px] text-right" style="color: var(--text-muted);" title="Jump to this mark — coming soon">&rarr;</span>
+                    </div>
+                </template>
+            </div>
+            <div>
+                <p class="rr-ledger-group-label">Expenses</p>
+                <template x-if="expenseEntries().length === 0"><p class="text-[11px]" style="color: var(--text-muted);">None captured.</p></template>
+                <template x-for="(row, idx) in expenseEntries()" :key="row.id">
+                    <div class="rr-ledger-row">
+                        <span class="rr-ledger-badge" style="background: var(--ds-amber, #f59e0b);" x-text="idx + 1"></span>
+                        <span class="text-[11px]" style="color: var(--text-secondary);" x-text="shortDate(row.entry_date)"></span>
+                        <span class="rr-ledger-amount text-xs" style="color: var(--text-primary);" :title="row.entry_description" x-text="formatR(row.entry_amount)"></span>
+                        <span class="text-[11px] text-right" style="color: var(--text-muted);" title="Jump to this mark — coming soon">&rarr;</span>
+                    </div>
+                </template>
+            </div>
 
-                {{-- ZONE 4 — ACTIONS. Buttons only — every reason/note/amount
-                     field that used to sit permanently in the old right-hand
-                     column now lives behind these buttons, in a modal (see
-                     the modals rendered as page-level siblings below, same
-                     "never covered, never clipped" pattern already used for
-                     the Tenant Wishlist drawer). --}}
-                <div class="rr-zone-actions">
-                    @if($viewerRole === 'agent')
-                        @if($canSendBackToApplicant)
-                            <button type="button" class="corex-btn-outline text-xs w-full mb-1.5" @click="sendBackModalOpen = true">Send back to applicant</button>
-                        @endif
-                        @unless(in_array($rentalApplication->status, ['submitted_for_approval', 'approved', 'declined'], true) || $isPendingAuthorisation)
-                            <button type="button" class="corex-btn-primary text-xs w-full mb-1.5" :disabled="submittingForApproval" @click="submitForApproval()" x-text="submittingForApproval ? 'Submitting…' : 'Submit for approval'"></button>
-                        @endunless
-                        @if($rentalApplication->generations->count() > 1)
-                            <button type="button" class="text-[11px] underline w-full text-left" style="color: var(--ds-blue, #2563eb);" @click="submissionHistoryOpen = true">Submission history</button>
-                        @endif
-                    @else
-                        @if($blockedBySelfApproval)
-                            <p class="text-[11px]" style="color: var(--text-muted);">You created this application — only another authoriser may act on it.</p>
-                        @else
-                            <button type="button" class="corex-btn-outline text-xs w-full mb-1.5" @click="sendBackToAgentModalOpen = true">Send back</button>
-                            <button type="button" class="corex-btn-primary text-xs w-full mb-1.5" @click="approveModalOpen = true">Approve &amp; continue</button>
-                            <button type="button" class="text-[11px] underline w-full text-left" style="color: var(--ds-crimson, #dc2626);" @click="declineModalOpen = true">Decline</button>
-                        @endif
+            {{-- Totals — Income, Expenses, Months, Monthly income, Net
+                 monthly (emphasised). No property-rent/30%-threshold
+                 verdict here — that box lived in the deleted strip's own
+                 Zone 3 and is not part of this panel's stated contents;
+                 dropped, not relocated. Flagged in the build report. --}}
+            <div class="pt-2" style="border-top: 1px solid var(--border);">
+                <p class="text-xs flex items-center justify-between" style="color: var(--text-secondary);"><span>Income</span><span class="rr-ledger-amount" style="color: var(--text-primary);" x-text="formatR(incomeTotal())"></span></p>
+                <p class="text-xs flex items-center justify-between" style="color: var(--text-secondary);"><span>Expenses</span><span class="rr-ledger-amount" style="color: var(--text-primary);" x-text="formatR(expenseTotal())"></span></p>
+                <p class="text-xs flex items-center justify-between" style="color: var(--text-secondary);"><span>Months</span><span style="color: var(--text-primary);" x-text="statementMonths || '—'"></span></p>
+                <p class="text-xs flex items-center justify-between" style="color: var(--text-secondary);"><span>Monthly income</span><span class="rr-ledger-amount" style="color: var(--text-primary);" x-text="formatR(monthlyIncome())"></span></p>
+                <p class="text-sm font-bold flex items-center justify-between mt-1" style="color: var(--text-primary);"><span>Net monthly</span><span class="rr-ledger-amount" x-text="formatR(netMonthly())"></span></p>
+            </div>
+
+            {{-- Actions. "Add line manually" (Stage 3) renders per the
+                 panel's own stated contents but is inert this stage — a
+                 disabled button explaining why (title) rather than a
+                 silently-missing one or a fake working one. --}}
+            <div class="pt-2" style="border-top: 1px solid var(--border);">
+                @if($viewerRole === 'agent')
+                    <button type="button" class="corex-btn-outline text-xs w-full mb-1.5" style="opacity: 0.5; cursor: not-allowed;" disabled title="Manual entry — lands in a follow-up update, for figures with nothing to highlight.">Add line manually</button>
+                    @if($canSendBackToApplicant)
+                        <button type="button" class="corex-btn-outline text-xs w-full mb-1.5" @click="sendBackModalOpen = true">Send back to applicant</button>
                     @endif
-                </div>
+                    @unless(in_array($rentalApplication->status, ['submitted_for_approval', 'approved', 'declined'], true) || $isPendingAuthorisation)
+                        <button type="button" class="corex-btn-primary text-xs w-full mb-1.5" :disabled="submittingForApproval" @click="submitForApproval()" x-text="submittingForApproval ? 'Submitting…' : 'Submit for approval'"></button>
+                    @endunless
+                    @if($rentalApplication->generations->count() > 1)
+                        <button type="button" class="text-[11px] underline w-full text-left" style="color: var(--ds-blue, #2563eb);" @click="submissionHistoryOpen = true">Submission history</button>
+                    @endif
+                @else
+                    @if($blockedBySelfApproval)
+                        <p class="text-[11px]" style="color: var(--text-muted);">You created this application — only another authoriser may act on it.</p>
+                    @else
+                        <button type="button" class="corex-btn-outline text-xs w-full mb-1.5" @click="sendBackToAgentModalOpen = true">Send back</button>
+                        <button type="button" class="corex-btn-primary text-xs w-full mb-1.5" @click="approveModalOpen = true">Approve &amp; continue</button>
+                        <button type="button" class="text-[11px] underline w-full text-left" style="color: var(--ds-crimson, #dc2626);" @click="declineModalOpen = true">Decline</button>
+                    @endif
+                @endif
             </div>
         </div>
 
@@ -1482,6 +1190,21 @@
                                 $highlightPostUrl = $viewerRole === 'agent'
                                     ? route('corex.rental-applications.documents.highlight', [$rentalApplication, $document])
                                     : route('corex.rental-applications.authorisation.documents.highlight', [$rentalApplication, $document]);
+                                // Capture-ledger rework, 2026-09-11 — create is per-document
+                                // (a brand new mark needs one to attach to); update/delete act
+                                // on the rental application directly (an entry outlives
+                                // whichever document it was drawn on), so those two are a URL
+                                // TEMPLATE with a literal placeholder, filled client-side by
+                                // captureUrlFor().
+                                $captureCreateUrl = $viewerRole === 'agent'
+                                    ? route('corex.rental-applications.documents.capture-entries.store', [$rentalApplication, $document])
+                                    : route('corex.rental-applications.authorisation.documents.capture-entries.store', [$rentalApplication, $document]);
+                                $captureUpdateUrlTemplate = $viewerRole === 'agent'
+                                    ? route('corex.rental-applications.capture-entries.update', [$rentalApplication, '__MARK_UID__'])
+                                    : route('corex.rental-applications.authorisation.capture-entries.update', [$rentalApplication, '__MARK_UID__']);
+                                $captureDeleteUrlTemplate = $viewerRole === 'agent'
+                                    ? route('corex.rental-applications.capture-entries.destroy', [$rentalApplication, '__MARK_UID__'])
+                                    : route('corex.rental-applications.authorisation.capture-entries.destroy', [$rentalApplication, '__MARK_UID__']);
                             @endphp
                             <section id="cv-doc-{{ $document->id }}">
                                 <h2 class="text-sm font-semibold pb-1 mb-2" style="color: var(--text-primary); border-bottom: 1px solid var(--border);">
@@ -1502,6 +1225,9 @@
                                             firstPageUrl = {{ Js::from($highlightFirstUrl) }};
                                             remainingPagesUrl = {{ Js::from($highlightRemainingUrl) }};
                                             postUrl = {{ Js::from($highlightPostUrl) }};
+                                            captureCreateUrl = {{ Js::from($captureCreateUrl) }};
+                                            captureUpdateUrlTemplate = {{ Js::from($captureUpdateUrlTemplate) }};
+                                            captureDeleteUrlTemplate = {{ Js::from($captureDeleteUrlTemplate) }};
                                             label = {{ Js::from($document->original_name) }};
                                             const cvScroll = $el.closest('#continuousViewScroll');
                                             const cvIo = new IntersectionObserver((entries) => {
@@ -1581,7 +1307,90 @@
 @include('corex.rental-applications.partials.document-highlighter-script')
 
 <script>
-function rentalReview({ saveUrl, initial, initialIncomeItems, initialExpenseItems, initialResult, initialSavedAt, initialMarkedUpDocIds, currentUserId, currentUserName, currentUserRole, highlighters, requestMoreInfoUrl, submitForApprovalUrl, reopenUrl, expectedGeneration, canReopenNow, documentChecklist }) {
+/**
+ * Capture-ledger rework, 2026-09-11 — Johan: "it stays split and
+ * disconnected" (the old separate ledger strip). "The highlighter mark IS
+ * the ledger line" — shared by rentalReview() (agent) and
+ * rentalAuthorisationViewer() (authoriser), spread into both root
+ * components exactly like rentalDocumentHighlighter() already is, for the
+ * same reason: one copy of the tally logic, not two independently-
+ * maintained ones.
+ *
+ * `captureEntries` is a FLAT array of every active income/expense mark for
+ * this application (server-hydrated once via toMarkArray() — see either
+ * controller's show()), kept live client-side as marks are captured/
+ * edited/removed through the document (addCaptureEntry()/
+ * updateCaptureEntry()/removeCaptureEntry(), called from
+ * document-highlighter-script.blade.php's own capture-chip save/update/
+ * delete handlers) — never re-fetched, matching how the highlighter's own
+ * `marks` array is kept live rather than reloaded after every draw.
+ *
+ * Numbering (the panel's "numbered badge") is POSITIONAL — index+1 within
+ * each group, recomputed every render from whatever order captureEntries
+ * is currently in (oldest-captured first, matching the server's own
+ * `orderBy('created_at')->orderBy('id')` hydration and how a newly
+ * captured entry is appended) — never a stored number, so it can never
+ * drift from what's actually on screen.
+ */
+function rentalCaptureLedger({ initialCaptureEntries } = {}) {
+    return {
+        captureEntries: initialCaptureEntries || [],
+        incomeEntries() {
+            return this.captureEntries.filter(e => e.entry_type === 'income');
+        },
+        expenseEntries() {
+            return this.captureEntries.filter(e => e.entry_type === 'expense');
+        },
+        // Sums exactly what the server will sum — same rows, same filter,
+        // plain addition (no server-side qualifyingResult() dependency any
+        // more; that computation still exists, unused by this screen now,
+        // since it read the old income/expense-item tables this rework
+        // replaces as this screen's source of truth).
+        incomeTotal() {
+            return this.incomeEntries().reduce((sum, e) => sum + (parseFloat(e.entry_amount) || 0), 0);
+        },
+        expenseTotal() {
+            return this.expenseEntries().reduce((sum, e) => sum + (parseFloat(e.entry_amount) || 0), 0);
+        },
+        monthlyIncome() {
+            const months = parseInt(this.statementMonths, 10);
+            if (!months || months < 1) return null;
+            return this.incomeTotal() / months;
+        },
+        netMonthly() {
+            const months = parseInt(this.statementMonths, 10);
+            if (!months || months < 1) return null;
+            return (this.incomeTotal() - this.expenseTotal()) / months;
+        },
+        formatR(v) {
+            return v === null || v === undefined ? '—' : 'R ' + Number(v).toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        },
+        // yy/mm/dd — Johan's own format for this panel. A plain string
+        // split, not a Date parse/reformat: entry_date always arrives as a
+        // stable 'YYYY-MM-DD' from the server (see either model's
+        // toMarkArray()), so there is no timezone-shift risk a Date object
+        // parse of a bare date string can introduce.
+        shortDate(d) {
+            if (!d) return '—';
+            const parts = String(d).split('-');
+            if (parts.length !== 3) return d;
+            return parts[0].slice(2) + '/' + parts[1] + '/' + parts[2];
+        },
+        addCaptureEntry(entry) {
+            this.captureEntries.push(entry);
+        },
+        updateCaptureEntry(entry) {
+            const idx = this.captureEntries.findIndex(e => e.id === entry.id);
+            if (idx !== -1) this.captureEntries.splice(idx, 1, entry);
+        },
+        removeCaptureEntry(markUid) {
+            const idx = this.captureEntries.findIndex(e => e.id === markUid);
+            if (idx !== -1) this.captureEntries.splice(idx, 1);
+        },
+    };
+}
+
+function rentalReview({ saveUrl, initial, initialCaptureEntries, initialSavedAt, initialMarkedUpDocIds, currentUserId, currentUserName, currentUserRole, highlighters, requestMoreInfoUrl, submitForApprovalUrl, reopenUrl, expectedGeneration, canReopenNow, documentChecklist }) {
     return {
         // 2026-09-08 — the highlight/note viewer state+methods (activeDocId,
         // pages, marks, openHighlighter()/applyHighlights()/etc.) now live in
@@ -1590,6 +1399,11 @@ function rentalReview({ saveUrl, initial, initialIncomeItems, initialExpenseItem
         // — the authoriser screen spreads the same factory in rather than
         // this logic being copy-pasted a second time.
         ...rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, currentUserName, currentUserRole, highlighters }),
+        // Capture-ledger rework, 2026-09-11 — shared with rentalAuthorisationViewer()
+        // for the same reason rentalDocumentHighlighter() is: identical
+        // tally logic, one copy. See its own docblock for the full
+        // reasoning (rentalCaptureLedger(), defined further below).
+        ...rentalCaptureLedger({ initialCaptureEntries }),
 
         // 2026-09-08 — Johan: "clicking back to application shows a changes
         // may be lost popup but there's no save button visible anywhere." No
@@ -1601,71 +1415,6 @@ function rentalReview({ saveUrl, initial, initialIncomeItems, initialExpenseItem
         // warning could possibly fire — never one without the other.
         init() {
             this.initHighlighterPrefs();
-            this.compactAndEnsureTrailing(this.incomeItems);
-            this.compactAndEnsureTrailing(this.expenseItems);
-        },
-        // ── Income/expense line items — Round 9 (item 5). Johan: "filling
-        // the last row auto-adds a fresh empty one, income and expenses
-        // both, total recalculating live." A row carries an `id` once the
-        // server has persisted it (used to match it on the next autosave,
-        // never re-created); a row typed fresh has no `id` yet. ──────────
-        incomeItems: (initialIncomeItems && initialIncomeItems.length) ? initialIncomeItems : [{ id: null, description: '', amount: '', entry_date: '' }],
-        expenseItems: (initialExpenseItems && initialExpenseItems.length) ? initialExpenseItems : [{ id: null, description: '', amount: '', entry_date: '' }],
-        rowIsBlank(row) {
-            return (!row.description || !row.description.trim()) && (row.amount === '' || row.amount === null || row.amount === undefined);
-        },
-        // Removes any blank row that isn't the last one (how an agent
-        // "deletes" a row — clear both its fields), then guarantees exactly
-        // one blank trailing row is always available to type into. This
-        // fires on every keystroke (via @input) — it must NEVER also move
-        // focus, or it re-fires on every character once the new row itself
-        // starts filling (see the 2026-09-08 postmortem below).
-        compactAndEnsureTrailing(list) {
-            for (let i = list.length - 2; i >= 0; i--) {
-                if (this.rowIsBlank(list[i])) list.splice(i, 1);
-            }
-            if (!list.length || !this.rowIsBlank(list[list.length - 1])) {
-                list.push({ id: null, description: '', amount: '', entry_date: '' });
-            }
-        },
-        onIncomeRowInput() {
-            this.compactAndEnsureTrailing(this.incomeItems);
-            this.save();
-        },
-        onExpenseRowInput() {
-            this.compactAndEnsureTrailing(this.expenseItems);
-            this.save();
-        },
-        // ROUND 6, 2026-09-11 — the merged income/expense ledger. Johan: "the
-        // agent must see income and expenses at the same time, the way they
-        // read on a bank statement" — one 4-column table, not two cards/tabs.
-        // incomeItems/expenseItems (above) stay exactly as they were — same
-        // two arrays, same save()/compactAndEnsureTrailing() plumbing, same
-        // server round-trip — this is a DISPLAY-layer merge only. newEntry is
-        // new, separate state for the strip's always-visible top input row,
-        // decoupled from the old "the array's own trailing blank row IS the
-        // input" mechanic: a row is income OR expense, never both — the
-        // opposite amount field DISABLES (not clears) the instant one has a
-        // value, so nothing typed is ever silently discarded.
-        newEntry: { description: '', entry_date: '', incomeAmount: '', expenseAmount: '' },
-        commitNewEntry() {
-            const amount = this.newEntry.incomeAmount || this.newEntry.expenseAmount;
-            if (!amount) return;
-            const list = this.newEntry.incomeAmount ? this.incomeItems : this.expenseItems;
-            list.push({ id: null, description: this.newEntry.description, entry_date: this.newEntry.entry_date, amount, _tempKey: 'n' + list.length + Math.random() });
-            this.compactAndEnsureTrailing(list);
-            this.newEntry = { description: '', entry_date: '', incomeAmount: '', expenseAmount: '' };
-            this.save();
-        },
-        // Merged for DISPLAY only — each row wraps a REFERENCE to the real
-        // incomeItems/expenseItems object (never a copy), so x-model bindings
-        // on a captured row still mutate the real array item directly and
-        // save() still sends the real thing. Newest first, matching how a
-        // bank statement / banking app itself is read.
-        ledgerRows() {
-            const income = this.incomeItems.filter(r => !this.rowIsBlank(r)).map(item => ({ type: 'income', item }));
-            const expense = this.expenseItems.filter(r => !this.rowIsBlank(r)).map(item => ({ type: 'expense', item }));
-            return income.concat(expense).sort((a, b) => (b.item.entry_date || '').localeCompare(a.item.entry_date || ''));
         },
         // ROUND 6, 2026-09-11 — Johan: "I also dont see the need for 2
         // section - send back for more info and reopen and send back. does
@@ -1726,59 +1475,6 @@ function rentalReview({ saveUrl, initial, initialIncomeItems, initialExpenseItem
             this.sendBackSending = false;
         },
         submissionHistoryOpen: false,
-        // 2026-09-08 — Johan, live on QA1: "added values in right hand
-        // panel totals do not populate." Root cause found on the real
-        // record: typed amounts had landed in the DESCRIPTION column,
-        // amount left null.
-        //
-        // FIRST attempt at a fix moved focus to a freshly-created row's
-        // amount field the instant that row was pushed (triggered from
-        // @input, "the last row just became non-blank"). cc1 reproduced a
-        // WORSE bug from that fix before it ever reached Johan: that
-        // trigger condition is true on literally every keystroke once the
-        // newly-created row itself starts filling, not just once — the
-        // row just focused goes non-blank on its very next character,
-        // which creates ANOTHER row and jumps focus AGAIN, forever. Typing
-        // "10000" produced five single-digit rows instead of one row
-        // holding "10000". Reverted off QA1 before Johan ever saw it.
-        //
-        // Correct fix: never infer "the agent is done with this row" from
-        // an input event — a keystroke can't tell a completed value apart
-        // from a value still being typed. Use an explicit signal instead:
-        // Enter. Pressing Enter in an amount field moves focus to the
-        // NEXT row's amount field (which @input's own compactAndEnsureTrailing
-        // has already created, from the characters typed before Enter was
-        // pressed) — never on plain typing, so a run of digits can never
-        // trigger it more than the one time the agent actually asks for it.
-        //
-        // Round 16 — a SECOND, subtler bug found verifying this under fast,
-        // continuous (scripted, zero-delay) typing through three rows: the
-        // original version wrapped the focus move in $nextTick(), which
-        // defers it to Alpine's next microtask. That's unnecessary here —
-        // the target row was already created by an EARLIER, already-
-        // completed @input event (events on one element are strictly
-        // sequential; the row-creating keystroke fully finishes, DOM
-        // patch included, before this LATER keydown.enter can even fire)
-        // — and worse, it's actively harmful: a fast enough next keystroke
-        // can land before that deferred callback runs, landing in the
-        // OLD field instead and concatenating onto whatever was already
-        // there ("15000" + "8500" typed fast enough became "150008500" in
-        // one field, not two). Focusing synchronously, with no deferral,
-        // removed the race entirely.
-        focusNextAmountRow(ref, currentIndex) {
-            const inputs = this.$refs[ref].querySelectorAll('[data-role="amount"]');
-            inputs[currentIndex + 1]?.focus();
-        },
-        // Sums exactly what the server will sum (RentalApplicationAssessment::
-        // qualifyingResult() sums the same persisted amounts) — this MUST
-        // never be allowed to disagree with result.gross_income, so it uses
-        // the identical rows, the identical filter, and plain addition.
-        incomeTotal() {
-            return this.incomeItems.filter(r => !this.rowIsBlank(r)).reduce((sum, r) => sum + (parseFloat(r.amount) || 0), 0);
-        },
-        expenseTotal() {
-            return this.expenseItems.filter(r => !this.rowIsBlank(r)).reduce((sum, r) => sum + (parseFloat(r.amount) || 0), 0);
-        },
         // Round 11 — display only (see the field's own comment above). Kept
         // as the LAST-KNOWN-GOOD figure so an existing assessment that has
         // never had a date range picked still shows/uses its old typed
@@ -1895,13 +1591,15 @@ function rentalReview({ saveUrl, initial, initialIncomeItems, initialExpenseItem
             this.saveInFlight = true;
             this.saveStatus = 'Saving…';
             this.saveError = false;
-            // Capture the actual row OBJECTS being sent (not a copy) so
-            // the response's ids can be patched back onto them by
-            // position after the round trip, without disturbing any
-            // blank row the agent has started typing into since —
-            // wholesale-replacing the array here would drop that.
-            const sentIncomeRows = this.incomeItems.filter(r => !this.rowIsBlank(r));
-            const sentExpenseRows = this.expenseItems.filter(r => !this.rowIsBlank(r));
+            // Capture-ledger rework, 2026-09-11 — income_items/expense_items
+            // REMOVED from this payload. The highlighter mark is the ledger
+            // line now (captureEntryCreate()/Update()/Delete(), a separate
+            // immediate save per entry) — this endpoint's own job shrank to
+            // notes/statement period/unpaid flag. Sending an empty/absent
+            // array here would have told the server "the agent's whole list
+            // is now empty" and soft-deleted every existing row — see
+            // RentalApplicationReviewController::saveAssessment()'s own
+            // comment for the full reasoning.
             fetch(saveUrl, {
                 method: 'POST',
                 headers: {
@@ -1910,8 +1608,6 @@ function rentalReview({ saveUrl, initial, initialIncomeItems, initialExpenseItem
                     'Accept': 'application/json',
                 },
                 body: JSON.stringify({
-                    income_items: sentIncomeRows,
-                    expense_items: sentExpenseRows,
                     notes: this.fields.notes,
                     statement_period_from: this.statementPeriodFrom,
                     statement_period_to: this.statementPeriodTo,
@@ -1920,17 +1616,14 @@ function rentalReview({ saveUrl, initial, initialIncomeItems, initialExpenseItem
                 }),
             }).then(r => r.json().then(data => ({ ok: r.ok, status: r.status, data }))).then(({ ok, status, data }) => {
                 if (ok && data.ok) {
-                    this.result = data.result;
                     // The server is the single source of truth for the
                     // derived count (see calculateStatementMonths() above) —
                     // sync it back so the read-only "Currently N months"
-                    // line and the affordability math agree with what was
+                    // line and the monthly-figures math agree with what was
                     // actually persisted, not just the client's own guess.
-                    if (data.result && data.result.statement_months !== undefined) {
-                        this.statementMonths = data.result.statement_months ?? this.statementMonths;
+                    if (data.statement_months !== undefined) {
+                        this.statementMonths = data.statement_months ?? this.statementMonths;
                     }
-                    (data.income_items || []).forEach((saved, i) => { if (sentIncomeRows[i]) { sentIncomeRows[i].id = saved.id; sentIncomeRows[i].entry_date = saved.entry_date; } });
-                    (data.expense_items || []).forEach((saved, i) => { if (sentExpenseRows[i]) { sentExpenseRows[i].id = saved.id; sentExpenseRows[i].entry_date = saved.entry_date; } });
                     this.saveStatus = data.saved_at ? ('Saved at ' + formatTime(data.saved_at)) : 'Saved';
                 } else if (status === 409 && data.reason === 'generation_conflict') {
                     this.saveError = true;
@@ -2205,10 +1898,19 @@ function rentalReviewPropertyLink({ searchUrl, linkUrl, currentLabel }) {
     };
 }
 
-function rentalAuthorisationViewer({ initialMarkedUpDocIds, currentUserId, currentUserName, currentUserRole, highlighters }) {
+function rentalAuthorisationViewer({ initialMarkedUpDocIds, currentUserId, currentUserName, currentUserRole, highlighters, initialCaptureEntries, initialStatementMonths }) {
     return {
         // Shared highlight/note viewer — see partials/document-highlighter-script.blade.php.
         ...rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, currentUserName, currentUserRole, highlighters }),
+        // Capture-ledger rework, 2026-09-11 — see rentalCaptureLedger()'s
+        // own docblock above rentalReview() for the full reasoning; same
+        // factory, same tally, read-only either way (no edit UI in the new
+        // panel for anyone — capture happens on the document itself).
+        ...rentalCaptureLedger({ initialCaptureEntries }),
+        // statementMonths has no editable UI on the authoriser's side (the
+        // dates are the agent's own field, read-only here) — just the
+        // number needed for monthlyIncome()/netMonthly() to compute.
+        statementMonths: initialStatementMonths ?? '',
 
         // Decision panel fields — unchanged from before this screen grew a document viewer.
         approveAmount: '',
@@ -2231,171 +1933,13 @@ function rentalAuthorisationViewer({ initialMarkedUpDocIds, currentUserId, curre
     };
 }
 
-/**
- * AT-392 authoriser assessment markup, 2026-09-08 — strike-out and add for
- * the agent's captured income and expense lines. Johan, confirmed directly
- * (not a coordinator inference): "auth can rather strike out and re-add a
- * value than edit a value. this way we have the evidence needed of who
- * did what." There is no edit anywhere here, client or server — striking a
- * row opens a replacement box right under it (replacingItem), so the two
- * actions read as one continuous flow. Server re-enforces everything this
- * client does or doesn't offer — a crafted request still can't do more
- * than what's built here, same "never trust the client" rule the document
- * highlighter's own save already follows.
- */
-function rentalAssessmentEditor({ currentUserId, incomeItems, expenseItems, addIncomeUrl, addExpenseUrl, incomeItemUrl, expenseItemUrl, statementMonths, maxRentPercent, rent, propertyLinked, hasUnpaidTransactions }) {
-    return {
-        currentUserId, incomeItems, expenseItems, statementMonths, maxRentPercent, rent, propertyLinked, hasUnpaidTransactions,
-        // ROUND 6, 2026-09-11 — merged ledger top input row, replacing the
-        // old newIncomeDescription/newIncomeAmount/.../newExpenseDate sextet
-        // (two separate "+Add" mini-forms, one per old card). Mutual
-        // exclusion matches the agent side's own newEntry: an amount typed
-        // into one column disables the other rather than clearing it.
-        newEntry: { description: '', entry_date: '', incomeAmount: '', expenseAmount: '' },
-        replacingItem: null, replaceDescription: '', replaceAmount: '', replaceDate: '',
-        itemError: '',
-        // Merged for DISPLAY only, same shape as the agent side's own
-        // ledgerRows() — each row wraps a REFERENCE to the real incomeItems/
-        // expenseItems entry, never a copy, so toggleStrike()/addItem()
-        // above keep working against the real objects unchanged.
-        ledgerRows() {
-            const income = this.incomeItems.map(item => ({ type: 'income', item }));
-            const expense = this.expenseItems.map(item => ({ type: 'expense', item }));
-            return income.concat(expense).sort((a, b) => (b.item.entry_date || '').localeCompare(a.item.entry_date || ''));
-        },
-        async commitNewEntry() {
-            const isIncome = !!this.newEntry.incomeAmount;
-            const amount = this.newEntry.incomeAmount || this.newEntry.expenseAmount;
-            if (!amount) return;
-            const body = { description: this.newEntry.description, amount, entry_date: this.newEntry.entry_date || null };
-            const item = await this.postJson(isIncome ? addIncomeUrl : addExpenseUrl, 'POST', body);
-            if (!item) return;
-            (isIncome ? this.incomeItems : this.expenseItems).push(item);
-            this.newEntry = { description: '', entry_date: '', incomeAmount: '', expenseAmount: '' };
-        },
-        netTotal() { return this.incomeTotal() - this.expenseTotal(); },
-
-        // Johan: "the result should read clearly as 'this figure was
-        // replaced by that one, by this person, at this time'."
-        struckLine(item) {
-            const who = item.struck_out_by ? ` by ${item.struck_out_by}` : '';
-            const when = item.struck_out_at ? ` at ${item.struck_out_at}` : '';
-            if (item.replaced_by_item_id) {
-                const rWho = item.replaced_by_user ? ` by ${item.replaced_by_user}` : '';
-                const rWhen = item.replaced_by_at ? ` at ${item.replaced_by_at}` : '';
-                return `Struck${who}${when} — replaced by R${this.formatAmount(item.replaced_by_amount)}${rWho}${rWhen}.`;
-            }
-            return `Struck${who}${when} — no replacement added yet.`;
-        },
-        formatAmount(v) {
-            return (Number(v) || 0).toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-        },
-        // AT-392 — Johan, 2026-09-09: this read "3%" instead of "30%" on a
-        // real awaiting-authorisation record — the calculation itself was
-        // right (30% throughout), only this label was wrong, which is worse
-        // than a missing figure. Root cause: the old regex's leading dot
-        // was OPTIONAL (`\.?0+$`), so it stripped trailing zeros even with
-        // no decimal point at all — turning whole multiples of ten into
-        // nonsense (30→3, 40→4, 100→1) while leaving non-round values
-        // (28.5, 25) untouched, which is exactly why this looked like a
-        // one-off rather than a systematic bug. Fixed by first formatting
-        // to a fixed 2 decimals (so a "." is always present, mirroring the
-        // server-side rtrim(rtrim(number_format($v,2),'0'),'.') pattern
-        // used elsewhere for the same "30.00" -> "30" trim), THEN stripping
-        // trailing zeros — the decimal point itself stops the trailing-zero
-        // match from ever reaching into the integer part.
-        trimPercent(v) {
-            return Number(v).toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
-        },
-        liveTotal(list) {
-            return list.filter(i => !i.struck_out).reduce((sum, i) => sum + Number(i.amount || 0), 0);
-        },
-        incomeTotal() { return this.liveTotal(this.incomeItems); },
-        expenseTotal() { return this.liveTotal(this.expenseItems); },
-        grossIncome() {
-            if (!this.statementMonths) return 0;
-            return Math.round((this.incomeTotal() / this.statementMonths) * 100) / 100;
-        },
-        maxAffordableRent() {
-            return Math.round(this.grossIncome() * (this.maxRentPercent / 100) * 100) / 100;
-        },
-        rentAsPercent() {
-            const g = this.grossIncome();
-            if (this.rent === null || !g) return '0';
-            return (Math.round((this.rent / g) * 1000) / 10).toString();
-        },
-        meetsThreshold() {
-            if (this.rent === null) return null;
-            return this.rent <= this.maxAffordableRent();
-        },
-
-        async postJson(url, method, body) {
-            this.itemError = '';
-            try {
-                const res = await fetch(url, {
-                    method,
-                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': @js(csrf_token()), 'X-Requested-With': 'XMLHttpRequest' },
-                    body: JSON.stringify(body),
-                });
-                const data = await res.json().catch(() => null);
-                if (!res.ok || !data || !data.ok) {
-                    this.itemError = (data && data.message) ? data.message : 'Could not save — please try again.';
-                    return null;
-                }
-                return data.item;
-            } catch (e) {
-                this.itemError = 'Could not save — please try again.';
-                return null;
-            }
-        },
-
-        // ROUND 6, 2026-09-11 — was also reachable with replacesId=null (a
-        // plain "+ Add" at the bottom of each old card); that path is now
-        // commitNewEntry() above. This one only ever runs as a strike's
-        // replacement now — replacesId is always present.
-        async addItem(kind, replacesId) {
-            const isIncome = kind === 'income';
-            const body = { description: this.replaceDescription, amount: this.replaceAmount, entry_date: this.replaceDate || null, replaces_item_id: replacesId };
-            if (!this.replaceAmount) return;
-            const item = await this.postJson(isIncome ? addIncomeUrl : addExpenseUrl, 'POST', body);
-            if (!item) return;
-            (isIncome ? this.incomeItems : this.expenseItems).push(item);
-            const struckRow = (isIncome ? this.incomeItems : this.expenseItems).find(i => i.id === replacesId);
-            if (struckRow) {
-                struckRow.replaced_by_item_id = item.id;
-                struckRow.replaced_by_amount = item.amount;
-                struckRow.replaced_by_description = item.description;
-                struckRow.replaced_by_user = item.added_by;
-                struckRow.replaced_by_at = item.added_at;
-            }
-            this.replacingItem = null; this.replaceDescription = ''; this.replaceAmount = ''; this.replaceDate = '';
-        },
-
-        // Johan: strike-and-re-add, not edit. Striking a row that isn't
-        // already struck opens the replacement box directly under it and
-        // focuses the description field — the natural next step, not a
-        // separate action the authoriser has to go find. Un-striking
-        // (restoring) just clears the row back to counting normally.
-        async toggleStrike(kind, item) {
-            const isIncome = kind === 'income';
-            const updated = await this.postJson(`${isIncome ? incomeItemUrl : expenseItemUrl}/${item.id}/strike`, 'POST', {});
-            if (!updated) return;
-            item.struck_out = updated.struck_out;
-            item.struck_out_by = updated.struck_out_by;
-            item.struck_out_at = updated.struck_out_at;
-            if (item.struck_out) {
-                this.replacingItem = kind + '-' + item.id;
-                this.replaceDescription = item.description || '';
-                this.replaceAmount = '';
-                this.$nextTick(() => {
-                    const el = this.$el.querySelector(`[data-replace-focus="${kind}-${item.id}"]`);
-                    if (el) el.focus();
-                });
-            } else if (this.replacingItem === (kind + '-' + item.id)) {
-                this.replacingItem = null;
-            }
-        },
-    };
-}
+// Capture-ledger rework, 2026-09-11 — rentalAssessmentEditor() REMOVED
+// (was here: strike-and-add for the agent's income/expense lines, AT-392).
+// Fully superseded — the authoriser's read-only tally now comes from
+// rentalCaptureLedger() above, same marks-based source the agent's own
+// panel uses. Its old incomeItems/expenseItems/toggleStrike()/addItem()
+// mechanics operated on RentalApplicationIncomeItem/ExpenseItem, models
+// this rework does not write to any more (see saveAssessment()'s own
+// comment) — nothing in the new template references this function.
 </script>
 @endsection

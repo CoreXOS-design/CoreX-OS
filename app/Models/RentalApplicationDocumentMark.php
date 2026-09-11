@@ -17,17 +17,36 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * `mark_uid` is the client-generated stable id every mark has always
  * carried (unchanged) — the client/server contract (marks matched by this
  * id across saves) needs no change; only where a mark is PERSISTED changed.
+ *
+ * Capture-ledger rework, 2026-09-11 — Johan: "the highlighter mark IS the
+ * ledger line." `entry_type`/`entry_date`/`entry_description`/`entry_amount`
+ * turn a mark into an affordability-ledger entry when `entry_type` is
+ * 'income' or 'expense'; 'annotation' (the default — every mark before this
+ * work, and every plain highlight/note drawn after it) means "not a ledger
+ * line, never shown in the panel." `document_id`/`page`/`type` are now
+ * nullable so an UNANCHORED entry (typed manually, or migrated from the old
+ * separate income/expense-item tables) can live in this same table with no
+ * document, no page, no drawn geometry at all — see the migration's own
+ * docblock. `source`/`confidence` are pre-existing, reserved for a future
+ * OCR decision Johan has not made — untouched, unpopulated, unreferenced by
+ * this feature.
  */
 class RentalApplicationDocumentMark extends Model
 {
     use BelongsToAgency;
     use SoftDeletes;
 
+    public const ENTRY_TYPE_INCOME = 'income';
+    public const ENTRY_TYPE_EXPENSE = 'expense';
+    public const ENTRY_TYPE_ANNOTATION = 'annotation';
+    public const LEDGER_ENTRY_TYPES = [self::ENTRY_TYPE_INCOME, self::ENTRY_TYPE_EXPENSE];
+
     protected $fillable = [
-        'agency_id', 'document_id', 'mark_uid', 'type', 'page',
+        'agency_id', 'document_id', 'rental_application_id', 'mark_uid', 'type', 'page',
         'points', 'width', 'x', 'y', 'text',
         'highlighter_id', 'author_user_id', 'author_name', 'author_role',
         'source', 'confidence',
+        'entry_type', 'entry_date', 'entry_description', 'entry_amount',
     ];
 
     protected $casts = [
@@ -37,11 +56,18 @@ class RentalApplicationDocumentMark extends Model
         'width' => 'integer',
         'page' => 'integer',
         'confidence' => 'float',
+        'entry_date' => 'date:Y-m-d',
+        'entry_amount' => 'decimal:2',
     ];
 
     public function document(): BelongsTo
     {
         return $this->belongsTo(Document::class);
+    }
+
+    public function rentalApplication(): BelongsTo
+    {
+        return $this->belongsTo(RentalApplication::class);
     }
 
     public function highlighter(): BelongsTo
@@ -52,6 +78,16 @@ class RentalApplicationDocumentMark extends Model
     public function author(): BelongsTo
     {
         return $this->belongsTo(User::class, 'author_user_id');
+    }
+
+    public function isLedgerEntry(): bool
+    {
+        return in_array($this->entry_type, self::LEDGER_ENTRY_TYPES, true);
+    }
+
+    public function isAnchored(): bool
+    {
+        return $this->document_id !== null;
     }
 
     /**
@@ -70,6 +106,14 @@ class RentalApplicationDocumentMark extends Model
             'author_user_id' => $this->author_user_id,
             'author_name' => $this->author_name,
             'author_role' => $this->author_role,
+            'document_id' => $this->document_id,
+            // Capture-ledger rework — carried on every mark (default
+            // 'annotation') so the client can tell a plain highlight/note
+            // apart from a ledger entry without a second lookup.
+            'entry_type' => $this->entry_type,
+            'entry_date' => $this->entry_date?->format('Y-m-d'),
+            'entry_description' => $this->entry_description,
+            'entry_amount' => $this->entry_amount !== null ? (float) $this->entry_amount : null,
         ];
 
         if ($this->type === 'note') {

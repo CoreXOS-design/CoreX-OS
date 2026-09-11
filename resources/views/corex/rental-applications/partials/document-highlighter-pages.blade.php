@@ -79,12 +79,20 @@
     <div class="flex-shrink-0 space-y-2" style="width: 90px; position: sticky; top: 0;">
         <p class="text-[10px] font-bold uppercase tracking-wide" style="color: var(--text-muted);">Mark-Up</p>
 
+        {{-- Capture-ledger rework, 2026-09-11 — "the highlighter mark IS
+             the ledger line." Income/Expense are CAPTURE pens now: dragging
+             with one open opens the capture chip (see below) instead of
+             just laying down ink. Split out from the plain "Highlight"
+             group below (which keeps its old immediate-commit behaviour)
+             rather than relabelling the whole group, since an agency's
+             other configured highlighters (e.g. the default "Unpaid" pen)
+             are NOT ledger entries and must not read as if they were. --}}
         <div>
-            <p class="text-[9px] font-semibold uppercase tracking-wide mb-1" style="color: var(--text-muted);">Highlight</p>
+            <p class="text-[9px] font-semibold uppercase tracking-wide mb-1" style="color: var(--text-muted);">Capture</p>
             <div class="flex flex-wrap gap-1">
-                <template x-for="h in pickerHighlighters()" :key="h.id">
+                <template x-for="h in capturePickerHighlighters()" :key="h.id">
                     <button type="button" class="relative flex items-center justify-center rounded-md transition-all duration-100"
-                            :title="h.label"
+                            :title="h.label + ' — draw to capture a line'"
                             @click="pickHighlighter(h.id)"
                             :style="{
                                 width: '26px', height: '26px',
@@ -95,10 +103,34 @@
                     </button>
                 </template>
             </div>
-            <template x-if="pickerHighlighters().length === 0">
+            <template x-if="capturePickerHighlighters().length === 0">
                 <p class="text-[9px] leading-snug mt-1" style="color: var(--text-muted);">None configured — see Settings.</p>
             </template>
         </div>
+
+        {{-- Any OTHER highlighter an agency has configured (e.g. the
+             default "Unpaid" pen) — a plain highlight, never a ledger
+             entry, unchanged from before this rework. Omitted entirely
+             when an agency has none, rather than showing an empty group. --}}
+        <template x-if="plainPickerHighlighters().length > 0">
+            <div>
+                <p class="text-[9px] font-semibold uppercase tracking-wide mb-1" style="color: var(--text-muted);">Highlight</p>
+                <div class="flex flex-wrap gap-1">
+                    <template x-for="h in plainPickerHighlighters()" :key="h.id">
+                        <button type="button" class="relative flex items-center justify-center rounded-md transition-all duration-100"
+                                :title="h.label"
+                                @click="pickHighlighter(h.id)"
+                                :style="{
+                                    width: '26px', height: '26px',
+                                    background: h.color,
+                                    border: (activeTool === 'highlight' && activeHighlighterId === h.id) ? '2px solid var(--text-primary)' : '1px solid var(--border)',
+                                }">
+                            <span x-show="activeTool === 'highlight' && activeHighlighterId === h.id" style="color:#fff; font-weight:800; font-size:12px; text-shadow: 0 0 2px rgba(0,0,0,0.65);">&check;</span>
+                        </button>
+                    </template>
+                </div>
+            </div>
+        </template>
 
         {{-- NOTE — same swatch rhythm as the highlighters above, its own
              fixed identity (NOTE_COLOR), never sharing the highlighter
@@ -151,6 +183,51 @@
             </button>
         </div>
     </div>
+
+    {{-- Capture chip, 2026-09-11 — Johan's spec verbatim: "~330px wide,
+         anchored beside the mark, never over it; above if no room below.
+         Date, Description, Amount. Amount focused and selected on open.
+         Enter saves. Esc cancels AND drops the mark. Clicking an existing
+         mark opens the same chip in edit mode, with Update and Delete."
+         `position:fixed` via captureChipStyle() — anchored off the raw
+         pointer event, not the mark's own document-relative coordinates,
+         so it's correct regardless of scroll position. @keydown.enter on
+         the wrapping form (not just the amount field) so Enter from
+         Date/Description also saves, matching "Enter saves" without
+         qualifying which field. --}}
+    <form x-show="captureChip" x-cloak :style="captureChipStyle()" @submit.prevent="confirmCaptureChip()"
+          @keydown.escape.prevent="cancelCaptureChip()"
+          class="corex-card p-3" style="box-shadow: 0 8px 24px rgba(0,0,0,0.18);">
+        <template x-if="captureChip">
+            <div class="space-y-2">
+                <p class="text-xs font-semibold" :style="{ color: captureChip.entryType === 'income' ? 'var(--ds-purple, #7c3aed)' : 'var(--ds-amber, #f59e0b)' }">
+                    <span x-text="captureChip.entryType === 'income' ? 'Income' : 'Expense'"></span>
+                    <span x-text="captureChip.mode === 'edit' ? ' — edit' : ' — new'"></span>
+                </p>
+                <div>
+                    <label class="text-[11px] font-medium block mb-0.5" style="color: var(--text-secondary);">Date</label>
+                    <input type="date" class="corex-input text-xs w-full" x-model="captureChip.date">
+                </div>
+                <div>
+                    <label class="text-[11px] font-medium block mb-0.5" style="color: var(--text-secondary);">Description</label>
+                    <input type="text" class="corex-input text-xs w-full" x-model="captureChip.description" maxlength="255">
+                </div>
+                <div>
+                    <label class="text-[11px] font-medium block mb-0.5" style="color: var(--text-secondary);">Amount</label>
+                    <input type="number" step="0.01" data-capture-chip-amount class="corex-input text-xs w-full" x-model="captureChip.amount">
+                </div>
+                <p class="text-[11px]" style="color: var(--ds-crimson, #dc2626);" x-show="captureChip.error" x-text="captureChip.error"></p>
+                <div class="flex items-center justify-between gap-2 pt-1">
+                    <button type="button" x-show="captureChip.mode === 'edit'" class="text-[11px]" style="color: var(--ds-crimson, #dc2626);" :disabled="captureChip.saving" @click="deleteCaptureChip()">Delete</button>
+                    <span x-show="captureChip.mode !== 'edit'"></span>
+                    <span class="flex items-center gap-2">
+                        <button type="button" class="text-[11px]" style="color: var(--text-muted);" @click="cancelCaptureChip()">Cancel</button>
+                        <button type="submit" class="corex-btn-primary text-xs" style="padding: 0.2rem 0.6rem;" :disabled="captureChip.saving" x-text="captureChip.saving ? 'Saving…' : (captureChip.mode === 'edit' ? 'Update' : 'Save')"></button>
+                    </span>
+                </div>
+            </div>
+        </template>
+    </form>
 
     <div class="flex-1 min-w-0">
         {{-- Legend — Johan asked for this explicitly ("a map key"). Driven by
@@ -278,7 +355,8 @@
                     <svg class="absolute inset-0" style="pointer-events:none; width:100%; height:100%;"
                          x-html="strokesSvgFor(page.index)"
                          @mouseover="if ($event.target.dataset.markId) hoveredMarkId = $event.target.dataset.markId"
-                         @mouseout="if ($event.target.dataset.markId && $event.target.dataset.markId === hoveredMarkId) hoveredMarkId = null"></svg>
+                         @mouseout="if ($event.target.dataset.markId && $event.target.dataset.markId === hoveredMarkId) hoveredMarkId = null"
+                         @click="onStrokeClick($event, page.index)"></svg>
                     {{-- Remove-stroke handle, freehand redesign 2026-09-09 —
                          Johan: "every stroke currently carries a black
                          circled x... eight of them scattered down the

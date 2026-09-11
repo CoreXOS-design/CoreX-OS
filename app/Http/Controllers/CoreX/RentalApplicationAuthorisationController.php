@@ -9,6 +9,7 @@ use App\Models\Document;
 use App\Models\RentalApplication;
 use App\Models\RentalApplicationAssessment;
 use App\Models\RentalApplicationDocumentHighlight;
+use App\Models\RentalApplicationDocumentMark;
 use App\Models\RentalApplicationDocumentValidityWindow;
 use App\Models\RentalApplicationExpenseItem;
 use App\Models\RentalApplicationIncomeItem;
@@ -274,17 +275,6 @@ class RentalApplicationAuthorisationController extends Controller
         $selfCreated = (int) $rentalApplication->created_by_user_id === (int) $user->id;
         $blockedBySelfApproval = $selfCreated && ! $user->isRentalApplicationOverrideTier((int) $rentalApplication->agency_id);
 
-        // Same shape the add/strike AJAX endpoints return (serializeItem()),
-        // built once here so the initial page load and every subsequent
-        // write agree on exactly what a row looks like — never a second,
-        // simpler shape hand-rolled in the blade that could drift from it.
-        $serializedIncomeItems = $assessment->exists
-            ? $assessment->incomeItems->map(fn ($i) => $this->serializeItem($i, $user))->values()
-            : collect();
-        $serializedExpenseItems = $assessment->exists
-            ? $assessment->expenseItems->map(fn ($i) => $this->serializeItem($i, $user))->values()
-            : collect();
-
         // Highlighter collection expansion, 2026-09-09 — same reasoning as
         // RentalApplicationReviewController::show().
         $highlighters = \App\Models\RentalApplicationHighlighter::allFor((int) $rentalApplication->agency_id)
@@ -306,9 +296,19 @@ class RentalApplicationAuthorisationController extends Controller
         // links are unchanged; they still point here.
         $viewerRole = 'authoriser';
 
+        // Capture-ledger rework, 2026-09-11 — see RentalApplicationReviewController
+        // ::show()'s own comment for the full reasoning; identical query,
+        // same shared view.
+        $captureEntries = RentalApplicationDocumentMark::where('rental_application_id', $rentalApplication->id)
+            ->whereIn('entry_type', RentalApplicationDocumentMark::LEDGER_ENTRY_TYPES)
+            ->orderBy('created_at')->orderBy('id')
+            ->get()
+            ->map(fn (RentalApplicationDocumentMark $mark) => $mark->toMarkArray())
+            ->values();
+
         return view('corex.rental-applications.review', compact(
             'rentalApplication', 'assessment', 'maxRentPercent', 'result', 'documents', 'history', 'auditLog', 'auditLogTotal', 'canOverride', 'alreadyDecided',
-            'blockedBySelfApproval', 'serializedIncomeItems', 'serializedExpenseItems', 'highlighters', 'viewerRole'
+            'blockedBySelfApproval', 'highlighters', 'viewerRole', 'captureEntries'
         ));
     }
 

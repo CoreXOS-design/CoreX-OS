@@ -2900,6 +2900,14 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::get('/{rentalApplication}/documents/{document}/highlight-data/first', [\App\Http\Controllers\CoreX\RentalApplicationAuthorisationController::class, 'highlightFirstPage'])->name('corex.rental-applications.authorisation.documents.highlight-data.first');
         Route::get('/{rentalApplication}/documents/{document}/highlight-data/remaining', [\App\Http\Controllers\CoreX\RentalApplicationAuthorisationController::class, 'highlightRemainingPages'])->name('corex.rental-applications.authorisation.documents.highlight-data.remaining');
         Route::post('/{rentalApplication}/documents/{document}/highlight', [\App\Http\Controllers\CoreX\RentalApplicationAuthorisationController::class, 'applyHighlight'])->name('corex.rental-applications.authorisation.documents.highlight');
+        // Capture-ledger rework, 2026-09-11 — the highlighter mark IS the
+        // ledger line now (Johan). Create is document-scoped (a drag on an
+        // open document); update/delete are rental-application-scoped (act
+        // on the mark_uid directly, since an unanchored/manually-typed
+        // entry has no document to route through).
+        Route::post('/{rentalApplication}/documents/{document}/capture-entries', [\App\Http\Controllers\CoreX\RentalApplicationAuthorisationController::class, 'captureEntryCreate'])->name('corex.rental-applications.authorisation.documents.capture-entries.store');
+        Route::put('/{rentalApplication}/capture-entries/{markUid}', [\App\Http\Controllers\CoreX\RentalApplicationAuthorisationController::class, 'captureEntryUpdate'])->name('corex.rental-applications.authorisation.capture-entries.update');
+        Route::delete('/{rentalApplication}/capture-entries/{markUid}', [\App\Http\Controllers\CoreX\RentalApplicationAuthorisationController::class, 'captureEntryDelete'])->name('corex.rental-applications.authorisation.capture-entries.destroy');
         // Assessment add/strike, 2026-09-08 — Johan, confirmed: "auth can
         // rather strike out and re-add a value than edit a value. this way
         // we have the evidence needed of who did what." No edit/update
@@ -2966,6 +2974,12 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::get('/{rentalApplication}/documents/{document}/highlight-data/first', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'highlightFirstPage'])->name('corex.rental-applications.documents.highlight-data.first');
         Route::get('/{rentalApplication}/documents/{document}/highlight-data/remaining', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'highlightRemainingPages'])->name('corex.rental-applications.documents.highlight-data.remaining');
         Route::post('/{rentalApplication}/documents/{document}/highlight', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'applyHighlight'])->name('corex.rental-applications.documents.highlight');
+        // Capture-ledger rework, 2026-09-11 — see the matching authoriser
+        // routes' own comment for the full reasoning (same three endpoints,
+        // same shared trait).
+        Route::post('/{rentalApplication}/documents/{document}/capture-entries', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'captureEntryCreate'])->name('corex.rental-applications.documents.capture-entries.store');
+        Route::put('/{rentalApplication}/capture-entries/{markUid}', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'captureEntryUpdate'])->name('corex.rental-applications.capture-entries.update');
+        Route::delete('/{rentalApplication}/capture-entries/{markUid}', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'captureEntryDelete'])->name('corex.rental-applications.capture-entries.destroy');
         Route::get('/{rentalApplication}/documents/{document}/highlighted-file', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'highlightedFile'])->name('corex.rental-applications.documents.highlighted-file');
         // AT-392 "pull from contact" — a REFERENCED document's download,
         // separate from corex.rental-applications.documents.download (owned

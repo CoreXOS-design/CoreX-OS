@@ -11,6 +11,7 @@ use App\Models\Document;
 use App\Models\RentalApplication;
 use App\Models\RentalApplicationAssessment;
 use App\Models\RentalApplicationDocumentHighlight;
+use App\Models\RentalApplicationDocumentMark;
 use App\Models\RentalApplicationDocumentRequirement;
 use App\Models\RentalApplicationDocumentValidityWindow;
 use App\Models\RentalApplicationExpenseItem;
@@ -358,10 +359,25 @@ class RentalApplicationReviewController extends Controller
                 ->values()
             : collect();
 
+        // Capture-ledger rework, 2026-09-11 — Johan: "the highlighter mark
+        // IS the ledger line." Every active income/expense entry for this
+        // application, anchored (drawn on a document) or not (manually
+        // typed, or migrated from the old separate ledger — see the
+        // backfill migration). Client recomputes numbering/totals
+        // reactively as entries are added/edited/deleted, same as the
+        // deleted strip's own ledgerRows() did — this is the server's
+        // one-time hydration, not the live source of truth after that.
+        $captureEntries = RentalApplicationDocumentMark::where('rental_application_id', $rentalApplication->id)
+            ->whereIn('entry_type', RentalApplicationDocumentMark::LEDGER_ENTRY_TYPES)
+            ->orderBy('created_at')->orderBy('id')
+            ->get()
+            ->map(fn (RentalApplicationDocumentMark $mark) => $mark->toMarkArray())
+            ->values();
+
         return view('corex.rental-applications.review', compact(
             'rentalApplication', 'assessment', 'maxRentPercent', 'result', 'documents', 'moreInfoRequestedNote', 'declineInfo', 'highlighters',
             'viewerRole', 'propertyLinkLocked', 'auditLog', 'auditLogTotal', 'existingWishlist', 'matchCategories', 'matchTypes', 'featureOptions',
-            'rentalPropertyTypeNames', 'wishlistPrefill', 'pickableContactDocuments', 'pickableStaleness', 'documentChecklist'
+            'rentalPropertyTypeNames', 'wishlistPrefill', 'pickableContactDocuments', 'pickableStaleness', 'documentChecklist', 'captureEntries'
         ))->with('isPendingAuthorisation', $rentalApplication->isPendingAuthorisation());
     }
 
@@ -741,35 +757,23 @@ class RentalApplicationReviewController extends Controller
     {
         $this->guardRentalApplication($rentalApplication);
 
-        // RA-02 (cc5 re-test, Round 8) — every numeric money field on this
-        // feature. Round 9 (item 5) — monthly_income/other_monthly_income/
-        // monthly_expenses became growable lists; the sanitizer still
-        // applies to each item's own 'amount', not a top-level field.
-        $incomeItemsInput = array_map(
-            fn ($item) => RentalApplication::sanitizeNumericInput((array) $item, ['amount']),
-            (array) $request->input('income_items', []),
-        );
-        $expenseItemsInput = array_map(
-            fn ($item) => RentalApplication::sanitizeNumericInput((array) $item, ['amount']),
-            (array) $request->input('expense_items', []),
-        );
-        $request->merge(['income_items' => $incomeItemsInput, 'expense_items' => $expenseItemsInput]);
-
+        // Capture-ledger rework, 2026-09-11 — income_items/expense_items
+        // handling REMOVED from this endpoint (was here, syncing
+        // RentalApplicationIncomeItem/ExpenseItem on every autosave).
+        // Johan: "the highlighter mark IS the ledger line" — capture now
+        // happens via rental_application_document_marks
+        // (captureEntryCreate()/Update()/Delete() below), not this
+        // endpoint. Removed rather than left accepting-and-ignoring: this
+        // endpoint's own syncItems() "replaces the agent's WHOLE list on
+        // every autosave... deleting whatever isn't present" — the client
+        // no longer sends these keys at all after this rework, and an
+        // empty/absent array reaching that method would have silently
+        // soft-deleted every existing income/expense-item row (still live,
+        // preserved by the migration as a historical copy) the very first
+        // time an agent saved anything else on this screen. The old
+        // tables/models/rows are untouched and still readable; nothing new
+        // writes to them from here on.
         $validated = $request->validate([
-            'income_items' => ['nullable', 'array'],
-            'income_items.*.id' => ['nullable', 'integer'],
-            'income_items.*.description' => ['nullable', 'string', 'max:255'],
-            'income_items.*.amount' => ['nullable', 'numeric', 'min:0', 'max:99999999.99'],
-            // "Dates on entries" (Johan, 2026-09-10) — the date a captured
-            // deposit/debit actually happened. Can't be in the future (it's
-            // a line off an already-issued bank statement); no lower bound
-            // — old statements are a normal, legitimate capture.
-            'income_items.*.entry_date' => ['nullable', 'date', 'before_or_equal:today'],
-            'expense_items' => ['nullable', 'array'],
-            'expense_items.*.id' => ['nullable', 'integer'],
-            'expense_items.*.description' => ['nullable', 'string', 'max:255'],
-            'expense_items.*.amount' => ['nullable', 'numeric', 'min:0', 'max:99999999.99'],
-            'expense_items.*.entry_date' => ['nullable', 'date', 'before_or_equal:today'],
             'notes' => ['nullable', 'string', 'max:5000'],
             // Round 11 — Johan: "we have to ask the nr of months the bank
             // statement is for." A bank statement's captured lines are a
@@ -817,14 +821,6 @@ class RentalApplicationReviewController extends Controller
             ], 409);
         }
 
-        // A row the agent never filled in (no description, no amount) is the
-        // ever-present trailing "type here to add another" placeholder —
-        // Johan: "empty trailing rows must not save as zero-value rows or
-        // clutter the record." Filtered server-side too, not just by the
-        // frontend, since this is the only thing standing between a crafted
-        // request and a junk row.
-        $isBlank = fn ($item) => empty($item['description'] ?? null) && (($item['amount'] ?? null) === null || $item['amount'] === '');
-
         // "Dates on entries" (Johan, 2026-09-10) — statement_months is now
         // DERIVED from the date range, never submitted directly by the
         // form. Calculated here, not trusted from the request, so a
@@ -869,35 +865,24 @@ class RentalApplicationReviewController extends Controller
             $assessmentAttributes,
         );
 
-        $this->syncItems(
-            $assessment,
-            RentalApplicationIncomeItem::class,
-            array_values(array_filter($validated['income_items'] ?? [], fn ($i) => ! $isBlank($i))),
-        );
-        $this->syncItems(
-            $assessment,
-            RentalApplicationExpenseItem::class,
-            array_values(array_filter($validated['expense_items'] ?? [], fn ($i) => ! $isBlank($i))),
-        );
-
-        $maxRentPercent = RentalApplicationQualifyingSetting::maxRentPercentFor((int) $rentalApplication->agency_id);
-        $assessment = $assessment->fresh(['incomeItems', 'expenseItems']);
-
-        // Round 9 (item 5) — the client must learn each row's real id after
-        // its first save, or the NEXT autosave would have no way to match
-        // existing rows and would create duplicates instead of updating
-        // them. Echoing the canonical saved list back is simpler and safer
-        // than the client guessing its own ids.
         return response()->json([
             'ok' => true,
-            'result' => $assessment->qualifyingResult($maxRentPercent),
-            'income_items' => $assessment->incomeItems->map(fn ($i) => ['id' => $i->id, 'description' => $i->description, 'amount' => $i->amount, 'entry_date' => $i->entry_date?->format('Y-m-d')])->values(),
-            'expense_items' => $assessment->expenseItems->map(fn ($i) => ['id' => $i->id, 'description' => $i->description, 'amount' => $i->amount, 'entry_date' => $i->entry_date?->format('Y-m-d')])->values(),
+            'statement_months' => $assessment->statement_months,
             'saved_at' => $assessment->updated_at?->toIso8601String(),
         ]);
     }
 
     /**
+     * Capture-ledger rework, 2026-09-11 — DEAD CODE, no remaining callers
+     * (was called only from saveAssessment() above, for income/expense
+     * items — removed there per that method's own comment). Left in place
+     * rather than deleted: it operates on RentalApplicationIncomeItem/
+     * ExpenseItem, models outside this task's stated scope
+     * (review.blade.php, the document-highlighter partials, the mark
+     * model/migration, and this controller) — REPORTED here, not removed,
+     * since removing it is a judgement call about those models' own
+     * future, not this rework's.
+     *
      * Replace an assessment's income/expense line items with $items,
      * matched by id where the client already has one (a row it typed into
      * on a previous autosave). Rows no longer present are SOFT-deleted
