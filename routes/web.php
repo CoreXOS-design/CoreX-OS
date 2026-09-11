@@ -2980,6 +2980,10 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/{rentalApplication}/documents/{document}/capture-entries', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'captureEntryCreate'])->name('corex.rental-applications.documents.capture-entries.store');
         Route::put('/{rentalApplication}/capture-entries/{markUid}', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'captureEntryUpdate'])->name('corex.rental-applications.capture-entries.update');
         Route::delete('/{rentalApplication}/capture-entries/{markUid}', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'captureEntryDelete'])->name('corex.rental-applications.capture-entries.destroy');
+        // Stage 3, 2026-09-11 — "Add line manually," agent-only ("Add line
+        // manually" only ever renders for $viewerRole === 'agent' in the
+        // panel — no authoriser equivalent needed).
+        Route::post('/{rentalApplication}/capture-entries', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'captureEntryCreateManual'])->name('corex.rental-applications.capture-entries.store-manual');
         Route::get('/{rentalApplication}/documents/{document}/highlighted-file', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'highlightedFile'])->name('corex.rental-applications.documents.highlighted-file');
         // AT-392 "pull from contact" — a REFERENCED document's download,
         // separate from corex.rental-applications.documents.download (owned

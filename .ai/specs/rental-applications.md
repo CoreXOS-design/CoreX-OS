@@ -7876,6 +7876,21 @@ An unanchored row (a migrated old-ledger entry, or a future Stage-3 manual entry
 
 **Known gap, not yet built:** Stage 1's own spec line — "saving renders the mark with its line-number badge" — was read as the PANEL's positional badge (built) but a matching numbered badge rendered ON THE DOCUMENT next to the mark itself was not built in either stage. Flagged for a follow-up pass, not fixed here — out of the queue this round's remaining time went to (Stage 2's jump/flash, then the three cross-lane items).
 
+### Stage 3 — manual entry (2026-09-11, cc3)
+
+"Add line manually," for a figure with nothing to highlight — same record, same panel, per the task's own spec: "shows without a mark number and with no jump target." Agent-only (the button only ever rendered for `$viewerRole === 'agent'`, so no authoriser route was built).
+
+**New endpoint, not a variant of the existing one.** `captureEntryCreate()` requires `document_id`/`page`/`points`/`width`/`highlighter_id` — none of which exist for a figure with nothing drawn — so a genuinely separate `captureEntryCreateManual(Request, RentalApplication)` was added to the shared trait rather than making those fields optional on the existing endpoint (which would let a real capture entry silently skip its own geometry validation). Takes no `$document` route parameter at all; guarded on the rental application directly, the same way `captureEntryUpdate`/`Delete` already are. Creates a mark with `document_id`/`page`/`type`/`points`/`width`/`highlighter_id` all null — exactly the unanchored shape the Stage 1 migration already built the schema for. One route: `POST /rental-applications/{rentalApplication}/capture-entries`.
+
+**UI — a self-contained inline form, not the document-highlighter's capture chip.** The chip lives inside `rentalDocumentHighlighter()` and is built around a drawn mark's document/page/pen context; a manual entry has none of that, so reusing it would mean reaching into a scope this affordance has no business owning. `rentalCaptureLedger()` (the panel's own scope) gained a small inline form instead — Income/Expense toggle (nothing implies the type here, unlike a capture pen), Date, Description, Amount (auto-focused+selected on open) — that POSTs straight to the new endpoint and calls the ROOT's own `addCaptureEntry()` directly (same scope, no cross-component bridge needed, unlike Stage 2's jump).
+
+**Badge fixed to match the spec, retroactively affecting Stage 1's migrated rows too.** Stage 1/2 rendered a positional number badge on EVERY row regardless of whether it had a mark to jump to — reading Stage 3's "shows without a mark number and with no jump target" precisely means an unanchored row (any migrated old-ledger entry, not just a fresh manual one) should never have shown a number in the first place. Fixed in the same pass: the badge (`x-show="row.document_id"`) and the jump-glyph colour both now key off the same `document_id` presence check already used for click-ability.
+
+**Files changed:**
+- `app/Http/Controllers/Concerns/HandlesRentalApplicationDocumentMarks.php` — `captureEntryCreateManual()`.
+- `routes/web.php` — one new agent-only route.
+- `resources/views/corex/rental-applications/review.blade.php` — `rentalCaptureLedger()` gains `manualCaptureCreateUrl`/`manualEntryOpen`/`manualEntry`/`openManualEntry()`/`cancelManualEntry()`/`saveManualEntry()`; the "Add line manually" button is enabled with its inline form; both group's row badges gated on `row.document_id`.
+
 ## PDF Splitter intake — page-typing tools (2026-09-11)
 
 The rental-application intake path (a bundle split via `intakeRentalApplicationDocument()`

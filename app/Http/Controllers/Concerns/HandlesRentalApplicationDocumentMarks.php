@@ -249,6 +249,49 @@ trait HandlesRentalApplicationDocumentMarks
     }
 
     /**
+     * Stage 3, 2026-09-11 — "Add line manually," for a figure with nothing
+     * to highlight. Same record as captureEntryCreate() above, but
+     * UNANCHORED (document_id/page/type/points/width/highlighter_id all
+     * null) — the schema was built for exactly this case (see the Stage 1
+     * migration's own docblock). No $document route parameter at all,
+     * since a manual entry never had one; guarded on the RENTAL
+     * APPLICATION directly, the same way captureEntryUpdate/Delete already
+     * are, not a document.
+     */
+    public function captureEntryCreateManual(Request $request, RentalApplication $rentalApplication)
+    {
+        $this->guardRentalApplication($rentalApplication);
+
+        $validated = $request->validate([
+            'mark_uid' => ['required', 'string', 'max:64'],
+            'entry_type' => ['required', Rule::in(RentalApplicationDocumentMark::LEDGER_ENTRY_TYPES)],
+            'entry_date' => ['nullable', 'date'],
+            'entry_description' => ['nullable', 'string', 'max:255'],
+            'entry_amount' => ['required', 'numeric'],
+        ]);
+
+        if (RentalApplicationDocumentMark::where('rental_application_id', $rentalApplication->id)->where('mark_uid', $validated['mark_uid'])->exists()) {
+            return response()->json(['error' => 'This entry has already been saved.'], 409);
+        }
+
+        $mark = RentalApplicationDocumentMark::create([
+            'agency_id' => $rentalApplication->agency_id,
+            'rental_application_id' => $rentalApplication->id,
+            'mark_uid' => $validated['mark_uid'],
+            'author_user_id' => $request->user()->id,
+            'author_name' => (string) $request->user()->name,
+            'author_role' => $this->markAuthorRole(),
+            'source' => 'human',
+            'entry_type' => $validated['entry_type'],
+            'entry_date' => $validated['entry_date'] ?? null,
+            'entry_description' => $validated['entry_description'] ?? null,
+            'entry_amount' => $validated['entry_amount'],
+        ]);
+
+        return response()->json(['ok' => true, 'entry' => $mark->toMarkArray()]);
+    }
+
+    /**
      * Ledger fields only — entry_date/entry_description/entry_amount.
      * Geometry (points/width/highlighter_id/page) is never editable here,
      * on purpose: the "no in-place edit of a drawn mark, only draw-new and

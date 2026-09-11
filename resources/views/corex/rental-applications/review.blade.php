@@ -71,11 +71,23 @@
         ?? trim(($rentalApplication->contact->first_name ?? '') . ' ' . ($rentalApplication->contact->last_name ?? ''));
     $headerTitleText = ($viewerRole === 'agent' ? 'Application Review' : 'Authorise') . ' — ' . $headerContactName;
     $headerPropertyFact = $propertyLabel ? ('Property: ' . $propertyLabel) : 'No property linked';
-    $headerExtraFact = null;
+    // cc4, 2026-09-11 — Johan/cc4's E2E walk: "the review screen header can
+    // claim 'submitted for authorisation' on a DECLINED application."
+    // $headerExtraFact used to be driven by $propertyLinkLocked (a
+    // PERMANENT one-way flag set once at first submission, never cleared —
+    // see wherever that's computed) for the agent, and an unconditional
+    // "Submitted for approval [date]" for the authoriser — neither reflects
+    // whether the application has since been decided. Reads as a live
+    // status claim; a stale one is worse than saying nothing. Now the
+    // application's own ACTUAL current status, for both roles, with the
+    // property-lock fact (still worth saying — it explains why the
+    // property picker above is disabled) appended as its own clearly-
+    // labelled lock note, never conflated with the workflow status itself.
+    $headerExtraFact = $rentalApplication->isPendingAuthorisation()
+        ? "Awaiting authoriser's decision"
+        : ucfirst(str_replace('_', ' ', $rentalApplication->status));
     if ($viewerRole === 'agent' && ($propertyLinkLocked ?? false)) {
-        $headerExtraFact = 'locked — submitted for authorisation.';
-    } elseif ($viewerRole === 'authoriser') {
-        $headerExtraFact = 'Submitted for approval ' . $rentalApplication->submitted_for_approval_at?->format('d M Y H:i');
+        $headerExtraFact .= ' · property link locked';
     }
     $headerFullText = $headerTitleText . ' · ' . $headerPropertyFact . ($headerExtraFact ? ' · ' . $headerExtraFact : '');
 @endphp
@@ -105,6 +117,7 @@
              has_unpaid_transactions: {{ Js::from((bool) $assessment->has_unpaid_transactions) }},
          },
          initialCaptureEntries: {{ Js::from($captureEntries) }},
+         manualCaptureCreateUrl: '{{ route('corex.rental-applications.capture-entries.store-manual', $rentalApplication) }}',
          initialSavedAt: {{ $assessment->exists ? Js::from($assessment->updated_at->toIso8601String()) : 'null' }},
          initialMarkedUpDocIds: {{ Js::from($initialMarkedUpDocIds) }},
          currentUserId: {{ Js::from(auth()->id()) }},
@@ -904,7 +917,8 @@
                 <template x-if="incomeEntries().length === 0"><p class="text-[11px]" style="color: var(--text-muted);">None captured.</p></template>
                 <template x-for="(row, idx) in incomeEntries()" :key="row.id">
                     <div class="rr-ledger-row" :style="{ cursor: row.document_id ? 'pointer' : 'default' }" :title="row.document_id ? 'Jump to this mark on the document' : ''" @click="jumpToMark(row)">
-                        <span class="rr-ledger-badge" style="background: var(--ds-purple, #7c3aed);" x-text="idx + 1"></span>
+                        <span class="rr-ledger-badge" x-show="row.document_id" style="background: var(--ds-purple, #7c3aed);" x-text="idx + 1"></span>
+                        <span x-show="!row.document_id"></span>
                         <span class="text-[11px]" style="color: var(--text-secondary);" x-text="shortDate(row.entry_date)"></span>
                         <span class="rr-ledger-amount text-xs" style="color: var(--text-primary);" :title="row.entry_description" x-text="formatR(row.entry_amount)"></span>
                         <span class="text-[11px] text-right" :style="{ color: row.document_id ? 'var(--ds-blue, #2563eb)' : 'var(--text-muted)' }">&rarr;</span>
@@ -916,7 +930,8 @@
                 <template x-if="expenseEntries().length === 0"><p class="text-[11px]" style="color: var(--text-muted);">None captured.</p></template>
                 <template x-for="(row, idx) in expenseEntries()" :key="row.id">
                     <div class="rr-ledger-row" :style="{ cursor: row.document_id ? 'pointer' : 'default' }" :title="row.document_id ? 'Jump to this mark on the document' : ''" @click="jumpToMark(row)">
-                        <span class="rr-ledger-badge" style="background: var(--ds-amber, #f59e0b);" x-text="idx + 1"></span>
+                        <span class="rr-ledger-badge" x-show="row.document_id" style="background: var(--ds-amber, #f59e0b);" x-text="idx + 1"></span>
+                        <span x-show="!row.document_id"></span>
                         <span class="text-[11px]" style="color: var(--text-secondary);" x-text="shortDate(row.entry_date)"></span>
                         <span class="rr-ledger-amount text-xs" style="color: var(--text-primary);" :title="row.entry_description" x-text="formatR(row.entry_amount)"></span>
                         <span class="text-[11px] text-right" :style="{ color: row.document_id ? 'var(--ds-blue, #2563eb)' : 'var(--text-muted)' }">&rarr;</span>
@@ -937,13 +952,30 @@
                 <p class="text-sm font-bold flex items-center justify-between mt-1" style="color: var(--text-primary);"><span>Net monthly</span><span class="rr-ledger-amount" x-text="formatR(netMonthly())"></span></p>
             </div>
 
-            {{-- Actions. "Add line manually" (Stage 3) renders per the
-                 panel's own stated contents but is inert this stage — a
-                 disabled button explaining why (title) rather than a
-                 silently-missing one or a fake working one. --}}
+            {{-- Actions. --}}
             <div class="pt-2" style="border-top: 1px solid var(--border);">
                 @if($viewerRole === 'agent')
-                    <button type="button" class="corex-btn-outline text-xs w-full mb-1.5" style="opacity: 0.5; cursor: not-allowed;" disabled title="Manual entry — lands in a follow-up update, for figures with nothing to highlight.">Add line manually</button>
+                    {{-- Stage 3, 2026-09-11 — for a figure with nothing to
+                         highlight. A self-contained inline form (@click
+                         opens it, x-show gates it below the button row)
+                         rather than reusing the document-highlighter's own
+                         capture chip — a manual entry has no document/pen
+                         context to anchor a chip to. --}}
+                    <button type="button" class="corex-btn-outline text-xs w-full mb-1.5" @click="openManualEntry()">Add line manually</button>
+                    <div x-show="manualEntryOpen" x-cloak class="rounded-md p-2 mb-1.5" style="border: 1px solid var(--border); background: var(--surface-2, #f9fafb);">
+                        <div class="grid grid-cols-2 gap-1 mb-1">
+                            <button type="button" class="text-xs rounded-md py-1" :style="{ border: '1px solid var(--border)', background: manualEntry.entry_type === 'income' ? 'var(--ds-purple-soft, #f3e8ff)' : 'transparent', color: manualEntry.entry_type === 'income' ? 'var(--ds-purple, #7c3aed)' : 'var(--text-secondary)' }" @click="manualEntry.entry_type = 'income'">Income</button>
+                            <button type="button" class="text-xs rounded-md py-1" :style="{ border: '1px solid var(--border)', background: manualEntry.entry_type === 'expense' ? 'var(--ds-amber-soft, #fffbeb)' : 'transparent', color: manualEntry.entry_type === 'expense' ? 'var(--ds-amber, #b45309)' : 'var(--text-secondary)' }" @click="manualEntry.entry_type = 'expense'">Expense</button>
+                        </div>
+                        <input type="date" class="corex-input text-xs w-full mb-1" x-model="manualEntry.entry_date" aria-label="Date">
+                        <input type="text" class="corex-input text-xs w-full mb-1" x-model="manualEntry.entry_description" maxlength="255" placeholder="Description" aria-label="Description">
+                        <input type="number" step="0.01" data-manual-entry-amount class="corex-input text-xs w-full mb-1" x-model="manualEntry.entry_amount" placeholder="Amount" aria-label="Amount" @keydown.enter.prevent="saveManualEntry()">
+                        <p class="text-[11px] mb-1" style="color: var(--ds-crimson, #dc2626);" x-show="manualEntryError" x-text="manualEntryError"></p>
+                        <div class="flex items-center justify-end gap-2">
+                            <button type="button" class="text-[11px]" style="color: var(--text-muted);" @click="cancelManualEntry()">Cancel</button>
+                            <button type="button" class="corex-btn-primary text-xs" style="padding: 0.2rem 0.6rem;" :disabled="manualEntrySaving" @click="saveManualEntry()" x-text="manualEntrySaving ? 'Saving…' : 'Save'"></button>
+                        </div>
+                    </div>
                     @if($canSendBackToApplicant)
                         <button type="button" class="corex-btn-outline text-xs w-full mb-1.5" @click="sendBackModalOpen = true">Send back to applicant</button>
                     @endif
@@ -1361,9 +1393,72 @@
  * captured entry is appended) — never a stored number, so it can never
  * drift from what's actually on screen.
  */
-function rentalCaptureLedger({ initialCaptureEntries } = {}) {
+function rentalCaptureLedger({ initialCaptureEntries, manualCaptureCreateUrl } = {}) {
     return {
         captureEntries: initialCaptureEntries || [],
+        // Stage 3, 2026-09-11 — "Add line manually," for a figure with
+        // nothing to highlight. A self-contained inline form here (not the
+        // document-highlighter's own capture chip) since a manual entry has
+        // no document/pen/mark context at all — reusing that chip would
+        // mean reaching into a scope this one has no business owning.
+        manualCaptureCreateUrl: manualCaptureCreateUrl || '',
+        manualEntryOpen: false,
+        manualEntry: { entry_type: 'income', entry_date: '', entry_description: '', entry_amount: '' },
+        manualEntrySaving: false,
+        manualEntryError: '',
+        openManualEntry() {
+            this.manualEntryOpen = true;
+            this.manualEntry = { entry_type: 'income', entry_date: '', entry_description: '', entry_amount: '' };
+            this.manualEntryError = '';
+            this.$nextTick(() => {
+                const el = document.querySelector('[data-manual-entry-amount]');
+                if (el) { el.focus(); el.select(); }
+            });
+        },
+        cancelManualEntry() {
+            this.manualEntryOpen = false;
+        },
+        async saveManualEntry() {
+            if (this.manualEntrySaving) return;
+            const amount = parseFloat(this.manualEntry.entry_amount);
+            if (this.manualEntry.entry_amount === '' || Number.isNaN(amount)) {
+                this.manualEntryError = 'Enter an amount.';
+                return;
+            }
+            this.manualEntrySaving = true;
+            this.manualEntryError = '';
+            try {
+                const res = await fetch(this.manualCaptureCreateUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content ?? '',
+                        'X-Requested-With': 'XMLHttpRequest',
+                    },
+                    credentials: 'same-origin',
+                    body: JSON.stringify({
+                        mark_uid: (() => { try { return crypto.randomUUID(); } catch (_) { return 'm-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10); } })(),
+                        entry_type: this.manualEntry.entry_type,
+                        entry_date: this.manualEntry.entry_date || null,
+                        entry_description: this.manualEntry.entry_description || null,
+                        entry_amount: amount,
+                    }),
+                });
+                if (!res.ok) {
+                    const body = await res.json().catch(() => ({}));
+                    this.manualEntryError = body.error || 'Could not save this entry.';
+                    this.manualEntrySaving = false;
+                    return;
+                }
+                const data = await res.json();
+                this.addCaptureEntry(data.entry);
+                this.manualEntryOpen = false;
+            } catch (e) {
+                this.manualEntryError = 'Network error — this entry was not saved.';
+            }
+            this.manualEntrySaving = false;
+        },
         incomeEntries() {
             return this.captureEntries.filter(e => e.entry_type === 'income');
         },
@@ -1419,7 +1514,7 @@ function rentalCaptureLedger({ initialCaptureEntries } = {}) {
     };
 }
 
-function rentalReview({ saveUrl, initial, initialCaptureEntries, initialSavedAt, initialMarkedUpDocIds, currentUserId, currentUserName, currentUserRole, highlighters, requestMoreInfoUrl, submitForApprovalUrl, reopenUrl, expectedGeneration, canReopenNow, documentChecklist }) {
+function rentalReview({ saveUrl, initial, initialCaptureEntries, manualCaptureCreateUrl, initialSavedAt, initialMarkedUpDocIds, currentUserId, currentUserName, currentUserRole, highlighters, requestMoreInfoUrl, submitForApprovalUrl, reopenUrl, expectedGeneration, canReopenNow, documentChecklist }) {
     return {
         // 2026-09-08 — the highlight/note viewer state+methods (activeDocId,
         // pages, marks, openHighlighter()/applyHighlights()/etc.) now live in
@@ -1432,7 +1527,7 @@ function rentalReview({ saveUrl, initial, initialCaptureEntries, initialSavedAt,
         // for the same reason rentalDocumentHighlighter() is: identical
         // tally logic, one copy. See its own docblock for the full
         // reasoning (rentalCaptureLedger(), defined further below).
-        ...rentalCaptureLedger({ initialCaptureEntries }),
+        ...rentalCaptureLedger({ initialCaptureEntries, manualCaptureCreateUrl }),
 
         // 2026-09-08 — Johan: "clicking back to application shows a changes
         // may be lost popup but there's no save button visible anywhere." No

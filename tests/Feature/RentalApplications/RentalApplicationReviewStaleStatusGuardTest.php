@@ -124,4 +124,27 @@ final class RentalApplicationReviewStaleStatusGuardTest extends TestCase
             ->get(route('corex.rental-applications.review', $rentalApplication))
             ->assertRedirect(route('corex.rental-applications.show', $rentalApplication));
     }
+
+    /**
+     * Regression, 2026-09-11 (cc4's E2E walk) — the header's $headerExtraFact
+     * used to be driven by $propertyLinkLocked (a permanent one-way flag set
+     * once at first submission, never cleared) for the agent, so it could
+     * still claim "submitted for authorisation" on an application that had
+     * since been DECLINED. Fixed to state the application's own actual
+     * current status, with the lock (still worth saying) appended as its
+     * own clearly-labelled fact rather than standing in for the status.
+     */
+    public function test_header_states_actual_status_not_the_stale_property_lock_claim(): void
+    {
+        $rentalApplication = $this->application('declined');
+        $rentalApplication->forceFill(['submitted_at' => now()->subDays(3)])->save();
+        $this->agency->update(['rental_application_co_user_ids' => [$this->agent->id]]);
+
+        $response = $this->actingAs($this->agent)
+            ->get(route('corex.rental-applications.review', $rentalApplication));
+
+        $response->assertOk();
+        $response->assertDontSee('submitted for authorisation');
+        $response->assertSee('Declined');
+    }
 }
