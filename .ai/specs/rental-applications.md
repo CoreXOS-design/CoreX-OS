@@ -8812,18 +8812,45 @@ both this round):**
   contact directly (mirrors `store()`); otherwise returns 422 with the match list so the agent
   can "Use this contact" instead of minting a second record, or explicitly "Create anyway"
   (`bypass_duplicate_check`).
-- **Type assignment**: `Contact::syncTypeAssignments()` — the exact model method cc6 hardened
-  this round (AT-392, add-never-strip) — called directly rather than through
-  `ContactController::applyTypeAssignments()`. For a BRAND NEW contact this is equivalent and
-  safe: the strip-guard in `applyTypeAssignments()` only ever matters for an contact that already
-  holds types outside the picker's offered set, which a just-created contact never does.
-  Assigns **"Lessee"** (id 10, `esign_role='lessee'`) — one of the seven fixed parent types
-  `ContactType::scopeParents()` defines — deliberately NOT "Tenant": this codebase's own
-  established convention (`AddTenantTypeOnRentalApproval`) adds Tenant only on approval, never at
-  application time ("*only approval tags*" — Johan), and a rental applicant is, from the moment
-  they apply, exactly the party expected to sign as lessee. This is an engineering call, not a
-  business one — made and recorded here, not asked of Johan, per this repo's own standing rule
-  that implementation choices are the lane's to make.
+- **Type assignment**: NONE, at creation. (**CORRECTION, 2026-09-12, same day as the original
+  build** — the paragraph below is what the first cut actually shipped, and it was wrong; kept
+  on the record per this repo's own standing rule that a false claim gets corrected in place,
+  not quietly deleted, because the next lane trusts what's written here.)
+
+  **What shipped first, and why it was wrong.** The first cut called
+  `Contact::syncTypeAssignments()` directly — the exact model method cc6 hardened this round
+  (AT-392, add-never-strip), so reaching for it wasn't itself the error — and assigned
+  **"Lessee"** (id 10, `esign_role='lessee'`, one of the four CANONICAL e-sign-wizard parent
+  types). That is a genuinely different database row from **"Tenant"** (id 11,
+  `esign_role='lessee'` also, but a separate `ContactType` record, one of the three
+  `ADDITIONAL_PARENTS`) — same real-world role, two distinct rows, not a label difference. Every
+  other mechanism in this codebase that assigns a rental type — specifically
+  `AddTenantTypeOnRentalApproval`, verified twice by cc4 — adds **Tenant (id 11)**, not Lessee.
+  A contact created through this inline path would therefore have carried a DIFFERENT type than
+  a contact linked via the pre-existing search box, from the moment of creation, and any
+  report/filter/list in this module keyed on "Tenant" would have silently missed every walk-in
+  created through the inline path until (if ever) that application was approved and Tenant got
+  added alongside the wrong Lessee tag it already carried. Caught the same day, before Johan
+  accepted the work, by his own direct question rather than by any gate in this pipeline —
+  worth naming plainly rather than glossing over.
+
+  **The fix, and why "assign Tenant instead" was rejected too.** The correct fix is not to swap
+  the id from 10 to 11 — it's to assign **nothing** at creation. Every other door into this
+  screen (picking an existing contact via the search box) also assigns no type at creation; type
+  arrives exactly once, via `AddTenantTypeOnRentalApproval`, on APPROVAL, for every contact
+  regardless of which door it came in through ("*only approval tags*" — Johan, the listener's own
+  docblock). Stamping "Tenant" here at CREATE time — even though it's the eventually-correct
+  type — would introduce a DIFFERENT inconsistency: an applicant who is later DECLINED would
+  permanently carry a rental type they should never have gotten, since Johan's add-never-strip
+  rule means nothing downstream ever removes it. Leaving this path type-less at creation is what
+  makes an inline-created contact behave identically, from day one through approval or decline,
+  to a contact picked via the pre-existing search box — this is the correct behaviour, not a
+  reduced version of the original intent.
+
+  **Data correction.** The one test contact created during the original (wrong) proof had its
+  erroneously-assigned "Lessee" type removed via the same canonical `syncTypeAssignments()` path
+  — this was correcting this lane's own bug on a QA1 throwaway record created minutes earlier,
+  not "stripping a type a user set," so it does not touch the rule cc6's hardening protects.
 - **Identifiers**: `ContactIdentifierService::syncIdentifiers()` — the same phone/email
   child-row writer every other contact-creation path uses.
 - **Scope**: `agency_id`/`branch_id` from the creating user's own `effectiveAgencyId()` /
@@ -8848,17 +8875,27 @@ console errors across the whole walk):**
    `/corex/rental-applications/153` (a genuinely new application id; 76/107 untouched).
    Verified in DB: `RentalApplication::find(153)->contact_id` matches the new contact's id
    exactly.
-5. Verified the new contact in `/corex/contacts?search=...` — present, with "Lessee" visible as
-   its type.
+5. Verified the new contact in `/corex/contacts?search=...` — present. (At the time of this
+   original proof it showed "Lessee" as its type — that was the bug corrected above; see the
+   re-proof immediately below.)
 6. Verified the same contact in `/corex/rentals/contacts?search=...` (the shared rentals lens on
    the same Contacts screen) — present.
 7. Repeated the exact same create attempt (same name, same phone, same email) — the duplicate
    panel appeared, showing exactly one match: the contact just created, with "Use this contact".
-   Confirmed in DB directly too: `contact.parentTypes` = `["Lessee"]`, `agency_id=1`,
-   `branch_id=1`, `created_by_user_id` = the test agent, no duplicate row created by the second
-   attempt.
+   Confirmed in DB directly too: `agency_id=1`, `branch_id=1`, `created_by_user_id` = the test
+   agent, no duplicate row created by the second attempt.
 8. Zero console errors across the entire walk (create page load → modal open → create → submit →
    Contacts → Rentals→Contacts → duplicate re-attempt).
+
+**Re-proof after the type-assignment correction (2026-09-12, same day).** Fresh walk, fresh
+contact: created via the inline modal, application `165` created (contact `18785`,
+`agency_id`/`branch_id`/`created_by_user_id` all correct, `RentalApplication::find(165)->contact_id`
+matches exactly), zero console errors throughout. Verified directly in DB immediately after
+creation: `$contact->parentTypes()->pluck('name')` = `[]` and `$contact->contact_type_id` =
+`NULL` — no type assigned, exactly matching what picking an existing contact via the search box
+already does. `AddTenantTypeOnRentalApproval` itself is unchanged by this fix (this task never
+touched it), so it will add "Tenant" on approval for this contact exactly as it already does for
+every other contact in this module, regardless of entry door.
 
 **Gates.** `scripts/verify-alpine-render.mjs` against a real authenticated fetch of
 `/corex/rental-applications/create`: PASS, 0 leaked-attribute/execution failures (two pre-existing
