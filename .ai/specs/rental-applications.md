@@ -9895,4 +9895,114 @@ but wrong number with identical confidence on screen.
 - `resources/views/corex/rental-applications/review.blade.php` —
   `calculatedStatementMonths()` (client mirror of the same formula, must stay
   in sync with whatever the server does), `performSave()`'s error branch
+
+---
+
+### Reopen-tile test rewrite + public autosave hardening audit (AT-392, 2026-09-12, cc6)
+
+Two-item follow-up, Johan's own audit questions on yesterday's autosave build.
+
+#### Item 1 — the stale reopen test, fixed
+
+`RentalApplicationReopenTest::test_reopened_application_stays_visible_on_the_returned_list`
+modeled the pre-AT-402 two-screen design (a reopened application must NOT appear on `index()`,
+MUST appear on the separate `/returned` screen). AT-402's Control Centre unification gave
+`reopened` its own dedicated tile (`RentalApplicationController::TILES['reopened']`, one of
+`SECONDARY_TILES`) — deliberately distinct from `returned` (`TILES['returned']['statuses']` is
+`['returned']` only; `TILE_FOR_LEGACY_STATUS` maps a bookmarked `?status=reopened` to
+`tile=reopened`, never `tile=returned`). Confirmed this is a genuine, coherent design change, not
+a regression, before touching anything: `returned` means "the applicant just submitted, agent
+hasn't acted"; `reopened` means "the agent sent it back" — two real, different states the old
+catch-all screen conflated. The tile filters themselves are correct; only the test's assertions
+described a screen layout that no longer exists.
+
+Rewritten as `test_reopened_application_has_its_own_tile_distinct_from_returned`: three distinct
+applications (reopened / genuinely-returned / not-yet-submitted), asserting each shows up ONLY on
+its correct tiles — and, per instruction, the **rendered tile count**, not just row presence (a
+tile showing the right rows with the wrong count is a bug an agent would notice that a name-only
+assertion would miss). Primary tiles (All, Returned, Not Yet Submitted) render their count in a
+separate `<span>` sibling, not concatenated with the label — a plain `assertSee('All (3)')` would
+never match that markup; secondary tiles (Reopened, Withdrawn) DO concatenate as "Label (N)" in
+one text node. A small regex helper (`assertTileCountRendered()`) handles both real shapes rather
+than assuming one. `RentalApplicationReopenTest`: 9/9 green.
+
+#### Item 2 — public autosave endpoint, volume and content
+
+Four direct questions, each answered with a real test against the live endpoint, not by reading
+the code:
+
+1. **Rate limiting.** The route's `throttle:40,1` (per-IP) is real — proven empirically (39 of 60
+   rapid requests got through, the rest 429'd) — but it caps nothing at the resource level: a
+   caller that rotates IPs or simply waits out each window could still reach up to 57,600
+   writes/day on ONE application with no second layer. Added one: a per-APPLICATION cap, keyed on
+   the application id resolved from the TOKEN in the URL (never from anything the request body
+   controls — confirmed not attacker-controlled: a different bucket requires a different valid
+   token, not a different parameter). **Agency-configurable, not hardcoded** — a rate limit is a
+   threshold like any other, per Johan's standing rule, restated explicitly when this was first
+   built with a bare constant instead. `RentalApplicationQualifyingSetting::autosaveRateLimitMaxFor()`
+   / `autosaveRateLimitWindowMinutesFor()`, default **3,000 per 60 minutes**, same pattern and same
+   table as `autosave_debounce_seconds`. The default is sized against the WORST-CASE legitimate
+   rate, not the typical one: the settings screen's own server-enforced floor on the debounce is 2
+   seconds, so a real applicant typing continuously with zero pauses at the tightest allowed
+   setting produces at most 3,600 ÷ 2 = 1,800 saves in an hour — the 3,000 default leaves ~67%
+   headroom above that theoretical ceiling, so no real applicant at any agency's configured
+   debounce can ever trip it, while a script sending thousands of writes an hour to one
+   application, from however many IPs, still will.
+2. **What the applicant sees when it trips.** This is the one autosave failure that must NOT
+   degrade silently — unlike a network blip it will not self-resolve on the next debounce, and an
+   applicant left unaware would keep typing into a form that has stopped saving. Tripping the cap
+   returns `{"saved": false, "rate_limited": true}` — a signal distinct from every other
+   silent-degrade case — and the public form shows a persistent, non-dismissing amber banner:
+   "Your answers have stopped saving automatically. Everything you'd typed up to now is safe.
+   Please finish and submit soon, or copy your remaining answers somewhere safe until you can."
+   Proved live in a browser, not reasoned about: temporarily set one throwaway agency's cap to 2,
+   filled fields on the real public form, watched the banner appear after the 3rd blur-triggered
+   autosave, and confirmed via the database that the two saves before the cap tripped landed
+   correctly and were completely undisturbed by the two that didn't (`RateLimiter::attempts()`
+   read back exactly 2 — the limiter never increments past the point where it starts refusing).
+3. **Payload size.** Proved with a real ~1MB `current_living_situation_notes` value (via a real
+   HTTP request, not a truncated test double) sent alongside a valid `full_name` in the same
+   request: the oversized field was silently excluded from what got persisted (confirmed via the
+   database afterward — column stayed NULL, never truncated-and-saved), while `full_name` saved
+   normally in the same round. The global ceiling is PHP's `post_max_size` (8M on the serving
+   pool) — identical to every other endpoint on this application; nothing autosave-specific was
+   needed there.
+4. **Token lifetime/reuse.** Proved with 5 real raw POSTs (not a read of `POST_RETURN_STATUSES`)
+   against 5 real applications, one in each terminal status (`returned`, `under_assessment`,
+   `approved`, `declined`, `withdrawn`) — each carrying a valid CSRF token so a 419 could never be
+   mistaken for the actual guard working. All five returned `{"saved": false}` and left the row's
+   `full_name` exactly as it was before the attempt.
+5. **Rendering.** Proved with a real `<script>`/`onerror` payload posted via autosave into four
+   free-text fields, then loading the ACTUAL agent screens in a real browser (both the application
+   summary page and the review screen's own "In their own words" field display) with a `dialog`
+   listener, a global-window-state check, a live-DOM-element check, and a page-title check all
+   armed to catch genuine execution. Zero execution on either screen: no dialog, no global
+   side-effect, no live `<script>`/`onerror` element in the DOM, unchanged page title. The raw
+   rendered HTML confirms Blade's escaping converted the payload to inert
+   `&lt;script&gt;...&lt;/script&gt;` entities — this isn't new exposure from autosave (it's the
+   exact same field set `submit()` already wrote before this feature existed), and the escaping
+   holds regardless of which endpoint wrote the value.
+
+**Also confirmed, not fixed (out of scope for this task, reported):** `scripts/verify-alpine-render.mjs`
+(cc1's Alpine render gate) reports a `SCRIPT EVAL ERROR` on the applicant form specifically —
+traced to the gate's own lightweight `document.getElementById()` mock (`fakeEl()`) not
+implementing `.dataset`, a standard DOM property `_signature-pad.blade.php`'s pre-existing
+`init()` correctly relies on (`canvas.dataset.rentalSigInit`) — that file predates this pass
+entirely and was not touched here. This is a harness gap, not a code defect: this same signature
+pad has been driven successfully in real Puppeteer browsers multiple times this session (both
+desktop and phone/touch width) with zero console errors every time. Flagged for whoever owns the
+gate script, not fixed here (another lane's tool).
+
+**Files changed:** `tests/Feature/RentalApplications/RentalApplicationReopenTest.php` (test
+rewrite), `app/Http/Controllers/RentalApplicationSigningController.php` (per-application rate
+limit), `app/Models/RentalApplicationQualifyingSetting.php` (`autosaveRateLimitMaxFor()`,
+`autosaveRateLimitWindowMinutesFor()`), `app/Http/Controllers/CoreX/RentalApplicationSettingsController.php`
+(`updateAutosaveRateLimit()`), `resources/views/corex/settings/rental-applications.blade.php`
+(new settings field, NOT added to the onboarding wizard — parked with the rest of this module's
+wizard gap, Johan's call), `resources/views/rental-applications/public/show.blade.php` (rate-limit
+banner + `rateLimited` state), `routes/web.php`,
+`database/migrations/2026_09_12_200000_add_autosave_rate_limit_to_rental_application_qualifying_settings.php`,
+`tests/Feature/RentalApplications/RentalApplicationAutosaveTest.php` (3 new tests: default/
+configurability, trip + distinct signal + existing-draft-untouched, per-application-not-shared
+key).
   (finding 5).
