@@ -228,6 +228,89 @@ that test's author knew it would ever render a view.
 
 ---
 
+## Standard −1d — Why "PHPUnit is broken" and "PHPUnit just worked for me" can both be true
+
+Real incident, 2026-09-12: cc5 reported the whole suite fatally blocked;
+in the same round cc2, cc3 and cc6 all ran tests successfully. Both were
+telling the truth. **The suite has exactly two invocation shapes, and they
+do not fail the same way:**
+
+1. **Targeting one specific file** — `php artisan test tests/Feature/X.php`
+   or `vendor/bin/phpunit tests/Feature/X.php` (the default per Rule 13 —
+   this is what you should almost always be running). PHP/PHPUnit only
+   `require`s the classes that ONE file needs. A broken declaration in some
+   UNRELATED test file is never loaded, so it can't fatal your run.
+2. **Whole-suite discovery** — a bare `php artisan test` / `vendor/bin/
+   phpunit` with no path, `--list-tests`, `--testdox`, coverage generation,
+   or anything else that has to enumerate the full `tests/` tree. This
+   `require`s and reflects on EVERY test class up front, before running
+   anything — so ONE test file with an invalid method declaration (a
+   private method overriding an inherited public one, or a method
+   overriding a `final` PHPUnit method — both are plain fatal PHP errors,
+   not warnings) blocks discovery for the ENTIRE suite, for every lane, no
+   matter which file they actually wanted to run.
+
+Confirmed by directly requiring the broken class outside PHPUnit and by
+running `vendor/bin/phpunit --list-tests` (enumerates without executing —
+the fastest way to prove/disprove a discovery-level fatal without paying
+for a full run): found and fixed two independent instances this round —
+`MobilePhotoEventTest::post()` (private, shadowing the inherited public
+`MakesHttpRequests::post()`) and `QueueHealthcheckLaneAwarenessTest::run()`
+(overriding PHPUnit's own `final` `TestCase::run()`). Both are the exact
+same disease: a test's own private helper method happened to collide with
+a name the base test class already owns. **Before naming a private test
+helper `post`, `get`, `put`, `delete`, `run`, `assert*`, or anything else
+that sounds generic, check it isn't already inherited** —
+`php -r "require 'vendor/autoload.php'; print_r(get_class_methods(Tests\TestCase::class));"`
+lists everything already spoken for.
+
+**What this means for reading a result on this box:** a RED single-file
+result means something in your code (or that file) is genuinely wrong. A
+FATAL from a bare/discovery invocation means some OTHER, unrelated test
+file has a declaration error — it means nothing about your own change,
+but it DOES need fixing (report it, or fix it directly if it's this class
+of plain PHP error) before anyone can trust a whole-suite run again. Never
+conclude "PHPUnit is broken" from a discovery fatal without first checking
+which of the two shapes above produced it.
+
+---
+
+## Standard −1e — A render-gate mock gap is fixed permissively, not by hand-enumerating one method
+
+`verify-alpine-render.mjs`'s check 3 runs real page JS in a Node `vm`
+sandbox against fake `window`/`document`/element objects — real incident,
+2026-09-12 (cc6): a fake element had no `dataset`, so a pre-existing,
+correct `canvas.dataset.someFlag` read threw and failed a file cc6 never
+touched. Fixing that one property exposed three more gaps in the exact
+same code path in sequence — `getContext('2d')` returning `null` (a real
+browser never does, for a supported context type), the fake element
+having no `addEventListener`, and a bare `FormData` global missing
+entirely.
+
+**The fix for `getContext()` is the pattern to repeat, not the property
+list.** Canvas contexts (and anything else with a large, open-ended real
+API) get `fakePermissiveObject()` — a Proxy where every property read
+returns a no-op function and every write is silently accepted — instead of
+hand-listing the handful of methods the ONE component you're looking at
+happens to call. Enumerating exactly what today's file needs just moves
+the next false failure to the next component that calls a method you
+didn't list. `dataset`, `addEventListener`, `dispatchEvent`, `FormData`
+stay as concrete stand-ins because their real shape is small, well-known,
+and worth being explicit about — permissive stubs are for anything whose
+real surface is too large to enumerate honestly.
+
+**If you hit a `[SCRIPT EVAL ERROR]` or a `.method() ERROR` on a file you
+didn't touch:** that is very likely this same class of gap, not a real
+regression — confirm by checking whether the failing call is a standard,
+universally-present browser API (any DOM element method, any Web API
+constructor) the sandbox simply never modeled, and if so, fix the sandbox
+(this file), never the Blade/JS you didn't touch. Verify a sandbox fix
+against several DIFFERENT previously-passing pages afterward, not just the
+one that surfaced it — a shared sandbox change can affect every page this
+gate has ever checked.
+
+---
+
 ## Standard 0 — Operating Principle
 
 Every standard in this file is subordinate to the CoreX Operating Principle (see CLAUDE.md). If a standard conflicts with the principle, the principle wins. If a standard would let a shortcut ship, the standard is wrong and gets revised.
