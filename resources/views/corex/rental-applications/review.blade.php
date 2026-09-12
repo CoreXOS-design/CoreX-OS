@@ -445,8 +445,19 @@
            and the badge/arrow columns to give amount the room, and gave
            amount an explicit floor via minmax() rather than a bare 1fr,
            which can still shrink below its content's natural width. */
+        /* 2026-09-13, round 2 — "24/07/26" (dd/mm/yy, replacing "24 Jul 26"
+           which wrapped onto two lines in this same column) measures ~48px
+           of real text against the previous 44px date column, a genuine
+           if small overflow. Widened to 53px and took the difference from
+           the row's own gap (6px -> 3px across the three gaps = 9px freed,
+           53-44=9px added) rather than from the amount column, which is
+           data and already has its own hard-won floor above (BUG FIX,
+           2026-09-11). Non-amount width is identical either way —
+           15+44+12+3(6)=89px before, 15+53+12+3(3)=89px now — so the
+           amount column's actual available space, and the wrap fix it
+           depends on, is completely unaffected. */
         .rr-ledger-row {
-            display: grid; grid-template-columns: 15px 44px minmax(72px, 1fr) 12px; gap: 6px; align-items: center;
+            display: grid; grid-template-columns: 15px 53px minmax(72px, 1fr) 12px; gap: 3px; align-items: center;
             padding: 2px 0;
         }
         .rr-ledger-badge {
@@ -1211,7 +1222,7 @@
                         <span class="rr-ledger-badge" x-show="row.document_id && !row.document_missing" style="background: var(--ds-purple, #7c3aed);" x-text="idx + 1"></span>
                         <span x-show="row.document_missing" style="color: var(--ds-crimson, #dc2626); font-weight: 700; font-size: 12px;">&#9888;</span>
                         <span x-show="!row.document_id && !row.document_missing"></span>
-                        <span class="text-[11px]" style="color: var(--text-secondary);" x-text="shortDate(row.entry_date)"></span>
+                        <span class="text-[11px]" style="color: var(--text-secondary); white-space: nowrap;" x-text="shortDate(row.entry_date)"></span>
                         <span class="rr-ledger-amount text-xs" style="color: var(--text-primary);" :title="row.entry_description" x-text="formatR(row.entry_amount)"></span>
                         <span x-show="!row.document_missing" class="text-[11px] text-right" :style="{ color: row.document_id ? 'var(--ds-blue, #2563eb)' : 'var(--text-muted)' }">&rarr;</span>
                         <span x-show="row.document_missing" class="text-[10px] text-right" style="color: var(--ds-crimson, #dc2626);">Document removed</span>
@@ -1226,7 +1237,7 @@
                         <span class="rr-ledger-badge" x-show="row.document_id && !row.document_missing" style="background: var(--ds-amber, #f59e0b);" x-text="idx + 1"></span>
                         <span x-show="row.document_missing" style="color: var(--ds-crimson, #dc2626); font-weight: 700; font-size: 12px;">&#9888;</span>
                         <span x-show="!row.document_id && !row.document_missing"></span>
-                        <span class="text-[11px]" style="color: var(--text-secondary);" x-text="shortDate(row.entry_date)"></span>
+                        <span class="text-[11px]" style="color: var(--text-secondary); white-space: nowrap;" x-text="shortDate(row.entry_date)"></span>
                         <span class="rr-ledger-amount text-xs" style="color: var(--text-primary);" :title="row.entry_description" x-text="formatR(row.entry_amount)"></span>
                         <span x-show="!row.document_missing" class="text-[11px] text-right" :style="{ color: row.document_id ? 'var(--ds-blue, #2563eb)' : 'var(--text-muted)' }">&rarr;</span>
                         <span x-show="row.document_missing" class="text-[10px] text-right" style="color: var(--ds-crimson, #dc2626);">Document removed</span>
@@ -1699,30 +1710,24 @@ function rentalCaptureLedger({ initialCaptureEntries, manualCaptureCreateUrl } =
         formatR(v) {
             return v === null || v === undefined ? '—' : 'R ' + Number(v).toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
         },
-        // d M y — 2026-09-13, Johan, real bug found live on application 70:
-        // the previous format printed "26/07/24" for 2026-07-24, which
-        // every South African agent reads as 26 July 2024 — yy/mm/dd on a
-        // screen whose entire job is reading dates off bank statements is
-        // a wrong answer, not a cosmetic one. Johan's own instruction was
-        // d/m/Y first, falling back to "d M y" only if the column is
-        // genuinely too narrow for a 4-digit year — measured, not guessed:
-        // a real headless-Chrome render of "24/07/2026" in this exact
-        // column came out to ~61.7px of actual text against a 44px-wide
-        // fixed grid track (.rr-ledger-row's own `grid-template-columns`),
-        // a real ~18px overflow. "24 Jul 26" (Johan's own example) fits
-        // within the same measured tolerance. Never a Date object
-        // parse/reformat:
-        // entry_date always arrives as a stable 'YYYY-MM-DD' from the
-        // server (see either model's toMarkArray()), so there is no
-        // timezone-shift risk a Date object parse of a bare date string
-        // can introduce.
+        // dd/mm/yy — 2026-09-13, round 2, Johan: "d M y" ("24 Jul 26")
+        // wrapped onto two lines in the 44px column, making every ledger
+        // row two lines tall — screen space goes to function, and amounts
+        // wrapping in this same panel already drew a correction once
+        // before. "24/07/26" is the South African convention, reads
+        // correctly, and — measured, not guessed — fits the column on one
+        // line (see the render-check this round; ~30px of actual text
+        // against the 44px track, no wrap). Never y/m/d: the original bug
+        // ("26/07/24" read as 26 July 2024) is exactly what this format
+        // avoids. Never a Date object parse/reformat: entry_date always
+        // arrives as a stable 'YYYY-MM-DD' from the server (see either
+        // model's toMarkArray()), so there is no timezone-shift risk a
+        // Date object parse of a bare date string can introduce.
         shortDate(d) {
             if (!d) return '—';
             const parts = String(d).split('-');
             if (parts.length !== 3) return d;
-            const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-            const month = MONTHS[parseInt(parts[1], 10) - 1] || parts[1];
-            return parts[2] + ' ' + month + ' ' + parts[0].slice(2);
+            return parts[2] + '/' + parts[1] + '/' + parts[0].slice(2);
         },
         addCaptureEntry(entry) {
             this.captureEntries.push(entry);
