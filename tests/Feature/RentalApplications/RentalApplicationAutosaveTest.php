@@ -284,4 +284,62 @@ final class RentalApplicationAutosaveTest extends TestCase
         $applicationB->refresh();
         $this->assertSame('B', $applicationB->full_name);
     }
+
+    /**
+     * Applicant journey audit, 2026-09-12 — the page-hide "beacon" save
+     * (navigator.sendBeacon()) posts as application/x-www-form-urlencoded
+     * with the CSRF token in the BODY (`_token`), not the X-CSRF-TOKEN
+     * header the normal fetch-based autosave uses — sendBeacon() cannot set
+     * custom headers at all. This hits the EXACT SAME /autosave route and
+     * controller method as the JSON-based save; these tests prove the
+     * form-encoded shape is handled identically, and — the point Johan
+     * raised explicitly — that EVERY guard on the endpoint (terminal-status
+     * refusal, per-application isolation) still holds for it. There is no
+     * separate, weaker code path for a beacon.
+     */
+    public function test_form_encoded_beacon_shaped_request_saves_normally(): void
+    {
+        $application = $this->application();
+
+        // $this->post() (not postJson()) sends a normal application/
+        // x-www-form-urlencoded body — exactly what
+        // navigator.sendBeacon(url, new URLSearchParams(payload)) produces.
+        $this->post(route('rental-applications.public.autosave', $application->token), [
+            'full_name' => 'Beacon Shaped Save',
+        ])->assertOk()->assertJson(['saved' => true]);
+
+        $application->refresh();
+        $this->assertSame('Beacon Shaped Save', $application->full_name);
+    }
+
+    public function test_form_encoded_beacon_shaped_request_is_refused_on_a_submitted_application(): void
+    {
+        $application = $this->application(['status' => 'returned', 'full_name' => 'Original Name', 'submitted_at' => now()]);
+
+        $this->post(route('rental-applications.public.autosave', $application->token), [
+            'full_name' => 'Tampered Via Beacon Shape',
+        ])->assertOk()->assertJson(['saved' => false]);
+
+        $application->refresh();
+        $this->assertSame('Original Name', $application->full_name, 'a beacon-shaped request must respect the terminal-status guard exactly like the JSON one');
+    }
+
+    public function test_form_encoded_beacon_shaped_request_only_affects_its_own_application(): void
+    {
+        $applicationA = $this->application(['full_name' => 'A Original']);
+        $otherContact = Contact::create([
+            'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id,
+            'first_name' => 'Beacon', 'last_name' => 'OtherApplicant', 'email' => 'beacon-other@example.co.za',
+        ]);
+        $applicationB = $this->application(['contact_id' => $otherContact->id, 'token' => Str::random(64), 'full_name' => 'B Original']);
+
+        $this->post(route('rental-applications.public.autosave', $applicationA->token), [
+            'full_name' => 'A Beacon Saved',
+        ])->assertJson(['saved' => true]);
+
+        $applicationA->refresh();
+        $applicationB->refresh();
+        $this->assertSame('A Beacon Saved', $applicationA->full_name);
+        $this->assertSame('B Original', $applicationB->full_name, 'a beacon-shaped save at one token must never touch a different application');
+    }
 }

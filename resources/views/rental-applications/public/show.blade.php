@@ -22,11 +22,27 @@
     @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>
 <body class="bg-slate-50 min-h-screen p-4">
-<div class="w-full max-w-2xl mx-auto" x-data="rentalApplicationForm()" x-init="initAutosave()">
+{{--
+    Progress indicator, 2026-09-12 — applicant journey audit finding: seven
+    sections on one long phone scroll with no sense of how much is left is
+    an abandonment pattern. Deliberately minimal per instruction — a thin
+    line and a count, not a decorative stepper that costs screen space a
+    phone doesn't have. The line reflects actual scroll position through
+    the page (honest: it's exactly how far down the page they've scrolled,
+    not a guess at how "complete" the form is — completion isn't knowable
+    since almost every field is optional). The count reflects whichever
+    named <section data-progress-section="..."> is currently nearest the
+    top of the viewport.
+--}}
+<div class="fixed top-0 left-0 w-full h-1 bg-slate-200 z-50" style="pointer-events:none;">
+    <div class="h-full bg-blue-600" :style="'width: ' + scrollProgressPercent + '%; transition: width 100ms linear;'"></div>
+</div>
+<div class="w-full max-w-2xl mx-auto" x-data="rentalApplicationForm()" x-init="initAutosave(); initProgress();">
 
     <div class="text-center mb-6">
         <h1 class="text-xl font-bold text-slate-800">Rental Application</h1>
         <p class="text-sm text-slate-500">{{ $application->agency->name ?? '' }}</p>
+        <p class="text-xs mt-1" style="color: var(--text-muted, #94a3b8);" x-show="currentSectionLabel" x-cloak x-text="currentSectionLabel"></p>
         {{--
             Applicant-side autosave, 2026-09-12 — a quiet "Saved" indicator,
             the same reassurance pattern as Google Docs/Notion, so an
@@ -111,7 +127,7 @@
         @csrf
         <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 space-y-6">
 
-            <section>
+            <section data-progress-section="Personal Details">
                 <h2 class="font-semibold text-slate-700 mb-3">Personal Details</h2>
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div class="sm:col-span-2">
@@ -136,7 +152,7 @@
                 </div>
             </section>
 
-            <section>
+            <section data-progress-section="Emergency Contact">
                 <h2 class="font-semibold text-slate-700 mb-3">Emergency Contact</h2>
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <x-rental-application-field name="emergency_contact_name" label="Name" :value="$application->emergency_contact_name" />
@@ -156,7 +172,7 @@
                 $situationDefault = $application->current_living_situation
                     ?? ($application->current_landlord_name ? 'renting' : '');
             @endphp
-            <section x-data="{ situation: {{ Js::from(old('current_living_situation', $situationDefault)) }} }">
+            <section data-progress-section="Current Living Situation" x-data="{ situation: {{ Js::from(old('current_living_situation', $situationDefault)) }} }">
                 <h2 class="font-semibold text-slate-700 mb-3">Current Living Situation</h2>
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div class="sm:col-span-2">
@@ -222,7 +238,7 @@
                 </div>
             </section>
 
-            <section>
+            <section data-progress-section="Employment">
                 <h2 class="font-semibold text-slate-700 mb-3">Employment</h2>
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div class="sm:col-span-2">
@@ -249,7 +265,7 @@
                 </div>
             </section>
 
-            <section>
+            <section data-progress-section="Lease Requirement">
                 <h2 class="font-semibold text-slate-700 mb-3">Lease Requirement</h2>
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <x-rental-application-field name="occupation_date" label="Effective date of occupation" type="date" :value="optional($application->occupation_date)->format('Y-m-d')" />
@@ -282,13 +298,13 @@
                 </div>
             </section>
 
-            <section>
+            <section data-progress-section="Declaration">
                 <h2 class="font-semibold text-slate-700 mb-2">Declaration</h2>
                 <p class="text-xs text-slate-500 mb-2">I hereby declare that all the above information given is true and accurate.</p>
                 @include('rental-applications.public._signature-pad', ['field' => 'declaration_signature', 'label' => 'declaration'])
             </section>
 
-            <section>
+            <section data-progress-section="Tenant Profile Network Consent">
                 <h2 class="font-semibold text-slate-700 mb-2">Tenant Profile Network Consent</h2>
                 <p class="text-xs text-slate-500 mb-2">
                     The tenant hereby consents that, and authorises the Landlord or agent to, at all times contact,
@@ -385,6 +401,27 @@ function rentalApplicationForm() {
         // configurable, never hardcoded) + on blur; never fires on every
         // keystroke; degrades completely silently on any failure — an
         // applicant on a patchy connection must never see an error here.
+        //
+        // Applicant journey audit, 2026-09-12 — the debounce/blur mechanism
+        // above left exactly one gap: whatever was typed in the LAST few
+        // seconds before the tab is closed or backgrounded, if no blur
+        // happened first, was never saved at all — proven directly (typed a
+        // full sentence, closed the tab 1.5s later with no tap elsewhere:
+        // nothing saved; waited 6s instead: saved correctly). This is the
+        // exact real-world pattern a phone applicant produces constantly —
+        // a notification, a call, the screen locking, closing the tab
+        // meaning to finish "in a minute" — and it is precisely the failure
+        // this whole feature exists to close. Two additions:
+        //   1. `dirty` tracks whether anything has changed since the last
+        //      successful save (of EITHER kind below).
+        //   2. `visibilitychange`/`pagehide` listeners fire an IMMEDIATE
+        //      save via navigator.sendBeacon() the instant the page is
+        //      hidden or torn down — NOT beforeunload/unload, which mobile
+        //      Safari and Chrome frequently never fire for a backgrounded
+        //      tab that gets killed outright. A normal fetch() would be
+        //      cancelled mid-flight the moment the page goes away;
+        //      sendBeacon() is purpose-built to survive that and is
+        //      queued/sent by the browser itself, not the page.
         autosaveStatus: '',
         // Sticky, visible, never auto-clears — the applicant must actually
         // notice this one. Everything saved before this point is safe;
@@ -395,6 +432,49 @@ function rentalApplicationForm() {
         autosavePending: false,
         autosaveDebounceMs: {{ (int) $autosaveDebounceSeconds * 1000 }},
         autosaveUrl: '{{ route('rental-applications.public.autosave', $application->token) }}',
+        dirty: false,
+        lastSavedAt: null,
+        savedTickTimer: null,
+
+        // Progress indicator, 2026-09-12 — deliberately just these two
+        // numbers, nothing more: a scroll percentage for the thin line, and
+        // an index/count for the small text label.
+        scrollProgressPercent: 0,
+        currentSectionLabel: '',
+        progressSections: [],
+
+        initProgress() {
+            this.progressSections = Array.from(document.querySelectorAll('[data-progress-section]'));
+            if (this.progressSections.length === 0) return;
+
+            const update = () => {
+                const doc = document.documentElement;
+                const scrollable = doc.scrollHeight - doc.clientHeight;
+                this.scrollProgressPercent = scrollable > 0 ? Math.min(100, Math.max(0, Math.round((window.scrollY / scrollable) * 100))) : 0;
+
+                // The section whose heading has scrolled up past a point
+                // just below the sticky top area is the one "currently
+                // being read" — the same logic a sticky table-of-contents
+                // nav uses, without needing IntersectionObserver for
+                // something this simple.
+                const threshold = 120;
+                let current = this.progressSections[0];
+                for (const section of this.progressSections) {
+                    if (section.getBoundingClientRect().top <= threshold) current = section;
+                }
+                const index = this.progressSections.indexOf(current) + 1;
+                this.currentSectionLabel = `Section ${index} of ${this.progressSections.length} — ${current.dataset.progressSection}`;
+            };
+
+            let ticking = false;
+            window.addEventListener('scroll', () => {
+                if (ticking) return;
+                ticking = true;
+                requestAnimationFrame(() => { update(); ticking = false; });
+            }, { passive: true });
+
+            update();
+        },
 
         csrfToken() {
             return document.querySelector('meta[name="csrf-token"]').content;
@@ -406,8 +486,8 @@ function rentalApplicationForm() {
 
             // Debounced on typing/change — resets on every qualifying event
             // so a fast typist never triggers a save mid-word.
-            form.addEventListener('input', () => this.scheduleAutosave());
-            form.addEventListener('change', () => this.scheduleAutosave());
+            form.addEventListener('input', () => { this.dirty = true; this.scheduleAutosave(); });
+            form.addEventListener('change', () => { this.dirty = true; this.scheduleAutosave(); });
 
             // Immediate on blur (leaving a field) — bubbling focusout covers
             // every field without a per-input listener. Cancels any pending
@@ -418,6 +498,25 @@ function rentalApplicationForm() {
                 clearTimeout(this.autosaveTimer);
                 this.autosaveNow();
             });
+
+            // The last-resort net: fires the moment the page is hidden for
+            // ANY reason (tab switch, app switch, screen lock, navigation,
+            // the OS backgrounding the browser) — this is what catches the
+            // typing that happened AFTER the last blur but BEFORE the
+            // debounce timer had a chance to fire.
+            document.addEventListener('visibilitychange', () => {
+                if (document.visibilityState === 'hidden') this.beaconSaveIfDirty();
+            });
+            // Belt-and-braces alongside visibilitychange — pagehide fires on
+            // actual navigation/tab-close where visibilitychange sometimes
+            // races it; harmless to fire twice since a beacon with nothing
+            // new to say is just as cheap as one that saves something.
+            window.addEventListener('pagehide', () => this.beaconSaveIfDirty());
+
+            // Keep the "Saved Xs ago" text honest without polling the
+            // server — ticks once a second, purely a display refresh
+            // against the last known save time.
+            this.savedTickTimer = setInterval(() => { if (this.lastSavedAt && !this.autosaveInFlight) this.autosaveStatus = this.formatSavedAgo(); }, 1000);
         },
 
         isSignatureField(name) {
@@ -427,6 +526,14 @@ function rentalApplicationForm() {
         scheduleAutosave() {
             clearTimeout(this.autosaveTimer);
             this.autosaveTimer = setTimeout(() => this.autosaveNow(), this.autosaveDebounceMs);
+        },
+
+        formatSavedAgo() {
+            const seconds = Math.max(0, Math.round((Date.now() - this.lastSavedAt) / 1000));
+            if (seconds < 5) return 'Saved just now';
+            if (seconds < 60) return `Saved ${seconds}s ago`;
+            const minutes = Math.round(seconds / 60);
+            return `Saved ${minutes} minute${minutes === 1 ? '' : 's'} ago`;
         },
 
         // Collects only the rental-application's own answer fields — never
@@ -479,8 +586,12 @@ function rentalApplicationForm() {
                         // they type from here on is at risk.
                         this.autosaveStatus = '';
                         this.rateLimited = true;
+                    } else if (data.saved) {
+                        this.dirty = false;
+                        this.lastSavedAt = Date.now();
+                        this.autosaveStatus = this.formatSavedAgo();
                     } else {
-                        this.autosaveStatus = data.saved ? 'Saved' : '';
+                        this.autosaveStatus = '';
                     }
                 } else {
                     // Every OTHER failure degrades silently — no visible
@@ -497,6 +608,36 @@ function rentalApplicationForm() {
                     this.autosavePending = false;
                     this.autosaveNow();
                 }
+            }
+        },
+
+        // The page-is-going-away save. navigator.sendBeacon() is the only
+        // API that guarantees the browser itself queues and sends the
+        // request even after this page's own JS has stopped running — a
+        // normal fetch() gets cancelled mid-flight the instant the page is
+        // torn down. sendBeacon() cannot set custom headers, so the CSRF
+        // token travels in the BODY (Laravel's VerifyCsrfToken accepts
+        // `_token` in the request body exactly as a plain HTML form would)
+        // rather than the X-CSRF-TOKEN header the normal fetch uses.
+        // Otherwise this hits the EXACT SAME /autosave endpoint, with the
+        // EXACT SAME payload shape (signatures still stripped) — every
+        // guard on that endpoint (terminal-status refusal, expiry, the
+        // per-application rate limit, field validation/sanitisation)
+        // applies identically; there is no separate, weaker code path here.
+        // No response is ever readable from a beacon, so this can only ever
+        // be optimistic — `dirty` is cleared and the indicator updated on
+        // the assumption it landed, exactly like the applicant's own
+        // confidence at the moment they look away from a closing tab.
+        beaconSaveIfDirty() {
+            if (!this.dirty || typeof navigator.sendBeacon !== 'function') return;
+            const payload = this.collectAutosavePayload();
+            payload._token = this.csrfToken();
+            const params = new URLSearchParams(payload);
+            const sent = navigator.sendBeacon(this.autosaveUrl, params);
+            if (sent) {
+                this.dirty = false;
+                this.lastSavedAt = Date.now();
+                this.autosaveStatus = this.formatSavedAgo();
             }
         },
 
