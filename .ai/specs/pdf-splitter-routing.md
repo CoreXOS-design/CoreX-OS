@@ -768,9 +768,10 @@ no blank/null state in the data model. Given Johan's own stated distrust of
 the auto-detector, an auto-detected/default guess is deliberately never
 treated as a confirmed choice. A new per-page flag, `labelTouched` (seeded
 `false`), flips to `true` only on a genuine human action: the dropdown's own
-`@change` (`onLabelChange`), a successful same-as-* copy, or the existing
-bulk "Set ALL pages" action (which — being an explicit, deliberate bulk
-action — marks every page touched too). "Reset to auto-detected" flips every
+`@change` (`onLabelChange`), a successful same-as-* copy, or (from
+2026-09-12 — see "SET ALL PAGES — BULK-APPLY DID NOT RESPECT `labelTouched`"
+below; between 2026-09-11 and 2026-09-12 this was FALSE) the "Set ALL pages"
+action. "Reset to auto-detected" flips every
 page's `labelTouched` back to `false`, since it's explicitly reverting to
 unconfirmed guesses. Attempting to copy FROM an untouched neighbour refuses
 silently-copying-a-blank by refusing outright: a toast — *"Page N hasn't had
@@ -874,9 +875,18 @@ action. Ticking page 1 and applying does not walk "down" the document in any
 sense; it has no notion of "down." Pages 16-20 being touched or untouched by
 a page-1 apply depends entirely on whether 16-20 were ALSO ticked in that
 same action — nothing else. `labelTouched` is the same flag same-as-*/Set-ALL
-already respect, so a page set via multi-select is equally protected from
-being silently re-swept by anything else on the screen afterward. No new
-protection mechanism was needed — the existing one already covers this
+already respected at the time this was written, so a page set via
+multi-select was protected from being silently re-swept by same-as-*/
+`applyToSelected()` afterward.
+
+**CORRECTION (2026-09-12) — this sentence originally also named "Set ALL"
+as a flag that already respected `labelTouched`. That was FALSE.** It did
+not, at the time this section was written or for the following day. See
+"SET ALL PAGES — BULK-APPLY DID NOT RESPECT `labelTouched`" below for the
+bug, the live reproduction, and the fix. `applyToSelected()` itself was
+never affected by that bug — it always filtered on `p.selected`, a
+ticked-set the agent built explicitly, so it had no path to silently sweep
+an untouched page. No new protection mechanism was needed — the existing one already covers this
 apply path because it was designed to be path-agnostic.
 
 ### Manual-QA proof (2026-09-11, QA1, real 20-page bundle)
@@ -905,3 +915,151 @@ form:
 Pure client-side change, same as same-as-*/Set-ALL before it — no new
 route, no new query, no new data model beyond the one `selected` boolean, so
 OWN/BRANCH/AGENCY scoping is unaffected by construction.
+
+## SET ALL PAGES — BULK-APPLY DID NOT RESPECT `labelTouched` (found 2026-09-12, fixed same day)
+
+**This section corrects false "proven live" claims made above on
+2026-09-11.** Both the "SAME-AS-PREVIOUS / SAME-AS-NEXT" section and the
+"PAGE MULTI-SELECT" section above asserted, in more than one place, that
+`labelTouched` was "the same flag same-as-*/Set-ALL already respect." That
+was true for same-as-*/`applyToSelected()`. It was **not** true for
+"Set ALL pages" — that action set every page unconditionally, silently
+overwriting any page the agent had already hand-set. Found by an
+independent walk of this screen (not by the lane that wrote the original
+claim), reproduced twice, and is exactly the failure Johan named as the
+hard constraint when he first asked for multi-select: *"User changes pg
+16-20. then for some stupid reason goes and changes pg1 and the whole thing
+changes again."* Recorded here rather than silently corrected, per standing
+instruction: a false "proven" line in a spec is worse than no line, because
+the next lane trusts it.
+
+### The bug
+
+`setAll(slug)` iterated every page in the file unconditionally:
+```js
+setAll(slug) {
+    this.allPages().forEach(p => { p.label = slug; p.labelTouched = true; ...});
+},
+```
+No `labelTouched` check anywhere. A hand-set page was exactly as exposed to
+being overwritten as an untouched one, on every call.
+
+### The fix
+
+```js
+setAll(slug) {
+    this.allPages().filter(p => !p.labelTouched).forEach(p => { p.label = slug; p.labelTouched = true; p.contactIds = p.contactIds.filter(id => this.allCandidateIds(slug).includes(id)); });
+},
+```
+The predicate is the exact logical complement of "already touched" — every
+page the agent has NOT explicitly set gets set, and only those. This is the
+same shape of guarantee `applyToSelected()` already gave for its own ticked
+set, now given to "Set ALL" for its own (implicit: "every untouched page")
+target set. Every other bulk/copy path on this screen (`applyToSelected()`,
+`copyNeighbourLabel()`/`sameAsPrevious()`/`sameAsNext()`) was individually
+re-read during this fix and confirmed to already gate correctly — this was
+the one unprotected path, not a symptom of a wider pattern.
+
+Toolbar buttons also gained a `title` tooltip stating the guarantee in
+plain language, so an agent isn't relying on tribal knowledge that "Set
+ALL" is safe to use after hand-fixing a few pages.
+
+### On the reported "skip" symptom
+
+The blocker report described a second, mirror-image symptom on a different
+application: "Set ALL" instead SKIPPING an untouched page and leaving it
+unset. That could not be reproduced against this screen's actual code as it
+stood immediately before the fix — the pre-fix `setAll()` had no
+conditional logic at all, so there was no code path by which it could have
+skipped a page; every page was always written unconditionally. This is
+reported honestly rather than papered over: the discrepancy was not
+root-caused. What can be stated with certainty is that the fix's predicate
+(`filter(p => !p.labelTouched)`, inclusion of every untouched page) makes a
+skip-of-a-genuinely-untouched-page structurally impossible now, regardless
+of whatever mechanism produced the original report — the target set is
+"every page where `labelTouched` is false," full stop, so no untouched page
+can fall outside it.
+
+### Override control — decided, not built
+
+The blocker asked whether an agent should be able to deliberately override
+their own earlier hand-set choices in bulk, and if so, said explicitly not
+to build a new control without asking first. Decision: **no new control is
+needed.** "Reset to auto-detected" already exists on this screen, already
+clears every page's `labelTouched` back to `false` in one click, and is
+already the deliberate, clearly-labelled escape hatch for "I want Set ALL
+to touch pages I've already set" — an agent who wants that runs Reset first,
+then Set ALL. This matches Johan's own stated rule, which was given with no
+carve-out: hand-set choices are protected, full stop. Adding a second,
+different "override" control would create two ways to achieve the same
+outcome with different blast radii, which is a worse design than the one
+already on the screen.
+
+### Manual-QA proof (2026-09-12, local worktree, real 10-page bundle)
+
+Real login (throwaway QA account `qa-cc5-bulkapply-bug-repro@example.invalid`,
+id 212, soft-deleted after — see cleanup below), real browser (Puppeteer +
+system Chromium), a real 10-page PDF generated via DomPDF and uploaded
+through the actual upload form. Four tests run in one continuous session
+(not four isolated runs) so each proof builds on genuinely-live state:
+
+**TEST 1 — "Set ALL pages" respects hand-set pages 1, 4, 7.**
+Hand-set 1→IDs/Identity, 4→FICA, 7→Mandate. Before Set ALL: 1=IDs, 2=Other,
+3=Other, 4=FICA, 5=Other, 6=Other, 7=Mandate, 8=Other, 9=Other, 10=Other.
+Ran "Set ALL pages → Proof of Residence". After: 1=IDs (unchanged),
+2=Proof of Residence, 3=Proof of Residence, 4=FICA (unchanged),
+5=Proof of Residence, 6=Proof of Residence, 7=Mandate (unchanged),
+8=Proof of Residence, 9=Proof of Residence, 10=Proof of Residence. Pages
+1/4/7 untouched; every other page set. PASS.
+
+**TEST 2 — "Apply to selected" scoped correctly, 1/4/7 still untouched.**
+Ticked pages 2 and 5 (both currently Proof of Residence from Test 1, i.e.
+still `labelTouched=false`), applied "Rates & Taxes". After: 1=IDs,
+2=Rates & Taxes, 3=Proof of Residence (untouched, not ticked), 4=FICA,
+5=Rates & Taxes, 6=Proof of Residence, 7=Mandate, 8-10=Proof of Residence.
+1/4/7 read exactly IDs/FICA/Mandate throughout. PASS.
+
+**TEST 3 — same-as-prev still works correctly alongside the fix.**
+Page 9 "same as prev" against page 8 (Proof of Residence, `labelTouched=true`
+via Test 1's Set ALL) → page 9 copied to Proof of Residence correctly. PASS.
+
+Final state before reload, all 10 pages: 1=IDs/Identity, 2=Rates & Taxes,
+3=Proof of Residence, 4=FICA, 5=Rates & Taxes, 6=Proof of Residence,
+7=Mandate, 8=Proof of Residence, 9=Proof of Residence, 10=Proof of
+Residence.
+
+**TEST 4 — reload persistence, reported honestly.** Reloading the page
+reset all 10 pages back to "Other" (this test PDF's auto-detect fallback,
+since its pages carry no recognisable real document content). This is
+**not a defect introduced or left by this fix** — it is this screen's
+pre-existing, unrelated architecture: all doc-type/contact state is pure
+client-side Alpine state until the final Link/Download-ZIP submit; a plain
+reload has always rebuilt the review screen fresh from the server-seeded
+auto-detected manifest, with or without this fix. Recorded here because the
+blocker explicitly asked for the reload check and the honest answer is "no,
+it doesn't persist, and that's unrelated to what changed today" — not
+silently omitted.
+
+### Gates run before push
+
+- `scripts/verify-alpine-render.mjs` against a real authenticated fetch of
+  `/tools/pdf-splitter` (the review screen itself requires session state
+  built by a prior file-upload POST that a single stateless authenticated
+  `curl` cannot replicate, so the static leaked-attribute-text scan was run
+  against the reachable page in the same Alpine component tree; the review
+  screen's own correctness was instead proven by the live Puppeteer walk
+  above, which executes its real Alpine bindings in a real browser — a
+  strictly stronger check for this screen than the static scanner alone):
+  PASS, 0 leaked-attribute/execution failures (three pre-existing WARN-only
+  scope-gap notices, unrelated to this change, left for whoever owns those
+  components).
+- `scripts/rental-smoke.mjs`, `pdf_splitter_review` screen: PASS, 0 console
+  errors, real-data assertion passed.
+- `dev-check.ps1` cannot run on this box (no `pwsh` available) — stated
+  plainly rather than cited as having run.
+
+### Cleanup
+
+Throwaway test user `qa-cc5-bulkapply-bug-repro@example.invalid` (id 212)
+soft-deleted after proof captured. Local `php artisan serve` test instance
+stopped.
