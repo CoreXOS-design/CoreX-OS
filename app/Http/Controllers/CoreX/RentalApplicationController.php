@@ -387,11 +387,14 @@ class RentalApplicationController extends Controller
      *
      * property_id, 2026-09-10 — same cross-tenant class cc1 found on the
      * review screen's link-property endpoint (`exists:properties,id` is a
-     * raw, unscoped query). Note contact_id does NOT share this bug despite
-     * the same-looking `exists:contacts,id` rule: `Contact::findOrFail()`
-     * three lines below goes through the model, so AgencyScope already
-     * 404s a cross-agency contact_id before RentalApplication::create() is
-     * ever reached — checked, not assumed, before leaving it untouched.
+     * raw, unscoped query). contact_id never actually shared this bug —
+     * `Contact::findOrFail()` three lines below already goes through the
+     * model, so AgencyScope already 404d a cross-agency contact_id before
+     * RentalApplication::create() was ever reached — but the validation
+     * rule ITSELF was still the raw, bypassing `exists:contacts,id` shape,
+     * safe only because of a second check happening to exist after it.
+     * QA1 multi-tenancy sweep, 2026-09-12 — converted to ExistsInScope so
+     * the validation layer is correct on its own, not safe by accident.
      *
      * property_id refusal, 2026-09-11 — Johan's own standing rule for this
      * whole feature: "no user action may EVER discard typed input." The
@@ -413,7 +416,7 @@ class RentalApplicationController extends Controller
     public function store(Request $request)
     {
         $validated = $request->validate([
-            'contact_id' => ['required', 'integer', 'exists:contacts,id'],
+            'contact_id' => ['required', 'integer', new \App\Rules\ExistsInScope(Contact::class)],
             'property_id' => ['nullable', 'integer'],
         ]);
 

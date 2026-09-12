@@ -8202,3 +8202,71 @@ variant of "dev-check.ps1 was not run — it is PowerShell and this box has no `
 any point — that fact doesn't change, but it stops being restated ad hoc every round. From
 here forward, a round's closing block reports the render-gate result and the
 `rental-smoke.mjs` per-screen console-error counts instead of a single pass/fail line.
+
+## Multi-tenancy bug-class sweep — the whole rental-application surface (2026-09-12, cc1)
+
+Johan, verbatim, the trigger for this pass: *"we have found TWO cross-agency holes in two
+days, both the same root cause — Laravel's exists: validation rule runs a raw table query
+that BYPASSES Eloquent global scopes... The moment two paying agencies are on this box, one
+of them can reach the other's client ID documents, payslips and bank statements. That is not
+a bug report, it is a POPIA notification."* Full sweep across every rental-application
+controller, form request, settings controller, action, service, and model — not a
+report-first pass this time; fix as found, prove each one, push each one separately.
+
+### What the sweep covered, and what came back clean
+
+- **Every `exists:`/`unique:` rule across the whole module** (controllers, the settings
+  controller, the highlighter controller, the public signing controller — no FormRequest
+  classes exist in this module, confirmed again). Found: `document_types,id` (×3) and
+  `p24_suburbs,id` — both genuinely global reference tables (no `agency_id`, no
+  `BelongsToAgency`, confirmed by reading both models), nothing to bypass. `contacts,id` in
+  `store()` — see FIX 1 below.
+- **Every raw `DB::table()`/`DB::select()`/`whereRaw`/`joinSub`** across every rental
+  controller, service, and model — one hit, `RentalApplication::applyVisibilityScope()`'s own
+  `whereRaw('1 = 0')`, a deliberate deny-all fallback for an invalid scope value, not a leak.
+- **Every route taking a `{rentalApplication}`/`{document}`/`{highlighter}` id**, across
+  `RentalApplicationController`, `RentalApplicationReviewController` (read-only — cc3's file,
+  not edited), `RentalApplicationAuthorisationController` (read-only — cc3's file, not
+  edited), `RentalApplicationHighlighterController`, `RentalApplicationSigningController`
+  (the public token flow), and the two `PdfSplitterController` rental intake methods — every
+  single one calls `guardRentalApplication()`/`guardCanView()`/`guardCanDecide()`/
+  `authorizeAgency()` (or, for the shared `HandlesRentalApplicationDocumentMarks` trait's
+  methods, `guardDocumentMarkAccess()`, which itself calls the same guard plus
+  `guardDocumentBelongsToApplication()` — a genuine ownership check, not a rubber stamp) as
+  the FIRST line of the method body, confirmed by reading every method, not grepping for the
+  string alone.
+- **Every export/download endpoint** — `pdf()`, `pdfInline()`, `downloadDocument()`,
+  `viewDocumentInline()` (×2 controllers), `highlightedFile()` (×2), `downloadReferencedDocument()`,
+  the public `viewDocument()`/`pdf()` — all guarded, all confirmed via the same read-through.
+  The public signing controller's document scoping (`scopedDocument()`) matches on `id +
+  source_type='rental_application' + source_id=$application->id`, so a document id (a global
+  auto-incrementing key shared across every agency) proves nothing on its own — exactly the
+  correct pattern, unchanged, still correct. Invite tokens are `Str::random(64)`,
+  collision-checked — not brute-forceable.
+- **`rental_application_document_marks`** (named explicitly — extended yesterday by the
+  capture-ledger rework) — already carries `BelongsToAgency`. Clean.
+
+### FIX 1 — `store()`'s `contact_id` rule: the same class, safe only by accident
+
+`RentalApplicationController::store()` validated `contact_id` with `exists:contacts,id` — the
+exact bypassing shape. It was never actually exploitable — `Contact::findOrFail()` three
+lines below already goes through the model, so `AgencyScope` already 404s a cross-agency
+`contact_id` before `RentalApplication::create()` is ever reached — but the validation RULE
+itself was still wrong, safe only because a second, unrelated check happened to exist after
+it. Converted to `App\Rules\ExistsInScope` — an existing, documented, already-used house rule
+(`ContactPropertyController`, `PropertyContactController`, `ContactDocumentController`,
+`ContactRepresentativeController`, `PropertyFileController` all already use it) that resolves
+through `$modelClass::query()`, so `AgencyScope` fires — never a raw `exists:` rule again on a
+tenant-owned FK in this module.
+
+**Verified with a real HTTP proof against QA1:** logged in as a real agent, POSTed
+`contact_id=<a different agency's real contact id>` to the real `store()` endpoint →
+redirected back to the create form with "The selected contact id is invalid.", contact
+selection lost as expected for a rejected create (no typed-input-preservation promise applies
+to a brand-new, not-yet-created record) — confirmed via `RentalApplication::withoutGlobalScopes()
+->where('contact_id', ...)->count()` that **zero** rows were ever created for that contact id.
+Same session, POSTed the agent's own agency's real contact id → real `302` into the new
+application (id 134 on QA1, soft-deleted after use). New regression test:
+`RentalApplicationContactIdAgencyScopeTest.php` (2 tests).
+
+**Files changed:** `app/Http/Controllers/CoreX/RentalApplicationController.php`.
