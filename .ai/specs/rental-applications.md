@@ -10428,3 +10428,64 @@ answering a genuinely different question.
      still pending as of this commit. Section to be written here once
      shipped, not before — do not describe a fix in this spec that isn't
      actually live. -->
+
+## loadDocument() double-load race — cold-open jump doubled the mark count (2026-09-14, cc1 + cc3)
+
+cc1's find, independently confirmed by cc3 and by cc5 (whose 45-page stress
+test hit the same race from a different angle): the continuous view's own
+IntersectionObserver (`review.blade.php`'s `cvIo`) calls `loadDocument()`
+completely unconditionally the moment a document's section first becomes
+visible, with no guard of its own. The `'rental-jump-to-mark'` listener's
+own call IS guarded at its call site (`pages.length === 0 && !this.loading`)
+— but `scrollIntoView()`, called one line earlier in that same handler,
+reveals the (previously `x-show`-hidden) section and can trigger `cvIo`
+asynchronously, landing its own unconditional call mid-fetch, after
+`this.loading` is already `true`. Two concurrent loads on a document's
+first (cold) open each reset `marks` and repopulate it from the same
+source — doubling the mark count. cc5's own repro (network-logged) showed
+two concurrent GETs to the same document's `highlight-data/first` 9ms
+apart, plus a `TypeError: Cannot read properties of undefined (reading
+'after')` console error on every occurrence — same race, not a second one.
+
+**Fix:** one line, `if (this.loading) return;` as the first statement of
+`loadDocument()` itself (`document-highlighter-script.blade.php`) — guards
+every caller (the observer, the jump listener, `openHighlighter()`,
+`reloadHighlighter()`) at the single place they all funnel through, rather
+than requiring each call site to duplicate the check.
+
+**Proved, not assumed, per Johan's explicit instruction — both halves:**
+built a throwaway fixture (application id 222 — never touches Johan's
+hands-off 70/76/107/135/164/185/204 — 2 real, locally-rasterizable PDF
+documents, 1 real ledger mark on the SECOND document with a real
+agency-1 Income highlighter), soft-deleted immediately after (confirmed via
+`->fresh()->trashed()` on the application, both documents, and the mark).
+Real Puppeteer browser, real click on the real ledger row, cold state
+verified BEFORE the click (`loading:false, pages.length:0, marks.length:0`
+— genuinely never opened yet in this session).
+
+- **The count is correct:** after the cold-open jump, `marks.length` reads
+  1 (the real count), not 2. Re-run as a control with the guard line
+  removed: same fixture, same click, same cold state going in — `marks.length`
+  came back **2**, reproducing the exact reported defect. Restored the
+  guard, re-ran: back to 1. The test demonstrably catches the bug it's
+  meant to catch, not just an artifact of the fixture.
+- **The mark still ends up visible and scrolled to** — a guard that fixed
+  the count by swallowing the load that was actually needed would be worse
+  than the bug. Confirmed both ways: the mark's own DOM element
+  (`[data-mark-id="…"]`) exists after the jump, AND a `scrollIntoView()`
+  call was actually made against that exact element (spied at the
+  `Element.prototype` level before page load, tagged by `data-mark-id`) —
+  not just present in the DOM by coincidence, genuinely scrolled to.
+- **Warm path unaffected:** re-clicking the same row on the now-loaded
+  document leaves `marks.length` at 1 — the pre-existing
+  `pages.length === 0 && !loading` guard at the call site correctly skips
+  calling `loadDocument()` again at all once the document is warm; this
+  fix only ever engages for a genuine concurrent call.
+- Zero console errors in either the fixed or the control run — the
+  `TypeError` cc5 reported does not reproduce with the fix in place, and
+  (checked directly) doesn't reproduce in the control run either on this
+  specific fixture, which only proves the crash isn't fixture-independent
+  reproducible; the mark-count doubling itself is the load-bearing proof
+  here, not the console error's absence.
+- Render gate re-run after the fix: PASS, same baseline WARN-only notices,
+  934 Alpine expressions all compile clean.

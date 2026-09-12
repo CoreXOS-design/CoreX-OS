@@ -704,8 +704,30 @@ function rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, curre
             await this.loadDocument();
         },
 
-        /** The actual fetch-and-populate — split out of openHighlighter() so reloadHighlighter() (version-conflict recovery) can rerun it without the open/close toggling logic. */
+        /** The actual fetch-and-populate — split out of openHighlighter() so reloadHighlighter() (version-conflict recovery) can rerun it without the open/close toggling logic.
+         *
+         * BUG FIX, 2026-09-14 (cc1's find, independently confirmed by cc3) —
+         * the continuous view's own IntersectionObserver (review.blade.php's
+         * cvIo) calls loadDocument() unconditionally the moment a document's
+         * section first scrolls into view, with no guard of its own. The
+         * 'rental-jump-to-mark' listener's call IS guarded at its own call
+         * site (`pages.length === 0 && !this.loading`) — but that guard runs
+         * BEFORE this method's first await, while scrollIntoView() (called
+         * by that same jump handler, one line earlier) can trigger cvIo
+         * asynchronously and land its own unconditional call mid-fetch,
+         * after this.loading is already true. Two concurrent loads on a
+         * document's first (cold) open each reset `marks` and repopulate it
+         * from the same source, doubling the mark count. Guarding HERE,
+         * inside the one method every caller funnels through, closes it for
+         * every call site at once (observer, jump listener, openHighlighter,
+         * reloadHighlighter) rather than requiring each one to duplicate the
+         * check — and reloadHighlighter()'s own legitimate re-entry after a
+         * save conflict always runs after the prior load has finished
+         * (loading is back to false by then), so this never blocks a real
+         * reload, only a genuine concurrent one.
+         */
         async loadDocument() {
+            if (this.loading) return;
             this.activeTool = 'highlight';
             this.pages = [];
             this.totalPages = 0;
