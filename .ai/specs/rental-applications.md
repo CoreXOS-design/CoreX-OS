@@ -8341,3 +8341,33 @@ Test state cleaned up immediately after (agency-1's RO array reverted to its rea
 - No controller changes in Part 2 — every scoping mechanism checked was already correct; the only code change from the hard test itself is the one blade file above (Part 1's files are listed under Part 1a/1b).
 
 **Note (cc5):** the `layouts/corex.blade.php:114` finding reported above as "reported, not fixed" is the exact same bug cc3 documents above in "REQUIRED PRE-PUSH CHECK" incident #2 — independently found and confirmed live (7 console errors on the plain dashboard) before this section merged with cc3's. Left as cc3's to land the actual fix, per this task's scope lock.
+### FIX 2 — `RentalApplicationGeneration`: a real `agency_id`, no `AgencyScope` to enforce it
+
+This model has always carried a real, always-populated `agency_id` column (`seal()` sets it
+from the application's own agency on every row) but had no `BelongsToAgency` at all — every
+query against it was completely unscoped by default. **Not reachable via any route today** —
+all four call sites (`RentalApplicationPdfService`, `RentalApplicationReviewController
+::showGeneration()`, `RentalApplicationSigningController::submit()`) filter by
+`rental_application_id` sourced from an already-guarded parent — but exactly the "unscoped by
+default" structural trap this sweep was asked to find: a future query that forgot that
+explicit filter would return every agency's sealed, hash-chained legal records with no
+structural safety net at all.
+
+Fixed by adding `BelongsToAgency`. The one write site (`seal()`) is wrapped in
+`withoutAgencyStamping()` so the trait's own creating()-hook auto-stamp can never override the
+already-correct, already-validated `agency_id` it sets explicitly — this matters because
+`seal()` normally runs from the fully unauthenticated public signing flow (no acting user to
+mis-stamp from), but the one edge case that would otherwise bite is an owner-role account
+testing an application's public link while switched into a DIFFERENT agency via the agency
+switcher, which would otherwise silently stamp the wrong agency onto a sealed legal record.
+
+**Verified — query-layer proof, since no HTTP endpoint exists to attack:** created a real
+generation row for Agency A's application; as Agency A's own admin, `RentalApplicationGeneration
+::where('rental_application_id', $id)->count()` correctly returns 1; as Agency B's admin, the
+IDENTICAL query — no other filter — returns **0**. Before this fix the same query would have
+returned 1 for either agency. Also proved live end-to-end: a real public `submit()` HTTP call
+against QA1 created a real generation row that landed with the CORRECT agency_id despite the
+request having no authenticated user at all. New regression test:
+`RentalApplicationGenerationAgencyScopeTest.php` (1 test).
+
+**Files changed:** `app/Models/RentalApplicationGeneration.php`.
