@@ -381,8 +381,15 @@ class RentalApplicationAuthorisationController extends Controller
         // (App\Listeners\Contact\RecomputeRentalApplicationStatus).
         event(new \App\Events\RentalApplication\RentalApplicationApproved($rentalApplication, $request->user()?->id));
 
+        // Feedback parity, 2026-09-13 — Johan: the authoriser must see
+        // plainly what was recorded — the decision, the amount, and that
+        // it saved — the agent is not worse informed than the authoriser
+        // about the authoriser's own decision (cc2 separately surfaces the
+        // amount on the agent's own read-only screen). Same shape as
+        // decline()'s own message below: "{Decision} — {contact} …".
         return redirect()->route('corex.rental-applications.authorisation.index')
-            ->with('success', 'Application approved.');
+            ->with('success', 'Approved — ' . $rentalApplication->contact->full_name . ' for R'
+                . number_format((float) $validated['approved_rental_amount'], 2) . '. Saved.');
     }
 
     public function decline(
@@ -391,7 +398,6 @@ class RentalApplicationAuthorisationController extends Controller
         RentalApplicationAuditService $audit,
         RentalApplicationMailer $mailer,
         RentalApplicationNotifier $notifier,
-        \App\Services\RentalApplications\RentalApplicationPdfService $pdfService,
     ) {
         $decision = $this->guardCanDecide($rentalApplication);
 
@@ -433,15 +439,25 @@ class RentalApplicationAuthorisationController extends Controller
         $mailer->sendDecline($rentalApplication);
 
         // AT-392 — Johan: "the documents / application / approval gets
-        // filed on the contact." Best-effort, same as the approval leg.
-        $pdfService->fileAsDocument($rentalApplication, 'Declined Rental Application');
+        // filed on the contact." Best-effort, same as the approval leg —
+        // QUEUED (2026-09-13, see FileRentalApplicationDecisionPdfJob's own
+        // docblock for why): filing shells out to a real headless-Chromium
+        // Puppeteer subprocess (~9s observed), long enough for an unrelated
+        // concurrent request on this session to race the redirect's flash
+        // message and silently clobber it — traced live, not theoretical.
+        \App\Jobs\FileRentalApplicationDecisionPdfJob::dispatch($rentalApplication->id, 'Declined Rental Application');
 
         // AT-392 — keeps Contact::rental_application_status in sync
         // (App\Listeners\Contact\RecomputeRentalApplicationStatus).
         event(new \App\Events\RentalApplication\RentalApplicationDeclined($rentalApplication, $request->user()?->id));
 
+        // Feedback parity, 2026-09-13 — same reasoning as approve()'s own
+        // message above: decision + confirmation it saved, same shape.
+        // No amount on a decline (there isn't one), so this reads slightly
+        // shorter than approve's — the SHAPE is what has to match, not the
+        // field count; an amount-shaped placeholder here would be a lie.
         return redirect()->route('corex.rental-applications.authorisation.index')
-            ->with('success', 'Application declined.');
+            ->with('success', 'Declined — ' . $rentalApplication->contact->full_name . '. Saved.');
     }
 
     /**

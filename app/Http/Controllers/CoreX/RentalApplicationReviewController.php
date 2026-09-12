@@ -517,7 +517,7 @@ class RentalApplicationReviewController extends Controller
      * already set → 422, not a silent second send) — this is a one-shot
      * action, not a resend button.
      */
-    public function send(Request $request, RentalApplication $rentalApplication, RentalApplicationMailer $mailer, RentalApplicationAuditService $audit, \App\Services\RentalApplications\RentalApplicationPropertyMatcher $matcher, \App\Services\RentalApplications\RentalApplicationPdfService $pdfService)
+    public function send(Request $request, RentalApplication $rentalApplication, RentalApplicationMailer $mailer, RentalApplicationAuditService $audit, \App\Services\RentalApplications\RentalApplicationPropertyMatcher $matcher)
     {
         $this->guardRentalApplication($rentalApplication);
 
@@ -541,8 +541,13 @@ class RentalApplicationReviewController extends Controller
         // filed on the contact... available at any point if anyone needs
         // to look at it." Best-effort (fileAsDocument() catches its own
         // failures) — a filing failure must never undo an already-sent
-        // approval.
-        $pdfService->fileAsDocument($rentalApplication, 'Approved Rental Application');
+        // approval. QUEUED (2026-09-13) — same fix, same reason, as
+        // decline()'s own call: see FileRentalApplicationDecisionPdfJob's
+        // docblock. This action has the identical shape (a human-waited-on
+        // request followed by a multi-second Puppeteer subprocess), so it
+        // carries the identical latent race even though it wasn't the one
+        // that surfaced it — fixed alongside it rather than left standing.
+        \App\Jobs\FileRentalApplicationDecisionPdfJob::dispatch($rentalApplication->id, 'Approved Rental Application');
 
         $audit->log(
             $rentalApplication,
