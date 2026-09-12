@@ -23,6 +23,73 @@ These override everything else. Violating scope is worse than doing nothing. Whe
 This applies to the conductor too.
 
 
+## Standard −1 — The render gate (REQUIRED, before any push touching a Blade file)
+
+Three times in one week a rental-applications screen reached QA1 completely
+non-functional — `initialResult`, then `sidebarOpen`/`markupModeActive`/
+`markupSidebarPinned` — and every time `php -l` passed, PHPUnit passed, and
+the HTTP status was 200. None of those three checks test what the user
+actually gets: the server rendered fine: the JavaScript threw on
+construction and nothing on the screen worked. A green build and a dead
+screen are not mutually exclusive — that is the entire reason this exists.
+
+**Before pushing any change that touches a Blade file with Alpine in it**
+(not just rental-applications — anywhere the same class of bug is a risk),
+run both of these, in order:
+
+```bash
+php8.2 scripts/fetch-authenticated-page.php \
+    --app-root=/corex-qa1 --user-id=<a real test fixture id> \
+    --url=https://qatesting1.corexos.co.za/<the changed route> \
+    --out=/tmp/rendered.html
+node scripts/verify-alpine-render.mjs /tmp/rendered.html
+```
+
+`fetch-authenticated-page.php` fetches the page as a REAL authenticated
+user through the REAL nginx + PHP-FPM path (never an in-process
+`Kernel::handle()` call — that runs under a different PHP process than what
+actually serves the page, which is exactly the gap that let a "verified
+fixed" report stand while the live page was still broken). `--php-bin`
+matters: it must match the PHP version of the pool that actually serves the
+URL (`php8.2` for qatesting1.corexos.co.za — check
+`/etc/nginx/sites-enabled/` if unsure, never assume the box's default
+`php` CLI matches).
+
+`verify-alpine-render.mjs` then asserts, on the REAL rendered HTML:
+
+1. **No leaked attribute/script text in the rendered body** — a quote-aware
+   tokenizer catches an Alpine attribute's quote closing early (incident
+   #2's exact shape: a JS comment inside `x-data="{...}"` contained a
+   literal `"`, and everything after it — the rest of x-data, x-init, the
+   event handler — escaped the tag and rendered as literal visible text
+   above the header). **Part of the pass/fail signal.**
+2. **Inline `x-data="{ ... }"` scope check** — declared keys vs. identifiers
+   referenced in that element's own subtree. **Warning only** — Alpine's
+   real scope resolution walks the full ancestor chain, which this
+   heuristic cannot always trace through nested components; read the
+   warnings and verify by hand.
+3. **Real execution** — every named factory function AND every inline
+   object, constructed with its REAL call-site arguments parsed straight
+   out of the fetched page (never guessed), every zero-argument method
+   called the way Alpine calls them on load. Proven to catch incident #1
+   (a `ReferenceError` thrown during construction, which silently kills
+   the WHOLE component — every binding on the page reads as undefined, not
+   just the one bad reference). **Part of the pass/fail signal.**
+
+For the fuller browser-level check across an entire user journey (console
+error counts, not just one page, plus a real-data assertion — a total with
+a figure beside it, a list with rows in it, never just "the labels
+rendered"), run `node scripts/rental-smoke.mjs` — see BUILD_STANDARD.md for
+the full contract. **A 200 HTTP status is not a pass signal in either
+script and must never be treated as one.**
+
+**`scripts/dev-check.ps1` is PowerShell. There is no `pwsh` on this box. It
+has never run here, for any build, ever.** Stop citing it as a verification
+gate for any change made in this environment — the two scripts above are
+its replacement here.
+
+---
+
 ## Standard 0 — Operating Principle
 
 Every standard in this file is subordinate to the CoreX Operating Principle (see CLAUDE.md). If a standard conflicts with the principle, the principle wins. If a standard would let a shortcut ship, the standard is wrong and gets revised.

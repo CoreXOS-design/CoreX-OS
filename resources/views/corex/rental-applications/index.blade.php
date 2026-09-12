@@ -269,6 +269,11 @@
                                     <button type="submit" class="corex-btn-outline text-xs">{{ $application->status === 'draft' ? 'Send' : 'Resend' }}</button>
                                 </form>
                             @endif
+                        @endpermission
+                        {{-- 2026-09-12 — Archive moved off rental_applications.create
+                             (it never belonged there) onto its own rental_applications.archive,
+                             matching every other module's {module}.archive convention. --}}
+                        @permission('rental_applications.archive')
                             <form method="POST" action="{{ route('corex.rental-applications.destroy', $application) }}"
                                   onsubmit="return confirm('Archive this rental application? It can be restored later.');" class="inline">
                                 @csrf
@@ -314,7 +319,9 @@
                     <td class="px-4 py-2">{{ $application->property?->buildDisplayAddress() ?? $application->property_address_override ?? '—' }}</td>
                     <td class="px-4 py-2">{{ $application->deleted_at->format('d M Y') }}</td>
                     <td class="px-4 py-2 text-right">
-                        @permission('rental_applications.create')
+                        {{-- 2026-09-12 — moved off rental_applications.create onto
+                             rental_applications.archive, same as Archive above. --}}
+                        @permission('rental_applications.archive')
                         <form method="POST" action="{{ route('corex.rental-applications.restore', $application->id) }}">
                             @csrf
                             <button type="submit" class="corex-btn-outline text-xs">Restore</button>

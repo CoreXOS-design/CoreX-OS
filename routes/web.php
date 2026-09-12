@@ -2948,10 +2948,18 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // re-sending it. Same permission as a fresh upload.
         Route::post('/{rentalApplication}/documents/attach-existing', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'attachExistingDocument'])
             ->middleware('permission:rental_applications.create')->name('corex.rental-applications.documents.attach-existing');
+        // 2026-09-12 — was gated on rental_applications.create ("Create & Send"),
+        // a mismatched permission name for an archive/restore action that has
+        // nothing to do with creating an application. New key
+        // rental_applications.archive (config/corex-permissions.php), matching
+        // the {module}.archive convention every other module uses. WHO can
+        // archive/restore is unchanged — see the migration that copied every
+        // existing .create grant onto .archive
+        // (2026_09_12_100000_migrate_rental_application_archive_permission.php).
         Route::delete('/{rentalApplication}', [\App\Http\Controllers\CoreX\RentalApplicationController::class, 'destroy'])
-            ->middleware('permission:rental_applications.create')->name('corex.rental-applications.destroy');
+            ->middleware('permission:rental_applications.archive')->name('corex.rental-applications.destroy');
         Route::post('/{rentalApplication}/restore', [\App\Http\Controllers\CoreX\RentalApplicationController::class, 'restore'])
-            ->middleware('permission:rental_applications.create')->name('corex.rental-applications.restore');
+            ->middleware('permission:rental_applications.archive')->name('corex.rental-applications.restore');
         Route::post('/{rentalApplication}/status', [\App\Http\Controllers\CoreX\RentalApplicationController::class, 'updateStatus'])
             ->middleware('permission:rental_applications.create')->name('corex.rental-applications.update-status');
     });

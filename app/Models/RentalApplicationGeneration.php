@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToAgency;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -20,8 +21,22 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * signed. RentalApplication::signatures() for that SAME generation are the
  * signatures that belong to this snapshot.
  */
+/**
+ * QA1 multi-tenancy sweep, 2026-09-12 — this model carries a real, always-
+ * populated `agency_id` (seal() below has always set it) but had no
+ * `BelongsToAgency`, so it was queryable completely unscoped by default —
+ * exactly the "unscoped by default" trap Johan's sweep asked to check for.
+ * Not reachable via any route today (every current call site filters by
+ * `rental_application_id` from an already-guarded parent — see the four
+ * call sites in RentalApplicationPdfService/RentalApplicationReviewController/
+ * RentalApplicationSigningController), but a future query that forgets that
+ * explicit filter would otherwise return every agency's sealed legal
+ * records with no structural safety net at all.
+ */
 class RentalApplicationGeneration extends Model
 {
+    use BelongsToAgency;
+
     protected $table = 'rental_application_generations';
 
     // Write-once: created_at only, no updated_at.
@@ -110,7 +125,18 @@ class RentalApplicationGeneration extends Model
         $prev = self::latestFor($application->id);
         $prevHash = $prev?->content_hash;
 
-        return self::create([
+        // withoutAgencyStamping(): $application->agency_id is already the
+        // correct, validated value for this legal record — BelongsToAgency's
+        // creating() hook would otherwise force-overwrite it with whichever
+        // agency the CALLING context resolves to (normally none at all,
+        // since this runs from the public unauthenticated signing flow —
+        // but the one edge case that matters is an owner-role account with
+        // an active agency-switcher session testing an application link
+        // belonging to a DIFFERENT agency, where the hook would silently
+        // stamp the switched-to agency onto a sealed, hash-chained record
+        // for someone else's application). Verbatim explicit value in, every
+        // time, regardless of who/what is calling.
+        return static::withoutAgencyStamping(fn () => self::create([
             'rental_application_id' => $application->id,
             'generation' => $application->current_generation,
             'agency_id' => $application->agency_id,
@@ -120,7 +146,7 @@ class RentalApplicationGeneration extends Model
             'user_agent' => $request->userAgent(),
             'content_hash' => self::computeHash($prevHash, $snapshot),
             'prev_hash' => $prevHash,
-        ]);
+        ]));
     }
 
     /**

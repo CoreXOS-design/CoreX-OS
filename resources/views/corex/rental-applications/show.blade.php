@@ -71,7 +71,12 @@
                     <span x-show="!dirty" x-cloak>Add an email address to send</span>
                 </span>
             </form>
+            @endpermission
 
+            {{-- 2026-09-12 — Archive moved off rental_applications.create onto
+                 its own rental_applications.archive, matching every other
+                 module's {module}.archive convention. --}}
+            @permission('rental_applications.archive')
             <form method="POST" action="{{ route('corex.rental-applications.destroy', $rentalApplication) }}"
                   onsubmit="return confirm('Archive this rental application? It can be recovered by an admin.');" class="inline">
                 @csrf

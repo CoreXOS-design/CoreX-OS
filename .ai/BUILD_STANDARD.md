@@ -31,6 +31,46 @@ This applies to the conductor too.
 
 ---
 
+## §0a. The render gate + browser smoke — required, not optional, for any Blade/Alpine change
+
+See STANDARDS.md "Standard −1" for the full incident history and the
+per-file contract (`scripts/fetch-authenticated-page.php` +
+`scripts/verify-alpine-render.mjs`). The rule in this file is the
+Definition-of-Done consequence: **a feature touching a Blade file with
+Alpine in it is not done until both the render gate and the browser smoke
+below are green.** `php -l` passing and PHPUnit passing are necessary and
+proven NOT sufficient — three separate incidents shipped a completely dead
+screen to QA1 with both green.
+
+**`scripts/rental-smoke.mjs`** is the browser-level companion: a REAL
+headless browser (Puppeteer) drives the actual rental-applications journey
+— applications list (control-centre tiles), review screen, the mark-up
+view with documents open, authorisation screen, applicant link, Rentals →
+Contacts, contact edit, PDF splitter review — and for EVERY screen reports
+a console-error count plus a real-data assertion (a total with a figure
+beside it, a list with rows in it — never just that labels rendered). Zero
+console errors is the pass mark. **A 200 HTTP status is never treated as a
+pass signal anywhere in this script or the render gate** — that is the
+entire lesson of this section's existence: 200 is exactly what all three
+incidents returned.
+
+```bash
+node scripts/rental-smoke.mjs
+```
+
+Run this after every pull into `/corex-qa1` that touches rental-application
+views, and before every push that touches one. Report per-screen console
+error counts, not a single pass/fail line — "0 tests failed" told nobody
+which screen was actually dead.
+
+**`scripts/dev-check.ps1` is PowerShell. This box has no `pwsh`. It has
+NEVER run here, for any build in this repo's history on this environment —
+do not cite it as a verification gate, do not tell Johan or the conductor
+it ran, and do not wait for it. The two scripts above are its replacement
+in this environment.**
+
+---
+
 ## 0. The governing principle
 
 **We do complicated so the user does simple — and the user is never

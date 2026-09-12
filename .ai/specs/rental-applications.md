@@ -8179,4 +8179,275 @@ factory and inline object constructed with its actual call-site arguments (parse
 fetched page, never guessed), every zero-argument method called; this is what would have
 caught incident #1. **The gate passes (exit 0) only on checks 1 and 3 — check 2's warnings
 never block, and must not be silenced by deleting the check.**
-  and is reused as-is
+
+### The browser-level companion, and what this replaces (2026-09-12, cc1)
+
+The render gate above checks one fetched page at a time. `scripts/rental-smoke.mjs` is the
+broader companion: a real headless browser drives the whole rental-applications journey in
+one run — applications list (control-centre tiles), review screen, the mark-up view with
+documents open, authorisation screen, applicant link, Rentals → Contacts, contact edit, PDF
+splitter review — and reports a console-error count plus a real-data assertion (a total with
+a figure beside it, a list with rows in it — never just that labels rendered) **per screen**.
+Zero console errors is the pass mark on every screen; a 200 HTTP status is never treated as a
+pass signal anywhere in it, same as the render gate above. Full contract in
+BUILD_STANDARD.md §0a.
+
+```
+node scripts/rental-smoke.mjs
+```
+
+**This, together with the render gate above, replaces every prior round's closing-block
+variant of "dev-check.ps1 was not run — it is PowerShell and this box has no `pwsh`."**
+`scripts/dev-check.ps1` has never run on this host, for any build documented in this file, at
+any point — that fact doesn't change, but it stops being restated ad hoc every round. From
+here forward, a round's closing block reports the render-gate result and the
+`rental-smoke.mjs` per-screen console-error counts instead of a single pass/fail line.
+
+## Multi-tenancy bug-class sweep — the whole rental-application surface (2026-09-12, cc1)
+
+Johan, verbatim, the trigger for this pass: *"we have found TWO cross-agency holes in two
+days, both the same root cause — Laravel's exists: validation rule runs a raw table query
+that BYPASSES Eloquent global scopes... The moment two paying agencies are on this box, one
+of them can reach the other's client ID documents, payslips and bank statements. That is not
+a bug report, it is a POPIA notification."* Full sweep across every rental-application
+controller, form request, settings controller, action, service, and model — not a
+report-first pass this time; fix as found, prove each one, push each one separately.
+
+### What the sweep covered, and what came back clean
+
+- **Every `exists:`/`unique:` rule across the whole module** (controllers, the settings
+  controller, the highlighter controller, the public signing controller — no FormRequest
+  classes exist in this module, confirmed again). Found: `document_types,id` (×3) and
+  `p24_suburbs,id` — both genuinely global reference tables (no `agency_id`, no
+  `BelongsToAgency`, confirmed by reading both models), nothing to bypass. `contacts,id` in
+  `store()` — see FIX 1 below.
+- **Every raw `DB::table()`/`DB::select()`/`whereRaw`/`joinSub`** across every rental
+  controller, service, and model — one hit, `RentalApplication::applyVisibilityScope()`'s own
+  `whereRaw('1 = 0')`, a deliberate deny-all fallback for an invalid scope value, not a leak.
+- **Every route taking a `{rentalApplication}`/`{document}`/`{highlighter}` id**, across
+  `RentalApplicationController`, `RentalApplicationReviewController` (read-only — cc3's file,
+  not edited), `RentalApplicationAuthorisationController` (read-only — cc3's file, not
+  edited), `RentalApplicationHighlighterController`, `RentalApplicationSigningController`
+  (the public token flow), and the two `PdfSplitterController` rental intake methods — every
+  single one calls `guardRentalApplication()`/`guardCanView()`/`guardCanDecide()`/
+  `authorizeAgency()` (or, for the shared `HandlesRentalApplicationDocumentMarks` trait's
+  methods, `guardDocumentMarkAccess()`, which itself calls the same guard plus
+  `guardDocumentBelongsToApplication()` — a genuine ownership check, not a rubber stamp) as
+  the FIRST line of the method body, confirmed by reading every method, not grepping for the
+  string alone.
+- **Every export/download endpoint** — `pdf()`, `pdfInline()`, `downloadDocument()`,
+  `viewDocumentInline()` (×2 controllers), `highlightedFile()` (×2), `downloadReferencedDocument()`,
+  the public `viewDocument()`/`pdf()` — all guarded, all confirmed via the same read-through.
+  The public signing controller's document scoping (`scopedDocument()`) matches on `id +
+  source_type='rental_application' + source_id=$application->id`, so a document id (a global
+  auto-incrementing key shared across every agency) proves nothing on its own — exactly the
+  correct pattern, unchanged, still correct. Invite tokens are `Str::random(64)`,
+  collision-checked — not brute-forceable.
+- **`rental_application_document_marks`** (named explicitly — extended yesterday by the
+  capture-ledger rework) — already carries `BelongsToAgency`. Clean.
+
+### FIX 1 — `store()`'s `contact_id` rule: the same class, safe only by accident
+
+`RentalApplicationController::store()` validated `contact_id` with `exists:contacts,id` — the
+exact bypassing shape. It was never actually exploitable — `Contact::findOrFail()` three
+lines below already goes through the model, so `AgencyScope` already 404s a cross-agency
+`contact_id` before `RentalApplication::create()` is ever reached — but the validation RULE
+itself was still wrong, safe only because a second, unrelated check happened to exist after
+it. Converted to `App\Rules\ExistsInScope` — an existing, documented, already-used house rule
+(`ContactPropertyController`, `PropertyContactController`, `ContactDocumentController`,
+`ContactRepresentativeController`, `PropertyFileController` all already use it) that resolves
+through `$modelClass::query()`, so `AgencyScope` fires — never a raw `exists:` rule again on a
+tenant-owned FK in this module.
+
+**Verified with a real HTTP proof against QA1:** logged in as a real agent, POSTed
+`contact_id=<a different agency's real contact id>` to the real `store()` endpoint →
+redirected back to the create form with "The selected contact id is invalid.", contact
+selection lost as expected for a rejected create (no typed-input-preservation promise applies
+to a brand-new, not-yet-created record) — confirmed via `RentalApplication::withoutGlobalScopes()
+->where('contact_id', ...)->count()` that **zero** rows were ever created for that contact id.
+Same session, POSTed the agent's own agency's real contact id → real `302` into the new
+application (id 134 on QA1, soft-deleted after use). New regression test:
+`RentalApplicationContactIdAgencyScopeTest.php` (2 tests).
+
+**Files changed:** `app/Http/Controllers/CoreX/RentalApplicationController.php`.
+## Design-standard hard test — Contact Rental History, Archive/Restore permission, Authorisation screen, Control Centre (2026-09-12, cc5)
+
+Johan put all six lanes on rental applications ahead of the CoreX ads/paying-agency push — the bar stated for this pass: "behaves like a professional CRM," not "HFC tolerates it." Two build items from cc2's parked design-standard audit, plus a hard test of the authorisation screen and the AT-402 Control Centre against the full CRUD/search/sort/filter/pagination/own-branch-agency standard (STANDARDS.md Rule 13 / BUILD_STANDARD.md §1).
+
+### Part 1a — Contact page → Rental History tab: real pagination, search, date range
+
+**Before:** `ContactController::show()` loaded the tab's ENTIRE scoped result set with `->get()` — no cap, no pagination — then shipped it whole into the page as embedded JSON for Alpine to sort/filter client-side. Fine at today's volume; a genuine BUILD_STANDARD §1b violation ("never dump an unbounded result set into the DOM") the moment a contact accumulates real history.
+
+**Built:** reuses `FiltersRentalApplicationList` — the SAME trait `index()`/`returned()`/the authoriser queue already use — rather than a parallel implementation, so this tab's query vocabulary (`q`/`date_from`/`date_to`/`per_page`) matches every other rental-application list in the app. A distinct paginator page name (`rental_history`) avoids colliding with the History tab's own `history` paginator on the same page. The existing "outcome" grouping (Approved/Declined/Withdrawn/In progress/Invited — more agent-useful than raw status values on a history view) is kept as a separate `?outcome=` param rather than widening the shared trait's own single-value `status` match, since that trait is shared with screens outside this task's scope.
+
+- **Search fields:** id, full name, email, ID number, cell, property address (linked property + free-text override), the linked Contact's own name/email/phone, creating agent's name — identical field set to every other rental-application list (contact/agent fields are inert here since every row already belongs to this one contact, harmless).
+- **Sort:** newest/oldest first (`submitted_at` falling back to `created_at`), default newest-first — matches the pre-existing UI.
+- **Filter:** outcome (grouped), date range (submitted_at). Status+date-range floor met.
+- **Pagination:** real, server-side, 10 per page default (10/25/50/100 selectable — same options as every other rental-application list).
+- **Empty state:** three real variants — genuinely no applications; some exist but scoping hides them (unchanged from before); some are visible but the current search/filter matches none.
+- **Own/branch/agency:** unchanged — still `Contact::visibleRentalApplicationsFor()`, which routes through `RentalApplication::scopeVisibleForContactHistory()` (own/branch/all, agency-configurable in Role Manager, `RentalApplication`'s own `BelongsToAgency` global scope as the outer boundary). Nothing about the scoping mechanism changed — only that the query is now paginated instead of fetched whole.
+- **Badge count fix (necessary side-effect):** the tab badge (`show.blade.php`) previously read `$visibleRentalApplications->count()` — now a paginator, `->count()` would report the CURRENT PAGE's size, not the true total, breaking the "one query drives both the badge and the list" invariant this code explicitly documents. Fixed by computing the badge's count off a separate, unfiltered clone of the same scoped query (`$rentalApplicationsTotalCount`) BEFORE any search/filter is applied — a search narrowing the list to 1 result can never make the badge misreport "1".
+
+**Files:** `app/Http/Controllers/CoreX/ContactController.php`, `resources/views/corex/contacts/_rental-applications-tab-body.blade.php`, `resources/views/corex/contacts/show.blade.php` (one-line badge fix).
+
+### Part 1b — Archive/Restore: correctly-named permission, access preserved
+
+**Before:** `DELETE /{rentalApplication}` (archive) and `POST /{rentalApplication}/restore` were both gated on `rental_applications.create` — the "Create & Send Rental Applications" permission. Both actions were already correctly reversible soft-deletes (`RentalApplication` has `SoftDeletes`, `destroy()` calls `->delete()`, `restore()` calls `->restore()`) — only the permission NAME was wrong.
+
+**Built:** new key `rental_applications.archive` (`config/corex-permissions.php`), matching the `{module}.archive` convention every other module in the file already uses (`deals.archive`, `listings.archive`, `properties.archive`, `contacts.archive`, etc. — one key for the reversible archive/restore pair, not two). Route middleware on both `destroy()`/`restore()` moved to the new key. Blade gates split where a `@permission('rental_applications.create')` block had mixed Archive in with a genuinely `.create`-gated action (Send/Resend, Save) — Send/Resend/Save stay on `.create`; only the Archive/Restore forms moved.
+
+**Migration, not just a config change:** `database/migrations/2026_09_12_100000_migrate_rental_application_archive_permission.php` copies every EXISTING `role_permissions` grant of `rental_applications.create` — real per-agency Role Manager customisations already on this database, not just the two config-file role defaults — onto the new `rental_applications.archive` key, same role/agency_id/scope, so nobody's effective access changes. Verified: 42 real `.create` grants existed on QA1 across every agency; the migration produced 33 `.archive` grants (fewer because several `.create` rows shared the same role+agency_id at different timestamps — re-seeding artifacts — and correctly deduped to one `.archive` row each via `withTrashed()->firstOrNew()`, per BUILD_STANDARD §5a's unique-index+SoftDeletes rule). Spot-checked live: an agent-role user in agency 1 has both `.create` and the new `.archive` after migration; the `viewer` role (which never had `.create`) correctly has neither.
+
+**Files:** `config/corex-permissions.php`, `routes/web.php`, `database/migrations/2026_09_12_100000_migrate_rental_application_archive_permission.php`, `resources/views/corex/rental-applications/{index,show,view-readonly}.blade.php`.
+
+### Part 2 — Hard test: Authorisation screen + Control Centre against the full standard
+
+**Control Centre (`RentalApplicationController::index()`, AT-402):**
+- Search: id, full name/email/ID number/cell (application's own captured data — can differ from the linked Contact), property address (linked + override), creating agent's name.
+- Sort: contact/property/status/date/updated/agent, default `created_at` desc, with visible ▲▼ indicators.
+- Filter: 9 status tiles (including the with-agent/with-authoriser split on `under_assessment` Johan specifically asked not to collapse) + date range (`created_at`) + own/branch/agency scope toggle + a separate archived view.
+- Pagination: real, 10/25/50/100 selectable, tile counts share the SAME scoped base query as the filtered list (so a tile can never show a count the viewer couldn't actually open).
+- Empty state: three real variants (search/filter narrowed to nothing; own-scope narrowed to nothing with a "widen scope" hint; genuinely nothing in this tile).
+- Own/branch/agency: `RentalApplication::scopeVisibleTo()` at the list layer; every per-record action (`show`, `destroy`, `restore`, `pdf`, `downloadDocument`) independently calls `guardRentalApplication()` (the single-record sibling) — verified by reading every action, not assumed from the list being scoped.
+
+**Authorisation screen (`RentalApplicationAuthorisationController`):**
+- Search: applicant/property/agent (Johan's own stated requirement for this screen).
+- Sort: contact/property/agent/submitted, default submitted-oldest-first (the queue's whole point is working the longest-waiting decision first) — deliberately the one screen where the shared trait's own newest-first default is overridden.
+- Filter, gap found and fixed: date range (`submitted_for_approval_at`) was already supported by the controller's own `applySearchSortAndDateRange()` call but had no UI on this screen — every other rental-application list screen exposes it. Added two `<input type="date">` fields matching the existing convention exactly; empty-state copy updated to also account for a date-filtered zero-match case.
+- No status filter and no own/branch/agency scope TOGGLE on this screen — both correct by design, not gaps: the queue is always exactly "awaiting authorisation" (a status control could only ever narrow to nothing), and an RO/CO grant is agency-wide/named-individual (Johan's own tier definition), not branch-scoped, so there is no narrower level to toggle to.
+- Pagination: real, same 10/25/50/100 selector as every other screen.
+- Own/branch/agency: TWO independent guards on every per-record action, neither replacing the other — `isRentalApplicationRO()/isRentalApplicationCO()` (WHO may act as an authoriser, checked against the application's own agency_id) AND `guardRentalApplication()` (WHICH records they may act on — own/branch/agency, the same trait the agent screens use). Confirmed present on every action: `show`, `approve`, `decline`, `requestMoreInfo`, `viewDocumentInline`, `highlightedFile`, both assessment-item mutations.
+
+**Cross-agency authoriser reach — proven live, not assumed:** cc2 found and fixed (`RentalApplicationSettingsController`, outside this task's scope — see `RentalApplicationRoCoAgencySettingsScopeTest.php`) that the RO/CO settings save used a raw `exists:users,id` check, letting ANY platform user's id — not just this agency's own — be written into `agencies.rental_application_ro_user_ids`/`co_user_ids`. To prove the AUTHORISATION CONTROLLER itself holds even if that array is ever compromised by any future bug (not just today's now-fixed write path), simulated the exact compromised state directly at the data layer — a genuine agency-20 agent's id manually written into agency-1's RO array, bypassing the settings screen entirely — then attempted the reach as that real user, real login, real browser:
+- Authorisation queue index → 403 (the user isn't RO/CO for their OWN agency; agency-20's array was never touched).
+- Direct URL to a real, live agency-1 pending application → **404**, "No query results for model [RentalApplication] 4" — `RentalApplication`'s own `AgencyScope` blocks the route-model-binding itself, before `guardCanView()`/`guardCanDecide()` ever run. This is genuine defense-in-depth: even a compromised RO/CO array cannot reach a cross-agency record, because the tenant boundary is enforced independently, one layer earlier, for any role except owner/super_admin (who see every agency by design — expected, not a gap).
+- Direct POST to `/approve` on the same id, bypassing the UI entirely → same 404, same reason.
+
+Test state cleaned up immediately after (agency-1's RO array reverted to its real value, throwaway user soft-deleted).
+
+### Reported, not fixed — outside this task's scope
+
+**`resources/views/layouts/corex.blade.php:114`** — a literal `"` character sits inside a `//` JS comment inside the global sidebar's `x-data="{...}"` attribute (the rental-markup hover-fold work). Since the attribute itself is HTML double-quoted, the embedded quote terminates it early, corrupting Alpine's initialisation for `sidebarOpen`/`markupModeActive`/`markupSidebarPinned` on **every page in the entire app** — confirmed on the plain `/corex` dashboard with zero rental-application content loaded (7 console errors: `Unexpected token ')'`, then three "X is not defined" errors, repeating on every navigation). Root cause and exact line reported to the conductor immediately, live, not held for this write-up. Not fixed here: the file isn't one of this task's two assigned screens, and the bug was introduced by the rental-markup hover-fold feature, which is cc3's active work.
+
+### Console error counts (2026-09-12, QA1, real login + real browser, per screen touched)
+
+- Contact page, Rental History tab (search/filter/pagination all exercised): **0**.
+- Control Centre index, application show, archived list: **7 per page load** — entirely the global `corex.blade.php` bug above, confirmed identical on the plain dashboard; not introduced by this task's own changes.
+- Authorisation index + show: **7 per page load** — same global bug, same confirmation.
+
+### Files changed (Part 2)
+
+- `resources/views/corex/rental-applications/authorisation/index.blade.php` — date-range filter added, empty-state copy extended.
+- No controller changes in Part 2 — every scoping mechanism checked was already correct; the only code change from the hard test itself is the one blade file above (Part 1's files are listed under Part 1a/1b).
+
+**Note (cc5):** the `layouts/corex.blade.php:114` finding reported above as "reported, not fixed" is the exact same bug cc3 documents above in "REQUIRED PRE-PUSH CHECK" incident #2 — independently found and confirmed live (7 console errors on the plain dashboard) before this section merged with cc3's. Left as cc3's to land the actual fix, per this task's scope lock.
+### FIX 2 — `RentalApplicationGeneration`: a real `agency_id`, no `AgencyScope` to enforce it
+
+This model has always carried a real, always-populated `agency_id` column (`seal()` sets it
+from the application's own agency on every row) but had no `BelongsToAgency` at all — every
+query against it was completely unscoped by default. **Not reachable via any route today** —
+all four call sites (`RentalApplicationPdfService`, `RentalApplicationReviewController
+::showGeneration()`, `RentalApplicationSigningController::submit()`) filter by
+`rental_application_id` sourced from an already-guarded parent — but exactly the "unscoped by
+default" structural trap this sweep was asked to find: a future query that forgot that
+explicit filter would return every agency's sealed, hash-chained legal records with no
+structural safety net at all.
+
+Fixed by adding `BelongsToAgency`. The one write site (`seal()`) is wrapped in
+`withoutAgencyStamping()` so the trait's own creating()-hook auto-stamp can never override the
+already-correct, already-validated `agency_id` it sets explicitly — this matters because
+`seal()` normally runs from the fully unauthenticated public signing flow (no acting user to
+mis-stamp from), but the one edge case that would otherwise bite is an owner-role account
+testing an application's public link while switched into a DIFFERENT agency via the agency
+switcher, which would otherwise silently stamp the wrong agency onto a sealed legal record.
+
+**Verified — query-layer proof, since no HTTP endpoint exists to attack:** created a real
+generation row for Agency A's application; as Agency A's own admin, `RentalApplicationGeneration
+::where('rental_application_id', $id)->count()` correctly returns 1; as Agency B's admin, the
+IDENTICAL query — no other filter — returns **0**. Before this fix the same query would have
+returned 1 for either agency. Also proved live end-to-end: a real public `submit()` HTTP call
+against QA1 created a real generation row that landed with the CORRECT agency_id despite the
+request having no authenticated user at all. New regression test:
+`RentalApplicationGenerationAgencyScopeTest.php` (1 test).
+
+**Files changed:** `app/Models/RentalApplicationGeneration.php`.
+
+### FIX 3 — `RentalApplicationSignature`: no `agency_id` column existed at all
+
+Same class of gap, one level worse — this table had never had an `agency_id` column, so there
+was no scope to even add without a migration. **Not reachable via any route today** (the only
+write site, `RentalApplicationSigningController::storeSignature()`, always scopes by an
+already-token-resolved application; no route binds a signature id directly — confirmed by
+reading every `signature`-named route in `routes/web.php`, all of which belong to the
+unrelated Docuperfect e-sign system) — but a tenant-owned table with no `agency_id` at all is
+a direct violation of CLAUDE.md Non-negotiable #7, not just a missing-scope instance.
+
+New migration (`2026_09_12_090000_add_agency_id_to_rental_application_signatures.php`, guarded
+idempotently like the sibling `add_generation_to...` migration): adds nullable
+`agency_id`, backfills every existing row from its own parent application's `agency_id`
+(62 rows on QA1, 0 orphans, 0 mismatches after backfill — checked before AND after), then
+sets the column `NOT NULL` — every signature has a real parent application, so every
+signature has a real agency; a future insert with no agency_id should fail loudly, not
+silently orphan. Model gains `BelongsToAgency`; `storeSignature()`'s `updateOrCreate()` now
+includes `agency_id` in its match attributes and is wrapped in `withoutAgencyStamping()`, same
+reasoning as FIX 2.
+
+**Verified — real HTTP proof, both directions:** drove a real application (QA1 id 134) through
+send→public-submit with real signature payloads over genuine HTTP — both signature rows
+landed with the correct `agency_id` (38, the application's own agency) despite the
+unauthenticated request context. Query-layer proof identical in shape to FIX 2: Agency A's
+admin sees the 2 real signature rows; Agency B's admin, same query, sees **0**. Regenerated
+BOTH the public applicant PDF and the agent-side authenticated PDF for the same application
+afterward — byte-identical output (74,260 bytes, 2 pages, both signature images present) —
+confirming adding `BelongsToAgency` did not break either signature-reading path. New
+regression tests: `RentalApplicationSignatureAgencyScopeTest.php` (2 tests).
+
+**Files changed:** `database/migrations/2026_09_12_090000_add_agency_id_to_rental_application_signatures.php`,
+`app/Models/RentalApplicationSignature.php`, `app/Http/Controllers/RentalApplicationSigningController.php`.
+
+### Cleanup, disclosed
+
+All throwaway fixtures across all three fixes' verification (2 agencies, 2 branches, 2
+contacts, 1 rental application, 2 signature rows) were soft-deleted after use, confirmed via
+`onlyTrashed()`, on models confirmed to carry `SoftDeletes` before calling `delete()` on any
+of them — the trap from yesterday's RO/CO fix was not repeated. The one
+`RentalApplicationGeneration` row created for FIX 2/3 verification does **not** carry
+`SoftDeletes` (deliberately — it's an append-only legal record) and was correctly left in
+place rather than force-deleted. Two throwaway admin users (each the only admin of their own
+now-soft-deleted throwaway agency) were also left in place — `LastAdminException` correctly
+refused the delete both times, and bypassing a real safety guard to tidy up test data would be
+a worse mistake than one harmless orphaned row.
+
+### What could not be reached, and what belongs to another lane
+
+- `RentalApplicationReviewController.php` and `RentalApplicationAuthorisationController.php`
+  were read in full (every method's guard call verified) but not edited, per the standing
+  instruction — cc3 is actively rebuilding both right now.
+- `dev-check.ps1` still cannot run on this box — no `pwsh`. cc3/cc1's new render gate
+  (`verify-alpine-render.mjs`) and browser smoke test (`rental-smoke.mjs`) landed today but are
+  UI/Alpine-focused; nothing in today's three fixes touched a Blade or JS file, so neither
+  gate applies — real HTTP + Tinker + PHPUnit verification (above) is this pass's equivalent.
+
+### Outside rentals, carrying the same class — reported, not touched
+
+Nothing new found outside this module during this sweep (the sweep was scoped to rental
+applications, as instructed) — but the pattern that produced three real instances inside one
+module in three days (RO/CO settings, `store()`'s `contact_id`, and now two structurally
+unscoped models) is a strong signal the same class exists elsewhere in CoreX. `App\Rules
+\ExistsInScope` already exists and is already used correctly in five OTHER controllers
+(`ContactPropertyController`, `PropertyContactController`, `ContactDocumentController`,
+`ContactRepresentativeController`, `PropertyFileController`) — meaning the fix pattern is
+proven and available, but nothing enforces it's used everywhere a raw `exists:`/`unique:` rule
+touches a tenant-owned FK. Recommend a codebase-wide grep-and-convert sweep as the next
+priority once rentals is fully closed out, same technique as this one, scaled up.
+
+### Files changed, this section
+
+- `app/Http/Controllers/CoreX/RentalApplicationController.php` — FIX 1
+- `app/Models/RentalApplicationGeneration.php` — FIX 2
+- `database/migrations/2026_09_12_090000_add_agency_id_to_rental_application_signatures.php`,
+  `app/Models/RentalApplicationSignature.php`,
+  `app/Http/Controllers/RentalApplicationSigningController.php` — FIX 3
+- `tests/Feature/RentalApplications/RentalApplicationContactIdAgencyScopeTest.php`,
+  `tests/Feature/RentalApplications/RentalApplicationGenerationAgencyScopeTest.php`,
+  `tests/Feature/RentalApplications/RentalApplicationSignatureAgencyScopeTest.php` — new
