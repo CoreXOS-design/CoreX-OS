@@ -476,14 +476,23 @@ class RentalApplicationSigningController extends Controller
         // is a resubmit) by the time this runs, inside the same transaction
         // — so this always creates a NEW row for a new round, never
         // overwrites the previous round's signature.
-        RentalApplicationSignature::updateOrCreate(
-            ['rental_application_id' => $application->id, 'kind' => $kind, 'generation' => $application->current_generation],
+        //
+        // QA1 multi-tenancy sweep, 2026-09-12 — agency_id is now part of the
+        // match/create attributes, and the whole call is wrapped in
+        // withoutAgencyStamping() so BelongsToAgency's creating() hook can
+        // never override this already-correct, already-validated value with
+        // whatever the calling context's own agency resolves to (this route
+        // is normally unauthenticated, but an owner-role account testing a
+        // link while switched into a different agency is exactly the edge
+        // case that hook exists to guard against elsewhere in this sweep).
+        RentalApplicationSignature::withoutAgencyStamping(fn () => RentalApplicationSignature::updateOrCreate(
+            ['rental_application_id' => $application->id, 'agency_id' => $application->agency_id, 'kind' => $kind, 'generation' => $application->current_generation],
             [
                 'signature_path' => $path,
                 'signed_at' => now(),
                 'ip_address' => $request->ip(),
                 'user_agent' => $request->userAgent(),
             ]
-        );
+        ));
     }
 }

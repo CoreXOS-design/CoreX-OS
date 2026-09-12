@@ -8371,3 +8371,83 @@ request having no authenticated user at all. New regression test:
 `RentalApplicationGenerationAgencyScopeTest.php` (1 test).
 
 **Files changed:** `app/Models/RentalApplicationGeneration.php`.
+
+### FIX 3 — `RentalApplicationSignature`: no `agency_id` column existed at all
+
+Same class of gap, one level worse — this table had never had an `agency_id` column, so there
+was no scope to even add without a migration. **Not reachable via any route today** (the only
+write site, `RentalApplicationSigningController::storeSignature()`, always scopes by an
+already-token-resolved application; no route binds a signature id directly — confirmed by
+reading every `signature`-named route in `routes/web.php`, all of which belong to the
+unrelated Docuperfect e-sign system) — but a tenant-owned table with no `agency_id` at all is
+a direct violation of CLAUDE.md Non-negotiable #7, not just a missing-scope instance.
+
+New migration (`2026_09_12_090000_add_agency_id_to_rental_application_signatures.php`, guarded
+idempotently like the sibling `add_generation_to...` migration): adds nullable
+`agency_id`, backfills every existing row from its own parent application's `agency_id`
+(62 rows on QA1, 0 orphans, 0 mismatches after backfill — checked before AND after), then
+sets the column `NOT NULL` — every signature has a real parent application, so every
+signature has a real agency; a future insert with no agency_id should fail loudly, not
+silently orphan. Model gains `BelongsToAgency`; `storeSignature()`'s `updateOrCreate()` now
+includes `agency_id` in its match attributes and is wrapped in `withoutAgencyStamping()`, same
+reasoning as FIX 2.
+
+**Verified — real HTTP proof, both directions:** drove a real application (QA1 id 134) through
+send→public-submit with real signature payloads over genuine HTTP — both signature rows
+landed with the correct `agency_id` (38, the application's own agency) despite the
+unauthenticated request context. Query-layer proof identical in shape to FIX 2: Agency A's
+admin sees the 2 real signature rows; Agency B's admin, same query, sees **0**. Regenerated
+BOTH the public applicant PDF and the agent-side authenticated PDF for the same application
+afterward — byte-identical output (74,260 bytes, 2 pages, both signature images present) —
+confirming adding `BelongsToAgency` did not break either signature-reading path. New
+regression tests: `RentalApplicationSignatureAgencyScopeTest.php` (2 tests).
+
+**Files changed:** `database/migrations/2026_09_12_090000_add_agency_id_to_rental_application_signatures.php`,
+`app/Models/RentalApplicationSignature.php`, `app/Http/Controllers/RentalApplicationSigningController.php`.
+
+### Cleanup, disclosed
+
+All throwaway fixtures across all three fixes' verification (2 agencies, 2 branches, 2
+contacts, 1 rental application, 2 signature rows) were soft-deleted after use, confirmed via
+`onlyTrashed()`, on models confirmed to carry `SoftDeletes` before calling `delete()` on any
+of them — the trap from yesterday's RO/CO fix was not repeated. The one
+`RentalApplicationGeneration` row created for FIX 2/3 verification does **not** carry
+`SoftDeletes` (deliberately — it's an append-only legal record) and was correctly left in
+place rather than force-deleted. Two throwaway admin users (each the only admin of their own
+now-soft-deleted throwaway agency) were also left in place — `LastAdminException` correctly
+refused the delete both times, and bypassing a real safety guard to tidy up test data would be
+a worse mistake than one harmless orphaned row.
+
+### What could not be reached, and what belongs to another lane
+
+- `RentalApplicationReviewController.php` and `RentalApplicationAuthorisationController.php`
+  were read in full (every method's guard call verified) but not edited, per the standing
+  instruction — cc3 is actively rebuilding both right now.
+- `dev-check.ps1` still cannot run on this box — no `pwsh`. cc3/cc1's new render gate
+  (`verify-alpine-render.mjs`) and browser smoke test (`rental-smoke.mjs`) landed today but are
+  UI/Alpine-focused; nothing in today's three fixes touched a Blade or JS file, so neither
+  gate applies — real HTTP + Tinker + PHPUnit verification (above) is this pass's equivalent.
+
+### Outside rentals, carrying the same class — reported, not touched
+
+Nothing new found outside this module during this sweep (the sweep was scoped to rental
+applications, as instructed) — but the pattern that produced three real instances inside one
+module in three days (RO/CO settings, `store()`'s `contact_id`, and now two structurally
+unscoped models) is a strong signal the same class exists elsewhere in CoreX. `App\Rules
+\ExistsInScope` already exists and is already used correctly in five OTHER controllers
+(`ContactPropertyController`, `PropertyContactController`, `ContactDocumentController`,
+`ContactRepresentativeController`, `PropertyFileController`) — meaning the fix pattern is
+proven and available, but nothing enforces it's used everywhere a raw `exists:`/`unique:` rule
+touches a tenant-owned FK. Recommend a codebase-wide grep-and-convert sweep as the next
+priority once rentals is fully closed out, same technique as this one, scaled up.
+
+### Files changed, this section
+
+- `app/Http/Controllers/CoreX/RentalApplicationController.php` — FIX 1
+- `app/Models/RentalApplicationGeneration.php` — FIX 2
+- `database/migrations/2026_09_12_090000_add_agency_id_to_rental_application_signatures.php`,
+  `app/Models/RentalApplicationSignature.php`,
+  `app/Http/Controllers/RentalApplicationSigningController.php` — FIX 3
+- `tests/Feature/RentalApplications/RentalApplicationContactIdAgencyScopeTest.php`,
+  `tests/Feature/RentalApplications/RentalApplicationGenerationAgencyScopeTest.php`,
+  `tests/Feature/RentalApplications/RentalApplicationSignatureAgencyScopeTest.php` — new
