@@ -147,6 +147,66 @@ blocking EACH OTHER. Both matter; neither substitutes for the other.
 
 ---
 
+## Standard −1b — Refresh `database/schema/mysql-schema.sql` when you add a migration
+
+Real incident, 2026-09-12: `mysql-schema.sql` was dated 2026-09-10 while three
+schema-changing migrations had already landed (`draft_saved_at` on
+`rental_applications`, `agency_id` on `rental_application_signatures`,
+`autosave_debounce` on `rental_application_qualifying_settings`). Every
+lane's `RefreshDatabase` test run was silently building on a schema that
+didn't match the code — test evidence from all six lanes was suspect until
+this was caught.
+
+**When:** the moment `database/migrations/` gains a file, per non-negotiable
+#12a — not at the end of the day, not "next time someone notices tests are
+slow." A stale snapshot doesn't fail loudly; it just means a table/column a
+new migration added silently doesn't exist yet in every OTHER lane's test
+runs, which reads as an unrelated, confusing test failure somewhere else
+entirely.
+
+**How, exactly** (do this in a worktree — never against `/corex-qa1`
+directly, and never point your default `DB_DATABASE` at a test schema
+permanently):
+
+```bash
+DB_DATABASE=hfc_dash_test_<your lane number> php8.2 artisan migrate:fresh --force
+DB_DATABASE=hfc_dash_test_<your lane number> php8.2 artisan schema:dump
+```
+
+Then **strip the `DEFINER` clauses** — `schema:dump` bakes in whichever DB
+user happened to run it, which breaks the load for every other user (see
+non-negotiable #12a's own writeup of this exact gotcha):
+
+```bash
+sed -i 's/\/\*!50017 DEFINER=`[^`]*`@`[^`]*`\*\/ //g' database/schema/mysql-schema.sql
+grep -c "DEFINER=" database/schema/mysql-schema.sql   # must print 0
+```
+
+Verify the migrations you added actually landed in the dump before
+committing — `grep` for a column/table name only that migration introduces;
+don't just trust that the command ran:
+
+```bash
+grep -c "<your new column name>" database/schema/mysql-schema.sql
+```
+
+Commit `database/schema/mysql-schema.sql` in the SAME commit as the
+migration, exactly as non-negotiable #12a already says.
+
+**A slow load is not the same problem as a stale snapshot — don't confuse
+them.** Loading the snapshot via `mysql-schema.sql .......... DONE` can
+legitimately take minutes (observed 2m27s–3m44s on 2026-09-12, and climbing
+with more lanes concurrently hammering the same MySQL instance) — that is
+real cost from six lanes sharing one box, not a bug. If a test run produces
+genuinely ZERO output for a long time, first check with `stdbuf -oL -eL`
+(output-buffering can hide the PHPUnit banner itself) and `SHOW FULL
+PROCESSLIST` (to see if it's actively loading/migrating vs. actually stuck)
+before assuming it's hung. Only treat it as STALE — meaning: fix the
+snapshot — if `database/schema/mysql-schema.sql`'s own git history predates
+a migration that's already merged.
+
+---
+
 ## Standard 0 — Operating Principle
 
 Every standard in this file is subordinate to the CoreX Operating Principle (see CLAUDE.md). If a standard conflicts with the principle, the principle wins. If a standard would let a shortcut ship, the standard is wrong and gets revised.
