@@ -8569,3 +8569,99 @@ Two separate decisions are pending: (1) the forward-looking code fix — adding 
 low-risk change that stops new corruption but does not touch existing rows; (2) whether/how to
 repair the 19 already-damaged rows, which is a data decision on records Johan has been marking
 up by hand and requires his explicit go-ahead before any lane touches them.
+
+## Inline "create new contact" on rental-application create (2026-09-12, cc5, greenlit by Johan)
+
+**Business requirement.** Creating a rental application required an already-existing Contact —
+no way to add one inline. A walk-in enquiry not yet in the system is the most ordinary rental
+scenario there is; before this, the agent had to abandon the form, create the contact
+separately in Contacts, then come back and re-pick it. Johan approved fixing it.
+
+**Design — minimum-viable fields only, deliberately NOT the full contact form in a modal.**
+`resources/views/corex/rental-applications/create.blade.php` gains a "Can't find them? Create a
+new contact" link under the contact search box, opening a small modal in the SAME `x-data` as
+the rest of the page (`rentalApplicationCreate()`) — first name, last name, phone, email (at
+least one of phone/email required). Opening/closing the modal, or a validation error inside it,
+never touches `selectedPropertyId`/`propertyQuery`/etc., since it's the same Alpine scope, not a
+page reload — **no user action may EVER discard typed input** (this page's own standing rule,
+already established above for the property-picker refusal case) holds structurally for this
+feature by construction, not by a special case.
+
+**Backend — `RentalApplicationController::quickCreateContact()`**, `POST
+/corex/rental-applications/contacts/quick-create` (route name
+`corex.rental-applications.contacts.quick-create`, `permission:rental_applications.create`, same
+group/gate as `store()`). Deliberately its own endpoint under this feature's own permission —
+same reasoning `searchProperties()` above already documents for why this screen doesn't borrow
+another feature's route.
+
+**Reuses the actual canonical machinery rather than re-implementing it — does not touch
+`ContactController.php` or any contact Blade template, per instruction (cc6 was mid-change in
+both this round):**
+- **Duplicate check**: the exact same `ContactDuplicateService` (`findDuplicatesForIdentifiers()`
+  / `resolveMode()` / `identifyMatch()` / `logAttempt()`) `ContactController::store()` already
+  uses for the main Contacts "Add Contact" flow — same agency-configurable mode, so no new
+  hardcoded threshold was added anywhere in this feature. `auto_link` mode returns the existing
+  contact directly (mirrors `store()`); otherwise returns 422 with the match list so the agent
+  can "Use this contact" instead of minting a second record, or explicitly "Create anyway"
+  (`bypass_duplicate_check`).
+- **Type assignment**: `Contact::syncTypeAssignments()` — the exact model method cc6 hardened
+  this round (AT-392, add-never-strip) — called directly rather than through
+  `ContactController::applyTypeAssignments()`. For a BRAND NEW contact this is equivalent and
+  safe: the strip-guard in `applyTypeAssignments()` only ever matters for an contact that already
+  holds types outside the picker's offered set, which a just-created contact never does.
+  Assigns **"Lessee"** (id 10, `esign_role='lessee'`) — one of the seven fixed parent types
+  `ContactType::scopeParents()` defines — deliberately NOT "Tenant": this codebase's own
+  established convention (`AddTenantTypeOnRentalApproval`) adds Tenant only on approval, never at
+  application time ("*only approval tags*" — Johan), and a rental applicant is, from the moment
+  they apply, exactly the party expected to sign as lessee. This is an engineering call, not a
+  business one — made and recorded here, not asked of Johan, per this repo's own standing rule
+  that implementation choices are the lane's to make.
+- **Identifiers**: `ContactIdentifierService::syncIdentifiers()` — the same phone/email
+  child-row writer every other contact-creation path uses.
+- **Scope**: `agency_id`/`branch_id` from the creating user's own `effectiveAgencyId()` /
+  `effectiveBranchId()` (`BelongsToAgency::creating()` force-overrides `agency_id` regardless,
+  same defense-in-depth as every other contact-creation path in this codebase).
+
+**Files**: `app/Http/Controllers/CoreX/RentalApplicationController.php` (`quickCreateContact()`),
+`routes/web.php` (one new route), `resources/views/corex/rental-applications/create.blade.php`
+(modal markup + Alpine state/methods on the existing `rentalApplicationCreate()` component).
+
+**Manual-QA proof (2026-09-12, local worktree, real browser, real data check per step, zero
+console errors across the whole walk):**
+
+1. Opened the create page, typed "Test" into the property search (left deliberately unresolved,
+   to prove the modal round-trip doesn't discard it).
+2. Clicked "Create a new contact", filled First=Walkin, Last=Applicant\<unique\>, a genuinely
+   unused phone number, and an `@example.invalid` email. Submitted.
+3. Modal closed; main form's "Selected:" line correctly showed "Walkin Applicant\<unique\>" —
+   the new contact auto-selected. **Property query still read "Test"** — confirmed nothing
+   typed on the rest of the form was lost.
+4. Submitted the rental application — created successfully, redirected to
+   `/corex/rental-applications/153` (a genuinely new application id; 76/107 untouched).
+   Verified in DB: `RentalApplication::find(153)->contact_id` matches the new contact's id
+   exactly.
+5. Verified the new contact in `/corex/contacts?search=...` — present, with "Lessee" visible as
+   its type.
+6. Verified the same contact in `/corex/rentals/contacts?search=...` (the shared rentals lens on
+   the same Contacts screen) — present.
+7. Repeated the exact same create attempt (same name, same phone, same email) — the duplicate
+   panel appeared, showing exactly one match: the contact just created, with "Use this contact".
+   Confirmed in DB directly too: `contact.parentTypes` = `["Lessee"]`, `agency_id=1`,
+   `branch_id=1`, `created_by_user_id` = the test agent, no duplicate row created by the second
+   attempt.
+8. Zero console errors across the entire walk (create page load → modal open → create → submit →
+   Contacts → Rentals→Contacts → duplicate re-attempt).
+
+**Gates.** `scripts/verify-alpine-render.mjs` against a real authenticated fetch of
+`/corex/rental-applications/create`: PASS, 0 leaked-attribute/execution failures (two pre-existing
+WARN-only scope-gap notices for the unrelated sidebar/document-search components, not this
+change). `scripts/rental-smoke.mjs`: all screens unrelated to this change pass with 0 console
+errors; the pre-existing `markup_view` (app 148) 422/failure is unrelated fixture-data state,
+already documented against the same app id in the PDF-splitter fix above, not touched here.
+`dev-check.ps1` cannot run on this box (no `pwsh`) — stated plainly, not cited as having run.
+
+**Cleanup.** Throwaway test user `qa-cc5-inline-contact-test@example.invalid` soft-deleted after
+proof captured. The test contact and rental application created during the proof were left in
+place (QA1 is itself the test environment, both records carry obviously-fake throwaway data and
+an `@example.invalid` email, and they double as a live, inspectable example of the feature
+working) — only the login user was cleaned up, matching this session's established convention.
