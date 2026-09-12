@@ -10111,6 +10111,29 @@ just outside a boundary the agent may have picked loosely; the marker
 this round now lets the agent (and the authoriser) actually see and
 correct the mismatch themselves, which a silent exclusion would not.
 
+### Johan's decisions on the two items above (2026-09-13) — record, do not "fix" later
+
+**Item 6 (out-of-period entries) — DECIDED: they still count.** An entry
+dated outside the statement period counts toward affordability exactly as
+it does today. cc5's amber dot marker and the underlying arithmetic both
+stay as built — this is Johan's explicit call, not a default nobody
+reconsidered: "excluding a line an agent deliberately captured... produces
+more silent gaps than counting a line whose date happens to sit just
+outside a boundary the agent may have picked loosely" was cc5's own
+recommendation above, and Johan confirmed it. Do not add an exclusion
+rule, a hard filter, or a "only count in-period" toggle without a fresh,
+explicit instruction from him — this has already been decided once.
+
+**Thin-file submission — DECIDED: stays a warning, never a block.** An
+agent may submit an application for approval with zero captured entries
+and no statement period set. cc5's non-blocking amber warning modal
+("Submit anyway") stays exactly as built; `submitForApproval()`'s
+acceptance criteria (status eligibility, generation match, unsplit-PDF
+count) do NOT gain an assessment-completeness check. Johan confirmed this
+explicitly, matching cc5's own recommendation above. Do not add a hard
+block on a thin submission without a fresh, explicit instruction — this
+has already been decided once.
+
 ### Gates run before push
 
 `scripts/verify-alpine-render.mjs` against both the agent review screen and

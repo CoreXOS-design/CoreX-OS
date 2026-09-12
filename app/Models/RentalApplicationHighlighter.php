@@ -29,7 +29,12 @@ class RentalApplicationHighlighter extends Model
     public const ROLE_BOTH = 'both';
     public const ROLE_SCOPES = [self::ROLE_AGENT, self::ROLE_AUTHORISER, self::ROLE_BOTH];
 
-    protected $fillable = ['agency_id', 'label', 'color', 'role_scope', 'sort_order', 'created_by'];
+    public const CAPTURE_TYPE_INCOME = 'income';
+    public const CAPTURE_TYPE_EXPENSE = 'expense';
+    /** The only two real values — everything else (Unpaid, Electricity, any custom label) is null: "draws, never captures," a deliberate default, not an accident. See the 2026-09-13 migration's own docblock for why this exists at all. */
+    public const CAPTURE_TYPES = [self::CAPTURE_TYPE_INCOME, self::CAPTURE_TYPE_EXPENSE];
+
+    protected $fillable = ['agency_id', 'label', 'color', 'capture_type', 'role_scope', 'sort_order', 'created_by'];
 
     protected $casts = [
         'sort_order' => 'integer',
@@ -98,6 +103,13 @@ class RentalApplicationHighlighter extends Model
                 'agency_id' => $agencyId,
                 'label' => $seed['label'],
                 'color' => $color,
+                // 2026-09-13 — cc2's finding: capture status must be a
+                // stable identity, never derived from the label text (see
+                // the migration adding this column). The seeded Income/
+                // Expense rows are the two REAL capture types this whole
+                // feature exists for; 'unpaid' (and anything else) is
+                // deliberately null — drawn, never captured.
+                'capture_type' => in_array($seed['legacy_category'], self::CAPTURE_TYPES, true) ? $seed['legacy_category'] : null,
                 'role_scope' => $seed['role_scope'],
                 'sort_order' => $order,
                 'created_at' => now(),

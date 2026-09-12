@@ -74,6 +74,7 @@ function rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, curre
         // (activeDocId, firstPageUrl, etc.) that runs after this.
         init() {
             this.computePenLabelFontSize();
+            this.computePenLetterAssignments();
         },
         markedUpDocIds: initialMarkedUpDocIds || [],
         currentUserId: currentUserId ?? null,
@@ -238,6 +239,49 @@ function rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, curre
             // than each finding its own, visually inconsistent size.
             this.penLabelFontSizePx = chosen;
         },
+        // 2026-09-13, round 2 — Johan, live on QA1: "Expense and Electricity
+        // both render 'E'. Two pens showing the same letter defeats the
+        // entire point of the letter... the word underneath rescues it, but
+        // only if she reads, and reading is what the letter was meant to
+        // save." Assigns ONE letter per highlighter, unique across the
+        // whole picker set (Note's own fixed "N" reserved first, so a
+        // highlighter literally named "Notice" still can't collide with
+        // it). Sorted by id (never by array/display order — Johan: "must
+        // be stable, not shuffle when an agency reorders its pens," and id
+        // is the one thing about a highlighter that never changes) before
+        // assigning, so the FIRST-CREATED highlighter with a given
+        // starting letter always keeps it regardless of later reordering
+        // or renaming elsewhere in the set. For each highlighter, in that
+        // order: first letter of its label if free, else the next letter
+        // IN THE SAME LABEL that is still free (Johan's own example —
+        // "Electricity" loses "E" to whichever of it/Expense was created
+        // first, becomes "L" from its own second letter) — never another
+        // highlighter's letter, and never a letter that doesn't actually
+        // appear in this one's own name. If a label has no letter left to
+        // give (every one of its own letters already taken), falls back to
+        // a number rather than duplicating.
+        penLetterById: {},
+        computePenLetterAssignments() {
+            const used = new Set(['N']); // Note's own fixed letter, reserved first
+            const byId = {};
+            let nextNumber = 1;
+            const sorted = [...this.pickerHighlighters()].sort((a, b) => a.id - b.id);
+            for (const h of sorted) {
+                const label = String(h.label || '');
+                let assigned = null;
+                for (const ch of label) {
+                    const upper = ch.toUpperCase();
+                    if (/[A-Z]/.test(upper) && !used.has(upper)) { assigned = upper; break; }
+                }
+                if (assigned === null) {
+                    while (used.has(String(nextNumber))) nextNumber++;
+                    assigned = String(nextNumber);
+                }
+                used.add(assigned);
+                byId[h.id] = assigned;
+            }
+            this.penLetterById = byId;
+        },
         /** The currently-selected highlighter object, or null if none is choosable (an agency with zero highlighters configured for this role — full CRUD makes that a real, if rare, state). */
         activeHighlighter() {
             return this.highlighters.find(h => h.id === this.activeHighlighterId) || null;
@@ -264,22 +308,22 @@ function rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, curre
             this.activeTool = 'note';
             this.activeHighlighterId = null;
         },
-        // Capture-ledger rework, 2026-09-11 — Income/Expense are the only
-        // two capture pens. RentalApplicationHighlighter carries no
-        // persisted category column (`legacy_category` is a one-time
-        // migration-seed convenience only — see that model's own
-        // docblock: "once seeded, a highlighter is just label+colour+
-        // role_scope+order, nothing else"), so a capture pen is identified
-        // by matching its LABEL — a pragmatic call, flagged as fragile: an
-        // agency renaming its default "Income"/"Expense" highlighters
-        // would stop them acting as capture pens. Adding a real category
-        // column was ruled out of this task's scope (touches a model/
-        // migration nothing else here needs to change).
+        // cc2's finding, 2026-09-13 — this used to match the highlighter's
+        // LABEL text ("Income"/"Expense") to decide capture status, exactly
+        // the fragility this comment used to flag: an agency renaming its
+        // default highlighters (freely renameable — "Salary", "Income
+        // (net)", anything) silently stopped them capturing, with no error
+        // and no warning — the pen still drew, the line just never reached
+        // the affordability panel. Fixed at the root: capture_type is now a
+        // real, stable column on the highlighter record (see the migration
+        // adding it), independent of the display name — renaming a pen
+        // changes only what it is CALLED. A highlighter with no capture_type
+        // draws but never captures — a deliberate value (RentalApplicationHighlighter
+        // ::CAPTURE_TYPES enumerates the only two real ones), not an
+        // accident of a null.
         captureEntryTypeFor(h) {
-            const label = String((h && h.label) || '').trim().toLowerCase();
-            if (label === 'income') return 'income';
-            if (label === 'expense') return 'expense';
-            return null;
+            const type = h && h.capture_type;
+            return (type === 'income' || type === 'expense') ? type : null;
         },
         isCapturePen(h) { return this.captureEntryTypeFor(h) !== null; },
         /** Rail grouping — capture pens (Income/Expense) render under their own heading, separate from any other highlighter an agency has configured (e.g. the default "Unpaid" pen, which stays a plain highlight — never a ledger entry). */

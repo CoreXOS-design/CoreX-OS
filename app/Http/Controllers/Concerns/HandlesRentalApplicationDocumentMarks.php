@@ -264,6 +264,21 @@ trait HandlesRentalApplicationDocumentMarks
             'entry_amount' => ['required', 'numeric'],
         ]);
 
+        // cc2's finding, 2026-09-13 — the client decides which capture
+        // chip to open (income vs expense) by reading the SAME
+        // highlighter.capture_type this validates against, so a normal
+        // client can never actually mismatch these two — but "the client
+        // decided correctly" is not a security boundary, and a highlighter
+        // record's capture_type is the one true answer to "what does this
+        // pen capture," never the entry_type a request happens to carry.
+        // Refuses rather than silently trusting the client's own claim,
+        // and refuses a highlighter with NO capture_type outright — that
+        // one draws, it does not capture, full stop.
+        $highlighter = RentalApplicationHighlighter::find($validated['highlighter_id']);
+        if ($highlighter === null || $highlighter->capture_type !== $validated['entry_type']) {
+            return response()->json(['error' => 'This highlighter does not capture ' . $validated['entry_type'] . ' entries.'], 422);
+        }
+
         // Belt-and-braces alongside the width floor above: a point can
         // never legitimately land outside this page's own real raster
         // pixel size. Ground truth is read directly off the cached PNG

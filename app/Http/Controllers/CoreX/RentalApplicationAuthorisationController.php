@@ -283,6 +283,10 @@ class RentalApplicationAuthorisationController extends Controller
         $highlighters = \App\Models\RentalApplicationHighlighter::allFor((int) $rentalApplication->agency_id)
             ->map(fn ($h) => [
                 'id' => $h->id, 'label' => $h->label, 'color' => $h->color,
+                // 2026-09-13 — see RentalApplicationReviewController::show()'s
+                // own comment: capture_type is the stable identity, never
+                // derived from the label.
+                'capture_type' => $h->capture_type,
                 'role_scope' => $h->role_scope, 'archived' => $h->trashed(),
             ])->values();
 
