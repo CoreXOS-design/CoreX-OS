@@ -8569,3 +8569,34 @@ Two separate decisions are pending: (1) the forward-looking code fix — adding 
 low-risk change that stops new corruption but does not touch existing rows; (2) whether/how to
 repair the 19 already-damaged rows, which is a data decision on records Johan has been marking
 up by hand and requires his explicit go-ahead before any lane touches them.
+
+## cc4 walk items — finding 5, and Rentals → Contacts (finding 8 + tasks A/B) (2026-09-13, cc1)
+
+Three items from cc4's walk, all approved by Johan.
+
+### FINDING 5 — approved rent amount missing from the agent's read-only application screen
+
+Approving an application saved `approved_rental_amount` correctly but never surfaced it
+anywhere on `view-readonly.blade.php` (the screen `RentalApplicationController::show()` renders
+for every `AGENT_EDIT_LOCKED_STATUSES` status, including `approved`) — an agent had no way to
+answer "what did we approve them for?" from the one screen built to tell them.
+
+**Fixed:** the approved amount now renders directly in the sticky header, next to the status
+badge — the one part of the page visible unconditionally (the "Application Status" card below
+it is permission-gated; the header is not) — "Approved for R{amount} a month", matching the
+exact wording `review.blade.php` already uses elsewhere in this module.
+
+**Authoriser's own view — checked, not touched.** `RentalApplicationAuthorisationController
+::show()` renders the SAME shared `review.blade.php` (cc3's file). Verified live it ALREADY
+shows the amount prominently in the Decision panel's own headline line ("This application
+already has a decision: **Approved** for R9,000.00.") — confirmed via a real fetch of
+`/rental-applications/authorisation/12`, not assumed from a grep. Nothing to fix there; nothing
+touched.
+
+**Verified live on QA1** (application 12, a real approved application, agency 1,
+`approved_rental_amount = 9000.00`): fetched `/corex/rental-applications/12` as a real user —
+the sticky header rendered "approved — read-only, as submitted and signed" immediately followed
+by "Approved for R9,000.00 a month". Alpine render gate: PASS, zero execution errors.
+
+**Files changed:** `resources/views/corex/rental-applications/view-readonly.blade.php`.
+

@@ -28,6 +28,17 @@
                 <span class="ds-badge ds-badge-info">
                     {{ str_replace('_', ' ', $rentalApplication->status) }} — read-only, as submitted and signed
                 </span>
+                {{-- cc4 walk, finding 5, 2026-09-13 — the approved amount was
+                     saved but never surfaced anywhere an agent's eye actually
+                     goes: this sticky header is the one thing on the page
+                     visible unconditionally (the Application Status card
+                     below is permission-gated), so this is where "what did
+                     we approve them for" gets answered without expanding
+                     anything. Same "R{amount} a month" wording review.blade.php
+                     already uses for the authoriser/agent decision panel. --}}
+                @if($rentalApplication->status === 'approved' && $rentalApplication->approved_rental_amount !== null)
+                    <span class="ds-badge ds-badge-success">Approved for R{{ number_format((float) $rentalApplication->approved_rental_amount, 2) }} a month</span>
+                @endif
             </div>
         </x-slot>
         <x-slot name="right">
