@@ -22,11 +22,21 @@
     @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>
 <body class="bg-slate-50 min-h-screen p-4">
-<div class="w-full max-w-2xl mx-auto" x-data="rentalApplicationForm()">
+<div class="w-full max-w-2xl mx-auto" x-data="rentalApplicationForm()" x-init="initAutosave()">
 
     <div class="text-center mb-6">
         <h1 class="text-xl font-bold text-slate-800">Rental Application</h1>
         <p class="text-sm text-slate-500">{{ $application->agency->name ?? '' }}</p>
+        {{--
+            Applicant-side autosave, 2026-09-12 — a quiet "Saved" indicator,
+            the same reassurance pattern as Google Docs/Notion, so an
+            applicant on a shaky connection can SEE their answers are
+            landing rather than wondering. Never an error state here — a
+            failed autosave degrades completely silently (see
+            autosaveField() below), so this only ever shows "Saving…" or a
+            past-tense "Saved" timestamp, never a failure.
+        --}}
+        <p class="text-xs mt-1" style="color: var(--text-muted, #94a3b8);" x-show="autosaveStatus" x-cloak x-text="autosaveStatus"></p>
     </div>
 
     @if(session('success'))
@@ -51,6 +61,21 @@
                 <p class="whitespace-pre-line">{{ $application->reopened_note }}</p>
             @else
                 <p>Please review and update the details below, then submit again.</p>
+            @endif
+        </div>
+    @elseif($application->status === 'in_progress')
+        {{--
+            Applicant-side autosave, 2026-09-12 — Johan's rule: reopening
+            (and, by the same logic, returning to an in-progress link)
+            PRE-FILLS previous answers, never a blank form. 'in_progress' can
+            now only be reached via a prior autosave or document upload —
+            never the very first visit ('sent') — so this is a reliable
+            "there is a restored draft" signal with no new column needed.
+        --}}
+        <div class="p-4 rounded-xl bg-sky-50 border border-sky-200 text-sky-800 text-sm mb-4">
+            <p class="font-semibold">Welcome back — we've restored what you'd already typed.</p>
+            @if($application->draft_saved_at)
+                <p class="text-xs mt-1">Last saved {{ $application->draft_saved_at->diffForHumans() }}.</p>
             @endif
         </div>
     @endif
@@ -221,7 +246,11 @@
                         <input type="hidden" name="rental_term_months" :value="months">
                         <div class="flex gap-2">
                             <template x-for="m in [6, 12, 24]" :key="m">
-                                <button type="button" @click="months = m"
+                                {{-- scheduleAutosave() called explicitly — an Alpine :value binding
+                                     (not x-model) never dispatches a native input/change event, so
+                                     the form-level listeners in initAutosave() would otherwise never
+                                     see this choice. --}}
+                                <button type="button" @click="months = m; scheduleAutosave()"
                                         :class="months === m ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-600 border-slate-300'"
                                         class="px-4 py-2 rounded-lg border text-sm">
                                     <span x-text="m"></span> months
@@ -338,8 +367,107 @@ function rentalApplicationForm() {
         documents: @json($initialDocuments),
         uploading: [],
 
+        // Applicant-side autosave, 2026-09-12 — Johan: "a member of the
+        // public part-way through a rental application... losing everything
+        // they have typed is a defect on a public form." Debounced (agency-
+        // configurable, never hardcoded) + on blur; never fires on every
+        // keystroke; degrades completely silently on any failure — an
+        // applicant on a patchy connection must never see an error here.
+        autosaveStatus: '',
+        autosaveTimer: null,
+        autosaveInFlight: false,
+        autosavePending: false,
+        autosaveDebounceMs: {{ (int) $autosaveDebounceSeconds * 1000 }},
+        autosaveUrl: '{{ route('rental-applications.public.autosave', $application->token) }}',
+
         csrfToken() {
             return document.querySelector('meta[name="csrf-token"]').content;
+        },
+
+        initAutosave() {
+            const form = document.getElementById('rentalApplicationSubmitForm');
+            if (!form) return;
+
+            // Debounced on typing/change — resets on every qualifying event
+            // so a fast typist never triggers a save mid-word.
+            form.addEventListener('input', () => this.scheduleAutosave());
+            form.addEventListener('change', () => this.scheduleAutosave());
+
+            // Immediate on blur (leaving a field) — bubbling focusout covers
+            // every field without a per-input listener. Cancels any pending
+            // debounce first so a blur right after typing never double-saves.
+            form.addEventListener('focusout', (e) => {
+                if (!e.target || !e.target.name) return;
+                if (this.isSignatureField(e.target.name)) return;
+                clearTimeout(this.autosaveTimer);
+                this.autosaveNow();
+            });
+        },
+
+        isSignatureField(name) {
+            return name === 'declaration_signature' || name === 'tpn_consent_signature';
+        },
+
+        scheduleAutosave() {
+            clearTimeout(this.autosaveTimer);
+            this.autosaveTimer = setTimeout(() => this.autosaveNow(), this.autosaveDebounceMs);
+        },
+
+        // Collects only the rental-application's own answer fields — never
+        // the signature hidden inputs (signatures are NOT autosaved; they
+        // stay an explicit act, both here and structurally on the server,
+        // which only ever reads keys from RentalApplication::
+        // fieldValidationRules() — a signature key posted here would be
+        // ignored server-side too, this is belt-and-braces, not the only
+        // guard) and never a file input (documents already upload and save
+        // themselves independently, on selection).
+        collectAutosavePayload() {
+            const form = document.getElementById('rentalApplicationSubmitForm');
+            const data = Object.fromEntries(new FormData(form).entries());
+            delete data._token;
+            delete data.declaration_signature;
+            delete data.tpn_consent_signature;
+            return data;
+        },
+
+        // Never throws, never surfaces an error to the applicant — a failed
+        // autosave (network drop, expired/locked link, a transient
+        // validation hiccup on one field) simply tries again on the next
+        // debounce or blur. The server itself is equally tolerant: it saves
+        // whatever validates and silently skips the rest rather than
+        // rejecting the whole round.
+        async autosaveNow() {
+            if (this.autosaveInFlight) { this.autosavePending = true; return; }
+            this.autosaveInFlight = true;
+            this.autosaveStatus = 'Saving…';
+
+            try {
+                const res = await fetch(this.autosaveUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Accept': 'application/json',
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': this.csrfToken(),
+                    },
+                    body: JSON.stringify(this.collectAutosavePayload()),
+                });
+                if (res.ok) {
+                    const data = await res.json().catch(() => ({}));
+                    this.autosaveStatus = data.saved ? 'Saved' : '';
+                } else {
+                    // Degrade silently — no visible error, just stop
+                    // announcing a save that didn't happen.
+                    this.autosaveStatus = '';
+                }
+            } catch (e) {
+                this.autosaveStatus = '';
+            } finally {
+                this.autosaveInFlight = false;
+                if (this.autosavePending) {
+                    this.autosavePending = false;
+                    this.autosaveNow();
+                }
+            }
         },
 
         // Johan, QA1 — every document action is a fetch call with no page

@@ -184,6 +184,32 @@
         </form>
     </div>
 
+    {{-- Applicant-side autosave, 2026-09-12 — "every threshold, window and
+         business rule an agency-configurable setting with a sensible
+         default. Nothing hardcoded." How long the public application form
+         waits after the applicant stops typing before it saves their
+         answers in the background. Signatures are never autosaved — only
+         the typed answers. --}}
+    <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+        <h2 class="text-sm font-semibold mb-1" style="color: var(--text-primary);">Applicant Autosave Delay</h2>
+        <p class="text-xs mb-3" style="color: var(--text-muted);">
+            While an applicant is filling out the online form, their typed answers save automatically
+            after they pause typing for this long (and whenever they leave a field). Signatures are
+            never autosaved — the applicant always signs as a separate, explicit step.
+        </p>
+
+        <form method="POST" action="{{ route('corex.settings.rental-applications.autosave-debounce') }}" class="flex items-end gap-3">
+            @csrf
+            <div>
+                <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Seconds of inactivity before autosaving</label>
+                <input type="number" name="autosave_debounce_seconds" step="1" min="2" max="60"
+                       value="{{ old('autosave_debounce_seconds', $autosaveDebounceSeconds) }}"
+                       class="corex-input text-sm" style="width: 100px;">
+            </div>
+            <button type="submit" class="corex-btn-primary text-xs">Save</button>
+        </form>
+    </div>
+
     {{-- Item 2 follow-up, 2026-09-10 — Johan: "any threshold, window or
          business rule an agency-configurable setting with a sensible
          default, never hardcoded." Reproduced on a real, fully-approved

@@ -69,9 +69,20 @@ class RentalApplicationQualifyingSetting extends Model
      */
     public const DEFAULT_TAG_CONTACT_AS_TENANT_ON_APPROVAL = true;
 
+    /**
+     * Applicant-side autosave, 2026-09-12 — Johan: "the debounce interval...
+     * is an agency-configurable setting with a sensible default. Never
+     * hardcoded." 5 seconds of no typing/no focus-change before the public
+     * form saves in the background — long enough that it never fires on
+     * every keystroke, short enough that a phone dropping signal mid-form
+     * still has a very recent save to fall back on.
+     */
+    public const DEFAULT_AUTOSAVE_DEBOUNCE_SECONDS = 5;
+
     protected $fillable = [
         'agency_id', 'max_rent_percent_of_gross_income', 'reopen_link_expiry_days',
         'lock_property_after_submission', 'tag_contact_as_tenant_on_approval',
+        'autosave_debounce_seconds',
     ];
 
     protected $casts = [
@@ -79,6 +90,7 @@ class RentalApplicationQualifyingSetting extends Model
         'reopen_link_expiry_days' => 'integer',
         'lock_property_after_submission' => 'boolean',
         'tag_contact_as_tenant_on_approval' => 'boolean',
+        'autosave_debounce_seconds' => 'integer',
     ];
 
     public static function maxRentPercentFor(?int $agencyId): float
@@ -142,5 +154,18 @@ class RentalApplicationQualifyingSetting extends Model
         return $row && $row->tag_contact_as_tenant_on_approval !== null
             ? (bool) $row->tag_contact_as_tenant_on_approval
             : self::DEFAULT_TAG_CONTACT_AS_TENANT_ON_APPROVAL;
+    }
+
+    public static function autosaveDebounceSecondsFor(?int $agencyId): int
+    {
+        if ($agencyId === null || $agencyId <= 0) {
+            return self::DEFAULT_AUTOSAVE_DEBOUNCE_SECONDS;
+        }
+
+        $row = static::where('agency_id', $agencyId)->first();
+
+        return $row && $row->autosave_debounce_seconds !== null
+            ? (int) $row->autosave_debounce_seconds
+            : self::DEFAULT_AUTOSAVE_DEBOUNCE_SECONDS;
     }
 }
