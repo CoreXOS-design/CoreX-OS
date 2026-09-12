@@ -696,6 +696,31 @@ class RentalApplicationReviewController extends Controller
 
         abort_unless(in_array($rentalApplication->status, RentalApplication::POST_RETURN_STATUSES, true), 422);
 
+        // Idempotency guard (2026-09-13, QA1 item 3 investigation, fixed on
+        // Johan's go) — proven live: two raw concurrent POSTs at an
+        // already-pending application both succeeded, each re-stamping
+        // submitted_for_approval_at to a fresh "now" and writing a fresh
+        // history row. The authoriser queue
+        // (RentalApplicationAuthorisationController::index()) sorts
+        // submitted_for_approval_at ascending specifically so the
+        // longest-waiting application is worked first — a duplicate
+        // submission (a slow double-click, two tabs on the same screen, a
+        // stale reload re-clicked) silently sent this application to the
+        // back of that queue, with nothing on screen to say a second call
+        // had even happened. Deliberately does NOT touch "Re-submit to
+        // authoriser" as a later, intentional action (the button's own
+        // label, still available at any time) — only collapses a
+        // genuinely-concurrent/near-instant repeat of the SAME click into
+        // a no-op that returns the same success response the first call
+        // already gave.
+        if ($rentalApplication->isPendingAuthorisation()
+            && abs(now()->diffInSeconds($rentalApplication->submitted_for_approval_at)) < 10) {
+            return response()->json([
+                'ok' => true,
+                'submitted_for_approval_at' => $rentalApplication->submitted_for_approval_at->toIso8601String(),
+            ]);
+        }
+
         // Reopen/resubmit, 2026-09-08 — never hand a stale generation to the
         // authoriser: if the applicant reopened-and-resubmitted since this
         // agent's screen loaded, refuse rather than submitting a decision
@@ -932,8 +957,22 @@ class RentalApplicationReviewController extends Controller
         // with no dates yet (a fresh assessment, or an existing one nobody
         // has re-opened to pick dates on) must leave whatever figure is
         // already stored untouched, not silently zero it.
+        //
+        // CORRECTION (2026-09-13, QA1 item 6 investigation, fixed on
+        // Johan's go): that rule was written for "dates were never
+        // submitted this save" — but the client ALWAYS sends both date
+        // keys on every autosave, even when blank, so the only way to
+        // reach here with both null is that the agent actively cleared a
+        // period that WAS set. Proven live: clearing both fields left the
+        // panel showing stale Months/Monthly income/Net monthly under two
+        // empty date inputs, persisted through a reload — a plausible-
+        // looking number for a period that, as far as the agent can see,
+        // no longer exists. "Never had a period" and "just cleared one"
+        // both mean the same thing going forward: no months either.
         if ($derivedStatementMonths !== null) {
             $assessmentAttributes['statement_months'] = $derivedStatementMonths;
+        } elseif ($statementFrom === null && $statementTo === null) {
+            $assessmentAttributes['statement_months'] = null;
         }
 
         $assessment = RentalApplicationAssessment::updateOrCreate(
