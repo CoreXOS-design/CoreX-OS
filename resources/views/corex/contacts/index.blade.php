@@ -677,7 +677,7 @@
             // alone). No duplication: if the contact already holds the Lessor
             // type, "Landlord" is not added a second time.
             $typeBadges = $contact->parentTypes->pluck('name')->all();
-            if ($isRentalEntry && !$isRestricted && !$isOtherAgent) {
+            if ($isRentalEntry) {
                 $hasLessorType = $contact->parentTypes->contains(fn ($t) => $t->esign_role === 'lessor');
                 $isPropertyLandlord = $contact->relationLoaded('properties')
                     && $contact->properties->contains(fn ($p) => in_array($p->pivot->role ?? null, ['landlord', 'lessor'], true));
@@ -707,20 +707,32 @@
                                style="color:var(--text-primary);"
                                onmouseover="this.style.color='var(--brand-icon,#0ea5e9)'" onmouseout="this.style.color='var(--text-primary)'">{{ $contact->full_name }}</a>
                             @endif
+                            {{--
+                                AT-392, 2026-09-12 (cc4's finding) — the "Agent: X" tag is
+                                purely informational (per its own original comment/title —
+                                "found elsewhere", "belongs to a different agent") and must
+                                never REPLACE the type badges, only sit alongside them. An
+                                @if/@else here made them mutually exclusive: an admin
+                                searching agency-wide for a colleague's contact saw the
+                                Agent tag and NOTHING else — no Tenant, no Seller — on the
+                                exact screen that exists to show where a contact already
+                                sits. Same root rule as everywhere else in this file: a
+                                contact holds a SET of types, shown in full, regardless of
+                                who is looking or whose contact it is.
+                            --}}
                             @if($isRestricted || $isOtherAgent)
                             <span class="text-xs px-2 py-0.5 rounded-md font-medium whitespace-nowrap"
                                   style="background:color-mix(in srgb, var(--ds-amber) 12%, transparent); color:var(--ds-amber); border:1px solid color-mix(in srgb, var(--ds-amber) 30%, transparent);"
                                   title="{{ $isRestricted ? 'Found elsewhere in the agency — not in your own contacts' : 'This contact belongs to a different agent' }}">
                                 Agent: {{ $contact->agent->name ?? $contact->createdBy->name ?? 'Unassigned' }}
                             </span>
-                            @else
-                                @foreach($typeBadges as $badgeName)
-                                <span class="text-xs px-2 py-0.5 rounded-md font-medium whitespace-nowrap"
-                                      style="background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 12%, transparent); color:var(--brand-icon,#0ea5e9); border:1px solid color-mix(in srgb, var(--brand-icon,#0ea5e9) 25%, transparent);">
-                                    {{ $badgeName }}
-                                </span>
-                                @endforeach
                             @endif
+                            @foreach($typeBadges as $badgeName)
+                            <span class="text-xs px-2 py-0.5 rounded-md font-medium whitespace-nowrap"
+                                  style="background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 12%, transparent); color:var(--brand-icon,#0ea5e9); border:1px solid color-mix(in srgb, var(--brand-icon,#0ea5e9) 25%, transparent);">
+                                {{ $badgeName }}
+                            </span>
+                            @endforeach
                         </div>
                         <div class="mt-1 flex flex-wrap gap-x-4 gap-y-1">
                             <span class="text-xs flex items-center gap-1" style="color:var(--text-secondary);">

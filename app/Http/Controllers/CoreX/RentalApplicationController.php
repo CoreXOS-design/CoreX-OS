@@ -471,6 +471,145 @@ class RentalApplicationController extends Controller
     }
 
     /**
+     * AT-392 — inline "create new contact" from the rental-application
+     * create picker (2026-09-12, greenlit by Johan). A walk-in enquiry not
+     * yet in Contacts is the most ordinary rental scenario there is; before
+     * this the agent had to abandon the form, create the contact
+     * separately, then come back. Minimum-viable fields only — this is
+     * deliberately NOT the full contact form in a modal.
+     *
+     * Reuses the actual canonical machinery rather than re-implementing it:
+     * - Duplicate check: the SAME `ContactDuplicateService` (and therefore
+     *   the SAME agency-configurable mode — no hardcoded threshold added
+     *   here) `ContactController::store()` already uses. Returns 422 with
+     *   the match list so the agent links the existing person instead of
+     *   minting a second record; `auto_link` mode returns the existing
+     *   contact directly, same as store().
+     * - Type assignment: NONE at creation, on purpose (corrected
+     *   2026-09-12 — see .ai/specs/rental-applications.md, "Inline
+     *   create-contact type correction"). The first cut of this wrongly
+     *   assigned "Lessee" (id 10, the CANONICAL e-sign-wizard parent) —
+     *   a genuinely different database row from "Tenant" (id 11, the type
+     *   `AddTenantTypeOnRentalApproval` actually adds, and the one every
+     *   report/filter in this module is keyed on). Picking an existing
+     *   contact via the normal search box also assigns no type at
+     *   creation — type only ever arrives via `AddTenantTypeOnRentalApproval`
+     *   on APPROVAL, for every contact regardless of entry door. Stamping
+     *   a type here — even the correct one — would make an inline-created
+     *   contact diverge from that rule (e.g. a DECLINED applicant would
+     *   wrongly carry a rental type forever, since Johan's add-never-strip
+     *   rule means nothing ever removes it). Leaving this path
+     *   type-less at creation is what makes it behave identically, from
+     *   day one through approval, to a contact picked via the pre-existing
+     *   search box — not a gap, the correct behaviour.
+     * - Identifiers: `ContactIdentifierService::syncIdentifiers()` — the
+     *   same child-row writer every other contact-creation path uses.
+     *
+     * Never touches `ContactController.php` or any contact Blade template.
+     */
+    public function quickCreateContact(Request $request)
+    {
+        $data = $request->validate([
+            'first_name' => 'required|string|max:100',
+            'last_name'  => 'required|string|max:100',
+            'phone'      => 'nullable|string|max:30',
+            'email'      => 'nullable|email|max:150',
+            'bypass_duplicate_check' => 'nullable|boolean',
+        ]);
+
+        $phone = trim((string) ($data['phone'] ?? ''));
+        $email = trim((string) ($data['email'] ?? ''));
+        if ($phone === '' && $email === '') {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'phone' => 'Add a phone number or an email address so this contact can be reached.',
+            ]);
+        }
+
+        $user = $request->user();
+        $agencyId = (int) ($user->effectiveAgencyId() ?: 0);
+        $duplicateService = app(\App\Services\ContactDuplicateService::class);
+
+        if (empty($data['bypass_duplicate_check'])) {
+            $duplicates = $duplicateService->findDuplicatesForIdentifiers(
+                $phone !== '' ? [$phone] : [],
+                $email !== '' ? [$email] : [],
+                null,
+                $agencyId,
+            );
+
+            if ($duplicates->isNotEmpty()) {
+                $mode = $duplicateService->resolveMode($agencyId);
+                $match = $duplicateService->identifyMatch([
+                    'first_name' => $data['first_name'], 'last_name' => $data['last_name'],
+                    'phone' => $phone ?: null, 'email' => $email ?: null,
+                ], $duplicates->first(), $agencyId);
+
+                if ($mode === 'auto_link') {
+                    $existing = $duplicates->first();
+                    if (Contact::whereKey($existing->id)->exists()) {
+                        $duplicateService->logAttempt($agencyId, $user->id, $mode, $match['field'], $match['value'], $existing->id, $data, 'auto_linked');
+                        return response()->json([
+                            'linked_existing' => true,
+                            'contact' => [
+                                'id' => $existing->id,
+                                'first_name' => $existing->first_name,
+                                'last_name' => $existing->last_name,
+                            ],
+                        ]);
+                    }
+                }
+
+                $viewableIds = Contact::whereIn('id', $duplicates->pluck('id'))->pluck('id')->all();
+                return response()->json([
+                    'duplicates' => $duplicates->map(function (Contact $c) use ($mode, $viewableIds) {
+                        $canView = in_array($c->id, $viewableIds, true);
+                        $hide = $mode === 'hard_block_request' || !$canView;
+                        return [
+                            'id' => $c->id,
+                            'name' => $c->full_name,
+                            'phone' => $hide ? null : $c->phone,
+                            'email' => $hide ? null : $c->email,
+                            'can_view' => $canView,
+                        ];
+                    }),
+                    'mode' => $mode,
+                ], 422);
+            }
+        }
+
+        $contact = DB::transaction(function () use ($data, $phone, $email, $user, $agencyId) {
+            $contact = Contact::create([
+                'contact_kind' => Contact::TYPE_NATURAL_PERSON,
+                'first_name' => $data['first_name'],
+                'last_name' => $data['last_name'],
+                'agency_id' => $agencyId,
+                'branch_id' => $user->effectiveBranchId(),
+                'created_by_user_id' => $user->id,
+            ]);
+
+            app(\App\Services\Contacts\ContactIdentifierService::class)->syncIdentifiers(
+                $contact,
+                $phone !== '' ? [['value' => $phone, 'label' => null, 'is_primary' => true]] : [],
+                $email !== '' ? [['value' => $email, 'label' => null, 'is_primary' => true]] : [],
+            );
+
+            // No type assigned here, deliberately — see the method docblock.
+            // AddTenantTypeOnRentalApproval adds "Tenant" on approval, the
+            // same as it already does for a contact picked via search.
+
+            return $contact;
+        });
+
+        return response()->json([
+            'contact' => [
+                'id' => $contact->id,
+                'first_name' => $contact->first_name,
+                'last_name' => $contact->last_name,
+            ],
+        ], 201);
+    }
+
+    /**
      * AT-392, Johan (asked three times, verbatim): "opening a rental
      * application should not be able to edit... open / view should show
      * the application the applicant sent in. nothing more. no edits,
@@ -678,8 +817,19 @@ class RentalApplicationController extends Controller
 
         $validated = $request->validate([
             'status' => ['required', Rule::in(RentalApplication::AGENT_SETTABLE_STATUSES)],
-            'note' => ['nullable', 'string', 'max:1000'],
+            // 2026-09-12 — Johan (approved): "withdrawn" is not the applicant
+            // acting for themselves (there is no applicant self-service
+            // withdraw anywhere in this module) — it is an agent RECORDING
+            // that the applicant told them so. A judgement call typed with
+            // no reason at all is exactly the silent-dropdown shape this
+            // same walkthrough already flagged as a problem for the reverse
+            // direction (Finding 2). under_assessment stays an optional-note
+            // routine judgement call; withdrawn specifically now requires
+            // one, same as reopen() already requires for its own decision.
+            'note' => ['nullable', 'string', 'max:1000', 'required_if:status,withdrawn'],
             'expected_generation' => ['nullable', 'integer', 'min:1'],
+        ], [
+            'note.required_if' => 'What did the applicant tell you? A note is required to record a withdrawal.',
         ]);
 
         if (! in_array($rentalApplication->status, RentalApplication::POST_RETURN_STATUSES, true)) {
@@ -703,6 +853,28 @@ class RentalApplicationController extends Controller
             return back()->with('success', 'Status unchanged.');
         }
 
+        // 2026-09-12 REGRESSION FIX — a second end-to-end walkthrough found
+        // this endpoint had NO guard against leaving 'withdrawn': the
+        // validation above only checks the TARGET status is agent-settable
+        // and the block above only checks the CURRENT status has been
+        // submitted at all — neither says anything about which FROM/TO
+        // pairs are actually meant to be reachable. That let a plain agent
+        // silently flip a withdrawn application back to under_assessment
+        // with one dropdown click, no confirmation, no required note —
+        // directly contradicting this module's own documented policy that
+        // withdrawn is a final, considered decision. The one legitimate way
+        // out of withdrawn is now RentalApplicationReviewController::
+        // reopen() — override-tier only, a REQUIRED note, and a full audit
+        // trail entry (see RentalApplication::REOPENABLE_STATUSES's own
+        // docblock) — never this generic, low-friction endpoint. A UI that
+        // merely hid the option while this endpoint still accepted it would
+        // be the same class of gap as the stale review-URL door closed
+        // earlier this week, so this is refused here too, not just hidden
+        // from the dropdown (see index/show/view-readonly.blade.php).
+        if ($from === 'withdrawn') {
+            return back()->withInput()->with('error', "A withdrawn application can't be changed from this screen — use Reopen (on the row, or on the application's own page) to bring it back into assessment. That requires a note and is recorded in the audit trail.");
+        }
+
         DB::transaction(function () use ($rentalApplication, $from, $to, $validated) {
             $rentalApplication->update(['status' => $to]);
 
@@ -715,7 +887,9 @@ class RentalApplicationController extends Controller
             );
         });
 
-        return back()->with('success', 'Status updated to ' . str_replace('_', ' ', $to) . '.');
+        return back()->with('success', $to === 'withdrawn'
+            ? RentalApplication::WITHDRAWN_LABEL . '.'
+            : 'Status updated to ' . str_replace('_', ' ', $to) . '.');
     }
 
     /**

@@ -63,29 +63,43 @@ final class ContactTypeAssignmentTest extends TestCase
 
     public function test_contact_type_edit_form_saved_through_the_picker_never_drops_a_type_it_did_not_offer(): void
     {
-        // AT-392, 2026-09-11 — this is the exact bug cc6 found and this
-        // change fixes: a contact holding "Tenant" (added by the rental-
-        // approval listener) used to lose it silently the moment an agent
-        // saved ANY unrelated field via the normal Contacts edit form,
-        // because the picker only ever submitted parent_type_ids from
-        // ContactType::parentIds() at the time — which didn't include
-        // Tenant. Reproduces that exact save shape (parent_type_ids = the
-        // form's offered set at save-time, omitting Tenant) directly against
-        // update(), and proves Tenant survives regardless.
+        // AT-392, 2026-09-11/12 — this is the exact bug cc6 found and this
+        // change fixes, generalised: ANY parent type a contact holds that
+        // the picker's offered set (ContactType::parentIds()) does not
+        // include must survive a save through that picker — the save can
+        // only submit what it was shown, so it must never be read as "the
+        // agent chose to remove a type they never saw as an option."
+        //
+        // Deliberately does NOT use "Tenant" here any more — Tenant joined
+        // ContactType::ADDITIONAL_PARENTS (2026-09-12) specifically so the
+        // picker DOES now offer it as a real, checkable/uncheckable choice
+        // (proven live: a real page render seeds it as a chip whenever the
+        // contact holds it — see the "picker" browser proof this same
+        // change added). Using Tenant here would make this test
+        // self-contradict test_contact_type_edit_form_still_lets_a_
+        // deliberately_offered_type_be_unchecked below — both submit
+        // "not present in parent_type_ids", and once Tenant is a normal
+        // offered type, the server has no way (and should have no way) to
+        // tell "the picker didn't know about it" apart from "the agent
+        // unchecked it". The genuinely residual guarantee this hardening
+        // protects is a type OUTSIDE the offered set entirely — e.g. one
+        // attached to a contact by some future mechanism the picker
+        // genuinely hasn't caught up with yet, simulated here with a raw,
+        // non-canonical, non-ADDITIONAL_PARENTS ContactType row.
         $agencyId = $this->seedAgency();
         $admin = User::factory()->create(['agency_id' => $agencyId, 'branch_id' => $agencyId, 'role' => 'super_admin']);
         [$seller] = $this->parents();
-        $tenant = ContactType::where('name', 'Tenant')->firstOrFail();
+        $futureType = ContactType::create(['name' => 'FutureType', 'color' => '#fff', 'sort_order' => 99, 'is_active' => true]);
+        $this->assertNotContains((int) $futureType->id, ContactType::parentIds(), 'the simulated future type must genuinely be outside the picker\'s offered set for this test to mean anything');
 
         $contact = $this->makeContact($agencyId);
-        $contact->syncTypeAssignments([$seller->id, $tenant->id], []);
+        $contact->syncTypeAssignments([$seller->id, $futureType->id], []);
         $contact->refresh();
-        $this->assertEqualsCanonicalizing([$seller->id, $tenant->id], $contact->parentTypes()->pluck('contact_types.id')->all());
+        $this->assertEqualsCanonicalizing([$seller->id, $futureType->id], $contact->parentTypes()->pluck('contact_types.id')->all());
 
-        // Simulate a picker built from an offered set that does NOT include
-        // Tenant (e.g. a stale page load, or any future type the picker
-        // hasn't caught up with yet) — the form can only submit what it
-        // offered, so it submits Seller only.
+        // The real picker can only submit from its own offered set — it has
+        // no way to even render a chip for $futureType, so a genuine save
+        // through it submits Seller only.
         $this->actingAs($admin)
             ->put(route('corex.contacts.update', $contact), [
                 'first_name' => $contact->first_name,
@@ -97,9 +111,9 @@ final class ContactTypeAssignmentTest extends TestCase
 
         $contact->refresh();
         $this->assertEqualsCanonicalizing(
-            [$seller->id, $tenant->id],
+            [$seller->id, $futureType->id],
             $contact->parentTypes()->pluck('contact_types.id')->all(),
-            'Tenant must survive a save that never offered it as a choice — added, never silently removed'
+            'a type entirely outside the picker\'s offered set must survive a save that never had a chance to show it — added, never silently removed'
         );
     }
 

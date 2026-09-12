@@ -584,13 +584,17 @@ class RentalApplicationReviewController extends Controller
         }
 
         $fromStatus = $rentalApplication->status;
-        $isOverrideReopen = $fromStatus === 'declined';
+        // 2026-09-12 — withdrawn added alongside declined: both are "someone
+        // already made a final call" statuses, so both require the same
+        // override tier to reopen. See RentalApplication::REOPENABLE_STATUSES's
+        // own docblock for the full reasoning.
+        $isOverrideReopen = in_array($fromStatus, ['declined', 'withdrawn'], true);
 
         if ($isOverrideReopen) {
             abort_unless(
                 $request->user()->isRentalApplicationOverrideTier((int) $rentalApplication->agency_id),
                 403,
-                'Only the head of rentals (or an admin) may reopen a declined application.',
+                "Only the head of rentals (or an admin) may reopen a {$fromStatus} application.",
             );
         }
 
@@ -625,7 +629,7 @@ class RentalApplicationReviewController extends Controller
             oldValues: ['status' => $fromStatus],
             newValues: ['status' => 'reopened'],
             humanSummary: $isOverrideReopen
-                ? 'Reopened a declined application (override)'
+                ? "Reopened a {$fromStatus} application (override)"
                 : 'Reopened for the applicant',
         );
 
