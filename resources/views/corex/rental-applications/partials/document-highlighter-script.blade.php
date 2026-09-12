@@ -324,10 +324,38 @@ function rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, curre
             try {
                 if (this.captureChip.mode === 'create') {
                     const pm = this.captureChip.pendingMark;
+                    // 2026-09-12 — real bug, found via a data-integrity audit
+                    // Johan requested: pm.points/pm.width are the SAME 0-1
+                    // in-memory fractions endDraw() builds for a plain
+                    // highlight (see its own comment above), but unlike
+                    // applyHighlights() this path was sending them straight
+                    // to the server with NO conversion to raster px — every
+                    // capture-chip entry ever confirmed (19/19 on QA1, one
+                    // created the same day this was found) was stored with
+                    // a bare fraction as its "pixel" position/width, which
+                    // renders indistinguishable from the page's top-left
+                    // corner. Fixed to match applyHighlights()'s own
+                    // convention exactly (Math.round(frac * page.width)) —
+                    // this docblock's own captureEntryCreate() comment
+                    // already documented "points/width arrive already
+                    // converted to RASTER px... the same convention
+                    // applyHighlight() already uses" as the intended
+                    // contract; this was simply never implemented. Refuses
+                    // to save (rather than send an unconvertible value)
+                    // when the page's real dimensions aren't known yet —
+                    // same guard applyHighlights() already uses.
+                    const page = this.pages.find(p => p.index === pm.page);
+                    if (!page || !page.width || !page.height) {
+                        this.captureChip.error = 'This document has not finished loading — wait a moment, then try again.';
+                        this.captureChip.saving = false;
+                        return;
+                    }
+                    const rasterPoints = this.simplifyPath(pm.points.map(p => ({ x: Math.round(p.x * page.width), y: Math.round(p.y * page.height) })), 1.5);
+                    const rasterWidth = Math.round(pm.width * page.width);
                     const res = await fetch(this.captureCreateUrl, {
                         method: 'POST', headers, credentials: 'same-origin',
                         body: JSON.stringify({
-                            mark_uid: pm.id, page: pm.page, points: pm.points, width: pm.width,
+                            mark_uid: pm.id, page: pm.page, points: rasterPoints, width: rasterWidth,
                             highlighter_id: pm.highlighterId, entry_type: this.captureChip.entryType,
                             entry_date: this.captureChip.date || null, entry_description: this.captureChip.description || null,
                             entry_amount: amount,

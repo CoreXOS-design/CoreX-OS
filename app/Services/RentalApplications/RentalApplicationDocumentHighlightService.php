@@ -188,6 +188,32 @@ class RentalApplicationDocumentHighlightService
     }
 
     /**
+     * The REAL raster pixel size of one already-cached page — the same
+     * on-disk PNG firstPagePreview()/remainingPagePreviews() already
+     * produced, never re-rasterized here. Ground truth for validating an
+     * incoming mark's points/width are genuinely in this page's pixel
+     * space, not a bare 0-1 fraction that was never converted — see
+     * HandlesRentalApplicationDocumentMarks::captureEntryCreate()'s own
+     * validation, which this exists for. Null if the page hasn't been
+     * rasterized yet (can't happen from the client's own flow — a mark can
+     * only be drawn on a page already on screen — but never assume).
+     */
+    public function pageDimensions(Document $document, int $pageIndex): ?array
+    {
+        $path = $this->cacheDirFor($document) . '/page-' . $pageIndex . '.png';
+        if (! is_file($path)) {
+            return null;
+        }
+
+        $size = getimagesize($path);
+        if ($size === false) {
+            return null;
+        }
+
+        return ['width' => $size[0], 'height' => $size[1]];
+    }
+
+    /**
      * Burn the current mark set and persist a flattened, marked-up copy.
      * Idempotent — always re-renders from the pristine SOURCE (via the same
      * cache renderSourcePages() reads), so removing a mark and re-applying

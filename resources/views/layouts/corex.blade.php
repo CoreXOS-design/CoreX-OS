@@ -159,12 +159,23 @@
                  size fight a `width:0` and keep the box wider than
                  intended — this is what actually makes width:0 render as
                  truly zero rather than "as narrow as the content allows." --}}
-            <aside :class="[
-                       sidebarOpen ? 'translate-x-0' : '-translate-x-full',
-                       markupModeActive ? 'lg:relative lg:flex-shrink-0' : 'lg:relative lg:translate-x-0 lg:flex-shrink-0',
-                   ]"
+            {{-- 2026-09-12 — real bug, found live: `lg:translate-x-0` (the
+                 class that cancels the base `-translate-x-full` transform at
+                 desktop widths) used to live ONLY in the non-markup-mode
+                 branch of the class ternary below. In markup mode it was
+                 dropped entirely, so the base `-translate-x-full` (always
+                 applied while `sidebarOpen` is false, which it is by
+                 default) was never cancelled — the aside's real width
+                 animated correctly, but its whole box sat translated 100%
+                 of that width off to the left, rendering as a blank strip.
+                 `lg:translate-x-0`/`lg:relative`/`lg:flex-shrink-0` never
+                 actually varied by mode — moved to the static class so this
+                 exact class of bug (an always-true utility present in only
+                 one ternary branch) can't recur; :class now carries only
+                 the genuinely dynamic mobile open/close state. --}}
+            <aside :class="sidebarOpen ? 'translate-x-0' : '-translate-x-full'"
                    :style="markupModeActive ? { width: (markupSidebarExpanded ? '240px' : '0px'), minWidth: '0px', overflow: 'hidden', transition: 'width 150ms ease' } : {}"
-                   class="fixed inset-y-0 left-0 z-50 w-60 transform transition-transform duration-200 ease-in-out">
+                   class="fixed inset-y-0 left-0 z-50 w-60 transform transition-transform duration-200 ease-in-out lg:relative lg:translate-x-0 lg:flex-shrink-0">
                 @include('layouts.corex-sidebar')
             </aside>
 

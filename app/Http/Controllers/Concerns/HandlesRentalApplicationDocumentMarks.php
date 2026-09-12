@@ -200,7 +200,7 @@ trait HandlesRentalApplicationDocumentMarks
      * and saved the old way — flagged in the build report, not silently
      * left undocumented.
      */
-    public function captureEntryCreate(Request $request, RentalApplication $rentalApplication, Document $document)
+    public function captureEntryCreate(Request $request, RentalApplication $rentalApplication, Document $document, RentalApplicationDocumentHighlightService $highlights)
     {
         $this->guardDocumentMarkAccess($rentalApplication, $document);
 
@@ -213,13 +213,36 @@ trait HandlesRentalApplicationDocumentMarks
             'points' => ['required', 'array', 'min:2'],
             'points.*.x' => ['required', 'numeric'],
             'points.*.y' => ['required', 'numeric'],
-            'width' => ['required', 'numeric', 'min:0'],
+            // 2026-09-12 — [4, 120] matches the exact bound
+            // RentalApplicationDocumentHighlightService::normalizeNewMark()
+            // already enforces for every other stroke's width; a bare 0-1
+            // fraction (this endpoint's own real, found-and-fixed bug: the
+            // client sent points/width unconverted for every capture-chip
+            // entry ever confirmed) can never satisfy a >=4 floor. Kept
+            // here rather than shared as a constant per this task's scope
+            // lock — normalizeNewMark() itself is untouched.
+            'width' => ['required', 'numeric', 'min:4', 'max:120'],
             'highlighter_id' => ['required', 'integer', Rule::in($validHighlighterIds)],
             'entry_type' => ['required', Rule::in(RentalApplicationDocumentMark::LEDGER_ENTRY_TYPES)],
             'entry_date' => ['nullable', 'date'],
             'entry_description' => ['nullable', 'string', 'max:255'],
             'entry_amount' => ['required', 'numeric'],
         ]);
+
+        // Belt-and-braces alongside the width floor above: a point can
+        // never legitimately land outside this page's own real raster
+        // pixel size. Ground truth is read directly off the cached PNG
+        // (pageDimensions()) — not trusted from the request — so a bad
+        // client can never talk its way past this by simply also lying
+        // about a page/document boundary.
+        $dimensions = $highlights->pageDimensions($document, $validated['page']);
+        if ($dimensions !== null) {
+            foreach ($validated['points'] as $point) {
+                if ($point['x'] < 0 || $point['x'] > $dimensions['width'] || $point['y'] < 0 || $point['y'] > $dimensions['height']) {
+                    return response()->json(['error' => 'This mark falls outside the page — it could not be saved.'], 422);
+                }
+            }
+        }
 
         if (RentalApplicationDocumentMark::where('document_id', $document->id)->where('mark_uid', $validated['mark_uid'])->exists()) {
             return response()->json(['error' => 'This mark has already been saved.'], 409);
