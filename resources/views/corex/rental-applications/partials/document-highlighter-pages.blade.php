@@ -116,6 +116,34 @@
          guardScreenNotLockedForAuthoriser()); this just stops the agent
          from reaching a drawing gesture in the first place, same title
          either way so it reads as "why is this greyed out" not a mystery. --}}
+    {{-- 2026-09-13 — Johan, twice, and independently cc4's own agent walk:
+         a rail of unlabelled colour circles means an agent has no idea
+         which pen is which until she hovers — hover-only is not a label,
+         and picking the wrong one means income filed as an expense. His
+         own words: a LETTER on the swatch (do NOT hardcode I/E/U — read
+         h.label.charAt(0), since these are agency-configurable and QA1
+         already has "Electricity" and "Deposit Proof" alongside the
+         defaults), the label word itself very small underneath, shrunk
+         to fit rather than growing the box, and the tooltip stays either
+         way. The rail's own width (44px, set in the 2026-09-11 "slim the
+         pen rail" round) does NOT change — "the document's width is the
+         whole point of this screen's rebuild" — so the label has LESS
+         room than the reverted 2026-09-12 attempt gave it (that one
+         widened the rail to 60px; this one fits inside the existing
+         44px). The selected-state tick moves to a small corner badge
+         (exactly Note's own already-existing pattern, below) since the
+         letter now permanently occupies the swatch's centre — the
+         border highlight (unchanged) already carries the "this one is
+         active" signal on its own; the corner tick is confirmation, not
+         the only signal. penLabelFontSizePx is computed once, in this
+         component's own init() (a real lifecycle method, never a raw
+         x-init statement — see reviewLocked's own docblock two rounds
+         ago for exactly why that distinction matters) off the single
+         LONGEST label actually in this picker set (Note's own "Note"
+         included, so it never ends up a visibly different size from the
+         highlighters beside it), never per-label, so the row reads as
+         one deliberate scale. Floors at 7px, then ellipses — the full
+         name is always in the tooltip regardless of what's visible. --}}
     <div class="flex-shrink-0 space-y-1.5" style="width: 44px; position: sticky; top: 0;"
          :style="{ opacity: reviewLocked ? '0.4' : '1', pointerEvents: reviewLocked ? 'none' : 'auto' }"
          :title="reviewLocked ? 'Read-only — this application is with the authoriser' : ''">
@@ -123,16 +151,20 @@
              ledger line." Dragging with one open opens the capture chip
              (below) instead of just laying down ink. --}}
         <template x-for="h in capturePickerHighlighters()" :key="h.id">
-            <button type="button" class="relative flex items-center justify-center rounded-md transition-all duration-100 mx-auto"
-                    :title="h.label + ' — draw to capture a line'"
-                    @click="pickHighlighter(h.id)"
-                    :style="{
-                        width: '26px', height: '26px',
-                        background: h.color,
-                        border: (activeTool === 'highlight' && activeHighlighterId === h.id) ? '2px solid var(--text-primary)' : '1px solid var(--border)',
-                    }">
-                <span x-show="activeTool === 'highlight' && activeHighlighterId === h.id" style="color:#fff; font-weight:800; font-size:12px; text-shadow: 0 0 2px rgba(0,0,0,0.65);">&check;</span>
-            </button>
+            <div class="mx-auto" style="width: 40px;">
+                <button type="button" class="relative flex items-center justify-center rounded-md transition-all duration-100 mx-auto"
+                        :title="h.label + ' — draw to capture a line'"
+                        @click="pickHighlighter(h.id)"
+                        :style="{
+                            width: '26px', height: '26px',
+                            background: h.color,
+                            border: (activeTool === 'highlight' && activeHighlighterId === h.id) ? '2px solid var(--text-primary)' : '1px solid var(--border)',
+                        }">
+                    <span style="color:#fff; font-weight:800; font-size:12px; text-shadow: 0 0 2px rgba(0,0,0,0.65);" x-text="(h.label || '?').charAt(0).toUpperCase()"></span>
+                    <span x-show="activeTool === 'highlight' && activeHighlighterId === h.id" style="position:absolute; top:-4px; right:-4px; color:#fff; background:var(--text-primary); border-radius:9999px; width:12px; height:12px; font-size:8px; font-weight:800; line-height:12px; text-align:center;">&check;</span>
+                </button>
+                <p class="text-center leading-tight mt-0.5" style="color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" :style="{ fontSize: penLabelFontSizePx + 'px' }" :title="h.label" x-text="h.label"></p>
+            </div>
         </template>
         <template x-if="capturePickerHighlighters().length === 0">
             <p class="text-[8px] leading-snug text-center" style="color: var(--text-muted);" title="No capture highlighters configured — see Settings">—</p>
@@ -140,33 +172,57 @@
 
         {{-- Any OTHER highlighter an agency has configured (e.g. the
              default "Unpaid" pen) — a plain highlight, never a ledger
-             entry. Omitted entirely when an agency has none. --}}
+             entry. Omitted entirely when an agency has none.
+
+             Tooltip consistency, 2026-09-13 — Johan: "Income and Expense
+             say 'draw to capture a line'; Unpaid and Electricity just say
+             the name... make them consistent." Went with EVERY pen
+             explaining what drawing does, not the terser option — a
+             tooltip that only repeats the on-screen label is worth less
+             than one that also says what the gesture does, and Note's own
+             tooltip already worked this way. --}}
         <template x-for="h in plainPickerHighlighters()" :key="h.id">
-            <button type="button" class="relative flex items-center justify-center rounded-md transition-all duration-100 mx-auto"
-                    :title="h.label"
-                    @click="pickHighlighter(h.id)"
-                    :style="{
-                        width: '26px', height: '26px',
-                        background: h.color,
-                        border: (activeTool === 'highlight' && activeHighlighterId === h.id) ? '2px solid var(--text-primary)' : '1px solid var(--border)',
-                    }">
-                <span x-show="activeTool === 'highlight' && activeHighlighterId === h.id" style="color:#fff; font-weight:800; font-size:12px; text-shadow: 0 0 2px rgba(0,0,0,0.65);">&check;</span>
-            </button>
+            <div class="mx-auto" style="width: 40px;">
+                <button type="button" class="relative flex items-center justify-center rounded-md transition-all duration-100 mx-auto"
+                        :title="h.label + ' — draw to highlight'"
+                        @click="pickHighlighter(h.id)"
+                        :style="{
+                            width: '26px', height: '26px',
+                            background: h.color,
+                            border: (activeTool === 'highlight' && activeHighlighterId === h.id) ? '2px solid var(--text-primary)' : '1px solid var(--border)',
+                        }">
+                    <span style="color:#fff; font-weight:800; font-size:12px; text-shadow: 0 0 2px rgba(0,0,0,0.65);" x-text="(h.label || '?').charAt(0).toUpperCase()"></span>
+                    <span x-show="activeTool === 'highlight' && activeHighlighterId === h.id" style="position:absolute; top:-4px; right:-4px; color:#fff; background:var(--text-primary); border-radius:9999px; width:12px; height:12px; font-size:8px; font-weight:800; line-height:12px; text-align:center;">&check;</span>
+                </button>
+                <p class="text-center leading-tight mt-0.5" style="color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" :style="{ fontSize: penLabelFontSizePx + 'px' }" :title="h.label" x-text="h.label"></p>
+            </div>
         </template>
 
         {{-- NOTE — its own fixed identity (NOTE_COLOR), never sharing the
-             highlighter palette (see pickNoteTool()). --}}
-        <button type="button" class="relative flex items-center justify-center rounded-md transition-all duration-100 mx-auto"
-                title="Note — click anywhere on the document to pin a note"
-                @click="pickNoteTool()"
-                :style="{
-                    width: '26px', height: '26px',
-                    background: NOTE_COLOR,
-                    border: activeTool === 'note' ? '2px solid var(--text-primary)' : '1px solid var(--border)',
-                }">
-            <span style="color:#fff; font-weight:800; font-size:11px; line-height:1;">N</span>
-            <span x-show="activeTool === 'note'" style="position:absolute; top:-4px; right:-4px; color:#fff; background:var(--text-primary); border-radius:9999px; width:12px; height:12px; font-size:8px; font-weight:800; line-height:12px; text-align:center;">&check;</span>
-        </button>
+             highlighter palette (see pickNoteTool()) — no backing
+             RentalApplicationHighlighter record, so "Note" is a literal
+             string here, not h.label, but it still gets the same tiny
+             label treatment and the same shared font size as every real
+             highlighter beside it (see computePenLabelFontSize()'s own
+             comment on why Note is included in that computation). Its own
+             tooltip already explained the gesture before this round
+             ("click anywhere on the document to pin a note") — the
+             consistency fix above brings the highlighters UP to this
+             one's own standard, not the other way around. --}}
+        <div class="mx-auto" style="width: 40px;">
+            <button type="button" class="relative flex items-center justify-center rounded-md transition-all duration-100 mx-auto"
+                    title="Note — click anywhere on the document to pin a note"
+                    @click="pickNoteTool()"
+                    :style="{
+                        width: '26px', height: '26px',
+                        background: NOTE_COLOR,
+                        border: activeTool === 'note' ? '2px solid var(--text-primary)' : '1px solid var(--border)',
+                    }">
+                <span style="color:#fff; font-weight:800; font-size:11px; line-height:1;">N</span>
+                <span x-show="activeTool === 'note'" style="position:absolute; top:-4px; right:-4px; color:#fff; background:var(--text-primary); border-radius:9999px; width:12px; height:12px; font-size:8px; font-weight:800; line-height:12px; text-align:center;">&check;</span>
+            </button>
+            <p class="text-center leading-tight mt-0.5" style="color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" :style="{ fontSize: penLabelFontSizePx + 'px' }" title="Note">Note</p>
+        </div>
 
         {{-- Stroke width — always rendered, dimmed+inert (not hidden) when
              Note is active. Each button draws the real stroke weight
