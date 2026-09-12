@@ -262,6 +262,19 @@ function rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, curre
             this.captureChip = {
                 mode: 'create', pendingMark, markId: null, page: pendingMark.page, entryType,
                 clientX, clientY, date: '', description: '', amount: '', saving: false, error: '',
+                // BUG FIX, 2026-09-12 — Johan, live: "Escape on the capture
+                // chip switches the active pen from Income to Note, after
+                // which every click on the document drops a note editor."
+                // Snapshotted here and explicitly restored in
+                // cancelCaptureChip() below, defensively, regardless of the
+                // exact mechanism that let it drift (focus moving when the
+                // chip's own x-show="captureChip" hides its focused input
+                // out from under the browser is the likely cause, but the
+                // fix that actually matters is guaranteeing the pen can
+                // never change as a SIDE EFFECT of closing this chip, not
+                // diagnosing the precise event-ordering quirk that caused
+                // one specific drift).
+                priorTool: this.activeTool, priorHighlighterId: this.activeHighlighterId,
             };
             this.$nextTick(() => {
                 const el = document.querySelector('[data-capture-chip-amount]');
@@ -274,14 +287,19 @@ function rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, curre
                 clientX, clientY, date: mark.entry_date || '', description: mark.entry_description || '',
                 amount: (mark.entry_amount === null || mark.entry_amount === undefined) ? '' : String(mark.entry_amount),
                 saving: false, error: '',
+                priorTool: this.activeTool, priorHighlighterId: this.activeHighlighterId,
             };
             this.$nextTick(() => {
                 const el = document.querySelector('[data-capture-chip-amount]');
                 if (el) { el.focus(); el.select(); }
             });
         },
-        /** Esc "cancels AND drops the mark" (Johan's own spec) — a create-mode chip's pendingMark was never added to this.marks in the first place, so closing the chip here IS dropping it; nothing else to undo. */
+        /** Esc "cancels AND drops the mark" (Johan's own spec) — a create-mode chip's pendingMark was never added to this.marks in the first place, so closing the chip here IS dropping it; nothing else to undo. Also restores the active pen exactly as it was before the chip opened — see openCaptureChipForCreate()'s own comment on why. */
         cancelCaptureChip() {
+            if (this.captureChip) {
+                this.activeTool = this.captureChip.priorTool;
+                this.activeHighlighterId = this.captureChip.priorHighlighterId;
+            }
             this.captureChip = null;
         },
         captureUrlFor(kind, markUid) {
