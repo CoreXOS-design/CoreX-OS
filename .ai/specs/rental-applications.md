@@ -9161,3 +9161,165 @@ trusting any result from it, not a product issue).
 `resources/views/corex/settings/rental-applications.blade.php`, `routes/web.php`,
 `tests/Feature/RentalApplications/RentalApplicationAutosaveTest.php` (new, 9 tests),
 `tests/Feature/Contacts/ContactTypeAssignmentTest.php` (1 test corrected).
+
+## Scope-check sweep of everything that landed today (2026-09-13, cc1)
+
+Six lanes changed this module today; several genuinely new write endpoints had never been
+scope-checked by anyone. Report-and-fix pass, worktree only, real HTTP proof against
+`qatesting1.corexos.co.za` for every claim below unless noted otherwise.
+
+### Applicant autosave (cc6) — the one Johan said matters most
+
+`RentalApplicationSigningController::autosave()`, public, unauthenticated, on the applicant's
+own link. Read the actual current code, not assumed: the target row is resolved EXCLUSIVELY
+from the URL's token (`findByToken()`, the same `queryWithoutAgencyScope()->where('token',
+$token)->firstOrFail()` mechanism `show()`/`submit()` already use, confirmed safe in yesterday's
+sweep) — there is no `application_id`/`id` field anywhere in the request that could redirect
+the write. The whitelist of writable fields (`RentalApplication::fieldValidationRules()`) is
+pure applicant-answer columns (name, income, employment, etc.) — no `agency_id`, `contact_id`,
+`property_id`, `branch_id`, or `token` is in that list, so even a POST body that includes them
+is silently dropped by `$request->only(array_keys($rules))` before it ever reaches `fill()`.
+The JSON response echoes back only `saved`/`saved_at` — nothing read back at all.
+
+**Verified live:** a garbage/nonexistent token → real `404`. A real token for Application B,
+posted with `full_name` AND injected `agency_id=999`/`contact_id=1`/`id=1` → `200`, `full_name`
+saved, but `agency_id`/`contact_id` on the row are UNCHANGED (confirmed by direct DB read
+immediately after) — the injected fields were silently ignored, exactly as the whitelist
+predicts. Application A (a separate agency, separate token) confirmed completely untouched by
+this whole exchange.
+
+### cc5's inline create-contact (`RentalApplicationController::quickCreateContact()`)
+
+`agency_id`/`branch_id`/`created_by_user_id` are set from `$user->effectiveAgencyId()` /
+`effectiveBranchId()` / `$user->id` — none of the three accepts a client value at all (the
+validated request only has `first_name`/`last_name`/`phone`/`email`/`bypass_duplicate_check`).
+The duplicate-check path (`ContactDuplicateService::findDuplicatesForIdentifiers()`) explicitly
+filters `where('agency_id', $agencyId)` even though it also calls `withoutGlobalScopes()` —
+same defense-in-depth shape used elsewhere in this codebase, not a bypass.
+
+**Verified live:** logged in as Agent A, POSTed a real create with injected `agency_id=999`,
+`branch_id=999`, `created_by_user_id=1` → `201`, new contact created — but its actual
+`agency_id`/`branch_id`/`created_by_user_id` on the row match Agent A's own real values, not
+the injected ones. Confirmed by direct DB read.
+
+### cc3's capture-entry create/update/delete + the 423 authoriser-read-only lock
+
+All four capture-entry actions (`captureEntryCreate`, `captureEntryCreateManual`,
+`captureEntryUpdate`, `captureEntryDelete`) call `guardRentalApplication()` (own/branch/agency)
+or `guardDocumentMarkAccess()` (which itself calls the same guard plus a real
+document-belongs-to-this-application check) as the FIRST line — confirmed by reading every
+method body, not grepping for the call. `captureEntryUpdate()`/`Delete()` additionally enforce
+per-mark ownership (`guardCaptureEntryOwnership()` — only the mark's own author, or nobody, may
+touch it; an authoriser can never touch an agent's mark regardless of user id). The 423 lock
+(`guardScreenNotLockedForAuthoriser()`) fires only for the AGENT'S OWN controller once the
+application is genuinely with the authoriser (`isPendingAuthorisation()`), never blocking the
+authoriser's own calls through the identical shared trait.
+
+**Verified live, real mark, real cross-agency and same-agency attempts:**
+- Agent A created a real capture entry on their own application (id genuinely exists, confirmed
+  in the DB afterward, `entry_amount = 5000.00`).
+- Agent B (a completely different agency): direct URL to the review screen → `404`. Attempted
+  create on Agent A's application id → `404`. Attempted UPDATE and DELETE on Agent A's REAL,
+  existing mark uid (not a guessed/nonexistent one) → `404` both times. The mark's own row
+  confirmed unchanged and undeleted afterward.
+- A SECOND admin in Agent A's OWN agency (same agency, different author): can reach the review
+  screen (`200`, correctly — same-agency, sufficient scope) but attempting to UPDATE or DELETE
+  Agent A's own-authored mark → real `403`, exact message "This entry was captured by someone
+  else and can't be changed here." Mark confirmed unchanged afterward — the ownership check is
+  a genuinely separate, working gate from the outer agency/branch/own scope check.
+- Application A, moved to `under_assessment` with `submitted_for_approval_at` set (genuinely
+  "with the authoriser"): the SAME owning agent attempting their own manual-create → real `423`
+  with the correct message. Confirmed this is a workflow-state lock, not a security denial —
+  not logged as an "attempt" for that reason (see below).
+
+### cc4's guarded status-change endpoint (`RentalApplicationController::updateStatus()`)
+
+`guardRentalApplication()` first, `status` validated against a fixed
+`Rule::in(RentalApplication::AGENT_SETTABLE_STATUSES)` whitelist — no free-text status value can
+ever reach the database. Route-model-bound, so `AgencyScope` already blocks a cross-agency id at
+binding, before this method's own guard even runs.
+
+**Verified live:** Agent B, cross-agency, POSTed a real status change to Agent A's application
+→ real `404`. Application A's status confirmed unchanged afterward.
+
+### A real, structural gap found and fixed: NEITHER core guard had an audit trail at all
+
+`AuthorizesRentalApplicationAccess::guardRentalApplication()` and
+`HandlesRentalApplicationDocumentMarks::guardCaptureEntryOwnership()` — the two shared guards
+every endpoint above actually calls — had **zero logging** on a denied attempt, on either one,
+before tonight. A same-agency-wrong-scope denial or a cross-author ownership denial left no
+record anywhere. Fixed both, same shape as the RO/CO settings fix from two nights ago
+(`Log::warning()` naming the acting user, their resolved scope, and the record/mark denied).
+The 423 lock is deliberately NOT logged as a security "attempt" — it's the legitimate owning
+agent hitting a normal workflow-state lock, not someone trying to reach something that isn't
+theirs; logging it as a denial would misrepresent what actually happened.
+
+**Important scope note on this fix:** a genuine cross-AGENCY id never reaches either of these
+methods at all — `RentalApplication`'s own `BelongsToAgency` blocks it at Eloquent's
+route-model-binding layer, before any controller code runs, which is why most of the live
+proofs above show `404` rather than `403`. The two methods fixed here are reached only by the
+narrower, same-agency-wrong-scope and same-agency-wrong-author cases — real gaps, now closed,
+but not the mechanism carrying the bulk of the cross-tenant protection (that remains the
+structural, always-on `AgencyScope`).
+
+**Verified — real HTTP proof for the status codes (done first, against the live site, before
+this logging was added — the authorization LOGIC itself is unchanged and was already running
+live); a real HTTP-kernel-dispatched feature test for the logging addition specifically**, since
+that code cannot be proven live until it is pulled into the deploy checkout (see the git-
+discipline note below) — `Log::spy()` + `Log::shouldHaveReceived()` against a real `403`
+response, both guards, 2 tests, both passing.
+
+### Checking my own work the same way (sort, Branch pill, approved-amount display)
+
+- The Rentals → Contacts `sort`/`direction` params resolve through a fixed, hardcoded PHP array
+  (`['name' => [...], 'created' => [...], 'updated' => [...]]`) keyed by the request value —
+  never a raw string concatenated into `orderBy()`. An unrecognised value falls back to the
+  documented default (`name`). No SQL injection surface, no arbitrary-column exposure.
+- The `branch` pill sentinel resolves via `$user->effectiveBranchId()` — server-side, never a
+  client-supplied branch id — checked BEFORE the numeric-agent-id branch specifically so it can
+  never fall through to an unintended path.
+- The approved-amount badge on `view-readonly.blade.php` reads directly off the `$rentalApplication`
+  instance `show()` already guarded before the view rendered — no new query, no new parameter,
+  nothing for a sort/filter injection to reach.
+- The three-persona live proof (agency/branch/own) and both detail-view cross-scope 404 checks
+  for Rentals → Contacts were already done in the previous pass and are unchanged by tonight's
+  work — not re-run, since nothing in this screen's scoping code changed tonight.
+
+### A real git-discipline incident tonight, disclosed plainly
+
+All of tonight's work was done in a dedicated worktree
+(`/mnt/HC_Volume_103099143/corex-worktrees/rentals-contacts-cc4-2026-09-13`, branch
+`cc4-rentals-contacts-2026-09-13`, pushed to `origin/QA1` via an explicit refspec) after Johan
+identified that the PREVIOUS pass's git operations directly in `/corex-qa1` — the shared deploy
+checkout — collided with cc1's own operations there and cost an hour re-doing lost work. Per-lane
+test database isolation (`TEST_DB_DATABASE=hfc_dash_test_2`, Standard −1a) was also set up in
+this worktree's own `.env` for the first time tonight — this is why several `php artisan test`
+runs earlier in the session hit false failures (schema-teardown errors, deadlocks) from six
+lanes sharing one test database; once set, those stopped.
+
+### Cleanup, disclosed
+
+All throwaway fixtures (2 agencies, 2 branches, 2 contacts→3 contacts across two passes, 2
+rental applications, 3 users, 1 document mark) were soft-deleted after use, confirmed via
+`onlyTrashed()`, on models confirmed to carry `SoftDeletes` before calling `delete()` on any of
+them. Two throwaway admin users were left in place — each was, at the point of deletion, the
+only admin remaining for their own throwaway agency, and `LastAdminException` correctly refused
+the delete both times. Same call as every prior pass this week: bypassing a real safety guard to
+tidy up test data would be a worse mistake than one harmless orphaned row.
+
+### Files changed
+
+- `app/Http/Controllers/Concerns/AuthorizesRentalApplicationAccess.php` — `guardRentalApplication()`
+  now logs a denied attempt before aborting; new private `logDeniedRentalApplicationAccess()`.
+- `app/Http/Controllers/Concerns/HandlesRentalApplicationDocumentMarks.php` — `guardCaptureEntryOwnership()`
+  now logs a denied attempt before aborting.
+- `tests/Feature/RentalApplications/RentalApplicationDeniedAccessAuditLogTest.php` — new, 2 tests.
+- `tests/Feature/RentalApplications/RentalApplicationApprovedAmountVisibleTest.php` — added the
+  `withoutVite()` call every other test file in this module already has (unrelated test-infra
+  fix, found while getting the worktree's own test run green).
+
+**`dev-check.ps1` still cannot run on this box (no `pwsh`)** — the live HTTP proofs above, the
+feature tests, and `rental-smoke.mjs` (8/8 screens, 0 console errors, re-run after tonight's
+push) are this pass's equivalent. No Blade/JS files were touched tonight, so cc1's Alpine render
+gate (including its new fourth check) has nothing to check against this specific change — noted
+plainly rather than run against unrelated pages and called "verification."
