@@ -10576,3 +10576,177 @@ answering a genuinely different question.
      still pending as of this commit. Section to be written here once
      shipped, not before — do not describe a fix in this spec that isn't
      actually live. -->
+
+## Realistic-scale "View & Mark Up all" stress investigation (2026-09-14, cc5)
+
+**INVESTIGATION ONLY — no code changed, per explicit instruction ("Do NOT
+optimise anything yet").** Everything this module had been tested on so far
+was small (1-5 short documents, a handful of marks). Johan's own concern:
+loading five small PDFs on application 70 froze the browser renderer long
+enough for a screenshot to time out twice, and a real applicant's bank
+statement bundle is routinely 20-60 pages with 20-40 captured lines — nobody
+had put that through this screen. Built and measured the realistic worst
+case in a dedicated fixture, never touching 70/76/107/204/205.
+
+### Fixture — application 208
+
+Synthetic (DomPDF-generated, never a real bank statement), clearly named
+"CONDUCTOR STRESS-TEST FIXTURE (45-page bank statement perf investigation)
+— not a real applicant", agency 1, status Returned. Five documents attached
+exactly like a genuine upload — the same 5 the checklist actually asks for
+(`permanently_employed`'s V8 default plus one): a **45-page bank statement**
+(dense transaction tables, 28 rows/page, a light repeating background
+pattern to push PNG entropy closer to a real scan rather than a
+flat-white/black-text page that would compress unrealistically well) plus
+one-page Payslip/IDs/Proof of Residence/Lease Agreement. **32 real anchored
+marks** on the bank statement (not manual/unanchored entries — those carry
+no page or geometry and couldn't test positioning at all): 13 spread through
+pages 0-35, 19 concentrated on pages 38-44 (the last 7 pages), mixed
+income/expense, realistic amounts.
+
+### The architecture, established first (governs everything below)
+
+Read before measuring, then confirmed live via network capture:
+**page-by-page rendering is NOT lazy past page 1.** `openHighlighter()`
+fetches page 1 alone first (`highlight-data/first`), then immediately fires
+ONE further request (`highlight-data/remaining`, not awaited, not gated by
+further scroll) that returns **every remaining page in a single JSON
+response** — for the 45-page fixture, 44 pages of `data:image/png;base64,…`
+inline in one payload. Confirmed directly:
+`RentalApplicationDocumentHighlightService::remainingPagePreviews()` for
+this document returns an **11.69 MB JSON payload** (44 pages × ~260KB each
+at the fixed 150 DPI, PNG, base64). This is a two-phase-eager design, not
+true incremental lazy loading — page 1 fast, then everything else in one
+burst. This is the direct, structural answer to Johan's question and the
+most likely reason any freeze exists at all: not per-page inefficiency, one
+large synchronous burst of work.
+
+Document-level loading IS progressive (IntersectionObserver, ~1000px
+margin) — with 5 documents on this fixture, all 5 sections' page-1 requests
+fired within the first second regardless, since a 5-document bundle mostly
+fits the initial margin (matching the code's own docblock: "a much larger
+bundle would only load the first few until the agent scrolls further" — a
+30-40 document bundle would behave differently; this fixture didn't test
+that axis, only the pages-per-document axis Johan specifically asked about).
+
+### Measurements, real browser, real numbers
+
+**Cold vs warm server-side cost (isolated first, via direct service calls,
+before any browser was involved):**
+- `firstPagePreview()`, cold: 441ms (single-page rasterize + page count).
+- `remainingPagePreviews()`, **cold** (first time ANYONE opens this
+  document — pdftoppm rasterizing all 44 remaining pages): **4,066ms**.
+- `remainingPagePreviews()`, **warm** (on-disk PNG cache already
+  populated): **12ms**. This cost is paid ONCE per document version — every
+  subsequent agent, or the same agent reopening later, pays ~12ms, not 4s.
+  Cache key is `doc-{id}-v{updated_at timestamp}`, so it invalidates
+  correctly if the document is ever replaced.
+
+**Real browser, cold cache (the actual worst case — first agent to ever
+open this specific document), all 5 documents + View & Mark Up all:**
+- Time to first page usable (bank statement's page 1 decoded and laid
+  out): **207ms.**
+- Time to the 45-page document's `/remaining` HTTP response: **+5,216ms**
+  from click (~4.3s after its own page-1 response, matching the isolated
+  cold measurement above).
+- Time to ALL 5 documents fully loaded (all images decoded, "N more pages
+  loading" banner gone): **6,367ms** total from click.
+- **Real browser, warm cache** (same document, reopened): remaining-pages
+  response in 689ms, fully rendered at 740ms — an order of magnitude
+  faster, confirming the cold cost is genuinely one-time.
+
+**Main-thread responsiveness during the cold load** (a `requestAnimationFrame`
+tick logger running throughout, independent of the page's own JS — the
+standard way to detect main-thread blocking without the blocked code
+measuring itself): longest single gap **393ms**; only 2 gaps exceeded
+100ms, totalling **498ms** of cumulative blocking across the whole 6.4s
+load; **zero gaps exceeded 500ms.** This is noticeable but not the
+multi-second full freeze the "screenshot timed out twice" report described.
+Stated plainly rather than smoothed over: **this measurement does not fully
+reproduce Johan's own observed severity**, and the honest reasons that gap
+could exist were not chased further per instruction (no optimisation, no
+root-cause dig beyond what falls out of the measurements already taken) —
+candidates worth naming for whoever picks this up: the real QA1 host's
+hardware/load differs from this local box; application 70's actual PDFs may
+not resemble this synthetic fixture's page weight; or an authoriser screen
+also runs a second, independent Alpine component at the same moment (a
+contention source the code's own comments already flag as measurably
+slowing things down in testing, for an unrelated fix).
+
+**Memory over a realistic ~18-minute working session** (scroll, jump to a
+random mark, scroll back, repeated every 30s, real background run, not
+simulated): JS heap opened at 50MB right after full load, settled to
+23-26MB by the second sample (GC catching up) and **stayed flat in that
+23-26MB band for the entire session — no growth trend, no leak.** DOM node
+count fluctuated 15,628-25,536 (tracking which document sections were
+open/closed from the random jump clicks) with a **net decrease** by
+session end (18,768, down from an early peak), consistent with the app
+correctly tearing down closed document sections rather than accumulating
+them. Zero console errors across the full 35-iteration session.
+
+**Marks on the last pages — fraction-to-pixel conversion at depth.**
+Jumped to a mark on page 45 of 45 (0-indexed page 44) AFTER the document
+had finished loading: landed correctly, screenshotted — multiple highlight
+marks visible, correctly positioned over the intended table columns, "32"
+mark-count badge correct. Confirmed in a completely fresh session (fresh
+login, fresh navigation, fresh document open — equivalent to a reload, not
+carried-over client state): identical result. **The fraction-to-pixel
+system holds at page 45, not just page 1** — no evidence of the class of
+bug that bit this feature once before.
+
+**Ledger panel with 32 rows.** Confirmed the GOOD outcome, not the bad one:
+`.rental-review-aside` is a genuine `overflow-y: auto` container
+(scrollHeight 1073px vs clientHeight 699px). "Submit for approval" sits
+below the fold initially (offset 1029px) but scrolling the panel itself
+brings it fully into view — reachable, not pushed off an unbounded page.
+
+**Jump-to-mark timing and a real bug found.** Once the document has
+finished loading, jumping to a page-45 mark from its ledger row takes
+**~2.5 seconds** wall-clock (scroll animation + settle) and works
+correctly. **But triggered WHILE the document is still mid-load** (the
+"N more pages loading" banner still showing), the SAME click throws a
+console error (`TypeError: Cannot read properties of undefined (reading
+'after')`, inside Alpine's own internals per the minified stack) and
+**silently fails to navigate at all** — the viewer opens but stays on page
+1, no error shown to the agent, no indication anything went wrong.
+Reproduced twice, isolated precisely: identical error on an EARLY-page mark
+too, confirming this is a **timing race, not a scale/page-depth bug** — it
+does not require 45 pages or a deep mark to trigger, only clicking before
+loading finishes, which a 45-page document's longer load window makes
+considerably more likely for a real agent to actually hit in practice than
+it would be on a 1-5 page bundle. Found during this investigation, not
+caused by it — almost certainly reproducible on any multi-page document,
+scale just widens the window an agent could click into it. **Reported, not
+fixed, per instruction.**
+
+### Ranked by what would stop an agent working
+
+1. **Jump-to-mark silently fails if clicked before loading finishes, with
+   no error shown to the agent** — a real, confirmed defect. An agent
+   clicking a ledger row moments after opening a large document (very
+   plausible — the ledger is visible and clickable immediately, well before
+   the "N more pages loading" banner clears) gets nothing: no navigation,
+   no visible error, console noise only. This is the one finding that
+   would visibly break a real workflow, not just feel slow.
+2. **The ~6.4s cold-load / ~500ms cumulative jank on first open of a large
+   document** — real, measured, but bounded (no single freeze over 400ms
+   on this box) and one-time per document (warm reopen: <1s). Whether this
+   rises to "unusable" depends on what the real QA1 host's numbers turn out
+   to be, which this investigation could not directly reproduce at the
+   severity Johan described.
+3. Everything else tested came back clean: no memory leak over a realistic
+   session, ledger panel scrolls correctly at 32 rows with the action
+   button reachable, marks land and persist correctly on the last page,
+   jump-to-mark is fast (~2.5s) once loading has actually finished.
+
+**No page count where the screen becomes unusable was found** — 45 pages,
+5 documents, 32 marks all loaded and worked (aside from the one bug above).
+Not stating a limit because none was hit, not because it wasn't looked for.
+
+### Files (for when a fix is authorised — nothing below has been touched)
+
+- `app/Services/RentalApplications/RentalApplicationDocumentHighlightService.php`
+  — `remainingPagePreviews()`, the single-batch-response design (finding 2).
+- `resources/views/corex/rental-applications/partials/document-highlighter-script.blade.php`
+  — the `rental-jump-to-mark` listener / `waitUntilPagesReady()` /
+  `scrollToAndFlashMark()` — the mid-load race (finding 1).
