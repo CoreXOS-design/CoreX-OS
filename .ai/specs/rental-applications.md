@@ -10147,3 +10147,111 @@ suite already exercises); the one failure is the same pre-existing app-148
 `markup_view` issue documented against this app id twice already in this
 file — not touched, out of scope. `dev-check.ps1` cannot run on this box
 (no `pwsh`) — stated plainly.
+
+## Pen letter collisions, capture_type replaces label matching, manual-entry no pre-selected type (2026-09-13, cc3)
+
+Three fixes from Johan's live checks on QA1. Full detail in this round's
+commit message; the parts worth keeping permanently on record are below.
+
+### Pen letter uniqueness
+
+Expense and Electricity both rendered "E" on the pen rail — the letter's
+whole purpose (an at-a-glance cue before the agent reads anything) breaks
+the moment two pens share one. `computePenLetterAssignments()`
+(document-highlighter-script.blade.php) now assigns one letter per
+highlighter, unique across the whole picker set, Note's own fixed "N"
+reserved first. Sorted by highlighter `id` — never display/array order —
+before assigning, so the letter a pen gets can never shuffle just because
+an agency reorders its pens in Settings. First letter of the label if
+free; else the next letter actually appearing in that same label that's
+still free (Electricity loses "E" to whichever of it/Expense has the
+lower id, becomes "L" from its own second letter); a number if a label
+has no letter left to give at all. Verified live on application 70's real
+set: Income=I, Expense=E, Unpaid=U, Electricity=L, Note=N.
+
+### capture_type (cc2's finding) — full audit, for the record
+
+Root cause: whether a highlighter captured a ledger line was decided by a
+raw string match on its LABEL. Highlighters are freely renameable, so an
+agency renaming "Income" to "Salary" silently stopped it capturing — no
+error, the pen still drew, the line just never reached the affordability
+panel. Migration `2026_09_13_000000_add_capture_type_to_rental_application_highlighters`
+adds a real, stable `capture_type` enum column (`income`/`expense`/null),
+backfilled from the exact same label match the old code used.
+
+**Full audit against the real QA1 database, run after Johan asked for
+proof rather than a summary — every live (non-archived) highlighter, no
+sampling:**
+
+| Agency | role_scope | Label | capture_type | Old label-match | Agreement |
+|---|---|---|---|---|---|
+| 1 | agent | Income | income | income | AGREE |
+| 1 | agent | Expense | expense | expense | AGREE |
+| 1 | agent | Unpaid | null | null | AGREE |
+| 1 | authoriser | Income | income | income | AGREE |
+| 1 | authoriser | Expense | expense | expense | AGREE |
+| 1 | authoriser | Unpaid | null | null | AGREE |
+| 1 | agent | Electricity | null | null | AGREE |
+| 20 | agent | Income | income | income | AGREE |
+| 20 | agent | Expense | expense | expense | AGREE |
+| 20 | agent | Unpaid | null | null | AGREE |
+| 20 | authoriser | Income | income | income | AGREE |
+| 20 | authoriser | Expense | expense | expense | AGREE |
+| 20 | authoriser | Unpaid | null | null | AGREE |
+| 22 | agent | Income | income | income | AGREE |
+| 22 | agent | Expense | expense | expense | AGREE |
+| 22 | agent | Unpaid | null | null | AGREE |
+| 22 | authoriser | Income | income | income | AGREE |
+| 22 | authoriser | Expense | expense | expense | AGREE |
+| 22 | authoriser | Unpaid | null | null | AGREE |
+| 23 | agent | Income | income | income | AGREE |
+| 23 | agent | Expense | expense | expense | AGREE |
+| 23 | agent | Unpaid | null | null | AGREE |
+| 23 | authoriser | Income | income | income | AGREE |
+| 23 | authoriser | Expense | expense | expense | AGREE |
+| 23 | authoriser | Unpaid | null | null | AGREE |
+
+25 live highlighters, 4 agencies, **zero disagreements** between the old
+label-match rule and the new `capture_type` column — the migration
+changed nothing about which pens capture, only how that fact is stored.
+
+**The 9 nulls, fully accounted for — every one deliberate, none
+accidental:** 8× "Unpaid" (one per role_scope, one per agency — a plain
+highlight, never a ledger entry, since before this feature existed) + 1×
+"Electricity" (agency 1's own custom addition, also never a capture pen).
+No disabled pen, no orphan row, no agency's real Income/Expense pen came
+out null. (21 further ARCHIVED rows exist across these same agencies —
+old test/verify artifacts and a few agency-20 categories like "Deposit,"
+"Late Payment," "Reconnection Fee" — all correctly null too, same
+agreement, not part of the live 25 above since they were never choosable
+in the first place.)
+
+**Real captured data, checked directly, not a fresh fixture:** every one
+of the 23 real capture-ledger marks anchored to a highlighter (across
+applications 70, 76, 107, 135, 164, 185) still resolves to a highlighter
+whose `capture_type` matches its own stored `entry_type` — zero orphaned
+(highlighter row gone), zero re-typed (mismatched). Per-application
+totals cross-checked against what's actually on record: e.g. application
+135 — R15,000.00 income + R4,500.00 expense, matching the two real
+entries Johan captured live on that application earlier this cycle.
+
+**Known accessibility gap, noted not fixed (Johan, 2026-09-13):** the
+manual-entry form's Income/Expense pick buttons carry no `aria-pressed`
+state — a screen reader has no way to hear which one (if either) is
+currently selected. Flagged for a future pass; not fixed in this round.
+
+### Manual entry, no pre-selected type
+
+Manual-entry `entry_type` used to default to `'income'` the instant the
+form opened. Johan, ruling on cc4's agent-walk finding: "It should be
+selected? so we dont have misfiles." Now starts `null` on init and on
+every open; the existing two-button Income/Expense pick (never a
+dropdown) correctly shows neither highlighted until actually clicked.
+Save carries the native `disabled` attribute (confirmed by Johan's own
+Chrome check, not just styled grey) AND a visible dim (`.corex-btn-primary`
+has no `:disabled` style of its own) until a type is chosen; `saveManualEntry()`
+also refuses server-request-side with "Choose Income or Expense first" —
+the amount field's own Enter-key handler calls it directly and would
+otherwise bypass a disabled button entirely. The capture chip (drawn from
+a highlighter pen) is untouched — it already carries its type from the
+pen the agent chose, never a second confirmation.
