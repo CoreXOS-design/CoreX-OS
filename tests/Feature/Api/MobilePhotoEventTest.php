@@ -52,7 +52,7 @@ class MobilePhotoEventTest extends TestCase
         ]);
     }
 
-    private function post(array $events)
+    private function postPhotoEvents(array $events)
     {
         return $this->actingAs($this->user)
             ->postJson('/api/v1/mobile/photo-events', ['events' => $events]);
@@ -60,7 +60,7 @@ class MobilePhotoEventTest extends TestCase
 
     public function test_it_records_what_the_phone_reports(): void
     {
-        $res = $this->post([
+        $res = $this->postPhotoEvents([
             ['property_id' => $this->property->id, 'client_upload_id' => 'abc_1', 'phase' => 'captured', 'occurred_at' => 1788170293929],
             ['property_id' => $this->property->id, 'client_upload_id' => 'abc_1', 'phase' => 'queued'],
         ]);
@@ -79,7 +79,7 @@ class MobilePhotoEventTest extends TestCase
         // `received` is the server's own word, written in uploadImage(). If a
         // client could assert it, the log could show an arrival that never
         // happened — the exact question this table exists to settle.
-        $res = $this->post([
+        $res = $this->postPhotoEvents([
             ['property_id' => $this->property->id, 'client_upload_id' => 'abc_2', 'phase' => 'received'],
         ]);
 
@@ -91,15 +91,15 @@ class MobilePhotoEventTest extends TestCase
     {
         $event = ['property_id' => $this->property->id, 'client_upload_id' => 'abc_3', 'phase' => 'captured'];
 
-        $this->post([$event])->assertStatus(200);
-        $this->post([$event])->assertStatus(200);
+        $this->postPhotoEvents([$event])->assertStatus(200);
+        $this->postPhotoEvents([$event])->assertStatus(200);
 
         $this->assertSame(1, MobilePhotoEvent::where('client_upload_id', 'abc_3')->count());
     }
 
     public function test_junk_is_skipped_without_failing_the_batch(): void
     {
-        $res = $this->post([
+        $res = $this->postPhotoEvents([
             'not-an-array',
             ['client_upload_id' => 'no_property', 'phase' => 'captured'],
             ['property_id' => $this->property->id, 'phase' => 'captured'],
@@ -120,7 +120,7 @@ class MobilePhotoEventTest extends TestCase
             'listing_type' => 'sale', 'status' => 'active', 'price' => 1000000,
         ]);
 
-        $res = $this->post([
+        $res = $this->postPhotoEvents([
             ['property_id' => $otherProperty->id, 'client_upload_id' => 'abc_6', 'phase' => 'captured'],
         ]);
 

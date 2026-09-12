@@ -85,11 +85,54 @@ if (files.length === 0) {
 let totalFailures = 0;
 
 // ── Shared browser-ish stubs for check 3 (dynamic execution) ──────────────
+/**
+ * An auto-permissive stand-in for a real CanvasRenderingContext2D (or
+ * anything else with an unbounded, real API surface this sandbox has no
+ * hope of enumerating completely) — ANY property read returns a no-op
+ * function so `ctx.scale(...)`, `ctx.beginPath()`, `ctx.lineTo(...)` etc.
+ * all just work, and ANY property write (`ctx.lineWidth = 2`) is accepted
+ * silently. `getContext('2d')` returning `null` (real browsers never do
+ * this for a supported context type) was itself the sandbox lie that
+ * turned a real, correct `ctx.scale(...)` call into a false failure
+ * (2026-09-12, cc6) the moment the PRECEDING `dataset` gap was fixed and
+ * the code ran one line further. Same principle as the rest of this
+ * sandbox's own stubs (see the file's own docblock) — permissive rather
+ * than enumerated, so the NEXT canvas method some other component uses
+ * doesn't become the next false failure.
+ */
+function fakePermissiveObject() {
+    return new Proxy(() => fakePermissiveObject(), {
+        get: (target, prop) => {
+            if (prop === Symbol.toPrimitive || prop === 'toString' || prop === 'valueOf') return () => '';
+            return fakePermissiveObject();
+        },
+        set: () => true,
+        apply: () => fakePermissiveObject(),
+    });
+}
+
 function makeSandbox() {
     const fakeEl = () => ({
         style: { setProperty: () => {}, removeProperty: () => {} },
-        setAttribute: () => {}, getContext: () => null, focus: () => {}, select: () => {},
+        setAttribute: () => {}, getContext: () => fakePermissiveObject(), focus: () => {}, select: () => {},
         value: '', scrollIntoView: () => {}, closest: () => fakeEl(), getBoundingClientRect: () => ({ left: 0, top: 0, width: 0, height: 0 }),
+        // Every real element supports these — missing here surfaced right
+        // after the dataset/getContext fixes above, same false-failure
+        // shape one line further into the same real code (2026-09-12).
+        addEventListener: () => {}, removeEventListener: () => {}, dispatchEvent: () => true,
+        // A real element's .dataset is always a DOMStringMap — present and
+        // empty, never undefined — even before anything's been set on it.
+        // Missing here made a real, pre-existing, correct call
+        // (`canvas.dataset.someFlag`) throw "Cannot read properties of
+        // undefined" — a sandbox gap reported as a false failure, not a
+        // real regression (2026-09-12, cc6, on the public applicant
+        // signature pad). This element is freshly constructed on every
+        // getElementById()/querySelector() call (see `doc` below), so a
+        // plain object is the honest level of fidelity — this sandbox
+        // doesn't model one persistent element per id either, and a Proxy
+        // that pretended dataset writes survived across calls when nothing
+        // else here does would be a worse lie than this one.
+        dataset: {},
     });
     const win = { addEventListener: () => {}, removeEventListener: () => {}, innerWidth: 1920, innerHeight: 1080, matchMedia: () => ({ matches: false }), location: { href: 'https://example.test/verify-alpine-render' } };
     const doc = {
@@ -103,6 +146,11 @@ function makeSandbox() {
         CustomEvent: function (name, opts) { this.type = name; this.detail = opts && opts.detail; },
         ResizeObserver: function () { this.observe = () => {}; this.disconnect = () => {}; },
         IntersectionObserver: function () { this.observe = () => {}; this.disconnect = () => {}; },
+        // Same permissive-stub reasoning as fakePermissiveObject() above —
+        // a real, legitimate `new FormData()` call (e.g. an autosave
+        // payload builder) had no global to construct at all, a plain
+        // ReferenceError-shaped false failure (2026-09-12).
+        FormData: function () { return fakePermissiveObject(); },
         fetch: () => Promise.resolve({ ok: true, json: () => Promise.resolve({}) }),
         confirm: () => true,
         setTimeout, clearTimeout, setInterval, clearInterval,
