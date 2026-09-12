@@ -10933,3 +10933,84 @@ tracking, `beaconSaveIfDirty()`, persistent saved indicator, `data-progress-sect
 `initProgress()`/`scrollProgressPercent`/`currentSectionLabel`),
 `tests/Feature/RentalApplications/RentalApplicationAutosaveTest.php` (+3 tests),
 `tests/Feature/RentalApplications/RentalApplicationUploadMessageTest.php` (new, 4 tests).
+
+## What the 11.7MB actually costs on a real connection (2026-09-14, cc5)
+
+**MEASUREMENT ONLY — no code changed, per explicit instruction ("DO NOT
+OPTIMISE, DO NOT RESTRUCTURE").** Follow-up to the 45-page stress
+investigation above: the raw payload size doesn't matter on its own, what
+matters is real seconds on a real line. Measured via Chrome DevTools
+Protocol network emulation (`Network.emulateNetworkConditions` — the same
+mechanism Chrome's own DevTools throttling dropdown uses) against the same
+application-208 fixture, cold server cache cleared before every profile run
+(the genuine "first agent to open this on Monday" case). Reasoning for each
+profile, since the point is for these numbers to be defensibly TRUE, not
+picked to make a case either way:
+
+| Profile | Down / Up | Latency | Page 1 usable | Fully loaded |
+|---|---|---|---|---|
+| Good SA office fibre | 50 / 10 Mbps | 15ms | 0.7s | **9.0s** |
+| Modest office line | 8 / 2 Mbps | 35ms | 0.9s | **17.9s** |
+| Poor branch connection (bad day) | 1 / 0.25 Mbps | 150ms | 2.3s | **40.5s** (see caveat below) |
+| Mobile data (typical SA LTE, not best-case) | 3 / 1 Mbps | 80ms | 0.5s | **37.9s** |
+
+**Caveat on the "poor" number, stated plainly rather than left implicit:**
+naive arithmetic on 11.69MB at a true, sustained 1Mbps predicts roughly 93
+seconds of pure transfer, not the ~38 seconds actually measured (transfer
+component: 40.5s − ~4-5s server rasterize ≈ 35s). Reproduced twice,
+identical both times, so this isn't a fluke — it's a genuine characteristic
+of Chrome's CDP-level bandwidth emulation at very low throughput values
+(a documented limitation: it isn't a true shared-link/congestion model).
+**Meaning the real number on an actual bad branch line could plausibly be
+WORSE than 40.5s, not better** — I'm not rounding this up to look more
+alarming, but I'm also not going to hand over a number that might be
+artificially generous on the one profile Johan most needs to trust. If a
+harder number is needed for that specific case, it wants a real network
+throttle (`tc`/`netem` or a physical bad line), not this tool.
+
+**What the agent SEES during the wait — screenshotted mid-load on the poor
+connection.** Not a blank panel: page 1 renders fully usable within 0.5-2.3s
+on every profile, with a blue banner ("Page 1 of 45 shown — loading the
+remaining 44 pages. You can start marking up page 1 now"), a spinner, and a
+"Loading…" badge next to the mark count. The messaging itself is good and
+already reassuring. **But there is no progress indicator** — no percentage,
+no "12 of 44 loaded" counter — because all 44 remaining pages arrive in ONE
+response at the very end (see the earlier stress-investigation section: not
+lazy past page 1). For the good/modest profiles this is barely noticed
+(9-18s). **On the poor connection, that's ~38 seconds of a completely
+static "Loading…" state with nothing on screen changing at all until
+everything arrives at once** — exactly the shape of wait that reads as
+"broken" to someone who doesn't already know the mechanism, and exactly
+what would prompt the reload-and-start-over Johan described, which would
+then re-pay the entire cold cost.
+
+**Compression — not currently applied, and a real, measurable, currently-
+unclaimed win exists.** Checked the actual response headers and CDP
+`encodedDataLength` (bytes genuinely transferred, not just claimed):
+`Content-Type: application/json`, no `Content-Encoding` header at all, and
+`encodedDataLength` (12,260,110 bytes) matches the raw uncompressed JSON
+size exactly — this response is sent completely raw. Tested what standard
+`gzip -9` achieves on the IDENTICAL payload the server actually generates
+(captured directly from the service, not reconstructed): **12,258,999 →
+8,438,136 bytes — a 31.2% reduction** (11.69MB → 8.05MB). This is smaller
+than intuition might suggest for "already-compressed PNG data," because the
+base64 text encoding wrapping those PNGs (and the repeated JSON keys across
+44 page objects) carries real, gzip-exploitable redundancy even though the
+underlying image bytes don't. Not tested: brotli (not available on this
+box) — typically compresses text somewhat better than gzip, no measured
+number to report. **This was measured as a hypothetical, offline, on a
+captured copy of the payload — nothing about the running app's compression
+behaviour was changed.** Whether this becomes a web-server-level `gzip on;`
+flip (cheap, no app code touched) or something else is a decision, not
+something taken here.
+
+### For Johan, in one sentence per profile
+
+Opening a real 45-page bank statement bundle for the first time: **~9
+seconds on good office fibre, ~18 seconds on a modest line, and somewhere
+around 40 seconds — possibly worse — on a bad branch-office or mobile
+connection**, with page 1 itself always usable within 1-2 seconds and a
+message explaining what's happening, but no progress indicator during that
+wait on the slow end. Every agent after the first, on the same document,
+gets this from server-side cache in under a second regardless of connection
+— this cost is paid once per document, not once per view.
