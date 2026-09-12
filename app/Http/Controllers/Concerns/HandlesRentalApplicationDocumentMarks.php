@@ -422,6 +422,45 @@ trait HandlesRentalApplicationDocumentMarks
     }
 
     /**
+     * Johan's decision, 2026-09-14: "A struck-out line is EXCLUDED from the
+     * totals... The line stays VISIBLE with its date, description and
+     * amount. It is struck, not hidden. An agent must be able to see what
+     * she excluded and un-strike it." A toggle, not two separate actions —
+     * un-striking is exactly this same call again, same guard, same row.
+     *
+     * Same ownership rule as update/delete (guardCaptureEntryOwnership()),
+     * per instruction ("you have done that work already, so use the same
+     * guards"). Direct, worth stating plainly: this means an authoriser can
+     * never strike an AGENT's own captured line (blockedByRole below) —
+     * exactly the same rule that already stops an authoriser editing or
+     * deleting one. An authoriser can strike/restore only a line they
+     * themselves authored, or an unattributed/legacy one. This is a
+     * deliberate consequence of reusing the existing guard, not a new rule
+     * invented for this action.
+     */
+    public function captureEntryToggleStrike(Request $request, RentalApplication $rentalApplication, string $markUid)
+    {
+        $this->guardRentalApplication($rentalApplication);
+        if ($locked = $this->guardScreenNotLockedForAuthoriser($rentalApplication)) {
+            return $locked;
+        }
+
+        $mark = RentalApplicationDocumentMark::where('rental_application_id', $rentalApplication->id)
+            ->where('mark_uid', $markUid)
+            ->whereIn('entry_type', RentalApplicationDocumentMark::LEDGER_ENTRY_TYPES)
+            ->firstOrFail();
+
+        $this->guardCaptureEntryOwnership($mark, $request->user());
+
+        $nowStriking = $mark->struck_out_at === null;
+        $mark->struck_out_at = $nowStriking ? now() : null;
+        $mark->struck_out_by_user_id = $nowStriking ? $request->user()->id : null;
+        $mark->save();
+
+        return response()->json(['ok' => true, 'entry' => $mark->toMarkArray()]);
+    }
+
+    /**
      * Same ownership rule persistMarks() already enforces for removing a
      * plain highlight/note (AT-401's own governance): an unattributed
      * (legacy/migrated) entry has nothing to protect; otherwise only the

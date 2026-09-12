@@ -10277,3 +10277,151 @@ scope — reported here for a dedicated pass, not fixed as part of removing a de
   this specific change): 8/8 screens PASS, 0 console errors, including both `review_screen` and
   `authorisation_screen`.
 - `dev-check.ps1` cannot run on this box (no `pwsh`) — stated plainly, not silently skipped.
+
+## Struck-out lines are EXCLUDED from the affordability totals — Johan's decision (2026-09-14, cc4)
+
+**Johan's ruling, verbatim from the routing message: "A struck-out line is EXCLUDED from the
+totals. Option 1. That is what an agent expects when she strikes a line, and it is now the
+rule."** Applies to income, expense, and therefore months, monthly income and net monthly —
+everything downstream, not just the two headline figures. The line stays visible with its date,
+description and amount; it is struck, not hidden; either role can un-strike it back into the
+totals.
+
+### Investigation, finished before the build, per instruction
+
+**What reads the strike flag now — before this build, nothing did.** The old pre-2026-09-11
+`qualifyingResult()` (removed earlier this session) was the only thing that ever excluded a
+struck line from a total, and it read the OLD `RentalApplicationIncomeItem`/`ExpenseItem` tables'
+`struck_out_at`, not anything on the current capture-ledger. On the CURRENT screen, before this
+build: nothing calculated with it (confirmed — no consumer existed), and almost nothing displayed
+it either — the actual strike-and-replace UI (`rentalAssessmentEditor()`) was deleted outright in
+the 2026-09-11 rework, so there was no button anywhere to strike a NEW line, on either role's
+screen. One stale, still-rendered tooltip on the authoriser's own panel header
+(`review.blade.php`, "Captured by the agent... If you disagree with a figure, strike it out...")
+promised this exact feature with no control behind it. The general Audit Trail (visible to both
+roles) still shows the historical `"Struck out a income line: ..."` entries from before the
+rework, verbatim, for any application that has them — genuinely present, just easy to miss past
+10 more recent entries.
+
+**Totals are computed in ONE place, confirmed, not two** — exactly as expected from the earlier
+arithmetic audit. The server hands down `captureEntries` once; `rentalCaptureLedger()` (a single
+shared Alpine mixin, spread into BOTH `rentalReview()` (agent) and `rentalAuthorisationViewer()`
+(authoriser) via `...rentalCaptureLedger({...})`) owns `incomeTotal()`/`expenseTotal()`/
+`monthlyIncome()`/`netMonthly()` for both roles from that one object. There is no second,
+authoriser-only or agent-only copy of this arithmetic to drift out of sync — the exclusion added
+below lives in exactly one function pair, read by both screens.
+
+**Existing records with struck lines — 9 income, 0 expense, same 5 applications found in the
+prior investigation (agency 1, applications 4, 16, 22, 26, 66).** None of them move. Checked
+directly against the real database, not assumed: the 2026-09-11 backfill migration mapped every
+old struck item's `struck_out_at` straight onto the new marks table's `deleted_at` (soft-delete)
+— confirmed today that all 9 carried through correctly (their `deleted_at` timestamps match their
+original `struck_out_at` exactly, live-queried). A soft-deleted mark is invisible and already
+excluded, with or without this build. The NEW `struck_out_at`/`struck_out_by_user_id` columns
+this build adds are a genuinely new, separate concept — confirmed by direct query immediately
+after migrating that every existing mark (all 323 of them) has `struck_out_at` still null. **No
+application's total changes as a result of shipping this feature** — the new exclusion only ever
+applies to a line a user newly strikes through the new control, going forward.
+
+### The build
+
+- **Migration** `2026_09_14_120000_add_struck_out_to_rental_application_document_marks.php` —
+  `struck_out_at` (nullable timestamp), `struck_out_by_user_id` (nullable FK to `users`,
+  `nullOnDelete`) on `rental_application_document_marks`. Column names/shape deliberately mirror
+  the old, frozen `RentalApplicationIncomeItem`/`ExpenseItem` columns for anyone who worked with
+  that feature before — this is a new capability on the table that replaced them, not a revival
+  of the old one.
+- **`RentalApplicationDocumentMark`** — `isStruckOut()`, `struckOutBy()` relation, `struck_out_at`
+  cast to `datetime`. Deliberately NOT added to `$fillable` — set only by the dedicated toggle
+  action below, never reachable through the existing generic `captureEntryUpdate()`'s mass
+  assignment. `toMarkArray()` now carries `struck_out` (bool), `struck_out_by` (name), `struck_out_at`
+  (formatted) on every entry, always — struck lines are never filtered out of this array, only
+  out of the totals that sum it.
+- **`HandlesRentalApplicationDocumentMarks::captureEntryToggleStrike()`** — new shared action,
+  same trait `captureEntryUpdate()`/`captureEntryDelete()` already live in. One call toggles both
+  directions (strike and restore are the same request). Guards, per instruction ("you have done
+  that work already, so use the same guards"): `guardRentalApplication()` (agency/branch/own
+  scope), `guardScreenNotLockedForAuthoriser()` (same 423 lock as update/delete), and
+  `guardCaptureEntryOwnership()` — the EXACT same ownership rule update/delete already enforce.
+  Stated plainly since it's a direct, deliberate consequence: **an authoriser can never strike an
+  agent's own captured line** (the same rule that already stops them editing or deleting one) —
+  they can strike/restore only a line they themselves authored, or an unattributed/legacy one.
+  This is a departure from the OLD pre-rework strike design ("any RO/CO can strike ANY row"),
+  intentional per this instruction, not an oversight.
+- **Routes** — `corex.rental-applications.capture-entries.strike` (agent) and
+  `corex.rental-applications.authorisation.capture-entries.strike` (authoriser), both
+  `POST .../capture-entries/{markUid}/strike`, mirroring the existing update/delete route pairs
+  exactly.
+- **UI** (`review.blade.php`, `rentalCaptureLedger()`) — a small `⊘`/`↺` toggle glyph as a new 5th
+  column on every income/expense ledger row (14px, taken as its own column, not from the amount
+  column's own hard-won width floor — see that CSS block's own history). `@click.stop` so it
+  never also fires the row's `jumpToMark()`. The struck line's amount renders with
+  `text-decoration: line-through` and a muted colour — visible, not hidden, exactly as instructed.
+  `incomeTotal()`/`expenseTotal()` now filter out `struck_out` entries before summing (one line
+  each); `incomeEntries()`/`expenseEntries()` — the row LIST — are untouched, so struck rows never
+  disappear from view.
+- **Reconciliation** (Johan: "she must be able to see why without guessing... keep it small...
+  no explanatory paragraph") — a muted `(N struck)` suffix appended directly to the "Income"/
+  "Expenses" total labels themselves, shown only when that section has at least one struck line.
+  No new UI real estate, no paragraph — implemented directly rather than proposed first, since it
+  fits the "few characters" bar the instruction itself set.
+- A small `ledgerActionError` string surfaces a refused toggle (locked screen, wrong author)
+  inline under the totals — same small-footprint pattern `manualEntryError` already uses.
+
+### Proof — the reference case, struck, derived independently, to the cent, both directions
+
+New test file, `RentalApplicationCaptureEntryStrikeTest.php`, 6 tests / 35 assertions, all
+passing:
+
+- **`test_striking_and_unstriking_the_reference_case_matches_to_the_cent_both_directions`** —
+  reproduces Johan's own application-76 reference case again (application 76 itself never
+  touched), strikes the unanchored "wages — R1,270.58" line via the real HTTP toggle endpoint,
+  and independently re-derives the expected new figures in PHP: income **R89,606.75**, monthly
+  income **R22,401.69**, net monthly **R21,639.19** — matched to the cent against what the server
+  actually returns. Confirms the struck line stays IN `captureEntries` (count still 7, not 6),
+  with its own amount unchanged and `struck_out: true`. Confirms persistence with a genuinely
+  fresh GET (not the toggle's own response). Then un-strikes the SAME line and confirms the
+  totals return to EXACTLY Johan's original figures — R90,877.33 / R22,719.33 / R21,956.83 — a
+  true round-trip, not an approximation.
+- **`test_authoriser_sees_the_identical_struck_state_and_totals_the_agent_set`** — the agent
+  strikes a line from their own screen; the authoriser's own independent derivation of the total
+  (reading the same `captureEntries`) excludes it identically. No divergence between the two
+  screens' arithmetic.
+- **`test_cross_agency_strike_attempt_is_refused`** — a different agency's own agent, hitting the
+  first agency's real application id and mark_uid directly: 404, before the controller even
+  runs — `RentalApplication`'s `BelongsToAgency` global scope means the route model binding
+  itself can never resolve the record. The mark is confirmed NOT struck afterwards.
+- **`test_a_different_agents_line_cannot_be_struck_by_another_agent`** — same agency, same role,
+  a different agent than the mark's own author: 403 (wrong-author, not cross-agency — the
+  distinction the instruction specifically asked to be proven).
+- **`test_authoriser_cannot_strike_an_agents_own_captured_line`** — 403, proving the ownership
+  rule's stated consequence above is real, not just described.
+- **`test_authoriser_can_strike_an_unattributed_legacy_line`** — the positive case: an
+  unattributed mark (`author_role` null, same shape the 2026-09-11 backfill migration produced)
+  CAN be struck by the authoriser — confirms the ownership guard's "nothing to protect" branch
+  still works, not just its refusals.
+
+Also re-run after the build, unaffected: `RentalApplicationAffordabilityArithmeticTest` (3/3,
+same figures) and `scripts/verify-alpine-render.mjs` against a REAL fetched render of both
+screens (497 and 434 Alpine expressions respectively, both PASS, zero leaked attribute text, zero
+execution errors — fetched via a local `php artisan serve` + `npm run build` against this
+worktree specifically, since the render gate needs a genuinely deployed page and this work
+wasn't live yet at verification time).
+
+**A real bug caught by this same render-gate discipline before it shipped**: the first draft of
+this build passed `captureStrikeUrlTemplate` into both `x-data` inits but never threaded it
+through `rentalReview()`'s/`rentalAuthorisationViewer()`'s own destructured parameters or their
+`...rentalCaptureLedger({...})` spread calls — the exact "parameter passed but never received"
+failure class this gate exists to catch (see its own docblock, incident #1). Found and fixed
+before any push, not after.
+
+### Correction to the prior report's Round9/10/11 triage
+
+The manual "Add line manually" amount field (`type="number"`, the Round 11 regression named
+immediately in that report) is **agent-only, not both roles** — it sits inside
+`@if($viewerRole === 'agent')` further up the same template; the earlier claim that it was
+"ungated by role" was wrong, caught while reading the same file more carefully for this build.
+The regression itself stands exactly as reported (an agent typing a decimal amount into that
+field will very likely hit the same character-eating bug Round 11 already fixed elsewhere); only
+its exposure is narrower than first stated. Not touched in this pass — still reported only, per
+instruction.

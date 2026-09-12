@@ -136,6 +136,7 @@
          },
          initialCaptureEntries: {{ Js::from($captureEntries) }},
          manualCaptureCreateUrl: '{{ route('corex.rental-applications.capture-entries.store-manual', $rentalApplication) }}',
+         captureStrikeUrlTemplate: '{{ route('corex.rental-applications.capture-entries.strike', [$rentalApplication, '__MARK_UID__']) }}',
          initialSavedAt: {{ $assessment->exists ? Js::from($assessment->updated_at->toIso8601String()) : 'null' }},
          initialMarkedUpDocIds: {{ Js::from($initialMarkedUpDocIds) }},
          currentUserId: {{ Js::from(auth()->id()) }},
@@ -159,6 +160,7 @@
          highlighters: {{ Js::from($highlighters) }},
          initialCaptureEntries: {{ Js::from($captureEntries) }},
          initialStatementMonths: {{ Js::from($assessment->statement_months) }},
+         captureStrikeUrlTemplate: '{{ route('corex.rental-applications.authorisation.capture-entries.strike', [$rentalApplication, '__MARK_UID__']) }}',
      })"
      @endif
      {{-- Capture-ledger rework, 2026-09-11 — the chip lives inside
@@ -456,8 +458,16 @@
            15+44+12+3(6)=89px before, 15+53+12+3(3)=89px now — so the
            amount column's actual available space, and the wrap fix it
            depends on, is completely unaffected. */
+        /* Johan's decision, 2026-09-14 — struck-out excludes a line from the
+           totals; it stays a 5th column (a fixed-width toggle glyph) rather
+           than reusing the existing 12px jump-arrow slot, which already
+           does double duty (arrow / missing-doc warning) and has no room
+           left for a third meaning. 14px added to the row's fixed width
+           (89px -> 103px, see the 2026-09-13 comment above for that math) —
+           taken as its own column, not from the amount column's own
+           hard-won floor. */
         .rr-ledger-row {
-            display: grid; grid-template-columns: 15px 53px minmax(72px, 1fr) 12px; gap: 3px; align-items: center;
+            display: grid; grid-template-columns: 15px 53px minmax(72px, 1fr) 12px 14px; gap: 3px; align-items: center;
             padding: 2px 0;
         }
         .rr-ledger-badge {
@@ -466,6 +476,12 @@
             flex-shrink: 0;
         }
         .rr-ledger-amount { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+        .rr-ledger-strike {
+            width: 14px; height: 14px; padding: 0; border: none; background: transparent;
+            color: var(--text-muted); font-size: 12px; line-height: 14px; cursor: pointer;
+        }
+        .rr-ledger-strike:hover { color: var(--text-primary); }
+        .rr-ledger-strike:disabled { cursor: default; opacity: 0.5; }
     </style>
 
     <div class="rental-review-columns mt-5" x-data="rentalReviewLayout({
@@ -1238,9 +1254,15 @@
                             <span x-text="shortDate(row.entry_date)"></span>
                             <span x-show="isOutsidePeriod(row)" title="This entry's date falls outside the statement period set above." style="position: absolute; top: -3px; right: -4px; width: 5px; height: 5px; border-radius: 50%; background: var(--ds-amber, #b45309);"></span>
                         </span>
-                        <span class="rr-ledger-amount text-xs" style="color: var(--text-primary);" :title="row.entry_description" x-text="formatR(row.entry_amount)"></span>
+                        <span class="rr-ledger-amount text-xs" :style="{ color: row.struck_out ? 'var(--text-muted)' : 'var(--text-primary)', 'text-decoration': row.struck_out ? 'line-through' : 'none' }" :title="row.entry_description" x-text="formatR(row.entry_amount)"></span>
                         <span x-show="!row.document_missing" class="text-[11px] text-right" :style="{ color: row.document_id ? 'var(--ds-blue, #2563eb)' : 'var(--text-muted)' }">&rarr;</span>
                         <span x-show="row.document_missing" class="text-[10px] text-right" style="color: var(--ds-crimson, #dc2626);">Document removed</span>
+                        {{-- Johan's decision, 2026-09-14 — struck excludes
+                             from the totals, never from this list; the
+                             toggle is the same call both ways. .stop so
+                             clicking it never also fires the row's own
+                             jumpToMark(). --}}
+                        <button type="button" class="rr-ledger-strike" :disabled="row.strikingBusy" :title="row.struck_out ? 'Restore this line to the totals' : 'Strike this line — exclude it from the totals'" @click.stop="toggleStrike(row)" x-text="row.struck_out ? '↺' : '⊘'"></button>
                     </div>
                 </template>
             </div>
@@ -1268,9 +1290,10 @@
                             <span x-text="shortDate(row.entry_date)"></span>
                             <span x-show="isOutsidePeriod(row)" title="This entry's date falls outside the statement period set above." style="position: absolute; top: -3px; right: -4px; width: 5px; height: 5px; border-radius: 50%; background: var(--ds-amber, #b45309);"></span>
                         </span>
-                        <span class="rr-ledger-amount text-xs" style="color: var(--text-primary);" :title="row.entry_description" x-text="formatR(row.entry_amount)"></span>
+                        <span class="rr-ledger-amount text-xs" :style="{ color: row.struck_out ? 'var(--text-muted)' : 'var(--text-primary)', 'text-decoration': row.struck_out ? 'line-through' : 'none' }" :title="row.entry_description" x-text="formatR(row.entry_amount)"></span>
                         <span x-show="!row.document_missing" class="text-[11px] text-right" :style="{ color: row.document_id ? 'var(--ds-blue, #2563eb)' : 'var(--text-muted)' }">&rarr;</span>
                         <span x-show="row.document_missing" class="text-[10px] text-right" style="color: var(--ds-crimson, #dc2626);">Document removed</span>
+                        <button type="button" class="rr-ledger-strike" :disabled="row.strikingBusy" :title="row.struck_out ? 'Restore this line to the totals' : 'Strike this line — exclude it from the totals'" @click.stop="toggleStrike(row)" x-text="row.struck_out ? '↺' : '⊘'"></button>
                     </div>
                 </template>
             </div>
@@ -1281,11 +1304,16 @@
                  Zone 3 and is not part of this panel's stated contents;
                  dropped, not relocated. Flagged in the build report. --}}
             <div class="pt-2" style="border-top: 1px solid var(--border);">
-                <p class="text-xs flex items-center justify-between" style="color: var(--text-secondary);"><span>Income</span><span class="rr-ledger-amount" style="color: var(--text-primary);" x-text="formatR(incomeTotal())"></span></p>
-                <p class="text-xs flex items-center justify-between" style="color: var(--text-secondary);"><span>Expenses</span><span class="rr-ledger-amount" style="color: var(--text-primary);" x-text="formatR(expenseTotal())"></span></p>
+                {{-- Reconciliation, 2026-09-14 — Johan: "she must be able to
+                     see why without guessing," kept to a few characters, no
+                     explanatory paragraph. The struck count sits right next
+                     to the total it explains. --}}
+                <p class="text-xs flex items-center justify-between" style="color: var(--text-secondary);"><span>Income <span x-show="struckIncomeCount()" style="color: var(--text-muted);" x-text="'(' + struckIncomeCount() + ' struck)'"></span></span><span class="rr-ledger-amount" style="color: var(--text-primary);" x-text="formatR(incomeTotal())"></span></p>
+                <p class="text-xs flex items-center justify-between" style="color: var(--text-secondary);"><span>Expenses <span x-show="struckExpenseCount()" style="color: var(--text-muted);" x-text="'(' + struckExpenseCount() + ' struck)'"></span></span><span class="rr-ledger-amount" style="color: var(--text-primary);" x-text="formatR(expenseTotal())"></span></p>
                 <p class="text-xs flex items-center justify-between" style="color: var(--text-secondary);"><span>Months</span><span style="color: var(--text-primary);" x-text="statementMonths || '—'"></span></p>
                 <p class="text-xs flex items-center justify-between" style="color: var(--text-secondary);"><span>Monthly income</span><span class="rr-ledger-amount" style="color: var(--text-primary);" x-text="formatR(monthlyIncome())"></span></p>
                 <p class="text-sm font-bold flex items-center justify-between mt-1" style="color: var(--text-primary);"><span>Net monthly</span><span class="rr-ledger-amount" x-text="formatR(netMonthly())"></span></p>
+                <p class="text-[11px] mt-1" style="color: var(--ds-crimson, #dc2626);" x-show="ledgerActionError" x-text="ledgerActionError"></p>
             </div>
 
             {{-- Actions. --}}
@@ -1681,9 +1709,15 @@
  * captured entry is appended) — never a stored number, so it can never
  * drift from what's actually on screen.
  */
-function rentalCaptureLedger({ initialCaptureEntries, manualCaptureCreateUrl } = {}) {
+function rentalCaptureLedger({ initialCaptureEntries, manualCaptureCreateUrl, captureStrikeUrlTemplate } = {}) {
     return {
         captureEntries: initialCaptureEntries || [],
+        captureStrikeUrlTemplate: captureStrikeUrlTemplate || '',
+        // Johan's decision, 2026-09-14 — a brief, row-agnostic error surface
+        // for the strike/restore toggle (locked screen, wrong author, etc.)
+        // — same small-footprint pattern as manualEntryError above, not a
+        // per-row state array for what should be a rare, quickly-cleared case.
+        ledgerActionError: '',
         // Stage 3, 2026-09-11 — "Add line manually," for a figure with
         // nothing to highlight. A self-contained inline form here (not the
         // document-highlighter's own capture chip) since a manual entry has
@@ -1787,11 +1821,29 @@ function rentalCaptureLedger({ initialCaptureEntries, manualCaptureCreateUrl } =
         // more; that computation still exists, unused by this screen now,
         // since it read the old income/expense-item tables this rework
         // replaces as this screen's source of truth).
+        //
+        // Johan's decision, 2026-09-14 — a struck-out line is EXCLUDED here
+        // (income and expense both), and therefore from everything derived
+        // from these two totals below (monthlyIncome()/netMonthly()). The
+        // row itself stays in incomeEntries()/expenseEntries() above — it
+        // is filtered out of the SUM, never out of the LIST; struck lines
+        // remain visible in the ledger, just not counted.
         incomeTotal() {
-            return this.incomeEntries().reduce((sum, e) => sum + (parseFloat(e.entry_amount) || 0), 0);
+            return this.incomeEntries().filter(e => !e.struck_out).reduce((sum, e) => sum + (parseFloat(e.entry_amount) || 0), 0);
         },
         expenseTotal() {
-            return this.expenseEntries().reduce((sum, e) => sum + (parseFloat(e.entry_amount) || 0), 0);
+            return this.expenseEntries().filter(e => !e.struck_out).reduce((sum, e) => sum + (parseFloat(e.entry_amount) || 0), 0);
+        },
+        // Reconciliation, 2026-09-14 — Johan: "if an agent adds the visible
+        // amounts by hand she will get a different number to the total, and
+        // she must be able to see why without guessing." A plain count next
+        // to each total's own label (see the "(N struck)" suffix in the
+        // template) — no separate paragraph, no explanatory box.
+        struckIncomeCount() {
+            return this.incomeEntries().filter(e => e.struck_out).length;
+        },
+        struckExpenseCount() {
+            return this.expenseEntries().filter(e => e.struck_out).length;
         },
         monthlyIncome() {
             const months = parseInt(this.statementMonths, 10);
@@ -1836,10 +1888,46 @@ function rentalCaptureLedger({ initialCaptureEntries, manualCaptureCreateUrl } =
             const idx = this.captureEntries.findIndex(e => e.id === markUid);
             if (idx !== -1) this.captureEntries.splice(idx, 1);
         },
+        // Johan's decision, 2026-09-14 — the toggle both directions: strike
+        // and restore are the exact same call (the server flips whichever
+        // state the row is currently in), same as the old pre-rework
+        // toggleStrikeIncomeItem()/toggleStrikeExpenseItem() this mirrors.
+        // reviewLocked here is the agent's own lock (see rentalReview()'s
+        // own docblock on it) — undefined, and therefore falsy, on the
+        // authoriser's component, which is never locked by this rule
+        // either way; the server enforces the real gate regardless of what
+        // this early-return catches.
+        async toggleStrike(row) {
+            if (this.reviewLocked || row.strikingBusy) return;
+            this.ledgerActionError = '';
+            row.strikingBusy = true;
+            try {
+                const res = await fetch(this.captureStrikeUrlTemplate.replace('__MARK_UID__', encodeURIComponent(row.id)), {
+                    method: 'POST',
+                    headers: {
+                        'Accept': 'application/json',
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content ?? '',
+                        'X-Requested-With': 'XMLHttpRequest',
+                    },
+                    credentials: 'same-origin',
+                });
+                if (!res.ok) {
+                    const body = await res.json().catch(() => ({}));
+                    this.ledgerActionError = body.error || 'Could not update this line.';
+                    row.strikingBusy = false;
+                    return;
+                }
+                const data = await res.json();
+                this.updateCaptureEntry(data.entry);
+            } catch (e) {
+                this.ledgerActionError = 'Network error — this line was not updated.';
+                row.strikingBusy = false;
+            }
+        },
     };
 }
 
-function rentalReview({ saveUrl, initial, initialCaptureEntries, manualCaptureCreateUrl, initialSavedAt, initialMarkedUpDocIds, currentUserId, currentUserName, currentUserRole, highlighters, requestMoreInfoUrl, submitForApprovalUrl, reopenUrl, expectedGeneration, canReopenNow, documentChecklist, reviewLocked }) {
+function rentalReview({ saveUrl, initial, initialCaptureEntries, manualCaptureCreateUrl, captureStrikeUrlTemplate, initialSavedAt, initialMarkedUpDocIds, currentUserId, currentUserName, currentUserRole, highlighters, requestMoreInfoUrl, submitForApprovalUrl, reopenUrl, expectedGeneration, canReopenNow, documentChecklist, reviewLocked }) {
     return {
         // 2026-09-12 — Johan-approved read-only lock while the application
         // is with the authoriser (isPendingAuthorisation()). Set once, from
@@ -1860,7 +1948,7 @@ function rentalReview({ saveUrl, initial, initialCaptureEntries, manualCaptureCr
         // for the same reason rentalDocumentHighlighter() is: identical
         // tally logic, one copy. See its own docblock for the full
         // reasoning (rentalCaptureLedger(), defined further below).
-        ...rentalCaptureLedger({ initialCaptureEntries, manualCaptureCreateUrl }),
+        ...rentalCaptureLedger({ initialCaptureEntries, manualCaptureCreateUrl, captureStrikeUrlTemplate }),
 
         // 2026-09-08 — Johan: "clicking back to application shows a changes
         // may be lost popup but there's no save button visible anywhere." No
@@ -2545,7 +2633,7 @@ function rentalReviewPropertyLink({ searchUrl, linkUrl, currentLabel }) {
     };
 }
 
-function rentalAuthorisationViewer({ initialMarkedUpDocIds, currentUserId, currentUserName, currentUserRole, highlighters, initialCaptureEntries, initialStatementMonths }) {
+function rentalAuthorisationViewer({ initialMarkedUpDocIds, currentUserId, currentUserName, currentUserRole, highlighters, initialCaptureEntries, initialStatementMonths, captureStrikeUrlTemplate }) {
     return {
         // Shared highlight/note viewer — see partials/document-highlighter-script.blade.php.
         ...rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, currentUserName, currentUserRole, highlighters }),
@@ -2553,7 +2641,7 @@ function rentalAuthorisationViewer({ initialMarkedUpDocIds, currentUserId, curre
         // own docblock above rentalReview() for the full reasoning; same
         // factory, same tally, read-only either way (no edit UI in the new
         // panel for anyone — capture happens on the document itself).
-        ...rentalCaptureLedger({ initialCaptureEntries }),
+        ...rentalCaptureLedger({ initialCaptureEntries, captureStrikeUrlTemplate }),
         // statementMonths has no editable UI on the authoriser's side (the
         // dates are the agent's own field, read-only here) — just the
         // number needed for monthlyIncome()/netMonthly() to compute.

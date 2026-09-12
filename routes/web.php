@@ -2914,6 +2914,10 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/{rentalApplication}/documents/{document}/capture-entries', [\App\Http\Controllers\CoreX\RentalApplicationAuthorisationController::class, 'captureEntryCreate'])->name('corex.rental-applications.authorisation.documents.capture-entries.store');
         Route::put('/{rentalApplication}/capture-entries/{markUid}', [\App\Http\Controllers\CoreX\RentalApplicationAuthorisationController::class, 'captureEntryUpdate'])->name('corex.rental-applications.authorisation.capture-entries.update');
         Route::delete('/{rentalApplication}/capture-entries/{markUid}', [\App\Http\Controllers\CoreX\RentalApplicationAuthorisationController::class, 'captureEntryDelete'])->name('corex.rental-applications.authorisation.capture-entries.destroy');
+        // Johan's decision, 2026-09-14 — struck-out excludes from totals; see
+        // HandlesRentalApplicationDocumentMarks::captureEntryToggleStrike()'s
+        // own docblock.
+        Route::post('/{rentalApplication}/capture-entries/{markUid}/strike', [\App\Http\Controllers\CoreX\RentalApplicationAuthorisationController::class, 'captureEntryToggleStrike'])->name('corex.rental-applications.authorisation.capture-entries.strike');
         // Assessment add/strike, 2026-09-08 — Johan, confirmed: "auth can
         // rather strike out and re-add a value than edit a value. this way
         // we have the evidence needed of who did what." No edit/update
@@ -2996,6 +3000,10 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/{rentalApplication}/documents/{document}/capture-entries', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'captureEntryCreate'])->name('corex.rental-applications.documents.capture-entries.store');
         Route::put('/{rentalApplication}/capture-entries/{markUid}', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'captureEntryUpdate'])->name('corex.rental-applications.capture-entries.update');
         Route::delete('/{rentalApplication}/capture-entries/{markUid}', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'captureEntryDelete'])->name('corex.rental-applications.capture-entries.destroy');
+        // Johan's decision, 2026-09-14 — struck-out excludes from totals; see
+        // HandlesRentalApplicationDocumentMarks::captureEntryToggleStrike()'s
+        // own docblock.
+        Route::post('/{rentalApplication}/capture-entries/{markUid}/strike', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'captureEntryToggleStrike'])->name('corex.rental-applications.capture-entries.strike');
         // Stage 3, 2026-09-11 — "Add line manually," agent-only ("Add line
         // manually" only ever renders for $viewerRole === 'agent' in the
         // panel — no authoriser equivalent needed).
