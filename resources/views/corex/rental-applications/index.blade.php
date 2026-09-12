@@ -276,11 +276,44 @@
                              declined application opening into a working review
                              screen is its own bug." Mirrors old returned.blade.php's
                              own unconditional Open+Review pair exactly, for exactly
-                             the statuses that had it. --}}
+                             the statuses that had it.
+
+                             LABELLING FIX (2026-09-14, cc4's agent-walk finding) —
+                             "Open" and "Review" told an agent nothing about which
+                             screen she'd land on, so she picked one, found it
+                             wasn't the one she needed, and went back for the
+                             other — every time. Both buttons do genuinely
+                             different jobs (confirmed from the routes, not the
+                             old labels): Review is always the workspace (mark
+                             up documents, capture the ledger, run the
+                             assessment, submit for authorisation); Open always
+                             lands on RentalApplicationController::show(), which
+                             itself branches into the SAME editable-vs-read-only
+                             split AGENT_EDIT_LOCKED_STATUSES already governs
+                             elsewhere. Each label now names its own
+                             destination instead of a generic verb — no help
+                             text, per Johan's standing rule that a label which
+                             doesn't say where it goes is worse than no label
+                             at all.
+
+                             WIDTH RULING (2026-09-14, Johan) — "View Submission"
+                             widened the action cell enough to force a real
+                             ~144px horizontal scroll at 1280px (measured with
+                             real Puppeteer geometry, before/after, at four
+                             viewports — see the spec). Shortened to "View":
+                             Johan's own ruling was that the row's Status
+                             column already sits right beside this button
+                             ("Returned", "Approved", etc.), so "View" next to
+                             a status badge still names its destination in
+                             context — the shortest word that clears the width
+                             regression without losing the labelling fix.
+                             "Review & Assess" kept as-is; shortening it back
+                             to "Review" would have undone the destination-
+                             naming fix for that button specifically. --}}
                         @if(in_array($application->status, \App\Http\Controllers\CoreX\RentalApplicationController::REVIEWABLE_STATUSES, true))
-                            <a href="{{ route('corex.rental-applications.review', $application) }}" class="corex-btn-outline text-xs">Review</a>
+                            <a href="{{ route('corex.rental-applications.review', $application) }}" class="corex-btn-outline text-xs">Review &amp; Assess</a>
                         @endif
-                        <a href="{{ route('corex.rental-applications.show', $application) }}" class="corex-btn-outline text-xs">Open</a>
+                        <a href="{{ route('corex.rental-applications.show', $application) }}" class="corex-btn-outline text-xs">{{ in_array($application->status, \App\Models\RentalApplication::AGENT_EDIT_LOCKED_STATUSES, true) ? 'View' : 'Edit' }}</a>
                         {{-- REGRESSION FIX (2026-09-11, broadened 2026-09-12) —
                              declined/withdrawn's own explicit door back, since
                              Review is deliberately never offered on either row.

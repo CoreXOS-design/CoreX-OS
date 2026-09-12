@@ -10569,13 +10569,62 @@ mean two different things is correct; three shapes (one of them ambiguous)
 was the actual defect, and it's now down to two, both unambiguous, each
 answering a genuinely different question.
 
-<!-- "Open"/"Review" list-screen button relabelling — investigated and
-     coded (index.blade.php), row-width tested at 4 viewports, but held
-     back from this push: a real regression surfaced at 1280px (see the
-     chat report to the conductor, 2026-09-14) and Johan's call on it was
-     still pending as of this commit. Section to be written here once
-     shipped, not before — do not describe a fix in this spec that isn't
-     actually live. -->
+## "Open"/"Review" list-screen buttons relabelled to name their own destination (2026-09-14, cc3, ruled by Johan)
+
+cc4's agent-walk, fourth finding: an agent on the applications list had no
+way to tell "Open" and "Review" apart before clicking — she'd pick one, land
+on the wrong screen, go back for the other, every time, on every
+application, until memorised by repetition alone.
+
+**Investigated from the routes, not the old labels, before changing
+anything** (Johan's explicit instruction): both buttons do genuinely
+different jobs in every status where they appear together —
+`RentalApplicationController::REVIEWABLE_STATUSES` (in_progress, returned,
+reopened, under_assessment):
+- **Review** always lands on `RentalApplicationReviewController::show()` —
+  the workspace: mark up the uploaded documents, capture the ledger, run the
+  assessment, submit for authorisation.
+- **Open** always lands on `RentalApplicationController::show()`, which
+  itself branches on `RentalApplication::AGENT_EDIT_LOCKED_STATUSES` — the
+  SAME editable-vs-read-only split already governing this screen elsewhere:
+  an editable capture form for draft/sent/in_progress, or a locked, PDF-
+  backed read-only view of exactly what the applicant submitted for
+  returned/reopened/under_assessment/approved/declined/withdrawn.
+
+Not a duplicate pair to collapse — a real distinction with no label saying
+so. Final labels, each naming its own destination, no help text:
+**"Edit"** (draft/sent/in_progress), **"View"** (the locked/read-only
+statuses), **"Review & Assess"**.
+
+**Row-width check, run before pushing, per Johan's explicit instruction not
+to ship a wider row on a guess** — measured with real Puppeteer
+`getBoundingClientRect()` against the live control-centre table, at four
+viewports, across three label rounds:
+
+| Viewport | Baseline ("Open"/"Review") | Round 1 ("View Submission") | Final ("View") |
+|---|---|---|---|
+| 1440px (desktop) | fits, no scroll | fits, no scroll | fits, no scroll — **no change** |
+| 1280px (smaller laptop) | table 1026px, ~11px overflow (negligible) | table 1159px, **144px overflow** (real, flagged) | table 1084px, **69px overflow** |
+| Mobile 390/375px | pre-existing ~653px scroll within the content area | ~786px | ~711px |
+
+**Johan's ruling, and the honest number that comes with it:** "View"
+(chosen because the row's own Status column already sits right beside this
+button — "Returned", "Approved", etc. — so "View" next to a status badge
+still names its destination in context) cuts the 1280px regression from
+144px down to 69px — a real improvement, the shortest word that still
+carries the labelling fix. **It does not fully return to the ~11px
+baseline** — 69px of new horizontal scroll at 1280px is a genuine, if
+smaller, cost of the fix, not zero, and this is stated plainly rather than
+claimed as full parity. Mobile was already scrolling substantially before
+this change in every round; this round's number sits between baseline and
+the first round's, following the same shape.
+
+**No wrapping, no row height change, at any viewport, in any round:**
+every button measured stayed a single line (30px tall) throughout —
+confirmed via `buttonHeights` in every measurement, baseline through final.
+Row-height variation between different applications' rows traces entirely
+to unrelated columns (applicant name, the under_assessment "→ with agent/
+authoriser" line), unchanged by this fix.
 
 ## loadDocument() double-load race — cold-open jump doubled the mark count (2026-09-14, cc1 + cc3)
 
