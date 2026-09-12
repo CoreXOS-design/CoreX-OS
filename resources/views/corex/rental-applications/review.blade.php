@@ -1189,7 +1189,19 @@
                     </p>
                 @else
                     <label class="text-[11px] font-medium block mb-1" style="color: var(--text-secondary);">Statement period</label>
-                    <p class="text-[11px]" style="color: var(--text-muted);">{{ $assessment->statement_period_from?->format('y/m/d') ?? '—' }} &ndash; {{ $assessment->statement_period_to?->format('y/m/d') ?? '—' }}</p>
+                    {{-- BUG FIX, 2026-09-14 (Johan, live) — was 'y/m/d', the
+                         identical digits-only ambiguity as the ledger date
+                         bug fixed earlier this round. Now 'd/m/y' to match
+                         the ledger's own dd/mm/yy exactly, so the two dates
+                         an authoriser reads on this same screen agree. Do
+                         NOT extend this to the d M Y (H:i) timestamps
+                         elsewhere on this screen (documents/entries added,
+                         submitted/approved times) — Johan's explicit
+                         ruling: those are a different class of thing (when
+                         something happened, spelled-out month, already
+                         unambiguous), not a data date the agent captured,
+                         and unifying them would be wrong, not tidy. --}}
+                    <p class="text-[11px]" style="color: var(--text-muted);">{{ $assessment->statement_period_from?->format('d/m/y') ?? '—' }} &ndash; {{ $assessment->statement_period_to?->format('d/m/y') ?? '—' }}</p>
                     @if($assessment->statement_months)
                         <p class="text-[11px]" style="color: var(--text-muted);">Covers {{ $assessment->statement_months }} mo</p>
                     @endif

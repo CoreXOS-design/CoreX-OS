@@ -10385,3 +10385,46 @@ scope — reported here for a dedicated pass, not fixed as part of removing a de
   this specific change): 8/8 screens PASS, 0 console errors, including both `review_screen` and
   `authorisation_screen`.
 - `dev-check.ps1` cannot run on this box (no `pwsh`) — stated plainly, not silently skipped.
+
+## Authoriser's statement-period date fixed to dd/mm/yy; screen's other dates deliberately left alone (2026-09-14, cc3)
+
+cc4's agent-walk also caught: the authoriser's read-only statement-period line
+(`review.blade.php`, the `@else` branch rendered only for `$viewerRole !==
+'agent'`) rendered `y/m/d` — the identical digits-only ambiguity as the
+ledger-date bug fixed earlier this round, on the exact same screen. Changed
+to `d/m/y` so it now matches the ledger's own dd/mm/yy exactly (verified live
+on application 107's authorisation view: `31/05/26 – 01/09/26`) — the two
+places an authoriser reads a captured/reported date on this screen now agree.
+
+**Full inventory of every other date rendering on this screen, taken before
+touching anything, per Johan's request** (so a screen with three different
+date shapes wouldn't become "three shapes" fixed into "still three shapes,
+just moved"):
+
+| Location | Format | Renders as | What it is |
+|---|---|---|---|
+| Ledger rows (`shortDate()`) | dd/mm/yy | `24/07/26` | A data date — captured off a bank statement |
+| Statement period, authoriser view (line ~1192, this fix) | dd/mm/yy | `31/05/26` | A data date — the statement's own range |
+| Document-added timestamp (line 697, 770 — tooltips only) | `d M Y H:i` | `24 Jul 2026 14:30` | When something happened |
+| Manual-entry-added timestamp (line 833) | `d M Y H:i` | `24 Jul 2026 14:30` | When something happened |
+| "Sent to applicant on…" (line 1108) | `d M Y, H:i` | `24 Jul 2026, 14:30` | When something happened |
+| "Submitted for approval…" (line 1136) | `d M Y H:i` | `24 Jul 2026 14:30` | When something happened |
+| Submission generation label (line 1445) | `d M Y, H:i` | `24 Jul 2026, 14:30` | When something happened |
+
+**Johan's explicit ruling, on the record so this isn't "tidied" into one
+format later:** the `d M Y (H:i)` timestamps stay exactly as they are. They
+are a different class of thing to a data date — they answer "when did
+something happen," with a spelled-out month that is already unambiguous,
+never "what date is this document/statement." Unifying them with the
+ledger/statement-period format would be wrong, not tidy: two shapes that
+mean two different things is correct; three shapes (one of them ambiguous)
+was the actual defect, and it's now down to two, both unambiguous, each
+answering a genuinely different question.
+
+<!-- "Open"/"Review" list-screen button relabelling — investigated and
+     coded (index.blade.php), row-width tested at 4 viewports, but held
+     back from this push: a real regression surfaced at 1280px (see the
+     chat report to the conductor, 2026-09-14) and Johan's call on it was
+     still pending as of this commit. Section to be written here once
+     shipped, not before — do not describe a fix in this spec that isn't
+     actually live. -->
