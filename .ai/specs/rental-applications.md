@@ -9323,3 +9323,182 @@ feature tests, and `rental-smoke.mjs` (8/8 screens, 0 console errors, re-run aft
 push) are this pass's equivalent. No Blade/JS files were touched tonight, so cc1's Alpine render
 gate (including its new fourth check) has nothing to check against this specific change — noted
 plainly rather than run against unrelated pages and called "verification."
+
+## Affordability panel arithmetic audit — provably right, to the cent (2026-09-13, cc4)
+
+Johan, verbatim: "THE ARITHMETIC ON THE AFFORDABILITY PANEL MUST BE PROVABLY RIGHT... A wrong
+total here is worse than a crash, because nobody notices it." Full chain audit, real assertions
+against his own real reference figures, application 76 itself never touched.
+
+### The reference case — reproduced, matched to the cent
+
+Reproduced in a throwaway agency in the real database (not application 76), same income/expense
+lines, same statement period:
+
+| Figure | Expected | Computed | Match |
+|---|---|---|---|
+| Income | R90 877.33 | R90 877.33 | ✅ |
+| Expenses | R3 050.00 | R3 050.00 | ✅ |
+| Months | 4 | 4 | ✅ |
+| Monthly income | R22 719.33 | R22 719.33 | ✅ |
+| Net monthly | R21 956.83 | R21 956.83 | ✅ |
+
+Proven on **two independent implementations of the same formula**, not one:
+1. **The actual client-side code**, executed for real in Node against these exact figures
+   (`incomeTotal()`/`expenseTotal()`/`monthlyIncome()`/`netMonthly()`/`formatR()`, copied
+   verbatim from `review.blade.php`) — output matched Johan's figures exactly, including at
+   `toPrecision(20)` (no hidden drift large enough to affect the 2-decimal display).
+2. **A PHPUnit feature test** (`RentalApplicationAffordabilityArithmeticTest.php`,
+   `test_johans_reference_case_matches_to_the_cent`) that creates the real rows in the database,
+   makes a genuine HTTP-dispatched request to the real review-screen route, reads the actual
+   `captureEntries`/`statement_months` the controller hands to the view, and independently
+   re-derives the same arithmetic in PHP — same result, same cent. Confirmed passing:
+   `3 passed (17 assertions)`.
+
+**Floating-point drift, specifically checked, not assumed:** the raw (unrounded) JS sum of the
+six income lines is `90877.330000000001746`, not exactly `90877.33` — genuine IEEE-754 drift
+exists at the 13th decimal place. It has zero effect on the 2-decimal display: `toLocaleString`
+rounds correctly regardless. Also checked deliberately-adversarial half-cent boundary values
+(`0.125`, `1.005`, `2.675`, `1/8`) against both JS's `toLocaleString` and PHP's `round()` —
+**both agree on every case tested**, because both languages round based on the SAME underlying
+IEEE-754 double representation of the input, not two independently-chosen rounding modes. No
+half-up/half-down inconsistency found between the client display and a server-side re-derivation
+of the same figures.
+
+**Line-to-total consistency, structurally guaranteed, not just tested:** the per-line ledger rows
+and the totals both read from the exact same `captureEntries` array — `incomeTotal()` sums
+`incomeEntries()`, which is `this.captureEntries.filter(e => e.entry_type === 'income')`, the
+identical filter the `x-for` row list uses to render each line. There is no second, separately-
+maintained source for the total to drift away from what's actually listed.
+
+### Where "months" comes from — confirmed, and defensible
+
+**The statement period only — `RentalApplicationAssessment::statement_months`, itself set from
+agent-entered `statement_period_from`/`statement_period_to` via `calculateStatementMonths()`.**
+It is NOT derived from the spread of captured entry dates, and there is no validation tying the
+two together — an agent could set a period that doesn't match what they've actually captured.
+This is Johan's own, previously-made, explicit ruling (see this spec's own "Dates on entries"
+section, 2026-09-10): "Months covered" is a curated fact the agent states about the statement
+they're looking at, not something the system infers. Confirmed defensible on that basis, not
+re-litigated here.
+
+**"Months —" / "Monthly income —" with no period set is deliberate, confirmed by a real test:**
+`calculateStatementMonths()` returns `null` when either date is missing (never a fabricated
+number, never zero); `statement_months` reaches the view as `null`; the view's own
+`statementMonths: initial.statement_months ?? ''` and `monthlyIncome()`'s `if (!months ||
+months < 1) return null` chain correctly renders the em-dash for both "Months" and "Monthly
+income" in that state. A NEW regression test
+(`test_months_and_monthly_figures_are_dashes_not_a_misleading_number_when_no_period_is_set`)
+proves this with one real captured line and no period set — matches exactly what Johan observed
+live ("I saw 'Months —' and 'Monthly income —' with one captured line and no statement period
+set").
+
+### A real, structural finding: the server-side `qualifyingResult()` is dead code, reading stale data
+
+`RentalApplicationAssessment::qualifyingResult()` — the OLDER server-side affordability
+computation — is **still called** on every review-screen and authorisation-screen load
+(`RentalApplicationReviewController.php:213`, `RentalApplicationAuthorisationController.php:219`)
+but its output (`$result`) has been **completely unused by the view since the 2026-09-11
+capture-ledger rework** — confirmed by the code's own comment ("Nothing in this template reads
+`this.result` any more (confirmed by grepping the whole file, not assumed)"), and independently
+re-confirmed here by grepping the current file myself. Worse: this dead method still reads from
+`RentalApplicationIncomeItem`/`ExpenseItem` — the OLD ledger tables, which were **copied, not
+migrated,** into the new marks-based system on 2026-09-11 and have received **no new writes
+since** (the old capture UI was deleted the same day). For application 76 specifically the two
+sources still happen to agree (nothing has diverged there since the migration), but this is
+not something the *screen* depends on — since the view never reads `$result` at all, the two
+sources being in sync or not currently has **no user-visible effect**. It is, however, wasted
+computation on stale data, on every single page load, and a genuine landmine for whoever next
+tries to revive that dead property assuming it still reflects reality (exactly the shape of bug
+that already bit this screen once — the 2026-09-11 "ReferenceError: initialResult is not
+defined" incident this same comment documents).
+
+**Not fixed here — reported, per instruction, since it's a design/cleanup call (remove the dead
+call entirely, or repoint `qualifyingResult()` at the new marks table) rather than a wrong
+number anyone is currently shown.** Recommend removing the `qualifyingResult()` call from both
+controllers (and eventually the method + the two now-fully-superseded tables) in a dedicated,
+separate pass — not bundled into this arithmetic audit.
+
+### Manually-added vs captured lines — count identically, proven
+
+`captureEntryCreate()` (anchored, drawn on a document) and `captureEntryCreateManual()`
+(unanchored, "add a line with nothing to highlight") write to the exact same
+`RentalApplicationDocumentMark` table, same `entry_type`/`entry_amount` columns.
+`incomeEntries()`/`expenseEntries()` filter purely on `entry_type` — `document_id` being
+null or set plays no part in whether a line counts. The reproduced reference case above uses
+ONLY unanchored lines (`document_id === null` on every one, asserted directly in the test) and
+still matches Johan's expected totals exactly — proving the totals never depended on a document
+being attached.
+
+### Entries whose source document was removed — INCLUDED, not stated anywhere before this pass
+
+A mark whose `document_id` points at a document that's since been deleted (re-filed, etc.) gets
+`document_missing: true` from the controller and a "Document removed" warning badge on screen —
+but **nothing filters it out of `incomeEntries()`/`expenseEntries()`/the totals.** The figure the
+agent originally captured is still counted in full. This was found nowhere in this spec before
+today — confirmed by grepping the whole file. **Reported, not decided:** current behaviour is
+"the number still counts, the badge just tells you its evidence trail is broken" — a defensible
+default (the captured fact doesn't become false because the backing PDF later vanished), but
+it was never an explicit ruling, and Johan may want it excluded instead. Proven live with a new
+test (`test_a_document_missing_entry_is_flagged_but_still_present_in_the_totals_source`):
+create a real anchored mark, delete its document, confirm the flag is set AND the R5,000.00
+figure is still present in what the totals are built from.
+
+### Soft-deleted marks — confirmed excluded, and it matters in practice, not just in theory
+
+Every query that builds `captureEntries` (`RentalApplicationDocumentMark::where(...)`, no
+`withTrashed()`) uses Eloquent's default global scope, which excludes soft-deleted rows
+automatically. Confirmed against **real, live data on application 76** (not a constructed
+test): four throwaway verification marks left over from earlier test passes this week (labelled
+"Tinker verify 2", "HTTP round-trip check UPDATED", "Stage 2 jump check", "Stage 3 manual entry
+check" — all correctly soft-deleted after their own tests) are genuinely absent from the real,
+live `initialCaptureEntries` JSON application 76's review screen renders today. Soft-deleted
+marks do not silently reappear in anyone's affordability total.
+
+### "Unpaid" and "Electricity" highlighters — contribute nothing, and the screen never implies otherwise, but the mechanism deciding this is fragile
+
+A highlighter is a **capture pen** (produces an income/expense ledger line) purely by an exact,
+case-insensitive string match on its own `label` — `'income'` or `'expense'`, nothing else
+(`captureEntryTypeFor()` in the highlighter script). Every other highlighter, including the
+seeded "Unpaid" pen and HFC's own real, agency-created "Electricity" highlighter (id 58, agency
+1, confirmed live), produces a **plain highlight mark** — `entry_type: 'annotation'` — which
+the server-side `captureEntries` query excludes outright (`whereIn('entry_type',
+LEDGER_ENTRY_TYPES)`, income/expense only). A plain-highlighter mark can **never** appear in the
+ledger row list, can never show a rand figure there, and therefore cannot mislead anyone into
+thinking it counts — confirmed correct.
+
+**The fragility, reported, not fixed:** this determination is a raw label-string match, not a
+stable column or flag on the highlighter row. `RentalApplicationHighlighter` is full CRUD — an
+agency can freely rename any highlighter, including its own "Income"/"Expense" pens (the
+settings screen puts no restriction on this). An agency that renames "Income" to anything else
+— a translation, a house term, a typo fix — would **silently** turn that pen into a plain
+highlight going forward: new marks drawn with it would stop contributing to the totals at all,
+with no warning anywhere. Not a live bug today (no agency has done this), but a real landmine
+sitting under a feature (highlighter renaming) that was explicitly built to be freely
+customisable. **Recommended fix, not implemented here:** a dedicated, stable identifier on
+`RentalApplicationHighlighter` (e.g. a nullable `capture_entry_type` column, set once at seed
+time for the six defaults and never re-derived from the label) rather than deriving capture
+behaviour from display text that the feature's own design lets anyone change. This touches
+`document-highlighter-script.blade.php`, which is cc3's file mid-rebuild tonight — reported for
+them to action, not touched here.
+
+### No new hardcoded threshold found in this chain
+
+The one real threshold in this whole calculation — the legal rent-to-gross-income ceiling
+(`max_rent_percent`) — was already made agency-configurable in an earlier round
+(`RentalApplicationQualifyingSetting::maxRentPercentFor()`). Checked the whole arithmetic chain
+specifically for anything else hardcoded (a fixed lookback window, a fixed decimal precision
+beyond the currency-format standard, a fixed months default) — found nothing else to make
+configurable. `formatR()`'s 2-decimal-places rule is the ZAR currency-format standard (per
+CLAUDE.md's own convention), not a business policy knob.
+
+### Files changed
+
+- `tests/Feature/RentalApplications/RentalApplicationAffordabilityArithmeticTest.php` — new, 3
+  tests: the full reference-case reproduction, the dash-behaviour proof, and the
+  document-missing-inclusion proof.
+
+No application code changed — every finding above is either confirmed-correct-as-is, or a
+report-only finding (the dead `qualifyingResult()` call, the document-missing inclusion
+decision, and the highlighter label-matching fragility) left for Johan's decision before any
+code changes, per instruction.
