@@ -120,30 +120,39 @@
          a rail of unlabelled colour circles means an agent has no idea
          which pen is which until she hovers — hover-only is not a label,
          and picking the wrong one means income filed as an expense. His
-         own words: a LETTER on the swatch (do NOT hardcode I/E/U — read
-         h.label.charAt(0), since these are agency-configurable and QA1
-         already has "Electricity" and "Deposit Proof" alongside the
-         defaults), the label word itself very small underneath, shrunk
-         to fit rather than growing the box, and the tooltip stays either
-         way. The rail's own width (44px, set in the 2026-09-11 "slim the
-         pen rail" round) does NOT change — "the document's width is the
-         whole point of this screen's rebuild" — so the label has LESS
-         room than the reverted 2026-09-12 attempt gave it (that one
-         widened the rail to 60px; this one fits inside the existing
-         44px). The selected-state tick moves to a small corner badge
-         (exactly Note's own already-existing pattern, below) since the
-         letter now permanently occupies the swatch's centre — the
-         border highlight (unchanged) already carries the "this one is
-         active" signal on its own; the corner tick is confirmation, not
-         the only signal. penLabelFontSizePx is computed once, in this
-         component's own init() (a real lifecycle method, never a raw
-         x-init statement — see reviewLocked's own docblock two rounds
-         ago for exactly why that distinction matters) off the single
-         LONGEST label actually in this picker set (Note's own "Note"
-         included, so it never ends up a visibly different size from the
-         highlighters beside it), never per-label, so the row reads as
-         one deliberate scale. Floors at 7px, then ellipses — the full
-         name is always in the tooltip regardless of what's visible. --}}
+         own words: a LETTER on the swatch (do NOT hardcode I/E/U — since
+         these are agency-configurable and QA1 already has "Electricity"
+         and "Deposit Proof" alongside the defaults), the label word
+         itself very small underneath, shrunk to fit rather than growing
+         the box, and the tooltip stays either way. The rail's own width
+         (44px, set in the 2026-09-11 "slim the pen rail" round) does NOT
+         change — "the document's width is the whole point of this
+         screen's rebuild" — so the label has LESS room than the reverted
+         2026-09-12 attempt gave it (that one widened the rail to 60px;
+         this one fits inside the existing 44px). The selected-state tick
+         moves to a small corner badge (exactly Note's own already-
+         existing pattern, below) since the letter now permanently
+         occupies the swatch's centre — the border highlight (unchanged)
+         already carries the "this one is active" signal on its own; the
+         corner tick is confirmation, not the only signal. penLabelFontSizePx
+         is computed once, in this component's own init() (a real
+         lifecycle method, never a raw x-init statement — see
+         reviewLocked's own docblock two rounds ago for exactly why that
+         distinction matters) off the single LONGEST label actually in
+         this picker set (Note's own "Note" included, so it never ends up
+         a visibly different size from the highlighters beside it), never
+         per-label, so the row reads as one deliberate scale. Floors at
+         7px, then ellipses — the full name is always in the tooltip
+         regardless of what's visible.
+
+         2026-09-13, round 2 — Johan, live on QA1: "Expense and
+         Electricity both render 'E'." The letter is NOT the plain first
+         character of the label (that was round 1's bug) — it comes from
+         computePenLetterAssignments()'s own penLetterById map, which
+         resolves collisions across the whole picker set (first letter
+         where free, else the next letter actually IN that label, else a
+         number — see that method's own comment for the full rule and why
+         it sorts by id, never display order). --}}
     <div class="flex-shrink-0 space-y-1.5" style="width: 44px; position: sticky; top: 0;"
          :style="{ opacity: reviewLocked ? '0.4' : '1', pointerEvents: reviewLocked ? 'none' : 'auto' }"
          :title="reviewLocked ? 'Read-only — this application is with the authoriser' : ''">
@@ -160,7 +169,7 @@
                             background: h.color,
                             border: (activeTool === 'highlight' && activeHighlighterId === h.id) ? '2px solid var(--text-primary)' : '1px solid var(--border)',
                         }">
-                    <span style="color:#fff; font-weight:800; font-size:12px; text-shadow: 0 0 2px rgba(0,0,0,0.65);" x-text="(h.label || '?').charAt(0).toUpperCase()"></span>
+                    <span style="color:#fff; font-weight:800; font-size:12px; text-shadow: 0 0 2px rgba(0,0,0,0.65);" x-text="penLetterById[h.id] || '?'"></span>
                     <span x-show="activeTool === 'highlight' && activeHighlighterId === h.id" style="position:absolute; top:-4px; right:-4px; color:#fff; background:var(--text-primary); border-radius:9999px; width:12px; height:12px; font-size:8px; font-weight:800; line-height:12px; text-align:center;">&check;</span>
                 </button>
                 <p class="text-center leading-tight mt-0.5" style="color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" :style="{ fontSize: penLabelFontSizePx + 'px' }" :title="h.label" x-text="h.label"></p>
@@ -191,7 +200,7 @@
                             background: h.color,
                             border: (activeTool === 'highlight' && activeHighlighterId === h.id) ? '2px solid var(--text-primary)' : '1px solid var(--border)',
                         }">
-                    <span style="color:#fff; font-weight:800; font-size:12px; text-shadow: 0 0 2px rgba(0,0,0,0.65);" x-text="(h.label || '?').charAt(0).toUpperCase()"></span>
+                    <span style="color:#fff; font-weight:800; font-size:12px; text-shadow: 0 0 2px rgba(0,0,0,0.65);" x-text="penLetterById[h.id] || '?'"></span>
                     <span x-show="activeTool === 'highlight' && activeHighlighterId === h.id" style="position:absolute; top:-4px; right:-4px; color:#fff; background:var(--text-primary); border-radius:9999px; width:12px; height:12px; font-size:8px; font-weight:800; line-height:12px; text-align:center;">&check;</span>
                 </button>
                 <p class="text-center leading-tight mt-0.5" style="color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" :style="{ fontSize: penLabelFontSizePx + 'px' }" :title="h.label" x-text="h.label"></p>

@@ -1315,7 +1315,18 @@
                         <p class="text-[11px] mb-1" style="color: var(--ds-crimson, #dc2626);" x-show="manualEntryError" x-text="manualEntryError"></p>
                         <div class="flex items-center justify-end gap-2">
                             <button type="button" class="text-[11px]" style="color: var(--text-muted);" @click="cancelManualEntry()">Cancel</button>
-                            <button type="button" class="corex-btn-primary text-xs" style="padding: 0.2rem 0.6rem;" :disabled="manualEntrySaving" @click="saveManualEntry()" x-text="manualEntrySaving ? 'Saving…' : 'Save'"></button>
+                            {{-- 2026-09-13 — .corex-btn-primary has no :disabled
+                                 rule of its own (shared class, other screens'
+                                 own call — not touching it here), so the
+                                 native `disabled` attribute alone left this
+                                 button looking fully clickable even while
+                                 refusing clicks. A visible dim, scoped to
+                                 just this button via :style, so "you have
+                                 not chosen a type yet" reads at a glance,
+                                 not just on click. --}}
+                            <button type="button" class="corex-btn-primary text-xs"
+                                    :style="{ padding: '0.2rem 0.6rem', opacity: (!manualEntry.entry_type && !manualEntrySaving) ? '0.45' : '1', cursor: (!manualEntry.entry_type && !manualEntrySaving) ? 'not-allowed' : 'pointer' }"
+                                    :disabled="manualEntrySaving || !manualEntry.entry_type" :title="!manualEntry.entry_type ? 'Choose Income or Expense first' : ''" @click="saveManualEntry()" x-text="manualEntrySaving ? 'Saving…' : 'Save'"></button>
                         </div>
                     </div>
                     @if($canSendBackToApplicant)
@@ -1680,13 +1691,25 @@ function rentalCaptureLedger({ initialCaptureEntries, manualCaptureCreateUrl } =
         // mean reaching into a scope this one has no business owning.
         manualCaptureCreateUrl: manualCaptureCreateUrl || '',
         manualEntryOpen: false,
-        manualEntry: { entry_type: 'income', entry_date: '', entry_description: '', entry_amount: '' },
+        // 2026-09-13 — Johan, ruling on cc4's agent-walk finding: "It should
+        // be selected? so we dont have misfiles." entry_type used to
+        // default to 'income' the instant this form opened — an agent who
+        // never actually looked at the Income/Expense choice (just typed an
+        // amount and hit Enter) could silently misfile an expense as
+        // income, with nothing on screen to catch it. null here, not a
+        // pre-picked value: the Income/Expense buttons below already show
+        // NEITHER as selected when entry_type is null (their own :style
+        // only lights up on an exact 'income'/'expense' match), so this one
+        // change makes the choice genuinely unmade until she clicks one —
+        // never an unchosen dropdown that already reads "Income," which
+        // Johan named explicitly as the same bug with extra steps.
+        manualEntry: { entry_type: null, entry_date: '', entry_description: '', entry_amount: '' },
         manualEntrySaving: false,
         manualEntryError: '',
         openManualEntry() {
             if (this.reviewLocked) return; // read-only while with the authoriser
             this.manualEntryOpen = true;
-            this.manualEntry = { entry_type: 'income', entry_date: '', entry_description: '', entry_amount: '' };
+            this.manualEntry = { entry_type: null, entry_date: '', entry_description: '', entry_amount: '' };
             this.manualEntryError = '';
             this.$nextTick(() => {
                 const el = document.querySelector('[data-manual-entry-amount]');
@@ -1698,6 +1721,13 @@ function rentalCaptureLedger({ initialCaptureEntries, manualCaptureCreateUrl } =
         },
         async saveManualEntry() {
             if (this.manualEntrySaving || this.reviewLocked) return; // read-only while with the authoriser — server refuses regardless, this just avoids the round trip
+            // Checked here, not just via the Save button's own :disabled —
+            // the amount field's @keydown.enter also calls this directly,
+            // which would otherwise bypass a disabled button entirely.
+            if (this.manualEntry.entry_type !== 'income' && this.manualEntry.entry_type !== 'expense') {
+                this.manualEntryError = 'Choose Income or Expense first.';
+                return;
+            }
             const amount = parseFloat(this.manualEntry.entry_amount);
             if (this.manualEntry.entry_amount === '' || Number.isNaN(amount)) {
                 this.manualEntryError = 'Enter an amount.';

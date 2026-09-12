@@ -303,6 +303,12 @@ class RentalApplicationReviewController extends Controller
         $highlighters = \App\Models\RentalApplicationHighlighter::allFor((int) $rentalApplication->agency_id)
             ->map(fn ($h) => [
                 'id' => $h->id, 'label' => $h->label, 'color' => $h->color,
+                // 2026-09-13 — cc2's finding: capture_type is the stable
+                // identity a pen captures under, independent of its
+                // display name (see the migration adding this column).
+                // The client no longer string-matches h.label to decide
+                // this.
+                'capture_type' => $h->capture_type,
                 'role_scope' => $h->role_scope, 'archived' => $h->trashed(),
             ])->values();
 
