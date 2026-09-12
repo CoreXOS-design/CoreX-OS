@@ -56,6 +56,38 @@ trait HandlesRentalApplicationDocumentMarks
     abstract protected function guardRentalApplication(RentalApplication $rentalApplication): void;
 
     /**
+     * 2026-09-12, Johan-approved after cc4's walk found a plain agent could
+     * still open and edit Review after submitting to the authoriser — two
+     * people acting on the same in-flight decision at once, with nothing on
+     * screen saying so, and the agent free to change the very affordability
+     * figures the authoriser is deciding on. Locks every write this trait
+     * handles (capture create/update/delete/manual-add) once the
+     * application is WITH THE AUTHORISER — but only for the AGENT'S OWN
+     * controller (markAuthorRole() === 'agent'); the authoriser's own calls
+     * through this exact same shared trait are never blocked by their own
+     * lock. RentalApplicationReviewController::saveAssessment() (notes/
+     * statement period — not part of this trait) carries the identical
+     * check inline, same condition, same reasoning.
+     *
+     * isPendingAuthorisation() alone (status === 'under_assessment' AND
+     * submitted_for_approval_at set) is deliberately the WHOLE condition —
+     * the two existing exceptions on this screen's own access gate
+     * (approved-not-yet-notified, declined-with-override-tier) are both
+     * OTHER statuses entirely, so they can never be true at the same time
+     * as this one; nothing here needs to special-case them.
+     */
+    protected function guardScreenNotLockedForAuthoriser(RentalApplication $rentalApplication): ?\Illuminate\Http\JsonResponse
+    {
+        if ($this->markAuthorRole() === 'agent' && $rentalApplication->isPendingAuthorisation()) {
+            return response()->json([
+                'error' => 'This application is with the authoriser for a decision — the review screen is read-only until it comes back to you.',
+            ], 423);
+        }
+
+        return null;
+    }
+
+    /**
      * Progressive load, 2026-09-08 — page 1 fast, total page count, and
      * every currently-saved mark for the document (never split per page —
      * see RentalApplicationDocumentHighlightService::firstPagePreview()).
@@ -203,6 +235,9 @@ trait HandlesRentalApplicationDocumentMarks
     public function captureEntryCreate(Request $request, RentalApplication $rentalApplication, Document $document, RentalApplicationDocumentHighlightService $highlights)
     {
         $this->guardDocumentMarkAccess($rentalApplication, $document);
+        if ($locked = $this->guardScreenNotLockedForAuthoriser($rentalApplication)) {
+            return $locked;
+        }
 
         $validHighlighterIds = RentalApplicationHighlighter::pickerFor((int) $rentalApplication->agency_id, $this->markAuthorRole())
             ->pluck('id')->all();
@@ -284,6 +319,9 @@ trait HandlesRentalApplicationDocumentMarks
     public function captureEntryCreateManual(Request $request, RentalApplication $rentalApplication)
     {
         $this->guardRentalApplication($rentalApplication);
+        if ($locked = $this->guardScreenNotLockedForAuthoriser($rentalApplication)) {
+            return $locked;
+        }
 
         $validated = $request->validate([
             'mark_uid' => ['required', 'string', 'max:64'],
@@ -326,6 +364,9 @@ trait HandlesRentalApplicationDocumentMarks
     public function captureEntryUpdate(Request $request, RentalApplication $rentalApplication, string $markUid)
     {
         $this->guardRentalApplication($rentalApplication);
+        if ($locked = $this->guardScreenNotLockedForAuthoriser($rentalApplication)) {
+            return $locked;
+        }
 
         $mark = RentalApplicationDocumentMark::where('rental_application_id', $rentalApplication->id)
             ->where('mark_uid', $markUid)
@@ -349,6 +390,9 @@ trait HandlesRentalApplicationDocumentMarks
     public function captureEntryDelete(Request $request, RentalApplication $rentalApplication, string $markUid)
     {
         $this->guardRentalApplication($rentalApplication);
+        if ($locked = $this->guardScreenNotLockedForAuthoriser($rentalApplication)) {
+            return $locked;
+        }
 
         $mark = RentalApplicationDocumentMark::where('rental_application_id', $rentalApplication->id)
             ->where('mark_uid', $markUid)
