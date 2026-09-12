@@ -9515,3 +9515,205 @@ reason to change that — it already matches Johan's own stated preference
 ("an authoriser is working a QUEUE, so both outcomes should return them to
 it"). No code change was needed for destination. The actual defect was
 feedback, not routing, and is fixed above.
+
+## Statement period, autosave, out-of-period entries, and the two action buttons (2026-09-13, cc5)
+
+**INVESTIGATION ONLY — no code changed this round, per explicit instruction
+("Report; do not add confirmations yet" / "do not invent a warning UI without
+my go"). Findings below, with live proof, ranked, and each marked either a
+plain defect this lane could fix under its existing remit, or something that
+needs Johan's go-ahead first, per instruction.**
+
+Tested against two fresh throwaway applications created for this investigation
+— **184** (linked to property 1314, rent R8,800, used for the statement-period
+scenarios) and **188** (deliberately left with zero captured lines and no
+period, used for the action-button tests). Neither 70, 76, nor 107 was
+touched. Both left in place as inspectable live examples of the findings
+below, same convention as this session's other throwaway records.
+
+### Architecture note, established before testing anything
+
+The panel's "Income / Expenses / Months / Monthly income / Net monthly"
+figures are **100% client-side Alpine computation** (`incomeTotal()`,
+`expenseTotal()`, `monthlyIncome()`, `netMonthly()` in `review.blade.php`),
+summing `captureEntries` (the highlighter-mark ledger) and dividing by
+`this.statementMonths`. The server's own `RentalApplicationAssessment::
+qualifyingResult()` — which DOES exclude struck-out items and IS the more
+complete calculation — is dead code for this screen; the comment in the
+Blade file says so explicitly ("that computation still exists, unused by
+this screen now"). Every finding below is about what the CLIENT computes and
+shows, since that's what an agent actually sees.
+
+### Ranked findings
+
+**1. [MUST FIX BEFORE MONDAY — plain defect, cc5 can fix under existing remit]
+A statement period spanning a partial month produces a materially wrong
+"Monthly income" figure, with no indication anything is off.**
+
+Live proof: one income entry, R28,861.34, dated 2026-06-15. Period set to
+2026-06-28 → 2026-07-03 — **6 real days**, crossing a month boundary. Screen
+shows: `Months: 2`, `Monthly income: R14,430.67`, `Net monthly: R14,430.67`
+— HALF the actual income, because `calculateStatementMonths()` (both the
+server's and the client's copy — same calendar-month formula, deliberately
+kept in sync) counts *calendar months touched*, not elapsed time: `(toYear-
+fromYear)*12 + (toMonth-fromMonth) + 1`. A 6-day statement spanning
+28 June–3 July counts as "2 months" by this formula, same as a genuine
+58-day statement from 1 June–29 July would. This is exactly what the brief
+warned against: not a dash, not an obvious error — a perfectly plausible-
+looking number that is roughly 2× wrong. An authoriser reading "Net monthly:
+R14,430.67" off this screen has no way to know it's derived from a 6-day
+statement being treated as 2 months.
+
+**2. [MUST FIX BEFORE MONDAY — plain defect, cc5 can fix under existing remit]
+Clearing the statement period does NOT clear the derived month count — the
+panel keeps showing numbers for a period that, as far as the agent can see,
+no longer exists. Confirmed to survive a page reload.**
+
+Live proof, continuing from finding 1's period (`statement_months` saved as
+2): cleared both date fields and saved. Server responded 200 OK with
+`statement_months: 2` — **unchanged**. Panel still shows `Months: 2`,
+`Monthly income: R14,430.67`, `Net monthly: R14,430.67`, directly under two
+now-EMPTY date inputs. Reloaded the page: identical — the stale figures
+persist server-side, not just in unsaved client state. The only signal
+anything is different is the small hint line switching from "Covers 2 mo" to
+"Currently 2 mo" — a wording change unlikely to register with an authoriser
+scanning the big bold totals a foot away. This is deliberate behaviour, not
+an accident of the derivation logic (`RentalApplicationReviewController::
+saveAssessment()`'s own comment: "existing records keep whatever month count
+they hold — nothing recalculates retrospectively without a date range to
+derive it from" — written for the case of an assessment that NEVER had dates
+picked, not for the case of an agent actively clearing dates that WERE
+picked). The fix isn't to overturn that rule — it's to distinguish "never
+had a period" from "just cleared a period": the latter should null out
+`statement_months` too, matching finding 1's own standard of "a dash, never
+a plausible-looking wrong number."
+
+**3. [SHOULD FIX BEFORE MONDAY — plain defect, cc5 can fix under existing
+remit] "Submit for approval" has no server-side guard against being fired
+more than once, and each extra firing silently sends the application to the
+back of the authoriser's queue.**
+
+Live proof: fired `submitForApproval()` once via the real button (succeeded,
+`status → under_assessment`, `submitted_for_approval_at` stamped). Then, on
+the SAME already-submitted application, fired two more raw concurrent POSTs
+directly at the endpoint (bypassing the client's `submittingForApproval`
+in-memory guard entirely — this is not a contrived attack, it's what a second
+browser tab, a slow double-click, or a stale page left open and re-clicked
+later all produce identically). **Both returned `200 {"ok":true}`**, each
+re-stamping `submitted_for_approval_at` to the new current time and writing
+a fresh "Submitted for authorisation." history row (3 history rows total
+from 3 calls). The guard in `submitForApproval()` is `abort_unless(status ∈
+POST_RETURN_STATUSES)` — and `under_assessment` (the status THIS action
+itself sets) is already a member of that list, so the guard does nothing to
+stop a repeat call once the first has succeeded. Since the authoriser queue
+(`RentalApplicationAuthorisationController::index()`) sorts
+`submitted_for_approval_at asc` specifically "so the point of a decision
+queue is working the longest-waiting application first," every accidental
+re-submit silently un-does that ordering for this one application, with
+nothing on screen to say it happened differently the second time — the
+success message and destination are identical either way.
+
+**4. [CONFIRMED, MODERATE — plain defect, cc5 can fix under existing remit,
+though the fix is a judgement call worth stating plainly] "Submit for
+approval" can be fired on a fully incomplete assessment — no captured lines,
+no statement period, "Net monthly" still reading a dash — and succeeds
+exactly as if the assessment were complete.**
+
+Live proof: application 188, created with zero income/expense entries and no
+assessment row at all. Clicked "Submit for approval" (labelled "Submit to
+authoriser" on a first submission) with the panel showing `Income: R 0,00`,
+`Months: —`, `Net monthly: —`. Succeeded — `status → under_assessment`,
+handed straight to the authoriser queue. `submitForApproval()`'s only checks
+are: status eligibility, generation match, and unsplit-PDF count — nothing
+about the assessment itself. This is a genuine gap, but I'm flagging it as
+needing your call rather than fixing it silently: a hard block ("you must
+capture at least one line and set a period before submitting") is a business
+rule change to what "ready for authorisation" means, not a pure bug fix —
+some agencies may legitimately want to submit a thin file for the authoriser
+to bounce back themselves. Recommend a warning, not a block, if anything —
+but per instruction I am not building UI for this without your go.
+
+**5. [CONFIRMED, LOWER SEVERITY — needs your go, not a plain defect] A failed
+statement-period save tells the agent something went wrong, but not what.**
+
+Live proof: "only from filled" and "only to filled" both correctly refuse to
+save (422, server message "Enter both a from and to date for the statement
+period, or leave both blank."); "to earlier than from" also correctly
+refuses (422, "The statement period's 'to' date must be on or after its
+'from' date."). In EVERY case, a visible red banner DOES appear (`saveStatus`
++ `saveError`, rendered at the top of the panel, not silent — item 2's "a
+failed save must tell the agent" bar is met at the pass/fail level). But
+`performSave()`'s error branch always shows the generic **"Could not save —
+try again"**, never `data.error` — the server's specific, correct,
+already-computed reason is discarded. An agent sees "try again," tries the
+exact same thing again, and gets the exact same generic failure, with no clue
+that the real problem is "you only filled one date." Small, mechanical fix
+(read `data.error` when present) — flagging as needing your go only because
+it touches the same save-error surface as finding 2, and I'd rather fix both
+together in one pass than send you two separate small diffs for the same
+handler this week.
+
+**6. [ESTABLISHED FACT, NOT YET A DEFECT — your call per instruction, no UI
+proposed] An entry captured with a date outside the set statement period is
+included in the totals identically to one inside it, with zero visual
+distinction.**
+
+Live proof: entry dated 2026-06-15; statement period set to 2026-01-01 →
+2026-01-31 (January, wholly excluding the June entry). Panel still showed
+`Months: 1`, `Monthly income: R28,861.34`, `Net monthly: R28,861.34` — the
+June entry's full amount, counted as if it were January income. Confirmed in
+the Blade source, not just behaviourally: `incomeEntries()`/`expenseEntries()`
+filter only by `entry_type`, never by date; `incomeTotal()`/`expenseTotal()`
+sum unconditionally. Per-row rendering has an existing warning mechanism for
+a DIFFERENT problem (`row.document_missing` → red ⚠ + "Document removed") but
+nothing equivalent keyed on `entry_date` falling outside
+`statementPeriodFrom`/`statementPeriodTo`. Per instruction, **not proposing a
+warning UI** — this is stated as fact for you to weigh, not a build request.
+If useful for your decision: this finding compounds with #1 and #6 — a period
+that's accidentally too narrow (partial month) OR too wide (includes stale
+entries from a prior, unrelated capture) both currently produce a plausible
+but wrong number with identical confidence on screen.
+
+### Confirmed working correctly (stated for completeness, not just failures)
+
+- Empty period (both dates blank): `Months/Monthly income/Net monthly` all
+  show `—`. Defensible, matches the brief's own standard exactly.
+- A VALID period that correctly INCLUDES the entry's date (2026-06-01 →
+  2026-06-30, a genuine full month): `Months: 1`, `Monthly income: R
+  28,861.34`, `Net monthly: R 28,861.34` — correct arithmetic for a real
+  1-month statement.
+- Autosave genuinely autosaves: every scenario above round-tripped through
+  `POST .../review/assessment` on a plain field blur/change, no separate
+  save button, confirmed via the real network log each time (item 2, first
+  half — met).
+- A successful save IS confirmed visibly ("Saved at HH:MM", green banner) —
+  and, separately, cc6's own applicant-side autosave was not touched or
+  duplicated; this investigation covered only the agent-side period fields,
+  per instruction.
+- "Send back to applicant" already has a real confirmation step — contrary
+  to how the brief characterised it, this one is NOT bare: a modal requires
+  typing a note and clicking a distinctly-labelled "Confirm and send" before
+  anything fires. Worth correcting precisely rather than let the framing
+  stand unchallenged: "Submit for approval" is the one with literally zero
+  confirmation (immediate `@click`, no modal, no `confirm()`); "Send back"
+  already has more friction than that, by design.
+- Repeated firing of "Send back"'s underlying `requestMoreInfoFromApplicant()`
+  is NOT gated by status either, but this doesn't carry finding 3's harm —
+  sending a second follow-up note to the applicant is closer to the feature's
+  actual intent (an agent legitimately asking for more than one thing over
+  time) than "Submit for approval" silently re-queuing is.
+
+### Files (for when a fix is authorised — nothing below has been touched yet)
+
+- `app/Http/Controllers/CoreX/RentalApplicationReviewController.php` —
+  `saveAssessment()` (statement_months null-out on empty period, finding 2),
+  `submitForApproval()` (double-fire guard, finding 3; completeness check,
+  finding 4 — pending your call).
+- `app/Models/RentalApplicationAssessment.php` — `calculateStatementMonths()`
+  (partial-month arithmetic, finding 1 — needs a decision on what "1 month"
+  should mean for a sub-month range before changing the formula, since any
+  change here also touches every EXISTING assessment's stored figure).
+- `resources/views/corex/rental-applications/review.blade.php` —
+  `calculatedStatementMonths()` (client mirror of the same formula, must stay
+  in sync with whatever the server does), `performSave()`'s error branch
+  (finding 5).
