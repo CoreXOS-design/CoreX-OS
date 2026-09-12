@@ -110,8 +110,8 @@
                 markupSidebarPinned: false,
                 revealTimer: null,
                 closeTimer: null,
-                // Rule 3b (Johan): "suppressed while the mouse is down...
-                // re-enable on mouseup" — see review.blade.php's matching
+                // Rule 3b (Johan): suppressed while the mouse is down,
+                // re-enable on mouseup — see review.blade.php's matching
                 // isOverDocsPanel comment for why mousedown-suppression
                 // alone isn't enough; the mouseup listener below re-runs
                 // the enter check the instant the button lifts, for a
