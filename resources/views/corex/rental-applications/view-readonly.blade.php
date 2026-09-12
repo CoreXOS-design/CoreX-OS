@@ -38,7 +38,9 @@
                  declined application. See _reopen-declined.blade.php. --}}
             @include('corex.rental-applications._reopen-declined', ['application' => $rentalApplication])
 
-            @permission('rental_applications.create')
+            {{-- 2026-09-12 — moved off rental_applications.create onto its own
+                 rental_applications.archive, matching every other module. --}}
+            @permission('rental_applications.archive')
             <form method="POST" action="{{ route('corex.rental-applications.destroy', $rentalApplication) }}"
                   onsubmit="return confirm('Archive this rental application? It can be recovered by an admin.');" class="inline">
                 @csrf
