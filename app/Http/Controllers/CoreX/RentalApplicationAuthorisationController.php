@@ -306,11 +306,19 @@ class RentalApplicationAuthorisationController extends Controller
         // Capture-ledger rework, 2026-09-11 — see RentalApplicationReviewController
         // ::show()'s own comment for the full reasoning; identical query,
         // same shared view.
+        // 2026-09-12 — see RentalApplicationReviewController::show()'s own
+        // comment for the full reasoning: document_missing tells this
+        // screen's ledger row its evidence document is gone, which is
+        // exactly the case an authoriser most needs to see, not silently
+        // trust.
+        $liveDocumentIds = $documents->pluck('document.id')->flip();
         $captureEntries = RentalApplicationDocumentMark::where('rental_application_id', $rentalApplication->id)
             ->whereIn('entry_type', RentalApplicationDocumentMark::LEDGER_ENTRY_TYPES)
             ->orderBy('created_at')->orderBy('id')
             ->get()
-            ->map(fn (RentalApplicationDocumentMark $mark) => $mark->toMarkArray())
+            ->map(fn (RentalApplicationDocumentMark $mark) => $mark->toMarkArray() + [
+                'document_missing' => $mark->document_id !== null && ! $liveDocumentIds->has($mark->document_id),
+            ])
             ->values();
 
         return view('corex.rental-applications.review', compact(

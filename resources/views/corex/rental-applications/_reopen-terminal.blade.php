@@ -9,8 +9,8 @@
     ("co should be able to reopen... declined and more evidence given") is
     unreachable without hand-typing the /review URL.
 
-    This partial does NOT put Review back on declined rows — it gives
-    declined its own explicit door, reusing the EXISTING, already-audited
+    This partial does NOT put Review back on declined/withdrawn rows — it
+    gives them their own explicit door, reusing the EXISTING, already-audited
     reopen() endpoint (validated note, override-tier guard, status history,
     audit log, applicant email) exactly as review.blade.php's own
     sendBackToApplicant() calls it — same URL, same request shape, same
@@ -18,10 +18,23 @@
     status is 'reopened' — one of REVIEWABLE_STATUSES — so Review opens
     normally again through the existing path.
 
-    Include with: @include('corex.rental-applications._reopen-declined', ['application' => $application])
+    2026-09-12 — RENAMED from _reopen-declined.blade.php and broadened to
+    withdrawn. A second end-to-end walkthrough found the generic agent
+    status dropdown let a withdrawn application be silently flipped back to
+    under_assessment with no note and no override check — the exact "one
+    door too many" bug class this partial exists to close on the OTHER
+    side (giving a status its ONE correct door, not leaving a stray extra
+    one open). withdrawn now reopens through this same partial, same
+    override-tier gate, same required note — see RentalApplication::
+    REOPENABLE_STATUSES's own docblock and RentalApplicationController::
+    updateStatus()'s new guard refusing the generic endpoint for this
+    transition. The old filename would now be a lie about what this file
+    covers, hence the rename.
+
+    Include with: @include('corex.rental-applications._reopen-terminal', ['application' => $application])
 --}}
 @php
-    $reopenGate = ($application->status === 'declined')
+    $reopenGate = in_array($application->status, ['declined', 'withdrawn'], true)
         && auth()->user()->isRentalApplicationOverrideTier((int) $application->agency_id);
 @endphp
 @if($reopenGate)
@@ -58,7 +71,7 @@
      }"
      class="inline-block align-top">
     <button type="button" @click="open = !open" class="corex-btn-outline text-xs" style="color: var(--ds-amber, #f59e0b);"
-            title="Only the head of rentals or an admin may reopen a declined application">Reopen</button>
+            title="Only the head of rentals or an admin may reopen a {{ $application->status }} application">Reopen</button>
     <div x-show="open" x-cloak @click.outside="open = false"
          class="mt-2 p-3 rounded-md text-left" style="background: var(--surface-2); border: 1px solid var(--border); width: 280px;">
         <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">What changed, or what should the applicant provide?</label>

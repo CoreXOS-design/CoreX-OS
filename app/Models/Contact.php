@@ -372,12 +372,26 @@ class Contact extends Model
      * independent role-manager grant
      * (PermissionService::contactRentalHistoryScope()), not
      * rental_applications.view's ceiling.
+     *
+     * cc4 walk, finding 8, 2026-09-13 — this used to end in ->latest()
+     * (orderBy created_at desc), a leftover from before the tab had any
+     * real sort control. Once ContactController::show() started applying
+     * FiltersRentalApplicationList::applySearchSortAndDateRange() on top
+     * (2026-09-12), that trailing ->latest() became a SILENT, DOMINANT
+     * first orderBy clause — Eloquent appends orderBy calls, it doesn't
+     * replace them, so every row sorted by created_at regardless of
+     * what the trait (or the tab's own sort control) asked for
+     * afterward, except for exact created_at ties. Removed — ordering
+     * is now entirely the caller's job, same as scopeVisibleTo() (used
+     * by index()/returned()/the authoriser queue) already does it: no
+     * built-in order at all, left to whoever applies the real sort. The
+     * only other caller of this method only ever counts the result, so
+     * removing the order changes nothing there.
      */
     public function visibleRentalApplicationsFor(\App\Models\User $viewer): \Illuminate\Database\Eloquent\Builder
     {
         return \App\Models\RentalApplication::where('contact_id', $this->id)
-            ->visibleForContactHistory($viewer)
-            ->latest();
+            ->visibleForContactHistory($viewer);
     }
 
     /**

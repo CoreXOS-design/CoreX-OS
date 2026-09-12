@@ -79,6 +79,24 @@
             <option value="invited" {{ $rentalOutcome === 'invited' ? 'selected' : '' }}>Invited</option>
         </select>
 
+        {{-- cc4 walk, finding 8, 2026-09-13 — Johan: "every list screen has
+             search, sort, filter, pagination... he should never have to
+             ask for them after a feature is built." The direction toggle
+             below already existed, but there was no control for WHICH
+             column to sort by at all — every row silently sorted by
+             submission date with no way to change it. 'Contact'/'Property'/
+             'Agent' are meaningless sort columns on this specific tab
+             (every row already belongs to this one contact — see
+             FiltersRentalApplicationList's own docblock), so only the two
+             columns that are genuinely meaningful here are offered.
+             Default: Date submitted, newest first — unchanged from before
+             this control existed, so adding it doesn't silently reorder
+             anyone's existing view. --}}
+        <select name="sort" onchange="this.form.submit()" class="text-xs rounded-md border px-2 py-1.5" style="border-color:var(--border); background:var(--surface); color:var(--text-primary);">
+            <option value="date" {{ request('sort', 'date') === 'date' ? 'selected' : '' }}>Sort: Date submitted</option>
+            <option value="updated" {{ request('sort') === 'updated' ? 'selected' : '' }}>Sort: Last updated</option>
+        </select>
+
         <select name="direction" onchange="this.form.submit()" class="text-xs rounded-md border px-2 py-1.5" style="border-color:var(--border); background:var(--surface); color:var(--text-primary);">
             <option value="desc" {{ request('direction', 'desc') === 'desc' ? 'selected' : '' }}>Newest first</option>
             <option value="asc" {{ request('direction') === 'asc' ? 'selected' : '' }}>Oldest first</option>

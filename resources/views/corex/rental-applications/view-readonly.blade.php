@@ -26,17 +26,29 @@
                     {{ $rentalApplication->contact->full_name ?? 'Rental Application' }}
                 </h1>
                 <span class="ds-badge ds-badge-info">
-                    {{ str_replace('_', ' ', $rentalApplication->status) }} — read-only, as submitted and signed
+                    {{ \App\Models\RentalApplication::displayStatusLabel($rentalApplication->status) }} — read-only, as submitted and signed
                 </span>
+                {{-- cc4 walk, finding 5, 2026-09-13 — the approved amount was
+                     saved but never surfaced anywhere an agent's eye actually
+                     goes: this sticky header is the one thing on the page
+                     visible unconditionally (the Application Status card
+                     below is permission-gated), so this is where "what did
+                     we approve them for" gets answered without expanding
+                     anything. Same "R{amount} a month" wording review.blade.php
+                     already uses for the authoriser/agent decision panel. --}}
+                @if($rentalApplication->status === 'approved' && $rentalApplication->approved_rental_amount !== null)
+                    <span class="ds-badge ds-badge-success">Approved for R{{ number_format((float) $rentalApplication->approved_rental_amount, 2) }} a month</span>
+                @endif
             </div>
         </x-slot>
         <x-slot name="right">
             <a href="{{ route('corex.rental-applications.index') }}" class="corex-btn-outline text-xs">&larr; Back to list</a>
             <a href="{{ route('corex.rental-applications.pdf', $rentalApplication) }}" class="corex-btn-outline text-xs">Download PDF</a>
-            {{-- REGRESSION FIX (2026-09-11) — declined's own explicit door
-                 back, since Review is deliberately never offered for a
-                 declined application. See _reopen-declined.blade.php. --}}
-            @include('corex.rental-applications._reopen-declined', ['application' => $rentalApplication])
+            {{-- REGRESSION FIX (2026-09-11, broadened 2026-09-12) —
+                 declined/withdrawn's own explicit door back, since Review is
+                 deliberately never offered for either. See
+                 _reopen-terminal.blade.php. --}}
+            @include('corex.rental-applications._reopen-terminal', ['application' => $rentalApplication])
 
             {{-- 2026-09-12 — moved off rental_applications.create onto its own
                  rental_applications.archive, matching every other module. --}}
@@ -87,15 +99,33 @@
              statuses keep the real control; anything else gets a plain,
              correctly-labelled status line instead — the page's own sticky
              header badge above already shows the true status regardless,
-             this just stops the card underneath it contradicting it. --}}
-        @if(in_array($rentalApplication->status, array_merge(['returned'], \App\Models\RentalApplication::AGENT_SETTABLE_STATUSES), true))
+             this just stops the card underneath it contradicting it.
+
+             2026-09-12 REGRESSION FIX — 'withdrawn' removed from the trigger
+             set entirely (it was included via AGENT_SETTABLE_STATUSES, same
+             as returned/under_assessment). THIS was the actually-reachable
+             copy of the bug: a real, live "Under assessment" option on a
+             withdrawn application's own detail screen, one click, no note,
+             no confirmation, reversing a documented one-way decision. A
+             withdrawn row now falls through to the plain status line below;
+             the Reopen button in the sticky header above (see
+             _reopen-terminal.blade.php) is the one legitimate door back,
+             override-tier only, required note, audited — and
+             RentalApplicationController::updateStatus() refuses this
+             transition server-side regardless of what this template ever
+             renders. --}}
+        @if(in_array($rentalApplication->status, ['returned', 'under_assessment'], true))
         <form method="POST" action="{{ route('corex.rental-applications.update-status', $rentalApplication) }}" class="flex flex-wrap items-end gap-3">
             @csrf
             <div>
                 <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Set status to</label>
                 <select name="status" class="rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
                     <option value="returned" disabled @selected(old('status', $rentalApplication->status) === 'returned')>Returned (awaiting review)</option>
-                    @foreach(\App\Models\RentalApplication::AGENT_SETTABLE_STATUSES as $s)
+                    {{-- 2026-09-12 — 'withdrawn' removed from this dropdown's own
+                         options, same reasoning as index.blade.php's identical
+                         fix: recording a withdrawal is now its own explicit,
+                         required-note action. See _record-withdrawn.blade.php. --}}
+                    @foreach(array_diff(\App\Models\RentalApplication::AGENT_SETTABLE_STATUSES, ['withdrawn']) as $s)
                         <option value="{{ $s }}" @selected(old('status', $rentalApplication->status) === $s)>{{ str_replace('_', ' ', ucfirst($s)) }}</option>
                     @endforeach
                 </select>
@@ -112,8 +142,9 @@
             </div>
             <button type="submit" class="corex-btn-primary text-xs">Update Status</button>
         </form>
+        @include('corex.rental-applications._record-withdrawn', ['application' => $rentalApplication])
         @else
-            <span class="ds-badge ds-badge-info">{{ str_replace('_', ' ', ucfirst($rentalApplication->status)) }}</span>
+            <span class="ds-badge ds-badge-info">{{ \App\Models\RentalApplication::displayStatusLabel($rentalApplication->status) }}</span>
         @endif
 
         @if($rentalApplication->statusHistory->isNotEmpty())

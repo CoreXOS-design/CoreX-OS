@@ -42,6 +42,15 @@
     // the controller from rental_application_document_marks, replaces them
     // as this screen's source of truth for the ledger.
     $initialMarkedUpDocIds = $documents->filter(fn ($row) => $row['has_highlights'])->pluck('document.id')->values();
+    // 2026-09-12 — Johan-approved: the agent's own Review screen goes
+    // read-only once the application is with the authoriser
+    // (isPendingAuthorisation()). Computed once here (before this block's
+    // own header-text computation below, which reads it) and reused by
+    // every x-data init and control on this screen, so it can never drift
+    // between them — the server enforces the real rule independently (see
+    // HandlesRentalApplicationDocumentMarks::guardScreenNotLockedForAuthoriser());
+    // this variable only drives what the agent SEES.
+    $reviewLocked = $viewerRole === 'agent' && $rentalApplication->isPendingAuthorisation();
     // AT-392 — Johan: "unsplit shows as visibly incomplete on the
     // application, never silently accepted." Shared by the Submit button
     // (header) and the Supporting Documents heading (badge) below — same
@@ -89,6 +98,13 @@
     if ($viewerRole === 'agent' && ($propertyLinkLocked ?? false)) {
         $headerExtraFact .= ' · property link locked';
     }
+    // 2026-09-12 — Johan-approved: extending this SAME existing state
+    // rather than a second indicator elsewhere — see
+    // guardScreenNotLockedForAuthoriser()'s own docblock for the write-side
+    // enforcement this text describes.
+    if ($reviewLocked) {
+        $headerExtraFact .= ' · review is read-only until it comes back to you';
+    }
     $headerFullText = $headerTitleText . ' · ' . $headerPropertyFact . ($headerExtraFact ? ' · ' . $headerExtraFact : '');
 @endphp
 
@@ -102,6 +118,8 @@
     $canReopenNow = $viewerRole === 'agent'
         && in_array($rentalApplication->status, \App\Models\RentalApplication::REOPENABLE_STATUSES, true)
         && ($rentalApplication->status !== 'declined' || auth()->user()->isRentalApplicationOverrideTier((int) $rentalApplication->agency_id));
+    // $reviewLocked already computed above, near $initialMarkedUpDocIds —
+    // this screen's header text needs it before this second @php block runs.
     $canSendBackToApplicant = $viewerRole === 'agent'
         && ($canReopenNow || !in_array($rentalApplication->status, ['approved', 'declined'], true));
 @endphp
@@ -130,6 +148,7 @@
          expectedGeneration: {{ Js::from($rentalApplication->current_generation) }},
          canReopenNow: {{ Js::from($canReopenNow) }},
          documentChecklist: {{ Js::from($documentChecklist) }},
+         reviewLocked: {{ Js::from($reviewLocked) }},
      })"
      @else
      x-data="rentalAuthorisationViewer({
@@ -570,7 +589,49 @@
                  needs it while marking up and rarely afterwards" is
                  satisfied better by starting closed than by starting open
                  and hoping the agent closes it. --}}
-            <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);" x-data="{ docsOpen: false }">
+            {{-- 2026-09-12 — real bug, cc4 finding 9: uploading a document
+                 posts via fetch() then calls window.location.reload() (see
+                 agentDocumentUploadReview()'s own uploadFile() below) — a
+                 full navigation, so this x-data's own default (docsOpen:
+                 false) re-applies on the very next render, collapsing the
+                 panel back over the row the agent just added. sessionStorage
+                 survives a reload (unlike Alpine's own in-memory state), so
+                 uploadFile() stashes the new document's id there right
+                 before reloading; x-init reads it back once, expands, and
+                 scrolls/flashes that specific row — then clears the flag so
+                 a later, unrelated reload doesn't reopen a stale target.
+
+                 2026-09-12, round 2 (cc1's actual read of Alpine's bundled
+                 source, dist/module.cjs.js — not memory, not guesswork):
+                 x-init only auto-wraps its value as a statement body for a
+                 leading `if (...)` or a leading `let`/`const` — nothing
+                 else, regardless of indentation. A bare `try {...}` here
+                 (this block's ORIGINAL shape) always got dropped straight
+                 into an expression slot no matter how it was formatted,
+                 which is invalid syntax full stop — never a whitespace
+                 problem. Fixed the only way that's actually safe: the
+                 try/catch lives in a real method on this x-data object;
+                 x-init is just a bare method call, which is always a
+                 valid expression and never touches Alpine's wrapping logic
+                 at all. `this.docsOpen`/`this.$nextTick` inside the method
+                 — not bare `docsOpen`/`$nextTick` — since a method body's
+                 `this` binding is genuinely different from a raw x-init
+                 expression's. --}}
+            <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);"
+                 x-data="{ docsOpen: false, restoreJustUploadedDocRow() {
+                    try {
+                        const justUploadedIds = JSON.parse(sessionStorage.getItem('rentalReviewJustUploadedDocIds') || 'null');
+                        sessionStorage.removeItem('rentalReviewJustUploadedDocIds');
+                        if (Array.isArray(justUploadedIds) && justUploadedIds.length) {
+                            this.docsOpen = true;
+                            this.$nextTick(() => {
+                                const el = document.querySelector('[data-document-row=&quot;' + justUploadedIds[0] + '&quot;]');
+                                if (el) { el.scrollIntoView({ block: 'center' }); el.style.outline = '2px solid var(--ds-blue, #2563eb)'; setTimeout(() => { el.style.outline = ''; }, 2000); }
+                            });
+                        }
+                    } catch (_) {}
+                 } }"
+                 x-init="restoreJustUploadedDocRow()">
                 <div class="flex items-center justify-between">
                     <button type="button" class="flex items-center gap-2 text-left" @click="docsOpen = !docsOpen">
                         <h2 class="text-sm font-semibold" style="color: var(--text-primary);">
@@ -605,7 +666,7 @@
                                     ? route('corex.rental-applications.documents.highlight', [$rentalApplication, $document])
                                     : route('corex.rental-applications.authorisation.documents.highlight', [$rentalApplication, $document]);
                             @endphp
-                            <div class="flex items-center justify-between px-3 py-1.5 text-xs rounded-md" style="border: 1px solid var(--border);">
+                            <div class="flex items-center justify-between px-3 py-1.5 text-xs rounded-md" data-document-row="{{ $document->id }}" style="border: 1px solid var(--border);">
                                 <span class="truncate min-w-0" style="color: var(--text-primary);">
                                     {{ $document->original_name }}
                                     <span style="color: var(--text-muted);">&middot; {{ $document->documentType->label ?? 'Untyped' }}</span>
@@ -942,6 +1003,7 @@
                                                 currentUserName: {{ Js::from(auth()->user()->name) }},
                                                 currentUserRole: {{ Js::from($viewerRole) }},
                                                 highlighters: {{ Js::from($highlighters) }},
+                                                reviewLocked: {{ Js::from($reviewLocked) }},
                                              })"
                                              x-init="
                                                 initHighlighterPrefs();
@@ -1107,8 +1169,8 @@
                          words — correct, there is no cross-browser API for
                          that); this removes OUR interference with it. --}}
                     <div class="grid grid-cols-2 gap-1">
-                        <input type="date" class="corex-input text-xs w-full" x-model.lazy="statementPeriodFrom" @change="save()" aria-label="Statement period from">
-                        <input type="date" class="corex-input text-xs w-full" x-model.lazy="statementPeriodTo" @change="save()" aria-label="Statement period to">
+                        <input type="date" class="corex-input text-xs w-full" x-model.lazy="statementPeriodFrom" @change="save()" :disabled="reviewLocked" aria-label="Statement period from">
+                        <input type="date" class="corex-input text-xs w-full" x-model.lazy="statementPeriodTo" @change="save()" :disabled="reviewLocked" aria-label="Statement period to">
                     </div>
                     <p class="text-[11px] mt-1" style="color: var(--text-muted);" x-show="calculatedStatementMonths() || statementMonths">
                         <template x-if="calculatedStatementMonths()"><span>Covers <strong x-text="calculatedStatementMonths()"></strong> mo</span></template>
@@ -1145,12 +1207,14 @@
                 <p class="rr-ledger-group-label">Income</p>
                 <template x-if="incomeEntries().length === 0"><p class="text-[11px]" style="color: var(--text-muted);">None captured.</p></template>
                 <template x-for="(row, idx) in incomeEntries()" :key="row.id">
-                    <div class="rr-ledger-row" :style="{ cursor: row.document_id ? 'pointer' : 'default' }" :title="row.document_id ? 'Jump to this mark on the document' : ''" @click="jumpToMark(row)">
-                        <span class="rr-ledger-badge" x-show="row.document_id" style="background: var(--ds-purple, #7c3aed);" x-text="idx + 1"></span>
-                        <span x-show="!row.document_id"></span>
+                    <div class="rr-ledger-row" :style="{ cursor: (row.document_id && !row.document_missing) ? 'pointer' : 'default' }" :title="row.document_missing ? 'This entry\'s document was removed — the figure is no longer backed by evidence you can check.' : (row.document_id ? 'Jump to this mark on the document' : '')" @click="jumpToMark(row)">
+                        <span class="rr-ledger-badge" x-show="row.document_id && !row.document_missing" style="background: var(--ds-purple, #7c3aed);" x-text="idx + 1"></span>
+                        <span x-show="row.document_missing" style="color: var(--ds-crimson, #dc2626); font-weight: 700; font-size: 12px;">&#9888;</span>
+                        <span x-show="!row.document_id && !row.document_missing"></span>
                         <span class="text-[11px]" style="color: var(--text-secondary);" x-text="shortDate(row.entry_date)"></span>
                         <span class="rr-ledger-amount text-xs" style="color: var(--text-primary);" :title="row.entry_description" x-text="formatR(row.entry_amount)"></span>
-                        <span class="text-[11px] text-right" :style="{ color: row.document_id ? 'var(--ds-blue, #2563eb)' : 'var(--text-muted)' }">&rarr;</span>
+                        <span x-show="!row.document_missing" class="text-[11px] text-right" :style="{ color: row.document_id ? 'var(--ds-blue, #2563eb)' : 'var(--text-muted)' }">&rarr;</span>
+                        <span x-show="row.document_missing" class="text-[10px] text-right" style="color: var(--ds-crimson, #dc2626);">Document removed</span>
                     </div>
                 </template>
             </div>
@@ -1158,12 +1222,14 @@
                 <p class="rr-ledger-group-label">Expenses</p>
                 <template x-if="expenseEntries().length === 0"><p class="text-[11px]" style="color: var(--text-muted);">None captured.</p></template>
                 <template x-for="(row, idx) in expenseEntries()" :key="row.id">
-                    <div class="rr-ledger-row" :style="{ cursor: row.document_id ? 'pointer' : 'default' }" :title="row.document_id ? 'Jump to this mark on the document' : ''" @click="jumpToMark(row)">
-                        <span class="rr-ledger-badge" x-show="row.document_id" style="background: var(--ds-amber, #f59e0b);" x-text="idx + 1"></span>
-                        <span x-show="!row.document_id"></span>
+                    <div class="rr-ledger-row" :style="{ cursor: (row.document_id && !row.document_missing) ? 'pointer' : 'default' }" :title="row.document_missing ? 'This entry\'s document was removed — the figure is no longer backed by evidence you can check.' : (row.document_id ? 'Jump to this mark on the document' : '')" @click="jumpToMark(row)">
+                        <span class="rr-ledger-badge" x-show="row.document_id && !row.document_missing" style="background: var(--ds-amber, #f59e0b);" x-text="idx + 1"></span>
+                        <span x-show="row.document_missing" style="color: var(--ds-crimson, #dc2626); font-weight: 700; font-size: 12px;">&#9888;</span>
+                        <span x-show="!row.document_id && !row.document_missing"></span>
                         <span class="text-[11px]" style="color: var(--text-secondary);" x-text="shortDate(row.entry_date)"></span>
                         <span class="rr-ledger-amount text-xs" style="color: var(--text-primary);" :title="row.entry_description" x-text="formatR(row.entry_amount)"></span>
-                        <span class="text-[11px] text-right" :style="{ color: row.document_id ? 'var(--ds-blue, #2563eb)' : 'var(--text-muted)' }">&rarr;</span>
+                        <span x-show="!row.document_missing" class="text-[11px] text-right" :style="{ color: row.document_id ? 'var(--ds-blue, #2563eb)' : 'var(--text-muted)' }">&rarr;</span>
+                        <span x-show="row.document_missing" class="text-[10px] text-right" style="color: var(--ds-crimson, #dc2626);">Document removed</span>
                     </div>
                 </template>
             </div>
@@ -1190,8 +1256,13 @@
                          rather than reusing the document-highlighter's own
                          capture chip — a manual entry has no document/pen
                          context to anchor a chip to. --}}
-                    <button type="button" class="corex-btn-outline text-xs w-full mb-1.5" @click="openManualEntry()">Add line manually</button>
-                    <div x-show="manualEntryOpen" x-cloak class="rounded-md p-2 mb-1.5" style="border: 1px solid var(--border); background: var(--surface-2, #f9fafb);">
+                    {{-- 2026-09-12 — hidden, not just disabled, while
+                         reviewLocked: the whole point of this control is to
+                         add a NEW line, and there is nothing partial about
+                         "add" the way there is about, say, a date field the
+                         agent might still want to glance at. --}}
+                    <button type="button" class="corex-btn-outline text-xs w-full mb-1.5" x-show="!reviewLocked" @click="openManualEntry()">Add line manually</button>
+                    <div x-show="manualEntryOpen && !reviewLocked" x-cloak class="rounded-md p-2 mb-1.5" style="border: 1px solid var(--border); background: var(--surface-2, #f9fafb);">
                         <div class="grid grid-cols-2 gap-1 mb-1">
                             <button type="button" class="text-xs rounded-md py-1" :style="{ border: '1px solid var(--border)', background: manualEntry.entry_type === 'income' ? 'var(--ds-purple-soft, #f3e8ff)' : 'transparent', color: manualEntry.entry_type === 'income' ? 'var(--ds-purple, #7c3aed)' : 'var(--text-secondary)' }" @click="manualEntry.entry_type = 'income'">Income</button>
                             <button type="button" class="text-xs rounded-md py-1" :style="{ border: '1px solid var(--border)', background: manualEntry.entry_type === 'expense' ? 'var(--ds-amber-soft, #fffbeb)' : 'transparent', color: manualEntry.entry_type === 'expense' ? 'var(--ds-amber, #b45309)' : 'var(--text-secondary)' }" @click="manualEntry.entry_type = 'expense'">Expense</button>
@@ -1545,6 +1616,7 @@ function rentalCaptureLedger({ initialCaptureEntries, manualCaptureCreateUrl } =
         manualEntrySaving: false,
         manualEntryError: '',
         openManualEntry() {
+            if (this.reviewLocked) return; // read-only while with the authoriser
             this.manualEntryOpen = true;
             this.manualEntry = { entry_type: 'income', entry_date: '', entry_description: '', entry_amount: '' };
             this.manualEntryError = '';
@@ -1557,7 +1629,7 @@ function rentalCaptureLedger({ initialCaptureEntries, manualCaptureCreateUrl } =
             this.manualEntryOpen = false;
         },
         async saveManualEntry() {
-            if (this.manualEntrySaving) return;
+            if (this.manualEntrySaving || this.reviewLocked) return; // read-only while with the authoriser — server refuses regardless, this just avoids the round trip
             const amount = parseFloat(this.manualEntry.entry_amount);
             if (this.manualEntry.entry_amount === '' || Number.isNaN(amount)) {
                 this.manualEntryError = 'Enter an amount.';
@@ -1652,15 +1724,23 @@ function rentalCaptureLedger({ initialCaptureEntries, manualCaptureCreateUrl } =
     };
 }
 
-function rentalReview({ saveUrl, initial, initialCaptureEntries, manualCaptureCreateUrl, initialSavedAt, initialMarkedUpDocIds, currentUserId, currentUserName, currentUserRole, highlighters, requestMoreInfoUrl, submitForApprovalUrl, reopenUrl, expectedGeneration, canReopenNow, documentChecklist }) {
+function rentalReview({ saveUrl, initial, initialCaptureEntries, manualCaptureCreateUrl, initialSavedAt, initialMarkedUpDocIds, currentUserId, currentUserName, currentUserRole, highlighters, requestMoreInfoUrl, submitForApprovalUrl, reopenUrl, expectedGeneration, canReopenNow, documentChecklist, reviewLocked }) {
     return {
+        // 2026-09-12 — Johan-approved read-only lock while the application
+        // is with the authoriser (isPendingAuthorisation()). Set once, from
+        // the server, never recomputed client-side — the SERVER is what
+        // actually enforces this on every write endpoint (see
+        // HandlesRentalApplicationDocumentMarks::guardScreenNotLockedForAuthoriser());
+        // this drives the UI half only (disabling controls, the header
+        // already says so in plain language).
+        reviewLocked: !!reviewLocked,
         // 2026-09-08 — the highlight/note viewer state+methods (activeDocId,
         // pages, marks, openHighlighter()/applyHighlights()/etc.) now live in
         // the shared rentalDocumentHighlighter() factory (see
         // partials/document-highlighter-script.blade.php, included below)
         // — the authoriser screen spreads the same factory in rather than
         // this logic being copy-pasted a second time.
-        ...rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, currentUserName, currentUserRole, highlighters }),
+        ...rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, currentUserName, currentUserRole, highlighters, reviewLocked }),
         // Capture-ledger rework, 2026-09-11 — shared with rentalAuthorisationViewer()
         // for the same reason rentalDocumentHighlighter() is: identical
         // tally logic, one copy. See its own docblock for the full
@@ -2046,6 +2126,14 @@ function rentalReviewLayout({ initialCvDocs } = {}) {
         //     and did nothing. $nextTick() waits for that render first.
         jumpToMark(row) {
             if (!row.document_id) return; // migrated/manual entry — nothing to jump to, the row's own inert glyph already says so
+            // 2026-09-12 — real bug, found live by cc4: with the document
+            // gone, opening the continuous view here just landed on
+            // whichever document happens to be first/visible — a
+            // working-looking jump that lands somewhere wrong, exactly what
+            // Johan called out. The row itself already shows this is broken
+            // (no arrow, "Document removed" label) — this guard is the
+            // belt-and-braces backstop so a click can never even try.
+            if (row.document_missing) return;
             this.continuousViewOpen = true;
             this.$nextTick(() => {
                 this.$dispatch('rental-jump-to-mark', { documentId: row.document_id, markId: row.id });
@@ -2189,6 +2277,11 @@ function agentDocumentUploadReview() {
                 const item = this.uploading.find(u => u.tempId === tempId);
                 if (!res.ok) { item.error = (data.errors && Object.values(data.errors)[0]?.[0]) || data.message || 'Upload failed.'; return; }
                 this.uploading = this.uploading.filter(u => u.tempId !== tempId);
+                // 2026-09-12 — see the Supporting Documents panel's own
+                // x-init comment: stashed here so it survives the reload
+                // below and the panel can expand back open on the new row
+                // instead of collapsing over it.
+                try { sessionStorage.setItem('rentalReviewJustUploadedDocIds', JSON.stringify((data.documents || []).map(d => d.id))); } catch (_) {}
                 window.location.reload();
             } catch (e) {
                 const item = this.uploading.find(u => u.tempId === tempId);
@@ -2223,6 +2316,10 @@ function attachExistingDocument() {
                 });
                 const data = await res.json().catch(() => ({}));
                 if (res.ok && data.ok) {
+                    // Same fix as agentDocumentUploadReview()'s own — an
+                    // attached document is exactly the same "reload
+                    // collapses the panel over the row you just added" case.
+                    try { sessionStorage.setItem('rentalReviewJustUploadedDocIds', JSON.stringify(data.document ? [data.document.id] : [])); } catch (_) {}
                     window.location.reload();
                     return;
                 }

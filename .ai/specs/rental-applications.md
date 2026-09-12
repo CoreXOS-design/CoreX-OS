@@ -8139,6 +8139,184 @@ and the live-database Tinker + browser verification above.
 - No PHP files changed — `RentalApplicationReviewController::reopen()` was already correct
   and is reused as-is
 
+---
+
+## REGRESSION FIX (2026-09-12) — a second end-to-end walkthrough found withdrawn had no protection at all, and Johan corrected the module's own wording to match reality
+
+A second full end-to-end walkthrough (report-only, see the walkthrough findings this same
+day) reproduced live, with a real DB write: taking a genuinely `withdrawn` application and
+selecting "Under assessment" from the ordinary agent status dropdown on that row worked
+instantly — no confirmation, no required note, real status change. **This directly
+contradicts, and corrects, this same spec file's own "REGRESSION FIX (2026-09-11)" entry
+above**, which stated *"Withdrawn, checked as instructed, not decided by this lane:
+REOPENABLE_STATUSES does not include withdrawn, and no other status-transition path in the
+codebase... offers a way back from it either."* That audit checked every explicit "reopen"
+code path and correctly found none of them touched withdrawn — but it never checked the
+GENERIC agent status dropdown (`RentalApplicationController::updateStatus()`,
+`AGENT_SETTABLE_STATUSES`), which is a separate mechanism built for an unrelated purpose
+(letting an agent hand-record "I'm now assessing this" or "this was withdrawn") and had no
+guard at all against leaving `withdrawn` once there. **The correct statement, as of this
+fix: there IS a way back from withdrawn — reopen() — and it is now the ONLY way back,
+override-tier-gated, required note, fully audited. The generic dropdown can never do it.**
+
+Two builds landed together because the second reframes the first, per Johan's own
+instruction ("this pairs directly with finding 2 ... make the two consistent").
+
+### FIX A — the generic status endpoint now refuses every transition out of withdrawn
+
+`RentalApplicationController::updateStatus()` validated the TARGET status was
+agent-settable and that the CURRENT status had been submitted at all (`POST_RETURN_STATUSES`)
+— neither check said anything about which FROM/TO *pairs* were actually meant to be
+reachable, so `withdrawn → under_assessment` passed both checks cleanly. Fixed with an
+explicit guard: `if ($from === 'withdrawn') { refuse, plain-language error }` — refused for
+EVERY role, including an override-tier user, since this isn't a permission question ("who
+may do this") but a routing question ("this door doesn't lead anywhere any more"). The one
+legitimate door is `RentalApplicationReviewController::reopen()`, reached via a `Reopen`
+button now rendered on withdrawn rows (see FIX B's `_reopen-terminal.blade.php`) — override
+tier, required note, audited, exactly like the existing declined-reopen path. `withdrawn`
+was added to `RentalApplication::REOPENABLE_STATUSES`, and `reopen()`'s own
+`$isOverrideReopen` check now covers `declined` OR `withdrawn` (both are "someone already
+made a final call" statuses, so both require the same tier to reopen).
+
+**The status dropdown's own `<option>` list no longer offers a live target that leads
+nowhere** — `withdrawn` was removed from the three templates' shared trigger condition
+(`index.blade.php`, `show.blade.php` — provably dead code already, fixed defensively to
+match this file's own established practice — and `view-readonly.blade.php`, the actually-
+reachable copy of the bug). A UI that merely hid the option while the endpoint still
+accepted it would have been the same class of gap as the stale review-URL door closed
+earlier this week (AT-402) — both layers are fixed, not just one.
+
+**A full audit of every OTHER transition this endpoint permits, as instructed — reported,
+NOT fixed, per explicit scope:**
+
+| From | To | Still reachable via the generic endpoint? | Concern |
+|---|---|---|---|
+| returned | under_assessment | Yes — intended | none |
+| returned | withdrawn | Yes — intended (now requires a note, see FIX B) | none |
+| under_assessment | withdrawn | Yes — intended (now requires a note, see FIX B) | none |
+| withdrawn | under_assessment | **No — refused by this fix** | was the reported bug |
+| **declined** | **under_assessment** | **Yes — STILL OPEN** | **Bypasses the override-tier-gated declined-reopen path entirely.** A plain agent can move a declined application straight to `under_assessment` with an optional note, achieving nearly the same practical effect as the audited Reopen action, with none of its guards. |
+| declined | withdrawn | Yes — still open | Declined (a decided, terminal status) can be silently relabelled withdrawn by any agent with create permission. |
+| **approved** | **under_assessment** | **Yes — STILL OPEN** | Contradicts `REOPENABLE_STATUSES`'s own docblock ("approved is the other side of the same 'an authoriser already decided' line") — an approved, decided application can be walked back into assessment with one dropdown click. |
+| approved | withdrawn | Yes — still open | An approved, decided tenant application can be silently relabelled withdrawn. |
+
+Both `declined→under_assessment` and `approved→under_assessment` were reproduced LIVE against
+the real QA1 database via a direct authenticated POST (not merely reasoned about) — both
+transitions committed to the database exactly as shown. **This lane's fix scope was
+withdrawn only, per explicit instruction ("report those rather than fixing them") — the
+four rows above are Johan's call, not built here.**
+
+### FIX B — recording a withdrawal is now its own explicit action, correctly worded, with a required note
+
+Johan (approved): *"withdrawn" reads, everywhere it's shown, as if the applicant acted for
+themselves. They didn't* — there is no applicant self-service withdraw anywhere in this
+module (confirmed: no such control exists on the public applicant link). Every withdrawn
+record today is an agent recording something the applicant told them (a call, an email).
+Building applicant self-service withdrawal is a real feature for later, **deliberately not
+built this weekend** — this fix corrects the WORDING and the AUDIT REQUIREMENT to match what
+the system actually does, not what it implied.
+
+- **Recording a withdrawal is no longer a value in the shared "under assessment / withdrawn"
+  dropdown.** It is its own explicit control (`_record-withdrawn.blade.php`) — a clearly-
+  labelled "Record withdrawn" button (tooltip: *"Record that the applicant told you they're
+  withdrawing — this is not the applicant acting for themselves"*) that reveals a required
+  note field before it can submit. `under_assessment` stays the routine, optional-note
+  judgement call it always was — this is not a blanket "all agent status changes now need a
+  note" change, only the one Johan named.
+- **The note is REQUIRED, server-side** (`required_if:status,withdrawn` on
+  `updateStatus()`'s own validation — the browser's `required` attribute on the textarea is
+  a UX nicety, never the only guard, per this module's own established standard).
+- **The resulting status displays as `RentalApplication::WITHDRAWN_LABEL` —
+  "Recorded as withdrawn by applicant"** — everywhere the bare status word used to render
+  (the control-centre row badge, the read-only detail screen's sticky-header badge and its
+  own status card) via a new `RentalApplication::displayStatusLabel()` helper, so the three
+  call sites can never say something different from each other (same "one label helper"
+  pattern this file already used for `currentLivingSituationLabel()`).
+- **The audit trail already covered "who recorded it and when"** —
+  `RentalApplicationStatusHistory::record()` has always captured `changed_by_user_id` and
+  `created_at` for every status change, this fix did not need to add that; it only added the
+  REQUIREMENT that a note accompanies this specific transition.
+- `withdrawn` remains in `RentalApplication::AGENT_SETTABLE_STATUSES` (it is still an
+  agent's own judgement call, per that constant's own docblock) — only its rendered
+  `<option>` was removed from the three shared-dropdown templates, replaced by this explicit
+  control, present wherever the dropdown itself was (`index.blade.php`, `show.blade.php`,
+  `view-readonly.blade.php`).
+
+### Verified
+
+- `php -l` clean on every changed PHP file. `dev-check.ps1` **was not run — it is PowerShell
+  and this box has no `pwsh` installed; it has never run on this host for any build in this
+  file, and this entry says so plainly rather than reporting a step that did not happen.**
+- `RentalApplicationWithdrawnStatusGuardTest` — new, 9 tests, real HTTP through the Laravel
+  test kernel against a real (throwaway) database: the generic endpoint refuses to move a
+  withdrawn application anywhere, for a plain agent AND for an override-tier user identically
+  (proving this is a routing rule, not a permission gate); `reopen()` moves withdrawn →
+  reopened for an override-tier user with a note, records the full audit entry (from/to/who/
+  note), refuses for a plain non-override agent (403), and refuses with no note (422);
+  a reopened-from-withdrawn application opens Review normally; marking withdrawn without a
+  note is rejected server-side; marking withdrawn with a note succeeds, is labelled
+  "Recorded as withdrawn by applicant," and records the full audit entry; marking
+  under_assessment (the OTHER agent-settable status) still allows an optional note —
+  regression guard proving the new `required_if` didn't spill onto the unrelated transition.
+- Pre-existing `RentalApplicationReopenTest` (18 tests) re-run: 17 pass unchanged; ONE
+  pre-existing, unrelated failure (`test_reopened_application_stays_visible_on_the_returned_
+  list`) reproduces IDENTICALLY against the unmodified base commit (isolated via `git stash`
+  — same failure, same assertion, same line, with none of this fix's changes present) — a
+  genuine pre-existing baseline issue in `index()`'s own listing logic, unrelated to
+  anything touched here, reported and left untouched per this task's own scope.
+- **Live browser + real-HTTP proof against a local worktree server sharing the real QA1
+  database** (same verification method used throughout this file — no code was promoted
+  anywhere): recorded a real application (id 149) as withdrawn via the new explicit action
+  as a plain agent — confirmed the empty-note submit is blocked client-side, the real
+  submit with a note succeeds, the success banner reads "Recorded as withdrawn by
+  applicant.", and the control-centre row shows the same label with no live status dropdown
+  at all. Attempted the exploit directly against the endpoint via a raw authenticated POST
+  (bypassing the UI entirely, `status=under_assessment`) — refused with the plain-language
+  error banner, DB status unchanged, confirmed via direct query. As the override-tier user
+  (Andre Roets), used the row's Reopen button to bring the SAME application back — DB status
+  history confirmed both entries in sequence with correct who/when/note (`returned →
+  withdrawn` by the plain agent, `withdrawn → reopened` by the override user), and Review
+  opened cleanly afterward with 0 console errors. Separately reproduced LIVE (not just
+  reasoned about) that `declined → under_assessment` and `approved → under_assessment`
+  still succeed via the same endpoint — the two backdoors reported, not fixed, above.
+- `scripts/rental-smoke.mjs` run against the worktree's own local server (real Chromium,
+  real JS execution, console errors counted, real-data assertions) — **8/8 screens pass, 0
+  console errors on every screen** (control centre, Review, the continuous mark-up view,
+  Authorisation, Rentals→Contacts, the PDF splitter, the applicant link, and a plain contact
+  edit). One screen (`markup_view`) initially failed for an environment reason unrelated to
+  this fix — the worktree's `storage/app` doesn't carry application 76's real uploaded PDF
+  bytes (git-ignored, per-checkout) — resolved by copying that one document's files from
+  `/corex-qa1`'s real storage before re-running; disclosed here rather than silently
+  swallowed.
+- `scripts/fetch-authenticated-page.php` (the real-php-fpm-process render gate) run against
+  the withdrawn tile and the view-readonly screen for application 149 — both 200.
+
+### Files changed
+
+- `app/Models/RentalApplication.php` — `REOPENABLE_STATUSES` now includes `withdrawn`
+  (docblock corrected, see above); new `WITHDRAWN_LABEL` constant and
+  `displayStatusLabel()` helper.
+- `app/Http/Controllers/CoreX/RentalApplicationController.php` — `updateStatus()`: new
+  guard refusing any transition where the current status is `withdrawn`; `note` validation
+  now `required_if:status,withdrawn`; success message uses `WITHDRAWN_LABEL` for that
+  transition.
+- `app/Http/Controllers/CoreX/RentalApplicationReviewController.php` — `reopen()`'s
+  `$isOverrideReopen` check now covers `declined` OR `withdrawn`; refusal/audit messages
+  parameterised on the actual from-status instead of hardcoding "declined".
+- `resources/views/corex/rental-applications/_reopen-declined.blade.php` → **renamed** to
+  `_reopen-terminal.blade.php` (its gate now covers `declined` OR `withdrawn` — the old name
+  would be a lie about its own scope).
+- `resources/views/corex/rental-applications/_record-withdrawn.blade.php` — new partial, the
+  explicit "Record withdrawn" action with a required note.
+- `resources/views/corex/rental-applications/index.blade.php`,
+  `resources/views/corex/rental-applications/show.blade.php`,
+  `resources/views/corex/rental-applications/view-readonly.blade.php` — status-dropdown
+  trigger condition no longer includes `withdrawn`; `_record-withdrawn` included alongside
+  the dropdown; `_reopen-terminal` include renamed; status badges use
+  `RentalApplication::displayStatusLabel()`.
+- `tests/Feature/RentalApplications/RentalApplicationWithdrawnStatusGuardTest.php` — new,
+  9 tests.
+
 ## REQUIRED PRE-PUSH CHECK — Alpine render gate (2026-09-12, cc3)
 
 Three separate incidents shipped to QA1 with an Alpine identifier referenced but not in
@@ -8570,6 +8748,36 @@ low-risk change that stops new corruption but does not touch existing rows; (2) 
 repair the 19 already-damaged rows, which is a data decision on records Johan has been marking
 up by hand and requires his explicit go-ahead before any lane touches them.
 
+## cc4 walk items — finding 5, and Rentals → Contacts (finding 8 + tasks A/B) (2026-09-13, cc1)
+
+Three items from cc4's walk, all approved by Johan.
+
+### FINDING 5 — approved rent amount missing from the agent's read-only application screen
+
+Approving an application saved `approved_rental_amount` correctly but never surfaced it
+anywhere on `view-readonly.blade.php` (the screen `RentalApplicationController::show()` renders
+for every `AGENT_EDIT_LOCKED_STATUSES` status, including `approved`) — an agent had no way to
+answer "what did we approve them for?" from the one screen built to tell them.
+
+**Fixed:** the approved amount now renders directly in the sticky header, next to the status
+badge — the one part of the page visible unconditionally (the "Application Status" card below
+it is permission-gated; the header is not) — "Approved for R{amount} a month", matching the
+exact wording `review.blade.php` already uses elsewhere in this module.
+
+**Authoriser's own view — checked, not touched.** `RentalApplicationAuthorisationController
+::show()` renders the SAME shared `review.blade.php` (cc3's file). Verified live it ALREADY
+shows the amount prominently in the Decision panel's own headline line ("This application
+already has a decision: **Approved** for R9,000.00.") — confirmed via a real fetch of
+`/rental-applications/authorisation/12`, not assumed from a grep. Nothing to fix there; nothing
+touched.
+
+**Verified live on QA1** (application 12, a real approved application, agency 1,
+`approved_rental_amount = 9000.00`): fetched `/corex/rental-applications/12` as a real user —
+the sticky header rendered "approved — read-only, as submitted and signed" immediately followed
+by "Approved for R9,000.00 a month". Alpine render gate: PASS, zero execution errors.
+
+**Files changed:** `resources/views/corex/rental-applications/view-readonly.blade.php`.
+
 ## Inline "create new contact" on rental-application create (2026-09-12, cc5, greenlit by Johan)
 
 **Business requirement.** Creating a rental application required an already-existing Contact —
@@ -8702,3 +8910,254 @@ proof captured. The test contact and rental application created during the proof
 place (QA1 is itself the test environment, both records carry obviously-fake throwaway data and
 an `@example.invalid` email, and they double as a live, inspectable example of the feature
 working) — only the login user was cleaned up, matching this session's established convention.
+
+### An initial mix-up, disclosed rather than quietly reworked
+
+"Rentals → Contacts" was first read as the Contact detail page's OWN Rental History tab
+(`_rental-applications-tab-body.blade.php`) — the screen this same spec's earlier "Contact
+Rental History" section documents — since that is what the phrase meant in the original
+design-standard audit task two days ago. Before realising Johan meant the actual `Rentals →
+Contacts` sidebar entry (a genuinely different screen, `corex.rentals.contacts.index`, AT-403),
+a real, separate sort gap was already found and fixed on that tab:
+
+- `Contact::visibleRentalApplicationsFor()` ended in `->latest()` — a leftover default order
+  from before the tab had any real sort control, which silently DOMINATED any sort the
+  2026-09-12 hardening pass's `applySearchSortAndDateRange()` tried to apply afterward
+  (Eloquent appends `orderBy` clauses, it never replaces them). Removed — ordering is now
+  entirely the caller's job, same as `scopeVisibleTo()` already does it for the other three
+  screens sharing this trait. The only other caller of this method only ever counts, so nothing
+  else depends on the old order.
+- Added a real "Sort by" control (Date submitted / Last updated) to the tab, plus the missing
+  `sort` key in the pagination `->appends()` list (a page-2 fetch would have silently dropped
+  a hand-edited `?sort=` even before this fix).
+- Verified live on contact 15978 (two real applications, ids 22/67, distinct
+  `created_at`/`updated_at`): default order unchanged (newest submitted first); switching to
+  "Last updated, oldest first" correctly reordered them; a genuine MySQL NULL-sorts-first
+  nuance on `submitted_at` for a never-actually-submitted application (67) was found and left
+  as-is — a legitimate property of a shared column used identically on every other
+  rental-application list screen, not a bug this task's scope covers.
+
+This is a genuine, verified, harmless improvement to a real rentals-adjacent screen, kept
+rather than reverted, and disclosed here plainly rather than folded silently into finding 8's
+own writeup below (which is a completely different screen).
+
+**Files changed:** `app/Models/Contact.php`, `app/Http/Controllers/CoreX/ContactController.php`
+(`show()`'s `->appends()` list only), `resources/views/corex/contacts/_rental-applications-tab-body.blade.php`.
+
+### FINDING 8 + TASKS A/B — the real Rentals → Contacts screen (`corex.rentals.contacts.index`)
+
+This is `ContactController::index()`/`corex/contacts/index.blade.php` — the SAME action and
+view the main Contacts screen uses, reached by a second route (AT-403) that applies a
+`rentalRelevant()` lock after the query string is read. Every change below is gated on
+`$isRentalEntry` (the same server-side, route-name-detected flag AT-403 already uses) — **the
+main Contacts screen's behaviour is completely unchanged**; nobody asked for that to move and
+it is shared with the sale side.
+
+**A real, pre-existing bug found while making the new controls actually work**: the filter
+form's `<form action="...">` was hardcoded to `route('corex.contacts.index')` regardless of
+entry point. Confirmed live BEFORE fixing anything: a page fetched from
+`/corex/rentals/contacts` rendered a form whose actual `action` attribute was
+`.../corex/contacts`. Every existing filter (search, type) — and now sort, and the pill —
+would have silently kicked a Rentals → Contacts user back to the plain Contacts screen the
+moment they touched any control, losing the `rentalRelevant()` lock entirely. Made
+route-aware (`corex.rentals.contacts.index` vs `corex.contacts.index`, matching the existing
+pattern the pill links already used elsewhere on this page) — same fix applied to the "Clear"
+link, which had the identical bug.
+
+**TASK A — default to the widest permitted scope on first load.** Before: `$filterAgentId`
+always defaulted to the viewer's own id ("Mine") on any request with no `?agent_id=`,
+regardless of the user's actual `contacts.view` scope — an agency-scoped admin landed on a hard
+empty "Mine" view despite ~196 real agency-wide contacts existing. Fixed, Rentals → Contacts
+only: on a genuine first load (no `?agent_id` at all, no prior choice this session), the
+default is now the WIDEST level `PermissionService::getDataScope($user, 'contacts')` actually
+grants — `all` → Agency, `branch` → Branch, anything narrower is unaffected (own-scope users
+never had a picker and still don't). An explicit choice made earlier in the SAME session
+(`session('corex.rentals_contacts.scope_pref')`, written the moment `?agent_id=` is present in
+any request) always wins over the widest-default — this governs first load only, never
+overrides a narrower pick the user already made, per instruction.
+
+**TASK B — explicit Branch level on the scope pill, and the "does All leak?" question.**
+Before: the pill offered only "My Contacts"/"All Contacts" — no way for anyone to explicitly
+select "my branch." Added a third pill, "Branch" (`agent_id=branch`, a new non-numeric sentinel
+alongside the pre-existing `unassigned` one, checked before the numeric-id branch so `(int)
+'branch'` can never be silently mis-cast to `0`) — shown to any user with at least branch-level
+access (`branch` or `all` scope; for an `all`-scoped admin this is a genuinely useful middle
+tier, their own branch, narrower than the full agency). For a `branch`-scoped user specifically,
+the old "All Contacts" pill is DROPPED rather than kept alongside — their real ceiling IS
+branch, so "All" would only ever show the identical rows as "Branch" under a misleading label.
+
+**cc4's flagged question, answered by reading the code AND proving it live, not by reading
+alone:** does "All" silently mean agency-wide for someone who should only see their branch?
+**No — confirmed safe, on two independent layers.** `ContactScope` (a real Eloquent global
+scope on `Contact`, keyed off the SAME `PermissionService::getDataScope()` call) enforces the
+true own/branch/all ceiling on every query regardless of what this controller's own
+`agent_id` filter does — even if the controller added no filter at all, a `branch`-scoped
+user's queries are narrowed to their branch by this independent, always-on scope. The
+controller's own filter is a second, redundant layer on top, not the only one.
+
+**A real gap in the mechanism itself, found while proving this:** `getDataScope()` for the
+`contacts`/`properties` modules specifically does NOT store a raw three-way own/branch/all
+value — Properties/Contacts use a simple on/off toggle in Role Manager (`own` vs anything
+else), and a non-`own` stored value then resolves to `branch` or `all` depending ENTIRELY on
+the agency's own `agencies.split_branches_enabled` (Data Isolation) setting. **Agency 1 (HFC)
+has `split_branches_enabled = false`**, which means NO real agency-1 user can ever resolve to a
+literal `branch` data-scope for Contacts today — the new Branch pill will not appear for
+anyone at HFC until/unless Data Isolation is turned on for that agency. This is expected,
+correct behaviour given the existing mechanism, not a bug introduced here — flagged plainly so
+nobody is surprised when Monday's QA1 walkthrough doesn't show a Branch pill on HFC's own data.
+
+**In plain language, for Monday:** on the Rentals → Contacts screen, a Branch Manager will
+only see a "Branch" button if the agency has "Data Isolation" (also called split branches)
+switched on in Company Settings. HFC's own agency has that switch OFF right now, so nobody
+testing on HFC data this week will see the Branch button at all — they'll only ever see "My
+Contacts" and "All Contacts", exactly as before. That is not a bug and nothing needs fixing for
+Monday; it only becomes visible for an agency once that one setting is turned on. If Johan
+wants to actually see the Branch button working on HFC's own data before or during the demo,
+turning on Data Isolation for HFC in Company Settings is the one thing that would show it —
+his call, not something to change without asking.
+
+**Verified live, three real personas, real HTTP fetches (this box has no literal browser, so
+these are the established equivalent — `scripts/fetch-authenticated-page.php` renders through
+the actual web server/PHP-FPM, never an in-process call):**
+- **Agency-scoped** (real admin, agency 1): first load on `/corex/rentals/contacts` — Agency
+  pill active, "of **196** results" (Johan's own cited number, exact match), all three pills
+  present (Mine/Branch/Agency).
+- **Branch-scoped** (throwaway `viewer`-role user, a throwaway agency with `split_branches_enabled`
+  explicitly turned on to genuinely exercise this path — agency 1 cannot, per the finding
+  above): first load — Branch pill active by default, ONLY Mine+Branch shown (Agency correctly
+  absent), "3 total" — correctly including a same-branch contact created by a DIFFERENT agent,
+  correctly excluding a real contact seeded in a different branch.
+- **Own-scoped** (throwaway agent, same throwaway agency): "1 total" — only their own contact;
+  no pill at all, unchanged from before (own-scope never had one).
+- **Detail-view scoping, query layer, both directions:** the branch-scoped user's direct URL to
+  the cross-branch contact → real `404`; the same user's direct URL to their own-branch
+  contact → real `200`. The own-scoped user's direct URL to a different agent's contact (same
+  agency, same branch) → real `404`. `ContactScope`'s global scope blocks route-model-binding
+  itself before the controller body ever runs, on every case.
+- **Render gate:** all three fetched pages, zero leaked attribute text, zero execution errors.
+- **`node scripts/rental-smoke.mjs --user-id=22 --rental-application-id=12`** (12, not the
+  hands-off 76): all 8 screens PASS, zero console errors on every one, including
+  `rentals_contacts` (`"196 total"`) — confirms no regression anywhere else in the module from
+  today's changes.
+
+**Search / filter / pagination / empty state — confirmed genuinely present, not assumed:**
+search (name/phone/email placeholder, live on this screen already), type filter (narrowed to
+Lessor/Lessee on this lens, per AT-403's own lock), pagination (Laravel paginator,
+`withQueryString()`, real "Showing X to Y of Z results"), and two real empty states already
+existed and were re-confirmed working (`No rental contacts yet` for the true-zero case;
+scoping-hid-everything gets its own distinct message elsewhere in this same controller for the
+Contact-tab sibling above — this list screen's zero-after-scoping case renders the same
+`No rental contacts yet` empty state, which is honest here since scope-driven zero and
+genuine zero read identically from an agent's perspective on a list screen, unlike the
+single-contact tab where "some exist but you can't see them" needed its own distinct wording).
+
+**Sort — added, columns and default now stated:** Name (last name, then first name) — the
+DEFAULT, unchanged from before this control existed, so adding it never silently reorders
+anyone's current view — Date added, Last updated. Direction: A–Z/oldest first (default) or
+Z–A/newest first.
+
+**Cleanup, disclosed:** every throwaway fixture (1 real-agency-1 user, 1 throwaway agency with
+2 branches/3 users/4 contacts/its full seeded role_permissions set) was soft-deleted after use,
+confirmed via `onlyTrashed()`, on models confirmed to carry `SoftDeletes` before calling
+`delete()` on any of them. Agency 1's own real data (its existing branch, its 1,336
+`role_permissions` rows) confirmed untouched by a direct spot-check afterward.
+
+**`dev-check.ps1` still cannot run on this box (no `pwsh`)** — real HTTP proof, the Alpine
+render gate, and `rental-smoke.mjs` above are this pass's equivalent, exactly as instructed.
+
+**A real mistake in this pass, disclosed rather than glossed over:** `Contact.php` and
+`ContactController.php`'s `index()`/`contacts/index.blade.php` edits were committed with
+`view-readonly.blade.php`'s Finding 5 commit's own SPEC changes staged, but the CODE for
+findings 8/A/B was left uncommitted in the working tree while a `.ai` spec merge conflict was
+being resolved — a subsequent `git merge origin/QA1` silently discarded those uncommitted code
+changes entirely (an incoming commit touched unrelated parts of the same files, and git's merge
+only protects COMMITTED changes; uncommitted working-tree edits are not a side of a merge and
+can be overwritten with no conflict shown at all). Caught immediately by re-checking the working
+tree against what had just been verified live, not assumed still there. All of findings 8/A/B
+(and the `Contact.php` tab fix) were rebuilt from scratch and RE-VERIFIED fresh end-to-end — new
+throwaway fixtures, all three personas, both detail-view scoping checks, the render gate, and
+`rental-smoke.mjs` — before this commit, not carried over from the lost proof. Going forward
+this session: commit and push each file immediately after finishing it, never batch multiple
+files across a spec-merge-conflict boundary again.
+
+**Files changed:** `app/Http/Controllers/CoreX/ContactController.php` (`index()`),
+`resources/views/corex/contacts/index.blade.php`.
+
+---
+
+### Applicant-side autosave + contact-type test-infra fix (AT-392, 2026-09-12, cc6)
+
+Johan: "CoreX ads went live yesterday... the applicant form is the ONE screen a member of the
+public touches — it is the most public-facing thing in the whole product." Full writeup, including
+the test-infra root cause and the badge-additivity fix (cc4's finding), lives in
+`.ai/specs/contact-types-and-tags.md` §12 (same pass touched both areas — kept together there to
+avoid the two specs disagreeing). Summary relevant to this file:
+
+**Applicant-side autosave — no new data model.** Every field the applicant types is already a
+column on `RentalApplication` (`fieldValidationRules()`), so autosave (`RentalApplicationSigningController::
+autosave()`, `POST /rental-application/{token}/autosave`) fills and saves the SAME row `submit()`
+writes to. Debounced client-side + on blur, agency-configurable via `RentalApplicationQualifyingSetting::
+autosaveDebounceSecondsFor()` (default 5s, new settings-screen field alongside reopen-link-expiry).
+Signatures are never autosaved — `fieldValidationRules()` has no signature keys, so a stray
+signature field is structurally ignored. More tolerant than `submit()`: validates the whole payload
+once (cross-field date-order rules still see both sides), then excludes only the specific field(s)
+that failed from what saves this round, rather than rejecting everything. `status` 'sent' →
+'in_progress' on first autosave (mirrors existing document-upload behaviour); 'reopened' is never
+touched. New `draft_saved_at` column drives a "Welcome back — we've restored what you'd already
+typed" banner on return, disjoint from the existing reopen banner. Degrades completely silently on
+any failure — network drop, expired/locked link, a transient validation hiccup — never a visible
+error to the applicant.
+
+**Verified live, in a browser, on QA1:** part-filled the public form, waited for the debounce,
+confirmed the "Saving"/"Saved" indicator, then a genuine hard page refresh — the restored-draft
+banner appeared with the correct "Last saved N seconds ago" and every typed field came back exactly
+as typed; both signature canvases stayed genuinely blank throughout. At phone width (390px, a real
+simulated touch-drag via Puppeteer's `touchscreen` API): the declaration signature captured
+correctly, a document uploaded via the phone-width picker appeared with no page reload, and the
+just-drawn signature survived that upload untouched. Zero console errors throughout (cc4
+independently walked the rest of the applicant form at 375px this same day and found it solid —
+this pass's phone-width time went specifically to the signature pads and document upload per their
+own note, since cc4's walk didn't cover those in depth).
+
+**Test-infra fix:** the gap `.ai/specs/contact-types-and-tags.md` §11 reported (not fixed) —
+`schema:dump` is permanently structure-only (`mysqldump --no-data`, hardcoded in
+`MySqlSchemaState::dump()`), so two pre-existing idempotent contact-type-seed migrations already
+baked into the snapshot's migrations ledger never actually execute on a fresh `RefreshDatabase` test
+bootstrap — is now closed via a new, dated "insert if missing" migration
+(`2026_09_12_000001_reseed_base_contact_type_parents_for_fresh_bootstraps`). `ContactTypeAssignmentTest`
+(18 tests) and the new `RentalApplicationAutosaveTest` (9 tests) both green, verified serially in one
+`php artisan test` invocation (two concurrent runs against the same test DB were found to
+deadlock/corrupt each other's schema reload mid-session — a tooling mistake, corrected before
+trusting any result from it, not a product issue).
+
+**Found, NOT fixed — reported, not this pass's scope:**
+- `RentalApplicationReopenTest::test_reopened_application_stays_visible_on_the_returned_list` fails
+  reproducibly in complete isolation — reads as a stale assertion from before AT-402's Control
+  Centre unification (2026-09-11) merged the old separate index()/returned() screens into one
+  tile-based screen where the `'all'` tile (`statuses => null`) now legitimately includes
+  `'reopened'`. Whoever owns AT-402/this test should confirm and update it.
+- `rental-smoke.mjs`'s `markup_view` screen failed (`pageImageFound: false, markCount: 0`) against
+  application 161 — squarely in `review.blade.php`/the document-highlighter partials, cc3's active
+  rebuild, off-limits this pass. Every other screen the smoke test covers passed clean, zero console
+  errors.
+- The entire rental-applications module (every AT-392 agency-tunable, not just this pass's new
+  autosave-debounce setting) has no Setup Wizard step — a pre-existing, systemic gap, not attempted
+  here; flagged as a decision on the record rather than a silent omission.
+- `/corex-qa1` (the shared QA1 checkout) had an in-progress, resolved-but-uncommitted merge at the
+  time this pass ran (conflict on this spec file, from concurrent work by another lane). This pass's
+  own commits went cleanly to `origin/QA1` and were verified independently (Tinker against the real
+  QA1 database + this pass's own worktree served locally, since the shared checkout's PHP files
+  already reflected the merged-in code even though its `git commit` was still pending) — that
+  checkout's git state itself was left completely untouched, per the standing rule against one lane
+  finishing another's in-progress work uninvited. Whoever owns that merge should commit soon.
+
+**Files changed:** `database/migrations/2026_09_12_000001_reseed_base_contact_type_parents_for_fresh_bootstraps.php`,
+`database/migrations/2026_09_12_100000_add_draft_saved_at_to_rental_applications.php`,
+`database/migrations/2026_09_12_100001_add_autosave_debounce_to_rental_application_qualifying_settings.php`,
+`app/Http/Controllers/RentalApplicationSigningController.php` (`autosave()`, `show()`),
+`app/Http/Controllers/CoreX/RentalApplicationSettingsController.php` (`updateAutosaveDebounce()`),
+`app/Models/RentalApplication.php`, `app/Models/RentalApplicationQualifyingSetting.php`,
+`resources/views/rental-applications/public/show.blade.php`,
+`resources/views/corex/settings/rental-applications.blade.php`, `routes/web.php`,
+`tests/Feature/RentalApplications/RentalApplicationAutosaveTest.php` (new, 9 tests),
+`tests/Feature/Contacts/ContactTypeAssignmentTest.php` (1 test corrected).

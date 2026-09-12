@@ -388,7 +388,16 @@
          }"
          class="rounded-md px-4 py-3" style="background:var(--surface);border:1px solid var(--border);">
 
-        <form method="GET" action="{{ route('corex.contacts.index') }}" x-ref="filterForm" class="flex flex-wrap items-center gap-3">
+        {{-- cc4 walk, 2026-09-13 — this action was hardcoded to the main
+             Contacts route regardless of entry point: submitting ANY
+             filter (search, type, agent pill — now also sort) from the
+             Rentals → Contacts lens silently redirected to the plain
+             Contacts screen, losing the rentalRelevant() lock entirely.
+             Confirmed live before this fix: the rendered form's action was
+             literally corex/contacts on a page loaded from
+             corex/rentals/contacts. Route-aware now, same pattern the pill
+             URLs above already use. --}}
+        <form method="GET" action="{{ route($isRentalEntry ? 'corex.rentals.contacts.index' : 'corex.contacts.index') }}" x-ref="filterForm" class="flex flex-wrap items-center gap-3">
 
             {{-- Street & Complex Search — AT-273. Lives at the far left of the filter
                  bar as just the property icon + a "?" help popover. Clicking the house
@@ -499,10 +508,12 @@
                 $cuId      = (string) auth()->id();
                 $vtIsMine  = (string) $filterAgentId === $cuId;
                 $vtIsAll   = $filterAgentId === '';
-                $vtDScope  = \App\Services\PermissionService::getDataScope(auth()->user(), 'contacts');
+                $vtIsBranch = $filterAgentId === 'branch';
+                $vtDScope  = $dataScope ?? \App\Services\PermissionService::getDataScope(auth()->user(), 'contacts');
                 $vtCarry   = request()->except(['agent_id', 'page']);
-                $vtMineUrl = route('corex.contacts.index', array_merge($vtCarry, ['agent_id' => $cuId]));
-                $vtAllUrl  = route('corex.contacts.index', array_merge($vtCarry, ['agent_id' => '']));
+                $vtMineUrl = route($isRentalEntry ? 'corex.rentals.contacts.index' : 'corex.contacts.index', array_merge($vtCarry, ['agent_id' => $cuId]));
+                $vtAllUrl  = route($isRentalEntry ? 'corex.rentals.contacts.index' : 'corex.contacts.index', array_merge($vtCarry, ['agent_id' => '']));
+                $vtBranchUrl = route('corex.rentals.contacts.index', array_merge($vtCarry, ['agent_id' => 'branch']));
             @endphp
             <div class="inline-flex rounded-md overflow-hidden" style="border:1px solid var(--border);">
                 <a href="{{ $vtMineUrl }}" @click.prevent="pickAgent('{{ $cuId }}')"
@@ -511,13 +522,55 @@
                    title="Show only my contacts">
                     My Contacts
                 </a>
+                {{-- cc4 walk, finding B, 2026-09-13 — Rentals → Contacts
+                     ONLY (the main Contacts screen's pill is unchanged).
+                     Johan: "the pill currently offers only Mine and All —
+                     there is no explicit Branch option... a branch manager
+                     cannot select the level they actually manage." Shown to
+                     anyone who can reach at least branch level (both
+                     'branch'- and 'all'-scoped users — for an 'all'-scoped
+                     admin this is a genuinely useful middle tier, their own
+                     branch, narrower than the full agency). --}}
+                @if($isRentalEntry)
+                <a href="{{ $vtBranchUrl }}" @click.prevent="pickAgent('branch')"
+                   class="px-3 py-2 text-xs font-semibold no-underline transition-all duration-300"
+                   style="border-left:1px solid var(--border); {{ $vtIsBranch ? 'background:var(--brand-icon,#0ea5e9);color:#fff;' : 'background:var(--surface);color:var(--text-muted);' }}"
+                   title="Show all contacts in my branch">
+                    Branch
+                </a>
+                @endif
+                {{-- A 'branch'-scoped user's real ceiling IS branch — "All"
+                     would only ever resolve to the exact same rows as the
+                     Branch pill above, just under a misleading label, so on
+                     the rentals lens it's dropped rather than kept as a
+                     confusing duplicate. The main Contacts screen keeps
+                     showing it (unchanged) since it predates this pass and
+                     nobody asked for that screen to change. --}}
+                @if(!$isRentalEntry || $vtDScope !== 'branch')
                 <a href="{{ $vtAllUrl }}" @click.prevent="pickAgent('')"
                    class="px-3 py-2 text-xs font-semibold no-underline transition-all duration-300"
                    style="border-left:1px solid var(--border); {{ $vtIsAll ? 'background:var(--brand-icon,#0ea5e9);color:#fff;' : 'background:var(--surface);color:var(--text-muted);' }}"
                    title="Show all {{ $vtDScope === 'branch' ? 'branch' : 'agency' }} contacts">
-                    All Contacts
+                    {{ $isRentalEntry ? 'Agency' : 'All Contacts' }}
                 </a>
+                @endif
             </div>
+            @endif
+
+            {{-- cc4 walk, finding 8, 2026-09-13 — real sort control, Rentals
+                 → Contacts only. Default: Name (unchanged from before this
+                 control existed). See ContactController::index() for the
+                 full reasoning and the sortable column list. --}}
+            @if($isRentalEntry)
+            <select name="sort" onchange="this.form.submit()" class="list-header-filter">
+                <option value="name" {{ request('sort', 'name') === 'name' ? 'selected' : '' }}>Sort: Name</option>
+                <option value="created" {{ request('sort') === 'created' ? 'selected' : '' }}>Sort: Date added</option>
+                <option value="updated" {{ request('sort') === 'updated' ? 'selected' : '' }}>Sort: Last updated</option>
+            </select>
+            <select name="direction" onchange="this.form.submit()" class="list-header-filter">
+                <option value="asc" {{ request('direction', 'asc') === 'asc' ? 'selected' : '' }}>A–Z / Oldest first</option>
+                <option value="desc" {{ request('direction') === 'desc' ? 'selected' : '' }}>Z–A / Newest first</option>
+            </select>
             @endif
 
             {{-- Agent picker (admin/BM only) — centered modal (matches the Properties
@@ -622,7 +675,7 @@
 
             <button type="submit" class="corex-btn-outline text-xs px-3 py-2">Search</button>
             @if(request()->hasAny(['search','type']))
-            <a href="{{ route('corex.contacts.index', $canPickAgent ? ['agent_id' => $filterAgentId] : []) }}"
+            <a href="{{ route($isRentalEntry ? 'corex.rentals.contacts.index' : 'corex.contacts.index', $canPickAgent ? ['agent_id' => $filterAgentId] : []) }}"
                class="text-xs underline transition-all duration-300" style="color:var(--text-muted);">Clear</a>
             @endif
 
@@ -677,7 +730,7 @@
             // alone). No duplication: if the contact already holds the Lessor
             // type, "Landlord" is not added a second time.
             $typeBadges = $contact->parentTypes->pluck('name')->all();
-            if ($isRentalEntry && !$isRestricted && !$isOtherAgent) {
+            if ($isRentalEntry) {
                 $hasLessorType = $contact->parentTypes->contains(fn ($t) => $t->esign_role === 'lessor');
                 $isPropertyLandlord = $contact->relationLoaded('properties')
                     && $contact->properties->contains(fn ($p) => in_array($p->pivot->role ?? null, ['landlord', 'lessor'], true));
@@ -707,20 +760,32 @@
                                style="color:var(--text-primary);"
                                onmouseover="this.style.color='var(--brand-icon,#0ea5e9)'" onmouseout="this.style.color='var(--text-primary)'">{{ $contact->full_name }}</a>
                             @endif
+                            {{--
+                                AT-392, 2026-09-12 (cc4's finding) — the "Agent: X" tag is
+                                purely informational (per its own original comment/title —
+                                "found elsewhere", "belongs to a different agent") and must
+                                never REPLACE the type badges, only sit alongside them. An
+                                @if/@else here made them mutually exclusive: an admin
+                                searching agency-wide for a colleague's contact saw the
+                                Agent tag and NOTHING else — no Tenant, no Seller — on the
+                                exact screen that exists to show where a contact already
+                                sits. Same root rule as everywhere else in this file: a
+                                contact holds a SET of types, shown in full, regardless of
+                                who is looking or whose contact it is.
+                            --}}
                             @if($isRestricted || $isOtherAgent)
                             <span class="text-xs px-2 py-0.5 rounded-md font-medium whitespace-nowrap"
                                   style="background:color-mix(in srgb, var(--ds-amber) 12%, transparent); color:var(--ds-amber); border:1px solid color-mix(in srgb, var(--ds-amber) 30%, transparent);"
                                   title="{{ $isRestricted ? 'Found elsewhere in the agency — not in your own contacts' : 'This contact belongs to a different agent' }}">
                                 Agent: {{ $contact->agent->name ?? $contact->createdBy->name ?? 'Unassigned' }}
                             </span>
-                            @else
-                                @foreach($typeBadges as $badgeName)
-                                <span class="text-xs px-2 py-0.5 rounded-md font-medium whitespace-nowrap"
-                                      style="background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 12%, transparent); color:var(--brand-icon,#0ea5e9); border:1px solid color-mix(in srgb, var(--brand-icon,#0ea5e9) 25%, transparent);">
-                                    {{ $badgeName }}
-                                </span>
-                                @endforeach
                             @endif
+                            @foreach($typeBadges as $badgeName)
+                            <span class="text-xs px-2 py-0.5 rounded-md font-medium whitespace-nowrap"
+                                  style="background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 12%, transparent); color:var(--brand-icon,#0ea5e9); border:1px solid color-mix(in srgb, var(--brand-icon,#0ea5e9) 25%, transparent);">
+                                {{ $badgeName }}
+                            </span>
+                            @endforeach
                         </div>
                         <div class="mt-1 flex flex-wrap gap-x-4 gap-y-1">
                             <span class="text-xs flex items-center gap-1" style="color:var(--text-secondary);">

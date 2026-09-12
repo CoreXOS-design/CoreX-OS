@@ -2837,6 +2837,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // Reopen/resubmit, 2026-09-08.
     Route::post('/settings/rental-applications/reopen-link-expiry', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateReopenLinkExpiry'])
         ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.reopen-link-expiry');
+    // Applicant-side autosave, 2026-09-12.
+    Route::post('/settings/rental-applications/autosave-debounce', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateAutosaveDebounce'])
+        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.autosave-debounce');
     // Item 2 follow-up, 2026-09-10 — lock the property link once submitted for authorisation.
     Route::post('/settings/rental-applications/property-lock', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updatePropertyLock'])
         ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.property-lock');
@@ -4955,6 +4958,11 @@ Route::prefix('rental')->middleware(['auth', 'permission:view_rentals', 'feature
 // convention, same no-identity-leak treatment of an expired/used link.
 Route::prefix('rental-application')->group(function () {
     Route::get('/{token}', [\App\Http\Controllers\RentalApplicationSigningController::class, 'show'])->middleware('throttle:30,1')->name('rental-applications.public.show');
+    // Applicant-side autosave, 2026-09-12 — debounced client-side (agency-
+    // configurable, default 5s), so this fires far less than once per
+    // keystroke; throttle set generously above the settings screen's own
+    // 2s minimum debounce floor.
+    Route::post('/{token}/autosave', [\App\Http\Controllers\RentalApplicationSigningController::class, 'autosave'])->middleware('throttle:40,1')->name('rental-applications.public.autosave');
     Route::post('/{token}/submit', [\App\Http\Controllers\RentalApplicationSigningController::class, 'submit'])->middleware('throttle:10,1')->name('rental-applications.public.submit');
     Route::post('/{token}/documents', [\App\Http\Controllers\RentalApplicationSigningController::class, 'uploadDocuments'])->middleware('throttle:10,1')->name('rental-applications.public.documents');
     Route::get('/{token}/pdf', [\App\Http\Controllers\RentalApplicationSigningController::class, 'pdf'])->middleware('throttle:30,1')->name('rental-applications.public.pdf');

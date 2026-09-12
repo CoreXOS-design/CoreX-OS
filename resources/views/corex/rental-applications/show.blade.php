@@ -130,7 +130,13 @@
          either and was already correctly excluded, and closing this
          defensively (rather than leaving a second known-broken copy of the
          same gate) is the point of fixing the class, not the instance. --}}
-    @if(in_array($rentalApplication->status, array_merge(['returned'], \App\Models\RentalApplication::AGENT_SETTABLE_STATUSES), true))
+    {{-- 2026-09-12 REGRESSION FIX — 'withdrawn' removed from this trigger set,
+         same reasoning and same fix as index.blade.php's own copy of this
+         gate: it used to render a live "Under assessment" option on a
+         withdrawn row with no guard at all. Defensive here too, matching
+         this comment block's own established "close the gate even where
+         it's provably unreachable today" practice. --}}
+    @if(in_array($rentalApplication->status, ['returned', 'under_assessment'], true))
     <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
         <h2 class="text-sm font-semibold mb-3" style="color: var(--text-primary);">Application Status</h2>
         <form method="POST" action="{{ route('corex.rental-applications.update-status', $rentalApplication) }}" class="flex flex-wrap items-end gap-3">
@@ -139,7 +145,11 @@
                 <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Set status to</label>
                 <select name="status" class="rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
                     <option value="returned" disabled @selected(old('status', $rentalApplication->status) === 'returned')>Returned (awaiting review)</option>
-                    @foreach(\App\Models\RentalApplication::AGENT_SETTABLE_STATUSES as $s)
+                    {{-- 2026-09-12 — 'withdrawn' removed from this dropdown's own
+                         options, same reasoning as index.blade.php's identical
+                         fix: recording a withdrawal is now its own explicit,
+                         required-note action. See _record-withdrawn.blade.php. --}}
+                    @foreach(array_diff(\App\Models\RentalApplication::AGENT_SETTABLE_STATUSES, ['withdrawn']) as $s)
                         <option value="{{ $s }}" @selected(old('status', $rentalApplication->status) === $s)>{{ str_replace('_', ' ', ucfirst($s)) }}</option>
                     @endforeach
                 </select>
@@ -156,6 +166,7 @@
             </div>
             <button type="submit" class="corex-btn-primary text-xs">Update Status</button>
         </form>
+        @include('corex.rental-applications._record-withdrawn', ['application' => $rentalApplication])
 
         @if($rentalApplication->statusHistory->isNotEmpty())
         <div class="mt-4 pt-3 text-xs space-y-1" style="border-top: 1px solid var(--border); color: var(--text-muted);">

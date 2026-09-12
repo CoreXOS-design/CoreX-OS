@@ -57,7 +57,80 @@ class RentalApplicationSigningController extends Controller
             return view('rental-applications.public.already-submitted', compact('application'));
         }
 
-        return view('rental-applications.public.show', compact('application'));
+        // Applicant-side autosave, 2026-09-12 — agency-configurable debounce,
+        // never hardcoded in the template.
+        $autosaveDebounceSeconds = \App\Models\RentalApplicationQualifyingSetting::autosaveDebounceSecondsFor($application->agency_id);
+
+        return view('rental-applications.public.show', compact('application', 'autosaveDebounceSeconds'));
+    }
+
+    /**
+     * Applicant-side autosave, 2026-09-12 — Johan: "a member of the public
+     * part-way through a rental application... losing everything they have
+     * typed is a defect on a public form." Debounced client-side (agency-
+     * configurable via RentalApplicationQualifyingSetting::
+     * autosaveDebounceSecondsFor(), default 5s) and again on blur — this
+     * fires far less than once per keystroke.
+     *
+     * No new data model: every field the applicant types is already a
+     * column on THIS row (RentalApplication::fieldValidationRules()), so
+     * autosave fills and saves the SAME row the real submit() writes to.
+     * Signatures are never accepted here — fieldValidationRules() has no
+     * signature keys at all, so a stray declaration_signature/
+     * tpn_consent_signature in the POST body is structurally ignored, not
+     * just conventionally excluded.
+     *
+     * Deliberately MORE tolerant than submit(): a single field failing
+     * validation (most commonly a date the applicant hasn't finished typing
+     * yet, or a still-mid-edit value that would trip
+     * current_rental_to's after_or_equal:current_rental_from rule) must
+     * never block every OTHER field from saving. Validates the whole
+     * payload once (so cross-field rules like the date-order check still
+     * see both sides together), then simply excludes whichever field(s)
+     * failed from what gets persisted THIS round — they're picked up again
+     * on the next debounce once they're valid. This is a background save
+     * catching an in-progress, possibly-transient state, not a submission
+     * the applicant has said they're finished with.
+     *
+     * Always returns 200 with a JSON body — never a visible error. A
+     * locked/terminal/expired application reports saved:false so the
+     * frontend can quietly stop trying, never a 4xx the applicant would
+     * see. The frontend treats network failure or any non-2xx the same way:
+     * silently skip this round and retry on the next debounce.
+     */
+    public function autosave(Request $request, string $token)
+    {
+        $application = $this->findByToken($token);
+
+        if ($application->token_expires_at && $application->token_expires_at->isPast()) {
+            return response()->json(['saved' => false]);
+        }
+
+        if ($application->status === 'draft'
+            || in_array($application->status, RentalApplication::POST_RETURN_STATUSES, true)) {
+            return response()->json(['saved' => false]);
+        }
+
+        $rules = RentalApplication::fieldValidationRules();
+        $input = $request->only(array_keys($rules));
+        $input = array_merge($input, RentalApplication::sanitizeNumericInput($request->only(RentalApplication::NUMERIC_FIELDS)));
+
+        $validator = \Illuminate\Support\Facades\Validator::make($input, $rules);
+        $fields = collect($input)->except($validator->errors()->keys())->all();
+        $fields = array_map(fn ($v) => $v === '' ? null : $v, $fields);
+        $fields = RentalApplication::normalizeStillLiving($fields);
+
+        $application->fill($fields);
+        if ($application->status === 'sent') {
+            $application->status = 'in_progress';
+        }
+        $application->draft_saved_at = now();
+        $application->save();
+
+        return response()->json([
+            'saved' => true,
+            'saved_at' => $application->draft_saved_at->toIso8601String(),
+        ]);
     }
 
     /**

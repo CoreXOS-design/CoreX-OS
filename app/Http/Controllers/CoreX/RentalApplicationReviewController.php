@@ -411,11 +411,25 @@ class RentalApplicationReviewController extends Controller
         // reactively as entries are added/edited/deleted, same as the
         // deleted strip's own ledgerRows() did — this is the server's
         // one-time hydration, not the live source of truth after that.
+        // 2026-09-12 — real bug, found live by cc4: a capture entry whose
+        // document got soft-deleted (e.g. by the PDF splitter re-filing it —
+        // see PdfSplitterController::linkForRentalApplication()'s own fix)
+        // kept showing its real amount with nothing on screen indicating
+        // its evidence was gone; the row's jump arrow just silently landed
+        // wherever the continuous view happened to default to. Computed
+        // here, not on toMarkArray() itself, since "is my document still
+        // live" is a fact about THIS screen's own already-loaded document
+        // list, not part of that method's general wire contract (also used
+        // by the per-document highlighter's own page-load responses, where
+        // a mark's document is always live by construction).
+        $liveDocumentIds = $documents->pluck('document.id')->flip();
         $captureEntries = RentalApplicationDocumentMark::where('rental_application_id', $rentalApplication->id)
             ->whereIn('entry_type', RentalApplicationDocumentMark::LEDGER_ENTRY_TYPES)
             ->orderBy('created_at')->orderBy('id')
             ->get()
-            ->map(fn (RentalApplicationDocumentMark $mark) => $mark->toMarkArray())
+            ->map(fn (RentalApplicationDocumentMark $mark) => $mark->toMarkArray() + [
+                'document_missing' => $mark->document_id !== null && ! $liveDocumentIds->has($mark->document_id),
+            ])
             ->values();
 
         return view('corex.rental-applications.review', compact(
@@ -575,13 +589,17 @@ class RentalApplicationReviewController extends Controller
         }
 
         $fromStatus = $rentalApplication->status;
-        $isOverrideReopen = $fromStatus === 'declined';
+        // 2026-09-12 — withdrawn added alongside declined: both are "someone
+        // already made a final call" statuses, so both require the same
+        // override tier to reopen. See RentalApplication::REOPENABLE_STATUSES's
+        // own docblock for the full reasoning.
+        $isOverrideReopen = in_array($fromStatus, ['declined', 'withdrawn'], true);
 
         if ($isOverrideReopen) {
             abort_unless(
                 $request->user()->isRentalApplicationOverrideTier((int) $rentalApplication->agency_id),
                 403,
-                'Only the head of rentals (or an admin) may reopen a declined application.',
+                "Only the head of rentals (or an admin) may reopen a {$fromStatus} application.",
             );
         }
 
@@ -616,7 +634,7 @@ class RentalApplicationReviewController extends Controller
             oldValues: ['status' => $fromStatus],
             newValues: ['status' => 'reopened'],
             humanSummary: $isOverrideReopen
-                ? 'Reopened a declined application (override)'
+                ? "Reopened a {$fromStatus} application (override)"
                 : 'Reopened for the applicant',
         );
 
@@ -805,6 +823,15 @@ class RentalApplicationReviewController extends Controller
     public function saveAssessment(Request $request, RentalApplication $rentalApplication)
     {
         $this->guardRentalApplication($rentalApplication);
+        // 2026-09-12 — this endpoint is exclusively the agent's own (see
+        // HandlesRentalApplicationDocumentMarks::guardScreenNotLockedForAuthoriser()'s
+        // own docblock for the full reasoning) — no markAuthorRole() branch
+        // needed here, unlike that shared trait.
+        if ($rentalApplication->isPendingAuthorisation()) {
+            return response()->json([
+                'error' => 'This application is with the authoriser for a decision — the review screen is read-only until it comes back to you.',
+            ], 423);
+        }
 
         // Capture-ledger rework, 2026-09-11 — income_items/expense_items
         // handling REMOVED from this endpoint (was here, syncing

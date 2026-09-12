@@ -65,6 +65,11 @@ class RentalApplicationSettingsController extends Controller
         // contact "Tenant" (added, never replacing an existing type).
         $tenantTaggingEnabled = RentalApplicationQualifyingSetting::tagContactAsTenantOnApprovalFor($agencyId);
 
+        // Applicant-side autosave, 2026-09-12 — how long the public form
+        // waits after the applicant stops typing before saving in the
+        // background.
+        $autosaveDebounceSeconds = RentalApplicationQualifyingSetting::autosaveDebounceSecondsFor($agencyId);
+
         // AT-392 approval-leg — Johan's standing rule: "any threshold, window
         // or business rule must be an agency-configurable setting with a
         // sensible default, never hardcoded." How many matched properties
@@ -142,7 +147,7 @@ class RentalApplicationSettingsController extends Controller
             ->get();
 
         return view('corex.settings.rental-applications', compact(
-            'documentTypes', 'checklists', 'isConfigured', 'qualifyingMaxRentPercent', 'qualifyingExceedsLegalCeiling', 'agencyUsers', 'roUserIds', 'coUserIds', 'declineEmail', 'reopenLinkExpiryDays', 'propertyLockEnabled', 'tenantTaggingEnabled', 'maxPropertiesInEmail', 'activeHighlighters', 'archivedHighlighters', 'highlighterQuery', 'highlighterArchivedSort', 'validityDefaults', 'validityOverrides'
+            'documentTypes', 'checklists', 'isConfigured', 'qualifyingMaxRentPercent', 'qualifyingExceedsLegalCeiling', 'agencyUsers', 'roUserIds', 'coUserIds', 'declineEmail', 'reopenLinkExpiryDays', 'propertyLockEnabled', 'tenantTaggingEnabled', 'autosaveDebounceSeconds', 'maxPropertiesInEmail', 'activeHighlighters', 'archivedHighlighters', 'highlighterQuery', 'highlighterArchivedSort', 'validityDefaults', 'validityOverrides'
         ));
     }
 
@@ -334,6 +339,27 @@ class RentalApplicationSettingsController extends Controller
 
         return redirect()->route('corex.settings.rental-applications.edit')
             ->with('success', 'Reopened link expiry saved.');
+    }
+
+    /**
+     * Applicant-side autosave, 2026-09-12 — separate route/method, same
+     * reasoning as updateReopenLinkExpiry() above.
+     */
+    public function updateAutosaveDebounce(Request $request)
+    {
+        $agencyId = $request->user()->effectiveAgencyId();
+
+        $validated = $request->validate([
+            'autosave_debounce_seconds' => ['required', 'integer', 'min:2', 'max:60'],
+        ]);
+
+        RentalApplicationQualifyingSetting::updateOrCreate(
+            ['agency_id' => $agencyId],
+            ['autosave_debounce_seconds' => $validated['autosave_debounce_seconds']],
+        );
+
+        return redirect()->route('corex.settings.rental-applications.edit')
+            ->with('success', 'Autosave delay saved.');
     }
 
     /**
