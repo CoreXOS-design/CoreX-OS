@@ -53,6 +53,20 @@ class RentalApplicationAssessment extends Model
      * least 1 once both dates are present — a range within the same
      * calendar month is still "1 month covered."
      *
+     * SHORT-RANGE FLOOR (2026-09-13, cc5 — QA1 item 6 investigation, fixed
+     * on Johan's go): the calendar-inclusive rule above is correct for a
+     * genuine multi-month span, but on its own it also called a 6-day
+     * range crossing a single month boundary (28 Jun–3 Jul) "2 months" —
+     * proven live, a materially wrong "Monthly income" (halved) with no
+     * dash and no warning. No calendar month has more than 31 days, so any
+     * range of 31 days or fewer can never actually contain two distinct
+     * whole months' worth of statement data — it is always safe to call
+     * this "1", full stop, before the calendar-bucket rule below even
+     * runs. This floor does NOT touch the genuine multi-month case (15
+     * Jan–20 Mar is 65 days, well past the floor, still correctly "3" via
+     * the calendar rule) — it only catches ranges too short to legitimately
+     * be more than one month's statement in the first place.
+     *
      * Returns null when either date is missing — the caller decides what
      * that means (for a fresh save it means "don't touch statement_months
      * yet"; it is never treated as zero).
@@ -65,6 +79,11 @@ class RentalApplicationAssessment extends Model
 
         $fromDate = \Illuminate\Support\Carbon::parse($from);
         $toDate = \Illuminate\Support\Carbon::parse($to);
+
+        $totalDays = $fromDate->diffInDays($toDate) + 1;
+        if ($totalDays <= 31) {
+            return 1;
+        }
 
         $months = ($toDate->year - $fromDate->year) * 12 + ($toDate->month - $fromDate->month) + 1;
 

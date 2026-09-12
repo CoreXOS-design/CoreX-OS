@@ -1222,7 +1222,22 @@
                         <span class="rr-ledger-badge" x-show="row.document_id && !row.document_missing" style="background: var(--ds-purple, #7c3aed);" x-text="idx + 1"></span>
                         <span x-show="row.document_missing" style="color: var(--ds-crimson, #dc2626); font-weight: 700; font-size: 12px;">&#9888;</span>
                         <span x-show="!row.document_id && !row.document_missing"></span>
-                        <span class="text-[11px]" style="color: var(--text-secondary); white-space: nowrap;" x-text="shortDate(row.entry_date)"></span>
+{{-- Outside-period marker, 2026-09-13 (QA1 item 6, made
+                             visible on Johan's go — the total itself is
+                             UNCHANGED, this is visibility only). A tiny
+                             absolutely-positioned dot costs no width/height
+                             in the 44px date column (already "fighting for
+                             space" per instruction) — no banner, amber not
+                             red (this codebase's own established "notable,
+                             not an error" colour, same family as the
+                             unpaid-transactions flag elsewhere on this
+                             screen), tooltip carries the actual explanation.
+                             white-space: nowrap kept from the sibling fix
+                             that landed alongside this one. --}}
+                        <span class="text-[11px]" style="color: var(--text-secondary); white-space: nowrap; position: relative;">
+                            <span x-text="shortDate(row.entry_date)"></span>
+                            <span x-show="isOutsidePeriod(row)" title="This entry's date falls outside the statement period set above." style="position: absolute; top: -3px; right: -4px; width: 5px; height: 5px; border-radius: 50%; background: var(--ds-amber, #b45309);"></span>
+                        </span>
                         <span class="rr-ledger-amount text-xs" style="color: var(--text-primary);" :title="row.entry_description" x-text="formatR(row.entry_amount)"></span>
                         <span x-show="!row.document_missing" class="text-[11px] text-right" :style="{ color: row.document_id ? 'var(--ds-blue, #2563eb)' : 'var(--text-muted)' }">&rarr;</span>
                         <span x-show="row.document_missing" class="text-[10px] text-right" style="color: var(--ds-crimson, #dc2626);">Document removed</span>
@@ -1237,7 +1252,22 @@
                         <span class="rr-ledger-badge" x-show="row.document_id && !row.document_missing" style="background: var(--ds-amber, #f59e0b);" x-text="idx + 1"></span>
                         <span x-show="row.document_missing" style="color: var(--ds-crimson, #dc2626); font-weight: 700; font-size: 12px;">&#9888;</span>
                         <span x-show="!row.document_id && !row.document_missing"></span>
-                        <span class="text-[11px]" style="color: var(--text-secondary); white-space: nowrap;" x-text="shortDate(row.entry_date)"></span>
+{{-- Outside-period marker, 2026-09-13 (QA1 item 6, made
+                             visible on Johan's go — the total itself is
+                             UNCHANGED, this is visibility only). A tiny
+                             absolutely-positioned dot costs no width/height
+                             in the 44px date column (already "fighting for
+                             space" per instruction) — no banner, amber not
+                             red (this codebase's own established "notable,
+                             not an error" colour, same family as the
+                             unpaid-transactions flag elsewhere on this
+                             screen), tooltip carries the actual explanation.
+                             white-space: nowrap kept from the sibling fix
+                             that landed alongside this one. --}}
+                        <span class="text-[11px]" style="color: var(--text-secondary); white-space: nowrap; position: relative;">
+                            <span x-text="shortDate(row.entry_date)"></span>
+                            <span x-show="isOutsidePeriod(row)" title="This entry's date falls outside the statement period set above." style="position: absolute; top: -3px; right: -4px; width: 5px; height: 5px; border-radius: 50%; background: var(--ds-amber, #b45309);"></span>
+                        </span>
                         <span class="rr-ledger-amount text-xs" style="color: var(--text-primary);" :title="row.entry_description" x-text="formatR(row.entry_amount)"></span>
                         <span x-show="!row.document_missing" class="text-[11px] text-right" :style="{ color: row.document_id ? 'var(--ds-blue, #2563eb)' : 'var(--text-muted)' }">&rarr;</span>
                         <span x-show="row.document_missing" class="text-[10px] text-right" style="color: var(--ds-crimson, #dc2626);">Document removed</span>
@@ -1363,6 +1393,33 @@
                     <div class="flex justify-end gap-2">
                         <button type="button" class="corex-btn-outline text-xs" @click="sendBackModalOpen = false">Cancel</button>
                         <button type="button" class="corex-btn-primary text-xs" :disabled="sendBackSending || !sendBackNote.trim()" @click="sendBackToApplicant()" x-text="sendBackSending ? 'Sending…' : 'Confirm and send'"></button>
+                    </div>
+                </div>
+            </div>
+
+            {{-- Incomplete-assessment warning, 2026-09-13 — QA1 item 4:
+                 "Submit for approval" used to succeed silently on a fully
+                 empty assessment (no captured lines, no statement period,
+                 Net monthly still a dash), handing the authoriser a thin
+                 file with nothing to say so. Johan: "warn, never block" —
+                 an agent may have a legitimate reason to send a thin file
+                 up. This is a WARNING, not a gate: it lists plainly what's
+                 missing and a single "Submit anyway" continues the exact
+                 same submission — deliberately not styled as a refusal
+                 (amber, not red; the primary button still reads as the
+                 normal affirmative action). Skipped entirely when the
+                 assessment is actually complete — no extra click for the
+                 common case. --}}
+            <div x-show="incompleteSubmitWarningOpen" x-cloak class="fixed inset-0 z-[100] flex items-center justify-center p-4" style="background: rgba(0,0,0,0.5);" @keydown.escape.window="incompleteSubmitWarningOpen = false">
+                <div class="w-full max-w-md rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);" @click.outside="incompleteSubmitWarningOpen = false">
+                    <h3 class="text-sm font-semibold mb-2" style="color: var(--text-primary);">This assessment looks incomplete</h3>
+                    <ul class="text-xs mb-3 space-y-1" style="color: var(--ds-amber, #b45309);">
+                        <template x-for="reason in incompleteSubmitReasons" :key="reason"><li x-text="'• ' + reason"></li></template>
+                    </ul>
+                    <p class="text-xs mb-3" style="color: var(--text-muted);">You can still submit — the authoriser will see the same gaps.</p>
+                    <div class="flex justify-end gap-2">
+                        <button type="button" class="corex-btn-outline text-xs" @click="incompleteSubmitWarningOpen = false">Cancel</button>
+                        <button type="button" class="corex-btn-primary text-xs" :disabled="submittingForApproval" @click="doSubmitForApproval()" x-text="submittingForApproval ? 'Submitting…' : 'Submit anyway'"></button>
                     </div>
                 </div>
             </div>
@@ -1686,6 +1743,15 @@ function rentalCaptureLedger({ initialCaptureEntries, manualCaptureCreateUrl } =
         expenseEntries() {
             return this.captureEntries.filter(e => e.entry_type === 'expense');
         },
+        // Visibility only (2026-09-13, QA1 item 6) — deliberately does NOT
+        // change incomeTotal()/expenseTotal() below; an out-of-period entry
+        // still counts exactly as it did before. String comparison is safe
+        // here — entry_date and statementPeriodFrom/To are always plain
+        // 'YYYY-MM-DD' strings, which sort correctly as strings.
+        isOutsidePeriod(row) {
+            if (!this.statementPeriodFrom || !this.statementPeriodTo || !row.entry_date) return false;
+            return row.entry_date < this.statementPeriodFrom || row.entry_date > this.statementPeriodTo;
+        },
         // Sums exactly what the server will sum — same rows, same filter,
         // plain addition (no server-side qualifyingResult() dependency any
         // more; that computation still exists, unused by this screen now,
@@ -1851,11 +1917,16 @@ function rentalReview({ saveUrl, initial, initialCaptureEntries, manualCaptureCr
         // autosave round-trips it back.
         statementPeriodFrom: initial.statement_period_from ?? '',
         statementPeriodTo: initial.statement_period_to ?? '',
+        // Short-range floor (2026-09-13) — must stay in sync with
+        // RentalApplicationAssessment::calculateStatementMonths()'s own
+        // copy of this same rule; see that method's docblock for why.
         calculatedStatementMonths() {
             if (!this.statementPeriodFrom || !this.statementPeriodTo) return null;
             const from = new Date(this.statementPeriodFrom + 'T00:00:00');
             const to = new Date(this.statementPeriodTo + 'T00:00:00');
             if (isNaN(from) || isNaN(to)) return null;
+            const totalDays = Math.round((to - from) / 86400000) + 1;
+            if (totalDays <= 31) return 1;
             const months = (to.getFullYear() - from.getFullYear()) * 12 + (to.getMonth() - from.getMonth()) + 1;
             return Math.max(1, months);
         },
@@ -1912,8 +1983,35 @@ function rentalReview({ saveUrl, initial, initialCaptureEntries, manualCaptureCr
             this.agentActionError = true;
             this.agentActionStatus = 'This application changed since you opened it — the applicant resubmitted. Reload the page to see the new version.';
         },
-        async submitForApproval() {
+        // Warning, never a gate — see the modal's own comment above.
+        incompleteSubmitWarningOpen: false,
+        incompleteSubmitReasons: [],
+        incompleteAssessmentReasons() {
+            const reasons = [];
+            if (this.incomeEntries().length === 0 && this.expenseEntries().length === 0) {
+                reasons.push('No income or expense lines have been captured.');
+            }
+            if (!this.statementPeriodFrom || !this.statementPeriodTo) {
+                reasons.push('No statement period has been set.');
+            }
+            if (this.netMonthly() === null) {
+                reasons.push('Net monthly income could not be calculated.');
+            }
+            return reasons;
+        },
+        submitForApproval() {
             if (this.submittingForApproval) return;
+            const reasons = this.incompleteAssessmentReasons();
+            if (reasons.length) {
+                this.incompleteSubmitReasons = reasons;
+                this.incompleteSubmitWarningOpen = true;
+                return;
+            }
+            this.doSubmitForApproval();
+        },
+        async doSubmitForApproval() {
+            if (this.submittingForApproval) return;
+            this.incompleteSubmitWarningOpen = false;
             this.submittingForApproval = true;
             this.agentActionStatus = '';
             try {
@@ -1959,6 +2057,15 @@ function rentalReview({ saveUrl, initial, initialCaptureEntries, manualCaptureCr
             el.style.height = 'auto';
             el.style.height = Math.min(el.scrollHeight, 320) + 'px';
         },
+        // Laravel's automatic validation-failure shape — see performSave()'s
+        // error branch for why this exists.
+        firstValidationMessage(errors) {
+            if (!errors || typeof errors !== 'object') return null;
+            const firstKey = Object.keys(errors)[0];
+            if (!firstKey) return null;
+            const msgs = errors[firstKey];
+            return Array.isArray(msgs) && msgs.length ? msgs[0] : null;
+        },
         save() {
             clearTimeout(this.saveTimer);
             this.saveTimer = setTimeout(() => this.performSave(), 150);
@@ -2001,16 +2108,40 @@ function rentalReview({ saveUrl, initial, initialCaptureEntries, manualCaptureCr
                     // sync it back so the read-only "Currently N months"
                     // line and the monthly-figures math agree with what was
                     // actually persisted, not just the client's own guess.
+                    // CORRECTION (2026-09-13) — `?? this.statementMonths` used
+                    // to fall back to the OLD value whenever the server sent
+                    // back `null` (`null ?? x` evaluates to `x`), which is
+                    // exactly backwards: a null response means the server
+                    // just correctly cleared it (see saveAssessment()'s own
+                    // correction), and silently keeping the stale number was
+                    // the other half of the bug that let cleared date fields
+                    // leave stale Months/Monthly income/Net monthly on screen.
                     if (data.statement_months !== undefined) {
-                        this.statementMonths = data.statement_months ?? this.statementMonths;
+                        this.statementMonths = data.statement_months;
                     }
                     this.saveStatus = data.saved_at ? ('Saved at ' + formatTime(data.saved_at)) : 'Saved';
                 } else if (status === 409 && data.reason === 'generation_conflict') {
                     this.saveError = true;
                     this.saveStatus = 'This application changed since you opened it — reload to see the new version.';
                 } else {
+                    // CORRECTION (2026-09-13, QA1 item 5, fixed on Johan's
+                    // go) — this used to always show the generic "Could not
+                    // save — try again" regardless of what the server
+                    // actually said, discarding a specific, already-computed
+                    // reason ("enter both dates", "to must be after from",
+                    // the >36-months ceiling). Two different response
+                    // shapes on this endpoint carry that reason: a manual
+                    // `response()->json(['error' => ...])` (the >36-months
+                    // check) and Laravel's own automatic validation-failure
+                    // shape (`message` + `errors: {field: [messages]}`).
+                    // Checked in order; only falls through to a generic
+                    // line when the response genuinely carries neither
+                    // (e.g. a raw 500 with no JSON body) — that fallback is
+                    // still honest about something having gone wrong,
+                    // never a blank bar.
                     this.saveError = true;
-                    this.saveStatus = 'Could not save — try again';
+                    this.saveStatus = data.error || data.message || this.firstValidationMessage(data.errors)
+                        || 'Something went wrong saving this — reload and try again.';
                 }
             }).catch(() => {
                 this.saveError = true;

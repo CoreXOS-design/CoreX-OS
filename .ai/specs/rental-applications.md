@@ -10006,3 +10006,121 @@ banner + `rateLimited` state), `routes/web.php`,
 configurability, trip + distinct signal + existing-draft-untouched, per-application-not-shared
 key).
   (finding 5).
+
+## Findings 1, 2, 3, 5, and item 4/6 — fixed on Johan's go (2026-09-13, cc5)
+
+All five items above were greenlit; a hard block on item 4 was explicitly
+ruled out ("warn, never block"); item 6 was greenlit for visibility only,
+never a total change. Live-reproven against fresh throwaway applications
+**184, 188, 200, 201** (never 70/76/107).
+
+**Finding 1 — partial-month periods.** `RentalApplicationAssessment::
+calculateStatementMonths()` (and its required client mirror,
+`calculatedStatementMonths()` in `review.blade.php`) now floors at 1 month
+for any range of 31 days or fewer, BEFORE the existing calendar-month-
+inclusive rule runs. No calendar month exceeds 31 days, so a range that
+short can never legitimately represent two whole months of statements —
+this floor cannot fire on a genuine multi-month range. Re-proven live: the
+same 28 Jun–3 Jul (6-day) range that previously gave Months: 2 / Monthly
+income: R14,430.67 now correctly gives Months: 1 / Monthly income: R
+28,861.34 — the real figure. The original legitimate case (15 Jan–20 Mar,
+a genuine ~3-month span) is untouched by construction (65 days, well past
+the 31-day floor, still resolves via the calendar rule).
+
+**Finding 2 — stale months after clearing the period.**
+`saveAssessment()` now explicitly nulls `statement_months` when BOTH
+`statement_period_from`/`to` arrive empty on a save (previously it only
+ever overwrote the figure, never cleared it — a rule written for "dates
+were never submitted this save," but the client always sends both keys,
+so the only way to reach that branch with both null is that the agent
+just cleared a period that WAS set). Also fixed a real second bug found
+while making this change: the client's own response handler had `this.
+statementMonths = data.statement_months ?? this.statementMonths` — since
+`null ?? x` evaluates to `x`, this was UNCONDITIONALLY discarding a
+correct `null` from the server and keeping the stale number regardless of
+what the fix above did. Both were needed together. Re-proven live: clear
+both date fields → panel correctly shows Months/Monthly income/Net
+monthly as `—`, confirmed via a fresh page reload (was previously stale
+after reload too).
+
+**Finding 3 — no double-submit guard.** `submitForApproval()` now
+short-circuits to an idempotent no-op (same `ok:true` response, no
+re-stamp, no new history row) when the application is already pending
+authorisation AND was stamped within the last 10 seconds. Re-proven live
+with the exact repro from the original report (two raw concurrent POSTs
+at an already-submitted application): first attempt at this fix used
+`now()->diffInSeconds($submitted_at) < 10` and had the comparison
+backwards — Carbon returns that call signed, negative when the argument
+is in the past, so a 45-SECOND-OLD submission was still reading as
+"within the window" and blocking a genuine later re-submit forever.
+Caught by testing the "does legitimate re-submit still work" case, not
+just the "does the duplicate get blocked" case — wrapped in `abs()`,
+version-proof either way. Confirmed both properties hold: two instant
+concurrent POSTs now collapse to exactly 1 history row; the SAME
+application, re-submitted a minute later (simulating "Re-submit to
+authoriser" as a deliberate later action), correctly succeeds and
+produces exactly 1 more history row (2 total) — the intentional
+"re-submit later" feature this endpoint also serves is untouched.
+
+**Finding 5 — generic save-failure message.** `performSave()`'s error
+branch now reads, in order: `data.error` (the manually-constructed 422
+shape, e.g. the >36-months ceiling), `data.message` (Laravel's automatic
+validation-failure shape), then the first message in `data.errors` (a
+small new `firstValidationMessage()` helper) — falling through to
+"Something went wrong saving this — reload and try again." only when the
+response genuinely carries none of those (e.g. a raw 500 with no JSON
+body), which is still an honest statement that something went wrong, never
+a blank bar. Re-proven live for all three named validation paths (only-
+from, only-to, to-before-from) — each now shows the server's own specific
+sentence instead of "Could not save — try again."
+
+**Item 4 — non-blocking warning on an incomplete submission.** Clicking
+"Submit to authoriser" now checks three things client-side — zero
+captured lines, no statement period, Net monthly still null — and, if any
+are true, opens a small amber (not red) modal listing exactly which,
+with "Cancel" and "Submit anyway." Skipped entirely when the assessment
+is actually complete (no extra click for the common case). "Submit
+anyway" calls the exact same submission logic the button always used
+(`doSubmitForApproval()`); nothing about what the server accepts changed
+— per instruction, this is a warning, not a gate, and no setting was
+added. Re-proven live: a fully empty assessment shows all three reasons,
+"Submit anyway" succeeds identically to before. Separately confirmed
+(per the conductor's specific question) that the AUTHORISER's own screen
+for that thin submission is NOT blank — real browser render, 0 console
+errors, visible "None captured." × 2 and the Income/Expenses/Months
+labels all present; the authoriser can see plainly that the file is
+thin, not find an empty page.
+
+**Item 6 — visible marker for out-of-period entries.** A tiny 5×5px
+amber dot, absolutely positioned at the corner of the existing 44px date
+cell (adds no width, no height, no new grid column — `.rr-ledger-row`'s
+CSS is a fixed 4-column grid, so a sibling element would have broken the
+layout; this is nested inside the existing date `<span>` instead), shown
+only when a row's `entry_date` falls outside the currently-set
+`statementPeriodFrom`/`to`, with a `title` tooltip carrying the actual
+explanation. No banner, no red. Re-proven live: no marker when no period
+is set; marker appears when the period excludes the entry, disappears
+when the period is widened to include it; `incomeTotal()`/`monthlyIncome()`
+confirmed UNCHANGED throughout (visibility only, exactly as instructed);
+row height unaffected (20.5px, same as any other row).
+
+**Item 6's recommendation, one line, for Johan:** count it — excluding a
+line an agent deliberately captured (from a document they chose to open)
+produces more silent gaps than counting a line whose date happens to sit
+just outside a boundary the agent may have picked loosely; the marker
+this round now lets the agent (and the authoriser) actually see and
+correct the mismatch themselves, which a silent exclusion would not.
+
+### Gates run before push
+
+`scripts/verify-alpine-render.mjs` against both the agent review screen and
+the authoriser review screen — PASS, 321 and 263 Alpine expressions
+respectively, all compile clean, zero leaked-attribute/execution failures
+(same two pre-existing WARN-only notices, unrelated). `scripts/
+rental-smoke.mjs`: 7/8, 0 console errors on every screen including
+`review_screen` (app 148, unrelated to this task, confirms the extensive
+`review.blade.php` edits didn't regress the one real application this
+suite already exercises); the one failure is the same pre-existing app-148
+`markup_view` issue documented against this app id twice already in this
+file — not touched, out of scope. `dev-check.ps1` cannot run on this box
+(no `pwsh`) — stated plainly.
