@@ -75,6 +75,20 @@ URL (`php8.2` for qatesting1.corexos.co.za — check
    (a `ReferenceError` thrown during construction, which silently kills
    the WHOLE component — every binding on the page reads as undefined, not
    just the one bad reference). **Part of the pass/fail signal.**
+4. **Alpine expression compile** — every Alpine attribute value run
+   through the EXACT wrap Alpine's own `generateFunctionFromString()`
+   applies (read straight out of `node_modules/alpinejs/dist/module.cjs.js`,
+   not assumed), then compiled with `new Function`. Added 2026-09-12 after
+   incident #3: a bare `try { ... } catch (_) {}` written directly as an
+   `x-init` value threw `Unexpected token 'try'` in a real browser — this
+   gate passed it clean beforehand. Alpine only auto-wraps a leading
+   `if (...)` or a leading `let`/`const`; nothing else (not `try`, `for`,
+   `switch`, `function`, `class`) ever gets statement treatment, so any
+   other multi-statement attribute body is a guaranteed `SyntaxError`. If
+   you need more than one statement in an x-init/x-effect/event-handler
+   attribute, put it in a method on the component and call that method —
+   `x-init="doTheThing()"` — rather than writing the statement body inline.
+   **Part of the pass/fail signal.**
 
 For the fuller browser-level check across an entire user journey (console
 error counts, not just one page, plus a real-data assertion — a total with
@@ -87,6 +101,49 @@ script and must never be treated as one.**
 has never run here, for any build, ever.** Stop citing it as a verification
 gate for any change made in this environment — the two scripts above are
 its replacement here.
+
+---
+
+## Standard −1a — Your lane's own `TEST_DB_DATABASE`, always set, never shared
+
+Six lanes running `php artisan test` (RefreshDatabase) against the SAME MySQL
+schema at once — the default when nothing is configured — corrupts results
+under concurrent access and blocks every lane behind whichever one is
+running the slowest suite. This happened for real on 2026-09-12: cc6
+corrupted its own results running two suites concurrently, cc2 re-ran tests
+it had already passed, cc3 and cc4 both sat idle behind slow runs, cc4 was
+reduced to polling `SHOW PROCESSLIST`.
+
+The isolation mechanism already exists — `tests/bootstrap.php` resolves the
+test schema from a dedicated `TEST_DB_DATABASE` key (shell env, then the
+worktree's own gitignored `.env`), whitelisted to `hfc_dash_test` or
+`hfc_dash_test_<N>`, and hard-refuses anything else before a single query
+runs. The 2026-09-12 incident wasn't a tooling gap — it was assignment: half
+the active worktrees had nothing set (silently sharing the default
+`hfc_dash_test`), and several DIFFERENT worktrees had independently picked
+the SAME suffix, colliding with each other anyway.
+
+**The convention going forward: `TEST_DB_DATABASE` suffix matches your lane
+number, permanently, for the life of your worktree.**
+
+| Lane | `TEST_DB_DATABASE` |
+|------|---------------------|
+| cc1  | `hfc_dash_test_1`   |
+| cc2  | `hfc_dash_test_2`   |
+| cc3  | `hfc_dash_test_3`   |
+| cc4  | `hfc_dash_test_4`   |
+| cc5  | `hfc_dash_test_5`   |
+| cc6  | `hfc_dash_test_6`   |
+
+Set it once in your worktree's own `.env` (`TEST_DB_DATABASE=hfc_dash_test_N`)
+and never touch another lane's value. If you spin up a SECOND worktree
+alongside your main one, give it a suffix nobody else is using — check
+`SHOW DATABASES LIKE 'hfc_dash_test_%'` first, since ad-hoc one-off suffixes
+from past sessions already litter that namespace.
+
+This is orthogonal to the schema-snapshot bootstrap (non-negotiable #12a) —
+that makes ONE lane's bootstrap fast; this stops lanes from corrupting or
+blocking EACH OTHER. Both matter; neither substitutes for the other.
 
 ---
 
