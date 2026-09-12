@@ -12,6 +12,7 @@ use App\Models\DocumentType;
 use App\Models\FicaSubmission;
 use App\Models\Property;
 use App\Models\RentalApplication;
+use App\Models\RentalApplicationDocumentMark;
 use App\Models\Scopes\ContactScope;
 use App\Models\SplitterDocType;
 use App\Services\Compliance\AgencyComplianceDocTypeService;
@@ -526,6 +527,39 @@ class PdfSplitterController extends Controller
         if (! is_array($splitterContext) || (int) ($splitterContext['rental_application_id'] ?? 0) !== $rentalApplication->id) {
             return redirect()->route('corex.rental-applications.review', $rentalApplication)
                 ->withErrors(['pdf' => 'This split session no longer matches this application — start the split again.']);
+        }
+
+        // 2026-09-12 — real bug, found live by cc4: this method always
+        // soft-deleted the source document below (see the "Archive the
+        // original unsplit pack" comment further down) with no check for
+        // marks anchored to it. A highlight/note/capture-ledger entry's
+        // document_id then pointed at a gone document — invisible in the
+        // review screen's own document list (that list only ever shows
+        // live documents), so every "jump to this mark" path silently
+        // landed nowhere useful instead of the document it was actually
+        // drawn on, and a capture-ledger row kept showing its real amount
+        // with no way left to verify it against its source. Splitting a
+        // page range out of a source document does not, by construction,
+        // preserve which RESULTING piece a given page's marks now belong
+        // to without re-deriving that mapping — a wrong guess here would
+        // silently move evidence to a plausible-but-wrong page, which is
+        // worse than blocking. Johan's own explicit choice for this decision:
+        // block, do not attempt an automated migration under this deadline.
+        $sourceDocumentId = (int) ($splitterContext['source_document_id'] ?? 0);
+        $existingMarks = RentalApplicationDocumentMark::where('document_id', $sourceDocumentId)->get();
+        if ($existingMarks->isNotEmpty()) {
+            $captureMarks = $existingMarks->whereIn('entry_type', RentalApplicationDocumentMark::LEDGER_ENTRY_TYPES);
+            $parts = [];
+            if ($captureMarks->isNotEmpty()) {
+                $amounts = $captureMarks->map(fn (RentalApplicationDocumentMark $m) => 'R' . number_format((float) $m->entry_amount, 2))->implode(', ');
+                $parts[] = $captureMarks->count() . ' captured ledger ' . ($captureMarks->count() === 1 ? 'entry' : 'entries') . ' (' . $amounts . ')';
+            }
+            $plainCount = $existingMarks->count() - $captureMarks->count();
+            if ($plainCount > 0) {
+                $parts[] = $plainCount . ' highlight/note ' . ($plainCount === 1 ? 'mark' : 'marks');
+            }
+            return redirect()->route('corex.rental-applications.review', $rentalApplication)
+                ->withErrors(['pdf' => 'This document has ' . implode(' and ', $parts) . ' drawn on it. Splitting or re-filing it would break the link between that evidence and its figures. Remove those marks first if you need to re-file this document.']);
         }
 
         [$manifests, $fail] = $this->loadCompleteBatchOrFail();

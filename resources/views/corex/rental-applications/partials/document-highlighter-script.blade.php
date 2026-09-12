@@ -64,12 +64,20 @@
      never silently overwritten. No live locking — Johan: "more machinery
      than the problem needs." --}}
 <script>
-function rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, currentUserName, currentUserRole, highlighters } = {}) {
+function rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, currentUserName, currentUserRole, highlighters, reviewLocked } = {}) {
     return {
         markedUpDocIds: initialMarkedUpDocIds || [],
         currentUserId: currentUserId ?? null,
         currentUserName: currentUserName || '',
         currentUserRole: currentUserRole === 'authoriser' ? 'authoriser' : 'agent',
+        // 2026-09-12 — Johan-approved: once the application is with the
+        // authoriser, the agent's copy of this screen goes read-only. The
+        // server enforces this on every write endpoint regardless (see
+        // HandlesRentalApplicationDocumentMarks::guardScreenNotLockedForAuthoriser());
+        // this is the UI half — the pen rail visually disables so an agent
+        // never even reaches a drawing gesture that the server would then
+        // have to reject.
+        reviewLocked: !!reviewLocked,
 
         activeDocId: null,
         activeTool: 'highlight', // default tool = highlighter (Johan)
@@ -432,6 +440,7 @@ function rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, curre
         },
         /** Click-to-edit for an existing capture mark only — a plain highlight (or an annotation-typed mark) keeps its old click-does-nothing/hover-× behaviour unchanged. */
         onStrokeClick(e, page) {
+            if (this.reviewLocked) return; // read-only while with the authoriser — see reviewLocked's own comment above
             const markId = e.target && e.target.dataset ? e.target.dataset.markId : null;
             if (!markId) return;
             const mark = this.marks.find(m => m.id === markId && m.page === page);
@@ -1053,6 +1062,7 @@ function rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, curre
         // Highlight drag: capture the ACTUAL path (a real marker-pen gesture),
         // not just a start/end rectangle.
         startDraw(e, page) {
+            if (this.reviewLocked) return; // read-only while with the authoriser — see reviewLocked's own comment above
             if (this.activeTool === 'note') { return; }
             try { e.currentTarget.setPointerCapture(e.pointerId); } catch (_) {}
             const r = e.currentTarget.getBoundingClientRect();
@@ -1121,6 +1131,7 @@ function rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, curre
             return simplifySegment(points);
         },
         endDraw(e, page) {
+            if (this.reviewLocked) return; // read-only while with the authoriser — see reviewLocked's own comment above
             if (this.activeTool === 'note') {
                 if (this.pendingNote) return; // one pending note at a time
                 const r = e.currentTarget.getBoundingClientRect();

@@ -110,7 +110,15 @@
          bar) — Johan: "that is what the tick already does." Thin borders
          between groups replace the headings as the only remaining visual
          separator. --}}
-    <div class="flex-shrink-0 space-y-1.5" style="width: 44px; position: sticky; top: 0;">
+    {{-- 2026-09-12 — read-only while with the authoriser (reviewLocked, set
+         once in x-init from $rentalApplication->isPendingAuthorisation()).
+         The server refuses the save regardless (see
+         guardScreenNotLockedForAuthoriser()); this just stops the agent
+         from reaching a drawing gesture in the first place, same title
+         either way so it reads as "why is this greyed out" not a mystery. --}}
+    <div class="flex-shrink-0 space-y-1.5" style="width: 44px; position: sticky; top: 0;"
+         :style="{ opacity: reviewLocked ? '0.4' : '1', pointerEvents: reviewLocked ? 'none' : 'auto' }"
+         :title="reviewLocked ? 'Read-only — this application is with the authoriser' : ''">
         {{-- Capture pens (Income/Expense) — "the highlighter mark IS the
              ledger line." Dragging with one open opens the capture chip
              (below) instead of just laying down ink. --}}
