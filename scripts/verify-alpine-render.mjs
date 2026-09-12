@@ -56,8 +56,20 @@
  *      argument method called. Proven to catch incident #1 (a
  *      ReferenceError thrown during construction) and re-confirms #2 once
  *      fixed. PART OF THE PASS/FAIL SIGNAL.
+ *   4. Alpine expression compile — every Alpine attribute value (x-data,
+ *      x-init, x-effect, x-show, x-text, x-bind/:*, x-on/@*, etc.) run
+ *      through the EXACT wrap Alpine's own generateFunctionFromString()
+ *      applies (verified against node_modules/alpinejs/dist/module.cjs.js,
+ *      not assumed), then compiled with `new Function`. Added after a real
+ *      incident #3 this gate missed: a bare `try {} catch(_){}` written
+ *      directly as an x-init value — Alpine only auto-wraps a leading
+ *      `if (...)` or `let`/`const`, nothing else, so any other multi-
+ *      statement body is a guaranteed SyntaxError no static-text check
+ *      before this one would catch. A real headless Chrome (rental-
+ *      smoke.mjs) caught it; this check closes the same class without
+ *      needing a browser. PART OF THE PASS/FAIL SIGNAL.
  *
- * Exits non-zero if check 1 or check 3 fails on any file. Prints exactly
+ * Exits non-zero if check 1, 3, or 4 fails on any file. Prints exactly
  * what failed and why.
  */
 
@@ -351,6 +363,89 @@ function checkInlineXData(html, label) {
 // ── Check 3: real execution — every named factory + every inline object,
 // constructed with its REAL call-site arguments, every zero-arg method
 // called. Proven to catch incident #1 (and re-confirms #2 once fixed).
+// ── Check 4: compile every Alpine attribute value the way Alpine itself
+// compiles it, and fail if it doesn't parse. Added 2026-09-12 after a real
+// incident this exact gate missed: a `try { ... } catch (_) {}` written
+// directly as an x-init value threw "Unexpected token 'try'" in a real
+// browser (caught by rental-smoke.mjs, a real headless Chrome — this static
+// gate passed it clean). The wrong fix was tried first (assumed Alpine
+// auto-detects a leading statement keyword and just needed no leading
+// whitespace) — checked against the ACTUAL bundled Alpine source
+// (node_modules/alpinejs/dist/module.cjs.js, generateFunctionFromString())
+// instead of guessing, and the real rule is narrower than that assumption:
+//
+//     let rightSideSafeExpression = /^[\n\s]*if.*\(.*\)/.test(expression.trim())
+//         || /^(let|const)\s/.test(expression.trim())
+//         ? `(async()=>{ ${expression} })()` : expression;
+//
+// Alpine ONLY auto-wraps a leading `if (...)` or a leading `let`/`const` —
+// nothing else (not `try`, `for`, `switch`, `function`, `class`) ever gets
+// statement treatment. Anything else is dropped straight into
+// `__self.result = <expression>`, so a bare `try {}` (or any other
+// multi-statement body Alpine doesn't special-case) is a guaranteed
+// SyntaxError at runtime, no matter how it's indented. This check
+// reproduces that exact wrap and compiles the result with `new Function` —
+// a cheap static check, no browser needed, and it closes this whole class
+// before a push rather than after a real user hits it.
+//
+// x-transition:*/x-ref/x-cloak/x-teleport are excluded — none of them are
+// JS (transition values are CSS class strings; the rest are plain
+// selectors/flags). x-for is excluded too — `"item in items()"` has its
+// own grammar Alpine parses by splitting on a regex, never by evaluating
+// the whole string as one expression the way every other directive here
+// does, so wrapping and compiling it whole would test the wrong thing.
+const ALPINE_ATTR_NAME_RE = /^(x-[a-zA-Z-]+(:[\w.\-]+)?|@[\w.:\-]+|:[\w-]+)$/;
+const SKIP_EXPRESSION_DIRECTIVES = /^(x-transition|x-ref$|x-cloak$|x-teleport$|x-for$)/;
+
+function decodeAttrEntities(s) {
+    return s.replace(/&quot;/g, '"').replace(/&#0?39;/g, "'").replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+}
+
+function extractAttrsFromTagText(tagText) {
+    const attrs = [];
+    const re = /([a-zA-Z@:][a-zA-Z0-9@:.\-]*)\s*=\s*"((?:[^"\\]|\\.)*)"|([a-zA-Z@:][a-zA-Z0-9@:.\-]*)\s*=\s*'((?:[^'\\]|\\.)*)'/g;
+    let m;
+    while ((m = re.exec(tagText)) !== null) {
+        const name = m[1] || m[3];
+        const raw = m[2] !== undefined ? m[2] : m[4];
+        attrs.push({ name, raw });
+    }
+    return attrs;
+}
+
+/** The exact wrap Alpine's real generateFunctionFromString() applies (module.cjs.js:1913-1920), reproduced verbatim so a pass/fail here means the same thing it would mean in a real browser. */
+function alpineCompileWrap(expression) {
+    const rightSideSafeExpression = /^[\n\s]*if.*\(.*\)/.test(expression.trim()) || /^(let|const)\s/.test(expression.trim())
+        ? `(async()=>{ ${expression} })()`
+        : expression;
+    return `with (scope) { __self.result = ${rightSideSafeExpression} }; __self.finished = true; return __self.result;`;
+}
+
+function checkExpressionCompile(html, label) {
+    let ok = true;
+    let checked = 0;
+    for (const t of findTags(html, 0)) {
+        if (t.isClose) continue;
+        const tagText = html.slice(t.start, t.end);
+        for (const { name, raw } of extractAttrsFromTagText(tagText)) {
+            if (!ALPINE_ATTR_NAME_RE.test(name) || SKIP_EXPRESSION_DIRECTIVES.test(name)) continue;
+            const expr = decodeAttrEntities(raw).trim();
+            if (!expr) continue;
+            checked++;
+            try {
+                new Function(['scope', '__self'], alpineCompileWrap(expr));
+            } catch (e) {
+                if (e instanceof SyntaxError) {
+                    console.error(`  [ALPINE EXPRESSION SYNTAX ERROR] ${label}: ${name}="${expr.slice(0, 200).replace(/\n/g, ' ')}" -> ${e.message}`);
+                    ok = false;
+                }
+            }
+        }
+    }
+    if (ok) console.log(`  (checked ${checked} Alpine attribute expressions — all compile clean)`);
+    return ok;
+}
+
 function checkExecution(html, label) {
     let ok = true;
     const allBlocks = [...html.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g)].map(m => m[1]);
@@ -399,9 +494,10 @@ for (const file of files) {
     const r1 = checkLeakedText(html, file);
     const r2 = checkInlineXData(html, file);
     const r3 = checkExecution(html, file);
+    const r4 = checkExpressionCompile(html, file);
     // r2 (the inline x-data scope-gap check) only ever warns — see its own
     // comment on why it isn't part of the pass/fail signal.
-    if (r1 && r3) console.log('  PASS — no leaked attribute text, zero execution errors.');
+    if (r1 && r3 && r4) console.log('  PASS — no leaked attribute text, zero execution errors, all Alpine expressions compile.');
     else totalFailures++;
 }
 

@@ -599,22 +599,39 @@
                  uploadFile() stashes the new document's id there right
                  before reloading; x-init reads it back once, expands, and
                  scrolls/flashes that specific row — then clears the flag so
-                 a later, unrelated reload doesn't reopen a stale target. --}}
+                 a later, unrelated reload doesn't reopen a stale target.
+
+                 2026-09-12, round 2 (cc1's actual read of Alpine's bundled
+                 source, dist/module.cjs.js — not memory, not guesswork):
+                 x-init only auto-wraps its value as a statement body for a
+                 leading `if (...)` or a leading `let`/`const` — nothing
+                 else, regardless of indentation. A bare `try {...}` here
+                 (this block's ORIGINAL shape) always got dropped straight
+                 into an expression slot no matter how it was formatted,
+                 which is invalid syntax full stop — never a whitespace
+                 problem. Fixed the only way that's actually safe: the
+                 try/catch lives in a real method on this x-data object;
+                 x-init is just a bare method call, which is always a
+                 valid expression and never touches Alpine's wrapping logic
+                 at all. `this.docsOpen`/`this.$nextTick` inside the method
+                 — not bare `docsOpen`/`$nextTick` — since a method body's
+                 `this` binding is genuinely different from a raw x-init
+                 expression's. --}}
             <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);"
-                 x-data="{ docsOpen: false }"
-                 x-init="
+                 x-data="{ docsOpen: false, restoreJustUploadedDocRow() {
                     try {
                         const justUploadedIds = JSON.parse(sessionStorage.getItem('rentalReviewJustUploadedDocIds') || 'null');
                         sessionStorage.removeItem('rentalReviewJustUploadedDocIds');
                         if (Array.isArray(justUploadedIds) && justUploadedIds.length) {
-                            docsOpen = true;
-                            $nextTick(() => {
+                            this.docsOpen = true;
+                            this.$nextTick(() => {
                                 const el = document.querySelector('[data-document-row=&quot;' + justUploadedIds[0] + '&quot;]');
                                 if (el) { el.scrollIntoView({ block: 'center' }); el.style.outline = '2px solid var(--ds-blue, #2563eb)'; setTimeout(() => { el.style.outline = ''; }, 2000); }
                             });
                         }
                     } catch (_) {}
-                 ">
+                 } }"
+                 x-init="restoreJustUploadedDocRow()">
                 <div class="flex items-center justify-between">
                     <button type="button" class="flex items-center gap-2 text-left" @click="docsOpen = !docsOpen">
                         <h2 class="text-sm font-semibold" style="color: var(--text-primary);">
