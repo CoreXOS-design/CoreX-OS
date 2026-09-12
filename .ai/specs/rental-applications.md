@@ -8451,3 +8451,109 @@ priority once rentals is fully closed out, same technique as this one, scaled up
 - `tests/Feature/RentalApplications/RentalApplicationContactIdAgencyScopeTest.php`,
   `tests/Feature/RentalApplications/RentalApplicationGenerationAgencyScopeTest.php`,
   `tests/Feature/RentalApplications/RentalApplicationSignatureAgencyScopeTest.php` — new
+
+## Hover-fold panels replaced with click-to-toggle (2026-09-12, cc3)
+
+Johan live-tested the 2026-09-11 hover-reveal panels (app sidebar fold, Documents column) on
+QA1 and rejected the interaction outright: "trying to hover or click the pin on the menu and
+its like flashes. cannot click it. the document one if you click the pin it locks the document
+is place but it does not reduce the pdf size, instead it overlaps it. then clicking close
+closes the document, not the pin section." His own words: "Two of these three are MY spec
+being wrong, not your build." Full redesign, his instructions:
+
+1. **Drop hover entirely.** No `mouseenter`/`mouseleave`, no reveal/close timers, no
+   `window.__rentalMouseDown` tracking, no `isOverSidebarZone`/`isOverDocsPanel` re-check on
+   mouseup. One explicit toggle control per strip — click to expand, click again to collapse.
+   That whole class of "flyout fires mid-drag" bug is gone by construction, not by more code.
+2. **An expanded panel pushes the layout, it does not overlay.** The "overlay rather than
+   push" rule only ever existed to stop the page reflowing under the cursor during a hover
+   reveal mid-drag; with hover gone, the reason is gone. Expanded panels are now a real,
+   width-animated flex column (`width: 0px`/`240px` on the app sidebar, `44px`/`220px` on the
+   Documents column) — the sibling content area's own `flex-1` does the rest, no manual
+   document-width calculation needed. "Pinned" is retired as a separate concept — with
+   click-to-toggle, expanded already means "the agent chose this."
+3. **Close vs Collapse, fixed.** The Documents panel's expanded-state control used to be wired
+   identically to the folded strip's own document-close button — both set
+   `continuousViewOpen = false`. Now the folded strip's "×" still closes the whole document
+   view; the expanded panel's own control is relabelled "Collapse" and only sets
+   `docsPanelExpanded = false`.
+4. **Escape-on-capture-chip fix.** Cancelling a capture chip with Escape was leaving
+   `activeTool` switched to `'note'` regardless of what pen was active before the chip opened
+   — every subsequent click then dropped a note editor. Root mechanism not conclusively
+   isolated (searched every `pickNoteTool()` call site and every Escape handler; the leading
+   hypothesis is a focus-loss side effect when the chip's Amount input hides via `x-show`, not
+   confirmed). Fixed defensively regardless of cause: `openCaptureChipForCreate()`/
+   `openCaptureChipForEdit()` snapshot `activeTool`/`activeHighlighterId` into the chip object
+   at open time; `cancelCaptureChip()` restores both explicitly before nulling the chip.
+5. Both panels default to collapsed on a first visit with nothing in `localStorage`, and
+   remember the expanded/collapsed choice for the session once toggled — per Johan: "keep
+   remembering the expanded/collapsed choice for the session."
+
+**Verified:** `php -l` clean on all three touched files. Fetched a real authenticated page
+through this worktree's own `php artisan serve` process (not an in-process `Kernel::handle()`
+call) and ran `verify-alpine-render.mjs` — GATE PASSED, zero leaked attribute text, zero
+execution errors; confirmed `markupSidebarExpanded`/`docsPanelExpanded` and the Escape fix's
+`priorTool`/`priorHighlighterId` all render correctly in context, no orphaned raw JS in the
+body. Pushed to `origin/QA1` (`e54ddc04b..aafd54f2c`, clean fast-forward, merged with the
+same-day multi-tenancy sweep with no conflicts). cc1 independently pulled into `/corex-qa1`
+and ran both gates against the real nginx/php-fpm deployment: render gate GATE PASSED (0
+failures); `rental-smoke.mjs` 8/8 screens, **0 console errors on every screen**, all real-data
+assertions passing. Grepped the whole `resources/views/` tree afterward for every removed
+hover/pin identifier (`docsPanelPinned`, `docsPanelHovered`, `docsRevealTimer`,
+`docsCloseTimer`, `isOverDocsPanel`, `docsPanelRevealed`, `onDocsPanelEnter`,
+`onDocsPanelLeave`, `toggleDocsPin`, `docsPanelClickToggle`, `markupSidebarPinned`,
+`revealTimer`, `closeTimer`, `isOverSidebarZone`, `onSidebarZoneEnter`, `onSidebarZoneLeave`,
+`toggleSidebarPin`, `window.__rentalMouseDown`) — zero hits, nothing orphaned. This also lands
+the fix for the `layouts/corex.blade.php:114` stray-quote-in-a-JS-comment bug cc5 independently
+found and flagged as "reported, not fixed" above (incident #2 in the render-gate section) —
+the entire hover `x-data` block containing that comment was replaced wholesale; the new
+`x-data` (verified above) has no embedded quotes.
+
+**Files changed:** `resources/views/layouts/corex.blade.php` (app sidebar fold — full
+rewrite), `resources/views/corex/rental-applications/review.blade.php` (Documents column
+markup + `rentalReviewLayout()`'s JS state), `resources/views/corex/rental-applications/partials/document-highlighter-script.blade.php`
+(Escape fix only — capture-chip transparency, date fixes, jump-to-mark force-load from earlier
+rounds untouched).
+
+## KNOWN DATA-INTEGRITY BUG — capture-chip ledger marks save with corrupted position (found 2026-09-12, cc3, NOT FIXED — awaiting Johan's decision)
+
+Johan reported marks rendering in the top-left corner of the page on QA1 and asked for a
+data-damage check before anything else. Query against the real `corex_qa1` database (the same
+DB this worktree, `/corex-qa1`, and QA1 itself all share) found a **real, deterministic, 100%
+reproducible bug**, unrelated to the click-to-toggle rework above or to any DOM/resize timing:
+
+**Root cause:** every OTHER highlight/note save goes through `applyHighlights()`
+(`document-highlighter-script.blade.php`), which correctly converts the in-memory 0–1 fraction
+to raster pixels before sending (`Math.round(p.x * page.width)`). The capture-chip create path
+does not — `confirmCaptureChip()` (~line 330) sends `points: pm.points, width: pm.width`
+straight to the server, still as 0–1 fractions. The server stores whatever it receives
+verbatim (`points` is a plain JSON column; `width` is `unsignedSmallInteger`, so a fractional
+width like 0.015 truncates to stored `0`). On screen this renders indistinguishable from the
+page's top-left corner.
+
+**Blast radius, precisely queried, not estimated:** every income/expense capture-chip mark
+that was ever drawn ON a document (has a `document_id`, i.e. was NOT a manually-typed
+"unanchored" entry — 69 of the 88 total capture rows in the DB are legitimately unanchored,
+`points`/`width`/`page` all `null` by design, untouched by this bug) is corrupted. **19 out of
+19 anchored capture marks — 100%.** Spans application 107 (Bank Statement.pdf, all 13 of its
+marks; Rental Application.pdf, 1 of 7), application 76 (Other.pdf, 3 of 8), application 135
+(payslip.pdf, both of its 2 — created TODAY, 2026-09-12, so this is still live and ongoing,
+not something that stopped). Every plain highlighter/"annotation"-type mark checked stores
+correct raster coordinates — only the capture-ledger feature's own entries are affected.
+
+**What is NOT damaged:** `entry_amount`/`entry_type`/`entry_date`/`entry_description` are
+separate columns, written from the form fields directly, never touched by this bug — every
+captured rand amount is intact and correct (verified: the R18,139.05 income entry on Bank
+Statement.pdf has its correct amount; only its on-page position/width is wrong). No mark has
+been overwritten after creation — `created_at == updated_at` on every corrupted row, so this
+is corruption at write time, not a later silent overwrite.
+
+**STOPPED HERE, per Johan's explicit instruction** ("if stored data is damaged, say so
+immediately and STOP — do not attempt a repair without telling me first... no destructive or
+corrective action happens on that data without his explicit say-so"). Reported in full to the
+conductor with the exact finding above. **No code change and no data repair have been made.**
+Two separate decisions are pending: (1) the forward-looking code fix — adding the missing
+`* page.width`/`* page.height` conversion to `confirmCaptureChip()`'s create payload, a small,
+low-risk change that stops new corruption but does not touch existing rows; (2) whether/how to
+repair the 19 already-damaged rows, which is a data decision on records Johan has been marking
+up by hand and requires his explicit go-ahead before any lane touches them.
