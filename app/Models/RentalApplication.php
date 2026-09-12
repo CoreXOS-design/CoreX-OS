@@ -342,7 +342,7 @@ class RentalApplication extends Model
 
     protected $fillable = [
         'agency_id', 'branch_id', 'contact_id', 'property_id', 'created_by_user_id',
-        'status', 'delivery_mode', 'token', 'token_expires_at', 'submitted_at', 'submitted_for_approval_at', 'approved_rental_amount',
+        'status', 'delivery_mode', 'token', 'token_expires_at', 'submitted_at', 'draft_saved_at', 'submitted_for_approval_at', 'approved_rental_amount',
         'current_generation', 'reopened_at', 'reopened_by_user_id', 'reopened_note',
         'property_address_override',
         'full_name', 'id_number', 'marital_status', 'spouse_name', 'spouse_id', 'citizenship',
@@ -359,6 +359,7 @@ class RentalApplication extends Model
     protected $casts = [
         'token_expires_at' => 'datetime',
         'submitted_at' => 'datetime',
+        'draft_saved_at' => 'datetime',
         'submitted_for_approval_at' => 'datetime',
         'reopened_at' => 'datetime',
         'applicant_notified_at' => 'datetime',
