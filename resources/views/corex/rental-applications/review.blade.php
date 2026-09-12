@@ -602,8 +602,7 @@
                  a later, unrelated reload doesn't reopen a stale target. --}}
             <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);"
                  x-data="{ docsOpen: false }"
-                 x-init="
-                    try {
+                 x-init="try {
                         const justUploadedIds = JSON.parse(sessionStorage.getItem('rentalReviewJustUploadedDocIds') || 'null');
                         sessionStorage.removeItem('rentalReviewJustUploadedDocIds');
                         if (Array.isArray(justUploadedIds) && justUploadedIds.length) {
@@ -613,8 +612,7 @@
                                 if (el) { el.scrollIntoView({ block: 'center' }); el.style.outline = '2px solid var(--ds-blue, #2563eb)'; setTimeout(() => { el.style.outline = ''; }, 2000); }
                             });
                         }
-                    } catch (_) {}
-                 ">
+                    } catch (_) {}">
                 <div class="flex items-center justify-between">
                     <button type="button" class="flex items-center gap-2 text-left" @click="docsOpen = !docsOpen">
                         <h2 class="text-sm font-semibold" style="color: var(--text-primary);">
