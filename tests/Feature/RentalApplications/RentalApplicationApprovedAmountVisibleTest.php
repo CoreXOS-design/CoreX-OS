@@ -25,6 +25,12 @@ final class RentalApplicationApprovedAmountVisibleTest extends TestCase
 {
     use RefreshDatabase;
 
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $this->withoutVite();
+    }
+
     public function test_approved_amount_renders_in_the_sticky_header(): void
     {
         $agency = Agency::create(['name' => 'Agency A', 'slug' => 'agency-a-' . uniqid()]);

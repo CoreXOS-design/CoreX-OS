@@ -423,6 +423,18 @@ trait HandlesRentalApplicationDocumentMarks
         $blockedByUser = (int) $mark->author_user_id !== (int) $user->id;
 
         if ($blockedByRole || $blockedByUser) {
+            // cc4 walk, scope-check pass, 2026-09-13 — no audit trail
+            // previously existed for a denied ownership attempt. Same
+            // shape as guardRentalApplication()'s own new logging.
+            \Illuminate\Support\Facades\Log::warning('AT-392 rental application: denied capture-entry edit at guardCaptureEntryOwnership()', [
+                'acting_user_id' => $user->id,
+                'mark_id' => $mark->id,
+                'mark_uid' => $mark->mark_uid,
+                'mark_author_user_id' => $mark->author_user_id,
+                'mark_author_role' => $mark->author_role,
+                'blocked_by_role' => $blockedByRole,
+                'blocked_by_user' => $blockedByUser,
+            ]);
             abort(403, 'This entry was captured by someone else and can\'t be changed here.');
         }
     }

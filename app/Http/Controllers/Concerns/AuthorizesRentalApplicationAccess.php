@@ -36,6 +36,7 @@ trait AuthorizesRentalApplicationAccess
             if ((int) $rentalApplication->agency_id === (int) ($user->effectiveAgencyId() ?? 0)) {
                 return;
             }
+            $this->logDeniedRentalApplicationAccess($rentalApplication, $user, $scope);
             abort(403);
         }
         if ($scope === 'branch' && (int) $rentalApplication->branch_id === (int) $user->effectiveBranchId()) {
@@ -45,6 +46,28 @@ trait AuthorizesRentalApplicationAccess
             return;
         }
 
+        $this->logDeniedRentalApplicationAccess($rentalApplication, $user, $scope);
         abort(403);
+    }
+
+    /**
+     * cc4 walk, scope-check pass, 2026-09-13 — this guard had no audit
+     * trail at all: a denied same-agency-wrong-scope attempt (the one case
+     * that reaches this method at all — a cross-agency id is already
+     * blocked earlier, at RentalApplication's own BelongsToAgency route-
+     * model-binding, before this method is ever called) previously left
+     * no record anywhere. Same shape as the RO/CO settings fix's own
+     * Log::warning() — naming the acting user, their resolved scope, and
+     * the record they were denied.
+     */
+    private function logDeniedRentalApplicationAccess(RentalApplication $rentalApplication, User $user, ?string $scope): void
+    {
+        \Illuminate\Support\Facades\Log::warning('AT-392 rental application: denied access at guardRentalApplication()', [
+            'acting_user_id' => $user->id,
+            'acting_agency_id' => $user->effectiveAgencyId(),
+            'acting_scope' => $scope,
+            'rental_application_id' => $rentalApplication->id,
+            'rental_application_agency_id' => $rentalApplication->agency_id,
+        ]);
     }
 }
