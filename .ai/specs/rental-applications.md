@@ -11063,3 +11063,139 @@ message explaining what's happening, but no progress indicator during that
 wait on the slow end. Every agent after the first, on the same document,
 gets this from server-side cache in under a second regardless of connection
 — this cost is paid once per document, not once per view.
+
+## Authoriser screen: Decline's weight, its confirmation, doc visibility, and what he can actually see (2026-09-14, cc5)
+
+From cc4's watched authoriser walk. All GO except item 4, which was
+diagnose-only per instruction.
+
+**1 — Decline had a third the visual weight of Approve.** Was a
+`text-[11px] underline` text link under two real `corex-btn-*` buttons.
+Now `corex-btn-outline text-xs w-full mb-1.5` — same classes as "Send
+back", same width (157px) as all three buttons — with the same red
+outline styling the confirmation modal's own Decline button already used,
+so trigger and confirm now visually agree. Equal weight, not equal
+invitation, per instruction.
+
+**2 — Decline's confirmation had nothing to check against.** Approve's
+confirm() always carried a real figure ("Approve this tenant for
+R13,500.00?") because the amount is literally what was just typed;
+Decline's said only "Decline this application?" — survived the earlier
+approve/decline consistency fix because that fix was about destination/
+feedback/double-submit, never about what the confirmation itself names.
+Fixed using the exact same static facts every other screen on this page
+already resolves once (`$headerContactName`/`$propertyLabel`, computed
+near the top of the file) — now shown both in the modal body (durable,
+not a one-shot popup) and in the confirm() text itself, matching Approve's
+own pattern. Confirmed live: confirm() now reads "Decline the application
+from {name} for {property}?"
+
+**3 — Supporting Documents started collapsed on the authoriser's screen
+too.** One-line fix: `docsOpen: {{ $viewerRole === 'authoriser' ? 'true' : 'false' }}`
+(was hardcoded `false`). Agent's own collapsed default — Johan's explicit
+instruction — untouched; confirmed via card text-length comparison
+(authoriser: expanded content present; agent: still collapsed, header
+only).
+
+**4 — DIAGNOSED ONLY, not fixed, per instruction.** cc4 saw a technical
+error flash before the correct "Saved" tick. Reproduced precisely with
+network + visible-banner logging on a realistic two-step date entry (set
+"from", wait, then set "to" — not both at once): a 422 fires at +340ms
+("Enter both a from and to date...", correctly rejecting the momentarily-
+incomplete pair), the red banner shows that message for ~700ms (visible,
+not literally invisible on this box — cc4's exact framing may reflect a
+faster real-world gap between two field picks than my test's ~1s), then a
+SECOND, complete save at +1401ms succeeds. This is the **benign** case
+the conductor named, not the data-loss one: `performSave()` sends the
+FULL current state of every field on every call, never an incremental
+delta, so the successful save never depends on or inherits anything from
+the failed one — nothing is lost between the two. No handler changed.
+
+**A separate, real gap found while checking item 4's wording — the
+authoriser was told he'd see gaps he couldn't actually see.** The warning
+modal's own sentence, "You can still submit — the authoriser will see the
+same gaps," was not true. Two independent code-level causes, both fixed:
+
+- `incompleteAssessmentReasons()` (the three-gap check: no captured
+  lines / no period / net monthly not calculable) lived ONLY on
+  `rentalReview()` — the agent's own component — so it was never callable
+  on the authoriser's screen at all. Moved into the shared
+  `rentalCaptureLedger()` factory (already spread into both components,
+  same "one copy of the tally logic" pattern this file already follows)
+  — now genuinely one shared check, not two to keep in sync.
+- **The out-of-period amber dot (QA1 item 6) had the identical structural
+  gap, independently:** `rentalAuthorisationViewer()` never received
+  `statementPeriodFrom`/`statementPeriodTo` at all — only
+  `statementMonths` — so `isOutsidePeriod(row)`'s own first line
+  (`if (!this.statementPeriodFrom || ...) return false`) was permanently
+  true on the authoriser's screen, for every row, regardless of the real
+  data. The dot could never render for him. Coordinated with cc4 directly
+  (conductor's instruction, rather than both testing the same thing) —
+  confirmed this diagnosis to him before fixing, confirmed the fix after.
+  Fixed by passing `$assessment->statement_period_from/to` into the
+  authoriser's x-data call site, same read-only pattern already used for
+  `statement_months`.
+
+Added a persistent amber banner ("This assessment looks incomplete" +
+the same three bullet reasons, same words the agent's own modal uses) on
+the authoriser's screen only, near the "Agent's Assessment" heading —
+**computed live from current state, not from any "the agent saw this"
+flag**, so it is a property of the file per instruction, correct whether
+or not the agent's own warning was ever shown. Amber/informational,
+doesn't block Approve or Decline either way. Live-proven both ways: a
+fully empty fixture (205) shows all three reasons; a complete fixture
+(204, period set, one entry correctly outside it) shows NO gap banner and
+correctly shows the out-of-period dot only on the one row that's actually
+outside — screenshotted, both confirmed together on the same screen.
+
+**PDF and notification — checked, not built.** Grepped
+`RentalApplicationPdfService`, `RentalApplicationMailer`, and
+`RentalApplicationNotifier`: none reference `statement_months`,
+`incomeItems`, `captureEntries`, or the assessment at all. **Neither the
+approval PDF nor the agent-notification currently records whether the
+assessment was complete at the moment of decision.** This is a real gap —
+if the authoriser approves a thin file, nothing in the durable record
+shows he knew that — but it wasn't a "GO" in the instruction (only "tell
+me"), so reported here for a decision, not built.
+
+**The warning's wording — now true.** "You can still submit — the
+authoriser will see the same gaps" is accurate as of this fix: he does.
+
+**Small item, checked as asked — trivial, not built.** The agent's
+pre-send intake form (`show.blade.php`) is a long multi-section form
+(Property, Personal Details, Emergency Contact, and more below) with no
+"this is optional" reminder anywhere near it, while
+`create.blade.php` (one step earlier, picking a contact) says plainly
+"everything else is optional and can be filled in later or by the
+applicant themselves." Confirmed this reminder genuinely doesn't repeat
+anywhere on `show.blade.php`. It is exactly what was described: a one-
+line repeat of the existing sentence, near the top of the form. Not
+built — reported for you to route.
+
+**Found while in this file, not mine to fix, flagged by cc4 rather than
+left unflagged (his own words) — the strike/restore button (⊘/↺ per
+ledger line) does not work at all, for anyone, on any application.** Not
+a click-handling bug: every line pushed via `addCaptureEntry()` never
+gets a starting value for the busy-flag its `:disabled` binding checks
+(`strikingBusy` or equivalent, near `rentalCaptureLedger()`), so it reads
+`undefined` — which this Alpine version treats as permanently disabled.
+Confirmed by cc4 three ways (real click, JS click, fresh-reload-then-
+click): no network request ever fires. Upstream of both the incomplete-
+assessment and out-of-period work above, since striking is how an agent
+excludes a bad captured line in the first place. One-line fix (an
+explicit `false` on creation) but genuinely broken as shipped. Reporting,
+not fixing — not this task's scope.
+
+### Gates run before push
+
+`scripts/verify-alpine-render.mjs` against the authoriser screen (now
+expanded by default — 399 Alpine expressions, up from 279, all compile
+clean) and an agent screen — PASS both, zero leaked-attribute/execution
+failures (same pre-existing WARN-only scope-gap notices, one new one from
+the now-visible expanded-docs markup, unrelated to this change and
+present in the underlying scope structure before this edit too).
+`scripts/rental-smoke.mjs`: `review_screen` and `authorisation_screen`
+both pass with 0 console errors; the one failure is the same pre-existing
+markup_view/fixture-data issue documented multiple times above, unrelated,
+not touched. `dev-check.ps1` cannot run on this box (no `pwsh`) — stated
+plainly.
