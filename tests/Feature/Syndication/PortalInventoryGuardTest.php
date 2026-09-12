@@ -192,6 +192,19 @@ class PortalInventoryGuardTest extends TestCase
         $this->assertNull($this->guard()->conflictFor($property));
     }
 
+    public function test_a_broken_cache_backend_never_blocks_publishing(): void
+    {
+        // This guard sits on the path every listing takes to the portal. A cache
+        // outage must cost a missed check, never an agency's ability to publish.
+        Cache::shouldReceive('get')->andThrow(new \RuntimeException('cache down'));
+
+        $property = $this->property(['street_number' => '76', 'suburb' => 'Manaba Beach', 'price' => 899000]);
+
+        $this->assertNull(
+            (new PortalInventoryGuard(Mockery::mock(PrivatePropertySoapClient::class)))->conflictFor($property)
+        );
+    }
+
     // --------------------------------------------------------------- classify
 
     public function test_classify_separates_duplicates_ghosts_and_stale_adverts(): void

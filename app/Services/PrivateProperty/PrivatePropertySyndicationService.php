@@ -67,7 +67,20 @@ class PrivatePropertySyndicationService
         // encrypted id we are never issued). Ten such doubles and forty-three
         // unreachable adverts were found live on 2026-09-12; this is the stop.
         // Fails OPEN on a cold cache so a missing snapshot never blocks an agent.
-        $conflict = $this->inventoryGuard()->conflictFor($property);
+        // Absorbed, never propagated: this guard sits on the path EVERY listing
+        // takes to the portal. A cache backend hiccup or any unforeseen fault
+        // inside it must cost us a missed check, never an agency's ability to
+        // publish. Same reasoning as the fail-open on a cold snapshot.
+        try {
+            $conflict = $this->inventoryGuard()->conflictFor($property);
+        } catch (\Throwable $e) {
+            Log::channel('private_property')->warning('Portal inventory guard skipped — it failed', [
+                'property_id' => $property->id,
+                'error'       => $e->getMessage(),
+            ]);
+            $conflict = null;
+        }
+
         if ($conflict !== null) {
             $message = 'Private Property already advertises this property under a listing CoreX does not control '
                 . "(portal reference {$conflict['portal_id']}). Publishing now would create a second advert for the "

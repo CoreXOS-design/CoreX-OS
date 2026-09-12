@@ -160,7 +160,20 @@ class PortalInventoryGuard
             return null;
         }
 
-        $snapshot = Cache::get(self::CACHE_PREFIX . $agency->id);
+        // The cache read is the one call here that depends on infrastructure we
+        // do not control. A backend outage must cost a missed check, never an
+        // agency's ability to publish — same fail-open contract as a cold cache.
+        try {
+            $snapshot = Cache::get(self::CACHE_PREFIX . $agency->id);
+        } catch (\Throwable $e) {
+            Log::channel('private_property')->warning('Portal inventory unreadable — guard skipped', [
+                'agency_id' => $agency->id,
+                'error'     => $e->getMessage(),
+            ]);
+
+            return null;
+        }
+
         if (! is_array($snapshot) || $snapshot === []) {
             return null;
         }
