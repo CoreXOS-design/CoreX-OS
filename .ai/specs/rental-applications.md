@@ -9323,3 +9323,195 @@ feature tests, and `rental-smoke.mjs` (8/8 screens, 0 console errors, re-run aft
 push) are this pass's equivalent. No Blade/JS files were touched tonight, so cc1's Alpine render
 gate (including its new fourth check) has nothing to check against this specific change — noted
 plainly rather than run against unrelated pages and called "verification."
+
+## Authoriser Approve/Decline consistency — cc4's finding 7 (2026-09-13, cc5)
+
+### The brief, and the instruction to test rather than accept
+
+cc4 reported: after an authoriser APPROVES they're returned to their queue; after
+they DECLINE they're left sitting on the decided application — inconsistent, no
+apparent reason, and felt every time by an authoriser working a queue. The
+conductor's instruction: work out which behaviour is right BEFORE building
+anything, by testing live rather than accepting the report, and — whichever way
+the destination question goes — bring the two decisions' FEEDBACK into parity:
+after either decision the authoriser must see plainly what was recorded — the
+decision, the amount where there is one, and that it saved.
+
+### Fact 1 — the destination is NOT inconsistent, and never has been
+
+Read `approve()` and `decline()` in `RentalApplicationAuthorisationController.php`
+side by side: both end in `return redirect()->route('corex.rental-applications.authorisation.index')`.
+`git blame` on both lines: same commit, `992315d511`, dated 2026-09-07 — this has
+never differed in this file's history. Tested live, twice, with full DB
+verification (real throwaway applications, real browser,
+real login as a genuine RO/CO test user): approve → DB status `approved`,
+browser lands on `/corex/rental-applications/authorisation`. decline → DB status
+`declined`, browser lands on the SAME `/corex/rental-applications/authorisation`.
+**No destination bug exists or ever has, at least since 2026-09-07.** (First
+attempt at this test gave a false "approve stays on page" result — a test-script
+bug: the trigger button reads "Approve & continue", not "Approve", so the
+click silently missed and the amount never got typed into a field that, seconds
+later, was still disabled. Caught by checking DB state directly rather than
+trusting the browser URL alone, and corrected before drawing any conclusion.)
+
+### Fact 2 — the real, reproducible bug: DECLINE silently drops its own confirmation
+
+With destination ruled out, the actual difference an authoriser *feels* was
+tracked down by diffing the full rendered HTML of the queue page after each
+action, not by inspecting a snippet: after APPROVE, the green "Application
+approved." flash banner renders on the queue page every time. After DECLINE,
+**no flash banner renders at all** — not the text, not the `ds-emerald` markup,
+nothing. To an authoriser this looks exactly like "I declined it and got sent
+back with no acknowledgement" — indistinguishable in feel from "I'm stuck,"
+which is very likely what got reported as "left sitting on the decided
+application."
+
+### Root cause — traced with temporary debug logging (added, used, removed same session)
+
+`decline()` calls `RentalApplicationPdfService::fileAsDocument()` synchronously,
+which shells out to a REAL headless-Chromium Puppeteer subprocess
+(`scripts/html-to-pdf.mjs`) to render the decision PDF — **~9 seconds observed**,
+logged directly (`PDF generation starting` → `PDF execution done … "seconds":9`).
+`approve()` (the authoriser's own action) has no such step at all — it returns
+in under 2 seconds.
+
+Temporary `Log::info(session()->all())` calls placed immediately before and
+after `decline()`'s `->with('success', …)`, and at the top of `index()`, proved:
+the SAME session ID sees the flash correctly set right after `->with()` — then,
+9 seconds later when `index()` loads, the flash is gone, and `_previous.url` in
+that same session has changed to `corex.portal-leads.poll` — a **background
+polling endpoint fired on the same session while decline() was still mid-flight**.
+Laravel's session store is a whole-blob read-modify-write with no per-key
+locking: the poll request read the session BEFORE decline() had written its
+flash, did its own unrelated thing, and saved the session back after — last
+write wins, decline()'s flash write is silently lost. Approve never hits this
+because it never opens the 9-second window the race needs.
+
+The SAME synchronous `fileAsDocument()` call, with the identical 9-second
+shape, also exists in the agent's own `send()` action
+(`RentalApplicationReviewController.php`, "Approved Rental Application") — not
+the one that surfaced this bug, but carrying the identical latent race. Fixed
+alongside decline()'s, not left standing, per BUILD_STANDARD's "fix the class,
+not the instance."
+
+### The fix
+
+`app/Jobs/FileRentalApplicationDecisionPdfJob.php` (new) — a thin `ShouldQueue`
+job whose `handle()` does exactly what the inline call did:
+`RentalApplicationPdfService::fileAsDocument($rentalApplication, $label)`.
+`decline()` and `send()` now `dispatch()` it instead of calling it inline. This
+removes the multi-second window entirely — not just for the one interference
+source that happened to surface it (the portal-leads poller), for ANY
+concurrent session-touching request during that window. No new infrastructure:
+`corex-qa1-queue.service` (systemd, `--queue=default,matching,mail,bg_removal,webhooks,buyer-matching`)
+is already active and already watches the same `corex_qa1` database's `jobs`
+table — confirmed live (`systemctl list-units`, `jobs`/`failed_jobs` tables).
+The filing contract is unchanged — still "best-effort" (the job's own
+`fileAsDocument()` call still catches its own failures internally exactly as
+before) — queuing only moves WHEN best-effort happens to, from "before the
+human sees a response" to "after."
+
+**Testing caveat, recorded honestly:** my local worktree shares the `corex_qa1`
+database with the REAL deployed QA1 site, whose systemd worker runs
+`/corex-qa1`'s own checkout. Dispatching a real job from my local dev server
+during testing got picked up by THAT worker before my code was deployed there
+— `App\Jobs\FileRentalApplicationDecisionPdfJob` didn't exist in its checkout
+yet, so it failed as "incomplete class" and landed in `failed_jobs`. Not a bug
+in the job — a test-environment artifact of the shared DB. Cleaned up
+(`DELETE FROM failed_jobs WHERE payload LIKE '%FileRentalApplicationDecisionPdfJob%'`,
+operational queue debris, not a business record, no soft-delete concern).
+Verified the job's own logic correctly in isolation instead — constructing it
+directly and calling `->handle()` — confirming it files the identical Document
+the old inline call did (same `Document` row shape, same storage path
+convention, same contact/property pivot attachment).
+
+### Feedback parity — the second half of the instruction
+
+Both flash messages now name the contact and confirm the save; approve's
+includes the amount, matching what cc2 is separately surfacing on the agent's
+own read-only screen, so the authoriser is not worse informed than the agent
+about their own decision:
+- Approve: `"Approved — {contact name} for R{amount}. Saved."`
+- Decline: `"Declined — {contact name}. Saved."`
+
+Deliberately not identical shapes — decline has no amount, and inventing a
+placeholder would be a lie — but both now answer the same three questions:
+what was decided, the figure where one exists, and that it's saved.
+
+### Manual-QA proof (2026-09-13, local worktree, real browser, one continuous session)
+
+Real login (throwaway RO/CO test user, both tiers, soft-deleted after), real
+10-second-scale Puppeteer PDF generation actually exercised (not mocked),
+zero console errors throughout:
+
+- **Approve** (fresh throwaway application): POST→redirect wall time **1.9s**.
+  Lands on `/corex/rental-applications/authorisation`. Flash: `"Approved — QaCc5
+  ApproveFinalProof… for R11,200.00. Saved."` DB: `status=approved`,
+  `approved_rental_amount=11200.00`.
+- **Decline** (separate fresh throwaway application): POST→redirect wall time
+  **1.9s** (previously ~9s+ blocked on the synchronous PDF subprocess). Lands
+  on the SAME `/corex/rental-applications/authorisation`. Flash: `"Declined —
+  QaCc5 DeclineFinalProof…. Saved."` — previously rendered NOTHING. DB:
+  `status=declined`.
+- Job logic verified in isolation: `FileRentalApplicationDecisionPdfJob->handle()`
+  produces the identical filed `Document` row the old inline call did, for both
+  an approve-labelled and a decline-labelled run.
+
+### Gates run before push
+
+- `scripts/verify-alpine-render.mjs` against the authorisation review screen
+  (`/corex/rental-applications/authorisation/{id}`) and the queue index — PASS
+  on both, including cc1's new "all Alpine expressions compile" check (261 and
+  172 expressions respectively, zero syntax errors — this is the check that
+  would have caught the SyntaxError incident the conductor referenced). Two
+  pre-existing WARN-only scope-gap notices, unrelated to this change.
+- `scripts/rental-smoke.mjs`: 7/8 screens pass, 0 console errors on all of
+  them. The one failure (`markup_view`, app 148, 422) is the SAME pre-existing
+  issue already reported against app 148 in the PDF-splitter and inline-create
+  rounds above — re-checked this round specifically because the conductor
+  reported a related permission fix had landed; confirmed that fix (274
+  root-owned files under `/corex-qa1/storage/app/private/rental-applications`)
+  was applied to the real deployed host, not to this local worktree, and that
+  locally this process already runs with the access it needs (`find … -not
+  -readable` returns 0 here) — so this is NOT the same failure class, it is
+  app 148's own document/data state, unrelated to this change, still not
+  touched (out of scope; applications 76/107 hands-off, and 148 was never this
+  task's to fix either).
+- `dev-check.ps1` cannot run on this box (no `pwsh`) — stated plainly.
+- **PHPUnit, reported honestly rather than silently skipped:** attempted
+  `php artisan test tests/Feature/RentalApplications/RentalApplicationApprovedAmountVisibleTest.php`
+  (the single most relevant existing test file, per standing instruction) — it
+  hung with zero output for 150s+ and was killed, twice. Traced to an
+  environment issue, not this change: `database/schema/mysql-schema.sql` (the
+  committed test-bootstrap snapshot) was last regenerated 2026-09-10, while
+  three new migrations landed 2026-09-12 in the same merge that brought this
+  fix's branch up to date — the snapshot is stale relative to the migrations
+  folder, per BUILD_STANDARD §12a's own "re-run schema:dump whenever migrations
+  folder gains a file" rule, which the lane that added those three migrations
+  didn't do. Reported, not fixed — regenerating the snapshot isn't this task's
+  change to make, and doing so as a drive-by risks silently absorbing a defect
+  that belongs to those migrations' own commit history. Grepped every test file
+  for the OLD literal flash text (`Application approved`/`Application
+  declined`) first, to rule out a text-string regression risk independent of
+  running anything — zero matches, so this fix cannot have broken an existing
+  assertion on the old wording.
+
+### Cleanup
+
+Throwaway authoriser test user (`qa-cc5-authoriser-test@example.invalid`, both
+RO and CO tier on agency 1) left in place, matching this session's convention
+for a role-configuration fixture that's cheap to recognise as fake and useful
+for the next round; the several throwaway applications/contacts created for
+this proof (both tiers of the redirect test, the feedback-parity re-proof, the
+gate-check fixture) were left as inspectable QA1 examples for the same reason.
+The `failed_jobs` row created by the shared-DB testing caveat above was
+deleted (operational debris, not a business record). Local dev server stopped
+before push.
+
+### Decision on the destination question, stated per instruction
+
+Both outcomes already return the authoriser to the queue, and testing found no
+reason to change that — it already matches Johan's own stated preference
+("an authoriser is working a QUEUE, so both outcomes should return them to
+it"). No code change was needed for destination. The actual defect was
+feedback, not routing, and is fixed above.
