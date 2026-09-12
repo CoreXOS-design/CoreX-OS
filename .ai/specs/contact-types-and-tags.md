@@ -265,3 +265,74 @@ Contact 18752 ("QA ProofBadgeFix1214", throwaway, soft-deleted after): created a
 ### Test-infra gap found while verifying (not fixed — out of scope, flagged for whoever owns `schema:dump`)
 
 Could not get a green `php artisan test` run for the file above, including on the test's own **pre-existing, untouched** `test_exactly_four_canonical_parents_exist_and_are_locked` — confirmed the environment, not the change: the committed schema snapshot (`database/schema/mysql-schema.sql`) bakes in `2026_03_27_100000_add_esign_role_to_contact_types` and `2026_07_03_000001_seed_owner_other_contact_parents` as already-applied migrations, but `schema:dump` captures structure only — no general table data — so a fresh `RefreshDatabase` test database never gets the 6 base `contact_types` rows those migrations insert. Every test in this file that resolves a canonical type by `esign_role` fails with `ModelNotFoundException` in any worktree created after the last `schema:dump`, independent of any change in this pass. Verified instead via Tinker + a live browser walk against real QA1 data (above). Whoever next runs `php artisan schema:dump` for an unrelated reason should confirm the base `contact_types` seed rows survive it, or add them back via a dedicated always-safe-to-rerun migration the way `2026_09_11_000001_seed_tenant_contact_type_if_missing.php` already does for Tenant.
+
+---
+
+## 12. Test-infra gap CLOSED, plus badge additivity (AT-392, 2026-09-12, cc6)
+
+### The test-infra gap, fixed
+
+The gap §11 reported above is now fixed, not just diagnosed: `schema:dump`'s structure-only rule
+turned out to be **permanent**, not a staleness problem — regenerating the snapshot would never
+have restored the missing `contact_types` rows, because `mysqldump --no-data` is hardcoded in
+`Illuminate\Database\Schema\MySqlSchemaState::dump()` for every table, every time, forever (the
+one exception is a deliberate, separate append of the `migrations` table's own rows). The two
+migrations §11 named are genuinely idempotent "insert if missing" migrations — but both are
+already baked into the snapshot's migrations ledger as done, so Laravel's migrator skips their
+bodies entirely on a fresh `RefreshDatabase` bootstrap; the data was never going to be there
+either way.
+
+Fix: `database/migrations/2026_09_12_000001_reseed_base_contact_type_parents_for_fresh_bootstraps.php`
+— a new migration dated after the snapshot baseline (so it actually runs), same "insert only if
+missing" shape as `2026_09_11_000001_seed_tenant_contact_type_if_missing.php`, matching QA1's real
+values so it's a true no-op everywhere already seeded. `test_exactly_four_canonical_parents_exist_and_are_locked`
+— the exact untouched test §11 used as evidence — now passes. Full `ContactTypeAssignmentTest`
+suite: 18/18 green, verified in a single serial `php artisan test` run (two concurrent `test`
+processes against the same `TEST_DB_DATABASE` were found to deadlock/corrupt each other's schema
+reload mid-session — a tooling mistake, not a product issue, caught and corrected before trusting
+any result from it).
+
+One of §11's own new tests turned out to be self-contradicting once this fix landed:
+`test_contact_type_edit_form_saved_through_the_picker_never_drops_a_type_it_did_not_offer` used
+"Tenant" to prove the picker-save hardening survives an unoffered type — but Tenant is now itself
+a normal, offered, checkable/uncheckable picker option (§11's own change), so there is no longer
+any way (or need) to distinguish "the picker didn't know about Tenant" from "the agent unchecked
+Tenant" — that's exactly what the sibling test
+(`..._still_lets_a_deliberately_offered_type_be_unchecked`) requires. Rewritten to use a genuinely
+non-offered type (a raw `ContactType` row created outside `CANONICAL`/`ADDITIONAL_PARENTS`,
+standing in for a real future-type scenario) — the hardening mechanism itself needed no change,
+only the test's choice of which type to simulate "not yet offered" with.
+
+### Badge additivity (cc4's finding)
+
+cc4's end-to-end walk found a fourth instance of the same "a contact has ONE type" root cause:
+on `/corex/rentals/contacts` (and the plain `/corex/contacts` list — same shared row template),
+searching agency-wide as an admin for a contact owned by a DIFFERENT agent showed the amber
+"Agent: X" tag and **zero** type badges — no Tenant, no Seller, nothing, despite that tag's own
+existing comment describing it as "purely informational" (i.e. additive). Root cause:
+`index.blade.php` had the Agent tag and the `$typeBadges` loop in a mutual-exclusive `@if`/`@else`
+— rendering one meant never rendering the other. This is exactly the screen an admin uses to see
+where a contact already sits before creating a duplicate; hiding every type badge on precisely the
+rows an admin is most likely to be searching for defeated the screen's purpose. Fixed: the Agent
+tag (`@if($isRestricted || $isOtherAgent)`) now renders, unconditionally, ALONGSIDE the
+`@foreach($typeBadges as ...)` loop, never instead of it. The rental-lens-only "Landlord"
+inference (property-pivot signal, no formal Lessor type) was also un-gated from
+`!$isRestricted && !$isOtherAgent` for the same consistency reason — every badge a contact
+legitimately has shows regardless of who is looking or whose contact it is.
+
+Checked sibling contact-list templates (`match-results.blade.php`, `street-complex-search.blade.php`)
+for the same `@if`/`@else` mutual-exclusivity pattern specifically — not found in either; both
+already show their "Agent: X"/type badge together additively. Their own, separately-reported
+single-badge (primary-mirror-only) issue from §11 is unrelated to this bug and remains unfixed,
+out of scope.
+
+**Verified live, in a browser, on QA1:** a throwaway contact (soft-deleted after) owned by a
+different real agent, holding Seller + Tenant, found via an agency-wide admin search — the row
+reads `Agent: <that agent's name>` `Seller` `Tenant`, all three together, once each, on both
+`/corex/rentals/contacts` and `/corex/contacts`. Zero console errors.
+
+### Files changed
+
+- `database/migrations/2026_09_12_000001_reseed_base_contact_type_parents_for_fresh_bootstraps.php` — new
+- `resources/views/corex/contacts/index.blade.php` — Agent tag made additive; Landlord-inference gate simplified
+- `tests/Feature/Contacts/ContactTypeAssignmentTest.php` — one test corrected to use a genuinely non-offered type instead of Tenant

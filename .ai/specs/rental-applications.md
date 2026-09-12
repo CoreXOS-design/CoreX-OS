@@ -9006,6 +9006,16 @@ anyone at HFC until/unless Data Isolation is turned on for that agency. This is 
 correct behaviour given the existing mechanism, not a bug introduced here — flagged plainly so
 nobody is surprised when Monday's QA1 walkthrough doesn't show a Branch pill on HFC's own data.
 
+**In plain language, for Monday:** on the Rentals → Contacts screen, a Branch Manager will
+only see a "Branch" button if the agency has "Data Isolation" (also called split branches)
+switched on in Company Settings. HFC's own agency has that switch OFF right now, so nobody
+testing on HFC data this week will see the Branch button at all — they'll only ever see "My
+Contacts" and "All Contacts", exactly as before. That is not a bug and nothing needs fixing for
+Monday; it only becomes visible for an agency once that one setting is turned on. If Johan
+wants to actually see the Branch button working on HFC's own data before or during the demo,
+turning on Data Isolation for HFC in Company Settings is the one thing that would show it —
+his call, not something to change without asking.
+
 **Verified live, three real personas, real HTTP fetches (this box has no literal browser, so
 these are the established equivalent — `scripts/fetch-authenticated-page.php` renders through
 the actual web server/PHP-FPM, never an in-process call):**
@@ -9072,3 +9082,82 @@ files across a spec-merge-conflict boundary again.
 
 **Files changed:** `app/Http/Controllers/CoreX/ContactController.php` (`index()`),
 `resources/views/corex/contacts/index.blade.php`.
+
+---
+
+### Applicant-side autosave + contact-type test-infra fix (AT-392, 2026-09-12, cc6)
+
+Johan: "CoreX ads went live yesterday... the applicant form is the ONE screen a member of the
+public touches — it is the most public-facing thing in the whole product." Full writeup, including
+the test-infra root cause and the badge-additivity fix (cc4's finding), lives in
+`.ai/specs/contact-types-and-tags.md` §12 (same pass touched both areas — kept together there to
+avoid the two specs disagreeing). Summary relevant to this file:
+
+**Applicant-side autosave — no new data model.** Every field the applicant types is already a
+column on `RentalApplication` (`fieldValidationRules()`), so autosave (`RentalApplicationSigningController::
+autosave()`, `POST /rental-application/{token}/autosave`) fills and saves the SAME row `submit()`
+writes to. Debounced client-side + on blur, agency-configurable via `RentalApplicationQualifyingSetting::
+autosaveDebounceSecondsFor()` (default 5s, new settings-screen field alongside reopen-link-expiry).
+Signatures are never autosaved — `fieldValidationRules()` has no signature keys, so a stray
+signature field is structurally ignored. More tolerant than `submit()`: validates the whole payload
+once (cross-field date-order rules still see both sides), then excludes only the specific field(s)
+that failed from what saves this round, rather than rejecting everything. `status` 'sent' →
+'in_progress' on first autosave (mirrors existing document-upload behaviour); 'reopened' is never
+touched. New `draft_saved_at` column drives a "Welcome back — we've restored what you'd already
+typed" banner on return, disjoint from the existing reopen banner. Degrades completely silently on
+any failure — network drop, expired/locked link, a transient validation hiccup — never a visible
+error to the applicant.
+
+**Verified live, in a browser, on QA1:** part-filled the public form, waited for the debounce,
+confirmed the "Saving"/"Saved" indicator, then a genuine hard page refresh — the restored-draft
+banner appeared with the correct "Last saved N seconds ago" and every typed field came back exactly
+as typed; both signature canvases stayed genuinely blank throughout. At phone width (390px, a real
+simulated touch-drag via Puppeteer's `touchscreen` API): the declaration signature captured
+correctly, a document uploaded via the phone-width picker appeared with no page reload, and the
+just-drawn signature survived that upload untouched. Zero console errors throughout (cc4
+independently walked the rest of the applicant form at 375px this same day and found it solid —
+this pass's phone-width time went specifically to the signature pads and document upload per their
+own note, since cc4's walk didn't cover those in depth).
+
+**Test-infra fix:** the gap `.ai/specs/contact-types-and-tags.md` §11 reported (not fixed) —
+`schema:dump` is permanently structure-only (`mysqldump --no-data`, hardcoded in
+`MySqlSchemaState::dump()`), so two pre-existing idempotent contact-type-seed migrations already
+baked into the snapshot's migrations ledger never actually execute on a fresh `RefreshDatabase` test
+bootstrap — is now closed via a new, dated "insert if missing" migration
+(`2026_09_12_000001_reseed_base_contact_type_parents_for_fresh_bootstraps`). `ContactTypeAssignmentTest`
+(18 tests) and the new `RentalApplicationAutosaveTest` (9 tests) both green, verified serially in one
+`php artisan test` invocation (two concurrent runs against the same test DB were found to
+deadlock/corrupt each other's schema reload mid-session — a tooling mistake, corrected before
+trusting any result from it, not a product issue).
+
+**Found, NOT fixed — reported, not this pass's scope:**
+- `RentalApplicationReopenTest::test_reopened_application_stays_visible_on_the_returned_list` fails
+  reproducibly in complete isolation — reads as a stale assertion from before AT-402's Control
+  Centre unification (2026-09-11) merged the old separate index()/returned() screens into one
+  tile-based screen where the `'all'` tile (`statuses => null`) now legitimately includes
+  `'reopened'`. Whoever owns AT-402/this test should confirm and update it.
+- `rental-smoke.mjs`'s `markup_view` screen failed (`pageImageFound: false, markCount: 0`) against
+  application 161 — squarely in `review.blade.php`/the document-highlighter partials, cc3's active
+  rebuild, off-limits this pass. Every other screen the smoke test covers passed clean, zero console
+  errors.
+- The entire rental-applications module (every AT-392 agency-tunable, not just this pass's new
+  autosave-debounce setting) has no Setup Wizard step — a pre-existing, systemic gap, not attempted
+  here; flagged as a decision on the record rather than a silent omission.
+- `/corex-qa1` (the shared QA1 checkout) had an in-progress, resolved-but-uncommitted merge at the
+  time this pass ran (conflict on this spec file, from concurrent work by another lane). This pass's
+  own commits went cleanly to `origin/QA1` and were verified independently (Tinker against the real
+  QA1 database + this pass's own worktree served locally, since the shared checkout's PHP files
+  already reflected the merged-in code even though its `git commit` was still pending) — that
+  checkout's git state itself was left completely untouched, per the standing rule against one lane
+  finishing another's in-progress work uninvited. Whoever owns that merge should commit soon.
+
+**Files changed:** `database/migrations/2026_09_12_000001_reseed_base_contact_type_parents_for_fresh_bootstraps.php`,
+`database/migrations/2026_09_12_100000_add_draft_saved_at_to_rental_applications.php`,
+`database/migrations/2026_09_12_100001_add_autosave_debounce_to_rental_application_qualifying_settings.php`,
+`app/Http/Controllers/RentalApplicationSigningController.php` (`autosave()`, `show()`),
+`app/Http/Controllers/CoreX/RentalApplicationSettingsController.php` (`updateAutosaveDebounce()`),
+`app/Models/RentalApplication.php`, `app/Models/RentalApplicationQualifyingSetting.php`,
+`resources/views/rental-applications/public/show.blade.php`,
+`resources/views/corex/settings/rental-applications.blade.php`, `routes/web.php`,
+`tests/Feature/RentalApplications/RentalApplicationAutosaveTest.php` (new, 9 tests),
+`tests/Feature/Contacts/ContactTypeAssignmentTest.php` (1 test corrected).
