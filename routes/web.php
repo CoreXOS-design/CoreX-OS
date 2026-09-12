@@ -2840,6 +2840,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // Applicant-side autosave, 2026-09-12.
     Route::post('/settings/rental-applications/autosave-debounce', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateAutosaveDebounce'])
         ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.autosave-debounce');
+    // Autosave volume cap, 2026-09-12.
+    Route::post('/settings/rental-applications/autosave-rate-limit', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateAutosaveRateLimit'])
+        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.autosave-rate-limit');
     // Item 2 follow-up, 2026-09-10 — lock the property link once submitted for authorisation.
     Route::post('/settings/rental-applications/property-lock', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updatePropertyLock'])
         ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.property-lock');

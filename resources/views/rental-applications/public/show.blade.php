@@ -39,6 +39,18 @@
         <p class="text-xs mt-1" style="color: var(--text-muted, #94a3b8);" x-show="autosaveStatus" x-cloak x-text="autosaveStatus"></p>
     </div>
 
+    {{--
+        Rate-limit warning, 2026-09-12 — the ONE autosave failure that must
+        NOT degrade silently: everything typed before this point is already
+        safely saved, but nothing further will be until the applicant acts.
+        Deliberately sticky (no auto-dismiss, no timeout) and placed above
+        the fold so it can't be scrolled past unnoticed.
+    --}}
+    <div x-show="rateLimited" x-cloak class="p-4 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-sm mb-4">
+        <p class="font-semibold mb-1">Your answers have stopped saving automatically.</p>
+        <p>Everything you'd typed up to now is safe. Please finish and submit soon, or copy your remaining answers somewhere safe until you can.</p>
+    </div>
+
     @if(session('success'))
         <div class="p-3 rounded-xl bg-emerald-50 border border-emerald-100 text-emerald-700 text-sm mb-4">{{ session('success') }}</div>
     @endif
@@ -374,6 +386,10 @@ function rentalApplicationForm() {
         // keystroke; degrades completely silently on any failure — an
         // applicant on a patchy connection must never see an error here.
         autosaveStatus: '',
+        // Sticky, visible, never auto-clears — the applicant must actually
+        // notice this one. Everything saved before this point is safe;
+        // only further typing is at risk until they submit.
+        rateLimited: false,
         autosaveTimer: null,
         autosaveInFlight: false,
         autosavePending: false,
@@ -453,10 +469,24 @@ function rentalApplicationForm() {
                 });
                 if (res.ok) {
                     const data = await res.json().catch(() => ({}));
-                    this.autosaveStatus = data.saved ? 'Saved' : '';
+                    if (data.rate_limited) {
+                        // The ONE autosave failure that must NOT degrade
+                        // silently — unlike a network blip this will not
+                        // self-resolve on the next debounce, so an
+                        // applicant left unaware would keep typing into a
+                        // form that has stopped saving. Everything already
+                        // saved up to this point is untouched; only what
+                        // they type from here on is at risk.
+                        this.autosaveStatus = '';
+                        this.rateLimited = true;
+                    } else {
+                        this.autosaveStatus = data.saved ? 'Saved' : '';
+                    }
                 } else {
-                    // Degrade silently — no visible error, just stop
-                    // announcing a save that didn't happen.
+                    // Every OTHER failure degrades silently — no visible
+                    // error, just stop announcing a save that didn't
+                    // happen. A network blip or a transient hiccup
+                    // resolves itself on the next debounce.
                     this.autosaveStatus = '';
                 }
             } catch (e) {

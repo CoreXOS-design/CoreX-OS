@@ -188,4 +188,100 @@ final class RentalApplicationAutosaveTest extends TestCase
 
         $this->assertSame(12, RentalApplicationQualifyingSetting::autosaveDebounceSecondsFor($this->agency->id));
     }
+
+    public function test_autosave_rate_limit_setting_has_a_sensible_default_and_is_agency_configurable(): void
+    {
+        $this->assertSame(
+            RentalApplicationQualifyingSetting::DEFAULT_AUTOSAVE_RATE_LIMIT_MAX,
+            RentalApplicationQualifyingSetting::autosaveRateLimitMaxFor($this->agency->id)
+        );
+        $this->assertSame(
+            RentalApplicationQualifyingSetting::DEFAULT_AUTOSAVE_RATE_LIMIT_WINDOW_MINUTES,
+            RentalApplicationQualifyingSetting::autosaveRateLimitWindowMinutesFor($this->agency->id)
+        );
+
+        RentalApplicationQualifyingSetting::updateOrCreate(
+            ['agency_id' => $this->agency->id],
+            ['autosave_rate_limit_max' => 5, 'autosave_rate_limit_window_minutes' => 10],
+        );
+
+        $this->assertSame(5, RentalApplicationQualifyingSetting::autosaveRateLimitMaxFor($this->agency->id));
+        $this->assertSame(10, RentalApplicationQualifyingSetting::autosaveRateLimitWindowMinutesFor($this->agency->id));
+    }
+
+    /**
+     * Johan, 2026-09-12 (following his own audit questions on the public
+     * autosave endpoint): "what stops a script from sending fifty
+     * thousand?" — proves the per-APPLICATION volume cap actually trips,
+     * that tripping it signals distinctly (`rate_limited: true`, not just
+     * `saved: false` indistinguishable from every other silent-degrade
+     * case), and — critically — that the draft already saved before the
+     * cap was hit is completely undisturbed by hitting it. Configures a
+     * tiny cap (3 per 10 minutes) for this one test rather than actually
+     * firing thousands of requests — the mechanism is identical regardless
+     * of the configured number.
+     */
+    public function test_autosave_rate_limit_trips_signals_distinctly_and_never_damages_the_existing_draft(): void
+    {
+        RentalApplicationQualifyingSetting::updateOrCreate(
+            ['agency_id' => $this->agency->id],
+            ['autosave_rate_limit_max' => 3, 'autosave_rate_limit_window_minutes' => 10],
+        );
+        $application = $this->application();
+
+        // First 3 saves succeed normally and land in the database.
+        for ($i = 1; $i <= 3; $i++) {
+            $this->postJson(route('rental-applications.public.autosave', $application->token), [
+                'full_name' => "Saved Before Cap {$i}",
+            ])->assertOk()->assertJson(['saved' => true]);
+        }
+        $application->refresh();
+        $this->assertSame('Saved Before Cap 3', $application->full_name, 'the last successful save before the cap landed correctly');
+        $savedDraftAt = $application->draft_saved_at;
+
+        // The 4th trips the cap — distinct signal, not just saved:false.
+        $this->postJson(route('rental-applications.public.autosave', $application->token), [
+            'full_name' => 'Should Never Be Saved',
+        ])->assertOk()->assertJson(['saved' => false, 'rate_limited' => true]);
+
+        // The already-saved draft is completely untouched — same value,
+        // same timestamp, as before the capped attempt.
+        $application->refresh();
+        $this->assertSame('Saved Before Cap 3', $application->full_name, 'a rate-limited attempt must never overwrite the existing draft');
+        $this->assertTrue($savedDraftAt->equalTo($application->draft_saved_at), 'draft_saved_at must not move on a rate-limited (non-)save');
+    }
+
+    /**
+     * The rate-limit key must be the application, resolved from the TOKEN
+     * in the URL — never anything the request body controls. Proves two
+     * DIFFERENT applications (different tokens) each get their own,
+     * independent budget: exhausting one's cap must never affect the
+     * other's, which it would if the key were something shared/guessable
+     * (e.g. IP, or a global bucket) rather than the token-resolved id.
+     */
+    public function test_autosave_rate_limit_is_keyed_per_application_not_shared(): void
+    {
+        RentalApplicationQualifyingSetting::updateOrCreate(
+            ['agency_id' => $this->agency->id],
+            ['autosave_rate_limit_max' => 1, 'autosave_rate_limit_window_minutes' => 10],
+        );
+        $applicationA = $this->application();
+        $otherContact = Contact::create([
+            'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id,
+            'first_name' => 'Other', 'last_name' => 'Applicant', 'email' => 'other@example.co.za',
+        ]);
+        $applicationB = $this->application(['contact_id' => $otherContact->id, 'token' => Str::random(64)]);
+
+        // Exhaust A's single-attempt budget.
+        $this->postJson(route('rental-applications.public.autosave', $applicationA->token), ['full_name' => 'A'])
+            ->assertJson(['saved' => true]);
+        $this->postJson(route('rental-applications.public.autosave', $applicationA->token), ['full_name' => 'A again'])
+            ->assertJson(['saved' => false, 'rate_limited' => true]);
+
+        // B, a completely different application/token, is unaffected.
+        $this->postJson(route('rental-applications.public.autosave', $applicationB->token), ['full_name' => 'B'])
+            ->assertJson(['saved' => true]);
+        $applicationB->refresh();
+        $this->assertSame('B', $applicationB->full_name);
+    }
 }

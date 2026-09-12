@@ -69,6 +69,8 @@ class RentalApplicationSettingsController extends Controller
         // waits after the applicant stops typing before saving in the
         // background.
         $autosaveDebounceSeconds = RentalApplicationQualifyingSetting::autosaveDebounceSecondsFor($agencyId);
+        $autosaveRateLimitMax = RentalApplicationQualifyingSetting::autosaveRateLimitMaxFor($agencyId);
+        $autosaveRateLimitWindowMinutes = RentalApplicationQualifyingSetting::autosaveRateLimitWindowMinutesFor($agencyId);
 
         // AT-392 approval-leg — Johan's standing rule: "any threshold, window
         // or business rule must be an agency-configurable setting with a
@@ -147,7 +149,7 @@ class RentalApplicationSettingsController extends Controller
             ->get();
 
         return view('corex.settings.rental-applications', compact(
-            'documentTypes', 'checklists', 'isConfigured', 'qualifyingMaxRentPercent', 'qualifyingExceedsLegalCeiling', 'agencyUsers', 'roUserIds', 'coUserIds', 'declineEmail', 'reopenLinkExpiryDays', 'propertyLockEnabled', 'tenantTaggingEnabled', 'autosaveDebounceSeconds', 'maxPropertiesInEmail', 'activeHighlighters', 'archivedHighlighters', 'highlighterQuery', 'highlighterArchivedSort', 'validityDefaults', 'validityOverrides'
+            'documentTypes', 'checklists', 'isConfigured', 'qualifyingMaxRentPercent', 'qualifyingExceedsLegalCeiling', 'agencyUsers', 'roUserIds', 'coUserIds', 'declineEmail', 'reopenLinkExpiryDays', 'propertyLockEnabled', 'tenantTaggingEnabled', 'autosaveDebounceSeconds', 'autosaveRateLimitMax', 'autosaveRateLimitWindowMinutes', 'maxPropertiesInEmail', 'activeHighlighters', 'archivedHighlighters', 'highlighterQuery', 'highlighterArchivedSort', 'validityDefaults', 'validityOverrides'
         ));
     }
 
@@ -360,6 +362,35 @@ class RentalApplicationSettingsController extends Controller
 
         return redirect()->route('corex.settings.rental-applications.edit')
             ->with('success', 'Autosave delay saved.');
+    }
+
+    /**
+     * Autosave volume cap, 2026-09-12 — separate route/method, same
+     * reasoning as updateReopenLinkExpiry()/updateAutosaveDebounce() above.
+     * min:100 server-enforced so this can never be configured tighter than
+     * a real applicant's worst-case legitimate rate could plausibly need —
+     * see RentalApplicationQualifyingSetting::DEFAULT_AUTOSAVE_RATE_LIMIT_MAX's
+     * own docblock for the 1,800/hour theoretical ceiling this guards.
+     */
+    public function updateAutosaveRateLimit(Request $request)
+    {
+        $agencyId = $request->user()->effectiveAgencyId();
+
+        $validated = $request->validate([
+            'autosave_rate_limit_max' => ['required', 'integer', 'min:100', 'max:100000'],
+            'autosave_rate_limit_window_minutes' => ['required', 'integer', 'min:5', 'max:1440'],
+        ]);
+
+        RentalApplicationQualifyingSetting::updateOrCreate(
+            ['agency_id' => $agencyId],
+            [
+                'autosave_rate_limit_max' => $validated['autosave_rate_limit_max'],
+                'autosave_rate_limit_window_minutes' => $validated['autosave_rate_limit_window_minutes'],
+            ],
+        );
+
+        return redirect()->route('corex.settings.rental-applications.edit')
+            ->with('success', 'Autosave volume cap saved.');
     }
 
     /**

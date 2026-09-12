@@ -210,6 +210,40 @@
         </form>
     </div>
 
+    {{-- Autosave volume cap, 2026-09-12 — a security/abuse-prevention limit
+         on the public autosave endpoint (it accepts writes with no login),
+         not a preference an agency would normally need to touch. Default is
+         set generously above any real applicant's worst-case typing rate —
+         raising or lowering it is rarely needed, but it must never be
+         hardcoded per Johan's standing rule. --}}
+    <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+        <h2 class="text-sm font-semibold mb-1" style="color: var(--text-primary);">Applicant Autosave Volume Cap</h2>
+        <p class="text-xs mb-3" style="color: var(--text-muted);">
+            A safety limit on the public application form's background saving — caps how many
+            autosave writes one application can receive in a rolling window, regardless of how
+            many different devices or connections are used. The default is set far above anything
+            a real applicant would ever produce; this exists to stop abuse of the public link, not
+            to limit genuine use.
+        </p>
+
+        <form method="POST" action="{{ route('corex.settings.rental-applications.autosave-rate-limit') }}" class="flex items-end gap-3">
+            @csrf
+            <div>
+                <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Maximum autosaves</label>
+                <input type="number" name="autosave_rate_limit_max" step="1" min="100" max="100000"
+                       value="{{ old('autosave_rate_limit_max', $autosaveRateLimitMax) }}"
+                       class="corex-input text-sm" style="width: 120px;">
+            </div>
+            <div>
+                <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Per this many minutes</label>
+                <input type="number" name="autosave_rate_limit_window_minutes" step="1" min="5" max="1440"
+                       value="{{ old('autosave_rate_limit_window_minutes', $autosaveRateLimitWindowMinutes) }}"
+                       class="corex-input text-sm" style="width: 100px;">
+            </div>
+            <button type="submit" class="corex-btn-primary text-xs">Save</button>
+        </form>
+    </div>
+
     {{-- Item 2 follow-up, 2026-09-10 — Johan: "any threshold, window or
          business rule an agency-configurable setting with a sensible
          default, never hardcoded." Reproduced on a real, fully-approved

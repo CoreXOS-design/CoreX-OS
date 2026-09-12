@@ -79,10 +79,31 @@ class RentalApplicationQualifyingSetting extends Model
      */
     public const DEFAULT_AUTOSAVE_DEBOUNCE_SECONDS = 5;
 
+    /**
+     * Volume cap, 2026-09-12 — Johan: "any threshold, window or business
+     * rule an agency-configurable setting with a sensible default. Getting
+     * this wrong in the tight direction is worse than not having it: an
+     * applicant locked out of their own half-finished application mid-
+     * typing... is a far more damaging failure than a script writing too
+     * many rows." Sized against the WORST-CASE legitimate rate, not the
+     * typical one: the settings screen's own server-enforced floor on
+     * autosave_debounce_seconds is 2 seconds, so a real applicant typing
+     * continuously with zero pauses at that tightest-allowed setting
+     * produces at most 3600/2 = 1,800 saves in an hour. The 3,000 default
+     * here leaves ~67% headroom above that theoretical ceiling — no real
+     * person, at any agency's configured debounce, will ever hit it. A
+     * script sending thousands of writes an hour to one application, from
+     * however many IPs, still will.
+     */
+    public const DEFAULT_AUTOSAVE_RATE_LIMIT_MAX = 3000;
+
+    /** Rolling window the cap above applies over. */
+    public const DEFAULT_AUTOSAVE_RATE_LIMIT_WINDOW_MINUTES = 60;
+
     protected $fillable = [
         'agency_id', 'max_rent_percent_of_gross_income', 'reopen_link_expiry_days',
         'lock_property_after_submission', 'tag_contact_as_tenant_on_approval',
-        'autosave_debounce_seconds',
+        'autosave_debounce_seconds', 'autosave_rate_limit_max', 'autosave_rate_limit_window_minutes',
     ];
 
     protected $casts = [
@@ -91,6 +112,8 @@ class RentalApplicationQualifyingSetting extends Model
         'lock_property_after_submission' => 'boolean',
         'tag_contact_as_tenant_on_approval' => 'boolean',
         'autosave_debounce_seconds' => 'integer',
+        'autosave_rate_limit_max' => 'integer',
+        'autosave_rate_limit_window_minutes' => 'integer',
     ];
 
     public static function maxRentPercentFor(?int $agencyId): float
@@ -167,5 +190,31 @@ class RentalApplicationQualifyingSetting extends Model
         return $row && $row->autosave_debounce_seconds !== null
             ? (int) $row->autosave_debounce_seconds
             : self::DEFAULT_AUTOSAVE_DEBOUNCE_SECONDS;
+    }
+
+    public static function autosaveRateLimitMaxFor(?int $agencyId): int
+    {
+        if ($agencyId === null || $agencyId <= 0) {
+            return self::DEFAULT_AUTOSAVE_RATE_LIMIT_MAX;
+        }
+
+        $row = static::where('agency_id', $agencyId)->first();
+
+        return $row && $row->autosave_rate_limit_max !== null
+            ? (int) $row->autosave_rate_limit_max
+            : self::DEFAULT_AUTOSAVE_RATE_LIMIT_MAX;
+    }
+
+    public static function autosaveRateLimitWindowMinutesFor(?int $agencyId): int
+    {
+        if ($agencyId === null || $agencyId <= 0) {
+            return self::DEFAULT_AUTOSAVE_RATE_LIMIT_WINDOW_MINUTES;
+        }
+
+        $row = static::where('agency_id', $agencyId)->first();
+
+        return $row && $row->autosave_rate_limit_window_minutes !== null
+            ? (int) $row->autosave_rate_limit_window_minutes
+            : self::DEFAULT_AUTOSAVE_RATE_LIMIT_WINDOW_MINUTES;
     }
 }

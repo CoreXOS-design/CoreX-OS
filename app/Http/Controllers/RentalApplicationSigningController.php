@@ -111,6 +111,41 @@ class RentalApplicationSigningController extends Controller
             return response()->json(['saved' => false]);
         }
 
+        // Volume cap, per APPLICATION (not per IP) — 2026-09-12, Johan's own
+        // audit question: the route's `throttle:40,1` middleware is per-IP,
+        // which stops a naive single-source script but does nothing against
+        // a caller that rotates IPs or simply waits out each 1-minute
+        // window forever — with no second layer that's up to 40 x 1440 =
+        // 57,600 writes/day to ONE row. This is that second, independent
+        // layer, keyed on the APPLICATION ID — which is resolved from the
+        // TOKEN in the URL path (findByToken() above), never from anything
+        // the caller supplies in the request body, so this key is not
+        // attacker-controlled: reaching a different bucket requires a
+        // different valid token, not a different request parameter.
+        //
+        // Agency-configurable, never hardcoded (Johan's standing rule,
+        // restated explicitly after this exact addition): both the cap and
+        // its rolling window come from RentalApplicationQualifyingSetting.
+        // Sized generous-by-default against the WORST-CASE legitimate rate
+        // (see that class's own docblock) — getting this too tight is worse
+        // than not having it at all: an applicant silently locked out
+        // mid-typing, unaware their work has stopped saving, is a bigger
+        // failure than a script over-writing its own one row.
+        $rateLimitMax = \App\Models\RentalApplicationQualifyingSetting::autosaveRateLimitMaxFor($application->agency_id);
+        $rateLimitWindowSeconds = \App\Models\RentalApplicationQualifyingSetting::autosaveRateLimitWindowMinutesFor($application->agency_id) * 60;
+        $rateLimitKey = 'rental-application-autosave:' . $application->id;
+        if (\Illuminate\Support\Facades\RateLimiter::tooManyAttempts($rateLimitKey, $rateLimitMax)) {
+            // The applicant must be TOLD their work has stopped saving, not
+            // left to keep typing into a form that silently no longer
+            // persists anything — this is the one autosave failure mode
+            // that is NOT safe to degrade silently, because unlike a
+            // network blip it will not self-resolve on the next debounce.
+            // The already-saved draft (everything up to this point) is
+            // completely untouched — this returns before fill()/save() run.
+            return response()->json(['saved' => false, 'rate_limited' => true]);
+        }
+        \Illuminate\Support\Facades\RateLimiter::hit($rateLimitKey, $rateLimitWindowSeconds);
+
         $rules = RentalApplication::fieldValidationRules();
         $input = $request->only(array_keys($rules));
         $input = array_merge($input, RentalApplication::sanitizeNumericInput($request->only(RentalApplication::NUMERIC_FIELDS)));
