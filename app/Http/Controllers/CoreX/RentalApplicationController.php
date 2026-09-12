@@ -816,8 +816,19 @@ class RentalApplicationController extends Controller
 
         $validated = $request->validate([
             'status' => ['required', Rule::in(RentalApplication::AGENT_SETTABLE_STATUSES)],
-            'note' => ['nullable', 'string', 'max:1000'],
+            // 2026-09-12 — Johan (approved): "withdrawn" is not the applicant
+            // acting for themselves (there is no applicant self-service
+            // withdraw anywhere in this module) — it is an agent RECORDING
+            // that the applicant told them so. A judgement call typed with
+            // no reason at all is exactly the silent-dropdown shape this
+            // same walkthrough already flagged as a problem for the reverse
+            // direction (Finding 2). under_assessment stays an optional-note
+            // routine judgement call; withdrawn specifically now requires
+            // one, same as reopen() already requires for its own decision.
+            'note' => ['nullable', 'string', 'max:1000', 'required_if:status,withdrawn'],
             'expected_generation' => ['nullable', 'integer', 'min:1'],
+        ], [
+            'note.required_if' => 'What did the applicant tell you? A note is required to record a withdrawal.',
         ]);
 
         if (! in_array($rentalApplication->status, RentalApplication::POST_RETURN_STATUSES, true)) {
@@ -841,6 +852,28 @@ class RentalApplicationController extends Controller
             return back()->with('success', 'Status unchanged.');
         }
 
+        // 2026-09-12 REGRESSION FIX — a second end-to-end walkthrough found
+        // this endpoint had NO guard against leaving 'withdrawn': the
+        // validation above only checks the TARGET status is agent-settable
+        // and the block above only checks the CURRENT status has been
+        // submitted at all — neither says anything about which FROM/TO
+        // pairs are actually meant to be reachable. That let a plain agent
+        // silently flip a withdrawn application back to under_assessment
+        // with one dropdown click, no confirmation, no required note —
+        // directly contradicting this module's own documented policy that
+        // withdrawn is a final, considered decision. The one legitimate way
+        // out of withdrawn is now RentalApplicationReviewController::
+        // reopen() — override-tier only, a REQUIRED note, and a full audit
+        // trail entry (see RentalApplication::REOPENABLE_STATUSES's own
+        // docblock) — never this generic, low-friction endpoint. A UI that
+        // merely hid the option while this endpoint still accepted it would
+        // be the same class of gap as the stale review-URL door closed
+        // earlier this week, so this is refused here too, not just hidden
+        // from the dropdown (see index/show/view-readonly.blade.php).
+        if ($from === 'withdrawn') {
+            return back()->withInput()->with('error', "A withdrawn application can't be changed from this screen — use Reopen (on the row, or on the application's own page) to bring it back into assessment. That requires a note and is recorded in the audit trail.");
+        }
+
         DB::transaction(function () use ($rentalApplication, $from, $to, $validated) {
             $rentalApplication->update(['status' => $to]);
 
@@ -853,7 +886,9 @@ class RentalApplicationController extends Controller
             );
         });
 
-        return back()->with('success', 'Status updated to ' . str_replace('_', ' ', $to) . '.');
+        return back()->with('success', $to === 'withdrawn'
+            ? RentalApplication::WITHDRAWN_LABEL . '.'
+            : 'Status updated to ' . str_replace('_', ' ', $to) . '.');
     }
 
     /**

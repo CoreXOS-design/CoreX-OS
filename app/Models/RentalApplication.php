@@ -48,13 +48,32 @@ class RentalApplication extends Model
      * rental-application override tier (User::isRentalApplicationOverrideTier()
      * — a configured CO, or admin/super_admin), enforced in reopen()
      * itself, never by hiding the button alone. Deliberately still
-     * excludes approved/withdrawn: approved is the other side of the
-     * same "an authoriser already decided" line and reopening it isn't
-     * part of this ask; withdrawn is the applicant's own choice to walk
-     * away, not something the agency reopens on their behalf.
+     * excludes approved: approved is the other side of the same "an
+     * authoriser already decided" line and reopening it isn't part of
+     * this ask.
+     *
+     * 2026-09-12 — CORRECTION, WITHDRAWN ADDED. This constant used to
+     * exclude withdrawn outright, on the stated reasoning that "withdrawn
+     * is the applicant's own choice to walk away, not something the
+     * agency reopens on their behalf." A second end-to-end walkthrough
+     * found that reasoning doesn't hold in practice: there is no
+     * applicant self-service withdraw anywhere in this module (see
+     * `.ai/specs/rental-applications.md`'s "REGRESSION FIX (2026-09-12)"
+     * entry) — every withdrawn record today is really "an agent recorded
+     * that the applicant told them so." That means a wrong or reconsidered
+     * withdrawal is a real, ordinary scenario, not a hypothetical one, and
+     * the agency needs a legitimate way to correct it — but it must be an
+     * explicit, audited action, never the silent status-dropdown hole this
+     * same walkthrough also found (`RentalApplicationController::
+     * updateStatus()` had no guard at all against leaving 'withdrawn').
+     * withdrawn now reopens through the EXACT SAME override-tier-gated,
+     * required-note, audited path as declined — see reopen()'s
+     * `$isOverrideReopen` check. The generic status endpoint separately
+     * refuses ALL transitions out of 'withdrawn', so this reopen() door is
+     * now the ONLY way out.
      */
     public const REOPENABLE_STATUSES = [
-        'returned', 'under_assessment', 'declined',
+        'returned', 'under_assessment', 'declined', 'withdrawn',
     ];
 
     /**
@@ -79,6 +98,27 @@ class RentalApplication extends Model
     public const AGENT_SETTABLE_STATUSES = [
         'under_assessment', 'withdrawn',
     ];
+
+    /**
+     * 2026-09-12 — Johan (approved): "withdrawn" reads, everywhere it's
+     * shown, as if the applicant acted for themselves. They didn't — there
+     * is no applicant self-service withdraw anywhere in this module (that's
+     * a real feature for later, deliberately not built this weekend). Every
+     * withdrawn record today is an agent recording something the applicant
+     * told them (a call, an email). The wording now says that plainly
+     * instead of implying otherwise. Recording one requires a note (see
+     * RentalApplicationController::updateStatus()'s validation) and is
+     * captured in the audit trail exactly like every other status change —
+     * see RentalApplicationStatusHistory::record()'s own who/when/note
+     * columns, which already covered this before the wording did.
+     */
+    public const WITHDRAWN_LABEL = 'Recorded as withdrawn by applicant';
+
+    /** The one place a status's plain-language display label diverges from a simple str_replace('_', ' ', $status). */
+    public static function displayStatusLabel(string $status): string
+    {
+        return $status === 'withdrawn' ? self::WITHDRAWN_LABEL : str_replace('_', ' ', ucfirst($status));
+    }
 
     /** Statuses at/after which a hand-set judgement call makes sense. */
     public const POST_RETURN_STATUSES = [
