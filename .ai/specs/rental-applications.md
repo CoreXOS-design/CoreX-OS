@@ -10750,3 +10750,125 @@ Not stating a limit because none was hit, not because it wasn't looked for.
 - `resources/views/corex/rental-applications/partials/document-highlighter-script.blade.php`
   — the `rental-jump-to-mark` listener / `waitUntilPagesReady()` /
   `scrollToAndFlashMark()` — the mid-load race (finding 1).
+
+---
+
+### Applicant journey walk, and the three fixes it produced (AT-392, 2026-09-12, cc6)
+
+Johan: "walk the whole thing... you are a prospective tenant... no idea what CoreX is." Full walk
+(email → fill → leave-and-return → uploads → sign → submit → reopen-and-fix), at phone width, as a
+real messy-life applicant (job started this year, a previous address, a spouse as co-applicant, two
+dependants). Findings ranked; the single most valuable one — and three items built from the walk —
+below. Full ranked write-up delivered separately; this entry covers what was BUILT.
+
+#### 1. The last few seconds of typing were lost, silently — closed
+
+**The bug, isolated cleanly:** typed a complete sentence, closed the tab 1.5s later (no tap
+elsewhere first) — nothing saved at all, not even a partial value (`draft_saved_at` stayed NULL).
+Waited 6s (past the debounce) instead — saved correctly. This is the exact pattern a phone
+applicant produces constantly: a notification, a call, the screen locking, closing the tab meaning
+to finish "in a minute" — precisely the failure this whole feature exists to close. (This also
+resolved a separate, earlier-reported scare: a "We have a sm[...]" truncated free-text field first
+seen during the walk was this same window, not data corruption in storage — the field was never
+actually corrupted, just never finished saving before the browser was killed.)
+
+**Fix:** `navigator.sendBeacon()` fired on `visibilitychange` (`document.visibilityState ===
+'hidden'`) and `pagehide` — deliberately NOT `beforeunload`/`unload`, which mobile Safari and
+Chrome routinely never fire for a backgrounded tab the OS kills outright. `sendBeacon()` is the one
+API that survives the page tearing down; a normal `fetch()` is cancelled mid-flight the instant the
+page goes away. Hits the EXACT SAME `/rental-application/{token}/autosave` endpoint as the
+debounced save — every guard (terminal-status refusal, expiry, the per-application rate limit,
+field validation) applies identically; there is no separate, weaker beacon-only code path. CSRF
+travels in the request BODY (`_token`) rather than the `X-CSRF-TOKEN` header the normal fetch uses,
+since `sendBeacon()` cannot set custom headers at all. A `dirty` flag (set on any field
+change, cleared on any successful save of either kind) means the beacon only fires when there is
+genuinely something unsaved. The "Saved"/"Saving…" indicator is now PERSISTENT — ticks "Saved Xs
+ago" every second from the last known save, rather than fading after a few seconds — so a person
+about to close the tab can actually look up and tell whether they're safe.
+
+**Verified live, in a browser, on QA1, exactly the way the bug was found — not reasoned about:**
+- Typed a complete sentence, closed the browser 900ms later, no tap elsewhere first — reloading
+  fresh showed the COMPLETE sentence and name, both landed within the same second the browser
+  closed (`draft_saved_at` timestamped to that second).
+- A genuinely backgrounded (not closed) tab: opened a SECOND tab in the same browser and brought it
+  to front — the original tab's `visibilityState` became `hidden` and a real `visibilitychange`
+  fired — then killed the whole browser without ever returning focus to the original tab. The typed
+  content still landed, proving the save fires the moment the tab is backgrounded, before whatever
+  kills it later ever runs.
+- **Guards proven on the beacon's own request shape**, not assumed from "same endpoint": a raw
+  `application/x-www-form-urlencoded` POST (CSRF in the body, no custom headers — the literal shape
+  a real `sendBeacon()` call produces) fired at a SUBMITTED application returned `saved:false` and
+  left the row untouched; the same shape fired at a DIFFERENT, still-open application's own token
+  saved correctly and left the submitted one's data alone — per-token isolation and the terminal-
+  status guard both hold identically for this new path.
+
+#### 2. Upload error messages now talk to a person, not a stack trace
+
+`"The supporting_files.0 field must be a file of type: pdf, jpg, jpeg, png, doc, docx."` and
+`"...must not be greater than 15360 kilobytes."` were Laravel's own default validation messages —
+an internal array-indexed field name and a unit nobody thinks in, shown directly to a non-technical
+member of the public filling in a form alone, with no one to ask. Both messages are now:
+- Wrong type: *"We can only accept PDF, Word documents, or photos (JPG or PNG). Please try a
+  different file, or save this one in one of those formats."*
+- Too large: *"That file is too big — we can accept files up to 15MB. Try a smaller photo, or save
+  it as a PDF."*
+
+One constant (`RentalApplicationSigningController::MAX_UPLOAD_SIZE_KB`) now drives BOTH the
+validation rule and the message's MB figure — they can never drift apart the way a separately-typed
+"15MB" string could have. Swept the whole controller for the same shape: `uploadDocuments()` and
+`replaceDocument()` were the only two file-upload validations on the applicant-facing side, both
+fixed identically via a shared `humanUploadValidationMessages()` method so neither can drift from
+the other either.
+
+#### 3. A minimal progress indicator
+
+Seven sections on one long phone scroll with no sense of how much is left is an abandonment
+pattern. Exactly "a thin line and a count", nothing more, per instruction: a 4px bar fixed at the
+top of the viewport reflecting actual scroll position (honest — it's exactly how far down the page
+they've scrolled, not a guess at "completion", since almost every field is optional), plus a small
+"Section X of 7 — Name" label tracking whichever named `<section data-progress-section="...">` is
+currently nearest the top. A throttled `scroll` listener (via `requestAnimationFrame`) computes
+both numbers together; no `IntersectionObserver` needed for something this simple. Verified live:
+the label correctly read "Section 4 of 7 — Employment" mid-scroll, updating as expected, with zero
+console errors.
+
+#### Proposed, NOT built — copy needs Johan's sign-off, not a lane's invented wording
+
+Per explicit instruction, the words for two other walk findings were drafted and handed to the
+conductor rather than written into the templates:
+- **On-page orientation** before the first question (currently: none at all — the applicant lands
+  directly on "Full name and surname" with zero context beyond what the invite email said, which is
+  easily lost).
+- **Confirmation-screen contact details** — currently "Please contact your agent if you need to
+  change anything" with no agent name, phone, or email actually ON that screen, and no description
+  of what happens next. Drafted copy deliberately makes no promise about a response timeframe —
+  that commitment is Johan's to make, not this pass's to invent.
+
+#### Reported into the spec, NOT changed — a live-data decision, not a lane's call
+
+- **`marital_status` is a freeform text input**, while the form's other categorical fields
+  (`employment_type`, `current_living_situation`) are dropdowns — an inconsistency, and it produces
+  messy data for the agent later ("Married"/"married"/"Single" all typed differently), but changing
+  a live applicant-facing field's TYPE needs its own decision about what happens to values already
+  typed in the free-text form, not folded into this pass.
+- **`employer_tel`/`employer_address` don't visually read as optional** the way some other fields on
+  this form do (no "(optional)" label, no helper hint) — both are genuinely nullable server-side,
+  but an applicant new to a job this year may feel obligated to look up information they don't have
+  memorised. Not changed here; noted for whoever next touches this section's copy.
+
+**Verified:** `scripts/verify-alpine-render.mjs` (cc1's Alpine render gate, fixed the same day this
+pass's walk found the `SCRIPT EVAL ERROR` it was hitting) and `rental-smoke.mjs` both pass clean
+against the updated form, zero console errors. New tests: `RentalApplicationAutosaveTest` extended
+(+3: a form-encoded/beacon-shaped request saves normally, is refused on a submitted application,
+and only affects its own application — proven against the actual request shape a real beacon
+produces). New `RentalApplicationUploadMessageTest` (4 tests): both failure messages are human on
+both endpoints, the size message states the exact limit the constant enforces, a genuinely valid
+file still uploads normally. 19/19 passing.
+
+**Files changed:** `app/Http/Controllers/RentalApplicationSigningController.php`
+(`MAX_UPLOAD_SIZE_KB`/`UPLOAD_MIMES` constants, `humanUploadValidationMessages()`, both `validate()`
+calls), `resources/views/rental-applications/public/show.blade.php` (`dirty`/`lastSavedAt`
+tracking, `beaconSaveIfDirty()`, persistent saved indicator, `data-progress-section` tags,
+`initProgress()`/`scrollProgressPercent`/`currentSectionLabel`),
+`tests/Feature/RentalApplications/RentalApplicationAutosaveTest.php` (+3 tests),
+`tests/Feature/RentalApplications/RentalApplicationUploadMessageTest.php` (new, 4 tests).
