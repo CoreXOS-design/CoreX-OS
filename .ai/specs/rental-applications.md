@@ -7914,6 +7914,18 @@ new backend surface, so this in no way changes how a rental-application-sourced 
 authorised, filed, or FICA-triggered; only how fast an agent can get through typing 20 pages
 before any of that happens.
 
+**CORRECTION (2026-09-12):** the "proven live" claim two paragraphs above — pages 16-20 set
+by hand surviving a same-session bulk-apply — was true of `applyToSelected()` (the multi-select
+apply action) but a THIRD bulk action on this same screen, "Set ALL pages," did **not** have
+this protection and was independently found (by a different lane's walk, not this one)
+silently overwriting hand-set pages, in both directions Johan explicitly warned about
+("*User changes pg 16-20. then for some stupid reason goes and changes pg1 and the whole thing
+changes again*"). Fixed same day. Full bug, reproduction, fix, and re-proof (including this
+correction landing in the source spec) in `.ai/specs/pdf-splitter-routing.md`, "SET ALL PAGES —
+BULK-APPLY DID NOT RESPECT `labelTouched`." Recorded here rather than silently edited, since a
+false "proven" line is worse than no line — the next lane reading only this file should not
+walk away still believing Set ALL was already safe.
+
 ## Design-standard audit fixes — RO/CO cross-agency escalation, and the first-invite-link expiry hardcode (2026-09-11, cc1)
 
 Two fixes actioned from Johan's own worst-to-least-severe design-standard audit of this

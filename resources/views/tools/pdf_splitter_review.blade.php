@@ -388,8 +388,10 @@
                 <option value="{{ $key }}">{{ $label }}</option>
             @endforeach
         </select>
-        <button type="button" class="tb-btn" @click="setAll(bulkType)">Set ALL pages →</button>
-        <button type="button" class="tb-btn" @click="resetAuto()">Reset to auto-detected</button>
+        <button type="button" class="tb-btn" @click="setAll(bulkType)"
+                title="Sets every page you haven't already set by hand — a page you've already chosen a type for is left exactly as you left it.">Set ALL pages →</button>
+        <button type="button" class="tb-btn" @click="resetAuto()"
+                title="Clears every hand-set choice back to the auto-detected guess — do this first if you want Set ALL to touch pages you've already set.">Reset to auto-detected</button>
         <span class="tb-label" style="margin-left:auto;" x-show="property">
             Tip: the first page of each type pre-ticks its role contacts; later pages in the SAME file inherit your last choice.
         </span>
@@ -799,8 +801,20 @@ document.addEventListener('alpine:init', () => {
             pg.labelTouched = true;   // the agent set this page directly — a valid source to copy FROM now
             pg.contactIds = pg.contactIds.filter(id => this.allCandidateIds(pg.label).includes(id));
         },
+        // BUG (found live by cc4, 2026-09-12) — this used to set EVERY page
+        // unconditionally, silently overwriting pages the agent had already
+        // hand-set. That is exactly the failure Johan named as the hard
+        // constraint when he asked for multi-select: "User changes pg 16-20.
+        // then for some stupid reason goes and changes pg1 and the whole
+        // thing changes again." "Set ALL pages" is a BULK-APPLY action like
+        // same-as-*/Apply-to-selected, so it gets the SAME labelTouched
+        // protection those already had — it was the one bulk path that had
+        // been left unprotected. Now sets every page NOT already touched,
+        // and only those — a hand-set page is never in this action's target
+        // set, exactly the same guarantee applyToSelected() already gives
+        // for its own ticked set.
         setAll(slug) {
-            this.allPages().forEach(p => { p.label = slug; p.labelTouched = true; p.contactIds = p.contactIds.filter(id => this.allCandidateIds(slug).includes(id)); });
+            this.allPages().filter(p => !p.labelTouched).forEach(p => { p.label = slug; p.labelTouched = true; p.contactIds = p.contactIds.filter(id => this.allCandidateIds(slug).includes(id)); });
         },
         resetAuto() {
             const seedFiles = @json($fileSeed);
