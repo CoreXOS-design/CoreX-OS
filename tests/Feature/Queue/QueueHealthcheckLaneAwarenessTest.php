@@ -63,7 +63,7 @@ final class QueueHealthcheckLaneAwarenessTest extends TestCase
         ]);
     }
 
-    private function run(): int
+    private function runHealthcheck(): int
     {
         return Artisan::call('corex:queue-healthcheck');
     }
@@ -74,14 +74,14 @@ final class QueueHealthcheckLaneAwarenessTest extends TestCase
 
         $this->waitingJob('default', 700); // > the 600s default threshold
 
-        $this->assertSame(1, $this->run(), 'the important lane must alarm on age, as it always has');
+        $this->assertSame(1, $this->runHealthcheck(), 'the important lane must alarm on age, as it always has');
     }
 
     public function test_a_latency_lane_under_its_threshold_stays_quiet(): void
     {
         $this->waitingJob('default', 120);
 
-        $this->assertSame(0, $this->run());
+        $this->assertSame(0, $this->runHealthcheck());
     }
 
     public function test_the_real_2215_false_alarm_no_longer_fires(): void
@@ -96,7 +96,7 @@ final class QueueHealthcheckLaneAwarenessTest extends TestCase
             $this->waitingJob('transcription', 713 - $i);
         }
 
-        $this->assertSame(0, $this->run(), 'a batch lane draining normally is not a fault');
+        $this->assertSame(0, $this->runHealthcheck(), 'a batch lane draining normally is not a fault');
     }
 
     public function test_a_batch_lane_past_its_own_threshold_stays_quiet_while_it_keeps_moving(): void
@@ -110,7 +110,7 @@ final class QueueHealthcheckLaneAwarenessTest extends TestCase
         for ($i = 0; $i < 23; $i++) {
             $this->waitingJob('transcription', 1200 - $i);
         }
-        $this->assertSame(0, $this->run(), 'first sighting records the head');
+        $this->assertSame(0, $this->runHealthcheck(), 'first sighting records the head');
 
         // Notes completed: the head of the lane has advanced.
         DB::table('jobs')->where('queue', 'transcription')->delete();
@@ -118,7 +118,7 @@ final class QueueHealthcheckLaneAwarenessTest extends TestCase
             $this->waitingJob('transcription', 1200 - $i);
         }
 
-        $this->assertSame(0, $this->run(), 'past its threshold but still moving — not a fault');
+        $this->assertSame(0, $this->runHealthcheck(), 'past its threshold but still moving — not a fault');
     }
 
     public function test_a_batch_lane_alarms_once_its_head_stops_moving(): void
@@ -129,12 +129,12 @@ final class QueueHealthcheckLaneAwarenessTest extends TestCase
         Carbon::setTestNow($start);
 
         $this->waitingJob('transcription', 1000); // past max_age, head recorded on this run
-        $this->assertSame(0, $this->run(), 'first sighting of this head — cannot know yet whether it is stuck');
+        $this->assertSame(0, $this->runHealthcheck(), 'first sighting of this head — cannot know yet whether it is stuck');
 
         // Same head, still unreserved, well past the 1500s stall window.
         Carbon::setTestNow($start->copy()->addSeconds(1600));
 
-        $this->assertSame(1, $this->run(), 'a batch lane whose head has not advanced IS wedged');
+        $this->assertSame(1, $this->runHealthcheck(), 'a batch lane whose head has not advanced IS wedged');
 
         Carbon::setTestNow();
     }
@@ -156,7 +156,7 @@ final class QueueHealthcheckLaneAwarenessTest extends TestCase
                 $this->waitingJob('transcription', 1000 - $i); // head is fresh each tick
             }
 
-            $this->assertSame(0, $this->run(), "tick {$tick}: a moving batch lane must stay quiet");
+            $this->assertSame(0, $this->runHealthcheck(), "tick {$tick}: a moving batch lane must stay quiet");
         }
 
         Carbon::setTestNow();
@@ -175,7 +175,7 @@ final class QueueHealthcheckLaneAwarenessTest extends TestCase
         }
         $this->waitingJob('default', 700);
 
-        $this->assertSame(1, $this->run());
+        $this->assertSame(1, $this->runHealthcheck());
 
         Mail::assertSent(QueueBacklogAlertMail::class, fn ($mail) => $mail->lane === 'default');
         Mail::assertNotSent(QueueBacklogAlertMail::class, fn ($mail) => $mail->lane === 'transcription');
@@ -187,7 +187,7 @@ final class QueueHealthcheckLaneAwarenessTest extends TestCase
         Mail::fake();
 
         $this->waitingJob('default', 700);
-        $this->run();
+        $this->runHealthcheck();
 
         Mail::assertSent(QueueBacklogAlertMail::class, function ($mail) {
             return $mail->lane === 'default'
@@ -202,13 +202,13 @@ final class QueueHealthcheckLaneAwarenessTest extends TestCase
         Mail::fake();
 
         $this->waitingJob('default', 700);
-        $this->run();
+        $this->runHealthcheck();
         Mail::assertSentCount(1);
 
         // A second lane going down inside the first lane's 15-minute throttle window
         // must still page immediately — the old single global key swallowed this.
         $this->waitingJob('matching', 700);
-        $this->run();
+        $this->runHealthcheck();
 
         Mail::assertSentCount(2);
         Mail::assertSent(QueueBacklogAlertMail::class, fn ($mail) => $mail->lane === 'matching');
