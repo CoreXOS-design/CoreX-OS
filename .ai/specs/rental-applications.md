@@ -8126,3 +8126,57 @@ and the live-database Tinker + browser verification above.
   in the sticky action bar
 - No PHP files changed — `RentalApplicationReviewController::reopen()` was already correct
   and is reused as-is
+
+## REQUIRED PRE-PUSH CHECK — Alpine render gate (2026-09-12, cc3)
+
+Three separate incidents shipped to QA1 with an Alpine identifier referenced but not in
+scope, each one found only because Johan or the conductor opened the page themselves and
+watched it fail:
+
+1. `initialResult` — a factory function (`rentalReview()`) referenced a constructor param
+   the x-data call site never passed. Alpine's construction threw, so the WHOLE component
+   never initialised — every binding on the page read as undefined, not one bad reference.
+2. `sidebarOpen` / `markupModeActive` / `markupSidebarPinned` — an inline
+   `x-data="{ ... }"` object literal (the hover-fold sidebar, `layouts/corex.blade.php`)
+   contained a JS comment with a literal `"` character. HTML has no concept of "inside a
+   comment" — it just saw the attribute's own closing quote arrive early, so the rest of
+   the tag (the rest of x-data, x-init, the event handler, class, style) escaped the tag
+   entirely and rendered as raw visible page text, above the header. Every binding
+   depending on that x-data read as undefined too — a second component-never-registered
+   failure, different root cause than #1.
+
+Neither would have been caught by "the Blade compiles" or "PHPUnit is green" — both were
+true in both incidents. **Before any push touching a Blade file with Alpine in it on this
+screen, run:**
+
+```
+php scripts/fetch-authenticated-page.php \
+    --app-root=/corex-qa1 --user-id=<a real agent's id> \
+    --url=https://qatesting1.corexos.co.za/corex/rental-applications/<id>/review \
+    --out=/tmp/rendered.html --php-bin=php8.2
+
+node scripts/verify-alpine-render.mjs /tmp/rendered.html
+```
+
+`fetch-authenticated-page.php` fetches the route as a REAL authenticated user through the
+ACTUAL web server (nginx/php-fpm) — never an in-process `Kernel::handle()` call, which runs
+under a different PHP process/OPcache instance than what serves live traffic. That
+distinction is not academic: it is exactly what let an earlier "verified fixed" report stand
+while the live page was still broken. It builds a genuine Laravel session (through the app's
+own SessionManager/auth guard, never a hand-rolled DB row) and a correctly-encrypted session
+cookie — including Laravel's `CookieValuePrefix` mechanism, which a naive
+`Encrypter::encrypt()` call omits, causing `EncryptCookies` to silently drop the cookie
+server-side with no visible error.
+
+`verify-alpine-render.mjs` runs three checks: (1) leaked attribute text — a tag-boundary-
+aware scanner (quote-aware, treats `<script>`/`<style>` as raw text) searches the actual
+rendered body text for raw Alpine/JS fragments; part of the pass/fail signal, and what would
+have caught incident #2 directly. (2) inline `x-data` declared-keys vs referenced-identifiers
+diff, excluding nested x-data scopes; WARN-only — Alpine's real ancestor-scope walk is more
+than this heuristic can fully reconstruct on an arbitrary page without false positives, so
+treat its output as "worth a human glance," not a blocker. (3) real execution — every named
+factory and inline object constructed with its actual call-site arguments (parsed from the
+fetched page, never guessed), every zero-argument method called; this is what would have
+caught incident #1. **The gate passes (exit 0) only on checks 1 and 3 — check 2's warnings
+never block, and must not be silenced by deleting the check.**
+  and is reused as-is
