@@ -47,8 +47,35 @@ class ContactController extends Controller
         // Agent filter: default to the owner's own contacts on a fresh visit (the assigned agent
         // for an assistant). An explicit ?agent_id= (e.g. "All", or another agent) applies for that
         // browse only and is NOT persisted across visits.
+        //
+        // cc4 walk, findings A/B, 2026-09-13 — Rentals → Contacts ONLY (the
+        // main Contacts screen keeps this exact Mine-by-default behaviour;
+        // nobody asked for it to move and this action is shared between
+        // both entry points). Johan: an agency-scoped or branch-scoped user
+        // landing on "Mine" saw a hard empty state despite ~196 qualifying
+        // contacts existing at their real permitted breadth — a genuine
+        // first-thirty-seconds demo failure with paying agencies circling.
+        // On a FIRST load (no ?agent_id at all, no prior in-session choice)
+        // this now defaults to the WIDEST level this user's own
+        // contacts.view scope (Role Manager) actually permits — 'all' users
+        // land on Agency, 'branch' users land on Branch, everyone else
+        // (own-scope, $canPickAgent false) is unaffected, unchanged. A
+        // choice made explicitly earlier in THIS session always wins over
+        // the widest-default — this only governs the very first load, per
+        // instruction, never overrides a narrower pick the user already made.
         if ($request->has('agent_id')) {
             $filterAgentId = $request->query('agent_id', '');
+            if ($isRentalEntry) {
+                session(['corex.rentals_contacts.scope_pref' => $filterAgentId]);
+            }
+        } elseif ($canPickAgent && $isRentalEntry && session()->has('corex.rentals_contacts.scope_pref')) {
+            $filterAgentId = (string) session('corex.rentals_contacts.scope_pref');
+        } elseif ($canPickAgent && $isRentalEntry) {
+            $filterAgentId = match ($dataScope) {
+                'all' => '',
+                'branch' => 'branch',
+                default => (string) $ownerId,
+            };
         } elseif ($canPickAgent) {
             $filterAgentId = (string) $ownerId;
         } else {
@@ -76,7 +103,36 @@ class ContactController extends Controller
             $query->orderByRaw("CASE WHEN COALESCE(agent_id, created_by_user_id) IN ({$placeholders}) THEN 0 ELSE 1 END", $mineIds);
         }
 
-        $query->orderBy('last_name')->orderBy('first_name');
+        // cc4 walk, finding 8, 2026-09-13 — Johan's standing design standard:
+        // "every list screen has search, sort, filter, pagination... he
+        // should never have to ask for them after a feature is built."
+        // This screen's sort was hardcoded to last_name/first_name with no
+        // user override at all. Rentals → Contacts ONLY (the main Contacts
+        // screen keeps its exact existing name-order default, unchanged —
+        // nobody asked for that to move and this action is shared). Default:
+        // Name (last name, then first name — unchanged from before this
+        // control existed, so adding it never silently reorders anyone's
+        // existing view). Columns: Name, Date added, Last updated.
+        if ($isRentalEntry) {
+            $rentalContactSortColumns = [
+                'name' => ['last_name', 'first_name'],
+                'created' => ['created_at'],
+                'updated' => ['updated_at'],
+            ];
+            $rentalContactSort = $rentalContactSortColumns[$request->string('sort')->toString()] ?? $rentalContactSortColumns['name'];
+            $rentalContactDirection = $request->filled('direction') && $request->string('direction')->toString() === 'desc' ? 'desc' : 'asc';
+            foreach ($rentalContactSort as $col) {
+                $query->orderBy($col, $rentalContactDirection);
+            }
+            // Deterministic tie-breaker, same reasoning as
+            // FiltersRentalApplicationList's own — two contacts created the
+            // same second (or a NULL on both sides) have no guaranteed
+            // MySQL tie order otherwise, so a reload or page 2 could
+            // silently reshuffle across the tie.
+            $query->orderBy('contacts.id', $rentalContactDirection);
+        } else {
+            $query->orderBy('last_name')->orderBy('first_name');
+        }
 
         // AT-91 — an EXPLICIT agent pick keys off contacts.agent_id (the
         // operational responsible agent), NOT created_by_user_id (immutable
@@ -101,6 +157,21 @@ class ContactController extends Controller
         } elseif ($canPickAgent) {
             if ($filterAgentId === 'unassigned') {
                 $query->whereNull('agent_id');
+            } elseif ($filterAgentId === 'branch') {
+                // cc4 walk, finding B, 2026-09-13 — explicit Branch pill,
+                // available to both 'branch'-scoped users (where this is
+                // their real ceiling) and 'all'-scoped users (a genuinely
+                // useful middle tier: their OWN branch, narrower than the
+                // full agency). Checked BEFORE the numeric agent_id branch
+                // below on purpose — (int) 'branch' casts to 0, which would
+                // otherwise silently match agent_id = 0 (nothing) instead
+                // of ever reaching this case.
+                $branchId = $user->effectiveBranchId();
+                if ($branchId) {
+                    $query->whereHas('createdBy', fn($q) => $q->where('branch_id', $branchId));
+                } else {
+                    $query->whereRaw('1 = 0');
+                }
             } elseif ($filterAgentId !== '' && $filterAgentId !== 'all') {
                 $query->where('agent_id', (int) $filterAgentId);
             } elseif ($dataScope === 'branch' && $user->branch_id) {
@@ -232,7 +303,7 @@ class ContactController extends Controller
 
         return view('corex.contacts.index', compact(
             'contacts', 'contactTypes', 'typeFilterOptions', 'contactIdentifierLabels', 'filterAgentId', 'agentList', 'selectedAgent', 'canPickAgent',
-            'restrictedContactIds', 'isRentalEntry'
+            'restrictedContactIds', 'isRentalEntry', 'dataScope'
         ));
     }
 
@@ -1016,6 +1087,12 @@ class ContactController extends Controller
                 'tab' => 'rental',
                 'q' => $request->filled('q') ? $request->string('q')->toString() : null,
                 'outcome' => $rentalOutcome !== '' ? $rentalOutcome : null,
+                // cc4 walk, finding 8, 2026-09-13 — 'sort' was missing from
+                // this list even before the tab had a sort control to send
+                // it: paginating to page 2 with a hand-edited ?sort= would
+                // have silently dropped it. Added alongside the new sort
+                // dropdown below, not after.
+                'sort' => $request->filled('sort') ? $request->string('sort')->toString() : null,
                 'direction' => $request->filled('direction') ? $request->string('direction')->toString() : null,
                 'date_from' => $request->filled('date_from') ? $request->string('date_from')->toString() : null,
                 'date_to' => $request->filled('date_to') ? $request->string('date_to')->toString() : null,
