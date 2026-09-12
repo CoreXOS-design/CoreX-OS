@@ -5,6 +5,7 @@ namespace App\Services\PrivateProperty;
 use App\Models\Property;
 use App\Models\User;
 use App\Services\Images\AgentPhotoNormalizer;
+use App\Services\Syndication\PortalInventoryGuard;
 use Illuminate\Support\Facades\Log;
 
 class PrivatePropertySyndicationService
@@ -12,15 +13,26 @@ class PrivatePropertySyndicationService
     private PrivatePropertySoapClient $client;
     private PrivatePropertyListingMapper $mapper;
     private AgentPhotoNormalizer $photoNormalizer;
+    // Optional + container-resolved on demand: several existing tests build this
+    // service positionally, and widening the required signature would break them
+    // for a dependency only submitListing() uses.
+    private ?PortalInventoryGuard $inventoryGuard;
 
     public function __construct(
         PrivatePropertySoapClient $client,
         PrivatePropertyListingMapper $mapper,
-        AgentPhotoNormalizer $photoNormalizer
+        AgentPhotoNormalizer $photoNormalizer,
+        ?PortalInventoryGuard $inventoryGuard = null
     ) {
         $this->client = $client;
         $this->mapper = $mapper;
         $this->photoNormalizer = $photoNormalizer;
+        $this->inventoryGuard = $inventoryGuard;
+    }
+
+    private function inventoryGuard(): PortalInventoryGuard
+    {
+        return $this->inventoryGuard ??= app(PortalInventoryGuard::class);
     }
 
     /**
@@ -45,6 +57,34 @@ class PrivatePropertySyndicationService
     public function submitListing(Property $property): array
     {
         $this->client->forAgency($property->agency);
+
+        // Never publish a SECOND advert for a property the portal already
+        // advertises under a listing CoreX does not own. An agency that arrives
+        // with an existing PP branch brings listings keyed by their previous
+        // system's ids; PP keys by (PropertyId, ListingType), so submitting with
+        // our own id creates a rival advert rather than updating theirs — and PP
+        // gives us no way to adopt the original (UpdateUniqueListingID wants an
+        // encrypted id we are never issued). Ten such doubles and forty-three
+        // unreachable adverts were found live on 2026-09-12; this is the stop.
+        // Fails OPEN on a cold cache so a missing snapshot never blocks an agent.
+        $conflict = $this->inventoryGuard()->conflictFor($property);
+        if ($conflict !== null) {
+            $message = 'Private Property already advertises this property under a listing CoreX does not control '
+                . "(portal reference {$conflict['portal_id']}). Publishing now would create a second advert for the "
+                . 'same property. Retire the existing listing first — run pp:audit-inventory to see it.';
+
+            $property->update([
+                'pp_syndication_status' => 'error',
+                'pp_last_error'         => $message,
+            ]);
+
+            Log::channel('private_property')->warning('PP submit refused — portal already advertises this property', [
+                'property_id'       => $property->id,
+                'portal_listing_id' => $conflict['portal_id'],
+            ]);
+
+            return ['success' => false, 'message' => $message];
+        }
 
         // A listing whose gallery is non-empty but whose photo files are ALL
         // missing must not be submitted. We would send an empty photo set, and

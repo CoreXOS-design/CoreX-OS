@@ -369,6 +369,25 @@ class PrivatePropertySoapClient
     }
 
     /**
+     * Full detail of EVERY listing the branch holds — active, inactive, sold,
+     * and, crucially, listings this branch acquired from a previous feed that
+     * CoreX never created and cannot address by CoreX property id.
+     *
+     * The only read-back that carries addresses, so it is the only way to tell
+     * that the portal already advertises a property we are about to publish.
+     * Heavy (whole branch, megabytes) — callers MUST cache it; never put it on
+     * the per-submit path. See PortalInventoryGuard.
+     * WSDL: GetFullDetailsOfAllListingsByBranch { guid BranchId, SecurityToken Token }
+     */
+    public function getFullBranchListings(): array
+    {
+        return $this->call('GetFullDetailsOfAllListingsByBranch', [
+            'BranchId' => $this->branchGuid(),
+            'Token'    => $this->buildToken(),
+        ]);
+    }
+
+    /**
      * Get active listings for the branch.
      * WSDL: GetActiveListings { guid BranchId, SecurityToken Token }
      */
