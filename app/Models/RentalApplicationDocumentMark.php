@@ -58,6 +58,7 @@ class RentalApplicationDocumentMark extends Model
         'confidence' => 'float',
         'entry_date' => 'date:Y-m-d',
         'entry_amount' => 'decimal:2',
+        'struck_out_at' => 'datetime',
     ];
 
     public function document(): BelongsTo
@@ -80,9 +81,28 @@ class RentalApplicationDocumentMark extends Model
         return $this->belongsTo(User::class, 'author_user_id');
     }
 
+    public function struckOutBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'struck_out_by_user_id');
+    }
+
     public function isLedgerEntry(): bool
     {
         return in_array($this->entry_type, self::LEDGER_ENTRY_TYPES, true);
+    }
+
+    /**
+     * Johan's decision, 2026-09-14: a struck-out line stays visible but is
+     * EXCLUDED from the affordability totals — never hidden, never hard
+     * deleted. struck_out_at/struck_out_by_user_id are set/cleared ONLY by
+     * the dedicated toggle action (HandlesRentalApplicationDocumentMarks::
+     * captureEntryToggleStrike()), never via mass assignment — deliberately
+     * absent from $fillable above so a generic captureEntryUpdate() payload
+     * can never touch them.
+     */
+    public function isStruckOut(): bool
+    {
+        return $this->struck_out_at !== null;
     }
 
     public function isAnchored(): bool
@@ -122,6 +142,12 @@ class RentalApplicationDocumentMark extends Model
             'entry_date' => $this->entry_date?->format('Y-m-d'),
             'entry_description' => $this->entry_description,
             'entry_amount' => $this->entry_amount !== null ? (float) $this->entry_amount : null,
+            // Johan's decision, 2026-09-14 — struck lines stay in this same
+            // array (never filtered out here); the client excludes them from
+            // totals but still renders them, struck-through.
+            'struck_out' => $this->isStruckOut(),
+            'struck_out_by' => $this->struckOutBy?->name,
+            'struck_out_at' => $this->struck_out_at?->format('d M Y H:i'),
         ];
 
         if ($this->type === 'note') {

@@ -10386,6 +10386,154 @@ scope — reported here for a dedicated pass, not fixed as part of removing a de
   `authorisation_screen`.
 - `dev-check.ps1` cannot run on this box (no `pwsh`) — stated plainly, not silently skipped.
 
+## Struck-out lines are EXCLUDED from the affordability totals — Johan's decision (2026-09-14, cc4)
+
+**Johan's ruling, verbatim from the routing message: "A struck-out line is EXCLUDED from the
+totals. Option 1. That is what an agent expects when she strikes a line, and it is now the
+rule."** Applies to income, expense, and therefore months, monthly income and net monthly —
+everything downstream, not just the two headline figures. The line stays visible with its date,
+description and amount; it is struck, not hidden; either role can un-strike it back into the
+totals.
+
+### Investigation, finished before the build, per instruction
+
+**What reads the strike flag now — before this build, nothing did.** The old pre-2026-09-11
+`qualifyingResult()` (removed earlier this session) was the only thing that ever excluded a
+struck line from a total, and it read the OLD `RentalApplicationIncomeItem`/`ExpenseItem` tables'
+`struck_out_at`, not anything on the current capture-ledger. On the CURRENT screen, before this
+build: nothing calculated with it (confirmed — no consumer existed), and almost nothing displayed
+it either — the actual strike-and-replace UI (`rentalAssessmentEditor()`) was deleted outright in
+the 2026-09-11 rework, so there was no button anywhere to strike a NEW line, on either role's
+screen. One stale, still-rendered tooltip on the authoriser's own panel header
+(`review.blade.php`, "Captured by the agent... If you disagree with a figure, strike it out...")
+promised this exact feature with no control behind it. The general Audit Trail (visible to both
+roles) still shows the historical `"Struck out a income line: ..."` entries from before the
+rework, verbatim, for any application that has them — genuinely present, just easy to miss past
+10 more recent entries.
+
+**Totals are computed in ONE place, confirmed, not two** — exactly as expected from the earlier
+arithmetic audit. The server hands down `captureEntries` once; `rentalCaptureLedger()` (a single
+shared Alpine mixin, spread into BOTH `rentalReview()` (agent) and `rentalAuthorisationViewer()`
+(authoriser) via `...rentalCaptureLedger({...})`) owns `incomeTotal()`/`expenseTotal()`/
+`monthlyIncome()`/`netMonthly()` for both roles from that one object. There is no second,
+authoriser-only or agent-only copy of this arithmetic to drift out of sync — the exclusion added
+below lives in exactly one function pair, read by both screens.
+
+**Existing records with struck lines — 9 income, 0 expense, same 5 applications found in the
+prior investigation (agency 1, applications 4, 16, 22, 26, 66).** None of them move. Checked
+directly against the real database, not assumed: the 2026-09-11 backfill migration mapped every
+old struck item's `struck_out_at` straight onto the new marks table's `deleted_at` (soft-delete)
+— confirmed today that all 9 carried through correctly (their `deleted_at` timestamps match their
+original `struck_out_at` exactly, live-queried). A soft-deleted mark is invisible and already
+excluded, with or without this build. The NEW `struck_out_at`/`struck_out_by_user_id` columns
+this build adds are a genuinely new, separate concept — confirmed by direct query immediately
+after migrating that every existing mark (all 323 of them) has `struck_out_at` still null. **No
+application's total changes as a result of shipping this feature** — the new exclusion only ever
+applies to a line a user newly strikes through the new control, going forward.
+
+### The build
+
+- **Migration** `2026_09_14_120000_add_struck_out_to_rental_application_document_marks.php` —
+  `struck_out_at` (nullable timestamp), `struck_out_by_user_id` (nullable FK to `users`,
+  `nullOnDelete`) on `rental_application_document_marks`. Column names/shape deliberately mirror
+  the old, frozen `RentalApplicationIncomeItem`/`ExpenseItem` columns for anyone who worked with
+  that feature before — this is a new capability on the table that replaced them, not a revival
+  of the old one.
+- **`RentalApplicationDocumentMark`** — `isStruckOut()`, `struckOutBy()` relation, `struck_out_at`
+  cast to `datetime`. Deliberately NOT added to `$fillable` — set only by the dedicated toggle
+  action below, never reachable through the existing generic `captureEntryUpdate()`'s mass
+  assignment. `toMarkArray()` now carries `struck_out` (bool), `struck_out_by` (name), `struck_out_at`
+  (formatted) on every entry, always — struck lines are never filtered out of this array, only
+  out of the totals that sum it.
+- **`HandlesRentalApplicationDocumentMarks::captureEntryToggleStrike()`** — new shared action,
+  same trait `captureEntryUpdate()`/`captureEntryDelete()` already live in. One call toggles both
+  directions (strike and restore are the same request). Guards, per instruction ("you have done
+  that work already, so use the same guards"): `guardRentalApplication()` (agency/branch/own
+  scope), `guardScreenNotLockedForAuthoriser()` (same 423 lock as update/delete), and
+  `guardCaptureEntryOwnership()` — the EXACT same ownership rule update/delete already enforce.
+  Stated plainly since it's a direct, deliberate consequence: **an authoriser can never strike an
+  agent's own captured line** (the same rule that already stops them editing or deleting one) —
+  they can strike/restore only a line they themselves authored, or an unattributed/legacy one.
+  This is a departure from the OLD pre-rework strike design ("any RO/CO can strike ANY row"),
+  intentional per this instruction, not an oversight.
+- **Routes** — `corex.rental-applications.capture-entries.strike` (agent) and
+  `corex.rental-applications.authorisation.capture-entries.strike` (authoriser), both
+  `POST .../capture-entries/{markUid}/strike`, mirroring the existing update/delete route pairs
+  exactly.
+- **UI** (`review.blade.php`, `rentalCaptureLedger()`) — a small `⊘`/`↺` toggle glyph as a new 5th
+  column on every income/expense ledger row (14px, taken as its own column, not from the amount
+  column's own hard-won width floor — see that CSS block's own history). `@click.stop` so it
+  never also fires the row's `jumpToMark()`. The struck line's amount renders with
+  `text-decoration: line-through` and a muted colour — visible, not hidden, exactly as instructed.
+  `incomeTotal()`/`expenseTotal()` now filter out `struck_out` entries before summing (one line
+  each); `incomeEntries()`/`expenseEntries()` — the row LIST — are untouched, so struck rows never
+  disappear from view.
+- **Reconciliation** (Johan: "she must be able to see why without guessing... keep it small...
+  no explanatory paragraph") — a muted `(N struck)` suffix appended directly to the "Income"/
+  "Expenses" total labels themselves, shown only when that section has at least one struck line.
+  No new UI real estate, no paragraph — implemented directly rather than proposed first, since it
+  fits the "few characters" bar the instruction itself set.
+- A small `ledgerActionError` string surfaces a refused toggle (locked screen, wrong author)
+  inline under the totals — same small-footprint pattern `manualEntryError` already uses.
+
+### Proof — the reference case, struck, derived independently, to the cent, both directions
+
+New test file, `RentalApplicationCaptureEntryStrikeTest.php`, 6 tests / 35 assertions, all
+passing:
+
+- **`test_striking_and_unstriking_the_reference_case_matches_to_the_cent_both_directions`** —
+  reproduces Johan's own application-76 reference case again (application 76 itself never
+  touched), strikes the unanchored "wages — R1,270.58" line via the real HTTP toggle endpoint,
+  and independently re-derives the expected new figures in PHP: income **R89,606.75**, monthly
+  income **R22,401.69**, net monthly **R21,639.19** — matched to the cent against what the server
+  actually returns. Confirms the struck line stays IN `captureEntries` (count still 7, not 6),
+  with its own amount unchanged and `struck_out: true`. Confirms persistence with a genuinely
+  fresh GET (not the toggle's own response). Then un-strikes the SAME line and confirms the
+  totals return to EXACTLY Johan's original figures — R90,877.33 / R22,719.33 / R21,956.83 — a
+  true round-trip, not an approximation.
+- **`test_authoriser_sees_the_identical_struck_state_and_totals_the_agent_set`** — the agent
+  strikes a line from their own screen; the authoriser's own independent derivation of the total
+  (reading the same `captureEntries`) excludes it identically. No divergence between the two
+  screens' arithmetic.
+- **`test_cross_agency_strike_attempt_is_refused`** — a different agency's own agent, hitting the
+  first agency's real application id and mark_uid directly: 404, before the controller even
+  runs — `RentalApplication`'s `BelongsToAgency` global scope means the route model binding
+  itself can never resolve the record. The mark is confirmed NOT struck afterwards.
+- **`test_a_different_agents_line_cannot_be_struck_by_another_agent`** — same agency, same role,
+  a different agent than the mark's own author: 403 (wrong-author, not cross-agency — the
+  distinction the instruction specifically asked to be proven).
+- **`test_authoriser_cannot_strike_an_agents_own_captured_line`** — 403, proving the ownership
+  rule's stated consequence above is real, not just described.
+- **`test_authoriser_can_strike_an_unattributed_legacy_line`** — the positive case: an
+  unattributed mark (`author_role` null, same shape the 2026-09-11 backfill migration produced)
+  CAN be struck by the authoriser — confirms the ownership guard's "nothing to protect" branch
+  still works, not just its refusals.
+
+Also re-run after the build, unaffected: `RentalApplicationAffordabilityArithmeticTest` (3/3,
+same figures) and `scripts/verify-alpine-render.mjs` against a REAL fetched render of both
+screens (497 and 434 Alpine expressions respectively, both PASS, zero leaked attribute text, zero
+execution errors — fetched via a local `php artisan serve` + `npm run build` against this
+worktree specifically, since the render gate needs a genuinely deployed page and this work
+wasn't live yet at verification time).
+
+**A real bug caught by this same render-gate discipline before it shipped**: the first draft of
+this build passed `captureStrikeUrlTemplate` into both `x-data` inits but never threaded it
+through `rentalReview()`'s/`rentalAuthorisationViewer()`'s own destructured parameters or their
+`...rentalCaptureLedger({...})` spread calls — the exact "parameter passed but never received"
+failure class this gate exists to catch (see its own docblock, incident #1). Found and fixed
+before any push, not after.
+
+### Correction to the prior report's Round9/10/11 triage
+
+The manual "Add line manually" amount field (`type="number"`, the Round 11 regression named
+immediately in that report) is **agent-only, not both roles** — it sits inside
+`@if($viewerRole === 'agent')` further up the same template; the earlier claim that it was
+"ungated by role" was wrong, caught while reading the same file more carefully for this build.
+The regression itself stands exactly as reported (an agent typing a decimal amount into that
+field will very likely hit the same character-eating bug Round 11 already fixed elsewhere); only
+its exposure is narrower than first stated. Not touched in this pass — still reported only, per
+instruction.
+
 ## Authoriser's statement-period date fixed to dd/mm/yy; screen's other dates deliberately left alone (2026-09-14, cc3)
 
 cc4's agent-walk also caught: the authoriser's read-only statement-period line
@@ -10489,3 +10637,299 @@ verified BEFORE the click (`loading:false, pages.length:0, marks.length:0`
   here, not the console error's absence.
 - Render gate re-run after the fix: PASS, same baseline WARN-only notices,
   934 Alpine expressions all compile clean.
+
+## Realistic-scale "View & Mark Up all" stress investigation (2026-09-14, cc5)
+
+**INVESTIGATION ONLY — no code changed, per explicit instruction ("Do NOT
+optimise anything yet").** Everything this module had been tested on so far
+was small (1-5 short documents, a handful of marks). Johan's own concern:
+loading five small PDFs on application 70 froze the browser renderer long
+enough for a screenshot to time out twice, and a real applicant's bank
+statement bundle is routinely 20-60 pages with 20-40 captured lines — nobody
+had put that through this screen. Built and measured the realistic worst
+case in a dedicated fixture, never touching 70/76/107/204/205.
+
+### Fixture — application 208
+
+Synthetic (DomPDF-generated, never a real bank statement), clearly named
+"CONDUCTOR STRESS-TEST FIXTURE (45-page bank statement perf investigation)
+— not a real applicant", agency 1, status Returned. Five documents attached
+exactly like a genuine upload — the same 5 the checklist actually asks for
+(`permanently_employed`'s V8 default plus one): a **45-page bank statement**
+(dense transaction tables, 28 rows/page, a light repeating background
+pattern to push PNG entropy closer to a real scan rather than a
+flat-white/black-text page that would compress unrealistically well) plus
+one-page Payslip/IDs/Proof of Residence/Lease Agreement. **32 real anchored
+marks** on the bank statement (not manual/unanchored entries — those carry
+no page or geometry and couldn't test positioning at all): 13 spread through
+pages 0-35, 19 concentrated on pages 38-44 (the last 7 pages), mixed
+income/expense, realistic amounts.
+
+### The architecture, established first (governs everything below)
+
+Read before measuring, then confirmed live via network capture:
+**page-by-page rendering is NOT lazy past page 1.** `openHighlighter()`
+fetches page 1 alone first (`highlight-data/first`), then immediately fires
+ONE further request (`highlight-data/remaining`, not awaited, not gated by
+further scroll) that returns **every remaining page in a single JSON
+response** — for the 45-page fixture, 44 pages of `data:image/png;base64,…`
+inline in one payload. Confirmed directly:
+`RentalApplicationDocumentHighlightService::remainingPagePreviews()` for
+this document returns an **11.69 MB JSON payload** (44 pages × ~260KB each
+at the fixed 150 DPI, PNG, base64). This is a two-phase-eager design, not
+true incremental lazy loading — page 1 fast, then everything else in one
+burst. This is the direct, structural answer to Johan's question and the
+most likely reason any freeze exists at all: not per-page inefficiency, one
+large synchronous burst of work.
+
+Document-level loading IS progressive (IntersectionObserver, ~1000px
+margin) — with 5 documents on this fixture, all 5 sections' page-1 requests
+fired within the first second regardless, since a 5-document bundle mostly
+fits the initial margin (matching the code's own docblock: "a much larger
+bundle would only load the first few until the agent scrolls further" — a
+30-40 document bundle would behave differently; this fixture didn't test
+that axis, only the pages-per-document axis Johan specifically asked about).
+
+### Measurements, real browser, real numbers
+
+**Cold vs warm server-side cost (isolated first, via direct service calls,
+before any browser was involved):**
+- `firstPagePreview()`, cold: 441ms (single-page rasterize + page count).
+- `remainingPagePreviews()`, **cold** (first time ANYONE opens this
+  document — pdftoppm rasterizing all 44 remaining pages): **4,066ms**.
+- `remainingPagePreviews()`, **warm** (on-disk PNG cache already
+  populated): **12ms**. This cost is paid ONCE per document version — every
+  subsequent agent, or the same agent reopening later, pays ~12ms, not 4s.
+  Cache key is `doc-{id}-v{updated_at timestamp}`, so it invalidates
+  correctly if the document is ever replaced.
+
+**Real browser, cold cache (the actual worst case — first agent to ever
+open this specific document), all 5 documents + View & Mark Up all:**
+- Time to first page usable (bank statement's page 1 decoded and laid
+  out): **207ms.**
+- Time to the 45-page document's `/remaining` HTTP response: **+5,216ms**
+  from click (~4.3s after its own page-1 response, matching the isolated
+  cold measurement above).
+- Time to ALL 5 documents fully loaded (all images decoded, "N more pages
+  loading" banner gone): **6,367ms** total from click.
+- **Real browser, warm cache** (same document, reopened): remaining-pages
+  response in 689ms, fully rendered at 740ms — an order of magnitude
+  faster, confirming the cold cost is genuinely one-time.
+
+**Main-thread responsiveness during the cold load** (a `requestAnimationFrame`
+tick logger running throughout, independent of the page's own JS — the
+standard way to detect main-thread blocking without the blocked code
+measuring itself): longest single gap **393ms**; only 2 gaps exceeded
+100ms, totalling **498ms** of cumulative blocking across the whole 6.4s
+load; **zero gaps exceeded 500ms.** This is noticeable but not the
+multi-second full freeze the "screenshot timed out twice" report described.
+Stated plainly rather than smoothed over: **this measurement does not fully
+reproduce Johan's own observed severity**, and the honest reasons that gap
+could exist were not chased further per instruction (no optimisation, no
+root-cause dig beyond what falls out of the measurements already taken) —
+candidates worth naming for whoever picks this up: the real QA1 host's
+hardware/load differs from this local box; application 70's actual PDFs may
+not resemble this synthetic fixture's page weight; or an authoriser screen
+also runs a second, independent Alpine component at the same moment (a
+contention source the code's own comments already flag as measurably
+slowing things down in testing, for an unrelated fix).
+
+**Memory over a realistic ~18-minute working session** (scroll, jump to a
+random mark, scroll back, repeated every 30s, real background run, not
+simulated): JS heap opened at 50MB right after full load, settled to
+23-26MB by the second sample (GC catching up) and **stayed flat in that
+23-26MB band for the entire session — no growth trend, no leak.** DOM node
+count fluctuated 15,628-25,536 (tracking which document sections were
+open/closed from the random jump clicks) with a **net decrease** by
+session end (18,768, down from an early peak), consistent with the app
+correctly tearing down closed document sections rather than accumulating
+them. Zero console errors across the full 35-iteration session.
+
+**Marks on the last pages — fraction-to-pixel conversion at depth.**
+Jumped to a mark on page 45 of 45 (0-indexed page 44) AFTER the document
+had finished loading: landed correctly, screenshotted — multiple highlight
+marks visible, correctly positioned over the intended table columns, "32"
+mark-count badge correct. Confirmed in a completely fresh session (fresh
+login, fresh navigation, fresh document open — equivalent to a reload, not
+carried-over client state): identical result. **The fraction-to-pixel
+system holds at page 45, not just page 1** — no evidence of the class of
+bug that bit this feature once before.
+
+**Ledger panel with 32 rows.** Confirmed the GOOD outcome, not the bad one:
+`.rental-review-aside` is a genuine `overflow-y: auto` container
+(scrollHeight 1073px vs clientHeight 699px). "Submit for approval" sits
+below the fold initially (offset 1029px) but scrolling the panel itself
+brings it fully into view — reachable, not pushed off an unbounded page.
+
+**Jump-to-mark timing and a real bug found.** Once the document has
+finished loading, jumping to a page-45 mark from its ledger row takes
+**~2.5 seconds** wall-clock (scroll animation + settle) and works
+correctly. **But triggered WHILE the document is still mid-load** (the
+"N more pages loading" banner still showing), the SAME click throws a
+console error (`TypeError: Cannot read properties of undefined (reading
+'after')`, inside Alpine's own internals per the minified stack) and
+**silently fails to navigate at all** — the viewer opens but stays on page
+1, no error shown to the agent, no indication anything went wrong.
+Reproduced twice, isolated precisely: identical error on an EARLY-page mark
+too, confirming this is a **timing race, not a scale/page-depth bug** — it
+does not require 45 pages or a deep mark to trigger, only clicking before
+loading finishes, which a 45-page document's longer load window makes
+considerably more likely for a real agent to actually hit in practice than
+it would be on a 1-5 page bundle. Found during this investigation, not
+caused by it — almost certainly reproducible on any multi-page document,
+scale just widens the window an agent could click into it. **Reported, not
+fixed, per instruction.**
+
+### Ranked by what would stop an agent working
+
+1. **Jump-to-mark silently fails if clicked before loading finishes, with
+   no error shown to the agent** — a real, confirmed defect. An agent
+   clicking a ledger row moments after opening a large document (very
+   plausible — the ledger is visible and clickable immediately, well before
+   the "N more pages loading" banner clears) gets nothing: no navigation,
+   no visible error, console noise only. This is the one finding that
+   would visibly break a real workflow, not just feel slow.
+2. **The ~6.4s cold-load / ~500ms cumulative jank on first open of a large
+   document** — real, measured, but bounded (no single freeze over 400ms
+   on this box) and one-time per document (warm reopen: <1s). Whether this
+   rises to "unusable" depends on what the real QA1 host's numbers turn out
+   to be, which this investigation could not directly reproduce at the
+   severity Johan described.
+3. Everything else tested came back clean: no memory leak over a realistic
+   session, ledger panel scrolls correctly at 32 rows with the action
+   button reachable, marks land and persist correctly on the last page,
+   jump-to-mark is fast (~2.5s) once loading has actually finished.
+
+**No page count where the screen becomes unusable was found** — 45 pages,
+5 documents, 32 marks all loaded and worked (aside from the one bug above).
+Not stating a limit because none was hit, not because it wasn't looked for.
+
+### Files (for when a fix is authorised — nothing below has been touched)
+
+- `app/Services/RentalApplications/RentalApplicationDocumentHighlightService.php`
+  — `remainingPagePreviews()`, the single-batch-response design (finding 2).
+- `resources/views/corex/rental-applications/partials/document-highlighter-script.blade.php`
+  — the `rental-jump-to-mark` listener / `waitUntilPagesReady()` /
+  `scrollToAndFlashMark()` — the mid-load race (finding 1).
+
+---
+
+### Applicant journey walk, and the three fixes it produced (AT-392, 2026-09-12, cc6)
+
+Johan: "walk the whole thing... you are a prospective tenant... no idea what CoreX is." Full walk
+(email → fill → leave-and-return → uploads → sign → submit → reopen-and-fix), at phone width, as a
+real messy-life applicant (job started this year, a previous address, a spouse as co-applicant, two
+dependants). Findings ranked; the single most valuable one — and three items built from the walk —
+below. Full ranked write-up delivered separately; this entry covers what was BUILT.
+
+#### 1. The last few seconds of typing were lost, silently — closed
+
+**The bug, isolated cleanly:** typed a complete sentence, closed the tab 1.5s later (no tap
+elsewhere first) — nothing saved at all, not even a partial value (`draft_saved_at` stayed NULL).
+Waited 6s (past the debounce) instead — saved correctly. This is the exact pattern a phone
+applicant produces constantly: a notification, a call, the screen locking, closing the tab meaning
+to finish "in a minute" — precisely the failure this whole feature exists to close. (This also
+resolved a separate, earlier-reported scare: a "We have a sm[...]" truncated free-text field first
+seen during the walk was this same window, not data corruption in storage — the field was never
+actually corrupted, just never finished saving before the browser was killed.)
+
+**Fix:** `navigator.sendBeacon()` fired on `visibilitychange` (`document.visibilityState ===
+'hidden'`) and `pagehide` — deliberately NOT `beforeunload`/`unload`, which mobile Safari and
+Chrome routinely never fire for a backgrounded tab the OS kills outright. `sendBeacon()` is the one
+API that survives the page tearing down; a normal `fetch()` is cancelled mid-flight the instant the
+page goes away. Hits the EXACT SAME `/rental-application/{token}/autosave` endpoint as the
+debounced save — every guard (terminal-status refusal, expiry, the per-application rate limit,
+field validation) applies identically; there is no separate, weaker beacon-only code path. CSRF
+travels in the request BODY (`_token`) rather than the `X-CSRF-TOKEN` header the normal fetch uses,
+since `sendBeacon()` cannot set custom headers at all. A `dirty` flag (set on any field
+change, cleared on any successful save of either kind) means the beacon only fires when there is
+genuinely something unsaved. The "Saved"/"Saving…" indicator is now PERSISTENT — ticks "Saved Xs
+ago" every second from the last known save, rather than fading after a few seconds — so a person
+about to close the tab can actually look up and tell whether they're safe.
+
+**Verified live, in a browser, on QA1, exactly the way the bug was found — not reasoned about:**
+- Typed a complete sentence, closed the browser 900ms later, no tap elsewhere first — reloading
+  fresh showed the COMPLETE sentence and name, both landed within the same second the browser
+  closed (`draft_saved_at` timestamped to that second).
+- A genuinely backgrounded (not closed) tab: opened a SECOND tab in the same browser and brought it
+  to front — the original tab's `visibilityState` became `hidden` and a real `visibilitychange`
+  fired — then killed the whole browser without ever returning focus to the original tab. The typed
+  content still landed, proving the save fires the moment the tab is backgrounded, before whatever
+  kills it later ever runs.
+- **Guards proven on the beacon's own request shape**, not assumed from "same endpoint": a raw
+  `application/x-www-form-urlencoded` POST (CSRF in the body, no custom headers — the literal shape
+  a real `sendBeacon()` call produces) fired at a SUBMITTED application returned `saved:false` and
+  left the row untouched; the same shape fired at a DIFFERENT, still-open application's own token
+  saved correctly and left the submitted one's data alone — per-token isolation and the terminal-
+  status guard both hold identically for this new path.
+
+#### 2. Upload error messages now talk to a person, not a stack trace
+
+`"The supporting_files.0 field must be a file of type: pdf, jpg, jpeg, png, doc, docx."` and
+`"...must not be greater than 15360 kilobytes."` were Laravel's own default validation messages —
+an internal array-indexed field name and a unit nobody thinks in, shown directly to a non-technical
+member of the public filling in a form alone, with no one to ask. Both messages are now:
+- Wrong type: *"We can only accept PDF, Word documents, or photos (JPG or PNG). Please try a
+  different file, or save this one in one of those formats."*
+- Too large: *"That file is too big — we can accept files up to 15MB. Try a smaller photo, or save
+  it as a PDF."*
+
+One constant (`RentalApplicationSigningController::MAX_UPLOAD_SIZE_KB`) now drives BOTH the
+validation rule and the message's MB figure — they can never drift apart the way a separately-typed
+"15MB" string could have. Swept the whole controller for the same shape: `uploadDocuments()` and
+`replaceDocument()` were the only two file-upload validations on the applicant-facing side, both
+fixed identically via a shared `humanUploadValidationMessages()` method so neither can drift from
+the other either.
+
+#### 3. A minimal progress indicator
+
+Seven sections on one long phone scroll with no sense of how much is left is an abandonment
+pattern. Exactly "a thin line and a count", nothing more, per instruction: a 4px bar fixed at the
+top of the viewport reflecting actual scroll position (honest — it's exactly how far down the page
+they've scrolled, not a guess at "completion", since almost every field is optional), plus a small
+"Section X of 7 — Name" label tracking whichever named `<section data-progress-section="...">` is
+currently nearest the top. A throttled `scroll` listener (via `requestAnimationFrame`) computes
+both numbers together; no `IntersectionObserver` needed for something this simple. Verified live:
+the label correctly read "Section 4 of 7 — Employment" mid-scroll, updating as expected, with zero
+console errors.
+
+#### Proposed, NOT built — copy needs Johan's sign-off, not a lane's invented wording
+
+Per explicit instruction, the words for two other walk findings were drafted and handed to the
+conductor rather than written into the templates:
+- **On-page orientation** before the first question (currently: none at all — the applicant lands
+  directly on "Full name and surname" with zero context beyond what the invite email said, which is
+  easily lost).
+- **Confirmation-screen contact details** — currently "Please contact your agent if you need to
+  change anything" with no agent name, phone, or email actually ON that screen, and no description
+  of what happens next. Drafted copy deliberately makes no promise about a response timeframe —
+  that commitment is Johan's to make, not this pass's to invent.
+
+#### Reported into the spec, NOT changed — a live-data decision, not a lane's call
+
+- **`marital_status` is a freeform text input**, while the form's other categorical fields
+  (`employment_type`, `current_living_situation`) are dropdowns — an inconsistency, and it produces
+  messy data for the agent later ("Married"/"married"/"Single" all typed differently), but changing
+  a live applicant-facing field's TYPE needs its own decision about what happens to values already
+  typed in the free-text form, not folded into this pass.
+- **`employer_tel`/`employer_address` don't visually read as optional** the way some other fields on
+  this form do (no "(optional)" label, no helper hint) — both are genuinely nullable server-side,
+  but an applicant new to a job this year may feel obligated to look up information they don't have
+  memorised. Not changed here; noted for whoever next touches this section's copy.
+
+**Verified:** `scripts/verify-alpine-render.mjs` (cc1's Alpine render gate, fixed the same day this
+pass's walk found the `SCRIPT EVAL ERROR` it was hitting) and `rental-smoke.mjs` both pass clean
+against the updated form, zero console errors. New tests: `RentalApplicationAutosaveTest` extended
+(+3: a form-encoded/beacon-shaped request saves normally, is refused on a submitted application,
+and only affects its own application — proven against the actual request shape a real beacon
+produces). New `RentalApplicationUploadMessageTest` (4 tests): both failure messages are human on
+both endpoints, the size message states the exact limit the constant enforces, a genuinely valid
+file still uploads normally. 19/19 passing.
+
+**Files changed:** `app/Http/Controllers/RentalApplicationSigningController.php`
+(`MAX_UPLOAD_SIZE_KB`/`UPLOAD_MIMES` constants, `humanUploadValidationMessages()`, both `validate()`
+calls), `resources/views/rental-applications/public/show.blade.php` (`dirty`/`lastSavedAt`
+tracking, `beaconSaveIfDirty()`, persistent saved indicator, `data-progress-section` tags,
+`initProgress()`/`scrollProgressPercent`/`currentSectionLabel`),
+`tests/Feature/RentalApplications/RentalApplicationAutosaveTest.php` (+3 tests),
+`tests/Feature/RentalApplications/RentalApplicationUploadMessageTest.php` (new, 4 tests).

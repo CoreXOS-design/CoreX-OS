@@ -21,6 +21,43 @@ use Illuminate\View\View;
 class RentalApplicationSigningController extends Controller
 {
     /**
+     * Applicant journey audit, 2026-09-12 — single source of truth for the
+     * upload size cap. Was a bare `max:15360` literal duplicated across
+     * uploadDocuments() and replaceDocument(), with the applicant-facing
+     * error message hardcoding "15360 kilobytes" as Laravel's own default
+     * wording — a unit nobody actually thinks in, and a number that could
+     * silently drift out of sync with the rule if either were ever changed
+     * without the other. One constant now drives both the validation rule
+     * AND the human message.
+     */
+    private const MAX_UPLOAD_SIZE_KB = 15360;
+
+    /** The allowed file kinds, in plain words — used in the human message below, never a bare mimes: list shown to an applicant. */
+    private const UPLOAD_MIMES = 'pdf,jpg,jpeg,png,doc,docx';
+
+    /**
+     * Applicant journey audit, 2026-09-12 — Johan: "these are internal field
+     * names and a unit nobody thinks in... say what happened and what to
+     * do." Laravel's own default messages for a wildcard array field
+     * ('supporting_files.*') read the raw, un-humanised attribute name
+     * ("The supporting_files.0 field...") — meaningless to a non-technical
+     * applicant — and express size in kilobytes. Shared by both file-upload
+     * validation calls on this controller (uploadDocuments() and
+     * replaceDocument()) so neither can drift from the other.
+     */
+    private function humanUploadValidationMessages(): array
+    {
+        $maxMb = (int) (self::MAX_UPLOAD_SIZE_KB / 1024);
+
+        return [
+            'supporting_files.*.mimes' => "We can only accept PDF, Word documents, or photos (JPG or PNG). Please try a different file, or save this one in one of those formats.",
+            'supporting_files.*.max' => "That file is too big — we can accept files up to {$maxMb}MB. Try a smaller photo, or save it as a PDF.",
+            'replacement_file.mimes' => "We can only accept PDF, Word documents, or photos (JPG or PNG). Please try a different file, or save this one in one of those formats.",
+            'replacement_file.max' => "That file is too big — we can accept files up to {$maxMb}MB. Try a smaller photo, or save it as a PDF.",
+        ];
+    }
+
+    /**
      * A public, unauthenticated route has no agency context to scope to at
      * all — the token itself IS the identity here. Uses the model's own
      * sanctioned cross-tenant escape hatch (BelongsToAgency::
@@ -331,9 +368,9 @@ class RentalApplicationSigningController extends Controller
 
         $request->validate([
             'supporting_files' => ['required', 'array', 'min:1', 'max:10'],
-            'supporting_files.*' => ['file', 'mimes:pdf,jpg,jpeg,png,doc,docx', 'max:15360'],
+            'supporting_files.*' => ['file', 'mimes:' . self::UPLOAD_MIMES, 'max:' . self::MAX_UPLOAD_SIZE_KB],
             'document_type_id' => ['nullable', 'integer', 'exists:document_types,id'],
-        ]);
+        ], $this->humanUploadValidationMessages());
 
         $filedDocuments = [];
         foreach ($request->file('supporting_files') as $file) {
@@ -522,8 +559,8 @@ class RentalApplicationSigningController extends Controller
         }
 
         $validated = $request->validate([
-            'replacement_file' => ['required', 'file', 'mimes:pdf,jpg,jpeg,png,doc,docx', 'max:15360'],
-        ]);
+            'replacement_file' => ['required', 'file', 'mimes:' . self::UPLOAD_MIMES, 'max:' . self::MAX_UPLOAD_SIZE_KB],
+        ], $this->humanUploadValidationMessages());
 
         $newDoc = DB::transaction(function () use ($request, $application, $oldDoc) {
             $file = $request->file('replacement_file');
