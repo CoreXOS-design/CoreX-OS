@@ -8910,3 +8910,165 @@ proof captured. The test contact and rental application created during the proof
 place (QA1 is itself the test environment, both records carry obviously-fake throwaway data and
 an `@example.invalid` email, and they double as a live, inspectable example of the feature
 working) — only the login user was cleaned up, matching this session's established convention.
+
+### An initial mix-up, disclosed rather than quietly reworked
+
+"Rentals → Contacts" was first read as the Contact detail page's OWN Rental History tab
+(`_rental-applications-tab-body.blade.php`) — the screen this same spec's earlier "Contact
+Rental History" section documents — since that is what the phrase meant in the original
+design-standard audit task two days ago. Before realising Johan meant the actual `Rentals →
+Contacts` sidebar entry (a genuinely different screen, `corex.rentals.contacts.index`, AT-403),
+a real, separate sort gap was already found and fixed on that tab:
+
+- `Contact::visibleRentalApplicationsFor()` ended in `->latest()` — a leftover default order
+  from before the tab had any real sort control, which silently DOMINATED any sort the
+  2026-09-12 hardening pass's `applySearchSortAndDateRange()` tried to apply afterward
+  (Eloquent appends `orderBy` clauses, it never replaces them). Removed — ordering is now
+  entirely the caller's job, same as `scopeVisibleTo()` already does it for the other three
+  screens sharing this trait. The only other caller of this method only ever counts, so nothing
+  else depends on the old order.
+- Added a real "Sort by" control (Date submitted / Last updated) to the tab, plus the missing
+  `sort` key in the pagination `->appends()` list (a page-2 fetch would have silently dropped
+  a hand-edited `?sort=` even before this fix).
+- Verified live on contact 15978 (two real applications, ids 22/67, distinct
+  `created_at`/`updated_at`): default order unchanged (newest submitted first); switching to
+  "Last updated, oldest first" correctly reordered them; a genuine MySQL NULL-sorts-first
+  nuance on `submitted_at` for a never-actually-submitted application (67) was found and left
+  as-is — a legitimate property of a shared column used identically on every other
+  rental-application list screen, not a bug this task's scope covers.
+
+This is a genuine, verified, harmless improvement to a real rentals-adjacent screen, kept
+rather than reverted, and disclosed here plainly rather than folded silently into finding 8's
+own writeup below (which is a completely different screen).
+
+**Files changed:** `app/Models/Contact.php`, `app/Http/Controllers/CoreX/ContactController.php`
+(`show()`'s `->appends()` list only), `resources/views/corex/contacts/_rental-applications-tab-body.blade.php`.
+
+### FINDING 8 + TASKS A/B — the real Rentals → Contacts screen (`corex.rentals.contacts.index`)
+
+This is `ContactController::index()`/`corex/contacts/index.blade.php` — the SAME action and
+view the main Contacts screen uses, reached by a second route (AT-403) that applies a
+`rentalRelevant()` lock after the query string is read. Every change below is gated on
+`$isRentalEntry` (the same server-side, route-name-detected flag AT-403 already uses) — **the
+main Contacts screen's behaviour is completely unchanged**; nobody asked for that to move and
+it is shared with the sale side.
+
+**A real, pre-existing bug found while making the new controls actually work**: the filter
+form's `<form action="...">` was hardcoded to `route('corex.contacts.index')` regardless of
+entry point. Confirmed live BEFORE fixing anything: a page fetched from
+`/corex/rentals/contacts` rendered a form whose actual `action` attribute was
+`.../corex/contacts`. Every existing filter (search, type) — and now sort, and the pill —
+would have silently kicked a Rentals → Contacts user back to the plain Contacts screen the
+moment they touched any control, losing the `rentalRelevant()` lock entirely. Made
+route-aware (`corex.rentals.contacts.index` vs `corex.contacts.index`, matching the existing
+pattern the pill links already used elsewhere on this page) — same fix applied to the "Clear"
+link, which had the identical bug.
+
+**TASK A — default to the widest permitted scope on first load.** Before: `$filterAgentId`
+always defaulted to the viewer's own id ("Mine") on any request with no `?agent_id=`,
+regardless of the user's actual `contacts.view` scope — an agency-scoped admin landed on a hard
+empty "Mine" view despite ~196 real agency-wide contacts existing. Fixed, Rentals → Contacts
+only: on a genuine first load (no `?agent_id` at all, no prior choice this session), the
+default is now the WIDEST level `PermissionService::getDataScope($user, 'contacts')` actually
+grants — `all` → Agency, `branch` → Branch, anything narrower is unaffected (own-scope users
+never had a picker and still don't). An explicit choice made earlier in the SAME session
+(`session('corex.rentals_contacts.scope_pref')`, written the moment `?agent_id=` is present in
+any request) always wins over the widest-default — this governs first load only, never
+overrides a narrower pick the user already made, per instruction.
+
+**TASK B — explicit Branch level on the scope pill, and the "does All leak?" question.**
+Before: the pill offered only "My Contacts"/"All Contacts" — no way for anyone to explicitly
+select "my branch." Added a third pill, "Branch" (`agent_id=branch`, a new non-numeric sentinel
+alongside the pre-existing `unassigned` one, checked before the numeric-id branch so `(int)
+'branch'` can never be silently mis-cast to `0`) — shown to any user with at least branch-level
+access (`branch` or `all` scope; for an `all`-scoped admin this is a genuinely useful middle
+tier, their own branch, narrower than the full agency). For a `branch`-scoped user specifically,
+the old "All Contacts" pill is DROPPED rather than kept alongside — their real ceiling IS
+branch, so "All" would only ever show the identical rows as "Branch" under a misleading label.
+
+**cc4's flagged question, answered by reading the code AND proving it live, not by reading
+alone:** does "All" silently mean agency-wide for someone who should only see their branch?
+**No — confirmed safe, on two independent layers.** `ContactScope` (a real Eloquent global
+scope on `Contact`, keyed off the SAME `PermissionService::getDataScope()` call) enforces the
+true own/branch/all ceiling on every query regardless of what this controller's own
+`agent_id` filter does — even if the controller added no filter at all, a `branch`-scoped
+user's queries are narrowed to their branch by this independent, always-on scope. The
+controller's own filter is a second, redundant layer on top, not the only one.
+
+**A real gap in the mechanism itself, found while proving this:** `getDataScope()` for the
+`contacts`/`properties` modules specifically does NOT store a raw three-way own/branch/all
+value — Properties/Contacts use a simple on/off toggle in Role Manager (`own` vs anything
+else), and a non-`own` stored value then resolves to `branch` or `all` depending ENTIRELY on
+the agency's own `agencies.split_branches_enabled` (Data Isolation) setting. **Agency 1 (HFC)
+has `split_branches_enabled = false`**, which means NO real agency-1 user can ever resolve to a
+literal `branch` data-scope for Contacts today — the new Branch pill will not appear for
+anyone at HFC until/unless Data Isolation is turned on for that agency. This is expected,
+correct behaviour given the existing mechanism, not a bug introduced here — flagged plainly so
+nobody is surprised when Monday's QA1 walkthrough doesn't show a Branch pill on HFC's own data.
+
+**Verified live, three real personas, real HTTP fetches (this box has no literal browser, so
+these are the established equivalent — `scripts/fetch-authenticated-page.php` renders through
+the actual web server/PHP-FPM, never an in-process call):**
+- **Agency-scoped** (real admin, agency 1): first load on `/corex/rentals/contacts` — Agency
+  pill active, "of **196** results" (Johan's own cited number, exact match), all three pills
+  present (Mine/Branch/Agency).
+- **Branch-scoped** (throwaway `viewer`-role user, a throwaway agency with `split_branches_enabled`
+  explicitly turned on to genuinely exercise this path — agency 1 cannot, per the finding
+  above): first load — Branch pill active by default, ONLY Mine+Branch shown (Agency correctly
+  absent), "3 total" — correctly including a same-branch contact created by a DIFFERENT agent,
+  correctly excluding a real contact seeded in a different branch.
+- **Own-scoped** (throwaway agent, same throwaway agency): "1 total" — only their own contact;
+  no pill at all, unchanged from before (own-scope never had one).
+- **Detail-view scoping, query layer, both directions:** the branch-scoped user's direct URL to
+  the cross-branch contact → real `404`; the same user's direct URL to their own-branch
+  contact → real `200`. The own-scoped user's direct URL to a different agent's contact (same
+  agency, same branch) → real `404`. `ContactScope`'s global scope blocks route-model-binding
+  itself before the controller body ever runs, on every case.
+- **Render gate:** all three fetched pages, zero leaked attribute text, zero execution errors.
+- **`node scripts/rental-smoke.mjs --user-id=22 --rental-application-id=12`** (12, not the
+  hands-off 76): all 8 screens PASS, zero console errors on every one, including
+  `rentals_contacts` (`"196 total"`) — confirms no regression anywhere else in the module from
+  today's changes.
+
+**Search / filter / pagination / empty state — confirmed genuinely present, not assumed:**
+search (name/phone/email placeholder, live on this screen already), type filter (narrowed to
+Lessor/Lessee on this lens, per AT-403's own lock), pagination (Laravel paginator,
+`withQueryString()`, real "Showing X to Y of Z results"), and two real empty states already
+existed and were re-confirmed working (`No rental contacts yet` for the true-zero case;
+scoping-hid-everything gets its own distinct message elsewhere in this same controller for the
+Contact-tab sibling above — this list screen's zero-after-scoping case renders the same
+`No rental contacts yet` empty state, which is honest here since scope-driven zero and
+genuine zero read identically from an agent's perspective on a list screen, unlike the
+single-contact tab where "some exist but you can't see them" needed its own distinct wording).
+
+**Sort — added, columns and default now stated:** Name (last name, then first name) — the
+DEFAULT, unchanged from before this control existed, so adding it never silently reorders
+anyone's current view — Date added, Last updated. Direction: A–Z/oldest first (default) or
+Z–A/newest first.
+
+**Cleanup, disclosed:** every throwaway fixture (1 real-agency-1 user, 1 throwaway agency with
+2 branches/3 users/4 contacts/its full seeded role_permissions set) was soft-deleted after use,
+confirmed via `onlyTrashed()`, on models confirmed to carry `SoftDeletes` before calling
+`delete()` on any of them. Agency 1's own real data (its existing branch, its 1,336
+`role_permissions` rows) confirmed untouched by a direct spot-check afterward.
+
+**`dev-check.ps1` still cannot run on this box (no `pwsh`)** — real HTTP proof, the Alpine
+render gate, and `rental-smoke.mjs` above are this pass's equivalent, exactly as instructed.
+
+**A real mistake in this pass, disclosed rather than glossed over:** `Contact.php` and
+`ContactController.php`'s `index()`/`contacts/index.blade.php` edits were committed with
+`view-readonly.blade.php`'s Finding 5 commit's own SPEC changes staged, but the CODE for
+findings 8/A/B was left uncommitted in the working tree while a `.ai` spec merge conflict was
+being resolved — a subsequent `git merge origin/QA1` silently discarded those uncommitted code
+changes entirely (an incoming commit touched unrelated parts of the same files, and git's merge
+only protects COMMITTED changes; uncommitted working-tree edits are not a side of a merge and
+can be overwritten with no conflict shown at all). Caught immediately by re-checking the working
+tree against what had just been verified live, not assumed still there. All of findings 8/A/B
+(and the `Contact.php` tab fix) were rebuilt from scratch and RE-VERIFIED fresh end-to-end — new
+throwaway fixtures, all three personas, both detail-view scoping checks, the render gate, and
+`rental-smoke.mjs` — before this commit, not carried over from the lost proof. Going forward
+this session: commit and push each file immediately after finishing it, never batch multiple
+files across a spec-merge-conflict boundary again.
+
+**Files changed:** `app/Http/Controllers/CoreX/ContactController.php` (`index()`),
+`resources/views/corex/contacts/index.blade.php`.
