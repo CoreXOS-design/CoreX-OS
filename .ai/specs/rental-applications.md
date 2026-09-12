@@ -9006,6 +9006,16 @@ anyone at HFC until/unless Data Isolation is turned on for that agency. This is 
 correct behaviour given the existing mechanism, not a bug introduced here — flagged plainly so
 nobody is surprised when Monday's QA1 walkthrough doesn't show a Branch pill on HFC's own data.
 
+**In plain language, for Monday:** on the Rentals → Contacts screen, a Branch Manager will
+only see a "Branch" button if the agency has "Data Isolation" (also called split branches)
+switched on in Company Settings. HFC's own agency has that switch OFF right now, so nobody
+testing on HFC data this week will see the Branch button at all — they'll only ever see "My
+Contacts" and "All Contacts", exactly as before. That is not a bug and nothing needs fixing for
+Monday; it only becomes visible for an agency once that one setting is turned on. If Johan
+wants to actually see the Branch button working on HFC's own data before or during the demo,
+turning on Data Isolation for HFC in Company Settings is the one thing that would show it —
+his call, not something to change without asking.
+
 **Verified live, three real personas, real HTTP fetches (this box has no literal browser, so
 these are the established equivalent — `scripts/fetch-authenticated-page.php` renders through
 the actual web server/PHP-FPM, never an in-process call):**
