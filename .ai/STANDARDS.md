@@ -207,6 +207,27 @@ a migration that's already merged.
 
 ---
 
+## Standard −1c — Never run `npm run build` to make a feature test pass
+
+`Tests\TestCase::setUp()` calls `$this->withoutVite()` for every feature
+test, unconditionally. **A feature test never needs compiled frontend
+assets to run** — if a test renders a Blade view containing `@vite(...)`
+and you see `ViteManifestNotFoundException`, that is a real bug in that
+test's own setup (extending the wrong base class, or something bypassing
+`Tests\TestCase`), not a missing build. Do NOT "fix" it by running
+`npm install && npm run build` in your worktree — that treats the symptom,
+costs real time on every fresh worktree, and masks the actual gap if one
+exists.
+
+This used to be ~90 individual test files each calling `withoutVite()`
+themselves — real, but scattered, evidence that this is exactly the kind
+of thing every new feature test needs and nobody should have to remember.
+Fixed at the class (2026-09-12) instead of the instance: it is on by
+default now, for every test that extends `Tests\TestCase`, whether or not
+that test's author knew it would ever render a view.
+
+---
+
 ## Standard 0 — Operating Principle
 
 Every standard in this file is subordinate to the CoreX Operating Principle (see CLAUDE.md). If a standard conflicts with the principle, the principle wins. If a standard would let a shortcut ship, the standard is wrong and gets revised.
