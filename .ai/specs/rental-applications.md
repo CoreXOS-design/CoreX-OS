@@ -8179,4 +8179,26 @@ factory and inline object constructed with its actual call-site arguments (parse
 fetched page, never guessed), every zero-argument method called; this is what would have
 caught incident #1. **The gate passes (exit 0) only on checks 1 and 3 — check 2's warnings
 never block, and must not be silenced by deleting the check.**
-  and is reused as-is
+
+### The browser-level companion, and what this replaces (2026-09-12, cc1)
+
+The render gate above checks one fetched page at a time. `scripts/rental-smoke.mjs` is the
+broader companion: a real headless browser drives the whole rental-applications journey in
+one run — applications list (control-centre tiles), review screen, the mark-up view with
+documents open, authorisation screen, applicant link, Rentals → Contacts, contact edit, PDF
+splitter review — and reports a console-error count plus a real-data assertion (a total with
+a figure beside it, a list with rows in it — never just that labels rendered) **per screen**.
+Zero console errors is the pass mark on every screen; a 200 HTTP status is never treated as a
+pass signal anywhere in it, same as the render gate above. Full contract in
+BUILD_STANDARD.md §0a.
+
+```
+node scripts/rental-smoke.mjs
+```
+
+**This, together with the render gate above, replaces every prior round's closing-block
+variant of "dev-check.ps1 was not run — it is PowerShell and this box has no `pwsh`."**
+`scripts/dev-check.ps1` has never run on this host, for any build documented in this file, at
+any point — that fact doesn't change, but it stops being restated ad hoc every round. From
+here forward, a round's closing block reports the render-gate result and the
+`rental-smoke.mjs` per-screen console-error counts instead of a single pass/fail line.
