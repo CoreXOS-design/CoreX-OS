@@ -66,6 +66,15 @@
 <script>
 function rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, currentUserName, currentUserRole, highlighters, reviewLocked } = {}) {
     return {
+        // Alpine calls a component's own init() automatically, before any
+        // x-init on the same element — highlighters/currentUserRole are
+        // already set below from THIS factory's own constructor params by
+        // the time it runs, so computePenLabelFontSize() (which only reads
+        // those two) needs nothing from the per-document x-init chain
+        // (activeDocId, firstPageUrl, etc.) that runs after this.
+        init() {
+            this.computePenLabelFontSize();
+        },
         markedUpDocIds: initialMarkedUpDocIds || [],
         currentUserId: currentUserId ?? null,
         currentUserName: currentUserName || '',
@@ -193,6 +202,38 @@ function rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, curre
         /** Choosable right now for a NEW mark — not archived, visible to this viewer's role (its own scope, or 'both'), in the agency's own configured order. Works identically whether an agency has 2 or 12. */
         pickerHighlighters() {
             return this.highlighters.filter(h => !h.archived && (h.role_scope === this.currentUserRole || h.role_scope === 'both'));
+        },
+        // 2026-09-12 — pen rail labels, Johan: "text auto-shrunk to fit
+        // with EVERY label sized to the longest in that agency's set so
+        // the swatches stay evenly spaced." ONE shared font size for the
+        // whole picker set (not sized per-label — a run of labels at
+        // visibly different scales reads as careless, not adaptive),
+        // chosen as the LARGEST size at which the single longest label
+        // still fits the rail — see document-highlighter-pages.blade.php's
+        // own comment for where the 56px/7px numbers come from. Computed
+        // once in init() below, off real rendered pixel width (canvas
+        // measureText — character COUNT alone doesn't work, "iiii" and
+        // "MMMM" render at very different widths at the same font size),
+        // never re-derived per render.
+        penLabelFontSizePx: 9,
+        computePenLabelFontSize() {
+            const labels = this.pickerHighlighters().map(h => h.label || '').filter(Boolean);
+            if (!labels.length) return;
+            const MAX_SIZE = 9, MIN_SIZE = 7, AVAILABLE_WIDTH_PX = 52; // 56px column minus a couple px of breathing room each side
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext && canvas.getContext('2d');
+            if (!ctx) { this.penLabelFontSizePx = MIN_SIZE; return; } // no real 2D context available — fall back to the floor rather than throw
+            let chosen = MIN_SIZE;
+            for (let size = MAX_SIZE; size >= MIN_SIZE; size -= 0.5) {
+                ctx.font = size + 'px system-ui, -apple-system, sans-serif';
+                const widestPx = Math.max(...labels.map(l => ctx.measureText(l).width));
+                if (widestPx <= AVAILABLE_WIDTH_PX) { chosen = size; break; }
+            }
+            // Falls through to MIN_SIZE (the floor) if even 7px doesn't fit
+            // the longest label — that label ellipses (the CSS on its own
+            // <p>), every other label still renders at the same 7px rather
+            // than each finding its own, visually inconsistent size.
+            this.penLabelFontSizePx = chosen;
         },
         /** The currently-selected highlighter object, or null if none is choosable (an agency with zero highlighters configured for this role — full CRUD makes that a real, if rare, state). */
         activeHighlighter() {

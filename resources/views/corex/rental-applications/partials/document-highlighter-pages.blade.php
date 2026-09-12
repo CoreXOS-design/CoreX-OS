@@ -116,23 +116,45 @@
          guardScreenNotLockedForAuthoriser()); this just stops the agent
          from reaching a drawing gesture in the first place, same title
          either way so it reads as "why is this greyed out" not a mystery. --}}
-    <div class="flex-shrink-0 space-y-1.5" style="width: 44px; position: sticky; top: 0;"
+    {{-- 2026-09-12 — the label under each swatch, back after the
+         2026-09-11 "slim the pen rail" round removed every heading/label
+         to fit 44px. Johan: "these are agency-configurable data, not
+         three fixed pens" — read straight off h.label, never a hardcoded
+         Income/Expense/Unpaid assumption (QA1 already has agencies with
+         "Deposit Proof," "Reconnection Fee," etc.). No letter badge —
+         the label already says what the badge would have, and both
+         together is exactly the redundancy the 09-11 round was cutting.
+         Widened 44px -> 60px: real agency labels surveyed on QA1 run
+         6-16 characters (excluding throwaway test-verify rows); 60px
+         gives a real label room to read at a normal size before
+         computePenLabelFontSize() (below) has to shrink it, while a
+         genuinely oversized one still degrades gracefully via the 7px
+         floor + ellipsis rather than needing the rail widened further.
+         penLabelFontSizePx is ONE shared size for every label in this
+         set (computed off the LONGEST one, in init() below) — sizing
+         each label independently would leave "Income" and
+         "Reconnection Fee" at visibly different scales, which reads as
+         careless where a single shared size reads as intentional. --}}
+    <div class="flex-shrink-0 space-y-1.5" style="width: 60px; position: sticky; top: 0;"
          :style="{ opacity: reviewLocked ? '0.4' : '1', pointerEvents: reviewLocked ? 'none' : 'auto' }"
          :title="reviewLocked ? 'Read-only — this application is with the authoriser' : ''">
         {{-- Capture pens (Income/Expense) — "the highlighter mark IS the
              ledger line." Dragging with one open opens the capture chip
              (below) instead of just laying down ink. --}}
         <template x-for="h in capturePickerHighlighters()" :key="h.id">
-            <button type="button" class="relative flex items-center justify-center rounded-md transition-all duration-100 mx-auto"
-                    :title="h.label + ' — draw to capture a line'"
-                    @click="pickHighlighter(h.id)"
-                    :style="{
-                        width: '26px', height: '26px',
-                        background: h.color,
-                        border: (activeTool === 'highlight' && activeHighlighterId === h.id) ? '2px solid var(--text-primary)' : '1px solid var(--border)',
-                    }">
-                <span x-show="activeTool === 'highlight' && activeHighlighterId === h.id" style="color:#fff; font-weight:800; font-size:12px; text-shadow: 0 0 2px rgba(0,0,0,0.65);">&check;</span>
-            </button>
+            <div class="mx-auto" style="width: 56px;">
+                <button type="button" class="relative flex items-center justify-center rounded-md transition-all duration-100 mx-auto"
+                        :title="h.label + ' — draw to capture a line'"
+                        @click="pickHighlighter(h.id)"
+                        :style="{
+                            width: '26px', height: '26px',
+                            background: h.color,
+                            border: (activeTool === 'highlight' && activeHighlighterId === h.id) ? '2px solid var(--text-primary)' : '1px solid var(--border)',
+                        }">
+                    <span x-show="activeTool === 'highlight' && activeHighlighterId === h.id" style="color:#fff; font-weight:800; font-size:12px; text-shadow: 0 0 2px rgba(0,0,0,0.65);">&check;</span>
+                </button>
+                <p class="text-center leading-tight mt-0.5" style="color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" :style="{ fontSize: penLabelFontSizePx + 'px' }" :title="h.label" x-text="h.label"></p>
+            </div>
         </template>
         <template x-if="capturePickerHighlighters().length === 0">
             <p class="text-[8px] leading-snug text-center" style="color: var(--text-muted);" title="No capture highlighters configured — see Settings">—</p>
@@ -142,20 +164,25 @@
              default "Unpaid" pen) — a plain highlight, never a ledger
              entry. Omitted entirely when an agency has none. --}}
         <template x-for="h in plainPickerHighlighters()" :key="h.id">
-            <button type="button" class="relative flex items-center justify-center rounded-md transition-all duration-100 mx-auto"
-                    :title="h.label"
-                    @click="pickHighlighter(h.id)"
-                    :style="{
-                        width: '26px', height: '26px',
-                        background: h.color,
-                        border: (activeTool === 'highlight' && activeHighlighterId === h.id) ? '2px solid var(--text-primary)' : '1px solid var(--border)',
-                    }">
-                <span x-show="activeTool === 'highlight' && activeHighlighterId === h.id" style="color:#fff; font-weight:800; font-size:12px; text-shadow: 0 0 2px rgba(0,0,0,0.65);">&check;</span>
-            </button>
+            <div class="mx-auto" style="width: 56px;">
+                <button type="button" class="relative flex items-center justify-center rounded-md transition-all duration-100 mx-auto"
+                        :title="h.label"
+                        @click="pickHighlighter(h.id)"
+                        :style="{
+                            width: '26px', height: '26px',
+                            background: h.color,
+                            border: (activeTool === 'highlight' && activeHighlighterId === h.id) ? '2px solid var(--text-primary)' : '1px solid var(--border)',
+                        }">
+                    <span x-show="activeTool === 'highlight' && activeHighlighterId === h.id" style="color:#fff; font-weight:800; font-size:12px; text-shadow: 0 0 2px rgba(0,0,0,0.65);">&check;</span>
+                </button>
+                <p class="text-center leading-tight mt-0.5" style="color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" :style="{ fontSize: penLabelFontSizePx + 'px' }" :title="h.label" x-text="h.label"></p>
+            </div>
         </template>
 
         {{-- NOTE — its own fixed identity (NOTE_COLOR), never sharing the
-             highlighter palette (see pickNoteTool()). --}}
+             highlighter palette (see pickNoteTool()) — no backing
+             RentalApplicationHighlighter record, so it stays exactly as
+             it was: a fixed "N" glyph, not a labelled swatch. --}}
         <button type="button" class="relative flex items-center justify-center rounded-md transition-all duration-100 mx-auto"
                 title="Note — click anywhere on the document to pin a note"
                 @click="pickNoteTool()"
