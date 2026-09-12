@@ -2932,6 +2932,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->middleware('permission:rental_applications.create')->name('corex.rental-applications.create');
         Route::get('/search-properties', [\App\Http\Controllers\CoreX\RentalApplicationController::class, 'searchProperties'])
             ->middleware('permission:rental_applications.create')->name('corex.rental-applications.search-properties');
+        Route::post('/contacts/quick-create', [\App\Http\Controllers\CoreX\RentalApplicationController::class, 'quickCreateContact'])
+            ->middleware('permission:rental_applications.create')->name('corex.rental-applications.contacts.quick-create');
         Route::post('/', [\App\Http\Controllers\CoreX\RentalApplicationController::class, 'store'])
             ->middleware('permission:rental_applications.create')->name('corex.rental-applications.store');
         Route::get('/{rentalApplication}', [\App\Http\Controllers\CoreX\RentalApplicationController::class, 'show'])->name('corex.rental-applications.show');

@@ -37,6 +37,7 @@
                 </template>
             </div>
             <p class="text-xs mt-1" style="color: var(--text-muted);" x-show="selectedContactName" x-text="'Selected: ' + selectedContactName"></p>
+            <button type="button" @click="openQuickCreate()" class="text-xs mt-1 underline" style="color: var(--ds-blue, #2563eb);">Can't find them? Create a new contact</button>
         </div>
 
         <div>
@@ -58,6 +59,66 @@
             <button type="submit" class="corex-btn-primary text-xs" :disabled="!selectedContactId">Create</button>
         </div>
     </form>
+
+    {{-- Inline "create new contact" — minimum-viable fields only, deliberately
+         not the full Contacts form. Lives in the SAME x-data as the rest of
+         this page, so opening/closing it or hitting a validation error never
+         touches selectedPropertyId/selectedPropertyLabel/etc. — nothing typed
+         on the rest of the form is ever at risk. --}}
+    <div x-show="quickCreateOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center" style="background: rgba(0,0,0,0.4);">
+        <div class="rounded-md p-6 space-y-3 w-full max-w-sm" style="background: var(--surface); border: 1px solid var(--border);" @click.outside="closeQuickCreate()">
+            <h2 class="text-sm font-bold" style="color: var(--text-primary);">New contact</h2>
+
+            <template x-if="quickCreateError">
+                <p class="text-xs rounded px-2 py-1" style="background: var(--ds-red-soft, #fef2f2); color: var(--ds-red, #dc2626);" x-text="quickCreateError"></p>
+            </template>
+
+            <template x-if="!quickCreateDuplicates.length">
+                <div class="space-y-2">
+                    <div>
+                        <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">First name</label>
+                        <input type="text" x-model="quickCreate.first_name" class="w-full rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Last name</label>
+                        <input type="text" x-model="quickCreate.last_name" class="w-full rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Phone</label>
+                        <input type="text" x-model="quickCreate.phone" class="w-full rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Email</label>
+                        <input type="email" x-model="quickCreate.email" class="w-full rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                    </div>
+                    <p class="text-xs" style="color: var(--text-muted);">Phone or email is required. Everything else about this contact can be filled in later from Contacts.</p>
+                    <div class="flex justify-end gap-2 pt-1">
+                        <button type="button" @click="closeQuickCreate()" class="corex-btn-outline text-xs">Cancel</button>
+                        <button type="button" @click="submitQuickCreate()" class="corex-btn-primary text-xs" :disabled="quickCreateBusy">Create contact</button>
+                    </div>
+                </div>
+            </template>
+
+            <template x-if="quickCreateDuplicates.length">
+                <div class="space-y-2">
+                    <p class="text-xs" style="color: var(--text-secondary);">This looks like it might already be a contact — link the existing person instead of creating a second record:</p>
+                    <template x-for="d in quickCreateDuplicates" :key="d.id">
+                        <div class="rounded-md px-3 py-2 text-sm flex items-center justify-between" style="border: 1px solid var(--border);">
+                            <div>
+                                <div x-text="d.name"></div>
+                                <div class="text-xs" style="color: var(--text-muted);" x-text="[d.phone, d.email].filter(Boolean).join(' · ')"></div>
+                            </div>
+                            <button type="button" x-show="d.can_view" @click="useDuplicate(d)" class="corex-btn-outline text-xs">Use this contact</button>
+                        </div>
+                    </template>
+                    <div class="flex justify-end gap-2 pt-1">
+                        <button type="button" @click="closeQuickCreate()" class="corex-btn-outline text-xs">Cancel</button>
+                        <button type="button" x-show="quickCreateMode !== 'hard_block_request'" @click="submitQuickCreate(true)" class="corex-btn-primary text-xs">Create anyway</button>
+                    </div>
+                </div>
+            </template>
+        </div>
+    </div>
 </div>
 
 <script>
@@ -66,6 +127,8 @@ function rentalApplicationCreate(old) {
     return {
         contactQuery: old.contactName || '', contactResults: [], selectedContactId: old.contactId || '', selectedContactName: old.contactName || '',
         propertyQuery: old.propertyLabel || '', propertyResults: [], selectedPropertyId: old.propertyId || '', selectedPropertyLabel: old.propertyLabel || '',
+        quickCreateOpen: false, quickCreateBusy: false, quickCreateError: '', quickCreateDuplicates: [], quickCreateMode: '',
+        quickCreate: { first_name: '', last_name: '', phone: '', email: '' },
         async searchContacts() {
             if (this.contactQuery.length < 2) { this.contactResults = []; return; }
             const res = await fetch('{{ route('corex.properties.contacts.search-global') }}?q=' + encodeURIComponent(this.contactQuery));
@@ -87,6 +150,48 @@ function rentalApplicationCreate(old) {
             this.selectedPropertyLabel = p.label;
             this.propertyResults = [];
             this.propertyQuery = p.label;
+        },
+        openQuickCreate() {
+            this.quickCreate = { first_name: '', last_name: '', phone: '', email: '' };
+            this.quickCreateError = '';
+            this.quickCreateDuplicates = [];
+            this.quickCreateOpen = true;
+        },
+        closeQuickCreate() {
+            this.quickCreateOpen = false;
+        },
+        useDuplicate(d) {
+            this.selectContact({ id: d.id, first_name: d.name, last_name: '' });
+            this.selectedContactName = d.name;
+            this.closeQuickCreate();
+        },
+        async submitQuickCreate(bypass) {
+            this.quickCreateBusy = true;
+            this.quickCreateError = '';
+            try {
+                const res = await fetch('{{ route('corex.rental-applications.contacts.quick-create') }}', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': '{{ csrf_token() }}', 'Accept': 'application/json' },
+                    body: JSON.stringify({ ...this.quickCreate, bypass_duplicate_check: !!bypass }),
+                });
+                const body = await res.json();
+                if (res.status === 422 && body.duplicates) {
+                    this.quickCreateDuplicates = body.duplicates;
+                    this.quickCreateMode = body.mode;
+                    return;
+                }
+                if (!res.ok) {
+                    this.quickCreateError = body.message || (body.errors ? Object.values(body.errors)[0][0] : 'Could not create that contact.');
+                    return;
+                }
+                const c = body.contact;
+                this.selectContact({ id: c.id, first_name: c.first_name, last_name: c.last_name });
+                this.closeQuickCreate();
+            } catch (e) {
+                this.quickCreateError = 'Something went wrong — try again.';
+            } finally {
+                this.quickCreateBusy = false;
+            }
         },
     };
 }
