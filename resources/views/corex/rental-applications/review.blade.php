@@ -1699,16 +1699,30 @@ function rentalCaptureLedger({ initialCaptureEntries, manualCaptureCreateUrl } =
         formatR(v) {
             return v === null || v === undefined ? '—' : 'R ' + Number(v).toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
         },
-        // yy/mm/dd — Johan's own format for this panel. A plain string
-        // split, not a Date parse/reformat: entry_date always arrives as a
-        // stable 'YYYY-MM-DD' from the server (see either model's
-        // toMarkArray()), so there is no timezone-shift risk a Date object
-        // parse of a bare date string can introduce.
+        // d M y — 2026-09-13, Johan, real bug found live on application 70:
+        // the previous format printed "26/07/24" for 2026-07-24, which
+        // every South African agent reads as 26 July 2024 — yy/mm/dd on a
+        // screen whose entire job is reading dates off bank statements is
+        // a wrong answer, not a cosmetic one. Johan's own instruction was
+        // d/m/Y first, falling back to "d M y" only if the column is
+        // genuinely too narrow for a 4-digit year — measured, not guessed:
+        // a real headless-Chrome render of "24/07/2026" in this exact
+        // column came out to ~61.7px of actual text against a 44px-wide
+        // fixed grid track (.rr-ledger-row's own `grid-template-columns`),
+        // a real ~18px overflow. "24 Jul 26" (Johan's own example) fits
+        // within the same measured tolerance. Never a Date object
+        // parse/reformat:
+        // entry_date always arrives as a stable 'YYYY-MM-DD' from the
+        // server (see either model's toMarkArray()), so there is no
+        // timezone-shift risk a Date object parse of a bare date string
+        // can introduce.
         shortDate(d) {
             if (!d) return '—';
             const parts = String(d).split('-');
             if (parts.length !== 3) return d;
-            return parts[0].slice(2) + '/' + parts[1] + '/' + parts[2];
+            const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+            const month = MONTHS[parseInt(parts[1], 10) - 1] || parts[1];
+            return parts[2] + ' ' + month + ' ' + parts[0].slice(2);
         },
         addCaptureEntry(entry) {
             this.captureEntries.push(entry);
