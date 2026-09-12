@@ -19,6 +19,7 @@ use Illuminate\Support\Str;
 class ContactController extends Controller
 {
     use \App\Http\Controllers\Concerns\AuthorizesContactAccess;
+    use \App\Http\Controllers\Concerns\FiltersRentalApplicationList;
 
     public function index(Request $request)
     {
@@ -961,7 +962,65 @@ class ContactController extends Controller
         // $hasAnyRentalApplications is the UNSCOPED existence check, used
         // only to tell "genuinely none" apart from "some exist but scoping
         // hides them" in the tab's empty state — never to decide what's shown.
-        $visibleRentalApplications = $contact->visibleRentalApplicationsFor($request->user())->get();
+        //
+        // 2026-09-12 — design-standard hardening: this tab shipped with no
+        // pagination or cap (`->get()` on the full scoped set), and no
+        // search — a real gap the moment a contact accumulates a genuine
+        // history. Reuses FiltersRentalApplicationList — the SAME trait
+        // index()/returned()/the authoriser queue already use — rather than
+        // a parallel search/sort implementation, so this tab's query
+        // vocabulary (q/status/sort/direction/per_page) matches every other
+        // rental-application list in the app. Contact/agent as SORT columns
+        // are meaningless here (every row belongs to this ONE contact), so
+        // the tab only ever asks for sort=date; the trait itself is
+        // untouched. Scoping is unchanged — still
+        // visibleRentalApplicationsFor(), own/branch/agency exactly as
+        // before, now just paginated instead of dumped whole into the DOM.
+        // A distinct paginator page name ('rental_history') avoids
+        // colliding with the History tab's own 'history' paginator on this
+        // same page.
+        // The tab BADGE is "how many applications does this contact have" —
+        // a stable fact, so it's counted off the scoped query BEFORE any
+        // search/status filter is applied (a search narrowing the list to 1
+        // result must never make the badge read "1"). Counted first, off
+        // its own clone, so filtering the list below can never affect it.
+        $rentalApplicationsTotalCount = (clone $contact->visibleRentalApplicationsFor($request->user()))->count();
+
+        $rentalHistoryQuery = $contact->visibleRentalApplicationsFor($request->user());
+        $this->applySearchSortAndDateRange($rentalHistoryQuery, $request, 'submitted_at', 'created_at', 'desc');
+        // Grouped "outcome" filter (Approved/Declined/Withdrawn/In progress/
+        // Invited) — the same buckets this tab already offered client-side,
+        // kept because they're more agent-useful than raw status values on
+        // a history view. Deliberately a SEPARATE query param from the
+        // trait's own `status` (exact single-value match) rather than
+        // widening the shared trait to support groups — that trait is used
+        // by index()/returned()/the authoriser queue and changing its
+        // matching semantics is out of this task's scope.
+        $rentalOutcomeGroups = [
+            'approved' => ['approved'],
+            'declined' => ['declined'],
+            'withdrawn' => ['withdrawn'],
+            'in_progress' => ['in_progress', 'returned', 'under_assessment', 'reopened'],
+            'invited' => ['draft', 'sent'],
+        ];
+        $rentalOutcome = $request->string('outcome')->toString();
+        if ($rentalOutcome !== '' && isset($rentalOutcomeGroups[$rentalOutcome])) {
+            $rentalHistoryQuery->whereIn('rental_applications.status', $rentalOutcomeGroups[$rentalOutcome]);
+        } else {
+            $rentalOutcome = '';
+        }
+        $rentalHistoryPerPage = $this->resolvePerPage($request, 10);
+        $visibleRentalApplications = $rentalHistoryQuery
+            ->paginate($rentalHistoryPerPage, ['*'], 'rental_history')
+            ->appends(array_filter([
+                'tab' => 'rental',
+                'q' => $request->filled('q') ? $request->string('q')->toString() : null,
+                'outcome' => $rentalOutcome !== '' ? $rentalOutcome : null,
+                'direction' => $request->filled('direction') ? $request->string('direction')->toString() : null,
+                'date_from' => $request->filled('date_from') ? $request->string('date_from')->toString() : null,
+                'date_to' => $request->filled('date_to') ? $request->string('date_to')->toString() : null,
+                'per_page' => $request->filled('per_page') ? $request->integer('per_page') : null,
+            ]));
         $hasAnyRentalApplications = $contact->rentalApplications()->exists();
 
         // AT-267 — may the current user EDIT this contact? An assistant may VIEW a colleague's
@@ -985,7 +1044,7 @@ class ContactController extends Controller
         // Contact-details Phase 2 adds $contactIdentifierLabels; Phase 4 adds the
         // Recent-Sends panel vars ($recentSends, $sendAuditLog, $sendAuditActors);
         // AT-321 audit adds $includeSystem (History-tab system-trail toggle).
-        return view('corex.contacts.show', compact('contact', 'contactTypes', 'contactIdentifierLabels', 'contactTags', 'matchCategories', 'matchTypes', 'featureOptions', 'documentTypes', 'driveLinkedGroups', 'driveUnlinkedDocs', 'drivePropertyMap', 'buyerViewings', 'sellerViewings', 'buyerUpcoming', 'buyerPast', 'sellerUpcoming', 'sellerPast', 'viewingsCount', 'outreachSends', 'outreachClickCounts', 'outreachOutcomeOptions', 'agencyAgents', 'canViewComms', 'contactComms', 'contactThreads', 'commsViaGrant', 'canRequestComms', 'pendingCommsRequest', 'myCaptureStatus', 'waSent', 'emailSent', 'fullAuditLog', 'includeSystem', 'historyCount', 'recentSends', 'sendAuditLog', 'sendAuditActors', 'canEdit', 'linkedDeals', 'visibleRentalApplications', 'hasAnyRentalApplications'));
+        return view('corex.contacts.show', compact('contact', 'contactTypes', 'contactIdentifierLabels', 'contactTags', 'matchCategories', 'matchTypes', 'featureOptions', 'documentTypes', 'driveLinkedGroups', 'driveUnlinkedDocs', 'drivePropertyMap', 'buyerViewings', 'sellerViewings', 'buyerUpcoming', 'buyerPast', 'sellerUpcoming', 'sellerPast', 'viewingsCount', 'outreachSends', 'outreachClickCounts', 'outreachOutcomeOptions', 'agencyAgents', 'canViewComms', 'contactComms', 'contactThreads', 'commsViaGrant', 'canRequestComms', 'pendingCommsRequest', 'myCaptureStatus', 'waSent', 'emailSent', 'fullAuditLog', 'includeSystem', 'historyCount', 'recentSends', 'sendAuditLog', 'sendAuditActors', 'canEdit', 'linkedDeals', 'visibleRentalApplications', 'hasAnyRentalApplications', 'rentalApplicationsTotalCount', 'rentalOutcome'));
     }
 
     public function checkDuplicate(Request $request)

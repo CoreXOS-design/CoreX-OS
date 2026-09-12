@@ -110,6 +110,14 @@ return [
         ['key' => 'rental_applications.create',          'label' => 'Create & Send Rental Applications',   'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_applications', 'sort_order' => 2],
         ['key' => 'rental_applications.view_returned',   'label' => 'View Returned Applications',          'section' => 'agency-tracker', 'type' => 'access', 'module' => 'rental_applications', 'sort_order' => 3],
         ['key' => 'rental_applications.manage_settings', 'label' => 'Manage Rental Application Settings',  'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_applications', 'sort_order' => 4],
+        // 2026-09-12 — Archive/Restore on the applications list were gated behind
+        // rental_applications.create (the "Create & Send" permission) — correctly
+        // reversible soft-delete, wrongly named gate. Matches the established
+        // {module}.archive convention used everywhere else in this file (deals,
+        // listings, properties, contacts, etc.) — one key covers the reversible
+        // archive/restore pair, same as every sibling module. See the
+        // role_permissions migration alongside this for who was migrated onto it.
+        ['key' => 'rental_applications.archive',         'label' => 'Archive',                             'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_applications', 'sort_order' => 5],
 
         // AT-392 — Contact rental-history visibility, its own scope independent of
         // rental_applications.view's own ceiling (a plain agent's list-screen scope
@@ -824,7 +832,9 @@ return [
                 // by RentalApplication::scopeVisibleTo() via scope_defaults, not by a
                 // separate per-role key. manage_settings is deliberately NOT granted here
                 // (admin-only, matching manage_finance_definitions / outreach_templates.manage).
-                'rental_applications.view', 'rental_applications.create', 'rental_applications.view_returned',
+                // .archive (2026-09-12) — Archive/Restore were gated on .create by mistake;
+                // granted here to preserve this role's existing effective access unchanged.
+                'rental_applications.view', 'rental_applications.create', 'rental_applications.view_returned', 'rental_applications.archive',
                 'daily_activity.view', 'daily_activity.create', 'daily_activity.edit',
                 'tv_messages.view', 'tv_messages.create', 'tv_messages.edit',
                 'targets.view', 'targets.create', 'targets.edit',
@@ -948,7 +958,9 @@ return [
                 // AT-392 — see branch_manager's identical block above for the full
                 // rationale. Agents are the people who send rental applications;
                 // manage_settings is deliberately not granted here (admin-only).
-                'rental_applications.view', 'rental_applications.create', 'rental_applications.view_returned',
+                // .archive (2026-09-12) — Archive/Restore were gated on .create by mistake;
+                // granted here to preserve this role's existing effective access unchanged.
+                'rental_applications.view', 'rental_applications.create', 'rental_applications.view_returned', 'rental_applications.archive',
                 'daily_activity.view', 'daily_activity.create', 'daily_activity.edit',
                 'targets.view',
                 'access_my_portal', 'upload_own_documents', 'edit_own_profile', 'view_agency_documents',
