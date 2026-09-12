@@ -485,21 +485,23 @@ class RentalApplicationController extends Controller
      *   the match list so the agent links the existing person instead of
      *   minting a second record; `auto_link` mode returns the existing
      *   contact directly, same as store().
-     * - Type assignment: `Contact::syncTypeAssignments()` — the exact
-     *   model method cc6 hardened this round (AT-392, add-never-strip).
-     *   Called directly rather than through
-     *   `ContactController::applyTypeAssignments()` on purpose: cc6 is
-     *   mid-change in that controller/its templates this round and this
-     *   task was told explicitly not to touch that path. For a BRAND NEW
-     *   contact there is nothing to strip, so calling the model method
-     *   directly is equivalent and safe — the strip-guard in
-     *   applyTypeAssignments() only ever matters for an EXISTING contact.
-     *   Assigns "Lessee" (one of the seven fixed parent types
-     *   ContactType::scopeParents() defines) — NOT "Tenant": this
-     *   codebase's own established convention
-     *   (`AddTenantTypeOnRentalApproval`) adds Tenant only on approval,
-     *   never at application time, and a rental applicant is, from the
-     *   moment they apply, exactly the party expected to sign as lessee.
+     * - Type assignment: NONE at creation, on purpose (corrected
+     *   2026-09-12 — see .ai/specs/rental-applications.md, "Inline
+     *   create-contact type correction"). The first cut of this wrongly
+     *   assigned "Lessee" (id 10, the CANONICAL e-sign-wizard parent) —
+     *   a genuinely different database row from "Tenant" (id 11, the type
+     *   `AddTenantTypeOnRentalApproval` actually adds, and the one every
+     *   report/filter in this module is keyed on). Picking an existing
+     *   contact via the normal search box also assigns no type at
+     *   creation — type only ever arrives via `AddTenantTypeOnRentalApproval`
+     *   on APPROVAL, for every contact regardless of entry door. Stamping
+     *   a type here — even the correct one — would make an inline-created
+     *   contact diverge from that rule (e.g. a DECLINED applicant would
+     *   wrongly carry a rental type forever, since Johan's add-never-strip
+     *   rule means nothing ever removes it). Leaving this path
+     *   type-less at creation is what makes it behave identically, from
+     *   day one through approval, to a contact picked via the pre-existing
+     *   search box — not a gap, the correct behaviour.
      * - Identifiers: `ContactIdentifierService::syncIdentifiers()` — the
      *   same child-row writer every other contact-creation path uses.
      *
@@ -591,10 +593,9 @@ class RentalApplicationController extends Controller
                 $email !== '' ? [['value' => $email, 'label' => null, 'is_primary' => true]] : [],
             );
 
-            $lessee = \App\Models\ContactType::where('esign_role', 'lessee')->where('name', 'Lessee')->first();
-            if ($lessee) {
-                $contact->syncTypeAssignments([$lessee->id], []);
-            }
+            // No type assigned here, deliberately — see the method docblock.
+            // AddTenantTypeOnRentalApproval adds "Tenant" on approval, the
+            // same as it already does for a contact picked via search.
 
             return $contact;
         });
