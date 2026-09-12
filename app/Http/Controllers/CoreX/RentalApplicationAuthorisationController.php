@@ -13,7 +13,6 @@ use App\Models\RentalApplicationDocumentMark;
 use App\Models\RentalApplicationDocumentValidityWindow;
 use App\Models\RentalApplicationExpenseItem;
 use App\Models\RentalApplicationIncomeItem;
-use App\Models\RentalApplicationQualifyingSetting;
 use App\Models\RentalApplicationStatusHistory;
 use App\Models\User;
 use App\Services\RentalApplications\RentalApplicationAuditService;
@@ -215,9 +214,6 @@ class RentalApplicationAuthorisationController extends Controller
             ['agency_id' => $rentalApplication->agency_id],
         );
 
-        $maxRentPercent = RentalApplicationQualifyingSetting::maxRentPercentFor((int) $rentalApplication->agency_id);
-        $result = $assessment->exists ? $assessment->qualifyingResult($maxRentPercent) : null;
-
         // AT-392 "pull from contact" — the unified screen shows the
         // authoriser the same set of documents the agent sees, including
         // anything pulled from the contact's file history (not just what
@@ -322,7 +318,7 @@ class RentalApplicationAuthorisationController extends Controller
             ->values();
 
         return view('corex.rental-applications.review', compact(
-            'rentalApplication', 'assessment', 'maxRentPercent', 'result', 'documents', 'history', 'auditLog', 'auditLogTotal', 'canOverride', 'alreadyDecided',
+            'rentalApplication', 'assessment', 'documents', 'history', 'auditLog', 'auditLogTotal', 'canOverride', 'alreadyDecided',
             'blockedBySelfApproval', 'highlighters', 'viewerRole', 'captureEntries'
         ));
     }
@@ -642,11 +638,20 @@ class RentalApplicationAuthorisationController extends Controller
      * it shows the authoriser disagreed with a specific line rather than
      * the figure quietly vanishing. It is an audit trail, not a display
      * choice." Never a delete, never SoftDeletes — struck_out_at/by stay on
-     * the row, RentalApplicationAssessment::qualifyingResult() excludes a
-     * struck line from the total while every view still renders it.
-     * Toggle, not one-way — a reviewer can un-strike a line they struck in
-     * error. Deliberately NO ownership guard here (see this method's own
-     * class docblock above) — anyone with view access may strike ANY row.
+     * the row. Toggle, not one-way — a reviewer can un-strike a line they
+     * struck in error. Deliberately NO ownership guard here (see this
+     * method's own class docblock above) — anyone with view access may
+     * strike ANY row.
+     *
+     * 2026-09-14 — the only consumer of isStruckOut() (RentalApplication
+     * Assessment::qualifyingResult(), which excluded struck lines from its
+     * total) was removed as dead code (see .ai/specs/rental-applications.md,
+     * "qualifyingResult() removed"). This toggle and struck_out_at/by still
+     * work exactly as before — the audit trail this docblock describes is
+     * unaffected — but no current calculation reads the flag any more.
+     * Reported, not touched: this whole old income/expense-items subsystem
+     * (this endpoint, addIncomeItem(), the two old tables) is a separate,
+     * broader question from the one qualifyingResult()'s removal answered.
      */
     private function toggleStrikeAssessmentItem(Request $request, RentalApplication $rentalApplication, $item, RentalApplicationAuditService $audit, string $kind)
     {

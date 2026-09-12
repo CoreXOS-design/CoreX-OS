@@ -68,12 +68,13 @@ class RentalApplicationReviewController extends Controller
      * linked should be an option then on review - look when the agent
      * creates the application they can link it, but if not linked and we
      * want to test against it then we need to allow the agent to link it
-     * on this screen as well." The affordability check was testing the
-     * applicant's self-reported CURRENT rent when no property was linked —
-     * meaningless, since it answers "can they afford where they already
-     * live." cc4's qualifyingResult() now reads the rent from the linked
-     * property instead (App\Models\RentalApplicationAssessment) — this
-     * action is the only way to set/clear that link from Review.
+     * on this screen as well." The affordability check (the now-removed
+     * qualifyingResult(), see .ai/specs/rental-applications.md) was
+     * testing the applicant's self-reported CURRENT rent when no property
+     * was linked — meaningless, since it answers "can they afford where
+     * they already live." This action is the only way to set/clear that
+     * link from Review, and linking still matters for the property's own
+     * display on this screen independently of that removed check.
      *
      * Deliberately its OWN action, not a reopening of
      * RentalApplicationController::update() — that route is now hard-
@@ -206,11 +207,6 @@ class RentalApplicationReviewController extends Controller
             ['rental_application_id' => $rentalApplication->id],
             ['agency_id' => $rentalApplication->agency_id],
         );
-        $assessment->setRelation('incomeItems', $assessment->exists ? $assessment->incomeItems : collect());
-        $assessment->setRelation('expenseItems', $assessment->exists ? $assessment->expenseItems : collect());
-
-        $maxRentPercent = RentalApplicationQualifyingSetting::maxRentPercentFor((int) $rentalApplication->agency_id);
-        $result = $assessment->exists ? $assessment->qualifyingResult($maxRentPercent) : null;
 
         $allDocIds = $rentalApplication->documents->pluck('id')->merge($rentalApplication->referencedDocuments->pluck('id'));
         $highlightedByDocId = RentalApplicationDocumentHighlight::whereIn('document_id', $allDocIds)
@@ -433,7 +429,7 @@ class RentalApplicationReviewController extends Controller
             ->values();
 
         return view('corex.rental-applications.review', compact(
-            'rentalApplication', 'assessment', 'maxRentPercent', 'result', 'documents', 'moreInfoRequestedNote', 'declineInfo', 'highlighters',
+            'rentalApplication', 'assessment', 'documents', 'moreInfoRequestedNote', 'declineInfo', 'highlighters',
             'viewerRole', 'propertyLinkLocked', 'auditLog', 'auditLogTotal', 'existingWishlist', 'matchCategories', 'matchTypes', 'featureOptions',
             'rentalPropertyTypeNames', 'wishlistPrefill', 'pickableContactDocuments', 'pickableStaleness', 'documentChecklist', 'captureEntries'
         ))->with('isPendingAuthorisation', $rentalApplication->isPendingAuthorisation());

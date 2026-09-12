@@ -10124,3 +10124,133 @@ suite already exercises); the one failure is the same pre-existing app-148
 `markup_view` issue documented against this app id twice already in this
 file — not touched, out of scope. `dev-check.ps1` cannot run on this box
 (no `pwsh`) — stated plainly.
+
+## qualifyingResult() removed — the dead second calculator is gone (2026-09-14, cc4)
+
+Johan, on routing the prior arithmetic audit's findings: "it computes affordability figures
+nobody sees... it is a second, stale implementation of the exact arithmetic you just proved
+correct. The next person to touch affordability will find two calculators and no way to tell
+which one is live." Removed on his explicit go, not repointed or left in place.
+
+### What was confirmed dead, and how
+
+Exhaustive whole-application grep (not limited to `resources/views/corex/rental-applications/`
+or `app/Http/Controllers/CoreX/`) for every name tied to this calculation:
+
+- `qualifyingResult` — every occurrence across the codebase, before removal: the method
+  definition itself; two call sites (`RentalApplicationReviewController::show()` line 213,
+  `RentalApplicationAuthorisationController::show()` line 219); three test files referencing it
+  (`RentalApplicationRound9AffordabilityTest.php`, `Round10ReviewScreenTest.php`,
+  `Round11DecimalAndStatementMonthsTest.php`); a handful of explanatory comments. No Console
+  command, Job, Mailable, Export, API controller, or `__call`/dynamic-dispatch path anywhere in
+  the application referenced it.
+- `gross_income` / `meets_threshold` / `max_affordable_rent` (the method's own return-array
+  keys) — also found in `app/Services/CommercialEvaluation/` and
+  `resources/views/commercial-evaluations/show.blade.php`, a **completely unrelated module**
+  (commercial property evaluations, not rental applications) with its own, separate
+  implementation and coincidentally-similar key names. Checked directly — no reference to
+  `RentalApplicationAssessment` anywhere in that module. Not a consumer.
+- `isStruckOut()` / `struck_out_at` — the ONLY reader of the struck-out flag for exclusion from
+  a total was `qualifyingResult()` itself. The strike-out TOGGLE
+  (`RentalApplicationAuthorisationController::toggleStrikeIncomeItem()`/`ExpenseItem()`) still
+  works exactly as before and is untouched — but as of this removal, nothing computes a total
+  that reads the flag any more. Reported, not touched: this is a consequence of the removal, not
+  something decided here.
+- `$result` — passed to `review.blade.php` (the shared template both controllers render) by
+  both call sites; the view itself was proven, by grepping the whole file both for PHP-side
+  `$result` and JS-side `this.result`, to never read it under any name, in any form (the
+  2026-09-11 capture-ledger rework's own "ReferenceError: initialResult is not defined" incident
+  comment already documents that the verdict-box UI which used to consume it was deliberately
+  removed in Round 8).
+- `$maxRentPercent` — a related dead leftover found while removing the above: computed on every
+  page load in both controllers via `RentalApplicationQualifyingSetting::maxRentPercentFor()`,
+  passed to the view, and — like `$result` — never read anywhere in `review.blade.php` either.
+  Its only purpose was feeding `qualifyingResult($maxRentPercent)`. Removed together with the
+  method, not left behind as another orphaned computation. (`RentalApplicationQualifyingSetting::
+  maxRentPercentFor()` itself stays — it's still called live by
+  `RentalApplicationSettingsController.php` for the agency's own settings screen.)
+
+### What was removed
+
+- `app/Models/RentalApplicationAssessment.php` — the `qualifyingResult(float $maxRentPercent):
+  array` method (30%-of-gross-income rule, Rounds 9/12/16's worked examples and the 2026-09-13
+  short-range-months floor fix). `incomeItems()`/`expenseItems()` relations stay — the
+  authoriser's own `addIncomeItem()`/`toggleStrikeIncomeItem()` endpoints still write to those
+  tables independently of this removal.
+- `app/Http/Controllers/CoreX/RentalApplicationReviewController.php` (`show()`) — the
+  `$result`/`$maxRentPercent` computations, the two `setRelation('incomeItems'/'expenseItems',
+  ...)` preload lines (existed solely to satisfy `qualifyingResult()`'s internal property access
+  under strict lazy-loading), and both from the `compact()` call.
+- `app/Http/Controllers/CoreX/RentalApplicationAuthorisationController.php` (`show()`) — same
+  `$result`/`$maxRentPercent` computations and `compact()` entries; the now-unused
+  `RentalApplicationQualifyingSetting` import.
+- `tests/Feature/RentalApplications/RentalApplicationRound9AffordabilityTest.php` — removed
+  `test_worked_example_eighteen_thousand_gross_qualifies_up_to_fifty_four_hundred_rent` and
+  `test_net_income_plays_no_part_in_the_decision`, the only two tests in the whole suite that
+  unit-tested `qualifyingResult()` directly (as opposed to UI/JSON shapes the 2026-09-11
+  capture-ledger rework had already broken independently of this removal — see below). Their
+  worked example, preserved here since nothing computes it any more: **income R18,000, expenses
+  R4,000, property rent R5,400, 30% ceiling → gross income R18,000, max affordable rent R5,400,
+  meets_threshold true ("sufficient"); one rand over (R5,401) flips it to false
+  ("insufficient")** — a real boundary check, not a loose approximation.
+
+### Pre-existing, unrelated test debt found — reported, not touched
+
+Before touching anything, a baseline run of all three test files (`Round9AffordabilityTest`,
+`Round10ReviewScreenTest`, `Round11DecimalAndStatementMonthsTest`) was taken specifically so any
+newly-introduced failure could be told apart from what was already broken. Result: **the large
+majority of tests in Round10 and Round11, and several in Round9, were already failing before
+this removal touched anything** — confirmed by reading the actual current code, not just the
+test output:
+
+- `RentalApplicationReviewController::saveAssessment()`'s JSON response has not included a
+  `result` key, or accepted `income_items`/`expense_items` at all, since the 2026-09-11
+  capture-ledger rework explicitly removed that handling (see that method's own comment: "income_
+  items/expense_items handling REMOVED from this endpoint... capture now happens via
+  rental_application_document_marks, not this endpoint"). Every Round10/Round11 test that POSTs
+  `income_items`/`expense_items` to this endpoint and asserts on `$data['result'][...]` has been
+  failing since that rework — unrelated to whether `qualifyingResult()` the method still exists.
+- Several Round9/Round10 tests assert on UI text (`'Within the affordability guideline'`,
+  `'Exceeds guideline'`, `'Property rent'`) belonging to the old verdict-box UI that Round 8
+  deliberately removed from `review.blade.php` — also pre-existing, also unrelated to this
+  removal.
+
+**The only behavioural change from this removal, verified against that baseline**: the two
+worked-example tests above went from PASS (direct unit tests of the method) to REMOVED (the
+method they tested no longer exists). Every already-failing test in these three files fails for
+the exact same reason, unchanged, after this removal — none of them newly failed, and none of
+them newly errored, because they were never exercising `qualifyingResult()` in the first place.
+This pre-existing test debt (an entire generation of tests written for a `saveAssessment()`
+contract the 2026-09-11 rework silently broke) is a separate, larger cleanup than this task's
+scope — reported here for a dedicated pass, not fixed as part of removing a dead calculator.
+
+### Proof both screens still render, still show the same numbers, and load is no slower
+
+- `tests/Feature/RentalApplications/RentalApplicationAffordabilityArithmeticTest.php` (this
+  session's own prior work, proving Johan's application-76 reference case to the cent) re-run
+  after this removal: still 3/3 passing, same figures. This test hits
+  `RentalApplicationReviewController::show()` via a real HTTP request — direct proof the review
+  screen still renders and the panel's numbers are unchanged, since that panel was already
+  proven to depend only on `captureEntries`, never on the now-removed `$result`.
+- `RentalApplicationRound9AffordabilityTest::test_authorisation_screen_shows_the_worked_example_
+  arithmetic` (already failing before and after, for the unrelated stale-UI-text reason above)
+  still returns 200 OK before and after this removal — its `assertOk()` never fails, only its
+  later `assertSee()` — direct proof the authorisation screen also still renders without error.
+- Page load: removing `qualifyingResult()` removes a `RentalApplicationQualifyingSetting::
+  maxRentPercentFor()` lookup, two eager-loaded relations (`incomeItems`/`expenseItems` on
+  `RentalApplicationReviewController::show()`), and the method's own computation from both
+  screens' request paths — strictly fewer queries and less work than before, never more. Not
+  independently re-benchmarked with a timer (a single-box, shared-QA1 timing comparison would be
+  noise-dominated and not meaningfully provable either way) — the removal is structurally
+  load-reducing by construction, which is the claim being made, not a specific millisecond figure.
+- Exact before/after test counts, same four files, same run: baseline (before any edit) —
+  Round9 10 tests/7 pass, Round10 7 tests/1 pass, Round11 24 tests/16 pass. After removal —
+  Round9 8 tests/5 pass (the 2 removed tests were both in the passing 7), Round10 and Round11
+  byte-for-byte unchanged (7 tests/1 pass, 24 tests/16 pass). `RentalApplicationAffordability
+  ArithmeticTest`: 3/3 both times. Zero new failures, zero new errors, anywhere.
+- `scripts/rental-smoke.mjs` against live QA1 (pre-flight sanity check, run before pushing this
+  removal — the live site is still running the PRE-removal code at the time of this check, so
+  this confirms live wasn't already broken going into the push, not a post-deploy verification of
+  this specific change): 8/8 screens PASS, 0 console errors, including both `review_screen` and
+  `authorisation_screen`.
+- `dev-check.ps1` cannot run on this box (no `pwsh`) — stated plainly, not silently skipped.

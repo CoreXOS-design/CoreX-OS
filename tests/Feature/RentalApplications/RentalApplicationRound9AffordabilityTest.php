@@ -122,47 +122,17 @@ final class RentalApplicationRound9AffordabilityTest extends TestCase
         $this->assertSame(30.00, RentalApplicationQualifyingSetting::DEFAULT_MAX_RENT_PERCENT);
     }
 
-    public function test_worked_example_eighteen_thousand_gross_qualifies_up_to_fifty_four_hundred_rent(): void
-    {
-        $property = $this->propertyWithRent(5400);
-        $app = $this->application(['current_rental_amount' => 5400, 'property_id' => $property->id]);
-        $assessment = $this->assessmentWithAmounts($app, income: 18000, expenses: 4000);
-
-        $result = $assessment->qualifyingResult(30.00);
-
-        $this->assertSame(18000.0, $result['gross_income']);
-        $this->assertSame(5400.0, $result['max_affordable_rent']);
-        $this->assertSame(5400.0, $result['rent']);
-        $this->assertTrue($result['meets_threshold']);
-        $this->assertSame('sufficient', $result['label']);
-
-        // One rand over the ceiling must flip the verdict — proves this is a
-        // real boundary check, not a loose approximation. The rent now
-        // comes from the linked PROPERTY, not the application.
-        $property->update(['rental_amount' => 5401]);
-        $overResult = $assessment->fresh()->qualifyingResult(30.00);
-        $this->assertFalse($overResult['meets_threshold']);
-        $this->assertSame('insufficient', $overResult['label']);
-    }
-
-    public function test_net_income_plays_no_part_in_the_decision(): void
-    {
-        // Same gross income, wildly different expenses — the verdict must
-        // be identical, because expenses are not part of the legal test.
-        $appLowExpenses = $this->application(['current_rental_amount' => 5400]);
-        $lowExpenseAssessment = $this->assessmentWithAmounts($appLowExpenses, income: 18000, expenses: 200);
-
-        $appHighExpenses = $this->application(['current_rental_amount' => 5400]);
-        $highExpenseAssessment = $this->assessmentWithAmounts($appHighExpenses, income: 18000, expenses: 15000);
-
-        $lowResult = $lowExpenseAssessment->qualifyingResult(30.00);
-        $highResult = $highExpenseAssessment->qualifyingResult(30.00);
-
-        $this->assertSame($lowResult['meets_threshold'], $highResult['meets_threshold']);
-        $this->assertSame($lowResult['max_affordable_rent'], $highResult['max_affordable_rent']);
-        // net_income itself DOES differ (it's real, just not decisive).
-        $this->assertNotSame($lowResult['net_income'], $highResult['net_income']);
-    }
+    // test_worked_example_eighteen_thousand_gross_qualifies_up_to_fifty_four_hundred_rent
+    // and test_net_income_plays_no_part_in_the_decision — REMOVED 2026-09-14,
+    // cc4, together with the RentalApplicationAssessment::qualifyingResult()
+    // method they unit-tested directly. Johan: remove the dead calculator
+    // and its calls together, not leaving either behind for someone to
+    // revive. These two were the only tests exercising the method itself
+    // (as opposed to UI/JSON shapes the 2026-09-11 capture-ledger rework
+    // had already broken); see .ai/specs/rental-applications.md,
+    // "qualifyingResult() removed", for the full worked-example figures
+    // this method used to prove (18,000 gross -> 5,400 ceiling at 30%) —
+    // preserved there since nothing computes them any more.
 
     // ── Agency-configurable, default 30%, never below-the-fold silent on breach ──
 
