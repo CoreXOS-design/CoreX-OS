@@ -28,10 +28,34 @@
     from — see RentalApplication::AGENT_SETTABLE_STATUSES's own gate):
     @include('corex.rental-applications._record-withdrawn', ['application' => $application])
 --}}
+{{--
+    RENAME, 2026-09-13 (Johan, this round) — "Record withdrawn" never said
+    "applicant" anywhere an agent would see it without hovering the title
+    tooltip below. cc4's original 2026-09-12 fix already got the MEANING
+    right (an agent recording what the applicant told them, never the
+    applicant acting for themselves) — this pass only moves the missing
+    word into the always-visible text, and does the same everywhere else
+    this status is shown (RentalApplication::WITHDRAWN_LABEL, the list
+    tile, the audit trail — see each file's own comment) so the whole
+    screen shares one vocabulary instead of several.
+
+    Johan's own first choice for this button was "Mark applicant
+    withdrawn" — measured against the real column width (Puppeteer,
+    in-situ, not a detached guess) and confirmed it wraps onto two lines
+    at 1280px and on phone widths, the same class of row-width regression
+    already caught once this round on Edit/View/Review & Assess. Every
+    shorter alternative tested fit on one line at both widths; "Applicant
+    withdrawn" — the exact same phrase already used everywhere else this
+    status is shown (the pill, the tile, the audit trail) — was chosen
+    over the others precisely because it does NOT introduce a second,
+    button-only wording: this control now says the identical two words as
+    every other surface, just without "Mark" in front. Flagged to Johan
+    before shipping per his explicit instruction on this exact scenario.
+--}}
 @if(in_array($application->status, ['returned', 'under_assessment'], true))
 <div x-data="{ open: false }" class="inline-block align-top">
     <button type="button" @click="open = !open" class="corex-btn-outline text-xs" style="color: var(--ds-red, #dc2626);"
-            title="Record that the applicant told you they're withdrawing — this is not the applicant acting for themselves">Record withdrawn</button>
+            title="Mark this application as withdrawn — for recording what the applicant told you, not something they do themselves">Applicant withdrawn</button>
     <div x-show="open" x-cloak @click.outside="open = false"
          class="mt-2 p-3 rounded-md text-left" style="background: var(--surface-2); border: 1px solid var(--border); width: 280px;">
         <form method="POST" action="{{ route('corex.rental-applications.update-status', $application) }}">
@@ -41,7 +65,7 @@
             <textarea name="note" rows="3" required class="w-full rounded-md px-2 py-1.5 text-xs" style="border: 1px solid var(--border); background: var(--surface);"
                       placeholder="e.g. Applicant called to say they found another place"></textarea>
             <div class="flex gap-2 mt-2">
-                <button type="submit" class="corex-btn-primary text-xs" style="background: var(--ds-red, #dc2626); border-color: var(--ds-red, #dc2626);">Confirm — record as withdrawn</button>
+                <button type="submit" class="corex-btn-primary text-xs" style="background: var(--ds-red, #dc2626); border-color: var(--ds-red, #dc2626);">Confirm — applicant withdrawn</button>
                 <button type="button" @click="open = false" class="corex-btn-outline text-xs">Cancel</button>
             </div>
         </form>

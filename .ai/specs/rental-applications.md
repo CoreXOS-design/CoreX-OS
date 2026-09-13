@@ -11063,3 +11063,94 @@ message explaining what's happening, but no progress indicator during that
 wait on the slow end. Every agent after the first, on the same document,
 gets this from server-side cache in under a second regardless of connection
 — this cost is paid once per document, not once per view.
+
+## Withdraw control renamed — "Applicant withdrawn" moved to every surface (2026-09-13, cc3)
+
+Johan, this morning: "what does it do, the naming is confusing — at first I
+thought it recorded a withdraw from the tenant." Clarified mid-investigation
+to be specifically about the CONTROL (a clickable action, not the status
+pill) — his words: "like click here to withdraw."
+
+**Investigated before changing anything, per instruction.** The code was
+already unambiguous: this control (`_record-withdrawn.blade.php`, included
+from `index.blade.php:241`, `show.blade.php:169`, `view-readonly.blade.php:145`
+— never on the Authorisation screens, which have no withdraw affordance at
+all) is an agent recording that the applicant told them they're pulling
+out, never the agency acting on its own. That's the exact reading Johan
+assumed. The 2026-09-12 fix (commit `093660d16`) had already gotten this
+meaning right — required note, its own explicit action separate from the
+generic status dropdown, guarded server-side against a plain agent
+silently reversing it. What was still true: the button's own always-visible
+text ("Record withdrawn") never said "applicant" anywhere short of hovering
+a tooltip, and the same status was worded three different ways across one
+screen.
+
+**The three-way split found, and what each now reads:**
+
+| Surface | Before | Now |
+|---|---|---|
+| Status pill (`RentalApplication::WITHDRAWN_LABEL`) | "Recorded as withdrawn by applicant" | "Applicant withdrawn" |
+| List-screen tile (`index.blade.php`'s `$tileLabels`) | "Withdrawn" | "Applicant Withdrawn" |
+| Audit trail (`view-readonly.blade.php`/`show.blade.php`, raw `str_replace`) | "withdrawn" | "Applicant withdrawn" (via the constant; every other status's display left untouched) |
+| Reopen button's own tooltip (`_reopen-terminal.blade.php`) | "...reopen a withdrawn application" | "...reopen an application the applicant withdrew" ('declined' half of the same tooltip untouched) |
+| The control itself | "Record withdrawn" | "Applicant withdrawn" |
+| The popover's confirm button | "Confirm — record as withdrawn" | "Confirm — applicant withdrawn" |
+
+One phrase, "applicant withdrawn", now appears everywhere this status is
+shown or acted on — the only variation is mood (a state everywhere except
+the tooltip's own natural-language sentence).
+
+**The row-width regression this surfaced, caught before shipping.** Johan's
+own first choice for the control was "Mark applicant withdrawn". Measured
+in-situ with real Puppeteer geometry (not a detached guess) against a
+`returned`-status row: fits on one line at 1440px, but **wraps onto two
+lines at 1280px and on phone widths** (confirmed by screenshot — button
+height 46px instead of 30px, the row taller than its siblings). Tested six
+candidate strings the same way before proposing one: every shorter
+alternative fit on one line at both widths. Chose "Applicant withdrawn" —
+not the shortest option available, but the one that also means the control
+now uses the EXACT SAME two words as the pill/tile/audit-trail, rather than
+introducing a still-different, button-only wording. Confirmed after the
+change: button height 30px (single line) at 1440px, 1280px, and 390px,
+across every row that renders it.
+
+**Real click-through proof, on a throwaway fixture (application 239,
+soft-deleted after, never one of Johan's hands-off applications):**
+loaded the list screen, clicked the real
+"Applicant withdrawn" button (a genuine Puppeteer `.click()`, not a
+dispatched event), confirmed the popover opened with the "What did the
+applicant tell you? (required)" label, confirmed an EMPTY note is blocked
+by the browser's own native validation before ever reaching the server,
+typed a real note, clicked "Confirm — applicant withdrawn" for real,
+followed the resulting page reload. Result: flash message read "Applicant
+withdrawn." (from the same constant), the row's status badge read
+"Applicant withdrawn", the control itself disappeared (can't record a
+withdrawal twice), and a "Reopen" button appeared in its place. Zero
+console errors through the whole sequence. Separately fetched the same
+application's own detail page afterward: header, status pill, AND audit
+trail line ("returned → Applicant withdrawn") all read the same wording.
+Render gate PASS on both screens throughout.
+
+### Answer to Johan's precise question — does a withdrawn applicant's link still accept writes?
+
+Traced from `RentalApplicationSigningController` directly, not inferred:
+
+- **The application form itself: no.** `show()` checks
+  `POST_RETURN_STATUSES` (which includes `withdrawn`) and serves the
+  locked `already-submitted` view instead of the editable form — the
+  applicant never sees their fields again.
+- **Background autosave: no.** `autosave()` checks the same list and
+  returns `saved:false` — nothing persists, silently, no error shown.
+- **The final sign-and-submit action: no.** `submit()` checks the same
+  list and redirects back to the locked view before validating anything —
+  this is almost certainly the "raw POST refused" cc4 already proved.
+- **New supporting document uploads: yes — unrestricted.**
+  `uploadDocuments()` has no status check at all beyond `draft` and token
+  expiry. This is not unique to withdrawn — the same is true once approved
+  or declined too, by an existing, deliberate spec decision ("documents
+  uploadable before and after signing"). Nobody has revisited whether that
+  should still hold once someone has said they're pulling out. Reported to
+  Johan directly, not fixed here — his call, per his own routing.
+
+Not touched, per instruction: nothing on this behaviour, and nothing
+beyond the wording moved in this round.

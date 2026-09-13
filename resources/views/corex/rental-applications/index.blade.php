@@ -36,7 +36,11 @@
         'sent_for_authorisation' => 'Sent for Authorisation',
         'approved' => 'Approved',
         'declined' => 'Declined',
-        'withdrawn' => 'Withdrawn',
+        // 2026-09-13 — Johan: the bare word read as if the applicant acted
+        // for themselves; matches the control's own rename below and
+        // RentalApplication::WITHDRAWN_LABEL exactly (just Title Case, to
+        // match every other tile in this array).
+        'withdrawn' => 'Applicant Withdrawn',
         'reopened' => 'Reopened',
     ];
     // AT-402 — permission regression guard: 'returned'/'under_assessment'/

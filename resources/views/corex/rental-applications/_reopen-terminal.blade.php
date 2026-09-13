@@ -70,8 +70,13 @@
         },
      }"
      class="inline-block align-top">
+    {{-- 2026-09-13 — this tooltip's own {{ $application->status }} interpolation
+         was a fourth surface showing the bare word for a withdrawn row
+         ("...may reopen a withdrawn application"). Special-cased to
+         'withdrawn' only — 'declined' (the tooltip's other real case) keeps
+         its exact existing text, untouched. --}}
     <button type="button" @click="open = !open" class="corex-btn-outline text-xs" style="color: var(--ds-amber, #f59e0b);"
-            title="Only the head of rentals or an admin may reopen a {{ $application->status }} application">Reopen</button>
+            title="Only the head of rentals or an admin may reopen {{ $application->status === 'withdrawn' ? 'an application the applicant withdrew' : 'a '.$application->status.' application' }}">Reopen</button>
     <div x-show="open" x-cloak @click.outside="open = false"
          class="mt-2 p-3 rounded-md text-left" style="background: var(--surface-2); border: 1px solid var(--border); width: 280px;">
         <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">What changed, or what should the applicant provide?</label>

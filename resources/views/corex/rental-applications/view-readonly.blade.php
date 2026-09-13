@@ -151,7 +151,14 @@
         <div class="mt-4 pt-3 text-xs space-y-1" style="border-top: 1px solid var(--border); color: var(--text-muted);">
             @foreach($rentalApplication->statusHistory as $entry)
                 <div>
-                    {{ optional($entry->from_status)  ? str_replace('_', ' ', $entry->from_status) . ' → ' : '' }}{{ str_replace('_', ' ', $entry->to_status) }}
+                    {{-- 2026-09-13 — the third of three different wordings
+                         for this one status found on the same screen
+                         (Johan's finding): the pill above already used
+                         RentalApplication::WITHDRAWN_LABEL, but this log
+                         bypassed it entirely via a raw str_replace. Special-
+                         cased to 'withdrawn' only — every other status here
+                         keeps its exact existing display, untouched. --}}
+                    {{ optional($entry->from_status) ? ($entry->from_status === 'withdrawn' ? \App\Models\RentalApplication::WITHDRAWN_LABEL : str_replace('_', ' ', $entry->from_status)) . ' → ' : '' }}{{ $entry->to_status === 'withdrawn' ? \App\Models\RentalApplication::WITHDRAWN_LABEL : str_replace('_', ' ', $entry->to_status) }}
                     — {{ $entry->changedBy?->name ?? 'System' }}, {{ $entry->created_at->format('d M Y H:i') }}
                     @if($entry->note) — "<span style="white-space: pre-wrap;">{{ $entry->note }}</span>" @endif
                 </div>

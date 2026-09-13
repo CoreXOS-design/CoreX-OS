@@ -111,8 +111,21 @@ class RentalApplication extends Model
      * captured in the audit trail exactly like every other status change —
      * see RentalApplicationStatusHistory::record()'s own who/when/note
      * columns, which already covered this before the wording did.
+     *
+     * 2026-09-13 — Johan, this round: the CONTROL that sets this status
+     * (the list/detail screens' button) never said "applicant" anywhere an
+     * agent would see it without hovering a tooltip — even though this
+     * pill's own text already did. Renamed the button to "Mark applicant
+     * withdrawn" and, per Johan's explicit instruction not to end up with
+     * two vocabularies for one thing, shortened this pill/tile/audit-trail
+     * text to match it exactly in wording (just past-tense, since a status
+     * pill can't grammatically carry an imperative): "Applicant withdrawn".
+     * Every surface that shows this status now shares the same two words,
+     * varying only in mood (imperative on the button, plain state
+     * everywhere else) — see the spec's "Withdraw control" section for the
+     * full list of surfaces moved together in this same round.
      */
-    public const WITHDRAWN_LABEL = 'Recorded as withdrawn by applicant';
+    public const WITHDRAWN_LABEL = 'Applicant withdrawn';
 
     /** The one place a status's plain-language display label diverges from a simple str_replace('_', ' ', $status). */
     public static function displayStatusLabel(string $status): string
