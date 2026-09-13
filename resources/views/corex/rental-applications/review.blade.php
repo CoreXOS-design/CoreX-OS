@@ -602,17 +602,29 @@
         .rr-ledger-amount { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
         .rr-ledger-strike {
             position: relative;
-            width: 18px; height: 14px; padding: 0; border: none; background: transparent;
-            color: var(--text-muted); font-size: 12px; line-height: 14px; text-align: center; cursor: pointer;
+            width: 18px; height: 16px; padding: 0; border: none; background: transparent;
+            color: var(--text-muted); font-size: 12px; line-height: 16px; text-align: center; cursor: pointer;
         }
-        /* The real button box stays 14px TALL on purpose — this row's height
-           was governed by the arrow column's own 16.5px content, not the
-           strike button; making the button's own box any taller than that
-           would become the new tallest thing and grow every row (measured:
-           it did, by 1.5px, before this was caught and fixed). ::before is
-           position:absolute, so it's removed from layout entirely — free to
-           be taller than the button's own box, using the row's own
-           6.5px of vertical slack (20.5px row - 14px button).
+        /* Real box 16px, not 14 — 2026-09-13, Round D. The row's content
+           height is governed by the date span's 16.5px (see below); a real
+           box up to 16px sits AT that ceiling with zero row growth, swept
+           and confirmed empirically (14px and 16px both measure a 20.5px
+           row pitch on a 12-row fixture, byte-identical). 18px measured
+           +1.5px/row, 20px measured +3.5px/row — real, linear, and
+           unavoidable once you exceed the ceiling, since grid rows auto-
+           size to their tallest child. 16px is the free ceiling: a visibly
+           bigger glyph/target for a real mouse user, zero cost to row
+           density. The already-fixed 18px invisible ::before overlay is
+           unaffected (its clickable footprint was already bigger than the
+           real box, so this is a visual-affordance win, not a hit-area
+           change). The real box stays no taller than this ceiling on
+           purpose — going past it makes the button's own box the row's
+           new tallest thing and grows every row (measured: at 18px it
+           did, by 1.5px; at 20px, by 3.5px — before this was caught and
+           kept at 16px). ::before is position:absolute, so it's removed
+           from layout entirely — free to be taller than the button's own
+           box, using the row's own vertical slack (20.5px row - 16px
+           button = 4.5px).
 
            Deliberately 18px, not the full 20px: a flat 20px consumes 100%
            of that slack with ZERO margin either side, so this row's overlay
