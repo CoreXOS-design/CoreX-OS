@@ -535,17 +535,24 @@
          agency saves their own — same forAgency()-never-writes-on-read
          pattern as Qualifying Formula above. Merge fields are limited to
          what this email can always honestly populate — applicant name,
-         agency name, and (optionally) the property the application was
-         for — no invented "how to improve" guidance (Johan was explicit
-         that part is still an open idea, not settled). --}}
+         agency name, and (optionally) the property the application was for.
+         AT-410b, 2026-09-15 — "no invented guidance" above is superseded:
+         the authoriser now picks a reason-plus-guidance template at the
+         moment of declining (cc2's build, linked below), and its content
+         merges into THIS envelope via {{decline_guidance}} — this section
+         still owns only the greeting/thanks/sign-off tone, never the
+         reason/guidance content itself. --}}
     <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
         <h2 class="text-sm font-semibold mb-1" style="color: var(--text-primary);">Decline Email</h2>
         <p class="text-xs mb-3" style="color: var(--text-muted);">
-            Sent to the applicant if the authoriser declines their application. A suggested wording
-            is shown below — edit it to your own. Available merge fields:
+            Sent to the applicant when the AGENT sends the authoriser's decline decision (not automatic —
+            the agent reviews and can edit the exact text first). A suggested wording is shown below —
+            edit it to your own. Available merge fields:
             <code>@{{applicant_name}}</code>, <code>@{{agency_name}}</code>,
             <code>@{{property_reference}}</code> (optional — resolves to nothing if the
-            application has no property linked).
+            application has no property linked), <code>@{{decline_reason}}</code> (the picked
+            template's short label), <code>@{{decline_guidance}}</code> (that template's full
+            reason-and-guidance text — this is where the general tips the authoriser picked appear).
         </p>
         <form method="POST" action="{{ route('corex.settings.rental-applications.decline-email') }}" class="space-y-3">
             @csrf
@@ -559,6 +566,12 @@
             </div>
             <button type="submit" class="corex-btn-primary text-xs">Save Decline Email</button>
         </form>
+        {{-- AT-410b — cc2 owns this page/controller/CRUD entirely; this is
+             the one line agreed between us so the two builds don't collide
+             on this settings page. --}}
+        <p class="text-xs mt-3 pt-3" style="border-top: 1px solid var(--border);">
+            <a href="{{ route('corex.settings.rental-applications.decline-reason-templates.index') }}" class="font-medium" style="color: var(--ds-blue, #2563eb);">Manage decline reason templates &rarr;</a>
+        </p>
     </div>
 
     {{-- AT-392 authoriser flow, 2026-09-08 — Johan, verbatim: "there like on

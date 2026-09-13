@@ -1214,9 +1214,29 @@
                             </form>
                         </div>
                     </div>
-                @elseif($rentalApplication->status === 'declined')
+                @elseif($rentalApplication->status === 'declined' && $rentalApplication->applicant_notified_at)
                     <div class="rounded-md px-3 py-1.5 text-xs mb-2" style="background: var(--ds-red-soft, #fef2f2); color: var(--ds-red, #dc2626);">
-                        Declined. The applicant has been notified.
+                        Declined. Sent to the applicant on {{ $rentalApplication->applicant_notified_at->format('d M Y, H:i') }}.
+                    </div>
+                @elseif($rentalApplication->status === 'declined')
+                    {{-- AT-410b, 2026-09-15 — Johan: "the auth sends back to
+                         agent who receives it back. so the agent needs a
+                         deliberate action to send the email out to the
+                         applicant... on declined an outright declined email
+                         will anger some people. so a soft message and
+                         reasoning is the right way to approach this."
+                         IDENTICAL shape to Approve's own "not yet sent" box
+                         above, per instruction — same banner style, same
+                         single deliberate-action button, opening the SAME
+                         drawer mechanism Approve's wishlist step already
+                         uses (see declineSendDrawerOpen below), because
+                         decline needs one more thing approve doesn't: the
+                         agent must see and can edit the REAL final text
+                         before it goes, not just click send. --}}
+                    <div class="rounded-md px-3 py-2 text-xs mb-2" style="background: var(--ds-amber-soft, #fffbeb); color: var(--ds-amber, #b45309); border: 1px solid var(--ds-amber, #f59e0b);">
+                        <p class="font-semibold mb-1.5">Declined — not yet sent.</p>
+                        <p class="mb-2">Read the email below, edit anything you need to, then send it. The applicant sees nothing until you do.</p>
+                        <button type="button" @click="declineSendDrawerOpen = true" class="corex-btn-primary text-xs">Review &amp; send to applicant</button>
                     </div>
                 @elseif($isPendingAuthorisation)
                     <div class="rounded-md px-3 py-1.5 text-xs mb-2" style="background: var(--ds-blue-soft, #eff6ff); color: var(--ds-blue, #2563eb);">
@@ -1652,14 +1672,33 @@
                     <div class="w-full max-w-md rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);" @click.outside="declineModalOpen = false">
                         <h3 class="text-sm font-semibold mb-2" style="color: var(--text-primary);">Decline</h3>
                         <p class="text-xs mb-2" style="color: var(--text-secondary);">{{ $headerContactName }}{{ $propertyLabel ? ' — ' . $propertyLabel : '' }}</p>
+                        {{-- AT-410b, 2026-09-15 — the applicant-facing reason.
+                             Separate from the free-text box below, which
+                             stays what it always was: the authoriser's own
+                             note TO THE AGENT, never sent to the applicant.
+                             Picking here only drafts what the agent will
+                             see and can edit — nothing goes out from this
+                             modal. cc2's template CRUD is where these
+                             options come from; empty list here means no
+                             templates exist yet for this agency (agency
+                             setup gap, not a bug in this control). --}}
+                        <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Reason to give the applicant</label>
+                        <select x-model="declineReasonTemplateId" class="corex-input text-xs w-full mb-3" required>
+                            <option value="">Choose a reason…</option>
+                            @foreach($declineReasonTemplates ?? [] as $template)
+                                <option value="{{ $template->id }}" title="{{ $template->reason }}">{{ \Illuminate\Support\Str::limit($template->reason, 60) }}</option>
+                            @endforeach
+                        </select>
+                        <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Note for the agent</label>
                         <textarea x-model="declineReason" rows="3" class="corex-input text-xs w-full mb-3" placeholder="Reason for decline (required) — the agent will see this"></textarea>
                         <form method="POST" action="{{ route('corex.rental-applications.authorisation.decline', $rentalApplication) }}"
-                              @submit="if (!confirm('Decline the application from ' + {{ Js::from($headerContactName) }} + {{ Js::from($propertyLabel ? ' for ' . $propertyLabel : '') }} + '?')) { $event.preventDefault(); return; } window.__raSuppressUnloadGuard = true; $refs.declineReasonField.value = declineReason">
+                              @submit="if (!confirm('Decline the application from ' + {{ Js::from($headerContactName) }} + {{ Js::from($propertyLabel ? ' for ' . $propertyLabel : '') }} + '?')) { $event.preventDefault(); return; } window.__raSuppressUnloadGuard = true; $refs.declineReasonField.value = declineReason; $refs.declineReasonTemplateIdField.value = declineReasonTemplateId">
                             @csrf
                             <input type="hidden" name="reason" x-ref="declineReasonField">
+                            <input type="hidden" name="decline_reason_template_id" x-ref="declineReasonTemplateIdField">
                             <div class="flex justify-end gap-2">
                                 <button type="button" class="corex-btn-outline text-xs" @click="declineModalOpen = false">Cancel</button>
-                                <button type="submit" class="corex-btn-outline text-xs" style="color: var(--ds-red, #dc2626); border-color: var(--ds-red, #dc2626);" :disabled="!declineReason.trim()">Decline</button>
+                                <button type="submit" class="corex-btn-outline text-xs" style="color: var(--ds-red, #dc2626); border-color: var(--ds-red, #dc2626);" :disabled="!declineReason.trim() || !declineReasonTemplateId">Decline</button>
                             </div>
                         </form>
                     </div>
@@ -1814,6 +1853,55 @@
                             ? route('corex.rental-applications.review.wishlist.update', [$rentalApplication, $existingWishlist])
                             : route('corex.rental-applications.review.wishlist.add', $rentalApplication),
                     ])
+                </div>
+            </div>
+        @endif
+
+        {{-- AT-410b, 2026-09-15 — the decline send drawer. Same fixed-panel
+             pattern as the Tenant Wishlist drawer directly above (right-side
+             overlay, z-[100], direct sibling of the layout columns so it
+             never fights the sticky header the way this drawer style once
+             did — see that drawer's own comment for the incident this
+             avoids). Johan's two explicit conditions for this step: (1) the
+             authoriser's template pick never sends anything itself — this
+             drawer, and the button that opens it, exist ONLY on the agent's
+             own screen, gated the identical way the wishlist drawer above
+             is; (2) she sees the REAL final text, not a preview — subject
+             and body below are the exact resolved draft
+             decline()/RentalApplicationDeclineEmailSetting::draftFor()
+             built (applicant's real name already in it, reason and
+             guidance already merged in, no placeholders left), and she can
+             freely edit both before sending. Submitting posts whatever is
+             actually in these two fields, edited or not. --}}
+        @if($viewerRole === 'agent' && $rentalApplication->status === 'declined' && !$rentalApplication->applicant_notified_at)
+            <div x-show="declineSendDrawerOpen" x-cloak
+                 class="fixed inset-0 z-[100] flex justify-end"
+                 style="background: rgba(0,0,0,0.5);"
+                 @keydown.escape.window="declineSendDrawerOpen = false">
+                <div class="h-full overflow-y-auto p-6 w-full max-w-3xl text-left"
+                     style="background: var(--surface); border-left: 1px solid var(--border); color: var(--text-primary);"
+                     @click.outside="declineSendDrawerOpen = false">
+                    <div class="flex items-center justify-between mb-4">
+                        <h2 class="text-lg font-semibold" style="color: var(--text-primary);">Review &amp; Send Decline</h2>
+                        <button type="button" @click="declineSendDrawerOpen = false"
+                                class="text-xl leading-none px-2 py-0" style="color: var(--text-muted); background: none; border: none; cursor: pointer;">&times;</button>
+                    </div>
+                    <p class="text-xs mb-4" style="color: var(--text-muted);">
+                        This is the exact email the applicant will receive. Edit anything you need to — nothing sends until you click Send below.
+                    </p>
+                    <form method="POST" action="{{ route('corex.rental-applications.review.send-decline', $rentalApplication) }}"
+                          x-data="{ subject: {{ Js::from($rentalApplication->decline_email_subject ?? '') }}, body: {{ Js::from($rentalApplication->decline_email_body ?? '') }}, sending: false }"
+                          @submit="if (sending) { $event.preventDefault(); return; } if (!confirm('Send this decline email to ' + {{ Js::from($headerContactName) }} + '?')) { $event.preventDefault(); return; } sending = true; window.__raSuppressUnloadGuard = true;">
+                        @csrf
+                        <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Subject</label>
+                        <input type="text" name="subject" x-model="subject" class="corex-input text-sm w-full mb-3" required maxlength="998">
+                        <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Message</label>
+                        <textarea name="body" x-model="body" rows="16" class="corex-input text-sm w-full mb-4" style="white-space: pre-wrap;" required maxlength="10000"></textarea>
+                        <div class="flex justify-end gap-2">
+                            <button type="button" class="corex-btn-outline text-xs" @click="declineSendDrawerOpen = false">Cancel</button>
+                            <button type="submit" class="corex-btn-primary text-xs" :disabled="sending || !subject.trim() || !body.trim()">Send to applicant</button>
+                        </div>
+                    </form>
                 </div>
             </div>
         @endif
@@ -2537,6 +2625,11 @@ function rentalReviewLayout({ initialCvDocs } = {}) {
         // that panel to fix the cut-off/z-index bug — see the drawer's own
         // comment) can share one toggle despite no longer being DOM-nested.
         wishlistDrawerOpen: false,
+        // AT-410b, 2026-09-15 — same lifted-here reasoning as
+        // wishlistDrawerOpen immediately above: the trigger button (the
+        // amber "Declined — not yet sent" box) and the drawer itself are
+        // both descendants of .rental-review-columns, one shared toggle.
+        declineSendDrawerOpen: false,
         // ROUND 7, 2026-09-11 — the continuous multi-document mark-up view.
         // Lives here (not on rentalReview()/rentalAuthorisationViewer()
         // separately) for the same reason wishlistDrawerOpen does: the
@@ -2895,6 +2988,11 @@ function rentalAuthorisationViewer({ initialMarkedUpDocIds, currentUserId, curre
         approveAmount: '',
         approveReason: '',
         declineReason: '',
+        // AT-410b, 2026-09-15 — which applicant-facing reason+guidance
+        // template the authoriser picked. Separate state from declineReason
+        // above on purpose (see the modal's own comment): one is internal,
+        // one is applicant-facing.
+        declineReasonTemplateId: '',
         moreInfoReason: '',
         // ROUND 6, 2026-09-11 — these fields used to sit permanently visible
         // in the old right-hand column; Zone 4 is buttons only now (128px),

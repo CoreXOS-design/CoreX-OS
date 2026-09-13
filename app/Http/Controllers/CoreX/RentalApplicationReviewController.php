@@ -599,6 +599,73 @@ class RentalApplicationReviewController extends Controller
         return redirect()->route('corex.rental-applications.review', $rentalApplication)
             ->with('success', 'Approval sent to the applicant.');
     }
+
+    /**
+     * AT-410b, 2026-09-15 — decline's own send action, the IDENTICAL shape
+     * to send() above per Johan's explicit instruction ("do not invent a
+     * second pattern"): the authoriser decides and drafts (decline()), the
+     * application comes back to the agent, and NOTHING reaches the
+     * applicant until she reads it and presses send herself. Johan,
+     * verbatim: "the agent needs a deliberate action to send the email
+     * out to the applicant... on declined an outright declined email will
+     * anger some people. so a soft message and reasoning is the right way
+     * to approach this... she is the one who will take the phone call
+     * afterwards."
+     *
+     * $subject/$body are POSTED, not re-derived — the agent may have
+     * edited decline()'s own draft (typo fix, softened a line, whatever),
+     * and what she approved by clicking Send is exactly what must go out
+     * AND exactly what gets permanently recorded as having gone out.
+     * Overwriting decline_email_subject/body here with whatever was
+     * actually posted, then never touching those two columns again once
+     * applicant_notified_at is set, is what makes them double as the
+     * permanent "what did we actually say" record six months later — no
+     * separate draft/sent copies to keep in sync.
+     *
+     * Idempotent guard (applicant_notified_at already set → 422, not a
+     * silent second send) — identical to send()'s own guard, same reason:
+     * a one-shot action, not a resend button, so a doubled click can never
+     * double-send.
+     */
+    public function sendDecline(Request $request, RentalApplication $rentalApplication, RentalApplicationMailer $mailer, RentalApplicationAuditService $audit)
+    {
+        $this->guardRentalApplication($rentalApplication);
+
+        if ($rentalApplication->status !== 'declined') {
+            return redirect()->route('corex.rental-applications.review', $rentalApplication)
+                ->with('error', 'This application has not been declined.');
+        }
+        if ($rentalApplication->applicant_notified_at) {
+            return redirect()->route('corex.rental-applications.review', $rentalApplication)
+                ->with('error', 'The applicant has already been sent this decision.');
+        }
+
+        $validated = $request->validate([
+            'subject' => ['required', 'string', 'max:998'],
+            'body' => ['required', 'string', 'max:10000'],
+        ]);
+
+        $sent = $mailer->sendDecline($rentalApplication, $validated['subject'], $validated['body']);
+
+        $rentalApplication->decline_email_subject = $validated['subject'];
+        $rentalApplication->decline_email_body = $validated['body'];
+        $rentalApplication->applicant_notified_at = now();
+        $rentalApplication->save();
+
+        $audit->log(
+            $rentalApplication,
+            eventCategory: 'agent',
+            eventType: 'decline_sent',
+            user: $request->user(),
+            newValues: ['applicant_notified_at' => $rentalApplication->applicant_notified_at->toIso8601String(), 'subject' => $validated['subject']],
+            metadata: ['mail_sent' => $sent, 'body' => $validated['body']],
+            humanSummary: 'Sent the decline to the applicant.',
+        );
+
+        return redirect()->route('corex.rental-applications.review', $rentalApplication)
+            ->with('success', 'Decline sent to the applicant.');
+    }
+
     public function reopen(Request $request, RentalApplication $rentalApplication, RentalApplicationMailer $mailer, RentalApplicationAuditService $audit)
     {
         $this->guardRentalApplication($rentalApplication);
