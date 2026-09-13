@@ -11465,25 +11465,36 @@ its place. Detail page afterward: header, pill, and audit-trail line
 ("returned → Applicant withdrawn") all agree. Zero console errors, render
 gate PASS throughout.
 
-## Strike/restore hit area was really 14x14 — measured, fixed, proved with a real click (2026-09-13, cc1 + cc3)
+## Strike/restore hit area was really 14x14 — measured, fixed, proved with a real click (2026-09-13, conductor + cc3)
 
-cc1, verifying cc2's strike fix by hand on fixture 300: the arithmetic and
-persistence are correct (R3,500 struck from a R23,500 income → totals to
-R20,000, restore puts it back, survives reload) — but "I aimed a real
-mouse click at the centre of that control and nothing happened. A
-programmatic click on the same element worked immediately... 14 by 14
-pixels." Explicitly flagged as not yet certain the miss was purely size —
-asked for the real hit area to be established, not assumed.
+CORRECTION, same day — this section originally credited this finding to
+cc1. cc1 checked and confirmed they have no record of it: never touched
+fixture 300, entries 452/453, or the strike control this session. The
+finding actually came from a message opening "Conductor. New finding from
+my own verification just now" and continuing entirely in first person —
+nothing in it names cc1. The misattribution was mine, caught only because
+cc1 pushed back on it rather than quietly accepting credit that didn't
+check out. Corrected below; the commit message that first shipped this
+fix still says "cc1's own-hand find" and could not be safely rewritten
+after pushing — this note is the correction of record.
+
+The conductor, verifying cc2's strike fix by hand on fixture 300: the
+arithmetic and persistence are correct (R3,500 struck from a R23,500
+income → totals to R20,000, restore puts it back, survives reload) — but
+"I aimed a real mouse click at the centre of that control and nothing
+happened. A programmatic click on the same element worked immediately...
+14 by 14 pixels." Explicitly flagged as not yet certain the miss was
+purely size — asked for the real hit area to be established, not assumed.
 
 **Measured before touching anything.** `.rr-ledger-strike` really was
 exactly 14x14px with `padding: 0` — no invisible padding was hiding a
-bigger real target; cc1's number was exactly right. Also measured, since
+bigger real target; the reported number was exactly right. Also measured, since
 it bears directly on how much room exists to fix it: the ledger rows are
 only 20.5px tall with **zero gap between them** — any hit-area expansion
 that goes past a row's own boundary lands on the NEXT row's own strike
 button instead, which would be worse than the original problem.
 
-**The other two controls Johan asked about did not need the same fix:**
+**The other two controls the conductor asked about did not need the same fix:**
 - The panel row's jump arrow (visually ~12px) is not itself a click
   target — the `@click="jumpToMark(row)"` handler is on the WHOLE
   `.rr-ledger-row` div (confirmed by reading the markup, not assumed),
@@ -11528,23 +11539,24 @@ test at phone width (390px): toggled correctly there too. Row height
 confirmed unchanged (20.5px) and the gap to the next row confirmed still
 0 in both cases — the fix does not eat into that non-existent buffer.
 
-**Does not reach the 44px touch guideline Johan cited** — that would need
-loosening the whole panel's row density, a bigger and costlier call than
-"padding on the button," flagged here rather than assumed. This fix is a
-real, measured, ~2x area improvement (196px² → likely-clickable region
-closer to 360px², counting the invisible overlay) aimed specifically at
-the mouse/trackpad miss cc1 actually reported, not a claim of full touch
-compliance.
+**Does not reach the 44px touch guideline the conductor cited** — that
+would need loosening the whole panel's row density, a bigger and costlier
+call than "padding on the button," flagged here rather than assumed. This
+fix is a real, measured, ~2x area improvement (196px² → likely-clickable
+region closer to 360px², counting the invisible overlay) aimed
+specifically at the mouse/trackpad miss actually reported, not a claim of
+full touch compliance.
 
 **Housekeeping:** the real-click proof above ran against fixture 300 —
-the SAME shared record cc1 had just hand-verified — since `toggleStrike()`
-persists to the real database, not just client state. The automated
-clicks landed on a DIFFERENT entry (id 452, R20,000) than the one cc1's
-own walkthrough used (id 453, R3,500) — never touched cc1's own R3,500/
-R20,000 example — but id 452 was left struck by the automated test and
-was explicitly restored to unstruck afterward (`struck_out_at` set back
-to `null`) so the fixture is exactly as cc1 left it. Named here per this
-session's own standing rule about shared-fixture writes.
+the same shared record the conductor's own verification had just used —
+since `toggleStrike()` persists to the real database, not just client
+state. The automated clicks landed on entry id 452 (R20,000), not the
+R3,500 entry (id 453) named in the conductor's own R23,500→R20,000
+example — that example's own entry was never touched — but id 452 was
+left struck by the automated test and was explicitly restored to
+unstruck afterward (`struck_out_at` set back to `null`) so the fixture is
+exactly as it was found. Named here per this session's own standing rule
+about shared-fixture writes.
 
 ## AT-410 — "File a document directly, without going through the splitter" (2026-09-13, cc5)
 
