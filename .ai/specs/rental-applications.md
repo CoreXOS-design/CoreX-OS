@@ -12824,3 +12824,53 @@ that constructs an already-submitted fixture directly (rather than going
 through a real submit()) — each updated to seed the session's gate-passed
 flag explicitly, since that's exactly the scenario the gate now correctly
 intercepts by design, not a regression.
+
+## `require_fica_before_authorisation` — what it actually does (2026-09-15/16, cc5, INVESTIGATION ONLY, NOTHING BUILT)
+
+Johan noticed "Approve & continue" was clickable on an application badged
+FICA OUTSTANDING and asked what the setting actually does, whether it's
+reachable, and whether it should also govern Decline. Per his explicit
+instruction: **investigation and this note only — no code changed.**
+
+**What it does, from the code:** exactly one call site,
+`RentalApplicationReviewController::submitForApproval()` (the AGENT's own
+hand-off action) — line ~872. When on, it refuses to let the agent submit
+an application to the authoriser while `RentalApplication::ficaOutstanding()`
+(`$contact->ficaStatus() !== 'complete'`, a live check) is true, with a
+plain 422 error naming the reason. **It does not touch `approve()` or
+`decline()` at all** — grepped every call site of
+`RentalApplicationQualifyingSetting::requireFicaBeforeAuthorisationFor()`
+in the codebase; the submit gate above is the only one. Once an
+application has reached the authoriser (whether it passed this gate, or
+predates it — the migration landed 2026-09-13, so any application that
+reached `under_assessment` before then was never checked at all, and
+nothing re-checks it afterward), Approve and Decline are both fully
+reachable regardless of current FICA state. The settings page's own copy
+is honest about this scope ("controls whether the application can be sent
+to the authoriser" — never claims to gate the decision itself); the gap is
+between that and Johan's own mental model of what "before authorisation"
+should mean, not a bug in what's actually written.
+
+**Default:** `true` (required) — `RentalApplicationQualifyingSetting::DEFAULT_REQUIRE_FICA_BEFORE_AUTHORISATION`,
+matching Johan's own stated legal position ("technically we not allowed
+to work with anyone if did not fica"). The DB column itself defaults to
+`NULL` (nullable, no migration-level default) — the model's
+`requireFicaBeforeAuthorisationFor()` treats `NULL` as "use the `true`
+default," so an agency that's never touched the setting is still
+protected. Confirmed live: agency 1's raw column is `NULL`, and the
+resolved value is `true` right now.
+
+**Exposed and agency-configurable, not a stranded column:** Settings →
+Rental Applications → "FICA Before Authorisation" section, one checkbox,
+its own save route (`corex.settings.rental-applications.require-fica-before-authorisation`).
+Reachable, already shipped, already correctly labelled for what it does.
+
+**Governs neither Approve nor Decline today — only the earlier hand-off.**
+So the literal answer to "does it block both, that may be wrong" is:
+it currently blocks **neither** decision action, only the agent's own
+submit step before either one becomes possible. Whether Johan wants the
+setting (or a differently-scoped one) to *also* gate the authoriser's own
+Approve — and, separately, whether a FICA-incomplete applicant being
+DECLINED should ever be blocked by this at all, given declining is
+refusing to take them on, not proceeding with them — is exactly the
+choice put to him. **Nothing built pending that ruling.**
