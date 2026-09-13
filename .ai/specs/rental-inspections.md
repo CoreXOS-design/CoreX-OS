@@ -83,7 +83,7 @@ what actually exists — not bigger:
      and what an out-inspection with no matching in-inspection looks like (§5.1) — the second
      is not hypothetical, it will happen on day one for every property an agency already has
      tenanted when they join CoreX.
-5. **This revision — Johan's rulings on the review step, and one finding escalated rather than
+5. **Fifth pass — Johan's rulings on the review step, and one finding escalated rather than
    answered:**
    - **Q1 decided**: the visible review step ("these people will be named — remove anyone no
      longer here") is now the built design, not a proposed option. See §2.2.
@@ -91,6 +91,19 @@ what actually exists — not bigger:
      express a tenancy's start or end — found independently by this spec and by cc3 from the
      other direction. Not designed or built here; Johan is taking it to a product decision. See
      §2.3.
+6. **This revision — the review step's remove action, checked against what it actually does,
+   not assumed:**
+   - **(a)** The remove action is a PROPERTY-LEVEL unlink, not an inspection-level exclusion —
+     the wording the agent sees must say so plainly, never a bare remove icon. See §2.2.
+   - **(b)** A mistaken removal needs an obvious way back — re-linking the contact restores
+     the current state immediately, surfaced on the same screen. See §2.2.
+   - **(c) — CONFIRMED, reported immediately, not buried**: the unlink action is a genuine
+     hard delete (`RentalApplicationController.php:1083`, `->detach()` on a pivot table with
+     no `deleted_at` column) — a finding bigger than this spec, on a project with a
+     no-hard-deletes rule with no pivot exemption. cc3 has since confirmed the same pattern
+     exists in two OTHER, pre-existing unlink controllers on the same pivot, one with no
+     audit trail at all. Reported directly to the conductor and to cc3; not fixed or designed
+     here.
 
 ---
 
@@ -209,6 +222,43 @@ being asked to choose between two real co-tenants; they're confirming a list the
 correcting it if a name shouldn't be there. Accepted specifically because it protects against
 the confirmed stale-link risk at the cost of one extra glance, without reopening the
 couples/sharers case it was built to protect in the first place.
+
+**(a) This removal is PROPERTY-LEVEL, not inspection-level, and the wording must say so.**
+The remove action calls the same unlink cc3 already built — it does not merely exclude a name
+from THIS inspection, it removes that contact's tenant link from the PROPERTY, permanently,
+everywhere that link is read. A bare "×" next to a name reads as "not on this form"; it does
+not read as "delete this person's connection to this property." The label the agent actually
+sees must say the real thing — something in the register of **"Remove [name] as a tenant of
+this property"**, not a plain remove icon — so the agent understands, at the moment they act,
+that they're editing the property's own tenant record, not tidying a list local to this
+inspection.
+
+**(b) What happens if the agent is wrong — there must be an obvious way back.** If a genuine
+co-tenant is removed here by mistake, mid-inspection: the practical fix is immediate and
+obvious — re-link the same contact as tenant on the property via the existing link action
+(the same control this review step's own remove button is the mirror of), which restores them
+to the current tenant set right away, and they can then be re-added to the inspection's own
+party list before it's frozen. **This must be surfaced on the spot, not left for the agent to
+discover** — the remove action's own confirmation should say plainly that it can be undone by
+re-linking the contact, with a direct way to do that from the same screen, not a trip to a
+different tab.
+
+**Important honesty check on (b), directly tied to a live finding — flagged, not resolved
+here.** "Re-link and you're back to normal" is true for the CURRENT state, but it is not the
+same as undoing the mistake. The unlink action removing a role='tenant' row from
+`contact_property` was confirmed, by reading the code directly
+(`RentalApplicationController.php:1083`, `$contact->properties()->wherePivot('role',
+'tenant')->detach($property->id)`), to be a genuine hard delete — the pivot table has no
+`deleted_at` column, so the original row is gone outright, not archived. Re-linking creates a
+NEW row with a new timestamp; it does not restore the one that was removed. This means a
+mistaken removal during the review step is recoverable in effect (the agent is a tenant again)
+but not recoverable as a historical record (there is now a real gap in when that link
+existed). **This is a hard-delete finding bigger than this spec, on a project with a
+standing no-hard-deletes rule** — reported directly to the conductor and to cc3 the moment it
+was confirmed, not decided or fixed here, and not this spec's to resolve. If it is fixed
+(the pivot gains soft-delete and the unlink action is updated to archive rather than destroy),
+the "not recoverable as history" half of this paragraph becomes moot on its own, with no
+change needed to this spec's own design.
 
 ### 2.3 STRATEGIC FINDING, escalated — a tenancy has no start or end date anywhere in this system
 
@@ -762,6 +812,10 @@ against; it just stops appearing as an option to add NEW entries under, and can 
   correctness (§2.4), and not built or enforced here; remains the existing manual unlink
   action, unchanged.
 - **The legacy-photo manual reclassification tool** (§4.4.1) — named, not built.
+- **Fixing the hard-delete on `contact_property` unlink** (§2.2) — a real, confirmed finding,
+  reported to the conductor and to cc3 directly the moment it was found; not this spec's fix
+  to design or make. This spec's own design (§2.1/§2.2) is correct either way — it does not
+  depend on that fix landing.
 
 ---
 
