@@ -2886,6 +2886,22 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.highlighters.restore');
     Route::post('/settings/rental-applications/highlighters/reorder', [\App\Http\Controllers\CoreX\RentalApplicationHighlighterController::class, 'reorder'])
         ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.highlighters.reorder');
+    // Decline reason templates, 2026-09-15 — Johan: "a decline that tells
+    // an applicant how to fix it." Full CRUD, dedicated list screen (search/
+    // sort/filter/pagination/empty state), same permission gate as every
+    // other rental-applications setting. Boundary with cc5's decline-modal/
+    // send/merge work agreed before either lane wrote code — this
+    // controller is the template library only.
+    Route::get('/settings/rental-applications/decline-reason-templates', [\App\Http\Controllers\CoreX\RentalApplicationDeclineReasonTemplateController::class, 'index'])
+        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.decline-reason-templates.index');
+    Route::post('/settings/rental-applications/decline-reason-templates', [\App\Http\Controllers\CoreX\RentalApplicationDeclineReasonTemplateController::class, 'store'])
+        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.decline-reason-templates.store');
+    Route::put('/settings/rental-applications/decline-reason-templates/{declineReasonTemplate}', [\App\Http\Controllers\CoreX\RentalApplicationDeclineReasonTemplateController::class, 'update'])
+        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.decline-reason-templates.update');
+    Route::post('/settings/rental-applications/decline-reason-templates/{declineReasonTemplate}/archive', [\App\Http\Controllers\CoreX\RentalApplicationDeclineReasonTemplateController::class, 'archive'])
+        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.decline-reason-templates.archive');
+    Route::post('/settings/rental-applications/decline-reason-templates/{declineReasonTemplate}/restore', [\App\Http\Controllers\CoreX\RentalApplicationDeclineReasonTemplateController::class, 'restore'])
+        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.decline-reason-templates.restore');
 
     Route::post('/settings/generate-token', [CoreXSettingsController::class, 'generateApiToken'])->name('corex.settings.generate-token');
     Route::post('/settings/notifications', [CoreXSettingsController::class, 'updateNotificationPreferences'])->middleware('permission:access_settings')->name('corex.settings.notifications.update');

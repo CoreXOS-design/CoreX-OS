@@ -11871,3 +11871,207 @@ a cross-agency document 403/404s, retyping updates the SAME row in place
 - `php artisan test tests/Feature/RentalApplications/FileDocumentDirectlyTest.php` and the pre-existing `tests/Feature/Tools/PdfSplitterRentalApplicationMarkGuardTest.php` (proving the guard refactor didn't regress the splitter itself) — see results recorded at push time below.
 - Real Puppeteer click-through against a local `php artisan serve` instance on the actual worktree, per the conductor's explicit instruction not to hand over an endpoint test alone — full walk above, zero console errors throughout.
 - `dev-check.ps1` cannot run on this box (no `pwsh` available) — stated plainly rather than cited as having run.
+
+## Decline reason templates — agency-configurable reason + guidance library (2026-09-15, cc4)
+
+### What this feature does and why
+
+Johan: a decline reason template has two parts — **the reason** ("affordability",
+"unpaid debit orders on bank statements") and **the guidance** that goes with it
+("to increase your affordability the general tips are…", "for a minimum period
+of three months ensure your debit orders are paid…"). An authoriser picks ONE
+per decline; the picked reason+guidance merge into the agency's existing decline
+email envelope. This is the part that makes the decline flow worth building —
+"a decline that tells an applicant how to fix it is something no other CRM
+does" — not a cosmetic addition to it.
+
+**Boundary, agreed directly with cc5 before either of us wrote code** (Johan's
+own instruction): cc5 owns the decline modal, the reason-template *picker*
+inside it, the agent's send step, and the merge into `RentalApplicationDecline
+EmailSetting`/`RentalApplicationDeclineMail` (adding `{{decline_reason}}`/
+`{{decline_guidance}}` to that model's existing `render()`). **This section is
+the OTHER half: the template library itself** — the agency-configurable CRUD
+these two placeholders are ever going to have anything to read from. Neither
+lane touches the other's files. One roof: the existing envelope (greeting/
+thanks/sign-off, its own settings section, its own `{{applicant_name}}`/
+`{{agency_name}}`/`{{property_reference}}` placeholders) is untouched and
+un-duplicated — these templates are pure data a DIFFERENT model's `render()`
+call reads from, never a second wording system next to it.
+
+### Pillar
+
+Rental Applications / Deal (decline outcome), Agency (agency-scoped
+configuration) — reads no pillar data itself; a pure agency-owned content
+library another feature (cc5's decline send step) reads from.
+
+### Data model
+
+New table `rental_application_decline_reason_templates`:
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | bigint PK | |
+| `agency_id` | bigint, indexed | `BelongsToAgency` — every query scoped |
+| `reason` | string(255) | The label an authoriser picks from — "Affordability", "Unpaid debit orders on bank statements" |
+| `guidance` | text | The remedy text merged into the decline email — general tips only, see the non-negotiable guardrail below |
+| `sort_order` | integer, default 0 | Manual ordering in the picker/list, same `sort_order` convention as `RentalApplicationHighlighter` |
+| `created_by` | bigint, nullable FK → users | Nullable and never backfilled for seeded rows — same honest-absence convention as `RentalApplicationHighlighter::creator()` |
+| `deleted_at` | timestamp, nullable | SoftDeletes — archive, never hard delete |
+| timestamps | | |
+
+Model: `App\Models\RentalApplicationDeclineReasonTemplate` — `BelongsToAgency`,
+`SoftDeletes`. Fillable: `agency_id, reason, guidance, sort_order, created_by`.
+
+**Read method for cc5** (agreed shape): `activeFor(int $agencyId): \Illuminate
+\Support\Collection` — non-archived rows for one agency, ordered by
+`sort_order` then `id`, each item exposing `id`, `reason`, `guidance`. A plain
+Eloquent collection of models (cc5 confirmed either an array or a collection
+works on their end) — no DTO/resource needed for a same-codebase internal read.
+
+### Seeded defaults — day one, no configuration required
+
+Johan: an agency must be useful on day one without writing a word. Two
+defaults, seeded automatically, same mechanism `RentalApplicationHighlighter`
+already established for exactly this problem — never invented a parallel one:
+
+- **`AgencyCreated` domain event** gets a second, independent listener,
+  `App\Listeners\Onboarding\SeedDefaultRentalApplicationDeclineReasonTemplates`,
+  registered in `AppServiceProvider` alongside `SeedDefaultRentalApplication
+  Highlighters` on the same event — every NEW agency gets the two defaults
+  immediately, nothing to configure first.
+- **A one-time backfill migration** seeds the same two defaults for every
+  EXISTING, non-archived agency (`whereNull('deleted_at')` on `agencies`,
+  same real-data lesson the highlighter backfill migration already learned
+  the hard way about archived fixture agencies).
+- `seedDefaultsFor(int $agencyId)` is idempotent — no-ops if the agency
+  already has any row (seeded or hand-created) — safe to call from both
+  callers, and safe if a migration ever needs to re-run.
+- **Deliberately NOT added to `config/agency-onboarding-copy.php`** — same
+  call already made for highlighters, for the same reason: a seeded CRUD
+  library that works immediately with zero configuration is not a toggle an
+  agency owner needs walked through; it is data that is simply already
+  there when they first open the screen. Recorded here as a deliberate
+  decision, not an oversight, matching STANDARDS §10a's own "ask, then
+  record the decision" requirement.
+
+**The two seeded defaults — firm about the reason, genuinely helpful about
+the remedy, per Johan's own tone instruction:**
+
+1. **Reason:** "Affordability"
+   **Guidance:** "The application didn't meet our affordability guideline
+   this time. General tips that help going forward: keep your monthly debt
+   repayments well below your income, avoid taking on new credit shortly
+   before applying, and where possible show a consistent income history on
+   your bank statements over the full period requested."
+
+2. **Reason:** "Unpaid debit orders on bank statements"
+   **Guidance:** "Your bank statements showed debit orders that didn't go
+   through. General tips that help going forward: for a minimum period of
+   three months, make sure every scheduled debit order is paid in full and
+   on time, and keep enough available balance in the days around your usual
+   debit order dates."
+
+**Guardrail, non-negotiable, applies to these defaults and to every template
+an agency writes afterwards:** general tips only — never a number (never a
+rand figure, a percentage, a specific score), and never a sentence of the
+shape "do this and you will be approved." These are the seed every agency's
+own wording starts from; they exist to MODEL the line between guidance and
+financial advice, not to sit right on top of it. Stated as a comment on the
+model's own `DEFAULT_SEED` constant, not just here, so it survives whoever
+next edits the defaults without re-reading this section.
+
+### List screen — search, sort, filter, pagination, empty state (stated before code, per the design floor)
+
+Route group: `Route::prefix('settings/rental-applications/decline-reason-
+templates')`, permission `rental_applications.manage_settings` — the exact
+same gate every other rental-applications settings action already uses (
+`decline-email`, highlighters, qualifying-formula, etc.) — no new permission
+key for a feature that is squarely "manage rental application settings."
+
+- **`GET .../` → index`** — the list screen.
+  - **Search** — `reason` and `guidance` (`?q=`), `LIKE '%...%'` on both
+    columns, same "named fields" convention as `FiltersRentalApplicationList`.
+  - **Sort** — `reason` (A→Z / Z→A), `sort_order` (manual order, **default**),
+    `created_at` (newest/oldest). Default: `sort_order` ascending, so the
+    manually-arranged picker order is what an agency sees first, matching
+    the highlighter list's own default ordering convention.
+  - **Filter** — status (`active` **default** / `archived` / `all`) — the
+    stated status-filter floor; no date-range filter (these rows have no
+    business date of their own the way an application or a document does —
+    `created_at` is available as a SORT, not filtered as a "when" the way
+    STANDARDS' own date-range floor means for genuinely dated records).
+  - **Pagination** — 20 per page, `->withQueryString()`, same convention as
+    every other list screen in this module.
+  - **Scoping** — `BelongsToAgency`'s own global scope is the entire
+    OWN/BRANCH/AGENCY floor here: a decline reason template has no
+    "creating agent" to further restrict by own/branch — it is agency-wide
+    content by its very nature (every authoriser in the agency picks from
+    the same list), so "agency" is the ceiling AND the floor. Direct-URL
+    access to another agency's template 404s via the same global scope
+    every other agency-scoped model already relies on — verified in the
+    real-browser proof below, not assumed.
+  - **Empty state** — "No decline reason templates yet." with a direct
+    "+ Add a template" affordance in the empty state itself, not just the
+    page header — real per BUILD_STANDARD's own empty-state requirement.
+    (In practice this state is unreachable for any agency created after
+    this ships, since seeding is automatic — but an agency that archives
+    both seeded defaults and adds nothing else must still see a real empty
+    state, not a blank table.)
+- **Create** — expand-in-place at the top of the list (reason input +
+  guidance textarea + Save/Cancel), the same "space goes to function, no
+  extra page navigation" pattern Johan approved for AT-410's "File as…" and
+  the highlighter settings' own inline add row — never a separate full-page
+  create form for a two-field record.
+- **Edit** — the same expand-in-place mechanic, triggered per row, pre-
+  filled — identical visual weight/trigger style to Create, per the same
+  "a correction must be at least as easy to find as the mistake" standard
+  already applied to AT-410's "Change type."
+- **Archive / Restore** — soft delete only; archived rows stay listed under
+  the `archived`/`all` filter (never truly gone), with a Restore action —
+  same as every other archive/restore pair in this codebase.
+
+### Navigation entry
+
+Not a new sidebar item — `resources/views/corex/settings/rental-
+applications.blade.php`'s existing "Decline Email" section gets one new
+line (cc5's own addition, agreed directly): **"Manage decline reason
+templates →"**, linking to `corex.settings.rental-applications.decline-
+reason-templates.index`. The existing settings page is already reachable
+from the sidebar; this is the same-day nav entry STANDARDS #2 requires,
+sitting exactly where an authoriser configuring decline wording would look
+for it — right next to the envelope it merges into.
+
+### Files (planned — this entry precedes the build, per the spec-first rule)
+
+- `database/migrations/..._create_rental_application_decline_reason_templates_table.php` — new table.
+- `database/migrations/..._seed_rental_application_decline_reason_templates.php` — one-time backfill for existing agencies.
+- `app/Models/RentalApplicationDeclineReasonTemplate.php` — new.
+- `app/Listeners/Onboarding/SeedDefaultRentalApplicationDeclineReasonTemplates.php` — new.
+- `app/Providers/AppServiceProvider.php` — one new `Event::listen(AgencyCreated::class, ...)` registration, alongside the highlighter one.
+- `app/Http/Controllers/CoreX/RentalApplicationDeclineReasonTemplateController.php` — new, `index`/`store`/`update`/`archive`/`restore`.
+- `routes/web.php` — new route group under `permission:rental_applications.manage_settings`.
+- `resources/views/corex/rental-applications/decline-reason-templates/index.blade.php` — new.
+- `resources/views/corex/settings/rental-applications.blade.php` — cc5's one-line link (their edit, not mine).
+- `tests/Feature/RentalApplications/RentalApplicationDeclineReasonTemplateTest.php` — new.
+
+### Acceptance criteria
+
+- A brand-new agency has exactly the two seeded templates immediately, with
+  no configuration step.
+- Every existing agency gets the same two, via the backfill migration,
+  without disturbing any agency that (impossibly, before this ships) already
+  has rows of this shape.
+- The list screen's search, sort (all three columns, `sort_order` default),
+  filter (active default / archived / all), and pagination all work against
+  real data, proven by a real HTTP request, not read off the controller.
+- Create, edit, archive, and restore all round-trip via real HTTP requests
+  and persist correctly; archived rows never hard-delete.
+- A different agency's templates are unreachable by direct URL (404, global
+  scope) — proven, not assumed.
+- Neither seeded default, nor any template this screen produces, contains a
+  number or a "do this and you will be approved" sentence — checked by
+  reading the actual seeded text against the guardrail, not by trusting the
+  guardrail comment alone.
+- cc5's `activeFor()` consumer compiles against the real method signature
+  agreed above — confirmed by cc5's own decline flow, not assumed complete
+  from this side alone.
