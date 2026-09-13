@@ -484,7 +484,7 @@
 
             @include('corex.contacts._recent-sends')
 
-            <form method="POST" action="{{ route('corex.contacts.update', $contact) }}" class="space-y-6"
+            <form id="contact-update-form" method="POST" action="{{ route('corex.contacts.update', $contact) }}" class="space-y-6"
                   x-data="{ contactKind: '{{ old('contact_kind', $contact->contact_kind ?? 'natural_person') }}', idKind: '{{ old('id_type', ($contact->id_type ?? null) === 'passport' ? 'passport' : 'sa_id') }}' }">
                 @csrf @method('PUT')
                 <input type="hidden" name="_from_show" value="1">
@@ -729,11 +729,6 @@
                 </div>
 
                 @include('corex.contacts._assigned-agents')
-
-                <div class="flex items-center gap-3 pt-2">
-                    <button type="submit" class="corex-btn-primary text-sm">Save Changes</button>
-                    <a href="{{ route('corex.contacts.index') }}" class="text-sm" style="color:var(--text-muted);">Cancel</a>
-                </div>
             </form>
 
             @if($contact->isEntity())
@@ -986,6 +981,16 @@
                 </form>
             </div>
             @endif
+
+            {{-- AT-393 — Save/Cancel for the details form above. It sits BELOW the
+                 Representatives / Linked Entities panel (Johan: the panel must be above
+                 the save button) and reaches the form via the `form` attribute, because
+                 that panel carries its own link/unlink forms and cannot be nested inside
+                 the details form. --}}
+            <div class="flex items-center gap-3 pt-2">
+                <button type="submit" form="contact-update-form" class="corex-btn-primary text-sm">Save Changes</button>
+                <a href="{{ route('corex.contacts.index') }}" class="text-sm" style="color:var(--text-muted);">Cancel</a>
+            </div>
 
             @include('corex.contacts.partials.client-app-access', ['contact' => $contact])
         </div>
