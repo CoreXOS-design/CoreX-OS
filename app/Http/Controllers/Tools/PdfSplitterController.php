@@ -546,20 +546,9 @@ class PdfSplitterController extends Controller
         // worse than blocking. Johan's own explicit choice for this decision:
         // block, do not attempt an automated migration under this deadline.
         $sourceDocumentId = (int) ($splitterContext['source_document_id'] ?? 0);
-        $existingMarks = RentalApplicationDocumentMark::where('document_id', $sourceDocumentId)->get();
-        if ($existingMarks->isNotEmpty()) {
-            $captureMarks = $existingMarks->whereIn('entry_type', RentalApplicationDocumentMark::LEDGER_ENTRY_TYPES);
-            $parts = [];
-            if ($captureMarks->isNotEmpty()) {
-                $amounts = $captureMarks->map(fn (RentalApplicationDocumentMark $m) => 'R' . number_format((float) $m->entry_amount, 2))->implode(', ');
-                $parts[] = $captureMarks->count() . ' captured ledger ' . ($captureMarks->count() === 1 ? 'entry' : 'entries') . ' (' . $amounts . ')';
-            }
-            $plainCount = $existingMarks->count() - $captureMarks->count();
-            if ($plainCount > 0) {
-                $parts[] = $plainCount . ' highlight/note ' . ($plainCount === 1 ? 'mark' : 'marks');
-            }
+        if ($blockMessage = RentalApplicationDocumentMark::blockingMarksMessageFor($sourceDocumentId)) {
             return redirect()->route('corex.rental-applications.review', $rentalApplication)
-                ->withErrors(['pdf' => 'This document has ' . implode(' and ', $parts) . ' drawn on it. Splitting or re-filing it would break the link between that evidence and its figures. Remove those marks first if you need to re-file this document.']);
+                ->withErrors(['pdf' => $blockMessage]);
         }
 
         [$manifests, $fail] = $this->loadCompleteBatchOrFail();

@@ -1063,3 +1063,63 @@ silently omitted.
 Throwaway test user `qa-cc5-bulkapply-bug-repro@example.invalid` (id 212)
 soft-deleted after proof captured. Local `php artisan serve` test instance
 stopped.
+
+## AT-410 — "File as…" direct filing, an alternate path INTO this same routing story (2026-09-13, cc5)
+
+Johan, on rental-application 230's review screen: *"this applicant sent
+split docs. so I know what they are. dont need to run them through the
+splitter. can we give the option right here to file directly as well. so
+you keep the splitter but allow selecting document type and click file and
+its files it without going via the splitter?"*
+
+This changes the routing story for rental-application documents because
+there are now **two entry points that both terminate in the exact same
+filed-document shape**, not one:
+
+```
+Untyped upload
+   ├── Splitter path (unchanged): intakeRentalApplicationDocument() → OCR/
+   │   manifest → review UI → linkForRentalApplication() → N typed Document
+   │   rows (one per label group), original soft-deleted.
+   └── Direct-file path (NEW): RentalApplicationReviewController::
+       fileDocumentDirectly() → ONE typed Document row (the whole file,
+       unsplit, as ONE type), original soft-deleted.
+```
+
+Both paths are reachable from the SAME row of the SAME screen at the SAME
+time, on any untyped, owned (not pulled-from-contact) supporting document —
+Johan's own requirement: *"THE SPLITTER STAYS, unchanged and equally
+available... an agent must be able to choose the splitter on the very same
+document if she opens it and finds it is a mixed bundle after all."*
+Neither path is aware of the other; there is no shared session state, no
+"has this document started down one path" flag — an agent can open the
+splitter, back out, and use direct-filing instead (or vice versa) freely,
+because nothing is committed until whichever action's own POST succeeds.
+
+**Why direct-filing reproduces linkForRentalApplication()'s exact output
+shape rather than a lighter in-place update:** Johan's hard constraint —
+*"Filing this way must produce exactly the same result as filing via the
+splitter would: same record shape, same storage, same relationships...
+indistinguishable afterwards."* The splitter's own single-group case
+already does this (copies the source bytes to a new storage path, creates
+a brand-new `Document` row, attaches the same `contacts()`/`properties()`
+pivots, soft-deletes the original) — direct-filing is that same sequence,
+minus the OCR/manifest/page-extraction machinery a single-type file never
+needed. See `.ai/specs/rental-applications.md`'s own AT-410 section for
+the full build, guards, and proof.
+
+**Scope difference from the splitter's own "Split & File" trigger, by
+design:** Split & File stays PDF-only (only a PDF has pages to split).
+Direct-filing is offered for ANY mime type an upload can arrive as
+(`pdf,jpg,jpeg,png,doc,docx` — `RentalApplicationController::
+uploadDocument()`'s own allowlist) — Johan's own example names a payslip
+and an ID, and an ID just as often arrives as a photo as a PDF scan. This
+is a genuine, deliberate widening of what's fileable on this screen: before
+this build, a non-PDF untyped document had no path to being typed at all.
+
+**The live-mark guard is shared code, not a parallel copy.** Extracted
+from `linkForRentalApplication()` into
+`RentalApplicationDocumentMark::blockingMarksMessageFor(int $documentId): ?string`
+— both the splitter's commit action and the new direct-file action call
+the same method, so the guard can never drift out of sync between the two
+entry points the way two independently-maintained copies eventually would.

@@ -8,6 +8,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Contact;
 use App\Models\ContactMatch;
 use App\Models\Document;
+use App\Models\DocumentType;
 use App\Models\RentalApplication;
 use App\Models\RentalApplicationAssessment;
 use App\Models\RentalApplicationDocumentHighlight;
@@ -23,6 +24,9 @@ use App\Services\RentalApplications\RentalApplicationDocumentHighlightService;
 use App\Services\RentalApplications\RentalApplicationMailer;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 
 /**
@@ -405,6 +409,22 @@ class RentalApplicationReviewController extends Controller
                 ->values()
             : collect();
 
+        // AT-410, 2026-09-13 — "File as…" / "Change type" picker source.
+        // Johan: "the type list comes from the agency's configured document
+        // types, not a hardcoded list." Every active DocumentType, not
+        // filtered down to $documentChecklist above — that list is scoped
+        // to ONE employment type's usual defaults, too narrow for "this
+        // applicant sent something unusual" (the exact case direct-filing
+        // exists for). The Blade groups this same list into "For this
+        // application" (slugs already in documentChecklist) vs "Other
+        // document types" client-side, so the agency-configured checklist
+        // still surfaces first without a second server round-trip.
+        $documentTypeOptions = DocumentType::where('is_active', true)
+            ->orderBy('label')
+            ->get(['id', 'slug', 'label'])
+            ->map(fn (DocumentType $dt) => ['id' => $dt->id, 'slug' => $dt->slug, 'label' => $dt->label])
+            ->values();
+
         // Capture-ledger rework, 2026-09-11 — Johan: "the highlighter mark
         // IS the ledger line." Every active income/expense entry for this
         // application, anchored (drawn on a document) or not (manually
@@ -437,7 +457,8 @@ class RentalApplicationReviewController extends Controller
         return view('corex.rental-applications.review', compact(
             'rentalApplication', 'assessment', 'documents', 'moreInfoRequestedNote', 'declineInfo', 'highlighters',
             'viewerRole', 'propertyLinkLocked', 'auditLog', 'auditLogTotal', 'existingWishlist', 'matchCategories', 'matchTypes', 'featureOptions',
-            'rentalPropertyTypeNames', 'wishlistPrefill', 'pickableContactDocuments', 'pickableStaleness', 'documentChecklist', 'captureEntries'
+            'rentalPropertyTypeNames', 'wishlistPrefill', 'pickableContactDocuments', 'pickableStaleness', 'documentChecklist', 'captureEntries',
+            'documentTypeOptions'
         ))->with('isPendingAuthorisation', $rentalApplication->isPendingAuthorisation());
     }
 
@@ -837,6 +858,174 @@ class RentalApplicationReviewController extends Controller
                 'document_type' => $document->documentType?->label,
             ],
         ]);
+    }
+
+    /**
+     * AT-410, 2026-09-13 — Johan, verbatim: "this applicant sent split docs.
+     * so I know what they are. dont need to run them through the splitter.
+     * can we give the option right here to file directly as well. so you
+     * keep the splitter but allow selecting document type and click file
+     * and its files it without going via the splitter?" The splitter
+     * (PdfSplitterController::intakeRentalApplicationDocument()/
+     * linkForRentalApplication()) stays completely untouched and equally
+     * available on the same row — this is an additional path for the
+     * one-document-is-one-type case, not a replacement.
+     *
+     * Deliberately reproduces linkForRentalApplication()'s exact single-
+     * group output shape — new Document row (copied bytes, own storage
+     * path), same contacts()/properties() pivots, source_type/source_id,
+     * original soft-deleted — so a directly-filed document is
+     * indistinguishable afterwards from one filed through the splitter.
+     * Any mime type, not just PDF: Johan's own example names a payslip and
+     * an ID, which arrive as images just as often as PDFs, and direct
+     * filing needs no page-splitting logic to be safe for any file type
+     * (the splitter's OWN "Split & File" trigger stays PDF-only for the
+     * separate reason that only a PDF can be split).
+     */
+    public function fileDocumentDirectly(Request $request, RentalApplication $rentalApplication, Document $document, RentalApplicationAuditService $audit)
+    {
+        $this->guardRentalApplication($rentalApplication);
+        $this->guardDocumentBelongsToApplication($rentalApplication, $document);
+        if ($locked = $this->guardScreenNotLockedForAuthoriser($rentalApplication)) {
+            return $locked;
+        }
+
+        // Owned only — a referenced (pulled-from-contact) document's typing
+        // is that document's original filing home's business, not this
+        // application's (matches the Blade's own "Split & File" scoping).
+        abort_unless($document->source_type === 'rental_application' && (int) $document->source_id === $rentalApplication->id, 404);
+        abort_unless($document->document_type_id === null, 422, 'This document is already filed as a type — use Change Type instead.');
+
+        if ($blockMessage = RentalApplicationDocumentMark::blockingMarksMessageFor($document->id)) {
+            return response()->json(['error' => $blockMessage], 422);
+        }
+
+        $validated = $request->validate([
+            'document_type_id' => ['required', 'integer', Rule::exists('document_types', 'id')->where('is_active', true)],
+        ]);
+        $documentType = DocumentType::findOrFail($validated['document_type_id']);
+
+        if (! $document->storage_path || ! Storage::disk($document->disk ?: 'local')->exists($document->storage_path)) {
+            return response()->json(['error' => 'That document could not be found on disk — it may have been removed.'], 422);
+        }
+
+        $contact = $rentalApplication->contact;
+        abort_unless($contact, 422, 'This application has no linked contact.');
+
+        $ext = pathinfo($document->storage_path, PATHINFO_EXTENSION) ?: 'pdf';
+        $relPath = 'rental-applications/' . $rentalApplication->id . '/documents/' . Str::lower(Str::random(12)) . '_' . $documentType->slug . '.' . $ext;
+        Storage::disk('local')->copy($document->storage_path, $relPath);
+
+        $filed = Document::create([
+            'original_name' => $documentType->label . '.' . $ext,
+            'storage_path' => $relPath,
+            'disk' => 'local',
+            'mime_type' => $document->mime_type,
+            'size' => Storage::disk('local')->size($relPath),
+            'document_type_id' => $documentType->id,
+            'source_type' => 'rental_application',
+            'source_id' => $rentalApplication->id,
+            'branch_id' => $rentalApplication->branch_id,
+            'uploaded_by' => $request->user()->id,
+        ]);
+        $filed->contacts()->syncWithoutDetaching([$contact->id]);
+        if ($rentalApplication->property_id) {
+            $filed->properties()->syncWithoutDetaching([$rentalApplication->property_id]);
+        }
+
+        // Archive the original untyped upload — no hard delete, recoverable,
+        // but no longer sitting in the document list next to its own typed
+        // replacement. Matches linkForRentalApplication()'s own convention.
+        $sourceOriginalName = $document->original_name;
+        $sourceDocumentId = $document->id;
+        $document->delete();
+
+        $audit->log(
+            $rentalApplication,
+            eventCategory: 'document',
+            eventType: 'filed_direct',
+            user: $request->user(),
+            oldValues: ['source_document_id' => $sourceDocumentId, 'source_original_name' => $sourceOriginalName],
+            newValues: ['document_id' => $filed->id, 'document_type_id' => $filed->document_type_id, 'document_type_label' => $documentType->label],
+            humanSummary: ($request->user()->name ?? 'An agent') . ' filed "' . $sourceOriginalName . '" directly as ' . $documentType->label . ', without the splitter.',
+        );
+
+        return response()->json([
+            'ok' => true,
+            'document' => [
+                'id' => $filed->id,
+                'original_name' => $filed->original_name,
+                'document_type_id' => $filed->document_type_id,
+                'document_type_label' => $documentType->label,
+            ],
+            'replaced_document_id' => $sourceDocumentId,
+        ]);
+    }
+
+    /**
+     * AT-410 — the "correctable" requirement. Johan: "if she picks the
+     * wrong type she can change it without deleting anything and without
+     * re-uploading." Deliberately NOT fileDocumentDirectly()'s copy-new-
+     * row-and-archive-original dance — that shape exists so a FIRST filing
+     * is indistinguishable from the splitter's own output; once a document
+     * is already filed (via either path), a mistyped tag is a mistaken
+     * label, not evidence to re-derive, so correcting it is a plain in-
+     * place update of the same row. Works on ANY already-typed owned
+     * document on this screen, not only ones filed by the new action —
+     * matching the standing full-CRUD "correctable" design floor rather
+     * than a feature-specific fix. Deliberately does NOT run the live-mark
+     * guard: nothing here moves the document, its storage_path, or its
+     * id — every mark's document_id stays exactly what it was, so the
+     * guard's actual concern (a page's marks silently following the wrong
+     * resulting piece) cannot arise from a same-row type-tag change.
+     */
+    public function retypeDocument(Request $request, RentalApplication $rentalApplication, Document $document, RentalApplicationAuditService $audit)
+    {
+        $this->guardRentalApplication($rentalApplication);
+        $this->guardDocumentBelongsToApplication($rentalApplication, $document);
+        if ($locked = $this->guardScreenNotLockedForAuthoriser($rentalApplication)) {
+            return $locked;
+        }
+
+        abort_unless($document->source_type === 'rental_application' && (int) $document->source_id === $rentalApplication->id, 404);
+        abort_unless($document->document_type_id !== null, 422, 'This document has not been filed yet — use File As instead.');
+
+        $validated = $request->validate([
+            'document_type_id' => ['required', 'integer', Rule::exists('document_types', 'id')->where('is_active', true)],
+        ]);
+
+        $oldType = $document->documentType;
+        $newType = DocumentType::findOrFail($validated['document_type_id']);
+
+        if ($oldType && $oldType->id === $newType->id) {
+            return response()->json(['ok' => true, 'document' => [
+                'id' => $document->id, 'original_name' => $document->original_name,
+                'document_type_id' => $document->document_type_id, 'document_type_label' => $newType->label,
+            ]]);
+        }
+
+        $ext = pathinfo($document->storage_path, PATHINFO_EXTENSION) ?: 'pdf';
+        $document->update([
+            'document_type_id' => $newType->id,
+            'original_name' => $newType->label . '.' . $ext,
+        ]);
+
+        $audit->log(
+            $rentalApplication,
+            eventCategory: 'document',
+            eventType: 'retyped',
+            user: $request->user(),
+            oldValues: ['document_type_id' => $oldType?->id, 'document_type_label' => $oldType?->label],
+            newValues: ['document_type_id' => $newType->id, 'document_type_label' => $newType->label],
+            humanSummary: ($request->user()->name ?? 'An agent') . ' changed document #' . $document->id . ' from "' . ($oldType?->label ?? 'Untyped') . '" to "' . $newType->label . '".',
+        );
+
+        return response()->json(['ok' => true, 'document' => [
+            'id' => $document->id,
+            'original_name' => $document->original_name,
+            'document_type_id' => $document->document_type_id,
+            'document_type_label' => $newType->label,
+        ]]);
     }
 
     /**
