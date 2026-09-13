@@ -11942,6 +11942,20 @@ Fixture: application 321 (agency 1, fresh contact, `status='under_assessment'`, 
 - `.env` `MAIL_FROM_ADDRESS` reverted to its original value after testing; local `php artisan serve` test instance stopped.
 - `dev-check.ps1` cannot run on this box (no `pwsh` available) — stated plainly rather than cited as having run.
 
+### Round 2 — Johan's real-Chrome walk, recipient visibility, and a retracted click report (2026-09-15)
+
+Johan walked the merged flow in real Windows Chrome. Result summary, for the record:
+
+**Confirmed working, unchanged:** the two-field gate (all four states), the fully-resolved draft email (real name, agency tone, template guidance merged naturally, zero placeholders), the amber "not yet sent" hold surviving a page reload, structural idempotency (send controls disappear entirely from the DOM once sent — nothing left to press twice), the audit trail, the PDF filing.
+
+**A real gap he found and this round fixed — the agent was never shown who the email was actually going to.** The send-decline drawer now shows a read-only `To: {email}` line, resolved via the same `RentalApplication::recipientEmail()` the actual send uses. When there's no email anywhere on the application, the drawer says so plainly and the Send button is disabled — enforced server-side too: `sendDecline()` previously still marked `applicant_notified_at` and flashed "Decline sent to the applicant" even when the mailer's own internal guard had silently swallowed a missing-recipient send. That false-success path is now closed, refused before anything is written.
+
+**Round 2b — the guard message names the remedy, not just the problem.** Johan: "the message tells the agent WHAT IS WRONG but not WHAT TO DO... add the remedy in the same sentence... if there is a sensible link straight to it, better still." Checked where an agent actually adds an email rather than guessing — `corex.contacts.show`'s own edit form, "Emails" section (the `_identifier-repeater` partial, `kind=emails`) — the exact field `recipientEmail()` falls back to. The guard message now links straight there, naming the contact. The disabled Send button also carries a `title` tooltip for the case the on-screen message scrolls out of view (Johan's own "low priority, but it costs nothing" ask).
+
+**Native `confirm()`/`alert()`/`prompt()` removed from both decline-path submit handlers** — the authoriser's Decline modal and the agent's send-decline drawer — per Johan's standing instruction ("a native dialog is not acceptable in this product... it behaves differently in every browser"). Approve, Send-back-to-agent, and Clear-linked-property keep theirs — out of scope, not touched.
+
+**The click-freeze report — investigated, then retracted by Johan himself, worth recording so nobody re-opens it.** Johan initially reported the enabled Decline button doing nothing on a real mouse click, plus a renderer freeze on a follow-up programmatic click. Both were real observations of *something*, but not of a code defect: his testing tab was in the background (a second tab, with Johan working in his own foreground tabs on the same browser) — Chrome does not deliver synthetic input to a background tab at all, and throttles/can appear to hang a backgrounded renderer, which produced both symptoms without a single line of application code being at fault. He proved this himself (capture-phase `mousedown` listeners on `document` receiving zero events on a background-tab click) and retracted the report in full. cc5's own reproduction attempts (real CDP-driven mouse click, varied focus states, a genuine native-select keyboard interaction) never reproduced a swallowed click either, consistent with the retraction. **Decline-button clickability remains formally unverified, not proven-safe** — Johan intends to walk it again with a genuine foreground tab before signing it off, and nothing further should be built on the assumption that click is broken or that it's confirmed fixed.
+
 ## Decline reason templates — agency-configurable reason + guidance library (2026-09-15, cc4)
 
 ### What this feature does and why
@@ -12890,3 +12904,377 @@ that constructs an already-submitted fixture directly (rather than going
 through a real submit()) — each updated to seed the session's gate-passed
 flag explicitly, since that's exactly the scenario the gate now correctly
 intercepts by design, not a regression.
+
+## `require_fica_before_authorisation` — what it actually does (2026-09-15/16, cc5, INVESTIGATION ONLY, NOTHING BUILT)
+
+Johan noticed "Approve & continue" was clickable on an application badged
+FICA OUTSTANDING and asked what the setting actually does, whether it's
+reachable, and whether it should also govern Decline. Per his explicit
+instruction: **investigation and this note only — no code changed.**
+
+**What it does, from the code:** exactly one call site,
+`RentalApplicationReviewController::submitForApproval()` (the AGENT's own
+hand-off action) — line ~872. When on, it refuses to let the agent submit
+an application to the authoriser while `RentalApplication::ficaOutstanding()`
+(`$contact->ficaStatus() !== 'complete'`, a live check) is true, with a
+plain 422 error naming the reason. **It does not touch `approve()` or
+`decline()` at all** — grepped every call site of
+`RentalApplicationQualifyingSetting::requireFicaBeforeAuthorisationFor()`
+in the codebase; the submit gate above is the only one. Once an
+application has reached the authoriser (whether it passed this gate, or
+predates it — the migration landed 2026-09-13, so any application that
+reached `under_assessment` before then was never checked at all, and
+nothing re-checks it afterward), Approve and Decline are both fully
+reachable regardless of current FICA state. The settings page's own copy
+is honest about this scope ("controls whether the application can be sent
+to the authoriser" — never claims to gate the decision itself); the gap is
+between that and Johan's own mental model of what "before authorisation"
+should mean, not a bug in what's actually written.
+
+**Default:** `true` (required) — `RentalApplicationQualifyingSetting::DEFAULT_REQUIRE_FICA_BEFORE_AUTHORISATION`,
+matching Johan's own stated legal position ("technically we not allowed
+to work with anyone if did not fica"). The DB column itself defaults to
+`NULL` (nullable, no migration-level default) — the model's
+`requireFicaBeforeAuthorisationFor()` treats `NULL` as "use the `true`
+default," so an agency that's never touched the setting is still
+protected. Confirmed live: agency 1's raw column is `NULL`, and the
+resolved value is `true` right now.
+
+**Exposed and agency-configurable, not a stranded column:** Settings →
+Rental Applications → "FICA Before Authorisation" section, one checkbox,
+its own save route (`corex.settings.rental-applications.require-fica-before-authorisation`).
+Reachable, already shipped, already correctly labelled for what it does.
+
+**Governs neither Approve nor Decline today — only the earlier hand-off.**
+So the literal answer to "does it block both, that may be wrong" is:
+it currently blocks **neither** decision action, only the agent's own
+submit step before either one becomes possible. Whether Johan wants the
+setting (or a differently-scoped one) to *also* gate the authoriser's own
+Approve — and, separately, whether a FICA-incomplete applicant being
+DECLINED should ever be blocked by this at all, given declining is
+refusing to take them on, not proceeding with them — is exactly the
+choice put to him. **Nothing built pending that ruling.**
+
+## FICA Outstanding tile split — SPEC, approved in principle, not yet built (2026-09-15)
+
+Johan's ruling: **"yes on fica."** Approved. Not built yet — this section
+is still spec, and the plan is spec-review-then-build, but it is no
+longer a proposal that might be thrown away.
+
+### The crux question, answered directly — is this a half-hour job or a real one
+
+Checked, per the conductor's explicit instruction, before writing another
+word: **`ficaOutstanding()` keys off `Contact::ficaStatus()`, which
+cannot distinguish the two buckets.** `Contact::ficaStatus()`
+(`app/Models/Contact.php` line ~434) collapses `draft`, `submitted`,
+`under_review`, `agent_approved`, `referred_to_co`,
+`corrections_requested`, `rejected`, and `cancelled` ALL into the single
+result `'incomplete'` — "applicant hasn't started" and "applicant
+finished, sitting with a compliance officer" read identically through
+that accessor. `RentalApplication::ficaOutstanding()` (`app/Models/RentalApplication.php`
+line ~601) is a thin wrapper over exactly that accessor, so it inherits
+the same blindness.
+
+**This is a real job, not a half-hour one — it cannot be built off
+`ficaOutstanding()`/`ficaStatus()` alone.** It requires reading the
+contact's latest `FicaSubmission.status` directly, bypassing the coarse
+accessor entirely. This is not new risk, though: the CURRENT single
+`fica_outstanding` tile filter already does exactly this today
+(`applyTileFilter()`, `app/Http/Controllers/CoreX/RentalApplicationController.php`
+line ~291, `whereDoesntHave('contact.ficaSubmissions', ...)` against the
+raw `status`/`verified_at` columns) — its own code comment names the
+reason explicitly: it deliberately does NOT go through
+`Contact::ficaStatus()` because that accessor is too coarse for a fast,
+correct list filter. The split extends a pattern already in production,
+rather than inventing a new query shape from nothing. Everything in the
+sections below was written against the real `FicaSubmission.status`
+column for exactly this reason.
+
+### The problem, precisely
+
+`RentalApplicationController::TILES['fica_outstanding']` (line ~230)
+counts an application as outstanding whenever its contact lacks a
+FicaSubmission that is BOTH `status = 'approved'` AND `verified_at`
+within the last 11 months (`applyTileFilter()`, line ~291). That single
+condition covers every one of these, today, with no way for an agent to
+tell them apart from the tile:
+
+- nobody has asked this applicant for FICA yet (no submission exists)
+- the applicant started the form and abandoned it (`draft`)
+- the applicant finished and it's sitting with agency staff, unlooked-at
+  (`submitted`, `under_review`)
+- it's gone further up the chain and is sitting with a specific person
+  (`agent_approved` = needs the RO; `referred_to_co` = needs the CO)
+- it was sent back to the applicant for fixes (`corrections_requested`)
+- it was rejected by a compliance officer (`rejected`)
+- it was cancelled/superseded (`cancelled`)
+- it was once approved but has gone stale (`approved`, `verified_at`
+  ≥ 11 months ago)
+
+An agent sees one number and cannot tell "phone the applicant" from
+"phone your own compliance officer" apart — exactly the wasted, wrong
+phone call this whole rebuild exists to remove.
+
+### (a) The real states, read from the code, not guessed
+
+The full `FicaSubmission.status` vocabulary (`FicaSubmission::getStatusLabelAttribute()`,
+`app/Models/FicaSubmission.php` line ~340) is: `draft`, `submitted`,
+`under_review`, `agent_approved`, `referred_to_co`,
+`corrections_requested`, `approved`, `rejected`, `cancelled`. Nine
+states, not two — Johan's instinct to split into two TILES is still
+right, but the two tiles are each a bucket of several of these states,
+and one state (`rejected`) is a genuine judgement call, not a clean fit
+either side.
+
+**A directly relevant precedent already exists and is already proven
+correct**, just for a different audience: `RentalApplication::ficaAwaitingApplicantAction()`
+(`app/Models/RentalApplication.php` line ~620), built for the
+APPLICANT'S OWN confirmation page, to tell an applicant who already
+submitted their FICA form ("we're reviewing it") apart from one who
+hasn't started or was sent back ("please finish it"). Its own rule:
+awaiting-applicant = latest submission is `null`, or its status is one
+of `draft`, `rejected`, `corrections_requested`.
+
+That rule is right for the applicant's own screen but **not quite right
+for the agent's tile**, and the difference is `rejected`. Checked
+directly (`FicaController::resend()`, line ~838): a live, self-service
+resend link only exists for `draft` and `corrections_requested` — a
+`rejected` submission has NO applicant-facing path back into the form at
+all; a member of staff must decide to create a fresh submission before
+the applicant can do anything further. Telling an applicant "you need to
+act" when they're rejected is still reasonable framing for THEM
+(matches what the existing method already does, and it's not being
+changed here). Telling an AGENT "this is waiting on the applicant" for a
+rejected FICA is different — it invites a routine "please resubmit"
+phone call when what actually needs to happen first is a staff decision
+(re-request, or reconsider the tenant). Recommend `rejected` sits in
+**"Waiting on us"** for the tile split, deliberately diverging from
+`ficaAwaitingApplicantAction()`'s bucketing — different audience,
+different question, and the two functions should stay separate rather
+than one being stretched to serve both (a new
+`RentalApplication::ficaWaitingOnApplicant()` alongside the existing
+method, not a rewrite of it).
+
+**Recommended split**, latest FicaSubmission for the contact by
+`created_at` (mirroring `ficaAwaitingApplicantAction()`'s own query
+shape exactly, for the same reason it was built that way — a contact's
+older rejected/cancelled submission must not out-count a newer live
+one):
+
+| Bucket | Latest submission | Who acts next |
+|---|---|---|
+| **Waiting on applicant** | none exists, or `draft`, or `corrections_requested` | the applicant |
+| **Waiting on us** | `submitted`, `under_review`, `agent_approved`, `referred_to_co`, `rejected`, `cancelled`, or `approved`-but-expired | agency staff (agent, RO, or CO depending on stage) |
+
+This is exhaustive and mutually exclusive over every row the current
+single tile counts today (every status in the enum appears exactly
+once), which is what makes (f) below hold by construction rather than
+needing a runtime reconciliation check.
+
+### (b) No submission at all vs. started-and-abandoned
+
+**Same bucket — "Waiting on applicant" — and this is not a close call.**
+Checked how a FicaSubmission comes to exist for a rental applicant in
+the first place (`RentalApplicationSigningController::findOrCreateFicaSubmission()`,
+see "FICA becomes mandatory" above): the hand-off happens strictly
+AFTER the applicant's own full submit() commits, which is also the
+moment the rental application's status leaves `in_progress` for
+`returned`. That means:
+
+- A `returned`/`reopened`/`under_assessment` application (already past
+  the applicant's own submit) will always have at least one
+  FicaSubmission — auto-created if nothing else. "No submission at all"
+  at that stage would mean either an application pre-dating this
+  feature (2026-09-13) or the hand-off itself failed, and either way the
+  applicant is still the one who needs to complete it — no different
+  in effect from `draft`.
+- An `in_progress` application (the applicant hasn't finished the main
+  form yet) will normally have NO FicaSubmission yet, and that is
+  completely expected — FICA isn't due to exist for these at all. This
+  is not neglect on anyone's part; it's identical in effect to `draft`
+  from the agent's point of view: the applicant hasn't gotten to it.
+
+Both read as "the applicant hasn't done their part yet" to an agent
+deciding who to chase, and `ficaAwaitingApplicantAction()`'s own
+precedent already treats `null` and `draft` identically for exactly
+this reason. No third bucket needed for this distinction.
+
+**One nuance worth naming, not hiding**: an `approved`-but-expired
+FICA (Case in the table above) reads as "Waiting on us" under this
+split, which is correct only for the period before anyone has asked the
+applicant to renew — once a fresh `draft` is created for a renewal, it
+correctly flips to "Waiting on applicant" on its own, no special code
+needed. Worth Johan knowing this exists as a state at all: a FICA that
+has simply gone stale, where nobody has yet requested a renewal, will
+sit under "Waiting on us" until a staff member notices and asks — which
+is arguably the entire point of splitting the tile in the first place.
+
+### (c) Wording — proposed for approval, not yet built
+
+In the same register as "Yours only / Your branch / Whole agency"
+(approved earlier today) — plain, short, no developer language:
+
+> **FICA — Applicant** and **FICA — Us**
+
+Reasoning: the shared "FICA —" prefix keeps the pair legible as one
+family at a glance even though tiles aren't visually boxed together: an
+agent scanning the row sees two adjacent FICA tiles, not one ambiguous
+"Us" floating among unrelated labels like "Sent for Authorisation."
+Short enough to sit comfortably next to the longest existing label
+("Sent for Authorisation", 22 characters) without crowding the row.
+
+Runner-up, if "Applicant"/"Us" reads too terse in context: **"FICA —
+Waiting on Applicant"** and **"FICA — Waiting on Us"** — clearer in
+isolation, costs meaningfully more width. Recommend the shorter pair;
+either is Johan's call to make, exactly like the scope wording was.
+
+### (d) Screen real estate — honest count, not rounded
+
+Currently, per `$primaryTiles`/`$secondaryTiles` (`index.blade.php` line
+~58): **8 primary tiles** (All, Not Yet Submitted, Returned, Under
+Assessment, Sent for Authorisation, Approved, Declined, FICA
+Outstanding) **+ 2 secondary "Also:" links** (Applicant Withdrawn,
+Reopened) = 10 total, not 9 — worth correcting for the record.
+
+Splitting FICA Outstanding into two makes it **9 primary + 2
+secondary = 11 total**. Honest answer: still readable, and not a new
+kind of decision — Johan already approved splitting one status into two
+purposeful tiles once before, in this exact row (`Under Assessment` vs
+`Sent for Authorisation` are BOTH `status = under_assessment`, split
+only by `submitted_for_approval_at`, specifically because "with agent"
+vs "with authoriser" was "the precise question an agent wastes clicks
+on" — this FICA split is the same kind of question, same justification).
+The row is `flex flex-wrap` (`index.blade.php` line ~152) — it already
+wraps onto a second line on a normal window width with 8 tiles; one more
+short tile changes wrapping, not readability, and doesn't hide, truncate,
+or require scrolling. No proposal to remove or merge anything else to
+compensate — nothing else on the row is misleading or redundant the way
+the single FICA tile currently is, so nothing else has earned removal.
+
+### (e) Should this be a setting
+
+**No, agreed with the conductor's instinct.** This corrects a tile that
+currently states something an agent cannot act on correctly — there is
+no agency for whom the merged, ambiguous number is the better product,
+and a toggle to keep the old behaviour would just be a way to leave the
+misleading number in place for whoever doesn't find the setting. Not
+comparable to the own/branch/all scope default, which genuinely varies
+by role; this varies by nothing.
+
+### (f) Counts stay consistent — why, not just "yes"
+
+Both new tiles reuse the identical `clone $countBase` /
+`applyTileFilter()` mechanism every existing tile already uses
+(`.ai/specs/rental-applications.md`, "count and list can never disagree
+because they share one scoped ancestor" — see above), so scope-toggle
+correctness is inherited for free, exactly as it is for the 8 tiles that
+exist today; nothing new to verify there beyond the existing gate.
+
+**The two-FICA-tiles-sum-to-the-old-single-tile property holds by
+construction WITHIN the population the old tile already covered** — not
+by a runtime check: the two recommended filters in (a) are an
+exhaustive, mutually-exclusive partition of the FULL `FicaSubmission`
+status enum (every one of the nine states, plus "no submission," appears
+in exactly one of the two buckets — see the table above) applied on top
+of the SAME existing outer condition (`whereDoesntHave(approved AND
+valid)`). The one implementation detail that would actually break this
+guarantee, flagged now so it isn't discovered at ship time: the split
+MUST key off the contact's LATEST FicaSubmission by `created_at`
+(exactly as `ficaAwaitingApplicantAction()` already does), never "does
+any submission with status X exist" — a contact with an old `rejected`
+submission and a newer live `draft` must land only in "Waiting on
+applicant," not in both buckets or neither. Get that one query shape
+right and the sum is automatic for that population; get it wrong and it
+silently isn't.
+
+**That guarantee no longer extends to the tile row as a whole**, because
+of conditional approval — see (g) immediately below, written after
+Johan's ruling landed mid-spec.
+
+### (g) Conditional approval changes what these tiles are, not just what's in them
+
+Landed mid-spec: Johan has separately ruled "yes, can become approved
+subject to FICA verification" (cc5 speccing the build). Confirmed
+directly with cc5 before writing this: no new `rental_applications.status`
+value — status stays `'approved'`, and the conditional state is a new
+nullable `approved_subject_to_fica_at` timestamp (non-null = currently
+conditional; cleared back to null automatically once FICA verifies).
+
+This changes what the FICA tiles fundamentally are. Today,
+`fica_outstanding`'s status list (`REVIEWABLE_STATUSES` — `in_progress`,
+`returned`, `reopened`, `under_assessment`) deliberately EXCLUDES
+`approved` — the comment on that constant says so explicitly ("a
+terminal approved/declined/withdrawn application isn't something
+FICA-chasing helps any more"). A conditionally-approved application
+breaks that assumption: it IS `approved`, and FICA-chasing on it is now
+the single most useful thing an agent could do. So the FICA tiles' own
+status list must widen to also include `status = 'approved' AND
+approved_subject_to_fica_at IS NOT NULL` — meaning a conditionally
+-approved-but-unverified application now legitimately appears in BOTH
+the "Approved" tile AND one of the two FICA tiles at once.
+
+**Agreed with the conductor's instinct: these become a work queue, not
+a mutually-exclusive status breakdown, and the screen must say so.**
+Concretely:
+
+- The two FICA tiles stay mutually exclusive WITH EACH OTHER — a
+  conditionally-approved row is classified into "Waiting on Applicant"
+  or "Waiting on Us" by the exact same latest-FicaSubmission-status
+  logic as any other row in (a); conditional approval doesn't create a
+  third FICA bucket, it just widens WHICH `rental_applications.status`
+  values are eligible to land in the two that already exist.
+- What breaks is the tile ROW's implicit promise that a row belongs to
+  exactly one tile. It no longer does, for this one case. The FICA
+  tiles' combined total will now legitimately exceed what a naive
+  reading of "Approved + everything-not-approved" would suggest, by
+  exactly the count of conditionally-approved-and-unverified rows.
+- **Does a conditionally-approved application belong in the FICA queue
+  at all — yes, and it's arguably the most urgent row in it**, matching
+  the conductor's own read: the agency has already committed to a
+  tenant it hasn't verified. Excluding it from the queue because it's
+  also "Approved" would hide exactly the case FICA-chasing matters most
+  for.
+- **Screen honesty**: the existing scope caption (`"Yours only" /
+  "Your branch" / "Whole agency"`) already sits right above the tile row
+  for exactly this reason — stating plainly what the numbers mean rather
+  than letting them imply something false. Recommend the same caption
+  line grows one more clause when the FICA tiles are in play, e.g.:
+  **"FICA tiles can overlap with Approved — an application can be
+  both."** Short, factual, no jargon ("work queue" is developer
+  language; "can be both" says the same thing in Johan's register).
+  Only needs to render when at least one of the two FICA tiles has a
+  nonzero count that overlaps Approved, so it doesn't clutter the
+  screen for an agency with nothing conditional in flight.
+- **Visual marker on the row itself — one, not several.** Whatever
+  label cc5 settles on for the review screen's own conditional-approval
+  badge (Johan's own phrasing suggests something like "Approved —
+  subject to FICA") should be the SAME label reused as a small tag next
+  to that row in this list — not a second wording for the same fact.
+  Exact copy deferred to cc5's spec sign-off; this spec's job is only to
+  confirm the list needs to show it at all, once, and reuse rather than
+  duplicate.
+
+### Files (when built — not yet)
+
+`app/Http/Controllers/CoreX/RentalApplicationController.php` (split
+`fica_outstanding` into two TILES entries, widen each one's status list
+to also match `status = 'approved' AND approved_subject_to_fica_at IS
+NOT NULL` per (g), new `applyTileFilter()` branch keyed on
+latest-FicaSubmission-status), `app/Models/RentalApplication.php` (new
+`ficaWaitingOnApplicant()`/`ficaWaitingOnUs()`, alongside — not
+replacing — the existing `ficaAwaitingApplicantAction()`),
+`resources/views/corex/rental-applications/index.blade.php` (tile
+labels + `$primaryTiles` + the overlap caption from (g) + the row-level
+conditional-approval tag, copy from cc5's spec), a click-through gate
+check (Standard −1f) proving both new tiles' counts move together, sum
+to the old single number for the pre-conditional-approval population,
+and correctly ALSO surface a conditionally-approved fixture without
+double-appearing in the wrong FICA bucket.
+
+**Coordination dependency, confirmed directly with cc5 (2026-09-15, not
+assumed)**: conditional approval is `rental_applications.approved_subject_to_fica_at`
+(nullable timestamp; non-null = conditional, cleared to null once FICA
+verifies), no new status value. This spec's filter is written against
+that column name and semantics. cc5's own spec is still pending Johan's
+sign-off — if the column name or shape changes there, this spec's Files
+section and filter both need a matching update before build.
