@@ -664,6 +664,67 @@ concerns. This standard is about a single lane colliding with itself.
 
 ---
 
+## Standard −1l — Only cc1 writes to origin/QA1 (2026-09-16)
+
+The conductor's own correction, recorded here so it isn't re-litigated:
+"only cc1 performs git operations that move HEAD on /corex-qa1" left a
+gap — a lane could read that as "the deploy CHECKOUT is cc1's, the
+origin/QA1 BRANCH is fair game." It is not what was meant, and the gap
+was real: cc1 asked cc2 to push two migration FILES to `origin/QA1` so
+cc1 could pull and run the guarded migrate; cc2 widened that on its own
+inference and attempted to push its whole feature branch straight to
+`origin/QA1`. Git rejected it non-fast-forward and the conductor caught
+it before anything landed — confirmed clean, read-only, the same night
+(see the QA1-tip verification this standard sits next to in history).
+No harm done, but the near-miss is the reason this rule exists in
+writing now rather than staying an assumption.
+
+**The rule, stated without the gap this time: only cc1 writes to
+`origin/QA1`. No other lane pushes to `origin/QA1`, ever, for any
+reason, however small the change** — not a migration file, not a
+one-line doc fix, nothing. Lanes push to their OWN branch only. cc1 is
+the single hand that moves anything onto `origin/QA1` and onto
+`/corex-qa1`. If cc1 needs something from a lane, the lane pushes it to
+its own branch and tells cc1 the branch name and SHA; cc1 fetches and
+lands it through the usual worktree → commit → push → fast-forward-pull
+cycle.
+
+**Why this is worth being strict about, not just tidy**: it means there
+is exactly one place a bad landing on QA1 can ever come from, and
+exactly one person who can answer "what's on that branch and why" from
+their own records without having to reconstruct it. That answer took
+under a minute the night this rule was written, precisely because it
+was already true in practice — this standard just closes the wording
+gap that let it almost stop being true.
+
+## Standard −1m — A lane's branch name must begin with the lane that owns it (2026-09-16)
+
+The conductor read a branch named `cc4-rentals-contacts-2026-09-13`,
+inside a worktree named `rentals-contacts-cc4-2026-09-13`, concluded
+cc2 (who was actually pushing it) must be pushing another lane's
+branch, and said so directly to cc2 — wrongly. The branch was cc2's own
+work; the name just didn't say so. Retracted directly to cc2 by the
+conductor. A branch name that doesn't match its owning lane is a trap —
+it fooled a careful, fast read in under ten seconds, and the same
+mismatch could just as easily cause a lane to git-operate on the wrong
+branch, not just cause a wrong accusation.
+
+**The rule: a lane's branch name must begin with the lane that owns
+it** (e.g. `cc2-rentals-contacts-2026-09-13`, not
+`cc4-rentals-contacts-2026-09-13` for cc2's own work) — the worktree
+directory name is free to describe the FEATURE, but the branch name
+itself must identify the LANE first.
+
+**Applies to new branches from today (2026-09-16) onward. Do NOT rename
+any existing branch mid-build** — renaming a branch a lane is actively
+committing to is how work gets lost or orphaned, a far worse outcome
+than a misleading name. The known existing mismatch, noted here so
+nobody else makes the conductor's mistake this week: cc2's worktree
+`rentals-contacts-cc4-2026-09-13` (branch `cc4-rentals-contacts-2026-09-13`)
+is cc2's own work, not cc4's, despite the name.
+
+---
+
 ## Standard 0 — Operating Principle
 
 Every standard in this file is subordinate to the CoreX Operating Principle (see CLAUDE.md). If a standard conflicts with the principle, the principle wins. If a standard would let a shortcut ship, the standard is wrong and gets revised.
