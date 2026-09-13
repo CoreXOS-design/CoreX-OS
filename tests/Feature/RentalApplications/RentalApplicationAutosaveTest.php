@@ -99,6 +99,12 @@ final class RentalApplicationAutosaveTest extends TestCase
         $this->assertSame('in_progress', $sent->status);
 
         $reopened = $this->application(['status' => 'reopened', 'submitted_at' => now()->subDay(), 'reopened_at' => now()]);
+        // AT-392 round 4, 2026-09-13 — the return gate: isSubmitted() is
+        // true here (submitted_at set), so a fresh session must pass the
+        // gate before autosave will act — same as a real browser would via
+        // show(). Seeding the session flag directly since this test is
+        // about the reopened-status guard, not the gate itself.
+        $this->withSession(["rental_application_return_gate_passed:{$reopened->token}" => true]);
         $this->postJson(route('rental-applications.public.autosave', $reopened->token), ['full_name' => 'B'])->assertOk();
         $reopened->refresh();
         $this->assertSame('reopened', $reopened->status, 'autosave must never overwrite the distinct reopened status');

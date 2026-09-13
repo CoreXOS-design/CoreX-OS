@@ -10,13 +10,13 @@ use App\Models\RentalApplication;
 use App\Models\RentalApplicationAssessment;
 use App\Models\RentalApplicationDocumentHighlight;
 use App\Models\RentalApplicationDocumentMark;
+use App\Models\RentalApplicationDeclineEmailSetting;
 use App\Models\RentalApplicationDocumentValidityWindow;
 use App\Models\RentalApplicationExpenseItem;
 use App\Models\RentalApplicationIncomeItem;
 use App\Models\RentalApplicationStatusHistory;
 use App\Models\User;
 use App\Services\RentalApplications\RentalApplicationAuditService;
-use App\Services\RentalApplications\RentalApplicationMailer;
 use App\Services\RentalApplications\RentalApplicationNotifier;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
@@ -321,9 +321,18 @@ class RentalApplicationAuthorisationController extends Controller
             ])
             ->values();
 
+        // AT-410b, 2026-09-15 — the Decline modal's reason-template picker.
+        // cc2 owns the model/CRUD (agency-scoped, soft-delete, seeded
+        // defaults) — activeFor() is their own read method, not a
+        // hand-rolled query here, so this can never drift from what their
+        // CRUD screen considers "active" for this agency. Guidance text is
+        // resolved server-side in decline() itself, never sent to this
+        // screen ahead of the decision being made.
+        $declineReasonTemplates = \App\Models\RentalApplicationDeclineReasonTemplate::activeFor($agencyId);
+
         return view('corex.rental-applications.review', compact(
             'rentalApplication', 'assessment', 'documents', 'history', 'auditLog', 'auditLogTotal', 'canOverride', 'alreadyDecided',
-            'blockedBySelfApproval', 'highlighters', 'viewerRole', 'captureEntries'
+            'blockedBySelfApproval', 'highlighters', 'viewerRole', 'captureEntries', 'declineReasonTemplates'
         ));
     }
 
@@ -404,7 +413,6 @@ class RentalApplicationAuthorisationController extends Controller
         Request $request,
         RentalApplication $rentalApplication,
         RentalApplicationAuditService $audit,
-        RentalApplicationMailer $mailer,
         RentalApplicationNotifier $notifier,
     ) {
         $decision = $this->guardCanDecide($rentalApplication);
@@ -415,12 +423,42 @@ class RentalApplicationAuthorisationController extends Controller
         // exact failure this closes. Required unconditionally now, not just
         // on override; Approve stays reason-optional on a first decision
         // (Johan: "an approval with an amount is self-explanatory").
+        //
+        // AT-410b, 2026-09-15 — decline_reason_template_id is a SEPARATE,
+        // ALSO-required field from 'reason' above: 'reason' is the
+        // authoriser's own note to the AGENT (unchanged — status history,
+        // audit, notifyAgentOfDecision below all still use it exactly as
+        // before); decline_reason_template_id is which APPLICANT-facing
+        // reason+guidance template applies (cc2's build — the template
+        // CRUD/model). Two different audiences, two different fields.
         $validated = $request->validate([
             'reason' => ['required', 'string', 'max:2000'],
+            'decline_reason_template_id' => ['required', 'integer'],
         ]);
+
+        // cc2's template model — agency-scoped read, 404s on a template
+        // belonging to another agency or already archived (soft-deleted),
+        // same "can't decline with a template you can't see" guarantee
+        // every other agency-scoped lookup on this feature already gives.
+        $template = \App\Models\RentalApplicationDeclineReasonTemplate::query()
+            ->where('agency_id', $rentalApplication->agency_id)
+            ->findOrFail($validated['decline_reason_template_id']);
+
+        // The full, merged, human-editable draft — built ONCE, here, at the
+        // moment of the decision. Stored on the application for the AGENT
+        // to read and edit; nothing is sent from this action. See
+        // RentalApplicationDeclineEmailSetting::draftFor()'s own docblock
+        // and RentalApplicationReviewController::sendDecline() — Johan,
+        // 2026-09-15: "the authoriser picks the reason at the moment of
+        // declining; the AGENT is the one who sends... the gap between
+        // those two people is the entire point."
+        $draft = RentalApplicationDeclineEmailSetting::draftFor($rentalApplication, $template->reason, $template->guidance);
 
         $fromStatus = $rentalApplication->status;
         $rentalApplication->status = 'declined';
+        $rentalApplication->decline_reason_template_id = $template->id;
+        $rentalApplication->decline_email_subject = $draft['subject'];
+        $rentalApplication->decline_email_body = $draft['body'];
         $rentalApplication->save();
 
         RentalApplicationStatusHistory::record(
@@ -434,17 +472,21 @@ class RentalApplicationAuthorisationController extends Controller
             user: $request->user(),
             isOverride: $decision['is_override'],
             reason: $validated['reason'] ?? null,
+            newValues: ['status' => 'declined', 'decline_reason_template_id' => $template->id, 'decline_reason_template' => $template->reason],
             oldValues: ['status' => $fromStatus],
-            newValues: ['status' => 'declined'],
-            humanSummary: ($decision['is_override'] ? 'Overrode a prior decision to decline' : 'Declined') . " ({$decision['tier']})",
+            humanSummary: ($decision['is_override'] ? 'Overrode a prior decision to decline' : 'Declined')
+                . " ({$decision['tier']}), reason template: {$template->reason}",
         );
 
         $notifier->notifyAgentOfDecision($rentalApplication, 'declined', $validated['reason'] ?? null, $decision['is_override']);
-        // Applicant-facing wording is EXPLICITLY unsettled beyond the agency's
-        // own configured template — Johan: "still playing with this idea" on
-        // any "how to improve" guidance. The template itself (subject/body,
-        // agency-editable) is built and sent here; no extra content invented.
-        $mailer->sendDecline($rentalApplication);
+        // AT-410b, 2026-09-15 — Johan: "the auth sends back to agent who
+        // receives it back. so the agent needs a deliberate action to send
+        // the email out to the applicant." NOTHING outbound to the
+        // applicant happens from this action any more — the draft above is
+        // read-only to the applicant until RentalApplicationReviewController
+        // ::sendDecline() actually sends it. (notifyAgentOfDecision above is
+        // the internal "you have a decision waiting" notice to the AGENT,
+        // not applicant-facing — unchanged from before this build.)
 
         // AT-392 — Johan: "the documents / application / approval gets
         // filed on the contact." Best-effort, same as the approval leg —

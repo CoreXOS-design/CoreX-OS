@@ -97,9 +97,14 @@ class RentalApplicationMailer
     }
 
     /**
-     * AT-392 authoriser flow — the applicant-facing decline notification.
+     * AT-392/AT-410b — the applicant-facing decline notification. Sent by
+     * the AGENT (RentalApplicationReviewController::sendDecline()), never
+     * automatically on decline() itself — see RentalApplicationDeclineMail's
+     * own docblock. $subject/$body are the EXACT final text the agent saw
+     * and (possibly) edited — this method delivers them literally, it does
+     * not re-derive wording from settings.
      */
-    public function sendDecline(RentalApplication $application): bool
+    public function sendDecline(RentalApplication $application, string $subject, string $body): bool
     {
         $recipientEmail = $application->recipientEmail();
 
@@ -108,7 +113,7 @@ class RentalApplicationMailer
         }
 
         try {
-            Mail::to($recipientEmail)->send(new RentalApplicationDeclineMail($application));
+            Mail::to($recipientEmail)->send(new RentalApplicationDeclineMail($application, $subject, $body));
 
             return true;
         } catch (\Throwable $e) {

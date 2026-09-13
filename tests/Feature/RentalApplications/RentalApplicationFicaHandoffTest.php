@@ -94,6 +94,75 @@ final class RentalApplicationFicaHandoffTest extends TestCase
         $this->assertStringContainsString('return_context=rental_application', urldecode($response->headers->get('Location') ?? $response->getTargetUrl() ?? ''));
     }
 
+    /**
+     * Conductor, live on QA1, 2026-09-13 — a real 500: fica_submissions.
+     * requested_by is NOT NULL, and created_by_user_id (the first choice
+     * in the fallback chain) is itself nullable — real live data proved
+     * it, application 334 had it null. Falls back to the agency's own
+     * admin, always resolvable (LastAdminException guarantees every
+     * agency has one).
+     */
+    public function test_requested_by_falls_back_to_the_agency_admin_when_the_application_has_no_creating_agent(): void
+    {
+        $application = $this->application(['created_by_user_id' => null]);
+
+        $this->post(route('rental-applications.public.submit', $application->token), $this->submitPayload());
+
+        $application->refresh();
+        $this->assertSame('returned', $application->status, 'the application must still be received');
+
+        $ficaSubmission = FicaSubmission::where('contact_id', $this->contact->id)->first();
+        $this->assertNotNull($ficaSubmission);
+        $this->assertSame($this->agent->id, $ficaSubmission->requested_by, 'must fall back to the agency admin, not be left null');
+    }
+
+    /**
+     * Conductor's core instruction after the live 500: "the applicant's
+     * submission must complete ATOMICALLY... THEN, separately and
+     * outside that transaction, the FICA hand-off. If FICA cannot be
+     * created, the application is still fully submitted and FICA shows
+     * outstanding, and the applicant sees the FICA step failed rather
+     * than a stack trace." Forces the FICA insert to fail deliberately
+     * (a non-existent agency_id violates its own foreign key) and proves
+     * the application still lands correctly regardless.
+     */
+    public function test_a_fica_creation_failure_never_takes_the_application_submission_down_with_it(): void
+    {
+        // Reproduces the LIVE defect exactly, not a contrived stand-in:
+        // both links in the requested_by fallback chain unresolvable —
+        // no creating agent AND (deliberately, for this one test) no
+        // admin in the agency at all — so FicaSubmission::create() hits
+        // the exact same NOT NULL constraint the real 500 hit.
+        \App\Models\User::where('agency_id', $this->agency->id)->where('role', 'admin')->delete();
+        $application = $this->application(['created_by_user_id' => null]);
+
+        $response = $this->post(route('rental-applications.public.submit', $application->token), $this->submitPayload());
+
+        // The application itself must be fully, atomically submitted —
+        // never a 500, never a half-state.
+        $response->assertRedirect(route('rental-applications.public.show', $application->token));
+        $application->refresh();
+        $this->assertSame('returned', $application->status, 'the application must be received regardless of a FICA failure');
+        $this->assertNotNull($application->submitted_at);
+        $this->assertSame(2, \App\Models\RentalApplicationSignature::where('rental_application_id', $application->id)->count());
+        $this->assertTrue($application->ficaOutstanding(), 'FICA must show outstanding when it could never be created');
+
+        $this->assertSame(0, FicaSubmission::where('contact_id', $this->contact->id)->count(), 'no FicaSubmission row exists at all — the failure never partially wrote one');
+
+        // Conductor: "does anything tell them the FICA step did not
+        // happen, or do they leave believing they completed it?" —
+        // checked, not assumed. A failed creation and an abandoned FICA
+        // are indistinguishable at the data layer (no FicaSubmission row
+        // either way), so the SAME honest "one more step needed" notice
+        // — already built for the abandoned case — applies here too, with
+        // no silent-success path.
+        $show = $this->get(route('rental-applications.public.show', $application->token));
+        $show->assertOk();
+        $show->assertSee('One more step needed', false);
+        $show->assertSee("we still need to verify your identity documents (FICA)", false);
+        $show->assertDontSee('Verification in progress', false);
+    }
+
     public function test_abandoning_fica_leaves_the_application_submitted_with_fica_flagged_outstanding(): void
     {
         $application = $this->application();

@@ -2855,6 +2855,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // FICA-mandatory, AT-392 round 3, 2026-09-13 — whether FICA must be complete before authorisation.
     Route::post('/settings/rental-applications/require-fica-before-authorisation', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateRequireFicaBeforeAuthorisation'])
         ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.require-fica-before-authorisation');
+    // Return gate, AT-392 round 4, 2026-09-13 — gate method + attempt cap.
+    Route::post('/settings/rental-applications/return-gate', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateReturnGate'])
+        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.return-gate');
     // Item 2 follow-up, 2026-09-10 — lock the property link once submitted for authorisation.
     Route::post('/settings/rental-applications/property-lock', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updatePropertyLock'])
         ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.property-lock');
@@ -2889,6 +2892,22 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.highlighters.restore');
     Route::post('/settings/rental-applications/highlighters/reorder', [\App\Http\Controllers\CoreX\RentalApplicationHighlighterController::class, 'reorder'])
         ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.highlighters.reorder');
+    // Decline reason templates, 2026-09-15 — Johan: "a decline that tells
+    // an applicant how to fix it." Full CRUD, dedicated list screen (search/
+    // sort/filter/pagination/empty state), same permission gate as every
+    // other rental-applications setting. Boundary with cc5's decline-modal/
+    // send/merge work agreed before either lane wrote code — this
+    // controller is the template library only.
+    Route::get('/settings/rental-applications/decline-reason-templates', [\App\Http\Controllers\CoreX\RentalApplicationDeclineReasonTemplateController::class, 'index'])
+        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.decline-reason-templates.index');
+    Route::post('/settings/rental-applications/decline-reason-templates', [\App\Http\Controllers\CoreX\RentalApplicationDeclineReasonTemplateController::class, 'store'])
+        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.decline-reason-templates.store');
+    Route::put('/settings/rental-applications/decline-reason-templates/{declineReasonTemplate}', [\App\Http\Controllers\CoreX\RentalApplicationDeclineReasonTemplateController::class, 'update'])
+        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.decline-reason-templates.update');
+    Route::post('/settings/rental-applications/decline-reason-templates/{declineReasonTemplate}/archive', [\App\Http\Controllers\CoreX\RentalApplicationDeclineReasonTemplateController::class, 'archive'])
+        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.decline-reason-templates.archive');
+    Route::post('/settings/rental-applications/decline-reason-templates/{declineReasonTemplate}/restore', [\App\Http\Controllers\CoreX\RentalApplicationDeclineReasonTemplateController::class, 'restore'])
+        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.decline-reason-templates.restore');
 
     Route::post('/settings/generate-token', [CoreXSettingsController::class, 'generateApiToken'])->name('corex.settings.generate-token');
     Route::post('/settings/notifications', [CoreXSettingsController::class, 'updateNotificationPreferences'])->middleware('permission:access_settings')->name('corex.settings.notifications.update');
@@ -3054,6 +3073,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // AT-392 — the agent's own send action, once approved. One-shot,
         // guarded by applicant_notified_at (see the method's own docblock).
         Route::post('/{rentalApplication}/review/send', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'send'])->name('corex.rental-applications.review.send');
+        // AT-410b — decline's own send action, identical shape to the one
+        // above (see the method's own docblock).
+        Route::post('/{rentalApplication}/review/send-decline', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'sendDecline'])->name('corex.rental-applications.review.send-decline');
         Route::put('/{rentalApplication}/review/wishlist/{match}', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'updateWishlist'])->name('corex.rental-applications.review.wishlist.update');
         // Read-only "what was signed at each point" — one immutable
         // snapshot per submission round (see RentalApplicationGeneration).
@@ -4998,6 +5020,13 @@ Route::prefix('rental-application')->group(function () {
     // IP-keyed budget across every applicant reloading their own form.
     // Re-keyed to the APPLICATION TOKEN — see AppServiceProvider::boot().
     Route::get('/{token}', [\App\Http\Controllers\RentalApplicationSigningController::class, 'show'])->middleware('throttle:rental-application-show')->name('rental-applications.public.show');
+    // Return gate, AT-392 round 4, 2026-09-13 — Johan: "after initial
+    // submission we can gate on ID." Throttled by its own named limiter
+    // (rental-application-gate) — tight, agency-configurable, and its
+    // trip response IS the "contact your agent" lockout page, not a
+    // generic 429 — see AppServiceProvider::boot().
+    Route::post('/{token}/verify-gate', [\App\Http\Controllers\RentalApplicationSigningController::class, 'verifyReturnGate'])->middleware('throttle:rental-application-gate')->name('rental-applications.public.verify-gate');
+    Route::post('/{token}/gate/resend-otp', [\App\Http\Controllers\RentalApplicationSigningController::class, 'resendGateOtp'])->name('rental-applications.public.gate.resend-otp');
     // Applicant-side autosave, 2026-09-12 — debounced client-side (agency-
     // configurable, default 5s), so this fires far less than once per
     // keystroke. 2026-09-13 round 2 — was throttle:40,1 per-IP; re-keyed

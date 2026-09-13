@@ -331,6 +331,45 @@
         </form>
     </div>
 
+    {{-- Return gate, AT-392 round 4, 2026-09-13 — Johan: "initial open is
+         not gated but if the applicant submits... after initial submission
+         we can gate on ID." The ID number is a speed bump (it is on every
+         document that person has ever handed anyone), not authentication —
+         email OTP is the stronger option for agencies that want the gate
+         to actually hold. --}}
+    <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+        <h2 class="text-sm font-semibold mb-1" style="color: var(--text-primary);">Applicant Return Gate</h2>
+        <p class="text-xs mb-3" style="color: var(--text-muted);">
+            The first time an applicant opens their link is never gated. Every visit AFTER they submit
+            is — that link now holds an ID number and uploaded documents. The ID number check is a
+            speed bump against a forwarded link; email verification is stronger, for agencies that want it.
+        </p>
+
+        <form method="POST" action="{{ route('corex.settings.rental-applications.return-gate') }}" class="flex flex-wrap items-end gap-3">
+            @csrf
+            <div>
+                <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Verification method</label>
+                <select name="return_gate_method" class="corex-input text-sm">
+                    <option value="id_number" @selected(old('return_gate_method', $returnGateMethod) === 'id_number')>ID number</option>
+                    <option value="email_otp" @selected(old('return_gate_method', $returnGateMethod) === 'email_otp')>Email verification code</option>
+                </select>
+            </div>
+            <div>
+                <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Maximum attempts</label>
+                <input type="number" name="return_gate_attempt_max" step="1" min="2" max="50"
+                       value="{{ old('return_gate_attempt_max', $returnGateAttemptMax) }}"
+                       class="corex-input text-sm" style="width: 100px;">
+            </div>
+            <div>
+                <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Per this many minutes</label>
+                <input type="number" name="return_gate_attempt_window_minutes" step="1" min="1" max="1440"
+                       value="{{ old('return_gate_attempt_window_minutes', $returnGateAttemptWindowMinutes) }}"
+                       class="corex-input text-sm" style="width: 90px;">
+            </div>
+            <button type="submit" class="corex-btn-primary text-xs">Save</button>
+        </form>
+    </div>
+
     {{-- Public link volume caps, AT-392 round 2, 2026-09-13 — conductor's
          sweep of the remaining public applicant-journey routes, all of
          which still carried Laravel's stock per-IP throttle (the exact
@@ -642,17 +681,24 @@
          agency saves their own — same forAgency()-never-writes-on-read
          pattern as Qualifying Formula above. Merge fields are limited to
          what this email can always honestly populate — applicant name,
-         agency name, and (optionally) the property the application was
-         for — no invented "how to improve" guidance (Johan was explicit
-         that part is still an open idea, not settled). --}}
+         agency name, and (optionally) the property the application was for.
+         AT-410b, 2026-09-15 — "no invented guidance" above is superseded:
+         the authoriser now picks a reason-plus-guidance template at the
+         moment of declining (cc2's build, linked below), and its content
+         merges into THIS envelope via {{decline_guidance}} — this section
+         still owns only the greeting/thanks/sign-off tone, never the
+         reason/guidance content itself. --}}
     <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
         <h2 class="text-sm font-semibold mb-1" style="color: var(--text-primary);">Decline Email</h2>
         <p class="text-xs mb-3" style="color: var(--text-muted);">
-            Sent to the applicant if the authoriser declines their application. A suggested wording
-            is shown below — edit it to your own. Available merge fields:
+            Sent to the applicant when the AGENT sends the authoriser's decline decision (not automatic —
+            the agent reviews and can edit the exact text first). A suggested wording is shown below —
+            edit it to your own. Available merge fields:
             <code>@{{applicant_name}}</code>, <code>@{{agency_name}}</code>,
             <code>@{{property_reference}}</code> (optional — resolves to nothing if the
-            application has no property linked).
+            application has no property linked), <code>@{{decline_reason}}</code> (the picked
+            template's short label), <code>@{{decline_guidance}}</code> (that template's full
+            reason-and-guidance text — this is where the general tips the authoriser picked appear).
         </p>
         <form method="POST" action="{{ route('corex.settings.rental-applications.decline-email') }}" class="space-y-3">
             @csrf
@@ -666,6 +712,12 @@
             </div>
             <button type="submit" class="corex-btn-primary text-xs">Save Decline Email</button>
         </form>
+        {{-- AT-410b — cc2 owns this page/controller/CRUD entirely; this is
+             the one line agreed between us so the two builds don't collide
+             on this settings page. --}}
+        <p class="text-xs mt-3 pt-3" style="border-top: 1px solid var(--border);">
+            <a href="{{ route('corex.settings.rental-applications.decline-reason-templates.index') }}" class="font-medium" style="color: var(--ds-blue, #2563eb);">Manage decline reason templates &rarr;</a>
+        </p>
     </div>
 
     {{-- AT-392 authoriser flow, 2026-09-08 — Johan, verbatim: "there like on

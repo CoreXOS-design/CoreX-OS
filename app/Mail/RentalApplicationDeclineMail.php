@@ -3,7 +3,6 @@
 namespace App\Mail;
 
 use App\Models\RentalApplication;
-use App\Models\RentalApplicationDeclineEmailSetting;
 use Illuminate\Bus\Queueable;
 use Illuminate\Mail\Mailable;
 use Illuminate\Mail\Mailables\Content;
@@ -11,32 +10,29 @@ use Illuminate\Mail\Mailables\Envelope;
 use Illuminate\Queue\SerializesModels;
 
 /**
- * AT-392 authoriser flow — the applicant-facing decline email. Wording is
- * agency-configurable (RentalApplicationDeclineEmailSetting), a suggested
- * default until the agency saves their own. Built and ready; NOT yet wired
- * into an actual decline() action — that lives in the authorisation
- * controller, held pending the RO/CO tier confirmation.
+ * AT-392/AT-410b authoriser+agent flow — the applicant-facing decline
+ * email. Wired and firing end to end via RentalApplicationReviewController::
+ * sendDecline(), the AGENT's own deliberate send action — never automatic
+ * on decline() itself.
+ *
+ * AT-410b, 2026-09-15 — this Mailable no longer resolves its own wording.
+ * It used to build subject/body from RentalApplicationDeclineEmailSetting
+ * at send time; now it just delivers whatever literal text it's handed.
+ * That's deliberate: the authoriser's decline() action drafts the full
+ * merged text once (RentalApplicationDeclineEmailSetting::draftFor()) and
+ * stores it on the application for the agent to read and EDIT; re-deriving
+ * from settings here would silently discard her edits and send the
+ * template again instead of what she actually approved.
  */
 class RentalApplicationDeclineMail extends Mailable
 {
     use Queueable, SerializesModels;
 
-    public string $subject_;
-    public string $bodyText;
-
-    public function __construct(public RentalApplication $application)
-    {
-        $applicantName = $application->contact->full_name ?: 'there';
-        $agencyName = $application->agency->name ?? config('mail.from.name', 'CoreX OS');
-
-        // Same resolution as index/returned/pdf views (RentalApplicationController
-        // and friends) — never rebuild a second "which property is this" lookup.
-        $propertyReference = $application->property?->buildDisplayAddress() ?: $application->property_address_override ?: null;
-
-        $wording = RentalApplicationDeclineEmailSetting::forAgency((int) $application->agency_id);
-
-        $this->subject_ = RentalApplicationDeclineEmailSetting::render($wording['subject'], $applicantName, $agencyName, $propertyReference);
-        $this->bodyText = RentalApplicationDeclineEmailSetting::render($wording['body'], $applicantName, $agencyName, $propertyReference);
+    public function __construct(
+        public RentalApplication $application,
+        public string $subject_,
+        public string $bodyText,
+    ) {
     }
 
     public function envelope(): Envelope
