@@ -12424,6 +12424,124 @@ won't happen again from this lane. Nothing further will be migrated
 directly; the next migration this lane needs goes in via a normal push,
 applied through `/corex-qa1` like everything else.
 
+## Property status side effects — DO NOT flip on tenant link (2026-09-13, conductor + cc3)
+
+**The status-flip half of the feature above was built, then pulled apart
+the same day.** The section above still describes what was originally
+shipped (`status` → `let_out` on link, restored on unlink) — it is now
+historical. This section is the reason why, and is what anyone
+implementing the status change properly, later, should read first.
+
+**What the investigation found, before the feature was ever used on a
+real application:** the "`let_out` maps to P24's `Rented` and stays on
+the portal, doesn't vanish" claim (recorded above, and true of the P24
+status mapper in isolation) does not hold once the rest of the observer
+chain is followed through.
+
+1. **Property24 — a real bug, not a hypothetical, would fire every time
+   this feature is used.** `PropertyObserver.php:596-629` dispatches
+   `DesyndicatePropertyFromPortalsJob` whenever a property becomes
+   off-market (`let_out` qualifies via `Property::OFF_MARKET_STATUSES`),
+   passing `keepP24ForSold: true` so a genuinely SOLD listing isn't
+   pulled. Inside that job, both `delistProperty24()`
+   (`app/Jobs/Syndication/DesyndicatePropertyFromPortalsJob.php:122-148`)
+   and `delistPrivateProperty()` (`:155-179`) only honour that "keep"
+   flag when `ListingLifecycle::resolve($property->status, ...) ===
+   ListingLifecycle::SOLD` (`:133-136` and `:164-167`). `let_out`
+   resolves to `ListingLifecycle::RENTED`
+   (`app/Services/Syndication/ListingLifecycle.php:104-105`), not SOLD —
+   the guard does not recognise RENTED as protected. Net effect,
+   observed as a real timing sequence, not a maybe: the observer
+   synchronously pushes `'Rented'` to Property24
+   (`PropertyObserver.php:672-738` calling
+   `Property24ApiClient::setListingStatus()`), then the SAME request
+   queues the desyndication job, which — because its SOLD-only guard
+   doesn't cover RENTED — falls through to
+   `Property24SyndicationService::deactivateListing()`
+   (`app/Services/Syndication/Property24/Property24SyndicationService.php:563-570`)
+   and pushes a hard `'Withdrawn'` shortly after. A property correctly
+   tagged Rented gets silently withdrawn from Property24 minutes later
+   by its own codebase.
+2. **Private Property does the opposite, by design, not by bug.**
+   `app/Services/PrivateProperty/PrivatePropertyListingMapper.php:808-826`
+   (`statusFor()`) keeps a SOLD lifecycle listed (`:815-820`) but its own
+   comment (`:821-823`) lists "rented" among the lifecycles mapped to
+   `'Inactive'` — a deliberate full delist. `SyncPpListingStatusJob` →
+   `PrivatePropertySyndicationService::syncStatus()`
+   (`app/Services/PrivateProperty/PrivatePropertySyndicationService.php:299-352`)
+   carries that through, writing `pp_syndication_status =
+   PORTAL_OFF_STATUS` (`:344-347`).
+3. **The two portals disagree with each other on what a Rented property
+   should look like**, and nobody has decided which is right: P24's
+   design intent is "stays visible, re-tagged" (matching how Sold is
+   treated); PP's design intent is "comes off entirely." Bug #1 means
+   even P24's own intent isn't honoured today. **This is why "fixing" the
+   SOLD-only guard without a decision first could make things worse** —
+   it would make P24 match its own documented intent (stays listed) while
+   leaving the P24/PP disagreement exactly as unresolved as it is now.
+   **What should actually happen to a listing when a rental property is
+   let — re-tagged and kept visible everywhere, or removed everywhere —
+   is Johan's call, taken to him directly by the conductor, not routed to
+   another lane and not decided in this write-up.** Whoever eventually
+   builds that decision should start here, with both portals' current
+   behaviour on the record and in disagreement.
+
+**Two secondary, lower-priority findings from the same investigation
+pass — logged, not actioned:**
+
+- The public agency website does **not** hide a `let_out` property by
+  default: `app/Http/Controllers/Api/V1/Website/ListingsController.php:49`
+  (`NEVER_PUBLIC_STATUSES = ['expired', 'withdrawn', 'draft',
+  'sold_by_3rd_party']`) deliberately excludes `sold`/`let_out`, per its
+  own comment at `:44-47` ("agencies showcase their OWN sold stock").
+  Whether that's the right call for Let too, the same way it already is
+  for Sold, is worth Johan confirming rather than assuming.
+- A scheduled open house does **not** auto-cancel when its property goes
+  `let_out`: `Property::activeShowdays()` (`app/Models/Property.php:
+  726-729`) filters only on `active`/`end_date`, no status check, and the
+  public listings query eager-loads it unconditionally
+  (`ListingsController.php:131`). A property let this afternoon could
+  still be advertising an open house for this weekend on the agency's own
+  website. Flagged because it's genuinely embarrassing if it ever
+  actually happens, not because it's this feature's job to fix.
+
+**The ruling (conductor, 2026-09-13) that resolves this without touching
+any syndication code:** decouple the two things Johan actually asked
+for. He asked for the approved application to be linked to the property;
+he did not, separately, ask for a specific, already-safe status
+transition — "the property changes to let out status" was one sentence
+inside a bigger ask, and it's the one sentence that turned out to have a
+live-incident-shaped side effect. **The tenant link stays. The status
+change is pulled entirely, pending a proper decision on the portal
+question above.**
+
+**What changed in code as a result:**
+- `RentalApplicationController::linkTenantProperty()` no longer touches
+  `$property->status` or `pre_tenant_link_status` at all — it only
+  writes the `contact_property` pivot (role `'tenant'`) and keeps the
+  application's own `property_id` in step, exactly as the section above
+  describes for the link half, with the status-flip block removed
+  entirely (was between the `ContactLinkedToProperty` event and the
+  audit call).
+- `unlinkTenantProperty()` no longer has any status-restore branch — it
+  detaches the pivot row and nothing else.
+- `properties.pre_tenant_link_status` (the column, the migration) is
+  left in place, unused, rather than dropped — a properly-designed
+  status-change feature, once Johan rules on the portal question, may
+  well want exactly this same snapshot slot back. Deliberately not
+  cleaned up as premature schema churn for a decision that hasn't been
+  made yet.
+- `view-readonly.blade.php`'s UI text ("marked Let", "Link as tenant &
+  mark Let", the unlink confirm copy) updated to describe only what the
+  action now does — a plain tenant link, no status claim.
+- New test coverage added:
+  `tests/Feature/RentalApplications/RentalApplicationTenantPropertyLinkTest.php`
+  — locks in additive linking (a second approved application can link a
+  second tenant to the same property without disturbing the first),
+  zero property-status writes in either direction, and that unlink
+  removes only the pivot row. There was no test coverage for this
+  feature before this pass.
+
 ## FICA becomes mandatory — one continuous submit-into-FICA flow (Johan, 2026-09-13, round 3)
 
 Johan, a legal position, not a preference: "technically we not allowed to
