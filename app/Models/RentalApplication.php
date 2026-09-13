@@ -172,6 +172,23 @@ class RentalApplication extends Model
         'renting', 'owns_or_selling', 'living_with_family', 'other',
     ];
 
+    /**
+     * Submission hard floor, AT-392 round 5, 2026-09-13 — the three
+     * conditional groups, fixed by the form's own logic (never agency-
+     * configurable — only WHETHER a field is compulsory is; WHEN it applies
+     * is not). See submissionFieldRegistry()/submissionGroupApplies().
+     */
+    public const SUBMISSION_FIELD_GROUP_EMPLOYED = [
+        'employer_name', 'employer_position', 'employer_address', 'employer_tel', 'occupation_date',
+    ];
+
+    public const SUBMISSION_FIELD_GROUP_RENTING = [
+        'current_landlord_name', 'current_landlord_tel', 'current_rental_amount',
+        'current_rental_from', 'current_rental_to', 'current_rental_due_day',
+    ];
+
+    public const SUBMISSION_FIELD_GROUP_MARRIED = ['spouse_name', 'spouse_id'];
+
     public const CURRENT_LIVING_SITUATION_LABELS = [
         'renting' => 'Currently renting',
         'owns_or_selling' => 'Own my current home (selling or recently sold)',
@@ -351,6 +368,264 @@ class RentalApplication extends Model
             'adults' => ['nullable', 'integer', 'min:0', 'max:50'],
             'children' => ['nullable', 'integer', 'min:0', 'max:50'],
         ];
+    }
+
+    /**
+     * Submission hard floor, AT-392 round 5, 2026-09-13 — Johan, twice
+     * ruled: every field on the applicant form is agency tick/untick, no
+     * locked set. ONE registry drives both the settings checklist and
+     * submit()'s validation, so they can never drift — see
+     * RentalApplicationFieldRegistryCoverageTest, which fails the build if
+     * a field is added to fieldValidationRules()/the public form without a
+     * matching entry here.
+     *
+     * 'contact_method' and 'declaration_signature'/'tpn_consent_signature'
+     * are not real columns validated by fieldValidationRules() — handled
+     * separately in submissionValidationRules() below. 'email'/'cell' are
+     * ALSO independently tickable (an agency can force one specific
+     * channel) in addition to 'contact_method' (at least one of the two) —
+     * both can be ticked together with no conflict.
+     *
+     * Deliberately EXCLUDED, flagged rather than silently dropped:
+     * `current_rental_to` and `current_rental_still_living`. The still-
+     * living checkbox is a modifier, not a fact to require, and
+     * current_rental_to's own requiredness is intrinsically conditional on
+     * that checkbox being false in a way a flat tick can't express (see
+     * normalizeStillLiving() — the date is always nulled when the box is
+     * checked, so a naive "required" tick would wrongly block an applicant
+     * who correctly left it blank). Needs a 4th conditional group if this
+     * turns out to matter in practice — not built speculatively here.
+     * `property_address_override` — a read-only, disabled display field on
+     * the public form (show.blade.php:135), never applicant-editable, so
+     * it can never sensibly be "compulsory" from the applicant's side.
+     * `rental_terms` — legacy free-text column superseded by
+     * `rental_term_months`'s three-button picker; not rendered anywhere on
+     * the current public form (only referenced, read-only, on the agent
+     * review screen as a migration note for pre-existing records).
+     *
+     * Every label below was checked against the exact wording on
+     * show.blade.php, not guessed from the column name — Johan, 2026-09-13:
+     * "a wrong label is worse than a missing entry, because a missing entry
+     * fails the build and a wrong label ships silently."
+     */
+    public static function submissionFieldRegistry(): array
+    {
+        $labels = [
+            'full_name' => 'Full name and surname',
+            'id_number' => 'ID number',
+            'marital_status' => 'Marital status',
+            'spouse_name' => 'Spouse full name',
+            'spouse_id' => 'Spouse ID number',
+            'citizenship' => 'Citizenship',
+            'current_residential_address' => 'Current residential address',
+            'contact_method' => 'Email or cell number (at least one)',
+            'email' => 'Email address',
+            'cell' => 'Cell number',
+            'work_number' => 'Work number',
+            'emergency_contact_name' => 'Emergency contact name',
+            'emergency_contact_cell' => 'Emergency contact cell',
+            'emergency_contact_work' => 'Emergency contact work number',
+            'current_living_situation' => 'Current living situation',
+            'current_living_situation_notes' => 'Current living situation notes',
+            'current_landlord_name' => 'Current landlord name',
+            'current_landlord_tel' => 'Current landlord telephone',
+            'current_rental_amount' => 'Current rental amount',
+            'current_rental_from' => 'Current rental start date',
+            'current_rental_due_day' => 'Rent due day of the month',
+            'employer_name' => 'Employer name',
+            'employer_position' => 'Employer position',
+            'employer_address' => 'Employer address',
+            'employer_tel' => 'Employer telephone',
+            'monthly_salary' => 'Gross monthly income, before deductions',
+            'employment_type' => 'Employment type',
+            'occupation_date' => 'Effective date of occupation',
+            'rental_term_months' => 'Rental term (6, 12 or 24 months)',
+            'special_conditions' => 'Special conditions',
+            'adults' => 'Number of adults',
+            'children' => 'Number of children',
+            'declaration_signature' => 'Declaration signature',
+            'tpn_consent_signature' => 'TPN consent signature',
+        ];
+
+        $registry = [];
+        foreach ($labels as $key => $label) {
+            $registry[] = ['key' => $key, 'label' => $label, 'group' => self::submissionFieldGroupOf($key)];
+        }
+
+        return $registry;
+    }
+
+    public static function submissionFieldGroupOf(string $key): ?string
+    {
+        return match (true) {
+            in_array($key, self::SUBMISSION_FIELD_GROUP_EMPLOYED, true) => 'employed',
+            in_array($key, self::SUBMISSION_FIELD_GROUP_RENTING, true) => 'renting',
+            in_array($key, self::SUBMISSION_FIELD_GROUP_MARRIED, true) => 'married',
+            default => null,
+        };
+    }
+
+    /**
+     * Whether a conditional group's trigger condition is currently true,
+     * given the raw submitted data. Groups themselves are fixed by the
+     * form's own logic — never agency-configurable — only whether a field
+     * within a group is compulsory is.
+     */
+    public static function submissionGroupApplies(?string $group, array $data, ?int $agencyId): bool
+    {
+        return match ($group) {
+            'employed' => ($data['employment_type'] ?? null) === 'permanently_employed',
+            'renting' => ($data['current_living_situation'] ?? null) === 'renting',
+            'married' => \App\Models\RentalApplicationQualifyingSetting::maritalStatusImpliesSpouseFor($agencyId, $data['marital_status'] ?? null),
+            default => true,
+        };
+    }
+
+    /**
+     * Builds submit()'s full validation rule set from the agency's saved
+     * $requiredKeys (RentalApplicationQualifyingSetting::requiredFieldKeysFor()).
+     * A ticked field belonging to a conditional group is only enforced when
+     * that group's trigger condition is true for THIS submission — a ticked
+     * "Employer name" must never block a self-employed applicant. Returns
+     * [rules, attributes] — attributes feeds validate()'s custom attribute
+     * names so a failure reads "The Full name field is required." not "The
+     * full_name field is required."
+     */
+    public static function submissionValidationRules(array $requiredKeys, array $data, ?int $agencyId): array
+    {
+        $rules = self::fieldValidationRules();
+        $attributes = [];
+
+        foreach (self::submissionFieldRegistry() as $field) {
+            $key = $field['key'];
+            $attributes[$key] = $field['label'];
+
+            if (in_array($key, ['contact_method', 'declaration_signature', 'tpn_consent_signature'], true)) {
+                continue;
+            }
+
+            if (! isset($rules[$key]) || ! in_array($key, $requiredKeys, true)) {
+                continue;
+            }
+
+            $applies = self::submissionGroupApplies($field['group'], $data, $agencyId);
+            $rules[$key] = self::withRequiredIf($rules[$key], $applies);
+        }
+
+        // 'contact_method' — at least one of email/cell, when ticked. Stacks
+        // with either field's OWN independent tick (both can be required
+        // together with no conflict — the stricter of the two always wins
+        // because Laravel evaluates every rule in the array).
+        if (in_array('contact_method', $requiredKeys, true)) {
+            $emailPresent = ! empty($data['email'] ?? null);
+            $cellPresent = ! empty($data['cell'] ?? null);
+            $rules['email'] = self::withRequiredIf($rules['email'], ! $cellPresent && ! $emailPresent);
+            $rules['cell'] = self::withRequiredIf($rules['cell'], ! $emailPresent && ! $cellPresent);
+        }
+
+        // Signatures aren't in fieldValidationRules() (they're never draft-
+        // saved) — built directly here. PRESENCE is settings-gated per
+        // Johan's ruling (no locked set). WELL-FORMEDNESS is NOT — Johan,
+        // explicit: "that one is a correctness bug and is NOT a settings
+        // question." Whenever a signature value is actually present, it
+        // must be a genuine, decodable, non-blank PNG regardless of
+        // whether this build made its presence optional — storing garbage
+        // serves nobody either way. Previously this check lived inside
+        // storeSignature() and silently no-op'd on failure (the exact
+        // defect this closes); now it's a real validation failure the
+        // applicant sees, before anything is saved.
+        $rules['declaration_signature'] = array_merge(
+            in_array('declaration_signature', $requiredKeys, true) ? ['required', 'string'] : ['nullable', 'string'],
+            [self::signatureWellFormedRule()],
+        );
+        $rules['tpn_consent_signature'] = array_merge(
+            in_array('tpn_consent_signature', $requiredKeys, true) ? ['required', 'string'] : ['nullable', 'string'],
+            [self::signatureWellFormedRule()],
+        );
+
+        return [$rules, $attributes];
+    }
+
+    private static function signatureWellFormedRule(): \Closure
+    {
+        return function (string $attribute, $value, \Closure $fail) {
+            if ($value === null || $value === '') {
+                return; // absence is governed by the required/nullable rule above, not this one
+            }
+
+            $binary = self::signatureDecodedBinary($value);
+            if ($binary === null) {
+                $fail('Please provide a valid signature.');
+
+                return;
+            }
+
+            if (! self::signatureHasInk($binary)) {
+                $fail('Please sign before submitting — the signature pad appears to be empty.');
+            }
+        };
+    }
+
+    /** Decodes a signature pad's data: URI to raw PNG bytes, or null if the format/encoding is invalid. */
+    public static function signatureDecodedBinary(string $dataUrl): ?string
+    {
+        if (! preg_match('/^data:image\/png;base64,(.+)$/', $dataUrl, $m)) {
+            return null;
+        }
+
+        $binary = base64_decode($m[1], true);
+
+        return $binary === false ? null : $binary;
+    }
+
+    /**
+     * Mirrors the signature pad's own client-side check (fica/form.blade.php
+     * submitForm(): any pixel with non-zero canvas alpha counts as ink) —
+     * same concept, translated to GD's inverted alpha scale (0 = opaque,
+     * 127 = fully transparent), so a technically-valid but never-drawn-on
+     * canvas can't pass server-side just because a direct POST bypassed the
+     * browser's own check entirely.
+     */
+    public static function signatureHasInk(string $binary): bool
+    {
+        if (! function_exists('imagecreatefromstring')) {
+            \Illuminate\Support\Facades\Log::warning('AT-392 signature ink check skipped — GD extension unavailable on this host, format check only.');
+
+            return true;
+        }
+
+        $image = @imagecreatefromstring($binary);
+        if ($image === false) {
+            return false;
+        }
+
+        imagesavealpha($image, true);
+        $width = imagesx($image);
+        $height = imagesy($image);
+        $hasInk = false;
+
+        for ($y = 0; $y < $height && ! $hasInk; $y++) {
+            for ($x = 0; $x < $width; $x++) {
+                $alpha = (imagecolorat($image, $x, $y) >> 24) & 0x7F;
+                if ($alpha < 127) {
+                    $hasInk = true;
+                    break;
+                }
+            }
+        }
+
+        imagedestroy($image);
+
+        return $hasInk;
+    }
+
+    /** Swaps a base rule set's 'nullable' for a conditional 'required', preserving every other (format) rule unchanged. */
+    private static function withRequiredIf(array $baseRules, bool $required): array
+    {
+        $rules = array_values(array_filter($baseRules, fn ($rule) => $rule !== 'nullable'));
+        array_unshift($rules, $required ? 'required' : 'nullable');
+
+        return $rules;
     }
 
     protected $fillable = [

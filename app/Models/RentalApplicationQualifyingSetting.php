@@ -282,6 +282,36 @@ class RentalApplicationQualifyingSetting extends Model
 
     public const DEFAULT_IDENTITY_GATE_ATTEMPT_WINDOW_MINUTES = 15;
 
+    /**
+     * Submission hard floor, AT-392 round 5, 2026-09-13 — Johan, twice
+     * ruled: every field on the applicant form is agency tick/untick, no
+     * locked set. These are his own defaults, explicitly not gospel — an
+     * agency can untick any of them. See RentalApplication::
+     * submissionFieldRegistry() for the full list of keys a value here may
+     * reference; 'contact_method' is the one virtual key (satisfied by
+     * either email or cell present) rather than a real column.
+     */
+    public const DEFAULT_REQUIRED_FIELD_KEYS = [
+        'full_name', 'id_number', 'contact_method', 'current_residential_address',
+        'monthly_salary', 'rental_term_months', 'declaration_signature', 'tpn_consent_signature',
+    ];
+
+    /**
+     * Ruling 1, same round — marital_status converts from free text to a
+     * real select; the option list is agency-configurable, this is the
+     * sensible South African-normal default. 'implies_spouse' drives the
+     * spouse-fields conditional group in submissionFieldRegistry() — only
+     * "Married" defaults true; see this migration's own docblock for why
+     * "Living together / life partner" does not.
+     */
+    public const DEFAULT_MARITAL_STATUS_OPTIONS = [
+        ['label' => 'Single', 'implies_spouse' => false],
+        ['label' => 'Married', 'implies_spouse' => true],
+        ['label' => 'Divorced', 'implies_spouse' => false],
+        ['label' => 'Widowed', 'implies_spouse' => false],
+        ['label' => 'Living together / life partner', 'implies_spouse' => false],
+    ];
+
     protected $fillable = [
         'agency_id', 'max_rent_percent_of_gross_income', 'reopen_link_expiry_days',
         'lock_property_after_submission', 'tag_contact_as_tenant_on_approval',
@@ -297,6 +327,7 @@ class RentalApplicationQualifyingSetting extends Model
         'return_gate_method', 'return_gate_attempt_max', 'return_gate_attempt_window_minutes',
         'identity_gate_enabled', 'identity_gate_otp_length', 'identity_gate_otp_expiry_minutes',
         'identity_gate_attempt_max', 'identity_gate_attempt_window_minutes', 'identity_gate_resend_cooldown_seconds',
+        'required_field_keys', 'marital_status_options',
     ];
 
     protected $casts = [
@@ -329,6 +360,8 @@ class RentalApplicationQualifyingSetting extends Model
         'identity_gate_attempt_max' => 'integer',
         'identity_gate_attempt_window_minutes' => 'integer',
         'identity_gate_resend_cooldown_seconds' => 'integer',
+        'required_field_keys' => 'array',
+        'marital_status_options' => 'array',
     ];
 
     public static function maxRentPercentFor(?int $agencyId): float
@@ -665,6 +698,60 @@ class RentalApplicationQualifyingSetting extends Model
         return $row && $row->identity_gate_enabled !== null
             ? (bool) $row->identity_gate_enabled
             : self::DEFAULT_IDENTITY_GATE_ENABLED;
+    }
+
+    /**
+     * NULL (never configured) returns the shipped default. A saved array —
+     * even an empty one — is the agency's own explicit choice and is
+     * returned exactly as saved; nothing is ever force-included.
+     */
+    public static function requiredFieldKeysFor(?int $agencyId): array
+    {
+        if ($agencyId === null || $agencyId <= 0) {
+            return self::DEFAULT_REQUIRED_FIELD_KEYS;
+        }
+
+        $row = static::where('agency_id', $agencyId)->first();
+
+        return $row && $row->required_field_keys !== null
+            ? $row->required_field_keys
+            : self::DEFAULT_REQUIRED_FIELD_KEYS;
+    }
+
+    public static function maritalStatusOptionsFor(?int $agencyId): array
+    {
+        if ($agencyId === null || $agencyId <= 0) {
+            return self::DEFAULT_MARITAL_STATUS_OPTIONS;
+        }
+
+        $row = static::where('agency_id', $agencyId)->first();
+
+        return $row && $row->marital_status_options !== null
+            ? $row->marital_status_options
+            : self::DEFAULT_MARITAL_STATUS_OPTIONS;
+    }
+
+    /**
+     * Case/whitespace-insensitive match against the agency's configured
+     * marital status options. An unrecognised or blank value never implies
+     * a spouse — a safe default that never blocks an applicant on a value
+     * the settings screen doesn't currently offer (e.g. legacy free text).
+     */
+    public static function maritalStatusImpliesSpouseFor(?int $agencyId, ?string $value): bool
+    {
+        if ($value === null || trim($value) === '') {
+            return false;
+        }
+
+        $normalized = mb_strtolower(trim($value));
+
+        foreach (self::maritalStatusOptionsFor($agencyId) as $option) {
+            if (mb_strtolower(trim((string) ($option['label'] ?? ''))) === $normalized) {
+                return (bool) ($option['implies_spouse'] ?? false);
+            }
+        }
+
+        return false;
     }
 
     /** null = fall through to OtpService's own config('otp.length') default. */

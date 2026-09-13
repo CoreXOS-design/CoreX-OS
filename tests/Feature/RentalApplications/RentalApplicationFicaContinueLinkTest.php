@@ -59,6 +59,14 @@ final class RentalApplicationFicaContinueLinkTest extends TestCase
             'created_by_user_id' => $this->agent->id, 'status' => 'returned',
             'full_name' => 'Sipho Ndlovu', 'id_number' => '8501015800083',
             'submitted_at' => now()->subDay(), 'current_generation' => 1,
+            // Submission identity gate (cc2/cc4, 2026-09-15) — the gate now
+            // fires ON SUBMISSION, so a genuinely submitted application has
+            // already passed it by the time it reaches this already-
+            // submitted page. Without this, show() redirects to the
+            // identity-gate screen before ever reaching the FICA-continue
+            // content this test exists to check — a real, expected
+            // interaction between the two features, not a workaround.
+            'identity_verified_at' => now()->subDay(),
             'token' => Str::random(64), 'token_expires_at' => now()->addDays(14),
         ], $attrs));
     }

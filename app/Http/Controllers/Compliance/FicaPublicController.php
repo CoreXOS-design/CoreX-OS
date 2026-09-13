@@ -35,7 +35,26 @@ class FicaPublicController extends Controller
         $contact = $submission->contact;
         $agency  = $submission->agency;
 
-        return view('fica.form', compact('submission', 'contact', 'agency', 'token', 'returnUrl', 'returnContext'));
+        // AT-392 round 5, 2026-09-13 — Johan/conductor: uploadDocument()
+        // already saves the file to the DB and encrypted storage the
+        // instant it's picked, independent of the form's own submit — but
+        // this method never loaded or showed them back, so an applicant
+        // who left and returned saw no sign of what they'd already sent
+        // and re-uploaded it. Display-only: filename and type, never the
+        // decrypted bytes themselves, so nothing about the encrypt-on-write
+        // storage seam (FicaDocumentStorage) is touched. One row per
+        // document_type — sortByDesc('id') picks the most recent if a type
+        // was ever uploaded more than once in the same session.
+        $existingDocuments = FicaDocument::where('fica_submission_id', $submission->id)
+            ->get()
+            ->groupBy('document_type')
+            ->map(function ($docs) {
+                $doc = $docs->sortByDesc('id')->first();
+
+                return ['name' => $doc->file_name, 'status' => 'existing', 'id' => $doc->id];
+            });
+
+        return view('fica.form', compact('submission', 'contact', 'agency', 'token', 'returnUrl', 'returnContext', 'existingDocuments'));
     }
 
     /**

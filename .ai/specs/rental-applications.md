@@ -14249,3 +14249,345 @@ applied to `corex_qa1` before this build's filter was widened to use it
 — building against a column that didn't exist yet was avoided by
 shipping the two-bucket split first and the widening as a fast follow-up
 once the dependency actually landed, rather than guessing ahead of it.
+
+## Submission hard floor — a blank application must not be acceptable (Johan/conductor, 2026-09-13, round 5)
+
+Found during the conductor's own real-browser walk of the return gate/FICA
+build: `RentalApplicationSigningController::submit()` enforces almost
+nothing. `RentalApplication::fieldValidationRules()` has zero `required`
+rules anywhere — every field is `nullable`. The only floor today is two
+non-empty strings for `declaration_signature`/`tpn_consent_signature`,
+and even that is shallow: a malformed or blank-canvas signature is
+silently dropped by `storeSignature()`'s own format check
+(`RentalApplicationSigningController.php:1053`, `if (!preg_match(...))
+return;`) rather than rejected. **An applicant can submit today with no
+name, no ID number, no income, no address, and land as "Returned
+(awaiting review)" — indistinguishable in the agent's list from a real,
+worked application, and it still fires the FICA hand-off for a ghost
+applicant.**
+
+### The category error this fixes
+
+`BUILD_STANDARD §2` ("every field is optional, nullable passes on
+absence") governs what the **model will store** — correct for progressive
+save: a draft must be storable in any state, an applicant filling the
+form over two sittings must never be blocked mid-edit. It says nothing
+about what the **business will accept as a completed submission**. Draft
+save and final submit are different moments with different rules. The
+column stays nullable (autosave, "come back later" applications keep
+working exactly as today); `submit()` stops accepting nothing.
+
+### A. Hard floor — submit() refuses without these
+
+Server-enforced, at `submit()`, not just in the markup. Sensible default,
+per Johan's own standing rule — nothing hardcoded, agency-configurable
+(see Settings below):
+
+| Field | Column |
+|---|---|
+| Full name | `full_name` |
+| ID number | `id_number` — FICA client due diligence is impossible without it |
+| At least one of email or cell | `email` OR `cell` |
+| Current residential address | `current_residential_address` |
+| Gross monthly income | `monthly_salary` |
+| Rental term | `rental_term_months` |
+| Both signatures, genuinely well-formed | `declaration_signature`, `tpn_consent_signature` |
+
+Signatures are **not** part of the agency-configurable toggle list below
+— they are always required, procedurally (declaration + FICA consent),
+same as today; what changes is that a malformed or empty-canvas signature
+is now **rejected at submit**, not silently dropped. Concretely:
+`storeSignature()`'s regex check becomes a real validation rule (a bad
+`data:image/png;base64,...` format fails validation, same as any other
+malformed field on this public endpoint), plus a minimum-content check —
+decode the PNG and confirm at least some non-transparent pixel data
+exists, so an untouched/cleared canvas that still produces a
+technically-valid empty PNG cannot pass as "signed." The client already
+guards against a *never-touched* pad (`show.blade.php:756`, blocks
+submission if the hidden input is still empty) — this closes the gap for
+a direct POST that bypasses the browser entirely, and for a
+technically-present-but-blank image.
+
+### B. Conditional — required only when the applicant's own other answers say they apply
+
+Derived from the form's own existing enums, each independently
+agency-toggleable (default on):
+
+- **Employer name / position / tel** — required only when
+  `employment_type === 'permanently_employed'` (`RentalApplication::EMPLOYMENT_TYPES`,
+  a real `<select>` bound to a fixed enum — clean to enforce).
+- **Landlord name / tel** — required only when
+  `current_living_situation === 'renting'` (`RentalApplication::CURRENT_LIVING_SITUATIONS`,
+  also a fixed enum, also clean).
+- **Spouse name / ID** — required only when marital status implies a
+  spouse.
+
+**Open decision, flagged rather than silently resolved:** `marital_status`
+is a **free-text input** (`resources/views/components/rental-application-field.blade.php`
+via the plain `<x-rental-application-field>` component), not a dropdown —
+unlike the other two conditions, there is no fixed vocabulary to test
+against server-side. Two ways to close this, Johan's call:
+1. Convert `marital_status` to a proper `<select>` with a small fixed set
+   (Single / Married / Divorced / Widowed / Separated, or whatever HFC's
+   own intake form already uses) — same treatment `employment_type` and
+   `current_living_situation` already have. Clean, reliable, but touches
+   a field outside this task's original ask.
+2. Match against a short canonical case-insensitive string list
+   (`married`, `married in community of property`, `married out of
+   community of property`) as a heuristic on the existing free-text
+   field. Ships faster, but is a guess against user-typed text, not a
+   guarantee — a real applicant typing "Not married" or an unexpected
+   phrasing could trip it either way.
+   Recommendation: (1) — it's the same pattern the other two conditions
+   already prove out, and a heuristic on free text is exactly the kind of
+   "shortcut now, pay for it later" this rebuild exists to avoid. Deferred
+   to Johan to confirm before this specific piece is built; A and the
+   other two conditions in B do not depend on this answer.
+
+### C. Everything else stays optional, handled by warning not blocking
+
+Unchanged. The agent-side incomplete-assessment mechanism already exists
+(`review.blade.php`'s `incompleteAssessmentReasons()`/
+`incompleteSubmitWarningOpen`, `:1390-1404` and `:1721-1729`) for exactly
+this class of gap — this build does not touch it, and does not duplicate
+it on the applicant side. No new field becomes hard-required beyond A/B.
+
+### D. The applicant must see what's wrong, not hit a silent wall
+
+- Every hard-floor (and active conditional) field's `<input>`/`<select>`
+  gains a real `required` attribute in the markup — courtesy to the
+  applicant, never the only check.
+- On a refused submit (validation failure), Laravel's existing
+  redirect-back-with-`old()`-and-`$errors` behavior already re-renders
+  the form with every previously-typed value preserved (proven pattern,
+  `RentalApplicationInputPreservationTest`) — extended here with: a
+  summary banner naming exactly which fields are missing in plain
+  language (not raw column names — "Full name" not "full_name"), and the
+  page auto-scrolls to the first missing field on load. No generic "There
+  were errors" message.
+
+### E. Agency-configurable, never hardcoded
+
+New setting on `RentalApplicationQualifyingSetting`:
+`submission_required_fields` (JSON array of field-group keys from a fixed
+allowed set: `full_name`, `id_number`, `contact_method` (the email-or-cell
+OR-group), `current_residential_address`, `monthly_salary`,
+`rental_term_months`), default = all six. Plus three independent booleans
+for the conditional groups: `require_employer_details_when_employed`,
+`require_landlord_details_when_renting`, `require_spouse_details_when_married`
+(the third gated on the marital_status decision above), each default
+true. Settings screen: a checklist of the six hard-floor fields (agency
+unchecks any they genuinely don't want mandatory — Johan's own list is
+the default, not gospel) plus the three conditional toggles. Signatures
+are not in this list — always required, not configurable.
+
+### Testing standard — a real click-through, not just an endpoint proof
+
+Same standard as every other control this session: PHPUnit proves the
+server contract (a blank submit is refused, the correct fields are named
+as missing, a fully-conditional-complete submission with every hard-floor
+field present succeeds, existing partially-filled records already
+submitted before this change are never revalidated retroactively).
+Real-browser click-through proves the actual button and the actual
+inline errors: attempt a genuinely blank submit by clicking the real
+button with nothing filled in, confirm it's refused with the fields named
+in the UI (not just a 422 in the network tab), confirm the page lands on
+the first missing field.
+
+### Explicitly out of scope for this round
+
+- Retroactive validation of already-submitted applications — this gate
+  applies to submissions from this point forward only. An application
+  submitted under the old, unenforced rules keeps working exactly as
+  today; nothing about it is revisited or newly flagged.
+- The three rental-term buttons' missing `aria-pressed`/radio-group
+  semantics (conductor's item 3, this session) — logged here, not fixed
+  in this round: the buttons carry no `aria-pressed` and are not wired as
+  a radio group, so a screen-reader user gets no indication of which term
+  is currently selected. Accessibility follow-up, not blocking this gate.
+
+## SUPERSEDED — see "Per-field compulsory settings" below (2026-09-13)
+
+The "Submission hard floor" section immediately above this one (fixed A/B/C/D/E
+list) is superseded by Johan's own ruling, relayed by the conductor: "we should
+have all the fields in the settings under rental application and a tick /
+untick on whats compulsory and what not." The defect it describes, the §2
+reasoning, the signature fix, and the retroactivity/UX/testing constraints all
+carry forward unchanged — only the SHAPE of "what's required" changes, from a
+fixed developer-chosen list to a full per-field agency setting. Left in place
+rather than deleted so the reasoning trail stays intact — no hard deletes,
+same principle applied to specs as to data.
+
+## Per-field compulsory settings — every field, agency-tickable (2026-09-13, Johan's ruling)
+
+### The defect, unchanged from above
+`submit()` enforces almost nothing — two non-empty strings is the entire floor
+today. `RentalApplication::fieldValidationRules()` has zero `required` rules;
+`storeSignature()` silently drops a malformed signature instead of rejecting
+it (`RentalApplicationSigningController.php:1053`). Nullable COLUMNS (§2) are
+correct for progressive save; that rule must not govern what final `submit()`
+ACCEPTS. The column stays nullable — the gate lives in validation, driven by
+settings.
+
+### Design: every form field is a row in a settings list, not a hardcoded set
+
+**Registry, single source of truth.** A new method,
+`RentalApplication::submissionFieldRegistry(): array`, returns an ordered list
+of every field the public applicant form renders, each entry:
+```php
+['key' => 'full_name', 'label' => 'Full name', 'group' => null],
+['key' => 'id_number', 'label' => 'ID number', 'group' => null],
+['key' => 'employer_name', 'label' => 'Employer name', 'group' => 'employed'],
+['key' => 'current_landlord_name', 'label' => 'Current landlord name', 'group' => 'renting'],
+['key' => 'spouse_name', 'label' => 'Spouse name', 'group' => 'married'],
+// ...every other field on the form, group => null unless conditional
+```
+This ONE array feeds both the settings screen (what renders as a checklist)
+and `submit()`'s validation (what gets enforced) — they can never drift,
+because they read the same array. **Keeping it in sync as the form grows**:
+a new PHPUnit test, `RentalApplicationFieldRegistryCoverageTest`, asserts
+every key in `fieldValidationRules()` that corresponds to a real applicant
+input in `show.blade.php` has a matching entry in `submissionFieldRegistry()`
+— a field added to the form without a registry entry fails the build, not
+silently ships unenforceable. Built by enumerating the actual rendered inputs
+in `show.blade.php` against the array, not by hand-matching a list I'm
+guessing at now — that enumeration happens when this is built, is mechanical,
+and needs no design decision.
+
+**Group = the applicability condition, fixed by the form's own logic, not
+agency-configurable.** Three groups today:
+- `employed` — applies only when `employment_type === 'permanently_employed'`
+  (real enum, `RentalApplication::EMPLOYMENT_TYPES`).
+- `renting` — applies only when `current_living_situation === 'renting'`
+  (real enum, `RentalApplication::CURRENT_LIVING_SITUATIONS`).
+- `married` — applies only when marital status implies a spouse. **Still
+  unresolved, carried forward from the prior draft**: `marital_status` is
+  free text (`<x-rental-application-field>`, no fixed vocabulary anywhere in
+  the stack), so there is no reliable server-side test for this group today.
+  Two ways to close it — my recommendation is (1): convert `marital_status`
+  to a real `<select>` with a small fixed set, same treatment the other two
+  conditions already have; a heuristic string-match on free text (2) ships
+  faster but is a guess against user-typed text, not a rule. This is Johan's
+  call, and it blocks ONLY the `married` group — `employed` and `renting`
+  don't depend on it and can ship regardless of when/how this is decided.
+
+**What the tick means.** On the settings screen, each field with a `group`
+renders its checkbox with the condition spelled out next to it in plain
+language — e.g. "Employer name — compulsory *(only applies if the applicant
+says they are permanently employed)*" — so ticking it can never be read as
+"always required." `submit()` enforces a ticked field only when its group's
+trigger condition is true FOR THAT SAME REQUEST; a ticked `employer_name`
+never blocks a self-employed applicant, because the condition never fires for
+them. Fields with `group => null` are compulsory unconditionally when ticked.
+
+### Storage: `RentalApplicationQualifyingSetting::required_field_keys`
+
+New nullable JSON column on the existing settings model (same home as every
+other rental-application setting — no third settings area). `null` = agency
+has never touched this section, apply the shipped defaults below (same
+"isConfigured" honesty already used for the document checklist — silence
+means default, not "explicitly chose none"). A non-null array (even empty)
+is the agency's explicit, saved choice, evaluated as: saved array ∩ registry
+keys — a stale saved key from a field since removed from the form can never
+smuggle in an unknown key, but nothing is ever force-included regardless of
+what the agency saved.
+
+**Defaults shipped, ticked out of the box** (Johan's own list, explicitly not
+gospel — an agency can untick ANY of these, no exceptions): full name, ID
+number, one of email/cell, current residential address, gross monthly
+income, rental term, both signatures. Everything else defaults unticked.
+
+### Answering (2) — settled by Johan, no locked set
+
+Ruling, verbatim: "leave the compulsory selection agency selectable... its
+the agency's decision what they want to do with it. we provide the system,
+they set it up the way they want to use it." Every field, including ID
+number and both signatures, is agency tick/untick with no exception. The
+compliance argument (TPN consent enables a credit-bureau pull; ID number is
+what FICA due diligence hangs off) was put to him and answered: the agency
+owns its own compliance decisions, not the platform. This is settled and not
+being reopened.
+
+Consequence for the build: the registry carries no `locked`/`locked_reason`
+key at all — that field never existed as a real column, just a proposal, and
+is dropped from the design entirely. No disabled checkboxes, no forced
+inclusion in the saved set, no confirmation step second-guessing an agency
+that unticks ID number or a signature. `submit()` enforces exactly, and only,
+what `required_field_keys` (or its default) says — nothing more.
+
+### Signature well-formedness — unconditional, not settings-gated
+
+`storeSignature()`'s silent skip becomes a real validation failure: a
+`data:image/png;base64,...` that fails the format check is now a rejected
+submission, not a dropped write. New non-transparent-pixel check on the
+decoded PNG closes the direct-POST gap where a technically-valid but
+never-drawn-on canvas currently passes.
+
+### Settings screen — extends the existing home, doesn't create a new one
+
+Lives on `resources/views/corex/settings/rental-applications.blade.php`,
+served by the existing `RentalApplicationSettingsController`, same pattern
+as every other section on that screen (own `edit()` compact() var, own
+`update*()` method, own route, `has()`-guarded checkbox saves per
+CLAUDE.md §10a). One combined save posts the full tick/untick state in one
+request — same shape as `update()`'s document-checklist save just above it
+in that controller, which already submits a similarly-shaped nested
+structure in one POST.
+
+### Item 2 — FICA return leg, answered
+
+- **Does the application leave the "FICA Outstanding" tile?** Yes, and it's
+  self-correcting — the tile's own condition is a live subquery
+  (`RentalApplicationController.php:266-269`,
+  `whereDoesntHave('contact.ficaSubmissions', fn($q) => $q->where('status','approved')->where('verified_at','>=',now()->subMonths(11)))`),
+  never a static column set once and left stale. But finishing the FICA form
+  only produces `status = 'submitted'` (`FicaPublicController.php:195`), not
+  `approved` — approval is a separate compliance action taken later. So the
+  6→7 you saw does not reverse just because the applicant finished FICA; it
+  reverses only once someone approves that FICA submission. This is correct
+  behaviour, not a gap — "submitted, not yet reviewed" should stay outstanding.
+- **What the applicant sees on return**: `FicaPublicController::confirmation()`
+  (`:243-251`) → `fica.confirmation` blade → "Return to My Application"
+  (`confirmation.blade.php:66`) → back to `RentalApplicationSigningController::show()`,
+  which renders `already-submitted.blade.php` computing `ficaOutstanding()`
+  (`RentalApplication.php:601-604`) and `ficaAwaitingApplicantAction()`
+  (`:620-630`). Right after submitting FICA the applicant sees an amber
+  "Verification in progress... no action needed from you right now" box
+  (`already-submitted.blade.php:75-79`) — already correctly wired, no fix
+  needed.
+
+### Item 3 — logged, not built
+
+The three rental-term buttons carry no `aria-pressed` and are not a real
+radio group — a screen-reader user gets no indication which term is
+selected. Accessibility backlog item, out of scope for this round.
+
+### Testing standard, unchanged
+PHPUnit for the server contract (blank submit refused and names the right
+fields per the agency's saved settings; a fully-conditional-complete
+submission succeeds; an agency that unticks ID number/a signature can
+genuinely submit without it; existing partial records never revalidated
+retroactively) plus a real click-through: an actual blank click
+of the actual submit button, confirming the actual on-screen refusal and
+field-naming, not just a 422 in the network tab. Settings screen gets its own
+real-browser walk (tick/untick, save, confirm it changes what submit() will
+accept) before either counts as done.
+
+## Ruling — FICA form is never pre-filled (2026-09-13, Johan, AT-392 round 5)
+
+Raised during this round's FICA continue-link work: the FICA form asks for
+full name, ID number, phone and email — all four already held on the rental
+application, with the ID number being the exact value the applicant just
+typed seconds earlier to pass the return gate. Pre-filling was proposed to
+cut the typing roughly in half at the point applicants are most likely to
+abandon. No FICA/CDD legal requirement blocks it (analysis and citation in
+this file's history above, and in `.ai/specs/compliance.md`'s own "Rulings"
+section, the canonical home for this decision).
+
+**Johan overruled it on a stricter-than-legal-minimum line: "for fica we do
+not fill anything... do not build any auto fills."** Full ruling, reasoning,
+and the resulting closed downstream question (what happens to the Contact
+record on a correction — moot, since there's nothing to correct against)
+are recorded in `.ai/specs/compliance.md` under "Rulings" — that is the
+canonical record; this entry exists so anyone working this file's history
+also hits it. Do not re-propose without a new mandate from Johan.

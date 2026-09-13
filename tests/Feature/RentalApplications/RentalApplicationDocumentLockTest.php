@@ -86,7 +86,15 @@ final class RentalApplicationDocumentLockTest extends TestCase
 
     private function submit(RentalApplication $application): void
     {
+        // AT-392 round 5, 2026-09-13 — submit() now enforces the agency's
+        // default-required fields (full name, ID number, a contact method,
+        // address, income, rental term, both signatures); this file's own
+        // tests are about document lock behaviour after submission, not
+        // field completeness, so every default-required field is supplied.
         $this->post(route('rental-applications.public.submit', $application->token), [
+            'full_name' => 'Jane Applicant', 'id_number' => '9001015800083',
+            'email' => 'jane@example.com', 'current_residential_address' => '1 Example Road, Ramsgate',
+            'monthly_salary' => 20000, 'rental_term_months' => 12,
             'declaration_signature' => 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
             'tpn_consent_signature' => 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
         ])->assertRedirect();
